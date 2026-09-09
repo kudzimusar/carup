@@ -988,13 +988,44 @@ async function buildVehiclePassport(
   historyDisclosureContract = null,
   financeObligationContract = null,
 ) {
-  const { data: vehicle, error: vehicleError } = await supabase
+  // U2 — PASSPORT STAGE TIMING.
+  //
+  // The latency defect was invisible because nothing measured it: the only number anyone had was
+  // the total, and a total cannot tell you whether ONE source is slow or TWELVE are merely waiting
+  // for each other. It was the second, and that difference decides the fix.
+  //
+  // Defined INSIDE this function on purpose. The certification harness executes this body in
+  // isolation over a closed collaborator list, so a helper declared outside would be out of scope
+  // there — the same discipline the gallery fallback below already follows.
+  //
+  // It emits ONE structured server log line per build. It never touches the response body, so no
+  // caller can read timing off the product, and it adds no request-shaped work. The VIN is already
+  // in the request path, so the line discloses nothing the access log does not.
+  const timingStarted = process.hrtime.bigint();
+  const timingMarks = {};
+  const elapsedMs = () => Number(process.hrtime.bigint() - timingStarted) / 1e6;
+  const timing = {
+    async stage(name, run) {
+      const at = elapsedMs();
+      try { return await run(); } finally { timingMarks[name] = Math.round(elapsedMs() - at); }
+    },
+    mark(name, fromMs) { timingMarks[name] = Math.round(elapsedMs() - fromMs); },
+    now: elapsedMs,
+    done(outcome) {
+      console.log(JSON.stringify({
+        event: 'passport_build_timing', vin, outcome,
+        total_ms: Math.round(elapsedMs()), stages_ms: timingMarks,
+      }));
+    },
+  };
+
+  const { data: vehicle, error: vehicleError } = await timing.stage('vehicle_row', () => supabase
     .from('vehicles')
     .select('*')
     .eq('vin', vin)
-    .single();
+    .single());
 
-  if (vehicleError || !vehicle) return null;
+  if (vehicleError || !vehicle) { timing.done('no_vehicle'); return null; }
 
   // AUDIENCE. Read from `req.userContext` and from NO REQUEST HEADER.
   //
@@ -1044,34 +1075,37 @@ async function buildVehiclePassport(
   // which is the price of the wave. Reads that are NOT unconditional stay guarded below by the
   // very same condition that used to guard them, so a passport that never needed them still
   // issues nothing.
-  const wrap = (promise) => Promise.resolve(promise).then(
-    (value) => ({ ok: true, value }),
-    (error) => ({ ok: false, error }),
-  );
+  const wrap = (name, promise) => {
+    const at = timing.now();
+    return Promise.resolve(promise).then(
+      (value) => { timing.mark(name, at); return { ok: true, value }; },
+      (error) => { timing.mark(name, at); return { ok: false, error }; },
+    );
+  };
   const unwrap = (settled) => { if (!settled.ok) throw settled.error; return settled.value; };
 
-  const pendingTimeline = wrap(getVehicleTimeline(vin));
-  const pendingVerifiedEvidence = wrap(supabase
+  const pendingTimeline = wrap('timeline', getVehicleTimeline(vin));
+  const pendingVerifiedEvidence = wrap('verified_evidence', supabase
     .from('vehicle_evidence')
     .select('*')
     .eq('vin', vin)
     .eq('visibility_level', 'public_safe')
     .eq('verification_status', 'verified')
     .order('captured_at', { ascending: true }));
-  const pendingLifecycle = wrap(typeof lifecycleBuilder === 'function'
+  const pendingLifecycle = wrap('lifecycle', typeof lifecycleBuilder === 'function'
     ? lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
     : Promise.resolve(null));
-  const pendingFinanceObligation = wrap(typeof financeObligationContract === 'function'
+  const pendingFinanceObligation = wrap('finance_obligation', typeof financeObligationContract === 'function'
     ? financeObligationContract(supabase, vin)
     : Promise.resolve(null));
-  const pendingLegacySignalReport = wrap(computeVehicleTrustScore(vin));
-  const pendingChainVerification = wrap(verifyChain(vin));
-  const pendingPlateHistory = wrap(supabase
+  const pendingLegacySignalReport = wrap('trust_signals', computeVehicleTrustScore(vin));
+  const pendingChainVerification = wrap('chain_verify', verifyChain(vin));
+  const pendingPlateHistory = wrap('plate_history', supabase
     .from('vehicle_plate_history')
     .select('*')
     .eq('vin', vin)
     .order('created_at', { ascending: false }));
-  const pendingOwnershipHistory = wrap(supabase
+  const pendingOwnershipHistory = wrap('ownership_history', supabase
     .from('vehicle_ownership_history')
     .select('*')
     .eq('vin', vin));
@@ -1079,14 +1113,14 @@ async function buildVehiclePassport(
   // recorded seller, no user read. The guard is evaluated HERE and the query issued only if it
   // passes, so this hoist never turns a skipped read into a performed one.
   const pendingWideListingImages = typeof mediaContract === 'function'
-    ? wrap(supabase
+    ? wrap('listing_images', supabase
       .from('listing_images')
       .select('id, image_url, is_primary, display_order, photo_label')
       .eq('vin', vin)
       .order('display_order', { ascending: true }))
     : null;
   const pendingSellerUser = vehicle.current_seller_id
-    ? wrap(supabase
+    ? wrap('seller_user', supabase
       .from('users')
       .select('name')
       .eq('id', vehicle.current_seller_id)
@@ -1605,6 +1639,8 @@ async function buildVehiclePassport(
 
     return sanitizedEvent;
   });
+
+  timing.done('ok');
 
   return {
     // `vehicle` is the audience projection with the claim-governed columns withdrawn; `claims` is
