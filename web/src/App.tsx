@@ -308,6 +308,14 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+          {/*
+            U3: this lived in the AUTH group under `MainLayout hideNav`, beside /login and
+            /register. It is not an auth journey — it is a signed-in product surface, and the
+            grouping cost it the global nav, the footer and every trace of who was signed in.
+            Owner UAT reported exactly that. It belongs in the canonical shell with the rest of
+            the product; nothing about the page's behaviour or its backend authorization changes.
+          */}
+          <Route path="/workbook-tools" element={<WorkbookTools />} />
         </Route>
 
         {/* Auth Routes */}
@@ -316,7 +324,6 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/onboarding" element={<RegistrationJourney />} />
           <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
-          <Route path="/workbook-tools" element={<WorkbookTools />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so

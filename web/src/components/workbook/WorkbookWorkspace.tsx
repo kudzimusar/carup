@@ -9,6 +9,20 @@
  * these exact bytes; the import executes only after an explicit confirmation;
  * corrections happen IN THE FILE (the assistant suggests, the user edits and
  * re-uploads — the page never silently rewrites their data).
+ *
+ * U3 — VISUAL CONVERGENCE. This component painted its own dark palette and a
+ * violet AI treatment, which made the workbook read as a separate AI demo
+ * rather than a CarUp surface; Owner UAT said so. It now uses the shared
+ * semantic tokens, so it follows the CarUp theme in light and dark instead of
+ * overriding it.
+ *
+ * The three PROVENANCE badges stay visually distinct, because that distinction
+ * is a rendering law above and not decoration: a deterministic match, an AI
+ * PROPOSAL and an unmapped column must never be mistakable for one another.
+ * Neutral, brand-outlined and amber respectively — different in hue AND in
+ * treatment, so the attribution survives a monochrome screenshot.
+ *
+ * No behaviour, no data, no authorization and no test id changes here.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -18,7 +32,7 @@ import { Bot, Download, FileSpreadsheet, Upload } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 
-const fieldClass = 'rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-100'
+const fieldClass = 'rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground'
 
 interface Proposal { source: string; proposed_target: string | null; confidence: number | null; provider: string }
 interface SheetInspection { sheet_name: string; row_count: number; headers: string[]; proposals: Proposal[]; canonical_columns: string[] }
@@ -36,9 +50,9 @@ interface RecentImport {
 }
 
 function providerBadge(provider: string) {
-  if (provider === 'deterministic') return <Badge data-testid="provider-deterministic" className="bg-gray-700 text-gray-200">matched</Badge>
-  if (provider === 'ai') return <Badge data-testid="provider-ai" className="bg-violet-700 text-violet-100">AI PROPOSAL</Badge>
-  return <Badge data-testid="provider-unmapped" className="bg-amber-700 text-amber-100">unmapped</Badge>
+  if (provider === 'deterministic') return <Badge data-testid="provider-deterministic" variant="secondary">matched</Badge>
+  if (provider === 'ai') return <Badge data-testid="provider-ai" variant="outline" className="border-primary/60 text-primary">AI PROPOSAL</Badge>
+  return <Badge data-testid="provider-unmapped" variant="outline" className="border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400">unmapped</Badge>
 }
 
 function readFileAsDataUri(file: File): Promise<string> {
@@ -201,12 +215,12 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
   }
 
   return (
-    <Card className="bg-gray-900 border-gray-800" data-testid="workbook-workspace">
+    <Card data-testid="workbook-workspace">
       <CardContent className="p-4 space-y-4">
         {/* Wraps on purpose: at 393px the heading plus four tabs measured 481px of content in a
             393px viewport, so the page scrolled sideways and "Recent Imports" fell off the screen. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-medium flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" aria-hidden />{title || 'Workbook tools'}</h2>
+          <h2 className="font-medium flex items-center gap-2 text-foreground"><FileSpreadsheet className="h-4 w-4" aria-hidden />{title || 'Workbook tools'}</h2>
           <div className="flex flex-wrap gap-1">
             {(['template', 'export', 'import', 'recent'] as const).map((name) => (
               <Button key={name} size="sm" variant={tab === name ? 'default' : 'outline'} data-testid={`tab-${name}`} onClick={() => setTab(name)}>
@@ -217,14 +231,14 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
         </div>
 
         {tab === 'template' && (
-          <div className="space-y-2 text-sm text-gray-400">
+          <div className="space-y-2 text-sm text-muted-foreground">
             <p>Download the canonical workbook for this task — headers, help row, dropdowns and instructions included. It also opens in Google Sheets.</p>
             <Button size="sm" onClick={() => void download('templates')} data-testid="download-template"><Download className="mr-1 h-4 w-4" aria-hidden />Download template</Button>
           </div>
         )}
 
         {tab === 'export' && (
-          <div className="space-y-2 text-sm text-gray-400">
+          <div className="space-y-2 text-sm text-muted-foreground">
             <p>Export your current CarUp data into this workbook for offline review or bulk editing. Sensitive identifiers are redacted by default.</p>
             <Button size="sm" onClick={() => void download('export')} data-testid="download-export"><Download className="mr-1 h-4 w-4" aria-hidden />Export my data</Button>
           </div>
@@ -233,7 +247,7 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
         {tab === 'import' && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <input type="file" accept=".xlsx" data-testid="wb-file" className="text-xs text-gray-400"
+              <input type="file" accept=".xlsx" data-testid="wb-file" className="max-w-full text-xs text-muted-foreground"
                 onChange={(event) => void pickFile(event.target.files?.[0])} />
               <Button size="sm" disabled={!file || inspecting} onClick={() => void inspect()} data-testid="wb-inspect">
                 <Upload className="mr-1 h-4 w-4" aria-hidden />{inspecting ? 'Inspecting…' : 'Inspect workbook'}
@@ -241,33 +255,33 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
             </div>
 
             {/* CarUp AI Workbook Assistant — an explicit, named product surface. */}
-            <div className="rounded-md border border-violet-900 bg-violet-950/30 p-3" data-testid="assistant-panel">
-              <div className="flex items-center gap-2 text-sm font-medium text-violet-200">
-                <Bot className="h-4 w-4" aria-hidden />CarUp AI Workbook Assistant
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3" data-testid="assistant-panel">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Bot className="h-4 w-4 text-primary" aria-hidden />CarUp AI Workbook Assistant
               </div>
-              <p className="mt-1 text-xs text-violet-300/80">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Maps your columns (exact matches first, AI only for the leftovers), explains fields and errors,
                 checks the workbook, and summarizes the import. It proposes — you decide. It never invents a
                 value and never imports an authority decision.
               </p>
               {explain && (
-                <div className="mt-2 rounded bg-gray-900/60 p-2 text-xs text-gray-300" data-testid="assistant-explanation">
+                <div className="mt-2 rounded border border-border bg-card p-2 text-xs text-foreground" data-testid="assistant-explanation">
                   <span className="font-medium">{explain.header}:</span> {explain.explanation}
-                  {explain.allowed && <span className="block mt-1 text-gray-400">Allowed: {explain.allowed.map((entry) => entry.label).join(' · ')}</span>}
+                  {explain.allowed && <span className="block mt-1 text-muted-foreground">Allowed: {explain.allowed.map((entry) => entry.label).join(' · ')}</span>}
                 </div>
               )}
             </div>
 
             {inspection && inspection.sheets.filter((sheet) => sheet.row_count > 0).map((sheet) => (
               <div key={sheet.sheet_name} className="space-y-1" data-testid={`mapping-sheet-${sheet.sheet_name}`}>
-                <div className="text-xs font-medium text-gray-300">{sheet.sheet_name} — {sheet.row_count} row{sheet.row_count === 1 ? '' : 's'}</div>
+                <div className="text-xs font-medium text-foreground">{sheet.sheet_name} — {sheet.row_count} row{sheet.row_count === 1 ? '' : 's'}</div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
-                    <thead><tr className="text-gray-400"><th className="text-left">Your column</th><th className="text-left">Maps to</th><th className="text-left">Source</th><th /></tr></thead>
+                    <thead><tr className="text-muted-foreground"><th className="text-left">Your column</th><th className="text-left">Maps to</th><th className="text-left">Source</th><th /></tr></thead>
                     <tbody>
                       {sheet.proposals.map((proposal) => (
                         <tr key={proposal.source}>
-                          <td className="pr-2 text-gray-300">{proposal.source}</td>
+                          <td className="pr-2 text-foreground">{proposal.source}</td>
                           <td className="pr-2">
                             <select className={fieldClass} data-testid={`target-${sheet.sheet_name}-${proposal.source}`}
                               value={targets[`${sheet.sheet_name}::${proposal.source}`] || 'ignore'}
@@ -277,7 +291,7 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                             </select>
                           </td>
                           <td className="pr-2">{providerBadge(proposal.provider)}</td>
-                          <td><button type="button" className="text-violet-300 underline" data-testid={`explain-${sheet.sheet_name}-${proposal.source}`}
+                          <td><button type="button" className="text-primary underline" data-testid={`explain-${sheet.sheet_name}-${proposal.source}`}
                             onClick={() => void explainHeader(sheet.sheet_name, proposal.source)}>explain</button></td>
                         </tr>
                       ))}
@@ -298,34 +312,34 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
 
             {dryRun && (
               <div className="space-y-2">
-                <div className="rounded-md border border-gray-800 bg-gray-950 p-3 text-sm text-gray-200" data-testid="wb-summary">
+                <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground" data-testid="wb-summary">
                   <div className="font-medium">{dryRun.summary?.headline}</div>
-                  <ul className="mt-1 list-disc pl-5 text-xs text-gray-400">
+                  <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
                     {(dryRun.summary?.lines || []).map((line) => <li key={line}>{line}</li>)}
                   </ul>
                 </div>
                 {dryRun.attention && dryRun.attention.count > 0 && (
                   <div className="overflow-x-auto" data-testid="wb-attention">
                     <table className="w-full text-xs">
-                      <thead><tr className="text-gray-400"><th className="text-left">Sheet</th><th className="text-left">Row</th><th className="text-left">Field</th><th className="text-left">Issue</th><th className="text-left">What to do</th></tr></thead>
+                      <thead><tr className="text-muted-foreground"><th className="text-left">Sheet</th><th className="text-left">Row</th><th className="text-left">Field</th><th className="text-left">Issue</th><th className="text-left">What to do</th></tr></thead>
                       <tbody>
                         {dryRun.attention.needs_attention.map((row, index) => (
-                          <tr key={index} className={row.severity === 'error' ? 'text-red-300' : 'text-amber-300'}>
+                          <tr key={index} className={row.severity === 'error' ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'}>
                             <td className="pr-2">{row.sheet_name}</td><td className="pr-2">{row.row}</td>
                             <td className="pr-2">{row.field || '—'}</td><td className="pr-2">{row.message}</td>
-                            <td className="text-gray-400">{row.explanation}</td>
+                            <td className="text-muted-foreground">{row.explanation}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    <p className="mt-1 text-xs text-gray-400">Fix these in your file and upload it again — CarUp never edits your workbook for you.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Fix these in your file and upload it again — CarUp never edits your workbook for you.</p>
                   </div>
                 )}
                 <Button size="sm" disabled={!dryRun.canImport || executing || (Boolean(executed) && !executed?.retryable)} onClick={() => void execute()} data-testid="wb-execute">
                   {executing ? 'Importing…' : `Confirm import (${dryRun.totals.acceptedVehicles} vehicle${dryRun.totals.acceptedVehicles === 1 ? '' : 's'})`}
                 </Button>
                 {executed && (
-                  <div className="text-xs text-gray-300" data-testid="wb-executed">
+                  <div className="text-xs text-foreground" data-testid="wb-executed">
                     {executed.created} created as private drafts · {executed.failed} failed
                     {typeof executed.evidence_failed === 'number' && executed.evidence_failed > 0
                       ? ` · ${executed.evidence_failed} evidence reference${executed.evidence_failed === 1 ? '' : 's'} not recorded`
@@ -333,7 +347,7 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                     {executed.receipts_recorded === false ? ' · import receipts not saved' : ''}
                     {' '}· status {executed.importStatus}. Open My Vehicles to review — nothing is published by an import.
                     {executed.retryable && (
-                      <span className="block mt-1 text-amber-300" data-testid="wb-executed-incomplete">
+                      <span className="block mt-1 text-amber-600 dark:text-amber-400" data-testid="wb-executed-incomplete">
                         This import is not finished{executed.incomplete_reason ? `: ${executed.incomplete_reason}` : ''}. Run it again — anything already imported will not be duplicated.
                       </span>
                     )}
@@ -346,13 +360,13 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
 
         {tab === 'recent' && (
           <div className="overflow-x-auto" data-testid="wb-recent">
-            {recent.length === 0 && <p className="text-sm text-gray-400">No imports yet for this workbook.</p>}
+            {recent.length === 0 && <p className="text-sm text-muted-foreground">No imports yet for this workbook.</p>}
             {recent.length > 0 && (
               <table className="w-full text-xs">
-                <thead><tr className="text-gray-400"><th className="text-left">File</th><th className="text-left">Uploaded</th><th className="text-left">Rows</th><th className="text-left">Status</th></tr></thead>
+                <thead><tr className="text-muted-foreground"><th className="text-left">File</th><th className="text-left">Uploaded</th><th className="text-left">Rows</th><th className="text-left">Status</th></tr></thead>
                 <tbody>
                   {recent.map((entry) => (
-                    <tr key={entry.batch_id} className="text-gray-300">
+                    <tr key={entry.batch_id} className="text-foreground">
                       <td className="pr-2">{entry.source_filename || '—'}</td>
                       <td className="pr-2">{entry.uploaded_at?.slice(0, 16).replace('T', ' ')}</td>
                       <td className="pr-2">{entry.accepted_rows}/{entry.total_rows} accepted</td>

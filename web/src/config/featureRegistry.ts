@@ -1059,6 +1059,35 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     isHidden: !WORKBOOK_IMPORT_UI_ENABLED,
   },
   {
+    // U3 — THE REGISTRY HAD NO ENTRY FOR THIS ROUTE AT ALL.
+    //
+    // `/workbook-tools` shipped and was reachable, but the registry did not know it existed, so
+    // `getFeatureByRoute` returned nothing for it and every registry-derived decision — lifecycle
+    // enforcement, the shell's auth-page detection, the dead-link gate — was made about a page the
+    // registry could not see. Omission is not neutrality; it is the registry stating something
+    // false by saying nothing.
+    //
+    // `hidden` is the truthful lifecycle, not a hedge: the page is directly accessible to any
+    // signed-in, role-eligible account and is advertised in no navigation, which is precisely what
+    // `hidden` means here. Nothing in the app links to it today. Whether it earns a nav placement
+    // is a product decision and is deliberately NOT taken here.
+    //
+    // All seven roles are listed because the page is reachable by any signed-in account. That is
+    // not an authorization claim: WHAT it grants is decided per-account by the server-derived
+    // catalogue, which re-verifies on every call. The registry must not restate that gate, because
+    // a second copy of an authorization rule is a second place for it to drift.
+    id: 'commerce.workbook-tools',
+    label: 'Workbook tools',
+    route: '/workbook-tools',
+    domain: 'commerce',
+    roles: ['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin', 'bank'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    description: 'Bulk templates, exports and governed imports available to your account',
+    lifecycle: 'hidden',
+  },
+  {
     id: 'diaspora.safetrade-operations',
     label: 'SafeTrade Operations',
     route: '/diaspora/safetrade/operations',

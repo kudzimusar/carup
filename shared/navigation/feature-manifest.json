@@ -380,6 +380,32 @@
     "betaCapable": true
   },
   {
+    "id": "commerce.workbook-tools",
+    "domain": "commerce",
+    "route": "/workbook-tools",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "bank",
+      "dealer",
+      "government",
+      "insurance",
+      "mechanic",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "bank",
+      "dealer",
+      "government",
+      "insurance",
+      "mechanic",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "company.about",
     "domain": "info",
     "route": "/about",
