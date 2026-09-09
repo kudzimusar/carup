@@ -7,7 +7,7 @@ replacements = {
     "re.subn(pattern, replacement, text, count=1, flags=re.S)":
         "re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)",
     "t = rep(t, header_old, header_new, 'workbook phone tabs')":
-        "t = sub(t, r'''        /\\* Wraps on purpose:.*?\\*/\\n        <div className=\\\"flex flex-wrap items-center justify-between gap-2\\\">.*?\\n        </div>(?=\\n\\n        \\{tab === 'template')''', header_new, 'workbook phone tabs')",
+        "t = sub(t, r'''        \\{/\\* Wraps on purpose:.*?\\*/\\}\\n        <div className=\\\"flex flex-wrap items-center justify-between gap-2\\\">.*?\\n        </div>(?=\\n\\n        \\{tab === 'template')''', header_new, 'workbook phone tabs')",
 }
 
 for old, new in replacements.items():
