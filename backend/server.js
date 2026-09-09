@@ -1021,15 +1021,81 @@ async function buildVehiclePassport(
     || actor.id === vehicle.owner_id
   );
 
-  // Fetch timeline, visual evidence, trust score report, and ledger verification
-  const timeline = await getVehicleTimeline(vin);
-  const { data: verifiedEvidence, error: evidenceError } = await supabase
+  // U2 — THE PASSPORT WAS SLOW BECAUSE IT WAS SERIAL, NOT BECAUSE ANY SOURCE WAS SLOW.
+  //
+  // Measured against staging: a single vehicle row read is ~0.28s, and this handler made THIRTEEN
+  // round trips one after another — 9.0s warm and 15.6s cold for `GFC27-027051`, which the edge
+  // then intermittently surfaced to the Product Owner as a 503.
+  //
+  // Every read below is keyed on the VIN and independent of the others; the vehicle row above is
+  // the only true prerequisite. So they are STARTED together here and awaited at exactly the same
+  // places as before. Nothing is reordered, no value is substituted, no error is swallowed and no
+  // unavailable-state becomes an empty array: each consumer still sees the identical
+  // `{ data, error }` or thrown failure it saw when the call was made inline.
+  //
+  // A rejection is captured at creation and re-thrown at the original await point, so a source
+  // that fails still fails the request in the same way — and never as an unhandled rejection
+  // merely because it was started earlier.
+  //
+  // ONE REAL DIFFERENCE, STATED RATHER THAN HIDDEN: when an early consumer throws (a failed
+  // evidence read), the later reads have already been ISSUED where before they would never have
+  // run. They are the same VIN-keyed reads the success path makes, their results reach no caller,
+  // and the request still fails identically — the cost is some wasted work on a failure path,
+  // which is the price of the wave. Reads that are NOT unconditional stay guarded below by the
+  // very same condition that used to guard them, so a passport that never needed them still
+  // issues nothing.
+  const wrap = (promise) => Promise.resolve(promise).then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, error }),
+  );
+  const unwrap = (settled) => { if (!settled.ok) throw settled.error; return settled.value; };
+
+  const pendingTimeline = wrap(getVehicleTimeline(vin));
+  const pendingVerifiedEvidence = wrap(supabase
     .from('vehicle_evidence')
     .select('*')
     .eq('vin', vin)
     .eq('visibility_level', 'public_safe')
     .eq('verification_status', 'verified')
-    .order('captured_at', { ascending: true });
+    .order('captured_at', { ascending: true }));
+  const pendingLifecycle = wrap(typeof lifecycleBuilder === 'function'
+    ? lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
+    : Promise.resolve(null));
+  const pendingFinanceObligation = wrap(typeof financeObligationContract === 'function'
+    ? financeObligationContract(supabase, vin)
+    : Promise.resolve(null));
+  const pendingLegacySignalReport = wrap(computeVehicleTrustScore(vin));
+  const pendingChainVerification = wrap(verifyChain(vin));
+  const pendingPlateHistory = wrap(supabase
+    .from('vehicle_plate_history')
+    .select('*')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false }));
+  const pendingOwnershipHistory = wrap(supabase
+    .from('vehicle_ownership_history')
+    .select('*')
+    .eq('vin', vin));
+  // Guarded exactly as at their original call sites: no media contract, no gallery read; no
+  // recorded seller, no user read. The guard is evaluated HERE and the query issued only if it
+  // passes, so this hoist never turns a skipped read into a performed one.
+  const pendingWideListingImages = typeof mediaContract === 'function'
+    ? wrap(supabase
+      .from('listing_images')
+      .select('id, image_url, is_primary, display_order, photo_label')
+      .eq('vin', vin)
+      .order('display_order', { ascending: true }))
+    : null;
+  const pendingSellerUser = vehicle.current_seller_id
+    ? wrap(supabase
+      .from('users')
+      .select('name')
+      .eq('id', vehicle.current_seller_id)
+      .single())
+    : null;
+
+  // Fetch timeline, visual evidence, trust score report, and ledger verification
+  const timeline = unwrap(await pendingTimeline);
+  const { data: verifiedEvidence, error: evidenceError } = unwrap(await pendingVerifiedEvidence);
 
   if (evidenceError) throw evidenceError;
 
@@ -1081,11 +1147,7 @@ async function buildVehiclePassport(
     // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
     // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
     // status, which is precisely why nothing in this block may make a trust claim.
-    const wideListingImages = await supabase
-      .from('listing_images')
-      .select('id, image_url, is_primary, display_order, photo_label')
-      .eq('vin', vin)
-      .order('display_order', { ascending: true });
+    const wideListingImages = unwrap(await pendingWideListingImages);
 
     if (!wideListingImages.error) {
       listingImageRows = wideListingImages.data || [];
@@ -1188,9 +1250,7 @@ async function buildVehiclePassport(
   //
   // Deliberately public even for an owner render. Private evidence remains in evidenceVault below;
   // lifecycle is the shared buyer-safe story, which is exactly what must not fork by surface.
-  const lifecycle = typeof lifecycleBuilder === 'function'
-    ? await lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
-    : null;
+  const lifecycle = unwrap(await pendingLifecycle);
 
   // The Seller's history/obligations statements, projected by the injected contract. Same
   // closed-collaborator discipline as `lifecycleBuilder` above; the projection re-validates the
@@ -1204,9 +1264,7 @@ async function buildVehiclePassport(
   // render (contract not injected, or the read failed) publishes NO key at all, exactly like
   // `historyDisclosures` — see the parameter-header comment for why a governed zero must never be
   // manufactured from a read that never happened.
-  const financeObligation = typeof financeObligationContract === 'function'
-    ? await financeObligationContract(supabase, vin)
-    : null;
+  const financeObligation = unwrap(await pendingFinanceObligation);
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
   //
@@ -1222,7 +1280,7 @@ async function buildVehiclePassport(
   // records). They are FACTS COLLECTED, not a score: the deprecated engine's own `trustScore` is
   // discarded here rather than republished under a new name, and `evidence_trust_impact` — a raw
   // scoring component — is dropped with it, so the passport body carries exactly one trust number.
-  const legacySignalReport = await computeVehicleTrustScore(vin);
+  const legacySignalReport = unwrap(await pendingLegacySignalReport);
   const legacyMetrics = legacySignalReport && typeof legacySignalReport === 'object'
     ? legacySignalReport.metrics
     : null;
@@ -1243,22 +1301,15 @@ async function buildVehiclePassport(
     }
     : null;
 
-  const chainVerification = await verifyChain(vin);
+  const chainVerification = unwrap(await pendingChainVerification);
 
   // Collection reads carry explicit availability. A database/read failure must never collapse
   // into []/0: that would turn "CarUp could not read this source" into a factual clean-history claim.
-  const { data: plateHistoryData, error: plateHistoryError } = await supabase
-    .from('vehicle_plate_history')
-    .select('*')
-    .eq('vin', vin)
-    .order('created_at', { ascending: false });
+  const { data: plateHistoryData, error: plateHistoryError } = unwrap(await pendingPlateHistory);
   const plateHistory = plateHistoryError ? [] : (plateHistoryData || []);
   const plateHistoryState = plateHistoryError ? 'unavailable' : 'available';
 
-  const { data: ownershipHistoryData, error: ownershipHistoryError } = await supabase
-    .from('vehicle_ownership_history')
-    .select('*')
-    .eq('vin', vin);
+  const { data: ownershipHistoryData, error: ownershipHistoryError } = unwrap(await pendingOwnershipHistory);
   const ownershipHistory = ownershipHistoryError ? [] : (ownershipHistoryData || []);
   const previousOwnerCount = ownershipHistoryError ? null : ownershipHistory.length;
   const previousOwnerCountState = ownershipHistoryError ? 'unavailable' : 'available';
@@ -1269,11 +1320,7 @@ async function buildVehiclePassport(
   const currentSellerRecorded = Boolean(vehicle.current_seller_id);
   let currentSellerDisplayName = null;
   if (currentSellerRecorded) {
-    const { data: sellerUser } = await supabase
-      .from('users')
-      .select('name')
-      .eq('id', vehicle.current_seller_id)
-      .single();
+    const { data: sellerUser } = unwrap(await pendingSellerUser);
     if (sellerUser?.name) {
       currentSellerDisplayName = sellerUser.name;
     }
