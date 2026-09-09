@@ -64,6 +64,23 @@ export const OPERATION_IDENTITY_FIELDS = Object.freeze(
   ['evidence_class', 'evidence_subtype', 'evidence_type', 'checksum', 'remote_ref']);
 
 /**
+ * M1 — WHEN A CHECKSUM MAY BE BELIEVED.
+ *
+ * The evidence route computes a checksum ONLY for an inline `req.body.file` (`checksumForBuffer`).
+ * For a remote submission the value is whatever the caller put in `checksum`/`image_hash` — an
+ * unverified assertion about bytes CarUp has never seen.
+ *
+ * The L-round let ANY checksum on both sides outrank the object location, so a caller could send
+ * the same asserted checksum with a different `file_url` and the second, genuinely different
+ * document was discarded. Measured.
+ *
+ * Content may outrank location only where the server established the content itself. This travels
+ * as PROVENANCE rather than being inferred from the presence of a string, and it is recorded in
+ * `metadata` — no column, no migration.
+ */
+export const CHECKSUM_SOURCES = Object.freeze({ SERVER_INLINE: 'server_inline', CLIENT_ASSERTED: 'client_asserted' });
+
+/**
  * Classification is a CONTROLLED VOCABULARY — compared case-insensitively.
  * Content identity is NOT — a storage object key is case-sensitive, and lowercasing one would
  * make two genuinely different objects look identical.
@@ -75,7 +92,13 @@ const IDENTITY_COLUMNS = 'id, vin, uploaded_by, metadata, evidence_class, eviden
   + 'checksum, storage_bucket, file_path, file_url';
 
 /**
- * L1 — THE STABLE REMOTE REFERENCE.
+ * L1/M2 — THE STABLE REMOTE REFERENCE.
+ *
+ * M2: the L-round stripped every query string from every locator. That is right for a SIGNED
+ * storage URL, whose signature and expiry change per issue for the SAME object, and wrong for an
+ * arbitrary external URL where the query can be the only thing naming the document — measured,
+ * `…/document?id=A` and `…/document?id=B` collapsed to one reference and the second was discarded.
+ * The rule now depends on what CarUp actually knows about the locator; see the branches below.
  *
  * The canonical evidence route computes a checksum only for an INLINE file. A remote submission —
  * which is exactly what the workbook evidence path sends: `file_url`, classification, MIME and a
@@ -92,12 +115,36 @@ const IDENTITY_COLUMNS = 'id, vin, uploaded_by, metadata, evidence_class, eviden
  * Case is preserved: object keys are case-sensitive.
  */
 export function deriveRemoteReference(row = {}) {
-  const raw = row.file_path ?? row.file_url ?? null;
-  if (raw == null || String(raw).trim() === '') return null;
-  const stripped = String(raw).trim().split('#')[0].split('?')[0];
-  if (stripped === '') return null;
   const bucket = row.storage_bucket == null ? '' : String(row.storage_bucket).trim();
-  return bucket ? `${bucket}/${stripped}` : stripped;
+  const rawPath = row.file_path == null ? '' : String(row.file_path).trim();
+  const rawUrl = row.file_url == null ? '' : String(row.file_url).trim();
+  const locator = rawPath || rawUrl;
+  if (locator === '') return null;
+
+  // The fragment is dropped in every case, deliberately: `#page=2` addresses a position inside an
+  // already-retrieved document on the client, and never selects a different resource.
+  const dropFragment = (v) => v.split('#')[0];
+
+  // (1) A storage-relative object key — the strongest identity CarUp has. Verbatim, case-sensitive.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
+    const key = dropFragment(locator);
+    return key === '' ? null : (bucket ? `${bucket}/${key}` : key);
+  }
+
+  const withoutFragment = dropFragment(locator);
+
+  // (2) A recognised storage URL: the object key is in the PATH, derivable with no network call,
+  //     so the transient signature/expiry query is dropped.
+  const storage = withoutFragment.match(
+    /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/([^?#]+)/);
+  if (storage) {
+    const [, urlBucket, key] = storage;
+    return `${bucket || urlBucket}/${key}`;
+  }
+
+  // (3) Any other URL is OPAQUE. Its query may be the only thing naming the document
+  //     (`…/document?id=A` vs `?id=B`), so it is kept in full rather than discarded.
+  return withoutFragment;
 }
 
 /**
@@ -243,6 +290,9 @@ async function runLookup(supabase, idempotencyKey, actorId, { withColumn }) {
           evidence_subtype: match.evidence_subtype ?? null,
           evidence_type: match.evidence_type ?? null,
           checksum: match.checksum ?? null,
+          // M1 — provenance travels in metadata (no column, no migration). A row written before
+          // this existed has none, and is therefore treated as unverified.
+          checksum_source: match.metadata?.checksum_source ?? null,
           remote_ref: deriveRemoteReference(match),
         },
       },
@@ -292,15 +342,18 @@ const normField = (field, v) => (VOCABULARY_FIELDS.includes(field) ? normVocab(v
 function operationMismatch(hitOperation, requestedOperation) {
   if (!hitOperation || !requestedOperation) return null;
 
-  // L1 — CONTENT IDENTITY OUTRANKS LOCATION. When both sides carry a checksum, the content itself
-  // answers the question: the same document re-uploaded to a new object key is the same evidence,
-  // so a differing `remote_ref` must not manufacture a conflict. The reference decides only when
-  // there is no content identity to decide it — which is precisely the remote-file case.
-  const bothHaveChecksum = normExact(hitOperation.checksum) !== null
-    && normExact(requestedOperation.checksum) !== null;
+  // L1/M1 — CONTENT IDENTITY OUTRANKS LOCATION, BUT ONLY WHERE IT IS ACTUALLY KNOWN. The same
+  // document re-uploaded to a new object key is the same evidence, so a VERIFIED checksum on both
+  // sides must not let a differing `remote_ref` manufacture a conflict. But a checksum merely
+  // supplied beside a remote URL is a caller's claim, not knowledge.
+  // M1: both sides must be SERVER-COMPUTED. A historical row carries no provenance and is
+  // therefore not trusted here — the conservative direction, which compares the location instead.
+  const verified = (op) => normExact(op?.checksum) !== null
+    && op?.checksum_source === CHECKSUM_SOURCES.SERVER_INLINE;
+  const bothChecksumsVerified = verified(hitOperation) && verified(requestedOperation);
 
   for (const field of OPERATION_IDENTITY_FIELDS) {
-    if (field === 'remote_ref' && bothHaveChecksum) continue;
+    if (field === 'remote_ref' && bothChecksumsVerified) continue;
     const stored = normField(field, hitOperation[field]);
     const asked = normField(field, requestedOperation[field]);
     if (stored === null || asked === null) continue; // cannot contradict

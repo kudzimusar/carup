@@ -58,7 +58,7 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference, CHECKSUM_SOURCES } from '../services/evidence/uploadIdempotency.js';
 import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
@@ -803,6 +803,17 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
     req.body.idempotency_key || req.body.idempotencyKey || null;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
+  // M1 — WHERE THIS CHECKSUM CAME FROM, recorded beside it.
+  //
+  // `checksum` is server-computed ONLY for an inline `req.body.file` (see `checksumForBuffer`
+  // above); for a remote submission it is whatever the caller sent. The idempotency comparison
+  // lets content outrank object location, so it must be able to tell knowledge from assertion —
+  // otherwise an unverified string suppresses a genuinely different remote document.
+  if (checksum) {
+    metadata.checksum_source = fileBuffer
+      ? CHECKSUM_SOURCES.SERVER_INLINE
+      : CHECKSUM_SOURCES.CLIENT_ASSERTED;
+  }
 
   // A clamped publication request is recorded, never silently dropped: review needs to see that an
   // uploader asked for a wider audience than their authority allows, and a stale client that keeps
@@ -945,6 +956,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
         evidence_subtype: insertData.evidence_subtype ?? normalized.evidenceSubtype ?? null,
         evidence_type: insertData.evidence_type ?? null,
         checksum: insertData.checksum ?? null,
+        checksum_source: metadata.checksum_source ?? null,
         remote_ref: deriveRemoteReference(insertData),
       },
     },
@@ -1060,7 +1072,8 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     (activeUserId && activeUserId === vehicle.owner_id) ||
     // `Boolean(vehicle.tenant_id && ...)` so a NULL-tenant vehicle cannot be unlocked by a caller
     // who also has no tenant: `null === null` would otherwise authorize everyone.
-    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id));
+    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id)
+      && await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle));
 
   let query = supabase
     .from('vehicle_evidence')
@@ -1508,7 +1521,13 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event', authorizeRole
   if (activeRole !== 'admin' && activeRole !== 'government') {
     const isOwner = vehicle.owner_id === activeUserId;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === activeUserId;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === activeTenantId;
+    // M3 — the L2 defect in another spelling: this read the tenant through a local alias
+    // (`activeTenantId`), so raw membership still linked evidence. Measured: a dealership MECHANIC
+    // reached the mutation and updated the link. Same governed primitive, same ordering — owner and
+    // current-seller first, so their path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope to link evidence.');
     }

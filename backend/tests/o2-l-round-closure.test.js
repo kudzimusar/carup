@@ -75,7 +75,9 @@ const write = (db) => async ({ vin, key, actor, op }) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10::jsonb,$11) RETURNING id, vin;`,
       [`ev-${seq}`, vin, actor, op.evidence_class, op.evidence_subtype, op.evidence_type,
         op.checksum ?? null, op.storage_bucket ?? 'vehicle-images', op.file_path ?? null,
-        JSON.stringify({ idempotency_key: key }), key]);
+        JSON.stringify(op.checksum_source
+          ? { idempotency_key: key, checksum_source: op.checksum_source }
+          : { idempotency_key: key }), key]);
     data = rows[0];
   } catch (e) {
     error = { message: e.message, code: e.code, constraint: e.constraint };
@@ -127,11 +129,14 @@ test('L1 (2,7): a DIFFERENT remote reference with NO checksum is a 409, never a 
   await db.close();
 });
 
-test('L1: a SIGNED-URL re-issue is the same object — signature and expiry are transient', async () => {
+test('L1/M2: a SIGNED-URL re-issue is the same object — signature and expiry are transient', async () => {
+  // M2 narrowed this deliberately: a query is transient only on a RECOGNISED storage URL, whose
+  // object key is in the path. An arbitrary locator's query may be identity-bearing and is kept.
   const db = await evidenceDb();
   const store = new Map();
-  const a = await send(db, store, { key: 'K', op: REMOTE('evidence/FILE-A.pdf?X-Amz-Signature=aaa&Expires=1') });
-  const b = await send(db, store, { key: 'K', op: REMOTE('evidence/FILE-A.pdf?X-Amz-Signature=bbb&Expires=2') });
+  const signed = (t) => `https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/FILE-A.pdf?token=${t}`;
+  const a = await send(db, store, { key: 'K', op: REMOTE(signed('aaa')) });
+  const b = await send(db, store, { key: 'K', op: REMOTE(signed('bbb')) });
   assert.equal(b.deduped, true, 'a re-signed URL for the SAME object must not look like a new file');
   assert.equal(a.evidenceId, b.evidenceId);
   await db.close();
@@ -148,20 +153,21 @@ test('L1: object keys are CASE-SENSITIVE — two different objects are not one',
   await db.close();
 });
 
-test('L1 (3,4): CONTENT identity outranks location — same checksum dedupes, different is a 409', async () => {
-  // Same document re-uploaded to a NEW object key: content says it is the same evidence.
+test('L1/M1 (3,4): a SERVER-COMPUTED checksum outranks location; a different one is a 409', async () => {
+  // M1 narrowed this: only a checksum CarUp computed itself may outrank the object location.
   const db = await evidenceDb();
   const store = new Map();
-  const a = await send(db, store, { key: 'K', op: REMOTE('evidence/A.pdf', { checksum: 'SUM-1' }) });
-  const b = await send(db, store, { key: 'K', op: REMOTE('evidence/MOVED.pdf', { checksum: 'SUM-1' }) });
+  const verified = { checksum: 'SUM-1', checksum_source: 'server_inline' };
+  const a = await send(db, store, { key: 'K', op: REMOTE('evidence/A.pdf', verified) });
+  const b = await send(db, store, { key: 'K', op: REMOTE('evidence/MOVED.pdf', verified) });
   assert.equal(b.deduped, true, 'a checksum match settles it regardless of where the object now lives');
   assert.equal(a.evidenceId, b.evidenceId);
 
   const db2 = await evidenceDb();
   const store2 = new Map();
-  await send(db2, store2, { key: 'K', op: REMOTE('evidence/A.pdf', { checksum: 'SUM-1' }) });
+  await send(db2, store2, { key: 'K', op: REMOTE('evidence/A.pdf', { checksum: 'SUM-1', checksum_source: 'server_inline' }) });
   await assert.rejects(
-    () => send(db2, store2, { key: 'K', op: REMOTE('evidence/A.pdf', { checksum: 'SUM-2' }) }),
+    () => send(db2, store2, { key: 'K', op: REMOTE('evidence/A.pdf', { checksum: 'SUM-2', checksum_source: 'server_inline' }) }),
     (e) => { assert.equal(e.details.field, 'checksum'); return true; });
   await db.close(); await db2.close();
 });
@@ -170,7 +176,8 @@ test('L1 (5): INLINE evidence (checksum, no remote path) is unaffected', async (
   const db = await evidenceDb();
   const store = new Map();
   const inline = { evidence_class: 'registration', evidence_subtype: 'registration_book',
-    evidence_type: 'registration_book', checksum: 'INLINE-1', storage_bucket: 'vehicle-images', file_path: null };
+    evidence_type: 'registration_book', checksum: 'INLINE-1', checksum_source: 'server_inline',
+    storage_bucket: 'vehicle-images', file_path: null };
   const a = await send(db, store, { key: 'K', op: inline });
   const b = await send(db, store, { key: 'K', op: inline });
   assert.equal(b.deduped, true);

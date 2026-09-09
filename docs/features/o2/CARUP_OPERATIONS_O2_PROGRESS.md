@@ -408,3 +408,14 @@ closed. **`75dd17fd` is historical.**
 - [x] L9.8 dealer_profiles duplicate race AUDITED ONLY — `maybeSingle()` errors on multiples and the resolver denies, so it fails CLOSED and cannot mask a suspension. Reliability debt recorded for a separate lane, direction pinned by a test
 - [x] L9.9 K5 scope stated exactly — the workbook router uses `authorizeRole()`; the suite proves session-derived identity through the real router, not that execute is session-only
 - [x] L9.10 Migration untouched: L1 changed REQUEST identity only, not the unique-key scope, so no migration churn
+
+## Round 10 — M-round closure (candidate `0ad4747f` → M head)
+
+- [x] M10.1 M1 **P1** a checksum sent beside a remote URL is a caller's assertion; the L rule let it outrank the object location and discard a different document. Closed with `metadata.checksum_source` provenance — content outranks location only when BOTH sides are `server_inline`; historical rows are treated as unverified. No column, no migration, no fetch. 2 mutations red
+- [x] M10.2 M2 **P1** stripping every query string collapsed `…?id=A` and `…?id=B` into one reference. Locator rules now depend on what CarUp knows: storage key verbatim · recognised storage URL → key from the path · any other URL opaque with its query intact. Fragment dropped deliberately. 2 mutations red
+- [x] M10.3 M3 **P1** link-event read the tenant through a local alias, so a dealership MECHANIC reached the mutation and updated the link (200, 1 row). Closed; after the fix mechanic/garage-admin 403 · dealership admin/owner 200. 1 mutation red
+- [x] M10.4 M4 **P1** `/completeness` granted on raw membership despite its own comment claiming it mirrors `loadScopedVehicle`. Closed with the same primitive; Admin and Reviewer preserved; Service Network deliberately NOT routed in. 1 mutation red
+- [x] M10.5 **Own find:** `GET /api/vehicles/:vin/evidence` unlocked PRIVATE evidence on a raw membership array. Same class, same closure; the NULL-tenant truthiness guard preserved and now asserted separately
+- [x] M10.6 M5 tripwire replaced — the L version never read `server.js` and could not see aliasing. Register of 11 Seller surfaces by file+anchor; any tenant grant in any spelling must reach the governed decision; a second register pins Service Network / PartSentry / lender-insurer as NOT dealer authority; a third fails if an anchor stops resolving. Mutation-proven by restoring the aliased bypass
+- [x] M10.7 Three source-shape tests that pinned the OLD spelling were updated, not deleted — including one that asserted the raw completeness equality M4 removed (inverted, with the history recorded)
+- [x] M10.8 Migration untouched — M1/M2 changed request identity only, not the unique-key scope

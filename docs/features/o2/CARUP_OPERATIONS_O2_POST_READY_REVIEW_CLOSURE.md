@@ -1022,3 +1022,88 @@ explicitly opts into the stricter session-only policy refuses an asserted `x-use
 positive control). It does **not** prove the workbook router is session-only — production disables
 the fallback by deployment policy. Making execute session-only irrespective of environment is a
 separate policy change and is not inferred from a test.
+
+---
+
+# Round 10 — the M-round
+
+## M1 — an unverified checksum outranked a changed object
+
+The route computes a checksum only for an inline `req.body.file`. For a remote submission the value
+is whatever the caller sent. The L-round let **any** checksum on both sides outrank the object
+location. Reproduced:
+
+```
+A(FILE-A, checksum ASSERTED-SAME) -> ev-1
+B(FILE-B, checksum ASSERTED-SAME) -> ev-1  deduped=true
+persisted -> [FILE-A.pdf]        <- FILE-B discarded
+```
+
+Closed by carrying **provenance**, not by guessing from the presence of a string.
+`metadata.checksum_source` records `server_inline` or `client_asserted` beside the value, and
+content may outrank location only when **both** sides are `server_inline`. A historical row carries
+no provenance and is therefore treated as unverified — the conservative direction. No column, no
+migration, and no remote fetch.
+
+## M2 — not every query string is transient
+
+Stripping the query is right for a signed storage URL and wrong for an arbitrary external one, where
+the query can be the only thing naming the document. Reproduced: `…/document?id=A` and
+`…/document?id=B` both normalised to `…/document`.
+
+The rule now depends on what CarUp actually knows about the locator:
+
+| locator | identity |
+|---|---|
+| storage-relative object key | `bucket/key`, verbatim, case-sensitive |
+| recognised `/storage/v1/object/{public\|sign\|authenticated}/<bucket>/<key>` | the object key from the **path**; the transient signature/expiry query dropped |
+| any other URL | **opaque — the query is kept in full** |
+
+The fragment is dropped in every case, deliberately: `#page=2` addresses a position inside an
+already-retrieved document and never selects a different resource. Nothing is dereferenced.
+
+## M3 — the L2 defect in another spelling
+
+`PATCH /api/vehicles/:vin/evidence/:evidenceId/link-event` read the tenant through a local alias
+(`const activeTenantId = req.userContext.tenantId`), so raw membership still linked evidence.
+Reproduced end-to-end: `governed authority -> false`, and the dealership **mechanic** got **200 with
+one evidence row actually updated** — identical to the legitimate admin.
+
+After the fix: mechanic **403 / 0 rows**, garage admin **403 / 0 rows**, dealership admin **200 / 1
+row**, canonical owner **200 / 1 row**.
+
+## M4 — the completeness read said it mirrored `loadScopedVehicle` and did not
+
+`GET /api/vehicles/:vin/completeness` exposes identity-document and readiness state and still granted
+on raw membership. Closed with the same primitive after owner/current-seller, preserving Admin and
+Reviewer. A Service Network mechanic's service authority is **not** routed here — servicing a car is
+not Seller scope over its completeness.
+
+**Also found while auditing:** `GET /api/vehicles/:vin/evidence` unlocked **private** evidence rows
+on a raw membership array (`activeTenantIds.includes(...)`). Same class, same closure. The
+NULL-tenant truthiness guard is unchanged and is now asserted as its own fact.
+
+## M5 — a tripwire that can actually see the defect
+
+The L tripwire failed twice by construction: it never read `server.js`, and its regex only matched
+direct `.tenantId` access, so the aliasing in M3 walked straight past it.
+
+It is replaced by a **register-driven invariant**. Eleven Seller/commerce/private-evidence surfaces
+are enumerated by file and source anchor; for each, if the body grants on a tenant relationship in
+**any** spelling — direct, aliased, or array membership — it must reach
+`hasGovernedDealerVehicleAuthority` (or the explicit `dealerTenantAuthorized` decision). A second
+register pins the surfaces that legitimately keep their own scope — Service Network assignment,
+PartSentry, lender/insurer object authority — and asserts they are **not** routed through Dealer
+authority. A third test fails if any anchor stops resolving, so a rename cannot silently empty the
+register.
+
+Proven by restoring the exact aliased bypass: the tripwire named
+`evidence link-event (../routes/vehiclesRoutes.js)` as an offender.
+
+## Database / RLS truth — kept as corrected
+
+RLS enabled on `users`, `tenants`, `tenant_users`, `dealer_profiles`. `auth.users` has **0** rows.
+Four `dealer_profiles`, **0** with `tenant_id`. Browser-role table privileges are broad — **RLS**,
+not the grants, is what prevents writes. `dealer_profiles` owner INSERT/UPDATE policies constrain
+`user_id` but not `tenant_id`, which is why the profile binding **withdraws but never grants**. No
+policy was changed in this round.
