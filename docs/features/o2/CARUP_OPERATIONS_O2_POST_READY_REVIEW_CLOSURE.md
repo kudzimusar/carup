@@ -826,8 +826,9 @@ Measured read-only on staging: **14** platform-dealer users · **5** holding a t
 `dealer_profiles(user_id, tenant_id)` the sole subject was secure and also a live regression from
 `main`, not deferred onboarding.
 
-**The governed fact CarUp already had is the organisation.** All five real Dealer memberships are
-`admin` of an **active** tenant whose canonical `type` is a dealership type. Both inputs are
+**The governed fact CarUp already had is the organisation.** All five real Dealer memberships are `admin` of an **active** tenant — but only **four** of
+those tenants are inside the dealer vocabulary `{dealer, dealership}` (3 `dealer` + 1 `dealership`);
+the fifth is an `import` tenant and is deliberately excluded (L3). Both inputs are
 genuinely server-controlled — an audit of the candidate tree found **zero backend writes** to
 `tenants` or `tenant_users`: no route, no service, no RPC. The only INSERTs in the repository are
 seed statements in migration 002. A client cannot create a tenant, set its type, or mint a
@@ -894,3 +895,130 @@ Both belong to other lanes and are logged here only so they are not lost:
    job lives in the Diaspora workflow.
 2. **The marketplace readiness gate reads `supabase.status` and discards it**, so it admits a
    deployment whose database is down. Not smuggled into O2.
+
+---
+
+# Round 9 — the L-round
+
+## L1 — the fingerprint did not cover remote evidence
+
+The route hashes only INLINE files, so a remote submission — exactly what the workbook evidence
+path sends (`file_url`, classification, MIME, key, **no checksum**) — stores `checksum = NULL`.
+Reproduced:
+
+```
+upload A (FILE-A.pdf, checksum null) -> ev-1
+upload B (FILE-B.pdf, checksum null) -> ev-1 deduped=true
+persisted -> [{"file_url":".../FILE-A.pdf"}]      <- FILE-B silently discarded
+```
+
+Closed by adding a **stable remote reference** derived from storage identity CarUp already writes:
+`storage_bucket` + `file_path` (which the route defaults to the URL). Nothing is fetched, so no URL
+is ever dereferenced and no SSRF surface is created.
+
+* A signed URL's query string carries a signature and expiry that change per issue for the SAME
+  object, so it is stripped — otherwise a legitimate retry would look like a new file.
+* **Case is preserved.** Object keys are case-sensitive; the vocabulary fields (class/subtype/type)
+  are still compared case-insensitively because they are a controlled vocabulary.
+* **Content outranks location.** When both sides carry a checksum, the checksum decides — the same
+  document re-uploaded to a new key is the same evidence. The reference decides only when there is
+  no content identity to decide it, which is exactly the remote case.
+
+## L2 — Dealer authority was not propagated to existing seller mutations
+
+K3 fixed CREATION and left every existing-vehicle seller mutation on raw tenant equality.
+Reproduced on the real routes with a platform `dealer` who is only a MECHANIC in a dealership, on a
+vehicle they neither own nor sell:
+
+```
+A. K3 CREATION -> granted=false  reason=membership_not_business_authority
+B. publish 200 · unpublish 200 · reprice→99999 200 · set status Sold 200
+```
+
+**Inventory — every consequential seller/commerce surface, not just the ones named:**
+
+| surface | disposition |
+|---|---|
+| `PATCH /api/vehicles/:vin/status` | gated |
+| `loadScopedVehicle` → `publish`, `unpublish`, `price` | gated (one helper, three routes) |
+| `assertEvidenceOwnershipScope` → evidence upload | gated (composes with `canUploadEvidenceRecord`) |
+| `mediaRouter` `/upload/vehicle`, `/upload/document`, `/upload/signed-url` | gated |
+| `mediaRouter` `/document/signed-url` (private document read) | gated |
+| `server.js` existing-Passport seller reuse in `/api/vehicles/add` | gated |
+| `PATCH /api/vehicles/:vin/seller-draft` | gated |
+| `hasExistingSellerRelationship` (shared recognition primitive) | tenant clause now requires an explicit governed decision, default **false** |
+| `mechanicIsAssignedToVehicle` (Service Network) | **deliberately untouched** |
+| `/api/partsentry/add` | **deliberately untouched** |
+| `resolveVehicleObjectAuthority` (lender/insurer/eligibility) | **recorded, not changed** — object access, not seller authority |
+
+One primitive, `hasGovernedDealerVehicleAuthority`, consuming exactly the facts
+`resolveDealerListingSubject` uses, so creation and lifecycle cannot drift. It is consulted **only**
+after owner and current-seller have failed, which keeps the seller's own hot path at zero added
+queries — the publish/price routes documented that as load-bearing after a Golden lifecycle run came
+within a minute of its timeout.
+
+Verified after the fix: dealership **mechanic** → 403 on publish/reprice/status; dealership **admin**
+→ 200 on all three.
+
+A **tripwire** fails the suite if raw seller tenant-equality reappears in any guarded file, and a
+second test asserts Service Network keeps its own tenant scope.
+
+## L3 — corrected staging baseline
+
+The K wording said all five Dealer memberships were dealer-typed. Corrected: all five are `admin` of
+an **active** tenant, but only **four** are inside `{dealer, dealership}` — 3 `dealer` + 1
+`dealership`. The fifth is `import` and stays excluded. **Continuity blast radius: 4 of 5 retain
+listing authority; 1 does not.** `import` and `manager` remain excluded pending a Product Owner
+decision.
+
+## Database authority — verified, and the audit's reason corrected
+
+The re-audit reported "no anon/authenticated/PUBLIC table grant" on `users`/`tenants`/`tenant_users`.
+Measured directly, that is **not** why they are safe: browser roles **do** hold
+SELECT/INSERT/UPDATE/DELETE grants on all three. **RLS is what denies them** —
+
+* `users`: RLS enabled, **0 policies** → denied entirely;
+* `tenants`: RLS enabled, **1 SELECT-only** policy;
+* `tenant_users`: RLS enabled, **1 SELECT-only** policy, scoped to own `user_id`.
+
+The conclusion (no browser write path) holds; the reason matters, because if RLS were ever disabled
+on one of these the grants would expose writes immediately.
+
+**This audit also found a real design weakness of my own.** `dealer_profiles` carries RLS policies
+granting `authenticated` INSERT and UPDATE on their own row, and those policies' `WITH CHECK`
+constrains `user_id` but **not `tenant_id`**. The K-round treated a profile's tenant binding as
+sufficient by itself, so a self-service write could have bypassed the tenant-type and
+membership-role tests. It cannot fire today — CarUp uses custom auth (`auth.users` is empty, so
+`auth.uid()` is NULL) and all four profiles have `tenant_id` NULL — but an authority must not depend
+on another system's predicate staying incomplete. **`dealer_profiles` is now consulted for
+WITHDRAWAL only; it never grants.**
+
+## L5 — `prepare` persists artefacts; it never creates authority
+
+The K wording said `prepare` "creates nothing", which is untrue of the dry run and would have
+invited someone to "fix" correct behaviour. Preparation legitimately persists mapping confirmations,
+import batches and normalized rows. The invariant is that it creates **no vehicle, evidence, listing
+subject or other commerce authority**. Wording corrected in the service and the routes.
+
+`export` is proven actor-owned: `exportVehicleWorkbookFromDatabase` filters
+`current_seller_id = actor`, with no tenant branch, so a prepare-only Dealer cannot read another
+tenant's inventory.
+
+## dealer_profiles duplicate race — AUDIT ONLY
+
+`dealer_profiles.user_id` has a non-unique index and `createOrUpdateProfile` is read-then-insert, so
+concurrent calls could in principle create two rows for one user (4 profiles / 4 distinct users
+today). **Direction matters and it is safe:** `maybeSingle()` errors on multiple rows and the
+resolver treats an unreadable authority as no authority, so a duplicate **denies** rather than
+widening — it can never mask a suspension. Recorded as reliability debt for a separate lane, with a
+test pinning the fail-closed direction.
+
+## K5 scope — stated exactly
+
+The workbook router uses `authorizeRole()`, not `authorizeSessionRole()`. What the session suite
+proves: a valid session yields the correct actor **through the real workbook router**; invalid,
+expired, revoked and unknown sessions fail; the tenant is revalidated per request; and a route that
+explicitly opts into the stricter session-only policy refuses an asserted `x-user-id` (with a
+positive control). It does **not** prove the workbook router is session-only — production disables
+the fallback by deployment policy. Making execute session-only irrespective of environment is a
+separate policy change and is not inferred from a test.

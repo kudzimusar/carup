@@ -61,10 +61,44 @@ export const IDEMPOTENCY_OPERATION_CONFLICT = 'IDEMPOTENCY_KEY_BOUND_TO_DIFFEREN
  * make it a different upload.
  */
 export const OPERATION_IDENTITY_FIELDS = Object.freeze(
-  ['evidence_class', 'evidence_subtype', 'evidence_type', 'checksum']);
+  ['evidence_class', 'evidence_subtype', 'evidence_type', 'checksum', 'remote_ref']);
+
+/**
+ * Classification is a CONTROLLED VOCABULARY — compared case-insensitively.
+ * Content identity is NOT — a storage object key is case-sensitive, and lowercasing one would
+ * make two genuinely different objects look identical.
+ */
+const VOCABULARY_FIELDS = Object.freeze(['evidence_class', 'evidence_subtype', 'evidence_type']);
 
 /** Columns the lookup needs: identity + the key locations. */
-const IDENTITY_COLUMNS = 'id, vin, uploaded_by, metadata, evidence_class, evidence_subtype, evidence_type, checksum';
+const IDENTITY_COLUMNS = 'id, vin, uploaded_by, metadata, evidence_class, evidence_subtype, evidence_type, '
+  + 'checksum, storage_bucket, file_path, file_url';
+
+/**
+ * L1 — THE STABLE REMOTE REFERENCE.
+ *
+ * The canonical evidence route computes a checksum only for an INLINE file. A remote submission —
+ * which is exactly what the workbook evidence path sends: `file_url`, classification, MIME and a
+ * key, with no checksum — legitimately stores `checksum = NULL`. So the K-round fingerprint could
+ * not tell two different remote documents apart: measured, the same key with `FILE-B.pdf` was told
+ * `deduped:true` and FILE-B was discarded.
+ *
+ * The reference is the row's own STORAGE IDENTITY, which CarUp already writes: `file_path` (the
+ * object key, which the route defaults to the URL) qualified by `storage_bucket`. Nothing is
+ * fetched, so no URL is ever dereferenced and no SSRF surface is created.
+ *
+ * A signed URL's query string carries a signature and an expiry that change on every issue for the
+ * SAME object, so it is stripped — otherwise a legitimate retry would look like a different file.
+ * Case is preserved: object keys are case-sensitive.
+ */
+export function deriveRemoteReference(row = {}) {
+  const raw = row.file_path ?? row.file_url ?? null;
+  if (raw == null || String(raw).trim() === '') return null;
+  const stripped = String(raw).trim().split('#')[0].split('?')[0];
+  if (stripped === '') return null;
+  const bucket = row.storage_bucket == null ? '' : String(row.storage_bucket).trim();
+  return bucket ? `${bucket}/${stripped}` : stripped;
+}
 
 /**
  * The scope key. A client-supplied idempotency key is meaningless on its own — it only identifies
@@ -204,7 +238,13 @@ async function runLookup(supabase, idempotencyKey, actorId, { withColumn }) {
       record: {
         evidenceId: match.id,
         vin: match.vin ?? null,
-        operation: Object.fromEntries(OPERATION_IDENTITY_FIELDS.map((f) => [f, match[f] ?? null])),
+        operation: {
+          evidence_class: match.evidence_class ?? null,
+          evidence_subtype: match.evidence_subtype ?? null,
+          evidence_type: match.evidence_type ?? null,
+          checksum: match.checksum ?? null,
+          remote_ref: deriveRemoteReference(match),
+        },
       },
     };
   } catch (error) {
@@ -231,7 +271,10 @@ function sameResource(hitVin, requestedVin) {
   return String(hitVin) === String(requestedVin);
 }
 
-const norm = (v) => (v == null || v === '' ? null : String(v).trim().toLowerCase());
+const normVocab = (v) => (v == null || v === '' ? null : String(v).trim().toLowerCase());
+/** Content identity keeps its case — an object key is case-sensitive. */
+const normExact = (v) => (v == null || v === '' ? null : String(v).trim());
+const normField = (field, v) => (VOCABULARY_FIELDS.includes(field) ? normVocab(v) : normExact(v));
 
 /**
  * K2 — is the stored record the SAME evidence operation the caller is asking for?
@@ -248,9 +291,18 @@ const norm = (v) => (v == null || v === '' ? null : String(v).trim().toLowerCase
  */
 function operationMismatch(hitOperation, requestedOperation) {
   if (!hitOperation || !requestedOperation) return null;
+
+  // L1 — CONTENT IDENTITY OUTRANKS LOCATION. When both sides carry a checksum, the content itself
+  // answers the question: the same document re-uploaded to a new object key is the same evidence,
+  // so a differing `remote_ref` must not manufacture a conflict. The reference decides only when
+  // there is no content identity to decide it — which is precisely the remote-file case.
+  const bothHaveChecksum = normExact(hitOperation.checksum) !== null
+    && normExact(requestedOperation.checksum) !== null;
+
   for (const field of OPERATION_IDENTITY_FIELDS) {
-    const stored = norm(hitOperation[field]);
-    const asked = norm(requestedOperation[field]);
+    if (field === 'remote_ref' && bothHaveChecksum) continue;
+    const stored = normField(field, hitOperation[field]);
+    const asked = normField(field, requestedOperation[field]);
     if (stored === null || asked === null) continue; // cannot contradict
     if (stored !== asked) return { field, stored: hitOperation[field], requested: requestedOperation[field] };
   }

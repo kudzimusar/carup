@@ -279,10 +279,14 @@ export function buildVehicleListingCandidate({ body = {}, userContext = {}, deal
     // the platform role — so a platform `dealer` who is a MECHANIC in a Garage was handed
     // `current_seller_type: 'Dealer'` for that Garage. Measured, not theorised.
     //
-    // The tenant subject now comes only from `resolveDealerListingSubject`, which requires the
-    // governed `dealer_profiles` binding (user_id + tenant_id) that CarUp already defines. The
-    // I-2 note below closed the same hole one branch down; this is the branch that actually
-    // carried it.
+    // The tenant subject now comes only from `resolveDealerListingSubject`. (HISTORICAL: the
+    // J-round made `dealer_profiles(user_id, tenant_id)` the SOLE requirement — that model was
+    // superseded by K-3, because no product path writes that column and requiring it disabled
+    // every real Dealer. The authority is now a composition of governed, server-controlled facts:
+    // dealer role + validated membership + a membership role that acts for the business +
+    // `tenants.type` in CarUp's dealer vocabulary + an active tenant. The profile binding remains
+    // an additional grant.) The I-2 note below closed the same hole one branch down; this is the
+    // branch that actually carried it.
     //
     // A caller that does not resolve gets `null` — no subject — rather than an open default.
     // Publication remains a separate question (`deriveCanPublish`); this decides only WHOSE

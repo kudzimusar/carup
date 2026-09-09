@@ -45,6 +45,7 @@ async function evidenceDb({ withColumn }) {
   await db.exec(`CREATE TABLE vehicle_evidence (
     id text PRIMARY KEY, vin text, uploaded_by text,
     evidence_class text, evidence_subtype text, evidence_type text, checksum text,
+    storage_bucket text, file_path text, file_url text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb${withColumn ? ', idempotency_key text' : ''});`);
   if (withColumn) {
     await db.exec(`CREATE UNIQUE INDEX uq_vehicle_evidence_idempotency_key
@@ -55,7 +56,8 @@ async function evidenceDb({ withColumn }) {
 }
 
 /** The set of columns that actually exist — naming any other is an error, as PostgREST returns. */
-const BASE_COLUMNS = ['id', 'vin', 'uploaded_by', 'evidence_class', 'evidence_subtype', 'evidence_type', 'checksum', 'metadata'];
+const BASE_COLUMNS = ['id', 'vin', 'uploaded_by', 'evidence_class', 'evidence_subtype', 'evidence_type', 'checksum',
+  'storage_bucket', 'file_path', 'file_url', 'metadata'];
 
 function pgrestClient(db, { withColumn, failWith = null }) {
   const columns = new Set(withColumn ? [...BASE_COLUMNS, 'idempotency_key'] : BASE_COLUMNS);
@@ -102,8 +104,10 @@ let seq = 0;
 function appWriter(db, { withColumn }) {
   return async ({ vin, key, actor, op }) => {
     seq += 1;
-    const cols = ['id', 'vin', 'uploaded_by', 'evidence_class', 'evidence_subtype', 'evidence_type', 'checksum', 'metadata'];
+    const cols = ['id', 'vin', 'uploaded_by', 'evidence_class', 'evidence_subtype', 'evidence_type', 'checksum',
+      'storage_bucket', 'file_path', 'metadata'];
     const vals = [`ev-${seq}`, vin, actor, op.evidence_class, op.evidence_subtype, op.evidence_type, op.checksum,
+      op.storage_bucket ?? 'vehicle-images', op.file_path ?? null,
       JSON.stringify(key ? { idempotency_key: key } : {})];
     if (withColumn && key) { cols.push('idempotency_key'); vals.push(key); }
     const ph = cols.map((_, i) => `$${i + 1}${cols[i] === 'metadata' ? '::jsonb' : ''}`).join(', ');
@@ -303,10 +307,10 @@ test('K2: the documented COMPATIBILITY floor — a field neither side supplies c
   await db.close();
 });
 
-test('K2: the fingerprint is the EXISTING canonical vocabulary, not a second taxonomy', () => {
+test('K2/L1: the fingerprint is the EXISTING canonical vocabulary, not a second taxonomy', () => {
   assert.deepEqual([...OPERATION_IDENTITY_FIELDS].sort(),
-    ['checksum', 'evidence_class', 'evidence_subtype', 'evidence_type'],
-    'these are columns the evidence route already writes');
+    ['checksum', 'evidence_class', 'evidence_subtype', 'evidence_type', 'remote_ref'],
+    'all derived from columns the evidence route already writes — remote_ref from storage identity');
 });
 
 /* ══ K3 — the Dealer authority matrix ══════════════════════════════════════════════════ */

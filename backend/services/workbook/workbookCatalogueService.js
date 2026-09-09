@@ -28,7 +28,11 @@ import { resolveDealerListingSubject } from '../dealer/dealerListingAuthority.js
  * it impossible to tell an actor "you may prepare and validate, but you may not yet create" — the
  * catalogue had to either advertise execution it would refuse, or withhold preparation it allows.
  *
- *   prepare  — inspect, map, dry-run, ask the assistant. Reads and validates; creates nothing.
+ *   prepare  — inspect, map, dry-run, ask the assistant. This DOES persist preparation artefacts:
+ *              mapping confirmations, import batches, normalized/validated rows. What it never
+ *              creates is a vehicle, evidence, a listing subject or any other commerce/domain
+ *              AUTHORITY. (L5: an earlier wording claimed it created no rows at all, which was
+ *              untrue of the dry run and would have invited someone to "fix" correct behaviour.)
  *   import   — EXECUTE: create vehicles/evidence. Requires a real listing subject.
  */
 export const WORKBOOK_ACTIONS = Object.freeze(['template', 'export', 'prepare', 'import', 'recent_imports']);

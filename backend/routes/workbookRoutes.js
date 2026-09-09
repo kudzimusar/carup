@@ -37,9 +37,11 @@ import { ValidationError } from '../utils/errors.js';
  * The diaspora templates keep their existing routes/pipeline; this
  * router serves the catalogue plus the NEW registry-built vehicle templates.
  */
-// K4 — preparation and execution are DIFFERENT authorities. inspect / mapping-confirm / dry-run /
-// assistant read and validate; they create nothing, and an actor who may not yet import can
-// legitimately do all of them. Only the execute route below asks for 'import'.
+// K4/L5 — preparation and execution are DIFFERENT authorities. inspect / mapping-confirm / dry-run /
+// assistant read and validate, and they legitimately PERSIST preparation artefacts (batches,
+// confirmed mappings, normalized rows). What they never create is a vehicle, evidence or any other
+// commerce authority — which is why an actor who may not yet import can do all of them. Only the
+// execute route below asks for 'import'.
 const router = express.Router();
 
 const asyncHandler = (fn) => (req, res, next) => {

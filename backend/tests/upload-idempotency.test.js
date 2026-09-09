@@ -142,7 +142,8 @@ test('supabase metadata fallback finds a prior evidence row and warms the cache'
   // K2 — the hit carries the canonical operation identity so a re-used key can be compared against
   // the upload it was first used for, not merely against the vehicle.
   assert.deepEqual(Object.keys(found.operation).sort(),
-    ['checksum', 'evidence_class', 'evidence_subtype', 'evidence_type']);
+    ['checksum', 'evidence_class', 'evidence_subtype', 'evidence_type', 'remote_ref'],
+    'L1 added the stable remote reference, for the remote shape that carries no checksum');
 
   // Through the guard: createFn must NOT run because the DB already has it.
   let creations = 0;

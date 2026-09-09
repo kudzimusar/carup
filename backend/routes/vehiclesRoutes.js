@@ -58,7 +58,8 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference } from '../services/evidence/uploadIdempotency.js';
+import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -132,7 +133,11 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    // L-2 — raw tenant equality is NOT selling authority. Consulted only after owner and
+    // current-seller have failed, so the seller's own hot path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
@@ -200,7 +205,11 @@ async function loadScopedVehicle(req, vin) {
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    // L-2 — raw tenant equality is NOT selling authority. Consulted only after owner and
+    // current-seller have failed, so the seller's own hot path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
@@ -465,10 +474,15 @@ router.get('/api/vehicles/:vin/seller-authority', authorizeRole(), asyncHandler(
   }
 
   try {
+    // L-2 — whether the actor's TENANT counts as their seller relationship is a governed
+    // dealership question, resolved here and passed down rather than re-derived from raw equality.
+    const dealerTenantAuthorized = await hasGovernedDealerVehicleAuthority(
+      supabase, req.userContext, { tenant_id: req.userContext.tenantId });
     const state = await getSellerAuthorityState(supabase, {
       vin,
       sellerUserId,
       sellerTenantId: sellerUserId === req.userContext.id ? (req.userContext.tenantId || null) : null,
+      dealerTenantAuthorized,
     });
     return res.json({
       success: true,
@@ -509,6 +523,9 @@ router.post(
   if (!sellerUserId) throw new ValidationError('seller_user_id is required');
 
   try {
+    // The reviewer is deciding about ANOTHER seller (`seller_tenant_id` comes from the body), so
+    // the actor's own dealership is irrelevant here: `dealerTenantAuthorized` stays false, and the
+    // decision rests on the governed review path rather than on any tenant relationship.
     const result = await reviewSellerAuthority(supabase, {
       vin,
       sellerUserId,
@@ -572,13 +589,18 @@ async function loadVehicleForEvidence(vin) {
   return vehicle;
 }
 
-function assertEvidenceOwnershipScope(vehicle, userContext) {
+async function assertEvidenceOwnershipScope(vehicle, userContext) {
   const activeRole = userContext.role;
   if (activeRole === 'admin' || activeRole === 'government') return;
 
   const isOwner = vehicle.owner_id === userContext.id;
   const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === userContext.id;
-  const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === userContext.tenantId;
+  // L-2 — evidence ownership scope is a SELLER-owner question, so tenant membership alone does not
+  // answer it. The canonical uploader-role policy (`canUploadEvidenceRecord`) still applies on top:
+  // this composes with it rather than replacing it.
+  const isDealerTenant = (!isOwner && !isCurrentSeller)
+    ? await hasGovernedDealerVehicleAuthority(supabase, userContext, vehicle)
+    : false;
   if (!isOwner && !isCurrentSeller && !isDealerTenant) {
     throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
   }
@@ -614,7 +636,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   }
 
   try {
-    assertEvidenceOwnershipScope(vehicle, req.userContext);
+    await assertEvidenceOwnershipScope(vehicle, req.userContext);
   } catch (scopeError) {
     // A claimant may contribute ONLY documents that can prove seller authority:
     // ownership/registration documents or the permanent-import purchase chain
@@ -915,11 +937,15 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     {
       supabase,
       actorId: activeUserId,
+      // L1 — a REMOTE submission legitimately carries no checksum (only an inline file is hashed
+      // here), so the storage identity this same insert is about to write is part of the operation.
+      // Derived from `insertData`, never from a fetch: no URL is dereferenced.
       operation: {
         evidence_class: insertData.evidence_class ?? normalized.evidenceClass ?? null,
         evidence_subtype: insertData.evidence_subtype ?? normalized.evidenceSubtype ?? null,
         evidence_type: insertData.evidence_type ?? null,
         checksum: insertData.checksum ?? null,
+        remote_ref: deriveRemoteReference(insertData),
       },
     },
   );

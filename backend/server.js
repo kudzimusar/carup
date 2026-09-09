@@ -160,7 +160,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
-import { resolveDealerListingSubject } from './services/dealer/dealerListingAuthority.js';
+import { resolveDealerListingSubject, hasGovernedDealerVehicleAuthority } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
@@ -3044,12 +3044,18 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // The denial also strips the derived relationship clauses: a stale `current_seller_id` or a
     // previous tenant that outlived the transfer must not authorize either (fail closed on stale
     // secondary state, which is exactly what a failed supersession leaves behind).
-    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied && (
+    // L-2 — the tenant clause is a GOVERNED dealership question, not raw membership. Evaluated
+    // only when the direct clauses have not already answered, so the seller's own path is unchanged.
+    const existingDirectSeller = Boolean(existing && (
       existing.owner_id === req.userContext.id
       || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
-      || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
       || governedSellerEvidence
     ));
+    const existingDealerTenant = Boolean(existing) && !existingDirectSeller
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing)
+      : false;
+    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied
+      && (existingDirectSeller || existingDealerTenant));
 
     // Identity completion is evaluated only AFTER governed Seller scope is established. This
     // prevents an unrelated authenticated account from probing which canonical identity fields
@@ -3435,11 +3441,10 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
     const isAdmin = req.userContext.role === 'admin';
     const isActorSeller = existing.owner_id === req.userContext.id
       || existing.current_seller_id === req.userContext.id;
-    const isActorTenant = Boolean(
-      existing.tenant_id
-      && req.userContext.tenantId
-      && existing.tenant_id === req.userContext.tenantId
-    );
+    // L-2 — a seller draft is a SELLER mutation; belonging to the organisation is not enough.
+    const isActorTenant = isActorSeller
+      ? false
+      : await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing);
     if (!isAdmin && !isActorSeller && !isActorTenant) {
       return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
     }

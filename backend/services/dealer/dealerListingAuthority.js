@@ -36,9 +36,8 @@
  * have let them sell on the dealership's behalf. Requirement 4 is what keeps a garage out. Neither
  * alone is sufficient, which is exactly why both are here.
  *
- * `dealer_profiles(user_id, tenant_id)` is retained as an ADDITIONAL grant — if that binding is ever
- * populated it is authoritative on its own — and a SUSPENDED dealer profile withdraws authority by
- * either path. It is no longer an impossible sole prerequisite.
+ * `dealer_profiles` is consulted for WITHDRAWAL only: a suspended profile refuses. It deliberately
+ * does NOT grant on its own — see the note at the binding check below for the RLS reason.
  *
  * DELIBERATELY EXCLUDED, and reported rather than decided quietly: tenant type `import` (4 tenants
  * on staging, one of them with a platform-dealer admin). It denotes the diaspora import/logistics
@@ -132,10 +131,19 @@ export async function resolveDealerListingSubject(db, { role, userId, tenantId }
     granted: true, tenantId, dealerProfileId: profile.row?.id ?? null, reason: null,
   });
 
-  // The explicit profile binding is authoritative on its own where it exists.
-  if (profile.row && profile.row.tenant_id && String(profile.row.tenant_id) === String(tenantId)) {
-    return grant();
-  }
+  // L — THE PROFILE BINDING WITHDRAWS AUTHORITY; IT NEVER GRANTS IT ON ITS OWN.
+  //
+  // The K-round treated `dealer_profiles.tenant_id === tenantId` as sufficient by itself. Measured
+  // on staging, `dealer_profiles` carries RLS policies granting `authenticated` INSERT and UPDATE
+  // on their OWN row, and those policies' WITH CHECK constrains `user_id` — not `tenant_id`. So a
+  // self-service write could have set that column to any dealership and bypassed the tenant-type
+  // and membership-role tests entirely.
+  //
+  // It cannot fire today (CarUp uses custom auth: `auth.users` is empty, so `auth.uid()` is NULL
+  // and those policies never match; and all four profiles have `tenant_id` NULL). But an authority
+  // must not depend on a policy predicate remaining incomplete somewhere else, so the governed
+  // organisation facts below are now required in EVERY case. The suspension check above still
+  // withdraws authority, which is the direction a profile may safely decide on its own.
 
   if (!DEALERSHIP_TENANT_TYPES.has(norm(tenant.row.type))) {
     return refuse(DEALER_SUBJECT_REASONS.TENANT_NOT_A_DEALERSHIP);
@@ -146,8 +154,49 @@ export async function resolveDealerListingSubject(db, { role, userId, tenantId }
   return grant();
 }
 
+/**
+ * L-2 — THE ONE PRIMITIVE FOR DEALER AUTHORITY OVER AN EXISTING TENANT-SCOPED VEHICLE.
+ *
+ * K-3 fixed listing CREATION, and left every EXISTING-vehicle seller mutation authorizing on raw
+ * tenant equality — `vehicle.tenant_id === userContext.tenantId` — which `authorizeRole` satisfies
+ * for anyone who merely belongs to the organisation. Measured on the real routes: a platform
+ * `dealer` who is only a MECHANIC in a dealership, on a vehicle they neither own nor sell, was
+ * refused CREATION (`membership_not_business_authority`) and yet could publish (200), unpublish
+ * (200), reprice to 99999 (200) and mark it Sold (200).
+ *
+ * This is deliberately ONE function rather than a copy of the K-3 matrix at each route: a second
+ * copy is a second thing to forget. It consumes exactly the same governed facts as
+ * `resolveDealerListingSubject`, so creation and lifecycle cannot drift apart.
+ *
+ * SCOPE — this answers ONLY "may this actor exercise DEALER SELLER/COMMERCE authority for this
+ * vehicle's tenant?". It is not a general tenant-access gate and must not become one. Service
+ * Network mechanics keep their own governed assignment path, PartSentry keeps its own capability,
+ * and lender/insurer object access keeps `resolveVehicleObjectAuthority`. A mechanic servicing a
+ * vehicle is not a Dealer seller, and this closure must not cost them their service authority.
+ *
+ * Callers should consult it ONLY after the owner and current-seller clauses have failed. That is
+ * not just an optimisation: it keeps the seller's own hot path at zero added queries, which the
+ * publish/price routes documented as load-bearing after a Golden lifecycle run came within a
+ * minute of its per-test timeout.
+ *
+ * @returns {Promise<boolean>} true only for a governed dealership relationship over THIS vehicle.
+ */
+export async function hasGovernedDealerVehicleAuthority(db, userContext, vehicle) {
+  const tenantId = userContext?.tenantId ?? null;
+  const vehicleTenant = vehicle?.tenant_id ?? null;
+  // Raw tenant equality is NECESSARY but never SUFFICIENT.
+  if (!tenantId || !vehicleTenant || String(vehicleTenant) !== String(tenantId)) return false;
+  const subject = await resolveDealerListingSubject(db, {
+    role: userContext.role ?? userContext.effectiveRole,
+    userId: userContext.id ?? userContext.userId,
+    tenantId,
+  });
+  return subject.granted === true;
+}
+
 export default {
   resolveDealerListingSubject,
+  hasGovernedDealerVehicleAuthority,
   DEALER_SUBJECT_REASONS,
   DEALERSHIP_TENANT_TYPES,
   BUSINESS_AUTHORITY_MEMBERSHIP_ROLES,
