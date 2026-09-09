@@ -766,3 +766,131 @@ source as binary) and removed; every file this round touched was scanned for con
 production — and its unique contract was corrected on the branch precisely because it is unapplied.
 **Deployed concurrent idempotency is NOT certified** until the corrected migration is separately
 applied and verified on staging.
+
+---
+
+# Round 8 — the K-round
+
+Six findings against `83201244`. Each reproduced before anything changed.
+
+## K1 — the writer had a rolling-deploy fallback; the reader did not
+
+Staging has **no `idempotency_key` column** (verified directly). The durable lookup's SELECT named
+it anyway, so PostgREST failed the whole query, `lookupBySupabase` returned null, and the
+metadata dedupe that existed *before* the column was authored stopped working. Reproduced on a
+pre-migration database:
+
+```
+first upload           -> ev-1 deduped=false
+metadata carries key   -> "K"
+lookupBySupabase COLD  -> null      <- should have found ev-1
+retry after restart    -> ev-2 deduped=false
+rows for ONE operation -> 2
+```
+
+On Vercel that "restart" is one cold start. The J-round protected the write path and regressed the
+read path.
+
+Closed with a **narrow** compatibility read: the canonical column-and-mirror lookup runs first, and
+**only** a genuine missing-column condition (42703 / schema-cache) falls back to a metadata-only
+query that names no absent column. RLS, auth, malformed filter, FK, syntax and network errors all
+still degrade to "treat as new" and never reach the fallback — asserted for five distinct codes,
+each also asserting the fallback was **not** attempted.
+
+## K2 — a key bound to a vehicle, not to an operation
+
+`settle()` compared only VIN. Reproduced: same actor, same VIN, same key, but
+`auction_sheet`/`SUM-B` against a stored `registration_book`/`SUM-A` →
+
+```
+upload B -> ev-101 deduped=true
+persisted -> [{"evidence_type":"registration_book","checksum":"SUM-A"}]   <- B was DISCARDED
+```
+
+The fingerprint is `evidence_class`, `evidence_subtype`, `evidence_type`, `checksum` — **existing
+columns the route already writes**, no second taxonomy, no volatile presentation metadata. A
+mismatch on any one of them is a **409**, never a silent substitution. The in-memory cache stores
+the operation too, so the fast path is not a bypass.
+
+**Compatibility rule, stated because it is a deliberate weakening:** a field is compared only when
+*both* sides supply it. A historical row that never recorded a column cannot contradict anything,
+so the floor is the J-round's VIN-scoped behaviour and never worse; every field either side does
+supply makes it stricter. On staging, 169 evidence rows carry `evidence_type` 100%, class 89%,
+subtype 83%, checksum 88% — and **zero** carry an idempotency key at all, so the compatibility
+surface is currently empty.
+
+## K3 — the J-round disabled every real Dealer
+
+Measured read-only on staging: **14** platform-dealer users · **5** holding a tenant membership ·
+**4** dealer profiles · **0** profiles carrying a `tenant_id`. Making
+`dealer_profiles(user_id, tenant_id)` the sole subject was secure and also a live regression from
+`main`, not deferred onboarding.
+
+**The governed fact CarUp already had is the organisation.** All five real Dealer memberships are
+`admin` of an **active** tenant whose canonical `type` is a dealership type. Both inputs are
+genuinely server-controlled — an audit of the candidate tree found **zero backend writes** to
+`tenants` or `tenant_users`: no route, no service, no RPC. The only INSERTs in the repository are
+seed statements in migration 002. A client cannot create a tenant, set its type, or mint a
+membership.
+
+The authority is now a composition, every part required:
+
+| # | fact | keeps out |
+|---|---|---|
+| 1 | effective role `dealer` | everyone else |
+| 2 | validated `tenant_users` membership | forged tenants |
+| 3 | membership role acts for the business (`owner`/`admin`/`dealer`) | **a mechanic employed by a dealership** |
+| 4 | `tenants.type` ∈ `{dealer, dealership}` | **a garage** |
+| 5 | `tenants.status` active | a wound-up organisation |
+
+Requirements 3 and 4 are both load-bearing: type alone would let a dealership's mechanic sell;
+membership role alone would let a garage admin sell. `dealer_profiles(user_id, tenant_id)` is
+retained as an **additional** grant, and a suspended profile withdraws authority by either path.
+
+`{dealer, dealership}` is CarUp's own vocabulary (`DEALER_SELLER_TYPES`), not a new one.
+**Deliberately excluded and reported rather than decided quietly:** tenant type `import` (4 tenants,
+one with a platform-dealer admin) — it denotes the diaspora import business and is not in that
+vocabulary; and membership role `manager`, which no current Dealer holds. Both can be admitted by
+an explicit product decision.
+
+**Blast radius of the change itself:** exactly **one** vehicle in staging carries a `tenant_id`
+(a `dealership` tenant) and **zero** vehicles have a Dealer seller type.
+
+## K4 — the catalogue promised an import it would refuse
+
+`dealer_vehicle_inventory` was `role === 'dealer' → active:true` with the full action list, and told
+applicants that "imports create DRAFT vehicles under your own listing authority".
+
+The root cause was one coarse verb: `import` gated inspect, mapping/confirm, dry-run and both
+assistant routes **as well as** execution, so the catalogue could only advertise execution it would
+refuse or withhold preparation it allows. The action contract is now refined —
+
+* **`prepare`** — inspect, map, dry-run, assistant. Reads and validates; creates nothing.
+* **`import`** — execute. Requires a real listing subject.
+
+Availability is unchanged (preparation is legitimate work); the **action list** narrows, and the
+prose says the same thing the machine-readable list does.
+
+## K5 — the route proof now includes the production identity
+
+The J-round proof is kept and **relabelled accurately** as *router + `authorizeRole` under the test
+`x-user-id` fallback*. A new suite authenticates every case with a real `user_sessions` token:
+owner · legitimate dealer + dealership · dealer against a non-dealership tenant · tenant the session
+does not belong to (403) · expired · revoked · unknown token · spoofed stakeholder role · and a
+session-only route proving an asserted `x-user-id` cannot replace a session where policy forbids it
+(with the positive control, so the negative means something).
+
+## K6 — governance text
+
+The standing approval at `7fe1f821` is corrected to **eight** superseding candidate heads behind
+`83201244`, and nine after this round. The full SHA history is preserved.
+
+## Recorded, deliberately NOT fixed in this PR
+
+Both belong to other lanes and are logged here only so they are not lost:
+
+1. **`staging-integration` has no `timeout-minutes`.** During the database outage it hung for
+   **78 minutes** instead of failing fast, and would have run toward GitHub's 6-hour default. That
+   job lives in the Diaspora workflow.
+2. **The marketplace readiness gate reads `supabase.status` and discards it**, so it admits a
+   deployment whose database is down. Not smuggled into O2.

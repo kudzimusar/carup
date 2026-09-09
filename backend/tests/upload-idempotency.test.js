@@ -137,7 +137,12 @@ test('supabase metadata fallback finds a prior evidence row and warms the cache'
 
   // Direct lookup helper works.
   const found = await lookupBySupabase(supabase, 'db-key', { actorId: ACTOR });
-  assert.deepEqual(found, { evidenceId: 'ev-existing-9', vin: 'VINDB' });
+  assert.equal(found.evidenceId, 'ev-existing-9');
+  assert.equal(found.vin, 'VINDB');
+  // K2 — the hit carries the canonical operation identity so a re-used key can be compared against
+  // the upload it was first used for, not merely against the vehicle.
+  assert.deepEqual(Object.keys(found.operation).sort(),
+    ['checksum', 'evidence_class', 'evidence_subtype', 'evidence_type']);
 
   // Through the guard: createFn must NOT run because the DB already has it.
   let creations = 0;

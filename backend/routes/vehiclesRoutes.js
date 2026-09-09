@@ -907,7 +907,21 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     // J-2 — the collision domain is (actor, key). A client-supplied key is only meaningful
     // within the actor that supplied it; a global namespace let one uploader's raw string
     // suppress another's upload and return that other actor's evidence id.
-    { supabase, actorId: activeUserId },
+    //
+    // K2 — and (actor, key, VIN) still could not tell two DIFFERENT uploads apart. The canonical
+    // operation identity travels with the request so a key re-used for a materially different
+    // evidence upload is refused with a 409 instead of silently discarding it. These are the same
+    // columns this insert writes — no second taxonomy.
+    {
+      supabase,
+      actorId: activeUserId,
+      operation: {
+        evidence_class: insertData.evidence_class ?? normalized.evidenceClass ?? null,
+        evidence_subtype: insertData.evidence_subtype ?? normalized.evidenceSubtype ?? null,
+        evidence_type: insertData.evidence_type ?? null,
+        checksum: insertData.checksum ?? null,
+      },
+    },
   );
 
   const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).single();

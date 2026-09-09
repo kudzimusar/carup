@@ -334,33 +334,48 @@ async function dealerDb() {
   await db.exec(`CREATE TABLE dealer_profiles (
     id text PRIMARY KEY, user_id text NOT NULL, tenant_id text,
     suspension_state text NOT NULL DEFAULT 'none');`);
+  // K-3: the authority composes THREE server-controlled tables. An audit of the candidate tree
+  // found zero backend writes to `tenants` or `tenant_users` — only migration-002 seed statements
+  // — so neither a tenant's type nor a membership can be minted by a client.
+  await db.exec(`CREATE TABLE tenants (id text PRIMARY KEY, type text, status text);`);
+  await db.exec(`CREATE TABLE tenant_users (tenant_id text, user_id text, role text);`);
   return db;
 }
 
-/** A Supabase double over the real dealer_profiles, enforcing BOTH filters. */
-const dealerSupabaseOver = (db) => ({
-  from: (table) => ({
-    select: () => {
-      const f = {};
-      const chain = {
-        eq(col, value) { f[col] = value; return chain; },
-        async maybeSingle() {
-          if (table !== 'dealer_profiles') return { data: null, error: null };
-          // Refuse to answer a query that did not scope BOTH dimensions: a resolver that forgets
-          // either one is exactly the J-3 defect, and must not be able to pass here.
-          if (!('user_id' in f) || !('tenant_id' in f)) {
-            return { data: null, error: { message: 'J-3: dealer binding must be scoped by user_id AND tenant_id' } };
-          }
-          const { rows } = await db.query(
-            `SELECT id, tenant_id, suspension_state FROM dealer_profiles
-              WHERE user_id = $1 AND tenant_id = $2 LIMIT 1;`, [f.user_id, f.tenant_id]);
-          return { data: rows[0] || null, error: null };
-        },
-      };
-      return chain;
-    },
-  }),
-});
+/**
+ * A Supabase double over the real authority tables. It answers FAITHFULLY — it applies exactly the
+ * filters it is given — so an under-scoped query produces the real (wrong) answer rather than a
+ * protective error. What the resolver actually asked for is asserted separately.
+ */
+const dealerSupabaseOver = (db) => {
+  const seen = [];
+  const client = {
+    from: (table) => ({
+      select: () => {
+        const f = {};
+        const chain = {
+          eq(col, value) { f[col] = value; return chain; },
+          async maybeSingle() {
+            seen.push({ table, filters: { ...f } });
+            const where = Object.keys(f);
+            const sql = {
+              dealer_profiles: 'SELECT id, tenant_id, suspension_state FROM dealer_profiles',
+              tenant_users: 'SELECT role FROM tenant_users',
+              tenants: 'SELECT id, type, status FROM tenants',
+            }[table];
+            if (!sql) return { data: null, error: null };
+            const clause = where.length ? ' WHERE ' + where.map((c, i) => `${c} = $${i + 1}`).join(' AND ') : '';
+            const { rows } = await db.query(`${sql}${clause} LIMIT 1;`, where.map((c) => f[c]));
+            return { data: rows[0] || null, error: null };
+          },
+        };
+        return chain;
+      },
+    }),
+  };
+  client.__seen = seen;
+  return client;
+};
 
 const GARAGE = 'tenant-garage-1';
 const DEALERSHIP = 'tenant-moyo-motors';
@@ -373,9 +388,16 @@ async function subjectFor(db, ctx) {
 
 test('J-3: the authority matrix — no membership class outside a governed dealership may sell', async () => {
   const db = await dealerDb();
-  // The ONLY governed binding: a dealer_profiles row naming this user AND this tenant.
-  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-1','user-dealer',$1,'none');`, [DEALERSHIP]);
-  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-2','user-revoked',$1,'suspended');`, [DEALERSHIP]);
+  // K-3 — the authority is a COMPOSITION of server-controlled facts, so the fixture seeds all of
+  // them. `dealer_profiles.tenant_id` stays NULL exactly as it is in real data: the J-round made
+  // that binding the sole prerequisite, which disabled every real Dealer.
+  await db.query(`INSERT INTO tenants VALUES ($1,'dealership','active'), ($2,'garage','active'), ('tenant-other','garage','active');`, [DEALERSHIP, GARAGE]);
+  await db.query(`INSERT INTO tenant_users VALUES
+      ($1,'user-dealer','admin'), ($2,'user-dealer','admin'),
+      ('tenant-other','user-dealer2','manager'), ($2,'user-dealer3','mechanic'),
+      ($1,'user-revoked','admin'), ($2,'user-admin','member'), ($2,'user-gov','member');`, [DEALERSHIP, GARAGE]);
+  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-1','user-dealer',NULL,'none');`);
+  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-2','user-revoked',NULL,'suspended');`);
 
   const matrix = [
     // [label, userContext, expected seller type, expected tenant]
@@ -383,6 +405,7 @@ test('J-3: the authority matrix — no membership class outside a governed deale
     ['Dealer + its OWN governed dealership', { role: 'dealer', id: 'user-dealer', tenantId: DEALERSHIP }, 'Dealer', DEALERSHIP],
     ['Dealer with no tenant', { role: 'dealer', id: 'user-dealer', tenantId: null }, null, null],
     ['Dealer + tenant-ADMIN membership in an unrelated Garage', { role: 'dealer', id: 'user-dealer', tenantId: GARAGE }, null, null],
+    ['Dealer + MECHANIC membership in a real DEALERSHIP (employment is not agency)', { role: 'dealer', id: 'user-mech-dlr', tenantId: DEALERSHIP }, null, null],
     ['Dealer + MANAGER membership in an unrelated tenant', { role: 'dealer', id: 'user-dealer2', tenantId: 'tenant-other' }, null, null],
     ['Dealer + MECHANIC membership', { role: 'dealer', id: 'user-dealer3', tenantId: GARAGE }, null, null],
     ['Dealer + a FOREIGN tenant', { role: 'dealer', id: 'user-nobody', tenantId: DEALERSHIP }, null, null],
@@ -434,12 +457,22 @@ test('J-3: a MISSING resolution fails closed — a caller that forgets the gate 
 
 test('J-3: the refusal REASONS name the actual boundary', async () => {
   const db = await dealerDb();
-  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-1','user-dealer',$1,'none');`, [DEALERSHIP]);
-  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-2','user-revoked',$1,'suspended');`, [DEALERSHIP]);
+  // K-3 — the authority is a COMPOSITION of server-controlled facts, so the fixture seeds all of
+  // them. `dealer_profiles.tenant_id` stays NULL exactly as it is in real data: the J-round made
+  // that binding the sole prerequisite, which disabled every real Dealer.
+  await db.query(`INSERT INTO tenants VALUES ($1,'dealership','active'), ($2,'garage','active'), ('tenant-other','garage','active');`, [DEALERSHIP, GARAGE]);
+  await db.query(`INSERT INTO tenant_users VALUES
+      ($1,'user-dealer','admin'), ($2,'user-dealer','admin'),
+      ('tenant-other','user-dealer2','manager'), ($2,'user-dealer3','mechanic'),
+      ($1,'user-revoked','admin'), ($2,'user-admin','member'), ($2,'user-gov','member');`, [DEALERSHIP, GARAGE]);
+  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-1','user-dealer',NULL,'none');`);
+  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-2','user-revoked',NULL,'suspended');`);
   const reason = async (ctx) => (await subjectFor(db, ctx)).reason;
   assert.equal(await reason({ role: 'owner', id: 'u', tenantId: null }), DEALER_SUBJECT_REASONS.NOT_A_DEALER_ROLE);
   assert.equal(await reason({ role: 'dealer', id: 'user-dealer', tenantId: null }), DEALER_SUBJECT_REASONS.NO_TENANT_CONTEXT);
-  assert.equal(await reason({ role: 'dealer', id: 'user-dealer', tenantId: GARAGE }), DEALER_SUBJECT_REASONS.NO_GOVERNED_DEALER_BINDING);
+  assert.equal(await reason({ role: 'dealer', id: 'user-nobody', tenantId: DEALERSHIP }), DEALER_SUBJECT_REASONS.NO_TENANT_MEMBERSHIP);
+  assert.equal(await reason({ role: 'dealer', id: 'user-dealer', tenantId: GARAGE }), DEALER_SUBJECT_REASONS.TENANT_NOT_A_DEALERSHIP);
+  assert.equal(await reason({ role: 'dealer', id: 'user-mech-dlr', tenantId: DEALERSHIP }), DEALER_SUBJECT_REASONS.NO_TENANT_MEMBERSHIP);
   assert.equal(await reason({ role: 'dealer', id: 'user-revoked', tenantId: DEALERSHIP }), DEALER_SUBJECT_REASONS.DEALER_AUTHORITY_WITHDRAWN);
   assert.equal(await reason({ role: 'dealer', id: 'user-dealer', tenantId: DEALERSHIP }), null);
   await db.close();
@@ -457,7 +490,16 @@ const listingEntry = (cat) => ({
 
 test('J-4: the catalogue does not advertise an import that execute knows has no subject', async () => {
   const db = await dealerDb();
-  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-1','user-dealer',$1,'none');`, [DEALERSHIP]);
+  // K-3 — the authority is a COMPOSITION of server-controlled facts, so the fixture seeds all of
+  // them. `dealer_profiles.tenant_id` stays NULL exactly as it is in real data: the J-round made
+  // that binding the sole prerequisite, which disabled every real Dealer.
+  await db.query(`INSERT INTO tenants VALUES ($1,'dealership','active'), ($2,'garage','active'), ('tenant-other','garage','active');`, [DEALERSHIP, GARAGE]);
+  await db.query(`INSERT INTO tenant_users VALUES
+      ($1,'user-dealer','admin'), ($2,'user-dealer','admin'),
+      ('tenant-other','user-dealer2','manager'), ($2,'user-dealer3','mechanic'),
+      ($1,'user-revoked','admin'), ($2,'user-admin','member'), ($2,'user-gov','member');`, [DEALERSHIP, GARAGE]);
+  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-1','user-dealer',NULL,'none');`);
+  await db.query(`INSERT INTO dealer_profiles VALUES ('dp-2','user-revoked',NULL,'suspended');`);
 
   const governed = listingEntry(await catalogueFor(db, { role: 'dealer', id: 'user-dealer', tenantId: DEALERSHIP }));
   assert.equal(governed.available, true, 'a genuine dealership keeps its import');

@@ -172,11 +172,21 @@ test('H3: TENANT DRIFT — a dealer whose tenant context is gone cannot list und
   const c = client({ rows: [importRow()], uploadedBy: DEALER_ID, template: 'dealer_vehicle_inventory' });
   const log = [];
   const withoutTenant = { ...DEALER, tenantId: null };
-  const result = await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, withoutTenant,
-    { supabaseClient: c, dispatch: canonicalDispatch({ actor: withoutTenant, log }) });
-  assert.equal(result.created, 0);
-  assert.equal(log.length, 0, 'listing eligibility is re-derived before the write, not read from the snapshot');
-  assert.equal(c._db.diaspora_workbook_import_receipts[0].error_code, 'LISTING_NOT_ELIGIBLE');
+  // K-4 moved this refusal EARLIER and made it stronger. The catalogue no longer offers `import`
+  // for a dealer with no listing subject, so execute is refused by its own capability gate before
+  // any row is considered — rather than admitting the batch and rejecting each row in turn. The
+  // guarantee under test is unchanged and now holds sooner: nothing is created, and nothing is
+  // dispatched.
+  await assert.rejects(
+    () => executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, withoutTenant,
+      { supabaseClient: c, dispatch: canonicalDispatch({ actor: withoutTenant, log }) }),
+    (e) => {
+      assert.match(String(e.message), /WORKBOOK_TEMPLATE_NOT_AVAILABLE/);
+      return true;
+    },
+    'a dealer whose tenant context is gone must not be able to execute under it');
+  assert.equal(log.length, 0, 'nothing was dispatched — no vehicle, no evidence');
+  assert.equal((c._db.diaspora_workbook_import_receipts || []).length, 0, 'and no row was even attempted');
 });
 
 /* ── H5 — mixed batch: partial batch success, never partial mutation within a failed row ── */

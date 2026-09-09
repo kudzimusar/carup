@@ -46,6 +46,26 @@ export const IDEMPOTENCY_CONSTRAINT = 'uq_vehicle_evidence_idempotency_key';
 /** Machine-readable reason for a key reused against a different resource. */
 export const IDEMPOTENCY_SCOPE_CONFLICT = 'IDEMPOTENCY_KEY_BOUND_TO_DIFFERENT_RESOURCE';
 
+/** Machine-readable reason for a key reused for a materially different evidence operation. */
+export const IDEMPOTENCY_OPERATION_CONFLICT = 'IDEMPOTENCY_KEY_BOUND_TO_DIFFERENT_OPERATION';
+
+/**
+ * K2 — THE CANONICAL REQUEST FINGERPRINT.
+ *
+ * A key scoped to (actor, VIN) still could not tell two different uploads apart: measured, the same
+ * actor re-using one key on the same vehicle for `auction_sheet`/checksum B was told `deduped:true`
+ * and handed the `registration_book`/checksum A record — the second upload was silently discarded.
+ *
+ * These are the EXISTING canonical columns the evidence route already writes; no second taxonomy is
+ * introduced. Presentation metadata is deliberately excluded — a caption or a note changing does not
+ * make it a different upload.
+ */
+export const OPERATION_IDENTITY_FIELDS = Object.freeze(
+  ['evidence_class', 'evidence_subtype', 'evidence_type', 'checksum']);
+
+/** Columns the lookup needs: identity + the key locations. */
+const IDENTITY_COLUMNS = 'id, vin, uploaded_by, metadata, evidence_class, evidence_subtype, evidence_type, checksum';
+
 /**
  * The scope key. A client-supplied idempotency key is meaningless on its own — it only identifies
  * an operation WITHIN the actor that supplied it, which is exactly what the unique index encodes.
@@ -131,28 +151,64 @@ export function isUndefinedColumnError(error, columnName) {
 export async function lookupBySupabase(supabase, idempotencyKey, { actorId = null } = {}) {
   if (!supabase || typeof supabase.from !== 'function') return null;
   if (!actorId) return null; // an unscoped key identifies nothing safely
-  try {
-    const { data, error } = await supabase
-      .from('vehicle_evidence')
-      .select('id, vin, uploaded_by, metadata, idempotency_key')
-      .eq('uploaded_by', actorId)
-      // The COLUMN is canonical; `metadata` remains a compatibility mirror so rows written
-      // before the column existed are still found by the same lookup.
-      .or(`idempotency_key.eq.${idempotencyKey},metadata->>idempotency_key.eq.${idempotencyKey}`)
-      .limit(1);
 
-    if (error) return null;
+  // 1) CANONICAL: the indexed column, with the historical metadata mirror as an alternative.
+  const canonical = await runLookup(supabase, idempotencyKey, actorId, { withColumn: true });
+  if (!canonical.failed) return canonical.record;
+
+  // 2) K1 — PRE-MIGRATION COMPATIBILITY, AND NOTHING ELSE.
+  //
+  // The migration is applied separately, so this code runs against databases that do not yet have
+  // `idempotency_key`. Naming an absent column makes PostgREST fail the whole SELECT, so the
+  // canonical read returned nothing and the durable metadata dedupe that existed BEFORE the column
+  // was authored stopped working: measured on a pre-migration database, a retry after a process
+  // restart created a SECOND evidence row for one operation. On Vercel that is one cold start.
+  //
+  // This retry fires for exactly one condition — the column does not exist. An RLS refusal, an
+  // auth failure, a malformed filter, a network fault, an FK error or any other database error
+  // returns null (treat as new) exactly as before, and never reaches the compatibility read.
+  if (!isUndefinedColumnError(canonical.error, 'idempotency_key')) return null;
+  const legacy = await runLookup(supabase, idempotencyKey, actorId, { withColumn: false });
+  return legacy.failed ? null : legacy.record;
+}
+
+/**
+ * One lookup attempt. `withColumn:false` names NO column the pre-migration schema lacks — it reads
+ * the metadata mirror only. Returns `{ failed, error, record }` so the caller can tell "no match"
+ * (a legitimate miss) from "the query itself failed" (which may deserve the compatibility read).
+ */
+async function runLookup(supabase, idempotencyKey, actorId, { withColumn }) {
+  try {
+    let q = supabase
+      .from('vehicle_evidence')
+      .select(withColumn ? `${IDENTITY_COLUMNS}, idempotency_key` : IDENTITY_COLUMNS)
+      .eq('uploaded_by', actorId);
+    q = withColumn
+      ? q.or(`idempotency_key.eq.${idempotencyKey},metadata->>idempotency_key.eq.${idempotencyKey}`)
+      : q.eq('metadata->>idempotency_key', idempotencyKey);
+    const { data, error } = await q.limit(1);
+    if (error) return { failed: true, error, record: null };
+
     const rows = Array.isArray(data) ? data : data ? [data] : [];
     const match = rows.find((r) => {
       if (!r) return false;
-      // Belt-and-braces: never accept a row the store/driver returned outside this actor's scope.
+      // Belt-and-braces: never accept a row outside this actor's scope.
       if (r.uploaded_by != null && r.uploaded_by !== actorId) return false;
-      return r.metadata?.idempotency_key === idempotencyKey || r.idempotency_key === idempotencyKey;
+      return r.metadata?.idempotency_key === idempotencyKey
+        || (withColumn && r.idempotency_key === idempotencyKey);
     });
-    if (!match || !match.id) return null;
-    return { evidenceId: match.id, vin: match.vin ?? null };
-  } catch {
-    return null;
+    if (!match || !match.id) return { failed: false, error: null, record: null };
+    return {
+      failed: false,
+      error: null,
+      record: {
+        evidenceId: match.id,
+        vin: match.vin ?? null,
+        operation: Object.fromEntries(OPERATION_IDENTITY_FIELDS.map((f) => [f, match[f] ?? null])),
+      },
+    };
+  } catch (error) {
+    return { failed: true, error, record: null };
   }
 }
 
@@ -175,6 +231,45 @@ function sameResource(hitVin, requestedVin) {
   return String(hitVin) === String(requestedVin);
 }
 
+const norm = (v) => (v == null || v === '' ? null : String(v).trim().toLowerCase());
+
+/**
+ * K2 — is the stored record the SAME evidence operation the caller is asking for?
+ *
+ * Returns the first canonical field that DISAGREES, or null when nothing contradicts.
+ *
+ * COMPATIBILITY RULE, stated explicitly because it is a deliberate weakening: a field is compared
+ * only when BOTH sides supply it. A historical row written before a column was populated cannot
+ * contradict anything, so it does not raise a conflict — refusing every such retry would break the
+ * durable sequential guarantee K1 exists to preserve. The floor is therefore the J-round's
+ * VIN-scoped behaviour, never worse; every field either side actually supplies makes it stricter.
+ * A field we CAN compare and that differs is always a conflict — we never return a record we can
+ * prove is a different upload.
+ */
+function operationMismatch(hitOperation, requestedOperation) {
+  if (!hitOperation || !requestedOperation) return null;
+  for (const field of OPERATION_IDENTITY_FIELDS) {
+    const stored = norm(hitOperation[field]);
+    const asked = norm(requestedOperation[field]);
+    if (stored === null || asked === null) continue; // cannot contradict
+    if (stored !== asked) return { field, stored: hitOperation[field], requested: requestedOperation[field] };
+  }
+  return null;
+}
+
+function operationConflict(idempotencyKey, mismatch) {
+  return new ConflictError(
+    'This idempotency key was already used for a different evidence upload. Use a new key for a new upload.',
+    {
+      reason: IDEMPOTENCY_OPERATION_CONFLICT,
+      idempotency_key: idempotencyKey,
+      field: mismatch.field,
+      bound_value: mismatch.stored,
+      requested_value: mismatch.requested,
+    },
+  );
+}
+
 /**
  * Idempotent evidence creation.
  *
@@ -194,7 +289,9 @@ function sameResource(hitVin, requestedVin) {
  * @param {string|null|undefined} idempotencyKey
  * @param {string|null} vin
  * @param {() => Promise<{id:string}|string>} createFn
- * @param {{ supabase?: any, store?: Map<string, IdempotencyRecord>, actorId?: string|null }} [opts]
+ * @param {{ supabase?: any, store?: Map<string, IdempotencyRecord>, actorId?: string|null,
+ *           operation?: {evidence_class?:string|null, evidence_subtype?:string|null,
+ *                        evidence_type?:string|null, checksum?:string|null}|null }} [opts]
  * @returns {Promise<{ evidenceId:string, vin:(string|null), deduped:boolean }>}
  */
 export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts = {}) {
@@ -220,8 +317,12 @@ export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts 
 
   const scoped = idempotencyScopeKey(actorId, idempotencyKey);
 
+  const requestedOperation = opts.operation || null;
+
   const settle = (hit) => {
     if (!sameResource(hit.vin, vin)) throw scopeConflict(idempotencyKey, hit.vin, vin);
+    const mismatch = operationMismatch(hit.operation, requestedOperation);
+    if (mismatch) throw operationConflict(idempotencyKey, mismatch);
     return { evidenceId: hit.evidenceId, vin: hit.vin ?? vin ?? null, deduped: true };
   };
 
@@ -261,7 +362,15 @@ export async function withUploadIdempotency(idempotencyKey, vin, createFn, opts 
     throw new Error('createFn did not return an evidence id');
   }
   const resolvedVin = (created && created.vin) || vin || null;
-  store.set(scoped, { evidenceId, vin: resolvedVin });
+  // The cached entry carries the operation too: a warm cache that stored only the id would skip the
+  // K2 comparison entirely and re-open the hole on the fast path.
+  store.set(scoped, {
+    evidenceId,
+    vin: resolvedVin,
+    operation: requestedOperation
+      ? { ...requestedOperation }
+      : Object.fromEntries(OPERATION_IDENTITY_FIELDS.map((f) => [f, (created && created[f]) ?? null])),
+  });
   return { evidenceId, vin: resolvedVin, deduped: false };
 }
 

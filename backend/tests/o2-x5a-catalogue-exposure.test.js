@@ -57,16 +57,26 @@ test('a dealer APPLICANT (business+dealer registration, still role owner) gains 
   const catalogue = await resolveWorkbookCatalogue({ id: 'u-app', role: 'owner' }, { supabaseClient: mockClient });
   const entry = catalogue.available.find((item) => item.template_key === 'dealer_vehicle_inventory');
   assert.ok(entry, 'applicant sees the dealer inventory template');
-  assert.match(entry.note, /Applicant mode/);
-  assert.match(entry.note, /Dealer activation stays a separate governed decision/);
+  // K4 — the note used to promise "imports create DRAFT vehicles under your own listing authority",
+  // which execute would deterministically refuse. It now describes what the applicant may actually
+  // do, and the ACTION LIST says the same thing in machine-readable form.
+  assert.match(entry.note, /Preparation only/);
+  assert.match(entry.note, /not yet linked to one/);
+  assert.equal(entry.actions.includes('import'), false, 'execution must not be advertised');
+  assert.equal(entry.actions.includes('prepare'), true, 'preparation genuinely is available');
+  assert.equal(entry.actions.includes('template'), true);
 });
 
 test('an ACTIVE dealer (governed role) gets the dealer template without applicant framing', async () => {
   resetDb();
   const catalogue = await resolveWorkbookCatalogue({ id: 'u-dealer', role: 'dealer' }, { supabaseClient: mockClient });
   const entry = catalogue.available.find((item) => item.template_key === 'dealer_vehicle_inventory');
-  assert.ok(entry);
+  assert.ok(entry, 'a dealer keeps the template — preparation is legitimate work');
   assert.ok(!/Applicant mode/.test(entry.note));
+  // K4 — this fixture's dealer holds NO governed dealership, so importing is not offered. The
+  // role string alone never decides this again.
+  assert.equal(entry.actions.includes('import'), false,
+    'a dealer without a governed dealership must not be promised execution');
 });
 
 test('diaspora exposure follows VERIFIED trade-profile roles: buyer sees buyer/container; seller sees seller/supplier; unverified sees none', async () => {

@@ -37,6 +37,9 @@ import { ValidationError } from '../utils/errors.js';
  * The diaspora templates keep their existing routes/pipeline; this
  * router serves the catalogue plus the NEW registry-built vehicle templates.
  */
+// K4 — preparation and execution are DIFFERENT authorities. inspect / mapping-confirm / dry-run /
+// assistant read and validate; they create nothing, and an actor who may not yet import can
+// legitimately do all of them. Only the execute route below asks for 'import'.
 const router = express.Router();
 
 const asyncHandler = (fn) => (req, res, next) => {
@@ -81,7 +84,7 @@ router.get('/api/workbook/export/:templateKey', ...authed, asyncHandler(async (r
 // ── IMPORT chain ────────────────────────────────────────────────────────────
 router.post('/api/workbook/inspect', ...authed, asyncHandler(async (req, res) => {
   const templateKey = String(req.body?.template_key || '');
-  await requireTemplateAction(req.userContext, templateKey, 'import');
+  await requireTemplateAction(req.userContext, templateKey, 'prepare');
   const result = await inspectVehicleWorkbook(
     { file: req.body?.fileBase64, templateKey },
     req.userContext,
@@ -92,7 +95,7 @@ router.post('/api/workbook/inspect', ...authed, asyncHandler(async (req, res) =>
 
 router.post('/api/workbook/mapping/confirm', ...authed, asyncHandler(async (req, res) => {
   const templateKey = String(req.body?.template_key || '');
-  await requireTemplateAction(req.userContext, templateKey, 'import');
+  await requireTemplateAction(req.userContext, templateKey, 'prepare');
   const result = await confirmVehicleWorkbookMappings(undefined, req.userContext, {
     templateKey,
     workbookChecksum: req.body?.workbook_checksum,
@@ -103,7 +106,7 @@ router.post('/api/workbook/mapping/confirm', ...authed, asyncHandler(async (req,
 
 router.post('/api/workbook/dry-run', ...authed, asyncHandler(async (req, res) => {
   const templateKey = String(req.body?.template_key || '');
-  await requireTemplateAction(req.userContext, templateKey, 'import');
+  await requireTemplateAction(req.userContext, templateKey, 'prepare');
   const result = await runVehicleWorkbookDryRun(
     { file: req.body?.fileBase64, templateKey },
     req.userContext,
@@ -135,7 +138,7 @@ router.get('/api/workbook/recent-imports', ...authed, asyncHandler(async (req, r
 // ── CarUp AI Workbook Assistant ─────────────────────────────────────────────
 router.post('/api/workbook/assistant/explain-field', ...authed, asyncHandler(async (req, res) => {
   const templateKey = String(req.body?.template_key || '');
-  await requireTemplateAction(req.userContext, templateKey, 'import');
+  await requireTemplateAction(req.userContext, templateKey, 'prepare');
   res.json({ success: true, ...explainField({ templateKey, sheetName: req.body?.sheet_name, field: req.body?.field }) });
 }));
 
@@ -145,7 +148,7 @@ router.post('/api/workbook/assistant/explain-error', ...authed, asyncHandler(asy
 
 router.post('/api/workbook/assistant/suggest-corrections', ...authed, asyncHandler(async (req, res) => {
   const templateKey = String(req.body?.template_key || '');
-  await requireTemplateAction(req.userContext, templateKey, 'import');
+  await requireTemplateAction(req.userContext, templateKey, 'prepare');
   const result = await suggestCorrections({ templateKey, issues: req.body?.issues }, {});
   res.json({ success: true, ...result });
 }));

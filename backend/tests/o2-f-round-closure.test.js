@@ -172,6 +172,9 @@ const GOVERNED_DEALERS = new Map([
   ['9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d', DEALER_TENANT],
 ]);
 const isGovernedDealer = (userId, tenantId) => Boolean(tenantId) && GOVERNED_DEALERS.get(userId) === tenantId;
+// K-3 — the governed relationship is a COMPOSITION of server-controlled facts: an active
+// dealership-typed tenant plus a membership that acts for the business. `dealer_profiles.tenant_id`
+// is NOT required (nothing writes it in real data).
 const dealershipDb = {
   from: (table) => ({
     select: () => {
@@ -179,12 +182,19 @@ const dealershipDb = {
       const chain = {
         eq(k, v) { f[k] = v; return chain; },
         async maybeSingle() {
-          if (table !== 'dealer_profiles') return { data: null, error: null };
-          return {
-            data: isGovernedDealer(f.user_id, f.tenant_id)
-              ? { id: 'dp-1', tenant_id: DEALER_TENANT, suspension_state: 'none' } : null,
-            error: null,
-          };
+          if (table === 'dealer_profiles') return { data: null, error: null };
+          if (table === 'tenants') {
+            return {
+              data: f.id === DEALER_TENANT
+                ? { id: DEALER_TENANT, type: 'dealership', status: 'active' }
+                : { id: f.id, type: 'garage', status: 'active' },
+              error: null,
+            };
+          }
+          if (table === 'tenant_users') {
+            return { data: GOVERNED_DEALERS.get(f.user_id) === f.tenant_id ? { role: 'admin' } : null, error: null };
+          }
+          return { data: null, error: null };
         },
       };
       return chain;
@@ -196,7 +206,7 @@ const listingFor = (userContext) => {
     body: { vin: VIN, make: 'Toyota', model: 'Hilux', year: 2019, price: 15000, currency: 'USD', mileage: 90000, city: 'Harare', description: 'A well maintained vehicle.' },
     userContext,
     dealerListingSubject: isGovernedDealer(userContext.id, userContext.tenantId)
-      ? { granted: true, tenantId: userContext.tenantId, dealerProfileId: 'dp-1', reason: null }
+      ? { granted: true, tenantId: userContext.tenantId, dealerProfileId: null, reason: null }
       : null,
   });
   return { candidate, eligibility: getListingEligibility(candidate) };

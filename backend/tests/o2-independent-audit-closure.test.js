@@ -46,12 +46,13 @@ function strictClient(seed = {}) {
     diaspora_workbook_import_batches: seed.batches || [],
     diaspora_workbook_import_rows: seed.rows || [],
     diaspora_workbook_import_receipts: seed.receipts || [],
-    // J-3 — execute now resolves the dealer's tenant from the governed `dealer_profiles` binding
-    // before it revalidates any row, so the fixture must carry the dealership it trades as. Only
-    // this one (user, tenant) pair is bound; `matches` applies BOTH filters, so any other pair
-    // still resolves to no dealership.
-    dealer_profiles: seed.dealerProfiles
-      || [{ id: 'dp-e3', user_id: E3_DEALER, tenant_id: E3_TENANT, suspension_state: 'none' }],
+    // K-3 — execute resolves the dealer's tenant from the governed ORGANISATION before it
+    // revalidates any row: an active dealership-typed tenant plus a membership that acts for the
+    // business. `dealer_profiles.tenant_id` stays NULL exactly as it is in real data. `matches`
+    // applies every filter, so any other (user, tenant) pair still resolves to no dealership.
+    dealer_profiles: seed.dealerProfiles || [],
+    tenants: seed.tenants || [{ id: E3_TENANT, type: 'dealership', status: 'active' }],
+    tenant_users: seed.tenantUsers || [{ tenant_id: E3_TENANT, user_id: E3_DEALER, role: 'admin' }],
   };
   const matches = (row, filters) => filters.every(({ column, value }) => row[column] === value);
   // H18 — an unknown table answers like real Postgres for a user with no rows: an EMPTY SET,
@@ -425,33 +426,44 @@ test('E3: an ACTIVE DEALER with a valid tenant creates a DEALER-tenant-scoped dr
   assert.equal(create.current_seller_type, 'Dealer');
 });
 
+// K-4 moved these refusals EARLIER. The catalogue no longer offers `import` for an actor with no
+// listing subject, so execute is refused by its own capability gate before any row is considered,
+// rather than admitting the batch and failing each row. The guarantee is unchanged and now holds
+// sooner: nothing is created and nothing is dispatched.
 test('E3: a DEALER WITHOUT a valid tenant is refused, not silently downgraded', async () => {
-  const result = await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true },
-    { id: DEALER_ID, role: 'dealer', platformRole: 'dealer', requestedRole: 'dealer' }, {
+  const log = [];
+  const actor = { id: DEALER_ID, role: 'dealer', platformRole: 'dealer', requestedRole: 'dealer' };
+  await assert.rejects(
+    () => executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true }, actor, {
       supabaseClient: seeded({ seedActorId: DEALER_ID }),
-      dispatch: contractDispatch({ actor: { id: DEALER_ID, role: 'dealer', platformRole: 'dealer', requestedRole: 'dealer' } }),
-    });
-  assert.equal(result.created, 0);
-  assert.equal(result.failed, 1);
-  assert.equal(result.importStatus, 'PARTIALLY_IMPORTED');
+      dispatch: contractDispatch({ actor, log }),
+    }),
+    (e) => { assert.match(String(e.message), /WORKBOOK_TEMPLATE_NOT_AVAILABLE/); return true; },
+    'a dealer with no listing subject must not execute a dealer inventory import');
+  assert.equal(log.length, 0, 'and nothing was dispatched');
 });
 
-test('E3: a FORGED tenant is refused by the inner route\'s own membership check', async () => {
-  const result = await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true },
-    { ...DEALER, tenantId: '11111111-2222-4333-8444-555555555555' }, {
-      supabaseClient: seeded({ seedActorId: DEALER_ID }),
-      dispatch: contractDispatch({ actor: DEALER, memberships: { [DEALER_ID]: [TENANT_A] } }),
-    });
-  assert.equal(result.created, 0, 'membership is re-verified inside; the workbook cannot assert scope');
+test('E3: a FORGED tenant is refused — the workbook cannot assert its own scope', async () => {
+  const log = [];
+  await assert.rejects(
+    () => executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true },
+      { ...DEALER, tenantId: '11111111-2222-4333-8444-555555555555' }, {
+        supabaseClient: seeded({ seedActorId: DEALER_ID }),
+        dispatch: contractDispatch({ actor: DEALER, memberships: { [DEALER_ID]: [TENANT_A] }, log }),
+      }),
+    (e) => { assert.match(String(e.message), /WORKBOOK_TEMPLATE_NOT_AVAILABLE/); return true; });
+  assert.equal(log.length, 0, 'membership is re-verified server-side; nothing reached a route');
 });
 
 test('E3: a dealer cannot write into ANOTHER tenant — evidence included', async () => {
   const log = [];
-  await executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true },
-    { ...DEALER, tenantId: '22222222-3333-4444-8555-666666666666' }, {
-      supabaseClient: seeded({ seedActorId: DEALER_ID, evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/a.pdf', file_mime_type: 'application/pdf' }] }),
-      dispatch: contractDispatch({ actor: DEALER, memberships: { [DEALER_ID]: [TENANT_A] }, log }),
-    });
+  await assert.rejects(
+    () => executeVehicleWorkbookImport({ batchId: 'batch-1', confirm: true },
+      { ...DEALER, tenantId: '22222222-3333-4444-8555-666666666666' }, {
+        supabaseClient: seeded({ seedActorId: DEALER_ID, evidence: [{ evidence_class: 'registration', evidence_subtype: 'registration_book', file_url: 'https://x/a.pdf', file_mime_type: 'application/pdf' }] }),
+        dispatch: contractDispatch({ actor: DEALER, memberships: { [DEALER_ID]: [TENANT_A] }, log }),
+      }),
+    (e) => { assert.match(String(e.message), /WORKBOOK_TEMPLATE_NOT_AVAILABLE/); return true; });
   assert.equal(log.filter((e) => e.route.includes('/evidence/')).length, 0,
     'no evidence may be written under a tenant the actor does not hold');
 });

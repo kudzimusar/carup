@@ -277,9 +277,22 @@ test('I-2 (14): the catalogue mirrors the canonical subject exactly — no role-
           const chain = {
             eq(k, v) { f[k] = v; return chain; },
             async maybeSingle() {
-              if (table !== 'dealer_profiles') return { data: null, error: null };
-              const hit = f.user_id === 'd1' && f.tenant_id === TENANT_A;
-              return { data: hit ? { id: 'dp-1', tenant_id: TENANT_A, suspension_state: 'none' } : null, error: null };
+              // K-3: the governed relationship is a COMPOSITION — an active dealership-typed tenant
+              // plus a membership that acts for the business. `d1` IS the dealer for TENANT_A.
+              if (table === 'dealer_profiles') return { data: null, error: null };
+              if (table === 'tenants') {
+                return {
+                  data: f.id === TENANT_A
+                    ? { id: TENANT_A, type: 'dealership', status: 'active' }
+                    : { id: f.id, type: 'garage', status: 'active' },
+                  error: null,
+                };
+              }
+              if (table === 'tenant_users') {
+                const hit = f.user_id === 'd1' && f.tenant_id === TENANT_A;
+                return { data: hit ? { role: 'admin' } : null, error: null };
+              }
+              return { data: null, error: null };
             },
             then: (r) => Promise.resolve({ data: [], error: null }).then(r),
           };

@@ -22,7 +22,22 @@ import {
 import { XLSX_SCHEMA_VERSION } from '../../constants/diaspora/diasporaWorkbookTemplates.js';
 import { resolveDealerListingSubject } from '../dealer/dealerListingAuthority.js';
 
-export const WORKBOOK_ACTIONS = Object.freeze(['template', 'export', 'import', 'recent_imports']);
+/**
+ * K4 — 'import' used to mean BOTH "prepare a workbook" and "execute it", so a single coarse verb
+ * gated inspect, mapping/confirm, dry-run and the AI assistant as well as the mutation. That made
+ * it impossible to tell an actor "you may prepare and validate, but you may not yet create" — the
+ * catalogue had to either advertise execution it would refuse, or withhold preparation it allows.
+ *
+ *   prepare  — inspect, map, dry-run, ask the assistant. Reads and validates; creates nothing.
+ *   import   — EXECUTE: create vehicles/evidence. Requires a real listing subject.
+ */
+export const WORKBOOK_ACTIONS = Object.freeze(['template', 'export', 'prepare', 'import', 'recent_imports']);
+
+/** The actions available when an actor may prepare a workbook but cannot execute one. */
+export const PREPARE_ONLY_ACTIONS = Object.freeze(WORKBOOK_ACTIONS.filter((a) => a !== 'import'));
+
+/** Truthful action list: execution is advertised only when it would actually be permitted. */
+const actionsFor = (canExecute) => (canExecute ? [...WORKBOOK_ACTIONS] : [...PREPARE_ONLY_ACTIONS]);
 
 export const UNAVAILABLE_REASONS = Object.freeze({
   BUSINESS_CONTEXT_REQUIRED: 'business_context_required',
@@ -138,7 +153,8 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
       version: VEHICLE_WORKBOOK_SCHEMA_VERSION,
       engine: 'registry',
       sheets: [...VEHICLE_TEMPLATE_SHEETS[VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES]],
-      actions: [...WORKBOOK_ACTIONS],
+      // This entry is reached ONLY when a listing subject exists, so execution is truthful here.
+      actions: actionsFor(true),
       note: 'Imported vehicles are private DRAFTS under your own listing authority — publication stays a separate governed step.',
     });
   } else {
@@ -155,20 +171,30 @@ export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
 
   // ── dealer_vehicle_inventory: ACTIVE dealer (governed role) or dealer APPLICANT
   // (X5 registration context, server-derived). Everyone else: honest reason.
+  // K4 — AVAILABILITY and EXECUTABILITY are different questions.
+  //
+  // `active` used to be the role string, so every `dealer` was told the import would work. It is
+  // now the REAL listing subject. But a dealer without a governed dealership — and an applicant —
+  // can still legitimately download the template, map their data and validate it with a dry run;
+  // withdrawing the entry entirely would remove work they ARE allowed to do. So the entry stays,
+  // and the ACTION LIST narrows to preparation.
   const dealerContext = role === 'dealer'
-    ? { applicant: false, active: true }
+    ? { applicant: false, active: dealerListingSubject.granted === true }
     : { ...(await resolveDealerContext(client, actor)), active: false };
-  if (dealerContext.active || dealerContext.applicant) {
+  const dealerMayPrepare = role === 'dealer' || dealerContext.applicant;
+  if (dealerContext.active || dealerMayPrepare) {
     available.push({
       template_key: VEHICLE_TEMPLATE_KEYS.DEALER_VEHICLE_INVENTORY,
       label: 'Dealer Vehicle Inventory',
       version: VEHICLE_WORKBOOK_SCHEMA_VERSION,
       engine: 'registry',
       sheets: [...VEHICLE_TEMPLATE_SHEETS[VEHICLE_TEMPLATE_KEYS.DEALER_VEHICLE_INVENTORY]],
-      actions: [...WORKBOOK_ACTIONS],
+      actions: actionsFor(dealerContext.active),
       note: dealerContext.active
         ? 'Inventory preparation and migration for your dealership.'
-        : 'Applicant mode: imports create DRAFT vehicles under your own listing authority — Dealer activation stays a separate governed decision.',
+        : 'Preparation only: you can download the template, map your data and validate it with a dry run. '
+          + 'Importing creates vehicles under a dealership, and this account is not yet linked to one, '
+          + 'so the import step stays unavailable until that relationship exists.',
     });
   } else {
     // G-6 (H17) — every role gets a disposition. A government account previously fell through

@@ -6,9 +6,13 @@
  * HTTP into the REAL router, through the REAL `authorizeRole` middleware, into the REAL
  * `executeVehicleWorkbookImport` service, and asserts on the status the client actually receives.
  *
- * Nothing is stubbed except the database itself, and that double REFUSES to answer a dealership
- * query that is not scoped by BOTH user_id and tenant_id — so a resolver that asks a weaker
- * question fails here rather than passing.
+ * Nothing is stubbed except the database itself, and that double answers FAITHFULLY — it applies
+ * exactly the filters it is given, so an under-scoped query yields the real (wrong) answer instead
+ * of a protective error that would hide the defect.
+ *
+ * SCOPE, stated accurately: this is `router + authorizeRole under the NODE_ENV=test x-user-id
+ * fallback`, mounted without the full deployed app middleware chain. The session-backed derivation
+ * is proved separately in `o2-k-round-session-route.test.js`.
  */
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,15 +40,24 @@ function resetDb() {
       'u-dealer-garage': { id: 'u-dealer-garage', role: 'dealer', is_verified: true },
       'u-dealer-none': { id: 'u-dealer-none', role: 'dealer', is_verified: true },
       'u-admin': { id: 'u-admin', role: 'admin', is_verified: true },
+      'u-dealer-mech': { id: 'u-dealer-mech', role: 'dealer', is_verified: true },
     },
     // Generic organisational membership. NONE of this is selling authority.
     tenantUsers: {
       [`${DEALERSHIP}|u-dealer`]: { role: 'admin' },
       [`${GARAGE}|u-dealer-garage`]: { role: 'mechanic' },
       [`${GARAGE}|u-admin`]: { role: 'member' },
+      // employment by a real dealership is not agency for it (K-3)
+      [`${DEALERSHIP}|u-dealer-mech`]: { role: 'mechanic' },
     },
-    // The ONLY governed Dealer↔tenant binding.
-    dealerProfiles: [{ id: 'dp-1', user_id: 'u-dealer', tenant_id: DEALERSHIP, suspension_state: 'none' }],
+    // K-3 — the governed relationship is a COMPOSITION of server-controlled facts. `tenant_id` on
+    // the profile stays NULL exactly as it is in real data; the dealership is proven by an
+    // active dealership-typed tenant plus a membership that acts for the business.
+    dealerProfiles: [{ id: 'dp-1', user_id: 'u-dealer', tenant_id: null, suspension_state: 'none' }],
+    tenants: {
+      [DEALERSHIP]: { id: DEALERSHIP, type: 'dealership', status: 'active' },
+      [GARAGE]: { id: GARAGE, type: 'garage', status: 'active' },
+    },
   };
 }
 
@@ -76,13 +89,11 @@ function resolve_(table, f, single) {
       return hit ? ok(hit) : missing('no membership');
     }
     case 'dealer_profiles': {
-      // A dealership query that does not scope BOTH dimensions is the J-3 defect. Refuse it.
-      if (!('user_id' in f) || !('tenant_id' in f)) {
-        return { data: null, error: { message: 'J-3: dealer binding must be scoped by user_id AND tenant_id' } };
-      }
-      const hit = db.dealerProfiles.find((p) => p.user_id === f.user_id && p.tenant_id === f.tenant_id);
+      const hit = db.dealerProfiles.find((p) => p.user_id === f.user_id
+        && (!('tenant_id' in f) || p.tenant_id === f.tenant_id));
       return hit ? ok(hit) : ok(null);
     }
+    case 'tenants': return ok(db.tenants[f.id] || null);
     case 'diaspora_workbook_import_batches': {
       if (f.id !== BATCH) return ok([]);
       const batch = {
@@ -174,6 +185,12 @@ test('J-5: a dealer cannot escalate into the dealership by ASKING for a role', a
   // asking for 'dealer' inside the garage cannot manufacture a dealership there.
   const r = await execute({ userId: 'u-dealer-garage', tenantId: GARAGE, stakeholderRole: 'dealer' });
   assert.ok(noSubject(r) || r.status === 403, `got ${r.status} ${JSON.stringify(r.body)}`);
+});
+
+test('K-3: a dealer who is only a MECHANIC in a real dealership is refused at the route', async () => {
+  const r = await execute({ userId: 'u-dealer-mech', tenantId: DEALERSHIP });
+  assert.ok(noSubject(r),
+    `the tenant IS a dealership, but employment is not agency; got ${r.status} ${JSON.stringify(r.body)}`);
 });
 
 test('J-5: a WITHDRAWN dealership loses execute authority at the route', async () => {
