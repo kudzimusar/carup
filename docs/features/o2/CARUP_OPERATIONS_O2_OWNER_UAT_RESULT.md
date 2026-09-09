@@ -342,3 +342,122 @@ The Serena is provably outside any cleanup keyed on the `Media lifecycle candida
 U2 latency remedy · U3 Workbook layout/design convergence · U4 fixture-lifecycle fix, cleanup
 execution and non-accumulation proof · deployment of a new paired candidate. See the remediation
 receipt for the precise remaining list.
+
+---
+
+# Blocker closure — `7974d0c4`
+
+Closing U1–U4 from the failed walk of `1f26282a`. **This is agent remediation, not acceptance:**
+the Product Owner has not re-walked the candidate, and nothing below counts as a pass until they do.
+
+**Deployed pair (O2's own preview, exact-head, verified `unpaired: false`):**
+
+```
+FE  carup-staging-git-feat-operations-o2-people-compliance-11-11.vercel.app
+BE  carup-backend-staging-git-feat-operations-o2-peopl-b8a9c6-11-11.vercel.app
+    both at 7974d0c4 · unpaired:false · Supabase healthy
+```
+
+## U1 — Dealer return-to journey — CLOSED, verified live
+
+Signed in through the real UI on the deployed pair as `po.uat.dealer@carup-staging.test` — the very
+identity the Product Owner used — and opened `/dealer/onboarding`. It **lands on the page**; no
+bounce; the badge reads **"Applicant — not an active Dealer"**. The fix was already in the tree at
+`69e1eae4`; what was missing was a test that could have caught it, because the existing
+DealerOnboarding suite mounts the page directly and so never crosses the boundary the bounce lived
+in. A journey suite now mounts the page behind `RegistryRouteBoundary` and reverting the fix turns
+4 of its assertions red.
+
+## U2 — `GFC27-027051` latency — MATERIALLY IMPROVED, target NOT met, bottleneck named
+
+The passport was slow because it **waited**, not because anything was slow. It made 13 round trips
+one after another, and one of them (`computeVehicleTrustScore`) was itself 11 more. Both now issue
+their independent reads as one wave; nothing is reordered, no value substituted, no guard dropped.
+
+| | before (`69e1eae4`) | after (`7974d0c4`) |
+|---|---|---|
+| cold | 15.566s | 3.7 – 4.8s |
+| warm (median) | 9.022s | **3.4s** |
+| warm (best) | — | 2.58s |
+| 5xx across 13 requests | the 503 the PO saw | **zero** |
+
+**The stated target (warm p95 < 3s, no request > 5s) is NOT met, and the reason is infrastructural,
+not code.** Per-stage instrumentation on the deployed candidate shows every single Supabase round
+trip costs **~250–300 ms** — a single indexed one-row read measured 226–701 ms server-side. The
+cause: the backend function executes in Vercel **iad1 (Virginia)** while the staging database is in
+AWS **ap-southeast-2 (Sydney)**. Every query crosses the Pacific.
+
+What remains sequential is sequential for reasons that must not be traded away:
+
+- the lookup route's pre-work is deliberately serial so the response is **non-enumerable** — same
+  status, body and timing whether or not the identifier exists;
+- `verifyChain` is three genuinely dependent reads (checkpoint → its event → events after it);
+- overlapping the canonical trust read with the builder would require the Passport contract to take
+  a promise instead of a value.
+
+Roughly nine sequential round trips remain × ~250 ms ≈ 2.5 s of pure network. **No code change beats
+that while the two halves are on opposite sides of the planet.** Co-locating them is a Product Owner
+infrastructure decision, and it would bring the same code comfortably inside the target.
+
+## U3 — Workbook convergence — CLOSED
+
+Three separate faults, none of them polish:
+
+- **Shell.** `/workbook-tools` was declared in App.tsx's auth group under `MainLayout hideNav`,
+  beside `/login`. It now renders in the canonical shell.
+- **Registry.** There was **no entry for the route at all** — every registry-derived decision was
+  being made about a page the registry could not see. Registered as `hidden`: reachable by a
+  role-eligible signed-in account, advertised nowhere, which is the truth.
+- **Palette.** The page and its workspace hardcoded `bg-gray-950`/`bg-gray-900`/violet, overriding
+  the CarUp theme. Both now use the shared semantic tokens.
+
+Measured on the deployed pair at three viewports:
+
+| viewport | horizontal overflow | global nav | footer / bottom nav | account context |
+|---|---|---|---|---|
+| desktop 1440 | none (1440/1440) | yes | footer | "PO" chip |
+| tablet 768 | none (762/768) | yes | footer | yes |
+| mobile 393 | none (387/393) | yes | bottom nav | Account tab |
+
+The 1440 screenshot caught a defect I had just introduced: the selected card used `bg-accent`, which
+in the CarUp light theme is full brand orange, leaving its note orange-on-orange. Fixed to a tint
+plus ring. **That is what the screenshots were for.**
+
+## U4 — staging fixture contamination — CURRENT HARNESS TESTED FIRST, then measured
+
+The reported "35 published fixtures" is **two different things**, and the distinction decides
+whether there is a defect at all:
+
+| | count | publicly discoverable? |
+|---|---|---|
+| published + `Sold` | 31 | **no** — deliberately retained so publication history stays intact |
+| published + `Available` | **4** | **yes — genuine contamination** |
+
+So the real leak was **4**, not 35. Serena `GFC27-027051` is owned by a different account and does
+not match the `JTMLC` automation prefix — provably outside any sweep.
+
+**Phase U4-A — the current governed cleanup was run, not rewritten.** Run `34354302373` detected all
+four, attributed each correctly as "an earlier run", and retired each through the product's own
+`POST /api/vehicles/{vin}/unpublish` with real login, real CSRF and real owner scope — HTTP 200 each.
+**No manual DELETE.** 4 → 0.
+
+**Phase U4-B — two consecutive runs.** Run 1 passed and left its own two fixtures `Sold` (off the
+public surface, history intact). Run 2 (`34356562941`) **failed** mid-spec — which is the more
+valuable case — and its cleanup still reported the surface clean.
+
+| | publicly discoverable automation listings |
+|---|---|
+| before | 4 |
+| after run 1 (passed) | 0 |
+| after run 2 (failed) | 0 |
+
+The staging marketplace is now **27 real listings and zero automation fixtures**; it was 4 of 26.
+
+**Two things are still true and are not hidden.** First, run 2 failed *before* publishing, so it did
+not exercise the historically leaky path — a run killed *between* publish and mark-sold. Second, and
+structurally: the sweep only runs **when this workflow runs**. The four leaks dated from
+2026-09-08 while the workflow's previous run was 2026-09-03 — nothing swept them for a day, because
+nothing ran. A pre-run sweep would close that, and it is not added here because the Product Owner
+asked that the current harness be tested before being rewritten, and on the evidence above the
+current harness does remediate. Row count also still grows (48 → 51 fixtures in any state); only
+public visibility is controlled.
