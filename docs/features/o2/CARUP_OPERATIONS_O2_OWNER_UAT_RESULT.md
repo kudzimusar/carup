@@ -1,5 +1,16 @@
 # O2 — Product Owner UAT RESULT
 
+> ## ⛔ SUPERSEDED — THIS RESULT NO LONGER STANDS
+>
+> **A physical Product Owner walk of candidate `1f26282a` on 2026-09-09 FAILED.** The result below
+> was recorded against `71b81d74`/`4002dbea` and reported **33 PASS / 0 FAIL**. It is retained in
+> full as history and is **NOT** deleted — but it must not be cited as current acceptance, and the
+> "33 PASS / 0 FAIL" figure is superseded by the physical walk recorded in
+> **§ Owner UAT — `1f26282a` (FAILED)** at the end of this document.
+>
+> Real Product Owner UAT outranks any automated or agent-reported walk.
+
+
 **Candidate walked:** `71b81d74` (the PR head at the time of the walk).
 **Candidate certified:** `4002dbea` — the same tree plus the bounded closure of the three defects
 this walk found. Nothing else changed between them.
@@ -263,3 +274,72 @@ Two boundaries are recorded rather than closed, because in both cases **the prod
 the capability it lacks**: LIVE OCR is not ready on this preview (no provider configured — closed by
 #209's governed provider boundary, which is downstream in the parent-first order), and dealer
 activation has no governed path and the UI says so plainly.
+
+---
+
+# Owner UAT — `1f26282a` (FAILED)
+
+**Walked by:** the Product Owner, physically, on the deployed candidate `1f26282a`.
+**Verdict: FAIL.** This supersedes the `33 PASS / 0 FAIL` result above.
+
+| Area | Owner result |
+|---|---|
+| Seller onboarding | PASS |
+| Dealer login / onboarding | **FAIL** |
+| Workbook Tools — functional presence | partial PASS |
+| Workbook Tools — navigation / design convergence | **FAIL** |
+| Home / Marketplace media presentation | **FAIL** |
+| Serena listing + detail | PASS (positive control) |
+| Vehicle identifier `GFC27-027051` | **HTTP 503** observed |
+
+Screenshots supplied by the Owner: Workbook desktop · Workbook mobile · Home hero with
+synthetic/missing-looking imagery · Serena positive control.
+
+## What has been reproduced and closed so far
+
+**U1 — Dealer return-to journey (BLOCKER) — root-caused and FIXED.** Reproduced in a real browser
+against the deployed pair. `POST /api/auth/login` returns **200**, a token and user are written to
+`localStorage`, the "Welcome" toast fires — and the user stays on Login. History instrumentation
+showed the truth:
+
+```
+pushState    -> /dealer/onboarding
+replaceState -> /login?returnTo=%2Fdealer%2Fonboarding
+```
+
+No API call to dealer onboarding is ever made, **no 401 and no 503**, and the token is still
+present after the bounce. The cause is `web/src/lib/routeAccess.ts` step 2b: an unregistered,
+non-public route redirected to `/login?returnTo=…` **regardless of `enforceAuth` and regardless of
+whether the caller was already authenticated**. `/dealer/onboarding` is not in the feature registry,
+so this was an infinite loop by construction. Fixed: redirecting to login can only help an
+anonymous caller, so it is no longer attempted for an authenticated one, and a layout that asked
+for lifecycle-only gating (`enforceAuth: false`) no longer has an auth decision forced on it. No
+Dealer authority is widened — an applicant remains an applicant, and the page and backend still
+decide what they may see.
+
+**U2 — `GFC27-027051` — reproduced as a LATENCY failure, not an application 503.** Unauthenticated
+the identifier returns a governed **401** (`LOOKUP_REQUIRES_AUTHENTICATION` — exact VIN lookup is
+open, plate/temporary identifiers are not). Authenticated it returns **200** with the Owner's
+actual Serena — but takes **~13 seconds**, which is consistent with an intermittent platform
+gateway timeout surfacing to the browser as 503. No application code path returns 503 for this
+route. **The latency itself is the defect and is NOT yet fixed.**
+
+**U4 — staging contamination measured (read-only).**
+
+| measure | count |
+|---|---|
+| published vehicles on staging | **71** |
+| published `Media lifecycle candidate` fixtures | **35 (49% of the public marketplace)** |
+| such fixtures in any state | 48 |
+| published fixtures owned by `uat.buyer@carup-staging.test` | 35 |
+| Home hero `JTMLCMXB922172151` | published fixture |
+| **Serena `GFC27-027051`** | published, and does **NOT** match the fixture pattern — **safe** |
+
+The Serena is provably outside any cleanup keyed on the `Media lifecycle candidate` pattern.
+
+## NOT yet done — the candidate is not re-testable
+
+U2 latency remedy · U3 Workbook layout/design convergence · U4 fixture-lifecycle fix, cleanup
+execution and non-accumulation proof · deployment of a new paired candidate. See the remediation
+receipt for the precise remaining list.
+
