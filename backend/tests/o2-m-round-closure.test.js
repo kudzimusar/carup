@@ -23,6 +23,8 @@ import {
   deriveRemoteReference,
   CHECKSUM_SOURCES,
   IDEMPOTENCY_OPERATION_CONFLICT,
+  PROVENANCE_KEY,
+  buildProvenance,
 } from '../services/evidence/uploadIdempotency.js';
 import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 
@@ -65,7 +67,13 @@ let seq = 0;
 const write = (db) => async ({ op, key }) => {
   seq += 1;
   const meta = { idempotency_key: key };
-  if (op.checksum) meta.checksum_source = op.checksum_source;
+  // P1 — provenance is server-authored under its own namespace; the flat key is never read.
+  if (op.checksum_source) {
+    meta[PROVENANCE_KEY] = buildProvenance({
+      hasInlineBuffer: op.checksum_source === CHECKSUM_SOURCES.SERVER_INLINE,
+      hasChecksum: Boolean(op.checksum),
+    });
+  }
   let data = null; let error = null;
   try {
     const { rows } = await db.query(
@@ -161,27 +169,36 @@ test('M1: a historical row with no provenance is treated as UNVERIFIED (conserva
   await db.close();
 });
 
-test('M1: the route records provenance, and only inline is server-computed', () => {
+test('M1/P1: the route records provenance server-side, and only inline is server-computed', () => {
   const route = src('../routes/vehiclesRoutes.js');
-  assert.match(route, /metadata\.checksum_source = fileBuffer/,
-    'provenance must be decided by whether the server held the bytes');
+  assert.match(route, /metadata\[PROVENANCE_KEY\] = buildProvenance\(\{ hasInlineBuffer: Boolean\(fileBuffer\)/,
+    'provenance must be decided by whether the server held the bytes, in a namespace it owns');
   assert.match(route, /checksum = checksumForBuffer\(fileBuffer\)/,
     'and the only server-computed checksum remains the inline one');
 });
 
 /* ══ M2 — the locator rules ════════════════════════════════════════════════════════════ */
 
-test('M2: a re-signed storage URL for the SAME object converges on the object key', () => {
-  const a = deriveRemoteReference({ file_url: 'https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/A.pdf?token=aaa&exp=1' });
-  const b = deriveRemoteReference({ file_url: 'https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/A.pdf?token=bbb&exp=2' });
-  assert.equal(a, b);
-  assert.equal(a, 'vehicle-images/ev/A.pdf');
+test('M2/P2: a re-signed storage URL on the CONFIGURED origin converges on the object key', () => {
+  // P2 narrowed this: the path shape alone is not provenance, so the origin must be CarUp's own.
+  const prev = process.env.SUPABASE_URL;
+  process.env.SUPABASE_URL = 'https://p.supabase.co';
+  try {
+    const a = deriveRemoteReference({ file_url: 'https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/A.pdf?token=aaa&exp=1' });
+    const b = deriveRemoteReference({ file_url: 'https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/A.pdf?token=bbb&exp=2' });
+    assert.equal(a, b);
+    assert.equal(a, 'vehicle-images/ev/A.pdf');
+  } finally { process.env.SUPABASE_URL = prev; }
 });
 
 test('M2: DIFFERENT stable storage objects stay distinct', () => {
+  const prev = process.env.SUPABASE_URL;
+  process.env.SUPABASE_URL = 'https://p.supabase.co';
+  try {
   assert.notEqual(
     deriveRemoteReference({ file_url: 'https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/A.pdf?token=x' }),
     deriveRemoteReference({ file_url: 'https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/B.pdf?token=x' }));
+  } finally { process.env.SUPABASE_URL = prev; }
 });
 
 test('M2: an arbitrary EXTERNAL url keeps its identity-bearing query', async () => {
@@ -318,6 +335,12 @@ test('M4: the completeness read composes the governed authority', () => {
  * The L tripwire failed twice: it never read `server.js`, and its regex only saw direct
  * `.tenantId` access, so `const activeTenantId = …; vehicle.tenant_id === activeTenantId` walked
  * straight past it. This looks for the tenant GRANT in any spelling instead of one syntax.
+ *
+ * P4 — THIS IS A COVERAGE CHECK, NOT THE PROOF OF AUTHORITY. It can only see that a surface
+ * mentions the governed decision; it cannot see whether the result is USED. A mutation that
+ * restores the raw grant while leaving the call present passes here and is caught by the
+ * BEHAVIOURAL matrix in `o2-predictive-closure.test.js`, which asserts the status and the row
+ * count instead of the spelling. Keep both: this one says WHICH surfaces must be tested.
  */
 const SELLER_SURFACES = [
   ['../routes/vehiclesRoutes.js', "router.patch('/api/vehicles/:vin/status'", 'vehicle status'],
@@ -327,6 +350,10 @@ const SELLER_SURFACES = [
   ['../routes/vehiclesRoutes.js', "router.get('/api/vehicles/:vin/evidence'", 'private evidence read'],
   ['../server.js', "app.get('/api/vehicles/:vin/completeness'", 'vehicle completeness'],
   ['../server.js', "app.patch('/api/vehicles/:vin/seller-draft'", 'seller draft'],
+  // P3 — both governed in source but previously unregistered, so a regression in either was
+  // invisible to this coverage check.
+  ['../server.js', "app.post('/api/vehicles/add'", 'existing-Passport reuse'],
+  ['../services/storage/mediaRouter.js', "router.post('/upload/document'", 'private document upload'],
   ['../services/storage/mediaRouter.js', "router.post('/upload/vehicle'", 'media upload'],
   ['../services/storage/mediaRouter.js', "router.get('/upload/signed-url'", 'media signed url'],
   ['../services/storage/mediaRouter.js', "router.get('/document/signed-url'", 'private document read'],

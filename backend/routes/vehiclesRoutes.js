@@ -58,7 +58,7 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference, CHECKSUM_SOURCES } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference, readStoredChecksumSource, buildProvenance, PROVENANCE_KEY } from '../services/evidence/uploadIdempotency.js';
 import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
@@ -803,17 +803,18 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
     req.body.idempotency_key || req.body.idempotencyKey || null;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
-  // M1 — WHERE THIS CHECKSUM CAME FROM, recorded beside it.
+  // M1/P1 — WHERE THIS CHECKSUM CAME FROM, recorded by the SERVER, beside it.
   //
   // `checksum` is server-computed ONLY for an inline `req.body.file` (see `checksumForBuffer`
   // above); for a remote submission it is whatever the caller sent. The idempotency comparison
-  // lets content outrank object location, so it must be able to tell knowledge from assertion —
-  // otherwise an unverified string suppresses a genuinely different remote document.
-  if (checksum) {
-    metadata.checksum_source = fileBuffer
-      ? CHECKSUM_SOURCES.SERVER_INLINE
-      : CHECKSUM_SOURCES.CLIENT_ASSERTED;
-  }
+  // lets content outrank object location, so it must tell knowledge from assertion — otherwise an
+  // unverified string suppresses a genuinely different remote document.
+  //
+  // Assigned UNCONDITIONALLY and AFTER `buildAiReadyMetadata` spreads the client's own metadata
+  // object, so a caller cannot pre-seed this namespace; and written even when there is no checksum,
+  // so the block's presence marks a row as written under this contract. A historical row has no
+  // block at all and is therefore never treated as verified.
+  metadata[PROVENANCE_KEY] = buildProvenance({ hasInlineBuffer: Boolean(fileBuffer), hasChecksum: Boolean(checksum) });
 
   // A clamped publication request is recorded, never silently dropped: review needs to see that an
   // uploader asked for a wider audience than their authority allows, and a stale client that keeps
@@ -956,7 +957,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
         evidence_subtype: insertData.evidence_subtype ?? normalized.evidenceSubtype ?? null,
         evidence_type: insertData.evidence_type ?? null,
         checksum: insertData.checksum ?? null,
-        checksum_source: metadata.checksum_source ?? null,
+        checksum_source: readStoredChecksumSource(metadata),
         remote_ref: deriveRemoteReference(insertData),
       },
     },

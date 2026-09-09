@@ -130,15 +130,19 @@ test('L1 (2,7): a DIFFERENT remote reference with NO checksum is a 409, never a 
 });
 
 test('L1/M2: a SIGNED-URL re-issue is the same object — signature and expiry are transient', async () => {
-  // M2 narrowed this deliberately: a query is transient only on a RECOGNISED storage URL, whose
-  // object key is in the path. An arbitrary locator's query may be identity-bearing and is kept.
+  // M2 narrowed this deliberately: a query is transient only on a RECOGNISED storage URL whose
+  // object key is in the path. P2 narrowed it again: that URL must also be on CarUp's OWN
+  // configured storage origin — a foreign host serving the same path shape proves nothing.
   const db = await evidenceDb();
   const store = new Map();
+  const prevUrl = process.env.SUPABASE_URL;
+  process.env.SUPABASE_URL = 'https://p.supabase.co';
   const signed = (t) => `https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/FILE-A.pdf?token=${t}`;
   const a = await send(db, store, { key: 'K', op: REMOTE(signed('aaa')) });
   const b = await send(db, store, { key: 'K', op: REMOTE(signed('bbb')) });
   assert.equal(b.deduped, true, 'a re-signed URL for the SAME object must not look like a new file');
   assert.equal(a.evidenceId, b.evidenceId);
+  process.env.SUPABASE_URL = prevUrl;
   await db.close();
 });
 

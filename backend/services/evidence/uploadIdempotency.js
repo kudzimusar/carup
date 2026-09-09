@@ -81,6 +81,46 @@ export const OPERATION_IDENTITY_FIELDS = Object.freeze(
 export const CHECKSUM_SOURCES = Object.freeze({ SERVER_INLINE: 'server_inline', CLIENT_ASSERTED: 'client_asserted' });
 
 /**
+ * P1 — PROVENANCE MUST NOT SELF-CERTIFY.
+ *
+ * The M-round read `metadata.checksum_source` straight off the stored row. But `metadata` is built
+ * as `{ ...normalized.metadata, … }` — the CLIENT's object is spread in — and before this contract
+ * existed nothing overwrote that key. So a historical row could simply CONTAIN the string
+ * `server_inline` and be believed. Measured: a retry with a different object was told
+ * `deduped: true` and the changed document was discarded.
+ *
+ * Provenance now lives under a SERVER-OWNED namespace that the writer assigns unconditionally,
+ * after the client spread and regardless of whether a checksum is present. A client-supplied
+ * `carup_provenance` is therefore always replaced, and a historical row simply has none — which
+ * reads as "not trustworthy", not as "trusted". The version pins the contract so a future shape
+ * change cannot be silently inherited either.
+ */
+export const PROVENANCE_KEY = 'carup_provenance';
+export const PROVENANCE_VERSION = 1;
+
+/** The server-authored provenance block for a write. Always produced, even with no checksum. */
+export function buildProvenance({ hasInlineBuffer = false, hasChecksum = false } = {}) {
+  return {
+    v: PROVENANCE_VERSION,
+    checksum_source: hasChecksum
+      ? (hasInlineBuffer ? CHECKSUM_SOURCES.SERVER_INLINE : CHECKSUM_SOURCES.CLIENT_ASSERTED)
+      : null,
+  };
+}
+
+/**
+ * The checksum provenance a STORED row can actually prove.
+ *
+ * Only a block this server authored under the current version counts. A legacy top-level
+ * `checksum_source` is deliberately NOT read: that is the field a client could have written.
+ */
+export function readStoredChecksumSource(metadata) {
+  const block = metadata?.[PROVENANCE_KEY];
+  if (!block || block.v !== PROVENANCE_VERSION) return null;
+  return block.checksum_source ?? null;
+}
+
+/**
  * Classification is a CONTROLLED VOCABULARY — compared case-insensitively.
  * Content identity is NOT — a storage object key is case-sensitive, and lowercasing one would
  * make two genuinely different objects look identical.
@@ -114,6 +154,20 @@ const IDENTITY_COLUMNS = 'id, vin, uploaded_by, metadata, evidence_class, eviden
  * SAME object, so it is stripped — otherwise a legitimate retry would look like a different file.
  * Case is preserved: object keys are case-sensitive.
  */
+/**
+ * CarUp's OWN configured storage origin, from the same `SUPABASE_URL` the client is built from.
+ * Read at call time so tests and deployments observe the configured value rather than a snapshot.
+ * No hard-coded hostname, no network call, no DNS.
+ */
+export function isTrustedStorageOrigin(url) {
+  const configured = process.env.SUPABASE_URL || '';
+  if (!configured) return false;
+  let origin; let candidate;
+  try { origin = new URL(configured).origin; } catch { return false; }
+  try { candidate = new URL(url).origin; } catch { return false; }
+  return candidate === origin;
+}
+
 export function deriveRemoteReference(row = {}) {
   const bucket = row.storage_bucket == null ? '' : String(row.storage_bucket).trim();
   const rawPath = row.file_path == null ? '' : String(row.file_path).trim();
@@ -133,13 +187,21 @@ export function deriveRemoteReference(row = {}) {
 
   const withoutFragment = dropFragment(locator);
 
-  // (2) A recognised storage URL: the object key is in the PATH, derivable with no network call,
-  //     so the transient signature/expiry query is dropped.
-  const storage = withoutFragment.match(
-    /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/([^?#]+)/);
-  if (storage) {
-    const [, urlBucket, key] = storage;
-    return `${bucket || urlBucket}/${key}`;
+  // (2) A recognised storage URL ON A TRUSTED ORIGIN. Both are required.
+  //
+  // P2 — path shape alone is NOT provenance. Any host can serve
+  // `/storage/v1/object/sign/<bucket>/<key>`, and treating that shape as a signed storage URL made
+  // `https://evil.example/storage/v1/object/sign/vehicle-images/A.pdf?id=ONE` and `?id=TWO`
+  // collapse to one identity — the query there is identity-bearing, not a signature. The origin is
+  // compared against CarUp's own CONFIGURED storage origin (`SUPABASE_URL`); nothing is fetched and
+  // no DNS is consulted.
+  if (isTrustedStorageOrigin(withoutFragment)) {
+    const storage = withoutFragment.match(
+      /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/([^?#]+)/);
+    if (storage) {
+      const [, urlBucket, key] = storage;
+      return `${bucket || urlBucket}/${key}`;
+    }
   }
 
   // (3) Any other URL is OPAQUE. Its query may be the only thing naming the document
@@ -290,9 +352,10 @@ async function runLookup(supabase, idempotencyKey, actorId, { withColumn }) {
           evidence_subtype: match.evidence_subtype ?? null,
           evidence_type: match.evidence_type ?? null,
           checksum: match.checksum ?? null,
-          // M1 — provenance travels in metadata (no column, no migration). A row written before
-          // this existed has none, and is therefore treated as unverified.
-          checksum_source: match.metadata?.checksum_source ?? null,
+          // M1/P1 — provenance travels in a SERVER-OWNED metadata namespace (no column, no
+          // migration). A row written before this contract has none and is therefore unverified,
+          // and a legacy client-written `checksum_source` is never consulted.
+          checksum_source: readStoredChecksumSource(match.metadata),
           remote_ref: deriveRemoteReference(match),
         },
       },
