@@ -86,7 +86,7 @@ export default function WorkbookTools() {
         {available.map((entry) => (
           <Card key={entry.template_key}
             className={`border transition-colors ${entry.engine === 'registry' ? 'cursor-pointer hover:border-primary/50' : ''} ${
-              selected === entry.template_key ? 'border-primary bg-accent' : 'border-border bg-card'
+              selected === entry.template_key ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-border bg-card'
             }`}>
             <CardContent className="p-3" onClick={() => entry.engine === 'registry' ? setSelected(entry.template_key) : undefined}>
               <div className="flex items-center justify-between">
