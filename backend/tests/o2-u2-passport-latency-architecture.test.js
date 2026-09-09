@@ -189,12 +189,20 @@ describe('U2 — the passport fetches concurrently', () => {
   });
 
   it('ANTI-VACUITY — the same measurement FAILS against a deliberately serialized builder', async () => {
-    // Re-serialize the wave by awaiting each promise the moment it is created. This is the exact
+    // Re-serialize the wave by awaiting each wrapper the moment it is created. This is the exact
     // shape the code had at 1f26282a, produced mechanically from the shipped source so the control
     // cannot drift away from what it is controlling for.
-    const serialized = passportSource().replace(/= wrap\(/g, '= wrap(await ');
-    assert.notEqual(serialized, passportSource(),
-      'the serialization control rewrote nothing — it is no longer a control, retarget it');
+    //
+    // `await wrap(...)` and NOT `wrap(await ...)`: `wrap` takes (name, promise), so injecting the
+    // await INSIDE the call would await the NAME — a string — and leave the promise unawaited. The
+    // control would then quietly stop serializing anything, which is exactly what it did when the
+    // stage-timing rename landed. Awaiting the wrapper itself is unambiguous under any signature.
+    const source = passportSource();
+    const serialized = source.replace(/= wrap\(/g, '= await wrap(');
+    const rewrites = (source.match(/= wrap\(/g) || []).length;
+    assert.ok(rewrites >= 6,
+      `the serialization control rewrote ${rewrites} call sites — too few to serialize the wave, `
+      + 'so it is no longer a control. Retarget it rather than lowering this number.');
 
     const { issued } = await issuedWhileAllPending(serialized);
     const tables = new Set(issued);
