@@ -109,8 +109,10 @@ test('P1 (3): a historical row with NO provenance is untrusted', async () => {
 
 test('P1 (1): a row written under the CURRENT server-authored contract IS trusted', async () => {
   const db = await evidenceDb();
+  // F1 — the block is SIGNED and bound to the row, so the seed must supply the row's own facts.
   await seed(db, 'cur-1', 'evidence/A.pdf', 'SUM',
-    { idempotency_key: 'K', [PROVENANCE_KEY]: buildProvenance({ hasInlineBuffer: true, hasChecksum: true }) });
+    { idempotency_key: 'K', [PROVENANCE_KEY]: buildProvenance({
+      hasInlineBuffer: true, hasChecksum: true, checksum: 'SUM', vin: 'VIN-A', uploadedBy: 'u1' }) });
   const a = attempt(db, REQUEST('evidence/MOVED.pdf', 'SUM', CHECKSUM_SOURCES.SERVER_INLINE));
   const out = await a.run;
   assert.equal(out.deduped, true, 'genuine server-computed content still outranks a moved object');
@@ -122,7 +124,8 @@ test('P1 (1): a row written under the CURRENT server-authored contract IS truste
 test('P1 (2): a CURRENT client-asserted checksum gains no trust', async () => {
   const db = await evidenceDb();
   await seed(db, 'cur-2', 'evidence/A.pdf', 'SUM',
-    { idempotency_key: 'K', [PROVENANCE_KEY]: buildProvenance({ hasInlineBuffer: false, hasChecksum: true }) });
+    { idempotency_key: 'K', [PROVENANCE_KEY]: buildProvenance({
+      hasInlineBuffer: false, hasChecksum: true, checksum: 'SUM', vin: 'VIN-A', uploadedBy: 'u1' }) });
   await assert.rejects(() => attempt(db, REQUEST('evidence/B.pdf', 'SUM', CHECKSUM_SOURCES.CLIENT_ASSERTED)).run,
     (e) => e.details?.field === 'remote_ref');
   await db.close();
@@ -226,20 +229,37 @@ test('P2: no hard-coded hostname, and no network or DNS lookup', () => {
  * regression in either would have gone unnoticed.
  */
 export const SELLER_SURFACE_REGISTER = [
-  ['../routes/vehiclesRoutes.js', "router.patch('/api/vehicles/:vin/status'", 'vehicle status'],
-  ['../routes/vehiclesRoutes.js', 'async function loadScopedVehicle', 'publish / unpublish / price'],
-  ['../routes/vehiclesRoutes.js', 'async function assertEvidenceOwnershipScope', 'evidence upload seller scope'],
-  ['../routes/vehiclesRoutes.js', "router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event'", 'evidence link-event'],
-  ['../routes/vehiclesRoutes.js', "router.get('/api/vehicles/:vin/evidence'", 'private evidence read'],
-  ['../server.js', "app.get('/api/vehicles/:vin/completeness'", 'vehicle completeness'],
-  ['../server.js', "app.patch('/api/vehicles/:vin/seller-draft'", 'seller draft'],
-  ['../server.js', "app.post('/api/vehicles/add'", 'existing-Passport reuse — ADDED (P3)'],
-  ['../services/storage/mediaRouter.js', "router.post('/upload/vehicle'", 'media upload'],
-  ['../services/storage/mediaRouter.js', "router.post('/upload/document'", 'private document upload — ADDED (P3)'],
-  ['../services/storage/mediaRouter.js', "router.get('/upload/signed-url'", 'media signed url'],
-  ['../services/storage/mediaRouter.js', "router.get('/document/signed-url'", 'private document read'],
-  ['../services/seller/sellerAuthorityService.js', 'export function hasExistingSellerRelationship', 'seller relationship recognition'],
+  // [file, source anchor (rename detection ONLY), label, behavioural scenario id]
+  ['../routes/vehiclesRoutes.js', "router.patch('/api/vehicles/:vin/status'", 'vehicle status', 'set status'],
+  ['../routes/vehiclesRoutes.js', 'async function loadScopedVehicle', 'publish / unpublish / price', 'publish'],
+  ['../routes/vehiclesRoutes.js', "router.post('/api/vehicles/:vin/unpublish'", 'unpublish', 'unpublish'],
+  ['../routes/vehiclesRoutes.js', "router.patch('/api/vehicles/:vin/price'", 'price', 'reprice'],
+  ['../routes/vehiclesRoutes.js', 'async function assertEvidenceOwnershipScope', 'evidence upload seller scope', 'evidence upload scope'],
+  ['../routes/vehiclesRoutes.js', "router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event'", 'evidence link-event', 'link evidence'],
+  ['../routes/vehiclesRoutes.js', "router.get('/api/vehicles/:vin/evidence'", 'private evidence read', 'private evidence read'],
+  ['../routes/vehiclesRoutes.js', "router.get('/api/vehicles/:vin/seller-authority'", 'seller authority state read', 'seller authority state'],
+  ['../server.js', "app.get('/api/vehicles/:vin/completeness'", 'vehicle completeness', 'completeness read'],
+  ['../server.js', "app.patch('/api/vehicles/:vin/seller-draft'", 'seller draft', 'seller draft'],
+  ['../server.js', "app.post('/api/vehicles/add'", 'existing-Passport reuse', 'existing-passport reuse'],
+  ['../services/storage/mediaRouter.js', "router.post('/upload/vehicle'", 'media upload', 'media vehicle upload'],
+  ['../services/storage/mediaRouter.js', "router.post('/upload/document'", 'private document upload', 'document upload'],
+  ['../services/storage/mediaRouter.js', "router.get('/upload/signed-url'", 'media signed url', 'media signed url'],
+  ['../services/storage/mediaRouter.js', "router.get('/document/signed-url'", 'private document read', 'private document read'],
+  ['../services/seller/sellerAuthorityService.js', 'export function hasExistingSellerRelationship', 'seller relationship recognition', 'relationship recognition'],
 ];
+
+/**
+ * F3 — every behavioural scenario this suite actually runs. The two lists are checked against each
+ * other, so a registered surface with no scenario, or a scenario with no registered surface, fails
+ * the suite. Source anchors remain ONLY for rename detection; they are never the authority proof.
+ */
+export const BEHAVIOURAL_SCENARIOS = new Set([
+  'publish', 'unpublish', 'reprice', 'set status', 'link evidence',
+  'private evidence read', 'evidence upload scope', 'seller authority state',
+  'completeness read', 'seller draft', 'existing-passport reuse',
+  'media vehicle upload', 'document upload', 'media signed url', 'private document read',
+  'relationship recognition',
+]);
 
 const NOT_SELLER_AUTHORITY = [
   ['../server.js', 'async function mechanicIsAssignedToVehicle', 'Service Network assignment'],
@@ -257,17 +277,31 @@ function surfaceBody(rel, anchor) {
   return rest.slice(0, end === -1 ? rest.length : end);
 }
 
+test('F3: register and behaviour are MECHANICALLY connected — neither may drift', () => {
+  const scenarios = new Set(SELLER_SURFACE_REGISTER.map(([, , , scenario]) => scenario));
+  const missingProof = [...scenarios].filter((sc) => !BEHAVIOURAL_SCENARIOS.has(sc));
+  assert.deepEqual(missingProof, [], 'these registered Seller surfaces have NO behavioural proof');
+  const orphanScenarios = [...BEHAVIOURAL_SCENARIOS].filter((sc) => !scenarios.has(sc));
+  assert.deepEqual(orphanScenarios, [], 'these behavioural scenarios have NO registered surface');
+  for (const entry of SELLER_SURFACE_REGISTER) {
+    assert.equal(entry.length, 4, `register entry must name its scenario: ${entry[2]}`);
+  }
+});
+
 test('P3: every registered Seller surface anchor resolves', () => {
   for (const [rel, anchor] of [...SELLER_SURFACE_REGISTER, ...NOT_SELLER_AUTHORITY]) {
     assert.ok(surfaceBody(rel, anchor).length > 0, `${rel}: ${anchor}`);
   }
 });
 
-test('P3: the two previously omitted surfaces ARE governed', () => {
-  assert.match(surfaceBody('../server.js', "app.post('/api/vehicles/add'"), /hasGovernedDealerVehicleAuthority/,
-    'existing-Passport reuse grants Seller authority on a tenant relationship and must be governed');
-  assert.match(surfaceBody('../services/storage/mediaRouter.js', "router.post('/upload/document'"), /hasGovernedDealerVehicleAuthority/,
-    'private document upload evaluates owner/current-seller/tenant scope and must be governed');
+test('P3/F3: source anchors are RENAME DETECTION only — never the authority proof', () => {
+  // F3: `assert.match(...hasGovernedDealerVehicleAuthority...)` is exactly the source-presence
+  // check P4 showed can stay green while the real grant is broken. It is kept only to notice a
+  // rename; the authority itself is proven by the behavioural scenarios below.
+  for (const [rel, anchor, label, scenario] of SELLER_SURFACE_REGISTER) {
+    assert.ok(surfaceBody(rel, anchor).length > 0, `${label}: anchor moved — update the register`);
+    assert.ok(BEHAVIOURAL_SCENARIOS.has(scenario), `${label}: scenario '${scenario}' is not run anywhere`);
+  }
 });
 
 test('P3: Service Network, PartSentry and object authority stay OUTSIDE Dealer seller authority', () => {
@@ -298,6 +332,7 @@ function makeWorld() {
       [VIN]: {
         vin: VIN, status: 'Available', publication_status: 'published', owner_id: 'u-owner',
         current_seller_id: 'u-owner', tenant_id: DEALERSHIP, price: 15000, currency: 'USD',
+        make: 'Toyota', model: 'Hilux', year: 2019,
       },
     },
     vehicle_evidence: { 'ev-1': { id: 'ev-1', vin: VIN, vehicle_id: VIN, linked_registry_event_id: null } },
@@ -414,4 +449,106 @@ test('P4: behavioural proof — adversarial actor refused, legitimate actor allo
   });
 
   if (server) await new Promise((r) => server.close(r));
+});
+
+/* ══ F3 — behavioural scenarios for the surfaces that previously had none ═════════════ */
+
+/**
+ * `/api/vehicles/add` (existing-Passport reuse) and `/api/media/upload/document` were validated by
+ * source presence alone — the exact proof P4 showed can stay green while the grant is broken. Both
+ * are now driven for real. `server.js` guards its `app.listen` on NODE_ENV, so the real app mounts.
+ */
+test('F3: the two P3-added routes, and the seller-authority state read, proved BEHAVIOURALLY', async (t) => {
+  const express = (await import('express')).default;
+  const http = await import('node:http');
+  const { supabase } = await import('../db/supabase.js');
+  const w = makeWorld();
+  // The existing-Passport branch needs a vehicle that already exists under the tenant.
+  Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: w.builder });
+  Object.defineProperty(supabase, 'rpc', { configurable: true, writable: true, value: async () => ({ data: null, error: null }) });
+
+  const appModule = await import('../server.js');
+  const mediaRouter = (await import('../services/storage/mediaRouter.js')).default;
+  const vehiclesRouter = (await import('../routes/vehiclesRoutes.js')).default;
+  const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
+
+  const mediaApp = express();
+  mediaApp.use(express.json({ limit: '10mb' }));
+  mediaApp.use('/api/media', mediaRouter);
+  mediaApp.use(errorHandler);
+  const sellerApp = express();
+  sellerApp.use(express.json());
+  sellerApp.use(vehiclesRouter);
+  sellerApp.use(errorHandler);
+
+  const listen = (a) => new Promise((r) => { const srv = http.createServer(a); srv.listen(0, '127.0.0.1', () => r(srv)); });
+  const mediaSrv = await listen(mediaApp);
+  const sellerSrv = await listen(sellerApp);
+  const addSrv = await listen(appModule.default);
+  const url = (srv, path) => `http://127.0.0.1:${srv.address().port}${path}`;
+  const hit = async (srv, method, path, body, actor, tenant = DEALERSHIP) => {
+    w.updates.length = 0;
+    const headers = { 'content-type': 'application/json', 'x-user-id': actor.id };
+    if (tenant) headers['x-tenant-id'] = tenant;
+    const res = await fetch(url(srv, path), { method, headers, body: body ? JSON.stringify(body) : undefined });
+    let parsed = {}; try { parsed = await res.json(); } catch { /* empty */ }
+    return { status: res.status, body: parsed, mutations: w.updates.length };
+  };
+
+  await t.test('document upload: adversary refused with ZERO effect', async () => {
+    const body = { vin: VIN, docType: 'registration_book',
+      document: `data:application/pdf;base64,${Buffer.from('x').toString('base64')}` };
+    const r = await hit(mediaSrv, 'POST', '/api/media/upload/document', body, ADVERSARY);
+    assert.ok(r.status === 403 || r.status === 401,
+      `a mechanic-only membership must not upload a private document; got ${r.status} ${JSON.stringify(r.body).slice(0, 120)}`);
+    assert.equal(r.mutations, 0, 'and must write nothing');
+  });
+
+  await t.test('existing-passport reuse: adversary never reaches the reuse branch', async () => {
+    // A COMPLETE payload, so the request is refused by AUTHORITY rather than by validation — an
+    // earlier version of this scenario asserted only `!== 201` and stayed green under the
+    // acceptance mutation, because both actors were being rejected for a missing field.
+    const payload = {
+      vin: VIN, make: 'Toyota', model: 'Hilux', year: 2019, price: 25000, mileage: 90000,
+      currency: 'USD', city: 'Harare', description: 'A well maintained vehicle.',
+      import_source: 'Japan', registration_country: 'ZW',
+    };
+    const adversary = await hit(addSrv, 'POST', '/api/vehicles/add', payload, ADVERSARY);
+    const adversaryBody = JSON.stringify(adversary.body);
+    assert.equal(/EXISTING_PASSPORT_CONFIRM_REQUIRED/.test(adversaryBody), false,
+      `raw membership must not reach another party's Passport; got ${adversary.status} ${adversaryBody.slice(0, 160)}`);
+    assert.match(adversaryBody, /unknown_seller_type|missing_owner_for_private_listing/,
+      'and must be refused for having no Seller subject at all');
+
+    // POSITIVE CONTROL — the governed Dealer business actor DOES reach the reuse branch, which is
+    // what makes the negative meaningful rather than an artefact of the fixture.
+    //
+    // MEASURED LIMIT, recorded rather than glossed: this surface is defended TWICE. For the
+    // adversary the K3/L2 creation-eligibility gate refuses first (`unknown_seller_type`), so
+    // restoring raw membership in the reuse clause ALONE is not observable here — the outer gate
+    // still refuses. The clause is nevertheless proven load-bearing in the direction that IS
+    // observable: disabling it turns this positive control red.
+    const legitimate = await hit(addSrv, 'POST', '/api/vehicles/add', payload, LEGITIMATE);
+    assert.match(JSON.stringify(legitimate.body), /EXISTING_PASSPORT_CONFIRM_REQUIRED/,
+      'the legitimate actor must reach the existing-Passport branch');
+  });
+
+  await t.test('seller authority state: adversary is not reported as a Dealer seller', async () => {
+    const r = await hit(sellerSrv, 'GET', `/api/vehicles/${VIN}/seller-authority?seller_user_id=${ADVERSARY.id}`,
+      undefined, ADVERSARY);
+    const payload = JSON.stringify(r.body);
+    assert.equal(/"recognition_basis"\s*:\s*"existing_relationship"/.test(payload), false,
+      `raw membership must not be reported as an existing Seller relationship: ${payload.slice(0, 200)}`);
+  });
+
+  await t.test('relationship recognition: the primitive refuses membership without a governed decision', async () => {
+    const { hasExistingSellerRelationship } = await import('../services/seller/sellerAuthorityService.js');
+    const vehicle = { owner_id: 'someone', current_seller_id: 'someone', tenant_id: DEALERSHIP };
+    assert.equal(hasExistingSellerRelationship(vehicle, { id: ADVERSARY.id, tenantId: DEALERSHIP }), false,
+      'a service primitive is proved directly — it is not an HTTP route');
+    assert.equal(hasExistingSellerRelationship(vehicle, { id: LEGITIMATE.id, tenantId: DEALERSHIP },
+      { dealerTenantAuthorized: true }), true, 'and the governed decision still grants');
+  });
+
+  for (const srv of [mediaSrv, sellerSrv, addSrv]) await new Promise((r) => srv.close(r));
 });

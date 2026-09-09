@@ -35,7 +35,8 @@
  * @property {string} evidenceId
  * @property {string|null} vin
  */
-import { ConflictError, DatabaseError } from '../../utils/errors.js';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { ConflictError, DatabaseError, ValidationError } from '../../utils/errors.js';
 
 /** Process-local mapping, keyed by `idempotencyScopeKey(actorId, key)`. */
 const inMemoryStore = new Map();
@@ -98,25 +99,80 @@ export const CHECKSUM_SOURCES = Object.freeze({ SERVER_INLINE: 'server_inline', 
 export const PROVENANCE_KEY = 'carup_provenance';
 export const PROVENANCE_VERSION = 1;
 
-/** The server-authored provenance block for a write. Always produced, even with no checksum. */
-export function buildProvenance({ hasInlineBuffer = false, hasChecksum = false } = {}) {
-  return {
-    v: PROVENANCE_VERSION,
-    checksum_source: hasChecksum
-      ? (hasInlineBuffer ? CHECKSUM_SOURCES.SERVER_INLINE : CHECKSUM_SOURCES.CLIENT_ASSERTED)
-      : null,
-  };
+/**
+ * F1 — A VERSION NUMBER IS NOT PROOF OF AUTHORSHIP.
+ *
+ * P1 moved provenance into `metadata.carup_provenance` and trusted it when `v === 1`. But
+ * `validateEvidenceUploadPayload` accepts arbitrary object metadata and `buildAiReadyMetadata`
+ * spreads it, so a pre-contract row can simply CONTAIN `{v:1, checksum_source:'server_inline'}`.
+ * Measured end-to-end: a genuine inline upload of a different object was handed the forged row.
+ *
+ * The block is now HMAC-signed and BOUND to the row it describes — the checksum it vouches for,
+ * the vehicle and the uploader — so a block copied from another row, or edited, fails verification.
+ * The key is derived from `JWT_SECRET`, which this service already requires for CSRF/JWT signing,
+ * under a distinct domain-separation label. No new provider, no new secret, no migration.
+ *
+ * WHEN THE SECRET IS UNAVAILABLE the signature is simply absent and the row reads as UNTRUSTED —
+ * the conservative direction. An upload never fails because of this; deduplication falls back to
+ * comparing the object location, which is exactly what an unverifiable claim deserves.
+ */
+function provenanceKeyMaterial() {
+  const secret = process.env.JWT_SECRET;
+  return secret ? String(secret) : null;
+}
+
+/** The facts a provenance assertion is bound to. Order is fixed and NUL-separated. */
+function provenanceBinding({ checksumSource, checksum, vin, uploadedBy }) {
+  return [
+    'carup:evidence-checksum-provenance:v1',
+    String(checksumSource ?? ''),
+    String(checksum ?? ''),
+    String(vin ?? ''),
+    String(uploadedBy ?? ''),
+  ].join('\u0000');
+}
+
+function signProvenance(facts) {
+  const key = provenanceKeyMaterial();
+  if (!key) return null;
+  return createHmac('sha256', key).update(provenanceBinding(facts)).digest('hex');
 }
 
 /**
- * The checksum provenance a STORED row can actually prove.
- *
- * Only a block this server authored under the current version counts. A legacy top-level
- * `checksum_source` is deliberately NOT read: that is the field a client could have written.
+ * The server-authored provenance block for a write. Always produced, even with no checksum, so the
+ * block's presence marks a row written under this contract — and its SIGNATURE proves it.
  */
-export function readStoredChecksumSource(metadata) {
+export function buildProvenance({ hasInlineBuffer = false, hasChecksum = false, checksum = null, vin = null, uploadedBy = null } = {}) {
+  const checksum_source = hasChecksum
+    ? (hasInlineBuffer ? CHECKSUM_SOURCES.SERVER_INLINE : CHECKSUM_SOURCES.CLIENT_ASSERTED)
+    : null;
+  const block = { v: PROVENANCE_VERSION, checksum_source };
+  const sig = signProvenance({ checksumSource: checksum_source, checksum, vin, uploadedBy });
+  if (sig) block.sig = sig;
+  return block;
+}
+
+/**
+ * The checksum provenance a STORED row can actually PROVE.
+ *
+ * Requires the current version AND a signature that verifies against the row's own facts. A legacy
+ * flat `checksum_source`, an unversioned block, a wrong version, an unsigned block, a forged block
+ * and a block lifted from a different row all return null.
+ */
+export function readStoredChecksumSource(metadata, row = {}) {
   const block = metadata?.[PROVENANCE_KEY];
   if (!block || block.v !== PROVENANCE_VERSION) return null;
+  if (!block.sig) return null;
+  const expected = signProvenance({
+    checksumSource: block.checksum_source ?? null,
+    checksum: row.checksum ?? null,
+    vin: row.vin ?? null,
+    uploadedBy: row.uploaded_by ?? null,
+  });
+  if (!expected) return null;                       // no key material — cannot verify, so do not trust
+  const a = Buffer.from(String(block.sig));
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   return block.checksum_source ?? null;
 }
 
@@ -172,41 +228,75 @@ export function deriveRemoteReference(row = {}) {
   const bucket = row.storage_bucket == null ? '' : String(row.storage_bucket).trim();
   const rawPath = row.file_path == null ? '' : String(row.file_path).trim();
   const rawUrl = row.file_url == null ? '' : String(row.file_url).trim();
-  const locator = rawPath || rawUrl;
-  if (locator === '') return null;
 
-  // The fragment is dropped in every case, deliberately: `#page=2` addresses a position inside an
-  // already-retrieved document on the client, and never selects a different resource.
+  // The fragment is dropped everywhere, deliberately: `#page=2` addresses a position inside an
+  // already-retrieved document and never selects a different resource.
   const dropFragment = (v) => v.split('#')[0];
+  const isUrl = (v) => /^[a-z][a-z0-9+.-]*:\/\//i.test(v);
 
-  // (1) A storage-relative object key — the strongest identity CarUp has. Verbatim, case-sensitive.
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(locator)) {
-    const key = dropFragment(locator);
-    return key === '' ? null : (bucket ? `${bucket}/${key}` : key);
-  }
-
-  const withoutFragment = dropFragment(locator);
-
-  // (2) A recognised storage URL ON A TRUSTED ORIGIN. Both are required.
+  // F2 — WHEN THERE ARE TWO LOCATORS, THE ONE THAT NAMES THE BYTES WINS.
   //
-  // P2 — path shape alone is NOT provenance. Any host can serve
-  // `/storage/v1/object/sign/<bucket>/<key>`, and treating that shape as a signed storage URL made
-  // `https://evil.example/storage/v1/object/sign/vehicle-images/A.pdf?id=ONE` and `?id=TWO`
-  // collapse to one identity — the query there is identity-bearing, not a signature. The origin is
-  // compared against CarUp's own CONFIGURED storage origin (`SUPABASE_URL`); nothing is fetched and
-  // no DNS is consulted.
-  if (isTrustedStorageOrigin(withoutFragment)) {
-    const storage = withoutFragment.match(
-      /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/([^?#]+)/);
-    if (storage) {
-      const [, urlBucket, key] = storage;
-      return `${bucket || urlBucket}/${key}`;
+  // The route accepts `file_url` and `file_path` independently and stores
+  // `file_path: filePath || fileUrl`, while identity read `file_path || file_url`. So a caller
+  // could hold `file_path` constant and change `file_url`, and the second, genuinely different
+  // document was silently discarded. A URL locator therefore decides identity; a caller-supplied
+  // storage path can no longer mask it. Contradictions are refused up-front by
+  // `assertLocatorConsistency`, so reaching here with both set means they agree.
+  if (rawUrl !== '' && isUrl(rawUrl)) {
+    const withoutFragment = dropFragment(rawUrl);
+    // A recognised storage URL ON A TRUSTED ORIGIN: the object key is in the PATH, derivable with
+    // no network call, so the transient signature/expiry query is dropped and a re-sign dedupes.
+    if (isTrustedStorageOrigin(withoutFragment)) {
+      const storage = withoutFragment.match(
+        /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/([^?#]+)/);
+      if (storage) {
+        const [, urlBucket, key] = storage;
+        return `${bucket || urlBucket}/${key}`;
+      }
     }
+    // Any other URL is OPAQUE: its query may be the only thing naming the document.
+    return withoutFragment;
   }
 
-  // (3) Any other URL is OPAQUE. Its query may be the only thing naming the document
-  //     (`…/document?id=A` vs `?id=B`), so it is kept in full rather than discarded.
-  return withoutFragment;
+  // A storage-relative object key — the strongest identity CarUp has. Verbatim, case-sensitive.
+  const key = dropFragment(rawPath || rawUrl);
+  if (key === '') return null;
+  return bucket ? `${bucket}/${key}` : key;
+}
+
+/**
+ * The canonical storage key a TRUSTED storage URL names, or null when the URL is not one.
+ * Used to check a caller-supplied `file_path` against the URL it claims to accompany.
+ */
+export function storageKeyFromTrustedUrl(url) {
+  const raw = url == null ? '' : String(url).trim().split('#')[0];
+  if (raw === '' || !isTrustedStorageOrigin(raw)) return null;
+  const m = raw.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/?#]+\/([^?#]+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * F2 — REFUSE CONTRADICTORY DUAL LOCATORS.
+ *
+ * `file_url` and `file_path` are accepted independently and a remote submission may supply both.
+ * If they disagree about which object this evidence is, the request is not merely ambiguous — it is
+ * a request the server cannot answer truthfully, and answering it silently discarded a document.
+ *
+ * Consistent means: only one supplied; both identical; or the path equals the object key that the
+ * TRUSTED storage URL itself names. An arbitrary external URL cannot be corroborated by a
+ * caller-supplied storage path, so pairing them is a contradiction.
+ */
+export function assertLocatorConsistency({ file_url: fileUrl = null, file_path: filePath = null } = {}) {
+  const url = fileUrl == null ? '' : String(fileUrl).trim();
+  const path = filePath == null ? '' : String(filePath).trim();
+  if (url === '' || path === '') return;
+  if (url === path) return;
+  const key = storageKeyFromTrustedUrl(url);
+  if (key !== null && (key === path || key.endsWith(`/${path}`) || path.endsWith(`/${key}`))) return;
+  throw new ValidationError(
+    'file_url and file_path describe different objects. Supply one locator, or a storage path that '
+    + 'matches the storage URL it accompanies.',
+  );
 }
 
 /**
@@ -355,7 +445,7 @@ async function runLookup(supabase, idempotencyKey, actorId, { withColumn }) {
           // M1/P1 — provenance travels in a SERVER-OWNED metadata namespace (no column, no
           // migration). A row written before this contract has none and is therefore unverified,
           // and a legacy client-written `checksum_source` is never consulted.
-          checksum_source: readStoredChecksumSource(match.metadata),
+          checksum_source: readStoredChecksumSource(match.metadata, match),
           remote_ref: deriveRemoteReference(match),
         },
       },

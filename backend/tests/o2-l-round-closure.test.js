@@ -137,9 +137,11 @@ test('L1/M2: a SIGNED-URL re-issue is the same object — signature and expiry a
   const store = new Map();
   const prevUrl = process.env.SUPABASE_URL;
   process.env.SUPABASE_URL = 'https://p.supabase.co';
+  // F2 — a URL locator now decides identity, so the signed URL is supplied as `file_url`.
   const signed = (t) => `https://p.supabase.co/storage/v1/object/sign/vehicle-images/ev/FILE-A.pdf?token=${t}`;
-  const a = await send(db, store, { key: 'K', op: REMOTE(signed('aaa')) });
-  const b = await send(db, store, { key: 'K', op: REMOTE(signed('bbb')) });
+  const asUrl = (u) => ({ ...REMOTE(u), file_path: null, file_url: u });
+  const a = await send(db, store, { key: 'K', op: asUrl(signed('aaa')) });
+  const b = await send(db, store, { key: 'K', op: asUrl(signed('bbb')) });
   assert.equal(b.deduped, true, 'a re-signed URL for the SAME object must not look like a new file');
   assert.equal(a.evidenceId, b.evidenceId);
   process.env.SUPABASE_URL = prevUrl;

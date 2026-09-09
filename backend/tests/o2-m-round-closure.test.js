@@ -171,8 +171,10 @@ test('M1: a historical row with no provenance is treated as UNVERIFIED (conserva
 
 test('M1/P1: the route records provenance server-side, and only inline is server-computed', () => {
   const route = src('../routes/vehiclesRoutes.js');
-  assert.match(route, /metadata\[PROVENANCE_KEY\] = buildProvenance\(\{ hasInlineBuffer: Boolean\(fileBuffer\)/,
-    'provenance must be decided by whether the server held the bytes, in a namespace it owns');
+  // F1 — the block is now SIGNED and bound to the row, so the call spans several lines.
+  assert.match(route.replace(/\s+/g, ' '),
+    /metadata\[PROVENANCE_KEY\] = buildProvenance\(\{ hasInlineBuffer: Boolean\(fileBuffer\), hasChecksum: Boolean\(checksum\), checksum, vin, uploadedBy: activeUserId/,
+    'provenance is decided by whether the server held the bytes, and is bound to the row it describes');
   assert.match(route, /checksum = checksumForBuffer\(fileBuffer\)/,
     'and the only server-computed checksum remains the inline one');
 });

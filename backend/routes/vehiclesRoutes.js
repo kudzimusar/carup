@@ -58,7 +58,7 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference, readStoredChecksumSource, buildProvenance, PROVENANCE_KEY } from '../services/evidence/uploadIdempotency.js';
+import { withUploadIdempotency, isUndefinedColumnError, toDatabaseError, deriveRemoteReference, readStoredChecksumSource, buildProvenance, assertLocatorConsistency, PROVENANCE_KEY } from '../services/evidence/uploadIdempotency.js';
 import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
@@ -701,6 +701,10 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   let checksum = req.body.checksum || req.body.image_hash || req.body.imageHash || null;
   let bucketName = req.body.storage_bucket || req.body.storageBucket || null;
 
+  // F2 — two locators that disagree cannot both be true. Refused BEFORE any write, so a
+  // contradictory pair can never be resolved by silently preferring one of them.
+  assertLocatorConsistency({ file_url: fileUrl, file_path: filePath });
+
   if (req.body.file) {
     let parsed;
     try {
@@ -814,7 +818,14 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   // object, so a caller cannot pre-seed this namespace; and written even when there is no checksum,
   // so the block's presence marks a row as written under this contract. A historical row has no
   // block at all and is therefore never treated as verified.
-  metadata[PROVENANCE_KEY] = buildProvenance({ hasInlineBuffer: Boolean(fileBuffer), hasChecksum: Boolean(checksum) });
+  // F1 — the block is SIGNED and bound to the row it describes, so it cannot be copied or forged.
+  metadata[PROVENANCE_KEY] = buildProvenance({
+    hasInlineBuffer: Boolean(fileBuffer),
+    hasChecksum: Boolean(checksum),
+    checksum,
+    vin,
+    uploadedBy: activeUserId,
+  });
 
   // A clamped publication request is recorded, never silently dropped: review needs to see that an
   // uploader asked for a wider audience than their authority allows, and a stale client that keeps
@@ -957,7 +968,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
         evidence_subtype: insertData.evidence_subtype ?? normalized.evidenceSubtype ?? null,
         evidence_type: insertData.evidence_type ?? null,
         checksum: insertData.checksum ?? null,
-        checksum_source: readStoredChecksumSource(metadata),
+        checksum_source: readStoredChecksumSource(metadata, { checksum, vin, uploaded_by: activeUserId }),
         remote_ref: deriveRemoteReference(insertData),
       },
     },
