@@ -17,4 +17,15 @@ for old, new in replacements.items():
         raise SystemExit(f'expected remediation payload fragment not found: {old[:60]}')
     text = text.replace(old, new, 1)
 
+# The payload renames the parser but the historical testable export remains at the
+# bottom of the service. Keep the split contract explicit rather than retaining a
+# misleading image-only symbol that no longer exists.
+text += """
+
+p = 'backend/services/identity/verificationSessionService.js'
+t = read(p)
+t = rep(t, '  parseImagePayload,', '  parseVerificationPayload,', 'identity parser test export')
+write(p, t)
+"""
+
 path.write_text(text)
