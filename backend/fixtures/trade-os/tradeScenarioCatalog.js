@@ -6,27 +6,33 @@ import {
   TRADE_SCENARIO_SOURCE_TYPES,
 } from '../../constants/diaspora/diasporaTradeScenarioConstants.js';
 
-export const TRADE_REFERENCE_PACKS = Object.freeze({
-  'REF-T5-BUYERS-V1': Object.freeze({
-    referencePackId: 'REF-T5-BUYERS-V1',
+function buyerPack(referencePackId, profile) {
+  return Object.freeze({
+    referencePackId,
     version: 1,
     fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE,
     sourceType: TRADE_SCENARIO_SOURCE_TYPES.TEST_FIXTURE,
-    description: 'Synthetic buyer profiles used by the T5 Golden Scenarios.',
-    sheets: Object.freeze({
-      TRADE_PROFILES: Object.freeze([
-        Object.freeze({ TRADE_PROFILE_ID: 'TP-BUYER-ALPHARD', USER_ID: 'fixture-buyer-alphard', COUNTRY: 'Zimbabwe', CITY: 'Harare', ROLE_TYPE: 'buyer', VERIFICATION_STATUS: 'PENDING_REVIEW', NOTES: 'Synthetic T5 fixture; not a live buyer.' }),
-        Object.freeze({ TRADE_PROFILE_ID: 'TP-BUYER-PARTS', USER_ID: 'fixture-buyer-parts', COUNTRY: 'Zimbabwe', CITY: 'Harare', ROLE_TYPE: 'buyer', VERIFICATION_STATUS: 'PENDING_REVIEW', NOTES: 'Synthetic T5 fixture; not a live buyer.' }),
-        Object.freeze({ TRADE_PROFILE_ID: 'TP-BUYER-BYO', USER_ID: 'fixture-buyer-byo', COUNTRY: 'Zimbabwe', CITY: 'Harare', ROLE_TYPE: 'buyer', VERIFICATION_STATUS: 'PENDING_REVIEW', NOTES: 'Synthetic T5 fixture; not a live buyer.' }),
-      ]),
-    }),
+    description: 'Synthetic scenario-scoped buyer profile. It is not a live customer record.',
+    sheets: Object.freeze({ TRADE_PROFILES: Object.freeze([Object.freeze(profile)]) }),
+  });
+}
+
+export const TRADE_REFERENCE_PACKS = Object.freeze({
+  'REF-T5-BUYER-ALPHARD-V1': buyerPack('REF-T5-BUYER-ALPHARD-V1', {
+    TRADE_PROFILE_ID: 'TP-BUYER-ALPHARD', USER_ID: 'fixture-buyer-alphard', COUNTRY: 'Zimbabwe', CITY: 'Harare', ROLE_TYPE: 'buyer', VERIFICATION_STATUS: 'PENDING_REVIEW', NOTES: 'Synthetic T5 fixture; not a live buyer.',
+  }),
+  'REF-T5-BUYER-PARTS-V1': buyerPack('REF-T5-BUYER-PARTS-V1', {
+    TRADE_PROFILE_ID: 'TP-BUYER-PARTS', USER_ID: 'fixture-buyer-parts', COUNTRY: 'Zimbabwe', CITY: 'Harare', ROLE_TYPE: 'buyer', VERIFICATION_STATUS: 'PENDING_REVIEW', NOTES: 'Synthetic T5 fixture; not a live buyer.',
+  }),
+  'REF-T5-BUYER-BYO-V1': buyerPack('REF-T5-BUYER-BYO-V1', {
+    TRADE_PROFILE_ID: 'TP-BUYER-BYO', USER_ID: 'fixture-buyer-byo', COUNTRY: 'Zimbabwe', CITY: 'Harare', ROLE_TYPE: 'buyer', VERIFICATION_STATUS: 'PENDING_REVIEW', NOTES: 'Synthetic T5 fixture; not a live buyer.',
   }),
   'REF-VEHICLES-JP-ZW-V1': Object.freeze({
     referencePackId: 'REF-VEHICLES-JP-ZW-V1',
     version: 1,
     fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE,
     sourceType: TRADE_SCENARIO_SOURCE_TYPES.TEST_FIXTURE,
-    description: 'Small synthetic Japan→Zimbabwe vehicle reference set for scenario matching and freight-profile extension.',
+    description: 'Small synthetic Japan→Zimbabwe vehicle reference set for scenario matching and later freight-profile extension.',
     entities: Object.freeze({
       vehicles: Object.freeze([
         Object.freeze({ referenceVehicleId: 'REF-ALPHARD-2019', make: 'Toyota', model: 'Alphard', yearMin: 2019, bodyType: 'MPV', sourceType: 'TEST_FIXTURE', verificationState: 'UNVERIFIED' }),
@@ -61,7 +67,7 @@ const ALPHARD_SCENARIO = Object.freeze({
     fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE,
     allowedEnvironments: DEFAULT_SCENARIO_ALLOWED_ENVIRONMENTS,
     tags: Object.freeze(['T5', 'vehicle', 'rfq', 'multi-quote', 'Japan', 'Zimbabwe']),
-    referencePackDependencies: Object.freeze(['REF-T5-BUYERS-V1', 'REF-VEHICLES-JP-ZW-V1']),
+    referencePackDependencies: Object.freeze(['REF-T5-BUYER-ALPHARD-V1', 'REF-VEHICLES-JP-ZW-V1']),
     expectedEntityCounts: Object.freeze({ DIASPORA_IMPORT_ORDERS: 1, IMPORT_QUOTES: 3, TRADE_PROFILES: 4 }),
     resetPolicy: 'ISOLATED_SCENARIO_NAMESPACE',
     sourceProvenance: Object.freeze({ sourceType: TRADE_SCENARIO_SOURCE_TYPES.TEST_FIXTURE, fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE }),
@@ -135,7 +141,7 @@ const PARTS_SCENARIO = Object.freeze({
     fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE,
     allowedEnvironments: DEFAULT_SCENARIO_ALLOWED_ENVIRONMENTS,
     tags: Object.freeze(['T5', 'parts', 'supplier', 'legacy-fixture', 'Japan', 'Zimbabwe']),
-    referencePackDependencies: Object.freeze(['REF-T5-BUYERS-V1', 'REF-UMZ-PARTS-CLEAN-V1']),
+    referencePackDependencies: Object.freeze(['REF-T5-BUYER-PARTS-V1', 'REF-UMZ-PARTS-CLEAN-V1']),
     expectedEntityCounts: Object.freeze({ DIASPORA_IMPORT_ORDERS: 1, IMPORT_QUOTES: 2, TRADE_PROFILES: 3 }),
     resetPolicy: 'ISOLATED_SCENARIO_NAMESPACE',
     sourceProvenance: Object.freeze({ sourceType: TRADE_SCENARIO_SOURCE_TYPES.LEGACY_WORKBOOK, fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE }),
@@ -194,7 +200,7 @@ const BYO_SCENARIO = Object.freeze({
     fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE,
     allowedEnvironments: DEFAULT_SCENARIO_ALLOWED_ENVIRONMENTS,
     tags: Object.freeze(['T5', 'vehicle', 'shipping-only', 'partial-journey', 'Japan', 'Zimbabwe']),
-    referencePackDependencies: Object.freeze(['REF-T5-BUYERS-V1', 'REF-VEHICLES-JP-ZW-V1']),
+    referencePackDependencies: Object.freeze(['REF-T5-BUYER-BYO-V1', 'REF-VEHICLES-JP-ZW-V1']),
     expectedEntityCounts: Object.freeze({ DIASPORA_IMPORT_ORDERS: 1, IMPORT_QUOTES: 1, TRADE_PROFILES: 2 }),
     resetPolicy: 'ISOLATED_SCENARIO_NAMESPACE',
     sourceProvenance: Object.freeze({ sourceType: TRADE_SCENARIO_SOURCE_TYPES.TEST_FIXTURE, fixtureClass: TRADE_SCENARIO_FIXTURE_CLASSES.TEST_FIXTURE }),
