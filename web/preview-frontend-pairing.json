@@ -7,6 +7,7 @@
     "different deployment. Values are Vercel's stable per-branch frontend aliases."
   ],
   "branches": {
+    "feat/operations-o2-people-compliance": "https://carup-staging-git-feat-operations-o2-people-compliance-11-11.vercel.app",
     "integration/vehicle-passport-v16-cert": "https://carup-staging-git-integration-vehicle-passport-v16-cert-11-11.vercel.app",
     "fix/seller-uat-account-handoff-194": "https://carup-staging-git-fix-seller-uat-account-handoff-194-11-11.vercel.app",
     "fix/seller-uat-convergence-remediation": "https://carup-staging-git-fix-seller-uat-convergence-remediation-11-11.vercel.app",

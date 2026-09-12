@@ -1,0 +1,73 @@
+name: O2 Mobile Owner UAT Implementation
+# bounded executor payload v4
+
+on:
+  push:
+    branches:
+      - feat/operations-o2-people-compliance
+    paths:
+      - '.github/workflows/o2-mobile-implementation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/operations-o2-people-compliance
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Assert bounded starting ancestry
+        run: |
+          git merge-base --is-ancestor a4b74fe7fdadadcf4a0888b716b87a7264e8c900 HEAD
+          test "$(git rev-parse origin/main)" = "bb9d9900c700873ca57df0ac18a1a5c01f77711a"
+
+      - name: Reconstruct and apply bounded remediation payload
+        run: |
+          git show 7b03e9ffe1b659e4f4be51af9030b3090e727d30:.github/workflows/o2-mobile-implementation.yml > /tmp/o2-mobile-payload.yml
+          awk "/python3 <<'PY'/{emit=1;next} emit && /^          PY$/{exit} emit{print}" /tmp/o2-mobile-payload.yml | sed 's/^          //' > /tmp/o2-mobile-implementation.py
+          python3 .github/scripts/o2-mobile-payload-fix.py
+          python3 /tmp/o2-mobile-implementation.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Targeted identity and contract tests
+        run: |
+          NODE_ENV=test ALLOW_OCR_MOCK=true node --test backend/tests/verification-session-workflow.test.js backend/tests/o2-mobile-owner-uat-contract.test.js
+          NODE_ENV=test node --test backend/tests/o2-x2-registration-journey.test.js backend/tests/o2-x5-dealer-onboarding.test.js
+
+      - name: Targeted web suites and exact TypeScript build
+        run: |
+          npm run test:unit --workspace=web -- --run src/pages/onboarding/RegistrationJourney.test.tsx src/pages/dealer/DealerOnboarding.test.tsx src/components/workbook/WorkbookWorkspace.test.tsx src/pages/workbook/WorkbookTools.test.tsx
+          npm run build --workspace=web
+
+      - name: Commit bounded implementation
+        run: |
+          git status --short
+          git config user.name "CarUp O2 Mobile Remediation"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/services/identity/verificationSessionService.js \
+                  backend/services/identity/reasonCodes.js \
+                  backend/services/registration/registrationJourneyService.js \
+                  backend/services/identity/biometrics/biometricAssessmentService.js \
+                  backend/tests/verification-session-workflow.test.js \
+                  backend/tests/o2-mobile-owner-uat-contract.test.js \
+                  web/src/pages/onboarding/RegistrationJourney.tsx \
+                  web/src/pages/dealer/DealerOnboarding.tsx \
+                  web/src/components/workbook/WorkbookWorkspace.tsx \
+                  web/src/pages/workbook/WorkbookTools.tsx \
+                  web/src/pages/Landing.tsx \
+                  web/src/components/home/JourneyMediaStory.tsx
+          git diff --cached --check
+          git commit -m "fix(o2): converge mobile owner UAT and identity PDF"
+          git push origin HEAD:feat/operations-o2-people-compliance

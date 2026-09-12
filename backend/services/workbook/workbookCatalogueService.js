@@ -1,0 +1,259 @@
+/**
+ * O2-X5A — Stakeholder-aware Template Catalogue.
+ *
+ * THE EXPOSURE LAW: catalogue availability is SERVER-derived — from the
+ * authenticated user's role, their X2 registration profile, their X5 dealer
+ * application context, and their VERIFIED diaspora trade profiles. Nothing in
+ * a request body or header changes eligibility. Unavailable templates return
+ * honest reason codes instead of disappearing.
+ *
+ * Master register: docs/features/o2/CARUP_OPERATIONS_O2_STAKEHOLDER_WORKBOOK_CATALOGUE.md
+ * (§2 dispositions, §5 exposure matrix) — a divergence between this service and
+ * that manual is a defect in whichever changed without the other.
+ */
+import { supabase } from '../../db/supabase.js';
+import { ValidationError } from '../../utils/errors.js';
+import { assertDealerOnboardingContext } from '../dealer/dealerOnboardingService.js';
+import {
+  VEHICLE_TEMPLATE_KEYS,
+  VEHICLE_TEMPLATE_SHEETS,
+  VEHICLE_WORKBOOK_SCHEMA_VERSION,
+} from '../../constants/workbook/workbookFieldRegistry.js';
+import { XLSX_SCHEMA_VERSION } from '../../constants/diaspora/diasporaWorkbookTemplates.js';
+import { resolveDealerListingSubject } from '../dealer/dealerListingAuthority.js';
+
+/**
+ * K4 — 'import' used to mean BOTH "prepare a workbook" and "execute it", so a single coarse verb
+ * gated inspect, mapping/confirm, dry-run and the AI assistant as well as the mutation. That made
+ * it impossible to tell an actor "you may prepare and validate, but you may not yet create" — the
+ * catalogue had to either advertise execution it would refuse, or withhold preparation it allows.
+ *
+ *   prepare  — inspect, map, dry-run, ask the assistant. This DOES persist preparation artefacts:
+ *              mapping confirmations, import batches, normalized/validated rows. What it never
+ *              creates is a vehicle, evidence, a listing subject or any other commerce/domain
+ *              AUTHORITY. (L5: an earlier wording claimed it created no rows at all, which was
+ *              untrue of the dry run and would have invited someone to "fix" correct behaviour.)
+ *   import   — EXECUTE: create vehicles/evidence. Requires a real listing subject.
+ */
+export const WORKBOOK_ACTIONS = Object.freeze(['template', 'export', 'prepare', 'import', 'recent_imports']);
+
+/** The actions available when an actor may prepare a workbook but cannot execute one. */
+export const PREPARE_ONLY_ACTIONS = Object.freeze(WORKBOOK_ACTIONS.filter((a) => a !== 'import'));
+
+/** Truthful action list: execution is advertised only when it would actually be permitted. */
+const actionsFor = (canExecute) => (canExecute ? [...WORKBOOK_ACTIONS] : [...PREPARE_ONLY_ACTIONS]);
+
+export const UNAVAILABLE_REASONS = Object.freeze({
+  BUSINESS_CONTEXT_REQUIRED: 'business_context_required',
+  NO_LISTING_SUBJECT: 'no_listing_subject',
+  DEALER_ACTIVATION_REQUIRED: 'dealer_activation_required',
+  TRADE_PROFILE_REQUIRED: 'trade_profile_required',
+  TRADE_PROFILE_ROLE_MISMATCH: 'trade_profile_role_mismatch',
+  SERVICE_NETWORK_RECONCILIATION_REQUIRED: 'service_network_reconciliation_required',
+  PROVIDER_PLATFORM_IS_THE_INTEGRATION_SURFACE: 'provider_platform_is_the_integration_surface',
+  GOVERNED_ACTIVATION_LANE_EXISTS: 'governed_activation_lane_exists',
+  NO_CANONICAL_BULK_WORKFLOW: 'no_canonical_bulk_workflow',
+  INTERNAL_OPERATOR: 'internal_operator',
+});
+
+// Diaspora template exposure: which VERIFIED trade-profile roles unlock which
+// existing diaspora templates (catalogue §5).
+const DIASPORA_TEMPLATE_RULES = Object.freeze([
+  { template_key: 'buyer', label: 'Import Orders (Diaspora Buyer)', roles: ['buyer'] },
+  { template_key: 'seller', label: 'Export Stock & Quotes (Seller/Exporter)', roles: ['seller', 'exporter', 'dealer'] },
+  { template_key: 'supplier', label: 'Supply Documents (Supplier/Parts)', roles: ['seller', 'exporter', 'agent', 'company'] },
+  { template_key: 'container_reservation', label: 'Container Reservations', roles: ['buyer', 'coordinator', 'company', 'agent'] },
+  { template_key: 'enterprise', label: 'Enterprise Trade Workbook', roles: ['coordinator', 'company', 'agent'] },
+]);
+
+// Deferred/refused families — surfaced honestly, never silently hidden (§5).
+const STATIC_UNAVAILABLE = Object.freeze([
+  { template_key: 'garage_service_workbook', reason: UNAVAILABLE_REASONS.SERVICE_NETWORK_RECONCILIATION_REQUIRED, note: 'Not available yet — Service Network reconciliation required (PR #197 lane).' },
+  { template_key: 'mechanic_service_workbook', reason: UNAVAILABLE_REASONS.SERVICE_NETWORK_RECONCILIATION_REQUIRED, note: 'Not available yet — Service Network reconciliation required (PR #197 lane).' },
+  { template_key: 'insurer_decision_workbook', reason: UNAVAILABLE_REASONS.PROVIDER_PLATFORM_IS_THE_INTEGRATION_SURFACE, note: 'Insurance decisions never arrive by spreadsheet; providers integrate through the provider platform.' },
+  { template_key: 'lender_decision_workbook', reason: UNAVAILABLE_REASONS.PROVIDER_PLATFORM_IS_THE_INTEGRATION_SURFACE, note: 'Finance decisions never arrive by spreadsheet; providers integrate through the provider platform.' },
+  { template_key: 'government_registry_workbook', reason: UNAVAILABLE_REASONS.GOVERNED_ACTIVATION_LANE_EXISTS, note: 'Registry truth flows through the governed source-verification activation lane, not user workbooks.' },
+  { template_key: 'fleet_workbook', reason: UNAVAILABLE_REASONS.NO_CANONICAL_BULK_WORKFLOW, note: 'Deferred — no fleet workflow authority exists yet.' },
+]);
+
+async function loadVerifiedTradeRoles(client, userId) {
+  const { data, error } = await client
+    .from('diaspora_trade_profiles')
+    .select('role_type, verification_status')
+    .eq('user_id', userId);
+  if (error) return { roles: new Set(), hasAnyProfile: false, unreadable: true };
+  const rows = data || [];
+  return {
+    roles: new Set(rows
+      .filter((row) => String(row.verification_status || '').toUpperCase() === 'VERIFIED')
+      .map((row) => String(row.role_type || '').toLowerCase())),
+    hasAnyProfile: rows.length > 0,
+    unreadable: false,
+  };
+}
+
+async function resolveDealerContext(client, actor) {
+  try {
+    await assertDealerOnboardingContext(client, actor);
+    return { applicant: true };
+  } catch {
+    return { applicant: false };
+  }
+}
+
+/**
+ * The server-derived catalogue for the authenticated caller.
+ * `actor` is req.userContext — NEVER request-body input.
+ */
+export async function resolveWorkbookCatalogue(actor = {}, options = {}) {
+  const userId = actor.id || actor.userId;
+  if (!userId) throw new ValidationError('Authenticated user context is required.');
+  const client = options.supabaseClient || supabase;
+  const role = String(actor.role || '').toLowerCase();
+
+  const available = [];
+  const unavailable = [];
+
+  // ── seller_vehicles: an account that actually has a LISTING SUBJECT.
+  //
+  // The create route's role gate is necessary but not sufficient. `buildVehicleListingCandidate`
+  // derives the subject from the actor: an `owner` becomes the owner; a `dealer` uses their
+  // tenant; every other role takes owner/tenant from body or context — and the workbook carries
+  // NO owner_id or tenant_id column, by design, because a spreadsheet must never assert
+  // ownership or organisational scope.
+  //
+  // So an ordinary platform Admin with no governed tenant produced
+  // `owner_id: null, tenant_id: null, current_seller_type: null` — ineligible with
+  // `missing_owner_for_private_listing | unknown_seller_type`. The catalogue nonetheless offered
+  // them this template and promised "drafts under your own listing authority", which for that
+  // actor names an authority that does not exist. An Admin who genuinely holds a tenant
+  // membership IS supported by the existing contract (tenant scope, seller type Dealer), so the
+  // gate is on the SUBJECT rather than on the role — no admin delegation is invented here.
+  // I-2 — the catalogue must mirror the canonical listing subject exactly. It previously offered
+  // this template to an admin or government account that merely held a tenant CONTEXT, on the
+  // assumption that membership conferred Dealer selling authority. It does not: see
+  // buildVehicleListingCandidate. Only an owner (their own subject) or a governed dealer role
+  // (its validated tenant) has one.
+  // J-4 — THE CATALOGUE CONSUMES THE CANONICAL SUBJECT, IT DOES NOT RE-DERIVE ONE.
+  //
+  // `role === 'dealer'` advertised "drafts under your own listing authority" to a dealer with no
+  // tenant at all, and to a dealer whose only tenant was an unrelated Garage membership — for both
+  // of whom execute deterministically refuses, because `buildVehicleListingCandidate` now requires
+  // a governed dealership. Offering an action the mutation path is certain to reject is a promise
+  // the product cannot keep.
+  //
+  // The gate is therefore the SUBJECT — resolved through the same function `/api/vehicles/add` and
+  // workbook execute call — rather than a third opinion about what a role means. Template download
+  // and the dry run remain reachable for an applicant elsewhere in this catalogue; what must not be
+  // claimed is an executable Dealer listing authority they do not hold.
+  const dealerListingSubject = await resolveDealerListingSubject(client, {
+    role, userId, tenantId: actor.tenantId ?? actor.tenant_id ?? null,
+  });
+  const hasListingSubject = role === 'owner' || dealerListingSubject.granted === true;
+  if (hasListingSubject) {
+    available.push({
+      template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,
+      label: 'My Vehicle Listings',
+      version: VEHICLE_WORKBOOK_SCHEMA_VERSION,
+      engine: 'registry',
+      sheets: [...VEHICLE_TEMPLATE_SHEETS[VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES]],
+      // This entry is reached ONLY when a listing subject exists, so execution is truthful here.
+      actions: actionsFor(true),
+      note: 'Imported vehicles are private DRAFTS under your own listing authority — publication stays a separate governed step.',
+    });
+  } else {
+    unavailable.push({
+      template_key: VEHICLE_TEMPLATE_KEYS.SELLER_VEHICLES,
+      reason: UNAVAILABLE_REASONS.NO_LISTING_SUBJECT,
+      note: role === 'dealer'
+        ? 'A dealer imports under a dealership. This account is not yet linked to a dealer organisation on CarUp, so an import would have no seller to create the drafts under. Preparing a workbook is still available; importing is not.'
+        : ['admin', 'government'].includes(role)
+          ? 'A vehicle listing is created under a seller — an owner account or a dealer organisation. This account holds neither, so an import would have no listing subject. Listing on behalf of someone else is not a workbook action.'
+          : 'Available to accounts that can list vehicles.',
+    });
+  }
+
+  // ── dealer_vehicle_inventory: ACTIVE dealer (governed role) or dealer APPLICANT
+  // (X5 registration context, server-derived). Everyone else: honest reason.
+  // K4 — AVAILABILITY and EXECUTABILITY are different questions.
+  //
+  // `active` used to be the role string, so every `dealer` was told the import would work. It is
+  // now the REAL listing subject. But a dealer without a governed dealership — and an applicant —
+  // can still legitimately download the template, map their data and validate it with a dry run;
+  // withdrawing the entry entirely would remove work they ARE allowed to do. So the entry stays,
+  // and the ACTION LIST narrows to preparation.
+  const dealerContext = role === 'dealer'
+    ? { applicant: false, active: dealerListingSubject.granted === true }
+    : { ...(await resolveDealerContext(client, actor)), active: false };
+  const dealerMayPrepare = role === 'dealer' || dealerContext.applicant;
+  if (dealerContext.active || dealerMayPrepare) {
+    available.push({
+      template_key: VEHICLE_TEMPLATE_KEYS.DEALER_VEHICLE_INVENTORY,
+      label: 'Dealer Vehicle Inventory',
+      version: VEHICLE_WORKBOOK_SCHEMA_VERSION,
+      engine: 'registry',
+      sheets: [...VEHICLE_TEMPLATE_SHEETS[VEHICLE_TEMPLATE_KEYS.DEALER_VEHICLE_INVENTORY]],
+      actions: actionsFor(dealerContext.active),
+      note: dealerContext.active
+        ? 'Inventory preparation and migration for your dealership.'
+        : 'Preparation only: you can download the template, map your data and validate it with a dry run. '
+          + 'Importing creates vehicles under a dealership, and this account is not yet linked to one, '
+          + 'so the import step stays unavailable until that relationship exists.',
+    });
+  } else {
+    // G-6 (H17) — every role gets a disposition. A government account previously fell through
+    // BOTH branches and vanished from the catalogue entirely: neither available nor explained.
+    // The catalogue's contract is discovery WITH a reason, so silence is a defect even when the
+    // answer is no. This does not make the action available — only legible.
+    unavailable.push({
+      template_key: VEHICLE_TEMPLATE_KEYS.DEALER_VEHICLE_INVENTORY,
+      reason: UNAVAILABLE_REASONS.BUSINESS_CONTEXT_REQUIRED,
+      note: role === 'government'
+        ? 'Dealer inventory belongs to a dealer business. A government account holds no dealer business, and acting on a dealership\'s behalf is not a workbook action.'
+        : 'Available once your registration records a dealer business (or after Dealer activation).',
+    });
+  }
+
+  // ── diaspora templates: verified trade-profile roles decide (server truth).
+  const trade = await loadVerifiedTradeRoles(client, userId);
+  for (const rule of DIASPORA_TEMPLATE_RULES) {
+    const matched = rule.roles.some((tradeRole) => trade.roles.has(tradeRole));
+    if (matched) {
+      available.push({
+        template_key: rule.template_key,
+        label: rule.label,
+        version: XLSX_SCHEMA_VERSION,
+        engine: 'diaspora',
+        actions: [...WORKBOOK_ACTIONS],
+        note: 'Runs on the existing diaspora workbook pipeline.',
+      });
+    } else {
+      unavailable.push({
+        template_key: rule.template_key,
+        reason: trade.hasAnyProfile
+          ? UNAVAILABLE_REASONS.TRADE_PROFILE_ROLE_MISMATCH
+          : UNAVAILABLE_REASONS.TRADE_PROFILE_REQUIRED,
+      });
+    }
+  }
+
+  unavailable.push(...STATIC_UNAVAILABLE.map((entry) => ({ ...entry })));
+
+  return { available, unavailable };
+}
+
+/** Fail-closed action gate used by every workbook route. */
+export async function requireTemplateAction(actor, templateKey, action, options = {}) {
+  const catalogue = await resolveWorkbookCatalogue(actor, options);
+  const entry = catalogue.available.find((item) => item.template_key === templateKey);
+  if (!entry || !entry.actions.includes(action)) {
+    const denied = catalogue.unavailable.find((item) => item.template_key === templateKey);
+    throw new ValidationError(
+      `WORKBOOK_TEMPLATE_NOT_AVAILABLE: '${templateKey}' is not available to this account`
+      + (denied?.reason ? ` (${denied.reason})` : '')
+      + '. The catalogue endpoint lists what is available to you.',
+      { code: 'WORKBOOK_TEMPLATE_NOT_AVAILABLE', templateKey, reason: denied?.reason || 'not_in_catalogue' },
+    );
+  }
+  return entry;
+}

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Building2, Ban, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
 
@@ -71,6 +72,8 @@ export function DealerComplianceCard({ dealer, onDecision, busy }: { dealer: Dea
 
 export default function DealerCompliance() {
   const { fetchDealers, recordDealerDecision } = useCarUpApi()
+  // The dealer decision route is step-up gated; without this the screen dead-ends on 403.
+  const { runGuarded, stepUpDialog } = useStepUpGuard()
   const [dealers, setDealers] = useState<DealerProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -94,15 +97,17 @@ export default function DealerCompliance() {
   const onDecision = async (id: string, decision: string) => {
     setBusy(id)
     try {
-      await recordDealerDecision(id, { decision, reason: `Admin ${decision}` })
-      toast.success(`Dealer ${decision}`)
-      await load()
-    } catch (err) { toast.error(getErrorMessage(err)) }
-    finally { setBusy(null) }
+      await runGuarded(`Dealer ${decision}`, async () => {
+        await recordDealerDecision(id, { decision, reason: `Admin ${decision}` })
+        toast.success(`Dealer ${decision}`)
+        await load()
+      })
+    } finally { setBusy(null) }
   }
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
+      {stepUpDialog}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-purple-500" /> Dealer compliance</h1>
         <p className="text-gray-500 text-sm">Eight separate compliance statuses per dealer. Decisions are append-only; suspension blocks publication and escrow.</p>

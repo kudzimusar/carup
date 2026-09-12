@@ -21,17 +21,24 @@
  */
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   createOrUpdateProfile,
   getProfile,
   listProfiles,
   addBranch,
   listRequirements,
+  listDocuments,
   uploadDocument,
   recordDecision,
   evaluateCompliance,
   getBuyerSafeSummary,
 } from '../services/dealer/dealerComplianceService.js';
+import {
+  sanitizeDealerDocument,
+  getDealerEvidencePreviewForReview,
+} from '../services/dealer/dealerOnboardingService.js';
 
 const router = express.Router();
 
@@ -126,7 +133,7 @@ router.get('/api/admin/dealers/:id', authorizeRole(ADMIN_ROLES), async (req, res
   }
 });
 
-router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE), async (req, res, next) => {
   try {
     const result = await recordDecision(
       req.params.id,
@@ -147,6 +154,44 @@ router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), asyn
     next(err);
   }
 });
+
+// O2-X5 — reviewer evidence access. Listing returns sanitized metadata (never the private
+// storage path); viewing the RAW private evidence is a sensitive action and therefore sits
+// behind the X3 authentication-assurance policy, exactly like identity evidence previews.
+router.get('/api/admin/dealers/:id/documents', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+  try {
+    const profile = await getProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: `Dealer not found: ${req.params.id}` });
+    const documents = await listDocuments(profile.id);
+    res.json({ documents: documents.map(sanitizeDealerDocument) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get(
+  '/api/admin/dealers/:id/documents/:docId/preview',
+  authorizeRole(ADMIN_ROLES, { allowUserIdFallback: false }),
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
+  async (req, res, next) => {
+    try {
+      const profile = await getProfile(req.params.id);
+      if (!profile) return res.status(404).json({ error: `Dealer not found: ${req.params.id}` });
+      const preview = await getDealerEvidencePreviewForReview(
+        undefined,
+        { id: req.userContext?.userId, role: req.userContext?.role },
+        profile.id,
+        req.params.docId,
+        { req },
+      );
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ preview });
+    } catch (err) {
+      if (/not found/i.test(err.message)) return res.status(404).json({ error: err.message });
+      next(err);
+    }
+  },
+);
 
 // ── buyer-safe ──────────────────────────────────────────────────────────────────────
 

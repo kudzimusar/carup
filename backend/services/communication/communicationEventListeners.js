@@ -21,6 +21,12 @@ export const COMMUNICATION_EVENT_TYPES = [
   'evidence.review.decided',
   // Operations M2 — governed Seller Authority decisions reach the seller.
   'seller.authority.decided',
+  // O2-X6 — semantic O2 events (domains emit; Communications owns delivery).
+  'identity.lifecycle.changed',
+  'dealer.compliance.decided',
+  'dealer.compliance.evidence_required',
+  'seller.authority.superseded',
+  'workbook.import.completed',
   // R4 — the marketplace transaction stages. Emitted by `issue164_transition_session_atomic` into
   // `domain_events` since Issue #164 Phase 6, and never subscribed until now: the transitions
   // happened and the customer was never told. These are the CURRENT canonical authority's events,

@@ -27,11 +27,17 @@ const { extractSupabaseRef, assertStagingTarget } = await import('../../scripts/
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MIGRATION_PATH = 'database/migrations/20260617120000_user_sessions_auth_contract_align.sql';
 const MIGRATION = readFileSync(resolve(REPO_ROOT, MIGRATION_PATH), 'utf8');
+// O2-X3 extends the same contract: buildSessionRow now also writes auth_method, added by the
+// assurance migration. The contract this suite holds is "schema ⊇ every column buildSessionRow
+// writes", so the authoritative schema here is BOTH migrations applied in order.
+const ASSURANCE_MIGRATION_PATH = 'database/migrations/20260903201000_user_sessions_authentication_assurance.sql';
+const ASSURANCE_MIGRATION = readFileSync(resolve(REPO_ROOT, ASSURANCE_MIGRATION_PATH), 'utf8');
 
-// The columns observed on the staging user_sessions table, and the two the migration adds.
+// The columns observed on the staging user_sessions table, and the ones the migrations add.
 const STAGING_LEGACY_COLUMNS = ['id', 'user_id', 'active_role', 'active_organization_id', 'created_at', 'expires_at', 'ip_address', 'user_agent'];
 const MIGRATION_ADDED_COLUMNS = ['token', 'is_valid'];
-const POST_MIGRATION_COLUMNS = [...STAGING_LEGACY_COLUMNS, ...MIGRATION_ADDED_COLUMNS];
+const ASSURANCE_ADDED_COLUMNS = ['auth_method', 'step_up_at', 'step_up_method'];
+const POST_MIGRATION_COLUMNS = [...STAGING_LEGACY_COLUMNS, ...MIGRATION_ADDED_COLUMNS, ...ASSURANCE_ADDED_COLUMNS];
 
 const future = () => new Date(Date.now() + 3600_000).toISOString();
 const past = () => new Date(Date.now() - 3600_000).toISOString();
