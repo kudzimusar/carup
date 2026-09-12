@@ -81,9 +81,9 @@ jobs:
           node database/test/migration_pglite_check.mjs
           node database/test/operations_serena_slice_pglite_check.mjs
 
-      - name: Web lint, exact tsc-b, build and full unit suite
+      - name: Web net-new lint, exact tsc-b, build and full unit suite
         run: |
-          npm run lint --workspace=web
+          node scripts/lint-baseline-gate.mjs origin/main
           (cd web && npx tsc -b)
           npm run build --workspace=web
           npm run test:unit --workspace=web
