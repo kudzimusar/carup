@@ -26,6 +26,12 @@ import {
   clearDiasporaWorkbookOperatorHold,
 } from '../services/diaspora/diasporaWorkbookOperatorConsoleService.js';
 import { exportDiasporaWorkbook, importDiasporaWorkbook, runAndPersistDiasporaWorkbookDryRun, saveDiasporaWorkbookToDrive } from '../services/diaspora/diasporaWorkbookSyncService.js';
+import {
+  generateDiasporaTradeScenarioWorkbook,
+  getDiasporaTradeScenario,
+  listDiasporaTradeScenarios,
+  previewDiasporaTradeScenario,
+} from '../services/diaspora/diasporaTradeScenarioService.js';
 // Confirmed workbook import (Deliverable B, Issue #127).
 import {
   createConfirmation,
@@ -40,6 +46,7 @@ import {
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const auth = authorizeRole();
+const scenarioAuth = authorizeRole(['admin', 'platform_admin', 'super_admin', 'government_reviewer', 'reviewer', 'dealer']);
 const IMPORT_PLAN_PAGE_SIZE = 500;
 
 async function listAllWorkbookImportRows(batchId, userContext) {
@@ -79,6 +86,30 @@ router.get('/workbook/download-template', auth, asyncHandler(async (req, res) =>
 router.post('/workbook/dry-run', auth, asyncHandler(async (req, res) => {
   const data = await runAndPersistDiasporaWorkbookDryRun(req.body, req.userContext, { req });
   res.json({ data });
+}));
+
+// T5 Golden Scenario laboratory. These routes are intentionally read/preview-only: no route here
+// persists or executes fixture data. Scenario services also refuse preview/workbook generation in
+// production, and callers cannot override the server environment through query/body parameters.
+router.get('/workbook/scenarios', scenarioAuth, asyncHandler(async (_req, res) => {
+  res.json({ data: listDiasporaTradeScenarios() });
+}));
+
+router.get('/workbook/scenarios/:scenarioId', scenarioAuth, asyncHandler(async (req, res) => {
+  res.json({ data: getDiasporaTradeScenario(req.params.scenarioId) });
+}));
+
+router.post('/workbook/scenarios/:scenarioId/preview', scenarioAuth, asyncHandler(async (req, res) => {
+  const data = await previewDiasporaTradeScenario(req.params.scenarioId, req.userContext, { req });
+  res.json({ data });
+}));
+
+router.get('/workbook/scenarios/:scenarioId/inputs/:inputId.xlsx', scenarioAuth, asyncHandler(async (req, res) => {
+  const data = await generateDiasporaTradeScenarioWorkbook(req.params.scenarioId, req.params.inputId, { req });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${data.filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(data.buffer);
 }));
 
 router.get('/workbook/import-batches', auth, asyncHandler(async (req, res) => {
