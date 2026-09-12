@@ -1,21 +1,10 @@
 /**
- * Phase 9 — SafeTrade TRANSACTION service.
+ * Phase 9 / Trade OS T13 — SafeTrade TRANSACTION service.
  *
- * The orchestration entry point for the SafeTrade escrow/assurance overlay. It owns:
- *  - createTransaction: eligibility-gated (evaluateEligibility) + entitlement-gated
- *    (requireFeature(diaspora.safetrade.create) when enforcement on) creation of a
- *    diaspora_safetrade_transactions row (DRAFT). It NEVER moves money, approves compliance, marks
- *    shipment/delivery, or creates reputation.
- *  - getTransaction / listTransactions: tenant + participant scoped reads (server-derived roles only).
- *  - transition: drives the authoritative state via the atomic RPC diaspora_safetrade_transition_atomic
- *    (in-txn CRITICAL audit, idempotency replay, money/high-risk fail-closed). The completion path emits
- *    a reputation-ELIGIBILITY event only (the existing diasporaReputationService remains the only
- *    reputation writer); it never writes reputation.
- *  - getTimeline: the audit trail for the transaction from diaspora_import_audit_log.
- *
- * Gated behind DIASPORA_SAFETRADE_ENABLED (default OFF) — every mutating entry point asserts enabled.
- * Connects to the existing domain (orders/quotes, reservations, compliance, documents, shipments); it
- * does not duplicate it.
+ * SafeTrade remains an assurance/payment overlay: shipment, customs, documents and reputation stay
+ * owned by their existing domains. T13 additionally pins transaction commercial money to the accepted
+ * quote when that quote carries complete commercial facts; caller-supplied amount/currency/seller can
+ * never re-price a complete accepted quote.
  */
 import { resolveClient, requestCorrelationId, appendBestEffortAudit } from '../diasporaServiceUtils.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
@@ -40,11 +29,8 @@ import {
   normalizeId,
 } from '../diasporaAuthorization.js';
 import { evaluateEligibility } from './diasporaSafeTradeEligibilityService.js';
+import { resolveSafeTradeCommercialTruth } from './diasporaSafeTradeCommercialTruthService.js';
 
-// Map a SafeTrade state-machine target (the design's 16-state model) to the DB transaction status
-// (the migration's transaction CHECK enum). Self/observational transitions map to null (no DB status
-// change — they set metadata flags only). Money/compliance/shipment/delivery are NEVER auto-completed
-// here: those targets are reached only via the dedicated services/RPCs.
 const TRANSITION_TARGET_DB_STATUS = Object.freeze({
   [SAFETRADE_TRANSITIONS.INITIATE]: 'DRAFT',
   [SAFETRADE_TRANSITIONS.RUN_ELIGIBILITY]: 'INITIATED',
@@ -76,23 +62,10 @@ function assertEnabled() {
   }
 }
 
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
-
 function isPrivileged(context, record = {}) {
   return isPlatformAdmin(context) || isPlatformReviewer(context) || isTenantAdminForRecord(record, context);
 }
 
-/**
- * Resolve a NON-privileged actor's transaction-scoped role from the AUTHORITATIVE row (server-derived;
- * the client x-stakeholder-role is never trusted). Mirrors the delivery service's buyer/seller derivation:
- *   - BUYER  : the txn.buyer_id (or txn.created_by) is the actor
- *   - SELLER : the txn.seller_id is the actor
- *   - null   : neither (an unrelated participant)
- * Privileged actors (platform admin/reviewer, tenant admin of the record) are handled by isPrivileged and
- * are exempt from this party allowlist; this only constrains the non-privileged buyer/seller parties.
- */
 function deriveActorPartyRole(txn, context) {
   const actorId = normalizeId(context.id);
   if (normalizeId(txn.buyer_id) === actorId || normalizeId(txn.created_by) === actorId) return 'BUYER';
@@ -100,20 +73,10 @@ function deriveActorPartyRole(txn, context) {
   return null;
 }
 
-/**
- * Enforce the transition descriptor's actorRoles allowlist for a NON-privileged actor (FIX 1 — closes the
- * seller-confirm-delivery vector). The transition() reviewerOnly heuristic only rejected edges whose
- * actorRoles excluded BOTH buyer and seller; an edge like CONFIRM_DELIVERY (actorRoles ['BUYER','REVIEWER',
- * 'ADMIN']) let a SELLER through the /commit -> transition() path and flip the load-bearing buyer
- * delivery-confirmation gate. Here we require the non-privileged actor's server-derived party role to be in
- * descriptor.actorRoles. Privileged platform reviewer/admin (and tenant admin) override is preserved.
- */
 function assertActorRoleAllowed(descriptor, txn, context, { privileged }) {
-  if (privileged) return; // reviewer/admin/tenant-admin override (consistent with the rest of the service)
+  if (privileged) return;
   const allowed = descriptor.actorRoles;
-  if (!Array.isArray(allowed) || allowed.length === 0) return; // no party allowlist on this edge
-  // If the edge admits SYSTEM but no concrete human party, it is a system/observational edge a
-  // non-privileged human party cannot drive — fall through to the party check (party role must match).
+  if (!Array.isArray(allowed) || allowed.length === 0) return;
   const party = deriveActorPartyRole(txn, context);
   if (party && allowed.includes(party)) return;
   throw new ForbiddenError(`Transition ${descriptor.event} is not permitted for this actor`, {
@@ -123,7 +86,6 @@ function assertActorRoleAllowed(descriptor, txn, context, { privileged }) {
   });
 }
 
-// Participant-scoped read authorization (buyer/seller/creator or privileged).
 function assertCanAccessTransaction(txn, context) {
   const actorId = normalizeId(context.id);
   const participant = [txn.buyer_id, txn.seller_id, txn.created_by, txn.updated_by]
@@ -133,9 +95,10 @@ function assertCanAccessTransaction(txn, context) {
 }
 
 /**
- * createTransaction — eligibility-gated + entitlement-gated creation of a DRAFT SafeTrade transaction.
- * Returns the created row. NEVER moves money / touches compliance / shipment / delivery / reputation.
- * Idempotent on idempotencyKey via the table's partial-unique (tenant_id, idempotency_key).
+ * Create a DRAFT SafeTrade transaction from CURRENT server-derived authority and the accepted quote's
+ * commercial truth. Complete accepted-quote fields always win; incompatible caller assertions are
+ * recorded as ignored assertions, never stored as commercial truth. Historical quotes that pre-date
+ * quote_amount/quote_currency/seller_id use an explicit legacy fallback recorded in metadata.
  */
 export async function createTransaction(supabaseOrOptions, {
   importOrderId,
@@ -153,28 +116,33 @@ export async function createTransaction(supabaseOrOptions, {
   assertEnabled();
   const context = requireUserContext(userContext);
   const supabase = await resolveSafeTradeClient(supabaseOrOptions, options);
-
   if (!importOrderId) throw new ValidationError('importOrderId is required');
-  if (totalAmount == null || !(Number(totalAmount) >= 0)) throw new ValidationError('totalAmount must be a non-negative number');
 
-  const effectiveTenantId = tenantId ?? context.tenantId ?? null;
+  const assertedSellerId = sellerId ?? normalizeId(sellerContext?.id ?? sellerContext?.userId) ?? null;
+  const commercial = await resolveSafeTradeCommercialTruth(supabase, {
+    importOrderId,
+    userContext: context,
+    sellerId: assertedSellerId,
+    currency,
+    totalAmount,
+    tenantId,
+  });
+  const effectiveTenantId = commercial.tenantId;
 
-  // 1. Entitlement gate (no-op when enforcement off; ForbiddenError when on and denied).
   await requireFeature(supabase, {
     tenantId: effectiveTenantId,
     userId: context.id,
     featureKey: FEATURE_KEYS.SAFETRADE_CREATE,
   });
 
-  // 2. Eligibility gate — explainable blockers; refuse creation unless eligible.
   if (!skipEligibility) {
     const verdict = await evaluateEligibility(supabase, {
       importOrderId,
       buyerContext: context,
       sellerContext,
-      sellerId,
+      sellerId: commercial.sellerId,
       tenantId: effectiveTenantId,
-      requestedCurrency: currency,
+      requestedCurrency: commercial.currency,
       evaluatedAt: req?.fixedTimestamp || null,
       options: { supabaseClient: supabase },
     });
@@ -187,44 +155,39 @@ export async function createTransaction(supabaseOrOptions, {
     }
   }
 
-  // Idempotency: a replay returns the existing draft rather than creating a duplicate.
   if (idempotencyKey) {
-    const { data: existing } = await supabase
+    let replay = supabase
       .from('diaspora_safetrade_transactions')
       .select('*')
-      .eq('tenant_id', effectiveTenantId)
       .eq('idempotency_key', idempotencyKey)
-      .is('deleted_at', null)
-      .maybeSingle();
+      .is('deleted_at', null);
+    if (effectiveTenantId) replay = replay.eq('tenant_id', effectiveTenantId);
+    else replay = replay.is('tenant_id', null);
+    const { data: existing } = await replay.maybeSingle();
     if (existing) return { transaction: existing, idempotentReplay: true };
   }
-
-  // Resolve the accepted quote pointer (read-through; the order is the logistics source of truth).
-  const { data: order } = await supabase
-    .from('diaspora_import_orders')
-    .select('*')
-    .eq('id', importOrderId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (!order) throw new NotFoundError('Diaspora import order not found');
-  const acceptedQuoteId = order?.metadata?.rfq?.acceptedQuoteId ?? null;
 
   const { data, error } = await supabase
     .from('diaspora_safetrade_transactions')
     .insert({
       tenant_id: effectiveTenantId,
       import_order_id: importOrderId,
-      accepted_quote_id: acceptedQuoteId,
-      buyer_id: context.id,
-      seller_id: sellerId ?? normalizeId(sellerContext?.id ?? sellerContext?.userId) ?? null,
-      currency,
-      total_amount: round2(totalAmount),
+      accepted_quote_id: commercial.acceptedQuoteId,
+      buyer_id: commercial.buyerId,
+      seller_id: commercial.sellerId,
+      currency: commercial.currency,
+      total_amount: commercial.amount,
       status: 'DRAFT',
-      payment_provider: resolveSafeTradeProvider(), // sandbox/fake only (fail-closed)
-      live_payment: false, // DB CHECK also forces false; never live here
+      payment_provider: resolveSafeTradeProvider(),
+      live_payment: false,
       policy_version: SAFETRADE_POLICY_VERSION,
       idempotency_key: idempotencyKey,
-      metadata: { safetrade: { createdVia: 'service' } },
+      metadata: {
+        safetrade: {
+          createdVia: 'service',
+          commercialSource: commercial.provenance,
+        },
+      },
       created_by: context.id,
       updated_by: context.id,
     })
@@ -232,7 +195,6 @@ export async function createTransaction(supabaseOrOptions, {
     .single();
   if (error) throw new ValidationError(`Failed to create SafeTrade transaction: ${error.message}`);
 
-  // Best-effort telemetry audit of the creation (the lifecycle transitions use in-txn CRITICAL audit).
   await appendBestEffortAudit(supabase, {
     importOrderId,
     tenantId: effectiveTenantId,
@@ -241,14 +203,18 @@ export async function createTransaction(supabaseOrOptions, {
     resourceType: 'diaspora_safetrade_transaction',
     resourceId: data.id,
     newState: { status: 'DRAFT' },
-    metadata: { policyVersion: SAFETRADE_POLICY_VERSION, correlationId: requestCorrelationId(req) },
+    metadata: {
+      policyVersion: SAFETRADE_POLICY_VERSION,
+      commercialSource: commercial.provenance.status,
+      acceptedQuoteId: commercial.acceptedQuoteId,
+      correlationId: requestCorrelationId(req),
+    },
     req,
   });
 
   return { transaction: data, idempotentReplay: false };
 }
 
-/** getTransaction — participant/privileged scoped read. */
 export async function getTransaction(supabaseOrOptions, { transactionId, userContext = {}, options = {} } = {}) {
   assertEnabled();
   const context = requireUserContext(userContext);
@@ -264,10 +230,6 @@ export async function getTransaction(supabaseOrOptions, { transactionId, userCon
   return data;
 }
 
-/**
- * listTransactions — tenant + participant scoped. Privileged actors (platform admin/reviewer) see all
- * tenant rows; everyone else sees only rows where they are buyer/seller/creator. RLS is the backstop.
- */
 export async function listTransactions(supabaseOrOptions, {
   tenantId = null, status = null, importOrderId = null, limit = 50, offset = 0, userContext = {}, options = {},
 } = {}) {
@@ -299,19 +261,6 @@ export async function listTransactions(supabaseOrOptions, {
   });
 }
 
-/**
- * transition — dispatch a SafeTrade state-machine event against the transaction, driving the
- * authoritative DB status through the atomic transition RPC (in-txn CRITICAL audit, idempotency replay,
- * money/high-risk fail-closed). Structural legality is checked first via assertDispatchAllowed.
- *
- * Guardrails enforced here (defense-in-depth with the RPC):
- *  - Money/compliance/shipment/delivery/reputation are NEVER auto-completed by this function. Money
- *    edges (HOLD/RELEASE/REFUND) and milestone money state belong to the milestone service; this only
- *    moves the transaction-level status and refuses to drive a money target without privilege/eligibility.
- *  - RELEASE_ESCROW / INITIATE_REFUND / COMPLETE_REFUND / COMPLIANCE_PASS / SUSPEND require a
- *    reviewer/admin actor (the descriptor's actorRoles + the RPC's privilege gate).
- *  - The completion path emits a reputation-ELIGIBILITY event only (never writes reputation).
- */
 export async function transition(supabaseOrOptions, {
   transactionId,
   event,
@@ -331,10 +280,8 @@ export async function transition(supabaseOrOptions, {
   if (!descriptor) throw new ValidationError(`Unknown SafeTrade transition: ${event}`);
 
   const txn = await getTransaction(supabase, { transactionId, userContext: context, options: { supabaseClient: supabase } });
-
   const privileged = isPrivileged(context, txn);
 
-  // Reviewer/admin-only edges (N2/N5): refuse early for non-privileged actors.
   const reviewerOnly = descriptor.actorRoles
     && !descriptor.actorRoles.includes('BUYER')
     && !descriptor.actorRoles.includes('SELLER');
@@ -342,15 +289,8 @@ export async function transition(supabaseOrOptions, {
     throw new ForbiddenError(`Transition ${event} requires a reviewer/admin`, { code: 'REVIEWER_REQUIRED' });
   }
 
-  // FIX 1 — enforce the descriptor's actorRoles party allowlist for non-privileged actors. The
-  // reviewerOnly heuristic above does NOT catch mixed-role edges (e.g. CONFIRM_DELIVERY admits BUYER but
-  // not SELLER): without this, a SELLER could drive CONFIRM_DELIVERY through /commit -> transition() and
-  // flip the load-bearing buyer delivery-confirmation gate. A non-privileged actor's server-derived party
-  // role (BUYER for buyer/creator, SELLER for seller) must be in descriptor.actorRoles. For CONFIRM_DELIVERY
-  // this means only the buyer (or a privileged reviewer/admin) may confirm — sellers/others are rejected.
   assertActorRoleAllowed(descriptor, txn, context, { privileged });
 
-  // Money/release/refund authorization edges require a passing prior evaluation reference (N5).
   const isReleaseAuthority = [
     SAFETRADE_TRANSITIONS.RELEASE_ESCROW,
     SAFETRADE_TRANSITIONS.INITIATE_REFUND,
@@ -362,17 +302,11 @@ export async function transition(supabaseOrOptions, {
   }
 
   const targetDbStatus = TRANSITION_TARGET_DB_STATUS[event];
-
-  // Self/observational transitions (e.g. CONFIRM_DELIVERY, REQUEST_PAYMENT, BEGIN_SHIPMENT) set a
-  // metadata flag only — no DB status change, no money. Handled without the transition RPC.
   if (!targetDbStatus) {
     return applyObservationalTransition(supabase, { txn, event, context, metadata, req });
   }
 
-  // Structural legality of the DB-status edge is enforced authoritatively by the RPC; the design's
-  // 16-state adjacency is asserted here for early, explainable rejection of clearly-illegal verbs.
   if (descriptor.from && descriptor.from.length > 0) {
-    // The design state may differ from the coarse DB status; only assert when both share vocabulary.
     try { assertDispatchAllowed(txn.status, event); } catch { /* coarse DB statuses differ; RPC is authoritative */ }
   }
 
@@ -401,7 +335,6 @@ export async function transition(supabaseOrOptions, {
     reputationEligibilityEvent: null,
   };
 
-  // N4 — completion emits a reputation-ELIGIBILITY event only; never writes reputation.
   if (event === SAFETRADE_TRANSITIONS.RELEASE_ESCROW) {
     result.reputationEligibilityEvent = await emitReputationEligibility(supabase, { txn, context, req });
   }
@@ -409,11 +342,6 @@ export async function transition(supabaseOrOptions, {
   return result;
 }
 
-/**
- * applyObservationalTransition — handle self/flag-setting events (CONFIRM_DELIVERY, REQUEST_PAYMENT,
- * AWAIT_DELIVERY, BEGIN_SHIPMENT, RUN_ELIGIBILITY when no DB status change) by writing a metadata flag
- * and a best-effort audit row. No money, no status-of-record change.
- */
 async function applyObservationalTransition(supabase, { txn, event, context, metadata, req }) {
   const flagPatch = {};
   if (event === SAFETRADE_TRANSITIONS.CONFIRM_DELIVERY) flagPatch.deliveryConfirmed = true;
@@ -449,11 +377,6 @@ async function applyObservationalTransition(supabase, { txn, event, context, met
   return { transaction: data, event, idempotentReplay: false, observational: true };
 }
 
-/**
- * emitReputationEligibility — N4: surface a reputation-ELIGIBILITY signal only. We do NOT write
- * diaspora_reputation_records (the existing diasporaReputationService remains the only reputation
- * writer). Recorded as a best-effort audit event the reputation service / a human can consume.
- */
 async function emitReputationEligibility(supabase, { txn, context, req }) {
   const eventName = 'DIASPORA_SAFETRADE_REPUTATION_ELIGIBLE';
   await appendBestEffortAudit(supabase, {
@@ -475,7 +398,6 @@ async function emitReputationEligibility(supabase, { txn, context, req }) {
   return { event: eventName, transactionId: txn.id, wroteReputation: false };
 }
 
-/** getTimeline — the SafeTrade audit trail for the transaction (from diaspora_import_audit_log). */
 export async function getTimeline(supabaseOrOptions, { transactionId, userContext = {}, options = {} } = {}) {
   assertEnabled();
   const context = requireUserContext(userContext);
