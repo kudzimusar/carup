@@ -232,7 +232,7 @@ jobs:
             await client.query(
               `insert into public.user_registration_profiles
                  (user_id, account_kind, market_relationship, country_of_residence, city, intended_use, onboarding_status, terms_acknowledged_at, privacy_acknowledged_at)
-               values ($1, 'individual', 'diaspora', 'United Kingdom', 'Leeds', 'buy_sell', 'requested', now(), now())
+               values ($1, 'individual', 'diaspora', 'United Kingdom', 'Leeds', 'buy_sell', 'not_required', now(), now())
                on conflict (user_id) do update set
                  account_kind = excluded.account_kind,
                  market_relationship = excluded.market_relationship,
