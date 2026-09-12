@@ -46,6 +46,7 @@ interface JourneyResponse {
         state: string
         session_id: string | null
         uploaded_sides: { front: boolean; back: boolean; selfie: boolean }
+        uploaded_mime_types: { front: string | null; back: string | null; selfie: string | null }
         double_sided: boolean | null
         document_type: string | null
         who_must_act: string
@@ -110,7 +111,10 @@ const SIDES: Array<{ side: 'front' | 'back' | 'selfie'; label: string }> = [
   { side: 'selfie', label: 'Selfie' },
 ]
 
-const fieldClass = 'w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100'
+const fieldClass = 'min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-base text-foreground shadow-sm outline-none focus:border-primary sm:text-sm'
+const DOCUMENT_ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf'
+const SELFIE_ACCEPT = 'image/jpeg,image/png,image/webp'
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 // Must match the backend's BIOMETRIC_CONSENT_TEXT_VERSION — the grant is refused otherwise.
 const BIOMETRIC_CONSENT_TEXT_VERSION = 'biometric_consent_text.v1'
@@ -270,7 +274,7 @@ export default function RegistrationJourney() {
     setStarting(true)
     try {
       await createIdentitySession(docType)
-      toast.success('Verification started — upload your document images next.')
+      toast.success('Verification started — upload your identity document evidence and selfie next.')
       await load()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not start verification.')
@@ -281,20 +285,42 @@ export default function RegistrationJourney() {
 
   const uploadSide = async (side: 'front' | 'back' | 'selfie', file: File | undefined) => {
     if (!file || !identity?.session_id) return
-    if (file.size > 15 * 1024 * 1024) {
-      toast.error('Images must be 15MB or smaller.')
+    const isSelfie = side === 'selfie'
+    const mime = file.type.toLowerCase()
+    const allowed = isSelfie
+      ? new Set(['image/jpeg', 'image/png', 'image/webp'])
+      : new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+    if (!allowed.has(mime)) {
+      toast.error(isSelfie
+        ? 'Unsupported selfie type. Take a photo or choose a JPG, PNG or WebP image.'
+        : 'Unsupported document type. Take a photo or choose a JPG, PNG, WebP or PDF file.')
+      return
+    }
+    if (file.size === 0) {
+      toast.error(isSelfie
+        ? 'This selfie file is empty or corrupt. Take a new selfie photo or choose another image.'
+        : 'This identity document is empty or corrupt. Take a clear photo or choose another file.')
+      return
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(`${isSelfie ? 'Selfie' : 'Identity document'} is larger than 15 MB. Choose a smaller file.`)
       return
     }
     setUploadState((current) => ({ ...current, [side]: 'uploading' }))
     try {
       const dataUri = await readFileAsDataUri(file)
+      if (!dataUri.includes(';base64,') || dataUri.endsWith(';base64,')) {
+        throw new Error(`The selected ${isSelfie ? 'selfie' : 'identity document'} is empty or corrupt.`)
+      }
       await uploadIdentitySide(identity.session_id, side, dataUri)
       setUploadState((current) => ({ ...current, [side]: 'idle' }))
       await load()
     } catch (error) {
-      // A failed upload is retryable in place — nothing else about the session is lost.
       setUploadState((current) => ({ ...current, [side]: 'error' }))
-      toast.error(error instanceof Error ? error.message : `Could not upload the ${side} image — try again.`)
+      const fallback = isSelfie
+        ? 'Could not upload the selfie. Take a new photo or choose another JPG, PNG or WebP image.'
+        : 'Could not upload the identity document. Take a clear photo or choose another supported file.'
+      toast.error(error instanceof Error ? error.message : fallback)
     }
   }
 
@@ -319,53 +345,54 @@ export default function RegistrationJourney() {
       case 'action_required': return <Badge className="bg-amber-600 text-white" data-testid="identity-state">Your action needed</Badge>
       case 'processing': return <Badge className="bg-blue-600 text-white" data-testid="identity-state">Processing</Badge>
       case 'in_review': return <Badge className="bg-blue-800 text-white" data-testid="identity-state">In human review</Badge>
-      case 'not_started': return <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="identity-state">Not started</Badge>
+      case 'not_started': return <Badge variant="outline" className="border-input text-foreground" data-testid="identity-state">Not started</Badge>
       // O2-X3 — current lifecycle states (labels stay applicant-safe).
       case 'reverification_required': return <Badge className="bg-amber-600 text-white" data-testid="identity-state">Re-verification required</Badge>
       case 'suspended': return <Badge className="bg-red-800 text-white" data-testid="identity-state">On hold</Badge>
       case 'compromised': return <Badge className="bg-red-800 text-white" data-testid="identity-state">Security review</Badge>
       case 'disputed': return <Badge className="bg-amber-700 text-white" data-testid="identity-state">Under dispute</Badge>
       case 'revoked': return <Badge className="bg-red-900 text-white" data-testid="identity-state">Revoked</Badge>
-      default: return <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="identity-state">{identity?.state || '—'}</Badge>
+      default: return <Badge variant="outline" className="border-input text-foreground" data-testid="identity-state">{identity?.state || '—'}</Badge>
     }
   }, [identity?.state])
 
   if (loading) {
-    return <div className="p-8 text-gray-300" data-testid="journey-loading">Loading your registration status…</div>
+    return <div className="min-h-[45vh] bg-background px-4 py-6 text-base text-muted-foreground" data-testid="journey-loading">Loading your registration status…</div>
   }
   if (!journey) {
-    return <div className="p-8 text-gray-300">Your registration status is unavailable right now.</div>
+    return <div className="min-h-[45vh] bg-background px-4 py-6 text-base text-muted-foreground">Your registration status is unavailable right now.</div>
   }
 
   const wizardOpen = identity && ['draft', 'capturing', 'ready_to_submit', 'action_required'].includes(identity.state)
   const showUploads = Boolean(wizardOpen && identity?.session_id)
+  const pdfPacketUploaded = identity?.uploaded_mime_types?.front === 'application/pdf'
 
   return (
-    <div className="min-h-screen bg-gray-950"><div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-8 text-gray-100">
+    <div className="min-h-screen overflow-x-clip bg-background"><div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5 pb-24 text-foreground sm:space-y-6 sm:px-6 sm:py-8 lg:px-8">
       <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Finish setting up your CarUp account</h1>
+        <h1 className="text-xl font-semibold leading-tight tracking-tight sm:text-2xl">Finish setting up your CarUp account</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="who-must-act">{ACTOR_LABELS[journey.journey.who_must_act] || journey.journey.who_must_act}</Badge>
-          {journey.user?.email_verified === false && <Badge className="bg-gray-700">Email not yet verified</Badge>}
+          <Badge variant="outline" className="border-input text-foreground" data-testid="who-must-act">{ACTOR_LABELS[journey.journey.who_must_act] || journey.journey.who_must_act}</Badge>
+          {journey.user?.email_verified === false && <Badge className="bg-muted text-foreground">Email not yet verified</Badge>}
         </div>
-        <p className="text-sm text-gray-400" data-testid="required-action">{journey.journey.required_action}</p>
+        <p className="text-sm text-muted-foreground" data-testid="required-action">{journey.journey.required_action}</p>
       </header>
 
       {/* Progressive Trust ladder — server-derived; this page never decides. */}
-      <Card className="bg-gray-900 border-gray-800">
-        <CardContent className="p-4 space-y-3">
+      <Card className="bg-card border-border">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <h2 className="font-medium">Your progress</h2>
           <ol className="space-y-2">
             {journey.journey.capability_ladder.map((stage) => (
               <li key={stage.stage} className="flex items-start gap-2" data-testid={`stage-${stage.stage}`}>
                 {stage.reached
                   ? <CheckCircle className="mt-0.5 h-4 w-4 text-green-500" aria-hidden />
-                  : <Circle className="mt-0.5 h-4 w-4 text-gray-600" aria-hidden />}
+                  : <Circle className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />}
                 <div>
-                  <div className={stage.reached ? 'text-gray-100' : 'text-gray-400'}>
+                  <div className={stage.reached ? 'text-foreground' : 'text-muted-foreground'}>
                     {STAGE_LABELS[stage.stage] || stage.stage}
                   </div>
-                  <div className="text-xs text-gray-400">{stage.unlocks.map((u) => u.replace(/_/g, ' ')).join(' · ')}</div>
+                  <div className="text-xs text-muted-foreground">{stage.unlocks.map((u) => u.replace(/_/g, ' ')).join(' · ')}</div>
                 </div>
               </li>
             ))}
@@ -375,12 +402,12 @@ export default function RegistrationJourney() {
               Start Dealer onboarding
             </Button>
           )}
-          <div className="border-t border-gray-800 pt-3 space-y-1">
+          <div className="border-t border-border pt-3 space-y-1">
             {journey.journey.locked_capabilities.map((lock) => (
-              <div key={lock.capability} className="flex items-start gap-2 text-xs text-gray-400" data-testid={`locked-${lock.capability}`}>
+              <div key={lock.capability} className="flex items-start gap-2 text-xs text-muted-foreground" data-testid={`locked-${lock.capability}`}>
                 <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
                 <span>
-                  <span className="text-gray-400">{lock.capability.replace(/_/g, ' ')}</span>
+                  <span className="text-muted-foreground">{lock.capability.replace(/_/g, ' ')}</span>
                   {' — '}{lock.reason}
                 </span>
               </div>
@@ -390,8 +417,8 @@ export default function RegistrationJourney() {
       </Card>
 
       {/* Contact & context — the confirmed data lives in the Registration Profile. */}
-      <Card className="bg-gray-900 border-gray-800">
-        <CardContent className="p-4 space-y-3">
+      <Card className="bg-card border-border">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <h2 className="font-medium">Contact & context</h2>
             {journey.journey.steps.context_established && !editContext && (
@@ -401,19 +428,19 @@ export default function RegistrationJourney() {
 
           {journey.journey.steps.context_established && !editContext ? (
             <dl className="grid grid-cols-2 gap-2 text-sm" data-testid="context-summary">
-              <dt className="text-gray-400">Account</dt><dd>{journey.profile?.account_kind}</dd>
-              <dt className="text-gray-400">Market</dt><dd>{journey.profile?.market_relationship?.replace(/_/g, ' ')}</dd>
-              <dt className="text-gray-400">Country</dt><dd>{journey.profile?.country_of_residence}</dd>
-              <dt className="text-gray-400">City</dt><dd>{journey.profile?.city}</dd>
+              <dt className="text-muted-foreground">Account</dt><dd>{journey.profile?.account_kind}</dd>
+              <dt className="text-muted-foreground">Market</dt><dd>{journey.profile?.market_relationship?.replace(/_/g, ' ')}</dd>
+              <dt className="text-muted-foreground">Country</dt><dd>{journey.profile?.country_of_residence}</dd>
+              <dt className="text-muted-foreground">City</dt><dd>{journey.profile?.city}</dd>
             </dl>
           ) : (
             <div className="space-y-3" data-testid="context-form">
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 You can complete this at any time — an OCR problem never blocks it.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm space-y-1">
-                  <span className="text-gray-400">Account type</span>
+                  <span className="text-muted-foreground">Account type</span>
                   <select className={fieldClass} value={form.account_kind}
                     onChange={(e) => setForm({ ...form, account_kind: e.target.value })}>
                     <option value="individual">Individual</option>
@@ -421,7 +448,7 @@ export default function RegistrationJourney() {
                   </select>
                 </label>
                 <label className="text-sm space-y-1">
-                  <span className="text-gray-400">Relationship to Zimbabwe market</span>
+                  <span className="text-muted-foreground">Relationship to Zimbabwe market</span>
                   <select className={fieldClass} value={form.market_relationship}
                     onChange={(e) => setForm({ ...form, market_relationship: e.target.value })}>
                     <option value="zimbabwe_local">Living in Zimbabwe</option>
@@ -430,7 +457,7 @@ export default function RegistrationJourney() {
                   </select>
                 </label>
                 <label className="text-sm space-y-1">
-                  <span className="text-gray-400">Country of residence</span>
+                  <span className="text-muted-foreground">Country of residence</span>
                   <input className={fieldClass} value={form.country_of_residence}
                     onChange={(e) => setForm({ ...form, country_of_residence: e.target.value })} />
                   {countryCandidate?.state === 'machine_candidate' && (
@@ -442,17 +469,17 @@ export default function RegistrationJourney() {
                   )}
                 </label>
                 <label className="text-sm space-y-1">
-                  <span className="text-gray-400">City</span>
+                  <span className="text-muted-foreground">City</span>
                   <input className={fieldClass} value={form.city}
                     onChange={(e) => setForm({ ...form, city: e.target.value })} />
                 </label>
                 <label className="text-sm space-y-1">
-                  <span className="text-gray-400">Province (optional)</span>
+                  <span className="text-muted-foreground">Province (optional)</span>
                   <input className={fieldClass} value={form.province}
                     onChange={(e) => setForm({ ...form, province: e.target.value })} />
                 </label>
                 <label className="text-sm space-y-1">
-                  <span className="text-gray-400">How will you use CarUp?</span>
+                  <span className="text-muted-foreground">How will you use CarUp?</span>
                   <select className={fieldClass} value={form.intended_use}
                     onChange={(e) => setForm({ ...form, intended_use: e.target.value })}>
                     <option value="buy">Buying</option>
@@ -464,12 +491,12 @@ export default function RegistrationJourney() {
                 {form.account_kind === 'business' && (
                   <>
                     <label className="text-sm space-y-1">
-                      <span className="text-gray-400">Business name</span>
+                      <span className="text-muted-foreground">Business name</span>
                       <input className={fieldClass} value={form.organization_name}
                         onChange={(e) => setForm({ ...form, organization_name: e.target.value })} />
                     </label>
                     <label className="text-sm space-y-1">
-                      <span className="text-gray-400">Business type</span>
+                      <span className="text-muted-foreground">Business type</span>
                       <select className={fieldClass} value={form.business_type}
                         onChange={(e) => setForm({ ...form, business_type: e.target.value })}>
                         {['dealer', 'exporter', 'importer', 'garage', 'mechanic', 'parts_seller', 'insurer', 'lender', 'other'].map((t) => (
@@ -481,7 +508,7 @@ export default function RegistrationJourney() {
                 )}
               </div>
               {form.account_kind === 'business' && (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Business details route you into Dealer onboarding later — they never grant dealer access by themselves.
                 </p>
               )}
@@ -499,7 +526,7 @@ export default function RegistrationJourney() {
                   </label>
                 </div>
               )}
-              <Button onClick={saveProfile} disabled={saving} data-testid="save-profile">
+              <Button className="min-h-11 w-full sm:w-auto" onClick={saveProfile} disabled={saving} data-testid="save-profile">
                 {saving ? 'Saving…' : 'Save details'}
               </Button>
             </div>
@@ -508,25 +535,25 @@ export default function RegistrationJourney() {
       </Card>
 
       {/* Identity verification — evidence in, 7C case state back. */}
-      <Card className="bg-gray-900 border-gray-800">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
+      <Card className="bg-card border-border">
+        <CardContent className="space-y-3 p-4 sm:p-5">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-medium">Identity verification</h2>
             {identityBadge}
           </div>
-          <p className="text-sm text-gray-400" data-testid="identity-guidance">{identity?.guidance}</p>
+          <p className="text-sm text-muted-foreground" data-testid="identity-guidance">{identity?.guidance}</p>
 
           {(identity?.state === 'not_started' || identity?.state === 'reverification_required') && (
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="text-sm space-y-1">
-                <span className="text-gray-400">Document type</span>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label className="w-full space-y-1 text-sm">
+                <span className="text-muted-foreground">Document type</span>
                 <select className={fieldClass} value={docType} onChange={(e) => setDocType(e.target.value)}>
                   <option value="national_id">Zimbabwe National ID</option>
                   <option value="passport">Passport</option>
                   <option value="driver_license">Driver's licence</option>
                 </select>
               </label>
-              <Button onClick={startIdentity} disabled={starting} data-testid="start-identity">
+              <Button className="min-h-11 w-full sm:w-auto" onClick={startIdentity} disabled={starting} data-testid="start-identity">
                 <Camera className="mr-1 h-4 w-4" aria-hidden />
                 {starting ? 'Starting…' : identity?.state === 'reverification_required' ? 'Verify again' : 'Start verification'}
               </Button>
@@ -541,41 +568,57 @@ export default function RegistrationJourney() {
           )}
 
           {showUploads && (
-            <div className="grid gap-3 sm:grid-cols-3" data-testid="upload-tiles">
-              {SIDES.filter(({ side }) => side !== 'back' || identity?.double_sided !== false).map(({ side, label }) => {
-                const uploaded = identity?.uploaded_sides?.[side]
-                const state = uploadState[side] || 'idle'
-                return (
-                  <label key={side} className="block cursor-pointer rounded-md border border-dashed border-gray-700 p-3 text-center text-sm"
-                    data-testid={`upload-${side}`}>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                      onChange={(e) => uploadSide(side, e.target.files?.[0])} />
-                    <div className="flex flex-col items-center gap-1">
-                      {uploaded
-                        ? <CheckCircle className="h-5 w-5 text-green-500" aria-hidden />
-                        : state === 'error'
-                          ? <AlertTriangle className="h-5 w-5 text-amber-500" aria-hidden />
-                          : <Camera className="h-5 w-5 text-gray-400" aria-hidden />}
-                      <span>{label}</span>
-                      <span className="text-xs text-gray-400">
-                        {state === 'uploading' ? 'Uploading…'
-                          : uploaded ? 'Uploaded — tap to replace'
-                            : state === 'error' ? 'Failed — tap to retry'
-                              : 'Tap to upload'}
-                      </span>
-                    </div>
-                  </label>
-                )
-              })}
+  <div className="space-y-3">
+    <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground" data-testid="identity-format-guidance">
+      <p><span className="font-semibold text-foreground">Identity document:</span> Accepted: JPG, PNG, WebP or PDF · Maximum 15 MB</p>
+      <p><span className="font-semibold text-foreground">Selfie:</span> Accepted: JPG, PNG or WebP · Maximum 15 MB</p>
+      {identity?.double_sided !== false && (
+        <p className="mt-1">A single PDF may be submitted as the document packet. CarUp has not automatically proven both sides are present; the human reviewer checks that. A selfie is still required separately.</p>
+      )}
+      <p className="mt-1">HEIC/HEIF are not currently supported end-to-end. On iPhone, choose a JPG/PNG/WebP photo or a PDF document instead.</p>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="upload-tiles">
+      {SIDES.filter(({ side }) => side !== 'back' || (identity?.double_sided !== false && !pdfPacketUploaded)).map(({ side, label }) => {
+        const uploaded = identity?.uploaded_sides?.[side]
+        const state = uploadState[side] || 'idle'
+        const isSelfie = side === 'selfie'
+        return (
+          <label key={side} className="block min-h-24 cursor-pointer rounded-lg border border-dashed border-input bg-background p-3 text-center text-sm shadow-sm"
+            data-testid={`upload-${side}`}>
+            <input type="file" accept={isSelfie ? SELFIE_ACCEPT : DOCUMENT_ACCEPT} className="hidden"
+              onChange={(e) => uploadSide(side, e.target.files?.[0])} />
+            <div className="flex flex-col items-center gap-1.5">
+              {uploaded
+                ? <CheckCircle className="h-5 w-5 text-green-600" aria-hidden />
+                : state === 'error'
+                  ? <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
+                  : <Camera className="h-5 w-5 text-muted-foreground" aria-hidden />}
+              <span className="font-medium text-foreground">{label}</span>
+              <span className="text-xs text-muted-foreground">
+                {state === 'uploading' ? 'Uploading…'
+                  : uploaded ? 'Uploaded — tap to replace'
+                    : state === 'error' ? 'Failed — tap to retry'
+                      : isSelfie ? 'Take or choose a photo' : 'Take a photo or choose a file'}
+              </span>
             </div>
-          )}
+          </label>
+        )
+      })}
+    </div>
+    {pdfPacketUploaded && (
+      <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-900" data-testid="pdf-manual-review-note">
+        PDF document packet uploaded. Automated image classification and OCR will not run. A CarUp reviewer must inspect the document, including whether all required sides are present.
+      </p>
+    )}
+  </div>
+)}
 
           {identity?.session_id && !['approved', 'rejected'].includes(identity.state) && (
-            <div className="space-y-2 rounded-md border border-gray-800 p-3" data-testid="biometric-block">
+            <div className="space-y-2 rounded-md border border-border p-3" data-testid="biometric-block">
               <h3 className="text-sm font-medium">Biometric verification</h3>
               {!identity.biometric?.consent.active ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-400" data-testid="biometric-disclosure">
+                  <p className="text-xs text-muted-foreground" data-testid="biometric-disclosure">
                     With your explicit consent, an approved identity-verification provider will
                     compare your selfie/live face with the photograph on your identity document and
                     assess that a live person is present (not a photo, video or replay). This
@@ -621,9 +664,9 @@ export default function RegistrationJourney() {
               ) : (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-1 text-sm">
-                    <span className="text-gray-400">Face ↔ document</span>
+                    <span className="text-muted-foreground">Face ↔ document</span>
                     <span data-testid="biometric-face-status">{BIOMETRIC_STATUS_LABELS[identity.biometric.latest?.face_match_status || 'not_run']}</span>
-                    <span className="text-gray-400">Liveness</span>
+                    <span className="text-muted-foreground">Liveness</span>
                     <span data-testid="biometric-liveness-status">{BIOMETRIC_STATUS_LABELS[identity.biometric.latest?.liveness_status || 'not_run']}</span>
                   </div>
                   {(identity.biometric.latest?.provider_state === 'not_configured' || identity.biometric.latest?.provider_state === 'unavailable') && (
@@ -635,7 +678,7 @@ export default function RegistrationJourney() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={runningBiometric || !identity.uploaded_sides.front || !identity.uploaded_sides.selfie}
+                      disabled={runningBiometric || pdfPacketUploaded || !identity.uploaded_sides.front || !identity.uploaded_sides.selfie}
                       data-testid="run-biometric-check"
                       onClick={async () => {
                         setRunningBiometric(true)
@@ -674,17 +717,17 @@ export default function RegistrationJourney() {
           )}
 
           {identity?.state === 'ready_to_submit' && (
-            <Button onClick={submitIdentity} disabled={submitting} data-testid="submit-identity">
+            <Button className="min-h-11 w-full sm:w-auto" onClick={submitIdentity} disabled={submitting} data-testid="submit-identity">
               {submitting ? 'Submitting…' : 'Submit for verification'}
             </Button>
           )}
           {identity?.state === 'action_required' && showUploads && (
-            <Button onClick={submitIdentity} disabled={submitting} variant="outline" data-testid="resubmit-identity">
+            <Button className="min-h-11 w-full sm:w-auto" onClick={submitIdentity} disabled={submitting} variant="outline" data-testid="resubmit-identity">
               <RefreshCw className="mr-1 h-4 w-4" aria-hidden />{submitting ? 'Submitting…' : 'Resubmit documents'}
             </Button>
           )}
           {(identity?.state === 'processing' || identity?.state === 'in_review') && (
-            <div className="flex items-center gap-2 text-sm text-gray-400">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Hourglass className="h-4 w-4" aria-hidden />
               <span>{ACTOR_LABELS[identity.who_must_act] || identity.who_must_act}</span>
             </div>
@@ -697,20 +740,20 @@ export default function RegistrationJourney() {
           )}
 
           {candidates?.available && (
-            <div className="space-y-2 border-t border-gray-800 pt-3" data-testid="candidates">
+            <div className="space-y-2 border-t border-border pt-3" data-testid="candidates">
               <h3 className="text-sm font-medium">What we read from your document</h3>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 Extracted by OCR as candidates only — a human reviewer decides verification. Nothing
                 here is saved to your profile unless you use and save it yourself.
               </p>
               <dl className="grid grid-cols-2 gap-1 text-sm">
                 {Object.entries(candidates.document_fields).map(([field, candidate]) => (
                   <React.Fragment key={field}>
-                    <dt className="text-gray-400">{DOCUMENT_FIELD_LABELS[field] || field}</dt>
+                    <dt className="text-muted-foreground">{DOCUMENT_FIELD_LABELS[field] || field}</dt>
                     <dd data-testid={`candidate-${field}`}>
                       {candidate.state === 'machine_candidate'
                         ? candidate.value
-                        : <span className="text-gray-600">Not read from document</span>}
+                        : <span className="text-muted-foreground">Not read from document</span>}
                     </dd>
                   </React.Fragment>
                 ))}

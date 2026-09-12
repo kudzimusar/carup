@@ -205,6 +205,17 @@ export const REASON_CODES = {
     defaultApplicantGuidance: 'Verification could not be completed.',
     internalDescription: 'Multiple indicators suggest fraudulent activity.',
   },
+  PDF_MANUAL_REVIEW_REQUIRED: {
+    code: 'PDF_MANUAL_REVIEW_REQUIRED',
+    severity: 'info',
+    category: 'evidence',
+    approveAllowed: true,
+    resubmissionAllowed: true,
+    rejectionTerminal: false,
+    escalateAllowed: true,
+    defaultApplicantGuidance: 'Your PDF identity document is waiting for a CarUp reviewer. Automated image checks were not run.',
+    internalDescription: 'PDF identity evidence is stored privately and must be inspected by a human reviewer; image classification and OCR are not run.',
+  },
   TECHNICAL_ERROR: {
     code: 'TECHNICAL_ERROR',
     severity: 'error',

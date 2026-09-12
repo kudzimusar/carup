@@ -19,7 +19,7 @@ import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
 import WorkbookWorkspace from '@/components/workbook/WorkbookWorkspace'
 
-const fieldClass = 'w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100'
+const fieldClass = 'min-h-11 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-base text-foreground shadow-sm outline-none focus:border-primary sm:text-sm'
 
 const ACTOR_LABELS: Record<string, string> = {
   subject_action: 'Your action needed',
@@ -238,54 +238,54 @@ export default function DealerOnboarding() {
     }
   }
 
-  if (loading) return <div className="p-8 text-gray-300" data-testid="dealer-onboarding-loading">Loading your dealer application…</div>
+  if (loading) return <div className="min-h-[45vh] bg-background px-4 py-6 text-base text-muted-foreground" data-testid="dealer-onboarding-loading">Loading your dealer application…</div>
   if (accessDenied) {
     return (
-      <div className="mx-auto max-w-xl p-8 text-gray-200 space-y-3" data-testid="dealer-onboarding-denied">
+      <div className="mx-auto min-h-[45vh] max-w-xl space-y-3 bg-background px-4 py-6 text-foreground" data-testid="dealer-onboarding-denied">
         <h1 className="text-xl font-semibold">Dealer onboarding</h1>
         <p>Dealer onboarding opens once your registration profile records a dealer business. Update your registration details first.</p>
-        <Button onClick={() => navigate('/onboarding')}>Go to registration</Button>
+        <Button className="min-h-11 w-full sm:w-auto" onClick={() => navigate('/onboarding')}>Go to registration</Button>
       </div>
     )
   }
-  if (!overview) return <div className="p-8 text-gray-300">Your dealer application is unavailable right now.</div>
+  if (!overview) return <div className="min-h-[45vh] bg-background px-4 py-6 text-base text-muted-foreground">Your dealer application is unavailable right now.</div>
 
   const compliance = overview.compliance as Record<string, string | boolean | string[]> | null
 
   return (
-    <div className="min-h-screen bg-gray-950"><div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-8 text-gray-100">
+    <div className="min-h-screen overflow-x-clip bg-background"><div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-5 pb-24 text-foreground sm:space-y-6 sm:px-6 sm:py-8 lg:px-8">
       <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Dealer onboarding — {overview.registration.organization_name || 'your business'}</h1>
+        <h1 className="text-xl font-semibold leading-tight tracking-tight sm:text-2xl">Dealer onboarding — {overview.registration.organization_name || 'your business'}</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="border-gray-700 text-gray-100" data-testid="dealer-who-must-act">{ACTOR_LABELS[overview.who_must_act] || overview.who_must_act}</Badge>
-          <Badge className="bg-gray-700" data-testid="workspace-dependency"><Lock className="mr-1 h-3 w-3" aria-hidden />Applicant — not an active Dealer</Badge>
+          <Badge variant="outline" className="border-input text-foreground" data-testid="dealer-who-must-act">{ACTOR_LABELS[overview.who_must_act] || overview.who_must_act}</Badge>
+          <Badge className="bg-muted text-foreground" data-testid="workspace-dependency"><Lock className="mr-1 h-3 w-3" aria-hidden />Applicant — not an active Dealer</Badge>
         </div>
-        <p className="text-xs text-gray-400">{overview.workspace_access.note}</p>
+        <p className="text-xs text-muted-foreground">{overview.workspace_access.note}</p>
       </header>
 
       {/* A + B — business identity + responsible person */}
-      <Card className="bg-gray-900 border-gray-800">
-        <CardContent className="p-4 space-y-3">
+      <Card className="border-border bg-card shadow-sm">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <h2 className="font-medium">Business identity</h2>
           <div className="grid gap-3 sm:grid-cols-2" data-testid="dealer-profile-form">
             {(['legal_name', 'trading_name', 'registration_number', 'tax_id', 'physical_address', 'responsible_person', 'operating_country'] as const).map((field) => (
               <label key={field} className="text-sm space-y-1">
-                <span className="text-gray-400">{field.replace(/_/g, ' ')}</span>
+                <span className="text-muted-foreground">{field.replace(/_/g, ' ')}</span>
                 <input className={fieldClass} value={form[field]}
                   onChange={(e) => setForm({ ...form, [field]: e.target.value })} />
               </label>
             ))}
           </div>
-          <Button onClick={saveProfile} disabled={saving} data-testid="save-dealer-profile">
+          <Button className="min-h-11 w-full sm:w-auto" onClick={saveProfile} disabled={saving} data-testid="save-dealer-profile">
             {saving ? 'Saving…' : overview.profile ? 'Save changes' : 'Create dealer application'}
           </Button>
-          <div className="border-t border-gray-800 pt-3 text-sm" data-testid="responsible-person-identity">
-            <span className="text-gray-400">Responsible person identity: </span>
+          <div className="border-t border-border pt-3 text-sm" data-testid="responsible-person-identity">
+            <span className="text-muted-foreground">Responsible person identity: </span>
             <span className={overview.responsible_person_identity.capability_bearing ? 'text-green-500' : 'text-amber-500'}>
               {overview.responsible_person_identity.effective_state.replace(/_/g, ' ')}
             </span>
             {!overview.responsible_person_identity.capability_bearing && (
-              <span className="text-gray-400"> — {overview.responsible_person_identity.applicant_guidance || 'complete identity verification in registration'}</span>
+              <span className="text-muted-foreground"> — {overview.responsible_person_identity.applicant_guidance || 'complete identity verification in registration'}</span>
             )}
           </div>
         </CardContent>
@@ -294,15 +294,15 @@ export default function DealerOnboarding() {
       {overview.profile && (
         <>
           {/* C — requirements */}
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-4 space-y-2">
+          <Card className="border-border bg-card shadow-sm">
+            <CardContent className="space-y-2 p-4 sm:p-5">
               <h2 className="font-medium">Compliance requirements</h2>
-              {overview.requirements.length === 0 && <p className="text-sm text-gray-400" data-testid="no-requirements">No requirements recorded yet — CarUp review will populate your checklist.</p>}
+              {overview.requirements.length === 0 && <p className="text-sm text-muted-foreground" data-testid="no-requirements">No requirements recorded yet — CarUp review will populate your checklist.</p>}
               <ul className="space-y-1 text-sm" data-testid="requirements-list">
                 {overview.requirements.map((req) => (
-                  <li key={req.id} className="flex items-center justify-between">
-                    <span>{req.requirement_key.replace(/_/g, ' ')}{req.is_blocking ? ' (blocking)' : ''}</span>
-                    <Badge variant="outline" className="border-gray-700 text-gray-100">{req.status}</Badge>
+                  <li key={req.id} className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="min-w-0 break-words">{req.requirement_key.replace(/_/g, ' ')}{req.is_blocking ? ' (blocking)' : ''}</span>
+                    <Badge variant="outline" className="border-input text-foreground">{req.status}</Badge>
                   </li>
                 ))}
               </ul>
@@ -310,17 +310,18 @@ export default function DealerOnboarding() {
           </Card>
 
           {/* D — documents */}
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-4 space-y-3">
+          <Card className="border-border bg-card shadow-sm">
+            <CardContent className="space-y-3 p-4 sm:p-5">
               <h2 className="font-medium">Company documents (private)</h2>
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="text-sm space-y-1">
-                  <span className="text-gray-400">Document type</span>
+              <p className="text-xs text-muted-foreground">Accepted: JPG, PNG, WebP or PDF · Maximum 15 MB</p>
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <label className="w-full space-y-1 text-sm">
+                  <span className="text-muted-foreground">Document type</span>
                   <select className={fieldClass} value={docType} onChange={(e) => setDocType(e.target.value)}>
                     {overview.document_types.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                   </select>
                 </label>
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-gray-700 px-3 py-2 text-sm" data-testid="upload-evidence">
+                <label className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm sm:w-auto" data-testid="upload-evidence">
                   <Upload className="h-4 w-4" aria-hidden />{uploading ? 'Uploading…' : 'Upload document'}
                   <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
                     onChange={(e) => uploadEvidence(e.target.files?.[0])} />
@@ -328,19 +329,19 @@ export default function DealerOnboarding() {
               </div>
               <ul className="space-y-2 text-sm" data-testid="documents-list">
                 {overview.documents.map((doc) => (
-                  <li key={doc.id} className="rounded-md border border-gray-800 p-2 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span>{doc.doc_type.replace(/_/g, ' ')}</span>
-                      <span className="flex items-center gap-2">
-                        <Badge variant="outline" className="border-gray-700 text-gray-100">{doc.status}</Badge>
+                  <li key={doc.id} className="rounded-md border border-border p-2 space-y-1">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="min-w-0 break-words">{doc.doc_type.replace(/_/g, ' ')}</span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="border-input text-foreground">{doc.status}</Badge>
                         <Button size="sm" variant="ghost" disabled={ocrRunning === doc.id} onClick={() => runOcr(doc.id)} data-testid={`ocr-${doc.id}`}>
                           <ScanSearch className="mr-1 h-3 w-3" aria-hidden />{ocrRunning === doc.id ? 'Extracting…' : 'Extract details'}
                         </Button>
                       </span>
                     </div>
                     {doc.extraction_candidates && (
-                      <div className="text-xs text-gray-400 space-y-0.5" data-testid={`candidates-${doc.id}`}>
-                        <p className="text-gray-400">Extracted as candidates — use only what is correct:</p>
+                      <div className="text-xs text-muted-foreground space-y-0.5" data-testid={`candidates-${doc.id}`}>
+                        <p className="text-muted-foreground">Extracted as candidates — use only what is correct:</p>
                         {Object.entries(doc.extraction_candidates).map(([field, candidate]) => (
                           <div key={field} className="flex items-center justify-between">
                             <span>{field.replace(/_/g, ' ')}: {candidate.state === 'machine_candidate' ? candidate.value : 'not read'}</span>
@@ -359,16 +360,16 @@ export default function DealerOnboarding() {
           </Card>
 
           {/* E — branches */}
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-4 space-y-3">
+          <Card className="border-border bg-card shadow-sm">
+            <CardContent className="space-y-3 p-4 sm:p-5">
               <h2 className="font-medium">Branches</h2>
-              <ul className="text-sm text-gray-300" data-testid="branches-list">
+              <ul className="text-sm text-muted-foreground" data-testid="branches-list">
                 {overview.branches.map((b) => <li key={b.id}>{b.name || 'Unnamed'} — {b.address || 'no address'}</li>)}
               </ul>
-              <div className="flex flex-wrap items-end gap-2">
-                <input className={fieldClass + ' sm:w-56'} placeholder="Branch name" value={branchName} onChange={(e) => setBranchName(e.target.value)} />
-                <input className={fieldClass + ' sm:w-72'} placeholder="Address" value={branchAddress} onChange={(e) => setBranchAddress(e.target.value)} />
-                <Button size="sm" variant="outline" data-testid="add-branch" onClick={async () => {
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] sm:items-end">
+                <input className={fieldClass + ' sm:w-auto'} placeholder="Branch name" value={branchName} onChange={(e) => setBranchName(e.target.value)} />
+                <input className={fieldClass + ' sm:w-auto'} placeholder="Address" value={branchAddress} onChange={(e) => setBranchAddress(e.target.value)} />
+                <Button className="min-h-11 w-full sm:w-auto" size="sm" variant="outline" data-testid="add-branch" onClick={async () => {
                   try {
                     await addDealerOnboardingBranch({ name: branchName, address: branchAddress })
                     setBranchName(''); setBranchAddress('')
@@ -383,18 +384,18 @@ export default function DealerOnboarding() {
 
           {/* F + G — the eight dimensions, verbatim */}
           {compliance && (
-            <Card className="bg-gray-900 border-gray-800">
-              <CardContent className="p-4 space-y-2">
+            <Card className="border-border bg-card shadow-sm">
+              <CardContent className="space-y-2 p-4 sm:p-5">
                 <h2 className="font-medium">Dealer review state</h2>
-                <dl className="grid grid-cols-2 gap-1 text-sm" data-testid="compliance-dimensions">
+                <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm" data-testid="compliance-dimensions">
                   {(['identity_status', 'business_evidence_status', 'compliance_review_state', 'active_state', 'restriction_state', 'suspension_state', 'investigation_state', 'expiry_state'] as const).map((dim) => (
                     <React.Fragment key={dim}>
-                      <dt className="text-gray-400">{dim.replace(/_/g, ' ')}</dt>
-                      <dd>{String(compliance[dim] ?? '—')}</dd>
+                      <dt className="text-muted-foreground">{dim.replace(/_/g, ' ')}</dt>
+                      <dd className="min-w-0 break-words">{String(compliance[dim] ?? '—')}</dd>
                     </React.Fragment>
                   ))}
                 </dl>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   can publish: <span data-testid="can-publish">{String(compliance.can_publish)}</span> — decided only by Dealer Compliance review, never by this application form.
                 </p>
               </CardContent>
@@ -408,10 +409,10 @@ export default function DealerOnboarding() {
           <WorkbookWorkspace templateKey="dealer_vehicle_inventory" title="Vehicle inventory workbook" />
 
           {/* H — workbook migration */}
-          <Card className="bg-gray-900 border-gray-800">
-            <CardContent className="p-4 space-y-3" data-testid="workbook-lane">
+          <Card className="border-border bg-card shadow-sm">
+            <CardContent className="space-y-3 p-4 sm:p-5" data-testid="workbook-lane">
               <h2 className="font-medium flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" aria-hidden />Migrate existing records (workbook)</h2>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-gray-700 px-3 py-2 text-sm">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-input px-3 py-2 text-sm">
                 <Upload className="h-4 w-4" aria-hidden />{workbookFile ? workbookFile.name : 'Choose .xlsx file'}
                 <input type="file" accept=".xlsx" className="hidden" onChange={(e) => pickWorkbook(e.target.files?.[0])} data-testid="workbook-file" />
               </label>
@@ -421,15 +422,15 @@ export default function DealerOnboarding() {
 
               {mappingRows.length > 0 && workbookMeta && (
                 <div className="space-y-2" data-testid="mapping-table">
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-muted-foreground">
                     {workbookMeta.rowCount} rows · review every column: AI proposals are suggestions — you decide. Changing the file requires confirming again.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="text-left text-gray-400"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Source</th></tr></thead>
+                      <thead><tr className="text-left text-muted-foreground"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Source</th></tr></thead>
                       <tbody>
                         {mappingRows.map((row) => (
-                          <tr key={row.source} className="border-t border-gray-800">
+                          <tr key={row.source} className="border-t border-border">
                             <td className="p-1">{row.source}</td>
                             <td className="p-1">
                               <select className={fieldClass} value={mappingTargets[row.source] || 'ignore'}
@@ -439,7 +440,7 @@ export default function DealerOnboarding() {
                                 {canonicalColumns.map((c) => <option key={c} value={c}>{c}</option>)}
                               </select>
                             </td>
-                            <td className="p-1 text-gray-400">{row.provider}{row.confidence !== null ? ` (${Math.round((row.confidence || 0) * 100)}%)` : ''}</td>
+                            <td className="p-1 text-muted-foreground">{row.provider}{row.confidence !== null ? ` (${Math.round((row.confidence || 0) * 100)}%)` : ''}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -457,9 +458,9 @@ export default function DealerOnboarding() {
               )}
 
               {dryRun !== null && (
-                <div className="rounded-md border border-gray-800 p-2 text-xs" data-testid="dry-run-result">
-                  <p className="text-gray-400">Dry run recorded by the import engine — review, then confirmation and execution follow the engine's own governed steps. Nothing has been imported yet.</p>
-                  <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap text-gray-400">{JSON.stringify(dryRun, null, 2).slice(0, 4000)}</pre>
+                <div className="rounded-md border border-border p-2 text-xs" data-testid="dry-run-result">
+                  <p className="text-muted-foreground">Dry run recorded by the import engine — review, then confirmation and execution follow the engine's own governed steps. Nothing has been imported yet.</p>
+                  <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap text-muted-foreground">{JSON.stringify(dryRun, null, 2).slice(0, 4000)}</pre>
                 </div>
               )}
             </CardContent>

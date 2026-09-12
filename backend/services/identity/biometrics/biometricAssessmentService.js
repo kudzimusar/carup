@@ -41,7 +41,7 @@ function requireUserId(actor = {}) {
 async function fetchOwnSession(client, sessionId, userId) {
   const { data, error } = await client
     .from('verification_sessions')
-    .select('id, user_id, status, document_type, front_storage_path, selfie_storage_path')
+    .select('id, user_id, status, document_type, front_storage_path, front_mime_type, selfie_storage_path')
     .eq('id', sessionId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -83,6 +83,9 @@ export async function runBiometricAssessment(client = supabase, actor = {}, sess
 
   if (!session.selfie_storage_path || !session.front_storage_path) {
     throw new ValidationError('Biometric assessment requires the document front and a selfie to be uploaded first.');
+  }
+  if (session.front_mime_type === 'application/pdf') {
+    throw new ValidationError('Biometric face comparison requires a photo of the document front. PDF identity evidence continues through manual review.');
   }
 
   // 1. Consent gate — before ANY provider interaction.

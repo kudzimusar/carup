@@ -32,7 +32,7 @@ import { Bot, Download, FileSpreadsheet, Upload } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 
-const fieldClass = 'rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground'
+const fieldClass = 'w-full min-w-[10rem] rounded-md border border-input bg-background px-2 py-2 text-xs text-foreground'
 
 interface Proposal { source: string; proposed_target: string | null; confidence: number | null; provider: string }
 interface SheetInspection { sheet_name: string; row_count: number; headers: string[]; proposals: Proposal[]; canonical_columns: string[] }
@@ -216,18 +216,16 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
 
   return (
     <Card data-testid="workbook-workspace">
-      <CardContent className="p-4 space-y-4">
-        {/* Wraps on purpose: at 393px the heading plus four tabs measured 481px of content in a
-            393px viewport, so the page scrolled sideways and "Recent Imports" fell off the screen. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-medium flex items-center gap-2 text-foreground"><FileSpreadsheet className="h-4 w-4" aria-hidden />{title || 'Workbook tools'}</h2>
-          <div className="flex flex-wrap gap-1">
-            {(['template', 'export', 'import', 'recent'] as const).map((name) => (
-              <Button key={name} size="sm" variant={tab === name ? 'default' : 'outline'} data-testid={`tab-${name}`} onClick={() => setTab(name)}>
-                {name === 'template' ? 'Template' : name === 'export' ? 'Export' : name === 'import' ? 'Import' : 'Recent Imports'}
-              </Button>
-            ))}
-          </div>
+      <CardContent className="space-y-4 p-3 sm:p-4">
+        <div className="space-y-3 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:space-y-0">
+<h2 className="flex min-w-0 items-center gap-2 font-medium text-foreground"><FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden /><span className="truncate">{title || 'Workbook tools'}</span></h2>
+<div className="grid w-full grid-cols-4 gap-1 rounded-lg bg-muted p-1 sm:w-auto" role="tablist" aria-label="Workbook tools">
+  {(['template', 'export', 'import', 'recent'] as const).map((name) => (
+    <Button key={name} size="sm" className="min-h-10 min-w-0 px-1 text-[11px] sm:px-3 sm:text-sm" variant={tab === name ? 'default' : 'ghost'} data-testid={`tab-${name}`} onClick={() => setTab(name)}>
+      {name === 'template' ? 'Template' : name === 'export' ? 'Export' : name === 'import' ? 'Import' : <><span className="sm:hidden">Recent</span><span className="hidden sm:inline">Recent Imports</span></>}
+    </Button>
+  ))}
+</div>
         </div>
 
         {tab === 'template' && (
@@ -246,16 +244,20 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
 
         {tab === 'import' && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <input type="file" accept=".xlsx" data-testid="wb-file" className="max-w-full text-xs text-muted-foreground"
-                onChange={(event) => void pickFile(event.target.files?.[0])} />
-              <Button size="sm" disabled={!file || inspecting} onClick={() => void inspect()} data-testid="wb-inspect">
-                <Upload className="mr-1 h-4 w-4" aria-hidden />{inspecting ? 'Inspecting…' : 'Inspect workbook'}
-              </Button>
-            </div>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch">
+    <label className="flex min-h-12 w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input bg-background px-3 text-sm text-foreground shadow-sm" data-testid="wb-file-control">
+      <Upload className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{file?.name || 'Choose .xlsx workbook'}</span>
+      <input type="file" accept=".xlsx" data-testid="wb-file" className="hidden"
+        onChange={(event) => void pickFile(event.target.files?.[0])} />
+    </label>
+    <Button className="min-h-12 w-full sm:w-auto" size="sm" disabled={!file || inspecting} onClick={() => void inspect()} data-testid="wb-inspect">
+      {inspecting ? 'Inspecting…' : 'Inspect workbook'}
+    </Button>
+  </div>
 
             {/* CarUp AI Workbook Assistant — an explicit, named product surface. */}
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3" data-testid="assistant-panel">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 sm:p-4" data-testid="assistant-panel">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Bot className="h-4 w-4 text-primary" aria-hidden />CarUp AI Workbook Assistant
               </div>
@@ -275,8 +277,8 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
             {inspection && inspection.sheets.filter((sheet) => sheet.row_count > 0).map((sheet) => (
               <div key={sheet.sheet_name} className="space-y-1" data-testid={`mapping-sheet-${sheet.sheet_name}`}>
                 <div className="text-xs font-medium text-foreground">{sheet.sheet_name} — {sheet.row_count} row{sheet.row_count === 1 ? '' : 's'}</div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                <div className="max-w-full overflow-x-auto rounded-md border border-border">
+                  <table className="min-w-[620px] w-full text-xs">
                     <thead><tr className="text-muted-foreground"><th className="text-left">Your column</th><th className="text-left">Maps to</th><th className="text-left">Source</th><th /></tr></thead>
                     <tbody>
                       {sheet.proposals.map((proposal) => (
@@ -302,9 +304,9 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
             ))}
 
             {inspection && (
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => void confirmMapping()} data-testid="wb-confirm-mapping">Confirm mapping</Button>
-                <Button size="sm" disabled={!mappingConfirmed || running} onClick={() => void dryRunNow()} data-testid="wb-dry-run">
+              <div className="grid gap-2 sm:flex sm:flex-wrap">
+                <Button className="min-h-11 w-full sm:w-auto" size="sm" onClick={() => void confirmMapping()} data-testid="wb-confirm-mapping">Confirm mapping</Button>
+                <Button className="min-h-11 w-full sm:w-auto" size="sm" disabled={!mappingConfirmed || running} onClick={() => void dryRunNow()} data-testid="wb-dry-run">
                   {running ? 'Checking…' : 'Run dry run'}
                 </Button>
               </div>
@@ -319,8 +321,8 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
                   </ul>
                 </div>
                 {dryRun.attention && dryRun.attention.count > 0 && (
-                  <div className="overflow-x-auto" data-testid="wb-attention">
-                    <table className="w-full text-xs">
+                  <div className="max-w-full overflow-x-auto rounded-md border border-border" data-testid="wb-attention">
+                    <table className="min-w-[720px] w-full text-xs">
                       <thead><tr className="text-muted-foreground"><th className="text-left">Sheet</th><th className="text-left">Row</th><th className="text-left">Field</th><th className="text-left">Issue</th><th className="text-left">What to do</th></tr></thead>
                       <tbody>
                         {dryRun.attention.needs_attention.map((row, index) => (
@@ -359,10 +361,10 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
         )}
 
         {tab === 'recent' && (
-          <div className="overflow-x-auto" data-testid="wb-recent">
+          <div className="max-w-full overflow-x-auto" data-testid="wb-recent">
             {recent.length === 0 && <p className="text-sm text-muted-foreground">No imports yet for this workbook.</p>}
             {recent.length > 0 && (
-              <table className="w-full text-xs">
+              <table className="min-w-[560px] w-full text-xs">
                 <thead><tr className="text-muted-foreground"><th className="text-left">File</th><th className="text-left">Uploaded</th><th className="text-left">Rows</th><th className="text-left">Status</th></tr></thead>
                 <tbody>
                   {recent.map((entry) => (

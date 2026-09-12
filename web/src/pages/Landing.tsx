@@ -220,36 +220,36 @@ export default function Landing() {
       >
         <div className="pointer-events-none absolute inset-0 [background-image:radial-gradient(circle_at_15%_15%,rgba(249,115,22,0.18),transparent_24%),linear-gradient(118deg,transparent_0%,transparent_61%,rgba(255,255,255,0.045)_61%,rgba(255,255,255,0.045)_62%,transparent_62%)]" />
 
-        <div className="section-padding relative mx-auto max-w-[1440px] pb-16 pt-8 sm:pb-20 lg:pb-24 lg:pt-12">
-          <div className="grid gap-10 lg:grid-cols-[0.88fr_1.12fr] lg:items-end lg:gap-14">
+        <div className="section-padding relative mx-auto max-w-[1440px] pb-10 pt-6 sm:pb-20 sm:pt-8 lg:pb-24 lg:pt-12">
+          <div className="grid gap-6 sm:gap-10 lg:grid-cols-[0.88fr_1.12fr] lg:items-end lg:gap-14">
             <div className="relative z-10 lg:pb-8">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
                 <Sparkles className="h-4 w-4" /> One CarUp · one vehicle thread
               </div>
-              <h1 className="mt-5 max-w-4xl text-5xl font-black leading-[0.88] tracking-[-0.06em] sm:text-6xl lg:text-[5.25rem]">
+              <h1 className="mt-4 max-w-4xl text-[2.55rem] font-black leading-[0.92] tracking-[-0.05em] sm:mt-5 sm:text-6xl sm:leading-[0.88] sm:tracking-[-0.06em] lg:text-[5.25rem]">
                 Buy. Sell. Verify.
                 <span className="mt-2 block text-orange-400">Keep the whole car journey connected.</span>
               </h1>
-              <p className="mt-7 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
+              <p className="mt-5 max-w-2xl text-base leading-6 text-slate-300 sm:mt-7 sm:text-lg sm:leading-7">
                 CarUp brings the marketplace, Vehicle Passport, evidence, parts, garages, finance,
                 insurance, imports and transaction routes around the same vehicle identity.
               </p>
 
-              <div className="mt-8 flex flex-wrap gap-2">
-                <Button asChild className="h-12 rounded-none bg-orange-500 px-6 font-black text-white hover:bg-orange-600">
+              <div className="mt-6 grid grid-cols-2 gap-2 sm:mt-8 sm:flex sm:flex-wrap">
+                <Button asChild className="col-span-2 h-12 w-full rounded-none bg-orange-500 px-6 font-black text-white hover:bg-orange-600 sm:w-auto">
                   <Link to="/marketplace">Buy Cars <ArrowRight className="ml-2 h-4 w-4" /></Link>
                 </Button>
-                <Button asChild variant="outline" className="h-12 rounded-none border-white/25 bg-transparent px-6 font-bold text-white hover:bg-white/10 hover:text-white">
+                <Button asChild variant="outline" className="h-11 w-full rounded-none border-white/25 bg-transparent px-3 font-bold text-white hover:bg-white/10 hover:text-white sm:h-12 sm:w-auto sm:px-6">
                   <Link to="/sell">Sell Cars</Link>
                 </Button>
-                <Button asChild variant="outline" className="h-12 rounded-none border-white/25 bg-transparent px-6 font-bold text-white hover:bg-white/10 hover:text-white">
+                <Button asChild variant="outline" className="h-11 w-full rounded-none border-white/25 bg-transparent px-3 font-bold text-white hover:bg-white/10 hover:text-white sm:h-12 sm:w-auto sm:px-6">
                   <Link to="/search">Verify Cars</Link>
                 </Button>
               </div>
 
               <form
                 onSubmit={submitBuy}
-                className="mt-9 max-w-3xl bg-white shadow-[0_28px_80px_rgba(0,0,0,0.34)]"
+                className="mt-6 max-w-3xl bg-white shadow-[0_28px_80px_rgba(0,0,0,0.34)] sm:mt-9"
                 data-testid="home-primary-search"
               >
                 <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
@@ -263,13 +263,13 @@ export default function Landing() {
                       value={buyQuery}
                       onChange={event => setBuyQuery(event.target.value)}
                       placeholder="Try “Hilux diesel”, “Harare” or a VIN…"
-                      className="h-16 rounded-none border-0 bg-white pl-14 text-base font-semibold text-slate-950 shadow-none placeholder:font-normal focus-visible:ring-0"
+                      className="h-14 rounded-none border-0 bg-white pl-12 text-base font-semibold text-slate-950 shadow-none placeholder:font-normal focus-visible:ring-0 sm:h-16 sm:pl-14"
                       data-testid="home-buy-search"
                     />
                   </div>
                   <Button
                     type="submit"
-                    className="h-16 rounded-none bg-slate-950 px-7 font-black text-white hover:bg-orange-600"
+                    className="h-12 w-full rounded-none bg-slate-950 px-5 font-black text-white hover:bg-orange-600 sm:h-16 sm:w-auto sm:px-7"
                     data-testid="home-search-submit"
                   >
                     Search Marketplace
@@ -287,12 +287,12 @@ export default function Landing() {
               </div>
             </div>
 
-            <div className="relative min-h-[420px] sm:min-h-[520px] lg:min-h-[610px]" data-testid="home-live-showroom">
-              <div className="absolute -right-8 top-0 h-[90%] w-[94%] border border-white/10 [clip-path:polygon(10%_0,100%_0,100%_87%,82%_100%,0_91%,0_14%)]" />
+            <div className="relative aspect-[4/3] min-h-0 sm:aspect-auto sm:min-h-[520px] lg:min-h-[610px]" data-testid="home-live-showroom">
+              <div className="absolute -right-8 top-0 hidden h-[90%] w-[94%] border border-white/10 [clip-path:polygon(10%_0,100%_0,100%_87%,82%_100%,0_91%,0_14%)] lg:block" />
               {heroVehicle ? (
                 <Link
                   to={`/marketplace/${encodeURIComponent(heroVehicle.vin)}`}
-                  className="group absolute inset-x-0 top-5 block h-[84%] overflow-hidden bg-slate-900 shadow-[0_40px_110px_rgba(0,0,0,0.58)] [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
+                  className="group absolute inset-0 block overflow-hidden rounded-lg bg-slate-900 shadow-[0_28px_70px_rgba(0,0,0,0.45)] sm:inset-x-0 sm:top-5 sm:h-[84%] sm:rounded-none lg:[clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
                   data-testid="featured-view-passport"
                 >
                   {heroImage ? (
@@ -314,12 +314,12 @@ export default function Landing() {
                     </div>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/5 to-black/10" />
-                  <div className="absolute left-5 top-5 border border-white/20 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] backdrop-blur-sm">
+                  <div className="absolute left-3 top-3 max-w-[calc(100%-1.5rem)] border border-white/20 bg-black/50 px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] backdrop-blur-sm sm:left-5 sm:top-5 sm:px-3 sm:py-1.5 sm:text-[10px] sm:tracking-[0.16em]">
                     Live from Marketplace · published inventory
                   </div>
-                  <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
+                  <div className="absolute inset-x-0 bottom-0 p-4 sm:p-8">
                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-300">Start with a real vehicle</p>
-                    <p className="mt-2 text-3xl font-black tracking-[-0.045em] sm:text-4xl">
+                    <p className="mt-1.5 text-xl font-black tracking-[-0.035em] sm:mt-2 sm:text-4xl sm:tracking-[-0.045em]">
                       {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ')}
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-300">
@@ -334,7 +334,7 @@ export default function Landing() {
                   </div>
                 </Link>
               ) : (
-                <div className="absolute inset-x-0 top-5 flex h-[84%] items-center justify-center bg-slate-900 text-sm text-slate-500 [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
+                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-900 text-sm text-slate-500 sm:inset-x-0 sm:top-5 sm:h-[84%] sm:rounded-none lg:[clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
                   {featuredState === 'loading' ? 'Loading the live showroom…' : 'Live showroom unavailable'}
                 </div>
               )}
@@ -344,11 +344,11 @@ export default function Landing() {
       </section>
 
       <section className="border-b border-slate-200 bg-white" data-testid="home-trust-strip">
-        <div className="section-padding mx-auto flex max-w-[1440px] flex-wrap items-center justify-center gap-x-6 gap-y-3 py-4 lg:justify-between">
+        <div className="section-padding mx-auto grid max-w-[1440px] grid-cols-2 gap-2 py-3 sm:grid-cols-3 lg:flex lg:items-center lg:justify-between lg:gap-x-6 lg:py-4">
           {trustStrip.map((item, index) => (
             <div
               key={item.label}
-              className={`flex items-center gap-2 ${index > 0 ? 'lg:border-l lg:border-slate-200 lg:pl-6' : ''}`}
+              className={`flex min-w-0 items-center gap-2 rounded-md bg-slate-50 px-2 py-2 lg:rounded-none lg:bg-transparent lg:px-0 ${index > 0 ? 'lg:border-l lg:border-slate-200 lg:pl-6' : ''}`}
               data-testid={item.testId}
             >
               <item.icon className="h-4 w-4 text-orange-500" />
@@ -358,12 +358,12 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="bg-[#f5f6f8] py-16 sm:py-20" data-testid="home-ecosystem-promotions">
+      <section className="bg-[#f5f6f8] py-10 sm:py-20" data-testid="home-ecosystem-promotions">
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr] lg:items-end">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">What are you trying to do?</p>
-              <h2 className="mt-3 text-4xl font-black leading-[0.95] tracking-[-0.05em] sm:text-5xl">
+              <h2 className="mt-3 text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em]">
                 One front door.
                 <span className="block text-slate-400">Eight useful next moves.</span>
               </h2>
@@ -374,7 +374,7 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="mt-10 grid gap-5 xl:grid-cols-2" data-testid="home-journey-grid">
+          <div className="mt-6 grid gap-4 sm:mt-10 sm:gap-5 xl:grid-cols-2" data-testid="home-journey-grid">
             {ecosystemJourneys.map((journey, index) => {
               // Buy/Sell may use real Marketplace photography because the vehicle itself is the
               // subject. Conceptual journeys must remain communicative when live inventory media
@@ -390,14 +390,14 @@ export default function Landing() {
                   className="group grid overflow-hidden border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)] transition duration-300 motion-safe:hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_28px_70px_rgba(15,23,42,0.10)] md:grid-cols-[0.88fr_1.12fr]"
                   data-testid="home-journey-card"
                 >
-                  <div className="relative flex min-h-[260px] flex-col p-6 sm:p-7">
+                  <div className="relative flex min-h-0 flex-col p-4 sm:min-h-[260px] sm:p-7">
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">{journey.eyebrow}</span>
                       <span className="text-[10px] font-black tabular-nums text-slate-300">{String(index + 1).padStart(2, '0')}</span>
                     </div>
-                    <h3 className="mt-8 max-w-[18rem] text-3xl font-black leading-[0.98] tracking-[-0.045em] text-slate-950">{journey.title}</h3>
-                    <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">{journey.copy}</p>
-                    <span className="mt-auto inline-flex items-center gap-2 pt-8 text-xs font-black text-slate-950 transition group-hover:text-orange-700">
+                    <h3 className="mt-4 max-w-[18rem] text-xl font-black leading-tight tracking-[-0.03em] text-slate-950 sm:mt-8 sm:text-3xl sm:leading-[0.98] sm:tracking-[-0.045em]">{journey.title}</h3>
+                    <p className="mt-2 max-w-sm text-sm leading-5 text-slate-500 sm:mt-4 sm:leading-6">{journey.copy}</p>
+                    <span className="mt-auto inline-flex items-center gap-2 pt-4 text-xs font-black text-slate-950 transition group-hover:text-orange-700">
                       Go there <ArrowUpRight className="h-4 w-4 transition-transform motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:translate-x-0.5" />
                     </span>
                   </div>
@@ -409,12 +409,12 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="bg-white py-16 sm:py-20" data-testid="home-live-inventory">
+      <section className="bg-white py-10 sm:py-20" data-testid="home-live-inventory">
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="flex flex-col gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">Live Marketplace</p>
-              <h2 className="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Published vehicles to explore.</h2>
+              <h2 className="mt-2 text-3xl font-black tracking-[-0.04em] sm:text-5xl sm:tracking-[-0.05em]">Published vehicles to explore.</h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
                 The same published vehicle stories used in Marketplace — not a second homepage-only card system.
               </p>
@@ -453,9 +453,9 @@ export default function Landing() {
 
       <section className="overflow-hidden bg-[#08111f] text-white" data-testid="home-conversion-studio">
         <div className="section-padding mx-auto grid max-w-[1440px] lg:grid-cols-2">
-          <div className="relative border-b border-white/10 py-14 pr-0 sm:py-16 lg:border-b-0 lg:border-r lg:pr-12">
+          <div className="relative border-b border-white/10 py-10 pr-0 sm:py-16 lg:border-b-0 lg:border-r lg:pr-12">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Sell with context</p>
-            <h2 className="mt-3 max-w-xl text-4xl font-black leading-[0.95] tracking-[-0.05em] sm:text-5xl">
+            <h2 className="mt-3 max-w-xl text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em]">
               Your listing should carry more than a photo and a price.
             </h2>
             <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">
@@ -467,16 +467,16 @@ export default function Landing() {
             </Button>
           </div>
 
-          <div className="py-14 pl-0 sm:py-16 lg:pl-12">
+          <div className="py-10 pl-0 sm:py-16 lg:pl-12">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Verify before commitment</p>
-            <h2 className="mt-3 max-w-xl text-4xl font-black leading-[0.95] tracking-[-0.05em] sm:text-5xl">
+            <h2 className="mt-3 max-w-xl text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em]">
               Already found the car somewhere else?
             </h2>
             <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">
               Exact VIN lookup is public. Protected identifiers require an account, and an empty protected
               lookup is never presented as proof that a vehicle does not exist.
             </p>
-            <form onSubmit={submitVerify} className="mt-7 grid max-w-xl sm:grid-cols-[minmax(0,1fr)_auto]">
+            <form onSubmit={submitVerify} className="mt-6 grid max-w-xl gap-2 sm:mt-7 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-0">
               <Input
                 value={verifyQuery}
                 onChange={event => setVerifyQuery(event.target.value)}
@@ -484,7 +484,7 @@ export default function Landing() {
                 className="h-12 rounded-none border-white/20 bg-white/10 font-mono text-white placeholder:text-slate-500"
                 data-testid="verify-before-buy-input"
               />
-              <Button type="submit" className="h-12 rounded-none bg-white px-6 font-black text-slate-950 hover:bg-orange-500 hover:text-white">
+              <Button type="submit" className="h-12 w-full rounded-none bg-white px-6 font-black text-slate-950 hover:bg-orange-500 hover:text-white sm:w-auto">
                 Open Passport
               </Button>
             </form>
@@ -519,7 +519,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="bg-[#f5f6f8] py-16 sm:py-20">
+      <section className="bg-[#f5f6f8] py-10 sm:py-20">
         <div className="section-padding mx-auto max-w-[1440px]">
           <div className="max-w-3xl">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">One vehicle thread</p>
@@ -529,7 +529,7 @@ export default function Landing() {
           </div>
           <div className="mt-10 grid border-t border-slate-300 md:grid-cols-4">
             {dealFlow.map(([number, title, copy], index) => (
-              <div key={title} className={`min-h-[230px] border-b border-slate-300 py-6 md:border-r md:px-6 ${index === 0 ? 'md:pl-0' : ''} ${index === 3 ? 'md:border-r-0' : ''}`}>
+              <div key={title} className={`min-h-0 border-b border-slate-300 py-5 sm:min-h-[230px] sm:py-6 md:border-r md:px-6 ${index === 0 ? 'md:pl-0' : ''} ${index === 3 ? 'md:border-r-0' : ''}`}>
                 <p className="text-xs font-black text-orange-600">{number}</p>
                 <h3 className="mt-8 text-xl font-black tracking-[-0.025em]">{title}</h3>
                 <p className="mt-3 text-sm leading-6 text-slate-500">{copy}</p>
@@ -546,7 +546,7 @@ export default function Landing() {
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em]">
               <MessageCircle className="h-4 w-4" /> CarUp communication layer
             </div>
-            <h2 className="mt-4 max-w-3xl text-5xl font-black leading-[0.88] tracking-[-0.06em] sm:text-6xl">
+            <h2 className="mt-4 max-w-3xl text-3xl font-black leading-[0.95] tracking-[-0.04em] sm:text-6xl sm:leading-[0.88] sm:tracking-[-0.06em]">
               Need a car, an answer, or simply the next move?
             </h2>
             <p className="mt-6 max-w-2xl text-sm font-medium leading-6 text-slate-900/75">
@@ -576,7 +576,7 @@ export default function Landing() {
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">
               <CheckCircle2 className="h-4 w-4" /> Start where you are
             </div>
-            <h2 className="mt-3 max-w-3xl text-4xl font-black leading-[0.95] tracking-[-0.05em] sm:text-5xl">
+            <h2 className="mt-3 max-w-3xl text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em]">
               Search the car. Verify what is known. Keep the next step connected.
             </h2>
           </div>

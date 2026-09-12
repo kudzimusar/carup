@@ -73,9 +73,9 @@ export default function WorkbookTools() {
   if (loading) return <div className="mx-auto max-w-5xl px-4 py-6 text-sm text-muted-foreground">Loading your workbook catalogue…</div>
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:py-8">
+    <div className="mx-auto w-full max-w-5xl space-y-4 overflow-x-clip px-4 py-5 pb-24 sm:space-y-6 sm:px-6 sm:py-8 lg:px-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Workbook tools</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">Workbook tools</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
           Bulk templates, exports and governed imports for your role. Imports create drafts and claims —
           verification, compliance and publication always stay governed steps on the site.

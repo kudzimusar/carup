@@ -179,8 +179,8 @@ function applicantGuidance(session) {
     return session.failure_reason
       || 'Your verification was closed by a reviewer. Contact CarUp support to reopen it.';
   }
-  if (state === 'ready_to_submit') return 'All images are uploaded — submit them for verification.';
-  if (state === 'capturing' || state === 'draft') return 'Finish uploading your document images and selfie.';
+  if (state === 'ready_to_submit') return 'Required identity evidence and selfie are uploaded — submit them for verification.';
+  if (state === 'capturing' || state === 'draft') return 'Finish uploading your identity document evidence and selfie.';
   return 'Continue your identity verification when you are ready.';
 }
 
@@ -346,6 +346,7 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
         state: identityState,
         session_id: latestSession?.id || null,
         uploaded_sides: latestSession?.uploaded_sides || { front: false, back: false, selfie: false },
+        uploaded_mime_types: latestSession?.uploaded_mime_types || { front: null, back: null, selfie: null },
         double_sided: latestSession?.double_sided ?? null,
         document_type: latestSession?.document_type || null,
         who_must_act: identityWhoMustAct,

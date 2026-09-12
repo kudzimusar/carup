@@ -23,8 +23,9 @@ import { getReasonConfig } from './reasonCodes.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const DOCUMENT_MIME_TYPES = new Set([...IMAGE_MIME_TYPES, 'application/pdf']);
 const DOUBLE_SIDED_DOCUMENTS = new Set(['national_id', 'driver_license', 'drivers_license', 'registration_book']);
 const PUBLIC_OCR_FIELDS = ['first_name', 'last_name', 'national_id_number', 'date_of_birth', 'country'];
 const VALID_SIDES = new Set(['front', 'back', 'selfie']);
@@ -109,32 +110,47 @@ function requiresBack(documentType, explicitDoubleSided) {
   return DOUBLE_SIDED_DOCUMENTS.has(documentType);
 }
 
-function parseImagePayload(payload = {}) {
-  const image = payload.image || payload.dataUri || payload.base64Data;
-  if (!image || typeof image !== 'string') {
-    throw new ValidationError('A base64 image payload is required.');
+export function parseVerificationPayload(side, payload = {}) {
+  const encoded = payload.image || payload.file || payload.dataUri || payload.base64Data;
+  const isSelfie = side === 'selfie';
+  const evidenceLabel = isSelfie ? 'selfie' : 'identity document';
+  if (!encoded || typeof encoded !== 'string') {
+    throw new ValidationError(`The selected ${evidenceLabel} is empty or corrupt. ${isSelfie ? 'Take a new selfie photo or choose another image.' : 'Take a clear photo or choose another file.'}`);
   }
 
-  const dataUriMatch = image.match(/^data:([^;]+);base64,(.+)$/);
+  const dataUriMatch = encoded.match(/^data:([^;]+);base64,(.+)$/s);
   const mimeType = String(payload.mimeType || dataUriMatch?.[1] || 'image/jpeg').toLowerCase();
-  const base64 = dataUriMatch ? dataUriMatch[2] : image;
+  const base64 = String(dataUriMatch ? dataUriMatch[2] : encoded).replace(/\s+/g, '');
+  const allowed = isSelfie ? IMAGE_MIME_TYPES : DOCUMENT_MIME_TYPES;
 
-  if (!ALLOWED_MIME_TYPES.has(mimeType)) {
-    throw new ValidationError('Unsupported verification image MIME type.');
+  if (!allowed.has(mimeType)) {
+    throw new ValidationError(
+      isSelfie
+        ? 'Unsupported selfie file type. Take a photo or choose a JPG, PNG or WebP image.'
+        : 'Unsupported identity document file type. Take a photo or choose a JPG, PNG, WebP or PDF file.'
+    );
+  }
+
+  if (!base64 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+    throw new ValidationError(`The selected ${evidenceLabel} is empty or corrupt. ${isSelfie ? 'Take a new selfie photo or choose another image.' : 'Take a clear photo or choose another file.'}`);
   }
 
   const buffer = Buffer.from(base64, 'base64');
   if (!buffer.length) {
-    throw new ValidationError('Verification image payload is empty.');
+    throw new ValidationError(`The selected ${evidenceLabel} is empty or corrupt. ${isSelfie ? 'Take a new selfie photo or choose another image.' : 'Take a clear photo or choose another file.'}`);
   }
-  if (buffer.length > MAX_IMAGE_BYTES) {
-    throw new ValidationError('Verification image exceeds the 15MB limit.');
+  if (buffer.length > MAX_UPLOAD_BYTES) {
+    throw new ValidationError(`The selected ${evidenceLabel} is larger than 15 MB. Choose a smaller file.`);
+  }
+  if (mimeType === 'application/pdf' && buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new ValidationError('The selected identity document is empty or corrupt. Take a clear photo or choose another PDF file.');
   }
 
   return { buffer, mimeType, dataUri: `data:${mimeType};base64,${base64}` };
 }
 
 function extensionForMimeType(mimeType) {
+  if (mimeType === 'application/pdf') return 'pdf';
   if (mimeType === 'image/png') return 'png';
   if (mimeType === 'image/webp') return 'webp';
   return 'jpg';
@@ -221,6 +237,11 @@ function sanitizeSession(session) {
       front: Boolean(session.front_storage_path),
       back: Boolean(session.back_storage_path),
       selfie: Boolean(session.selfie_storage_path),
+    },
+    uploaded_mime_types: {
+      front: session.front_mime_type || null,
+      back: session.back_mime_type || null,
+      selfie: session.selfie_mime_type || null,
     },
     ocr_document_id: session.ocr_document_id || null,
     ocr_result: session.ocr_result || null,
@@ -320,7 +341,7 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
   }
 
   const session = await fetchSession(client, sessionId, actor);
-  const parsed = parseImagePayload(payload);
+  const parsed = parseVerificationPayload(side, payload);
   const timestamp = now();
   const extension = extensionForMimeType(parsed.mimeType);
   const storagePath = `${session.user_id}/${session.id}/${side}-${crypto.randomUUID()}.${extension}`;
@@ -339,7 +360,9 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
   const hasFront = side === 'front' || Boolean(session.front_storage_path);
   const hasBack = side === 'back' || Boolean(session.back_storage_path);
   const hasSelfie = side === 'selfie' || Boolean(session.selfie_storage_path);
-  updatePayload.status = hasFront && hasSelfie && (!session.double_sided || hasBack) ? 'uploaded' : 'captured';
+  const effectiveFrontMime = side === 'front' ? parsed.mimeType : session.front_mime_type;
+  const frontIsPdfPacket = effectiveFrontMime === 'application/pdf';
+  updatePayload.status = hasFront && hasSelfie && (!session.double_sided || hasBack || frontIsPdfPacket) ? 'uploaded' : 'captured';
 
   const { data, error } = await client
     .from('verification_sessions')
@@ -369,8 +392,9 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
 export async function submitVerificationSession(client = supabase, actor = {}, sessionId, options = {}) {
   const session = await fetchSession(client, sessionId, actor);
   const missing = [];
-  if (!session.front_storage_path) missing.push('front document');
-  if (session.double_sided && !session.back_storage_path) missing.push('back document');
+  const frontIsPdfPacket = session.front_mime_type === 'application/pdf';
+  if (!session.front_storage_path) missing.push('identity document');
+  if (session.double_sided && !session.back_storage_path && !frontIsPdfPacket) missing.push('back document');
   if (!session.selfie_storage_path) missing.push('selfie');
 
   if (missing.length) {
@@ -378,6 +402,71 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
   }
 
   const timestamp = now();
+  const hasPdfDocumentEvidence = session.front_mime_type === 'application/pdf' || session.back_mime_type === 'application/pdf';
+
+  // PDF is accepted as PRIVATE DOCUMENT EVIDENCE, not as an image. There is no proven PDF-to-image
+  // renderer in this pipeline, so neither DocumentClassifier nor DocumentIntelligenceService may
+  // see these bytes. A reviewer inspects the packet; no confidence or OCR candidate is manufactured.
+  if (hasPdfDocumentEvidence) {
+    const reason = 'PDF identity evidence requires human review. Automated image classification and OCR were not run.';
+    const { data: manualSession, error: manualError } = await client
+      .from('verification_sessions')
+      .update({
+        status: 'pending_manual_review',
+        workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+        primary_reason_code: 'PDF_MANUAL_REVIEW_REQUIRED',
+        evidence_classification: EVIDENCE_CLASSIFICATION.NOT_RUN,
+        ocr_execution_status: 'not_run',
+        extraction_trust_status: EXTRACTION_TRUST_STATUS.NOT_RUN,
+        identity_binding_status: null,
+        ocr_document_id: null,
+        ocr_result: null,
+        confidence_score: null,
+        failure_reason: reason,
+        review_notes: 'PDF packet queued for manual review. CarUp has not automatically proven every required side is present; the reviewer must inspect the packet. No image classifier or OCR was run.',
+        submitted_at: session.submitted_at || timestamp,
+        updated_at: timestamp,
+      })
+      .eq('id', session.id)
+      .eq('user_id', session.user_id)
+      .select()
+      .single();
+    if (manualError) throw new Error(manualError.message);
+
+    await writeAudit(client, {
+      req: options.req,
+      event_type: 'VERIFICATION_SUBMITTED',
+      actor_user_id: actorId(actor),
+      actor_role: actor.role,
+      actor_tenant_id: actor.tenantId,
+      source_route: `/api/identity/verification-sessions/${session.id}/submit`,
+      targetType: 'verification_session',
+      targetId: session.id,
+      previous_value: { status: session.status },
+      new_value: { status: manualSession.status, document_type: session.document_type, workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED },
+    });
+    await writeAudit(client, {
+      req: options.req,
+      event_type: 'VERIFICATION_PDF_MANUAL_REVIEW_REQUIRED',
+      actor_user_id: actorId(actor),
+      actor_role: actor.role,
+      actor_tenant_id: actor.tenantId,
+      source_route: `/api/identity/verification-sessions/${session.id}/submit`,
+      targetType: 'verification_session',
+      targetId: session.id,
+      new_value: {
+        status: manualSession.status,
+        reason_code: 'PDF_MANUAL_REVIEW_REQUIRED',
+        evidence_classification: EVIDENCE_CLASSIFICATION.NOT_RUN,
+        ocr_execution_status: 'not_run',
+        extraction_trust_status: EXTRACTION_TRUST_STATUS.NOT_RUN,
+        confidence_score: null,
+      },
+      reason,
+    });
+    return sanitizeSession(manualSession);
+  }
+
   const storage = options.storage || { downloadFromStorage };
   const ocr = options.ocr || DocumentIntelligenceService;
 
@@ -976,7 +1065,6 @@ export async function getEvidencePreviewUrl(client = supabase, actor = {}, sessi
 }
 
 export {
-  parseImagePayload,
   sanitizeOcrResult,
   sanitizeSession,
   sanitizeReviewSession,
