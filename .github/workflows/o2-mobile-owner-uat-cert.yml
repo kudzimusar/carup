@@ -1,0 +1,303 @@
+name: O2 Mobile-First Owner UAT Certification
+
+on:
+  push:
+    branches:
+      - feat/operations-o2-people-compliance
+    paths:
+      - '.github/workflows/o2-mobile-owner-uat-cert.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: o2-mobile-owner-uat-cert
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    name: Full regression and trust contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Prove custody and bounded ancestry
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor a4b74fe7fdadadcf4a0888b716b87a7264e8c900 HEAD
+          test "$(git rev-parse origin/main)" = "bb9d9900c700873ca57df0ac18a1a5c01f77711a"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Identity PDF, Registration, Dealer and Workbook targeted gates
+        run: |
+          NODE_ENV=test ALLOW_OCR_MOCK=true node --test \
+            backend/tests/verification-session-workflow.test.js \
+            backend/tests/o2-mobile-owner-uat-contract.test.js
+          NODE_ENV=test node --test \
+            backend/tests/o2-x2-registration-journey.test.js \
+            backend/tests/o2-x5-dealer-onboarding.test.js
+          npm run test:unit --workspace=web -- --run \
+            src/pages/onboarding/RegistrationJourney.test.tsx \
+            src/pages/dealer/DealerOnboarding.test.tsx \
+            src/components/workbook/WorkbookWorkspace.test.tsx \
+            src/pages/workbook/WorkbookTools.test.tsx
+
+      - name: O2 predictive and owner-closure contracts
+        run: |
+          NODE_ENV=test ALLOW_OCR_MOCK=true node --test backend/tests/o2-x*.test.js backend/tests/o2-owner-uat-closure.test.js
+
+      - name: Home, Marketplace and Vehicle Detail focused web gates
+        shell: bash
+        run: |
+          mapfile -t TARGETS < <(cd web && find src -type f \( \
+            -iname '*Landing*.test.ts' -o -iname '*Landing*.test.tsx' -o \
+            -iname '*JourneyMediaStory*.test.ts' -o -iname '*JourneyMediaStory*.test.tsx' -o \
+            -iname '*Marketplace*.test.ts' -o -iname '*Marketplace*.test.tsx' -o \
+            -iname '*VehicleDetail*.test.ts' -o -iname '*VehicleDetail*.test.tsx' \
+          \) -print | sort)
+          printf 'Focused public-surface tests:\n%s\n' "${TARGETS[*]}"
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            npm run test:unit --workspace=web -- --run "${TARGETS[@]}"
+          fi
+
+      - name: Migration integrity and relevant PGlite gates
+        run: |
+          node --test backend/tests/migration-integrity.test.js
+          node database/test/migration_pglite_check.mjs
+          node database/test/operations_serena_slice_pglite_check.mjs
+
+      - name: Web lint, exact tsc-b, build and full unit suite
+        run: |
+          npm run lint --workspace=web
+          (cd web && npx tsc -b)
+          npm run build --workspace=web
+          npm run test:unit --workspace=web
+
+      - name: Full backend suite
+        run: npm test --workspace=backend
+
+  deployed-mobile:
+    name: Exact-head paired staging mobile certification
+    needs: regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGING_RUN_ID: o2-mobile-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Guard staging database identity
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Refusing mobile certification outside the approved carup-staging project.'
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve governed O2 preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({ error: 'O2 preview pair is not governed', branch, frontend: Boolean(frontend), backend: Boolean(backend) }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${frontend}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_API_URL=${backend}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for exact-head paired provenance
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+          for (let attempt = 1; attempt <= 90; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?attempt=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?attempt=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const provenance = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              const frontendOk = provenance?.commit_sha === expected && provenance?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              console.log(JSON.stringify({ attempt, expected, frontend: provenance?.commit_sha, backend: health?.build?.commit_sha, unpaired: provenance?.unpaired, health: health?.status }));
+              if (frontendOk && backendOk) process.exit(0);
+            } catch (error) {
+              console.log(JSON.stringify({ attempt, error: String(error) }));
+            }
+            await sleep(10_000);
+          }
+          console.error('Exact-head O2 frontend/backend pair never became ready.');
+          process.exit(1);
+          NODE
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Mint isolated mobile-UAT owner and dealer identities
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          if (!dbUrl.includes(process.env.EXPECTED_STAGING_PROJECT_REF)) {
+            throw new Error('Refusing fixture creation outside approved staging.');
+          }
+
+          const runId = process.env.GITHUB_RUN_ID;
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+          const owner = {
+            id: `u_mobile_owner_${runId}`,
+            email: `mobile.owner.${runId}@carup-staging.test`,
+            name: 'MOBILE UAT SYNTHETIC Owner',
+          };
+          const dealer = {
+            id: `u_mobile_dealer_${runId}`,
+            email: `mobile.dealer.${runId}@carup-staging.test`,
+            name: 'MOBILE UAT SYNTHETIC Dealer',
+          };
+
+          const cleaned = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            for (const person of [owner, dealer]) {
+              await client.query(
+                `insert into public.users (id, name, email, role, join_date, is_verified, password_hash)
+                 values ($1, $2, $3, 'owner', to_char(now(), 'YYYY-MM-DD'), true, $4)
+                 on conflict (email) do update set password_hash = excluded.password_hash, role = 'owner', is_verified = true`,
+                [person.id, person.name, person.email, passwordHash],
+              );
+            }
+            await client.query(
+              `insert into public.user_registration_profiles
+                 (user_id, account_kind, market_relationship, country_of_residence, city, intended_use, onboarding_status, terms_acknowledged_at, privacy_acknowledged_at)
+               values ($1, 'individual', 'diaspora', 'United Kingdom', 'Leeds', 'buy_sell', 'requested', now(), now())
+               on conflict (user_id) do update set
+                 account_kind = excluded.account_kind,
+                 market_relationship = excluded.market_relationship,
+                 country_of_residence = excluded.country_of_residence,
+                 city = excluded.city,
+                 intended_use = excluded.intended_use,
+                 onboarding_status = excluded.onboarding_status`,
+              [owner.id],
+            );
+            await client.query(
+              `insert into public.user_registration_profiles
+                 (user_id, account_kind, market_relationship, country_of_residence, city, intended_use, business_type, organization_name, onboarding_status, terms_acknowledged_at, privacy_acknowledged_at)
+               values ($1, 'business', 'zimbabwe_local', 'Zimbabwe', 'Harare', 'sell', 'dealer', $2, 'requested', now(), now())
+               on conflict (user_id) do update set
+                 account_kind = excluded.account_kind,
+                 market_relationship = excluded.market_relationship,
+                 country_of_residence = excluded.country_of_residence,
+                 city = excluded.city,
+                 intended_use = excluded.intended_use,
+                 business_type = excluded.business_type,
+                 organization_name = excluded.organization_name,
+                 onboarding_status = excluded.onboarding_status`,
+              [dealer.id, `MOBILE UAT SYNTHETIC Motors ${runId}`],
+            );
+          } finally {
+            await client.end();
+          }
+
+          console.log(`::add-mask::${password}`);
+          fs.appendFileSync(process.env.GITHUB_ENV, [
+            `MOBILE_UAT_OWNER_EMAIL=${owner.email}`,
+            `MOBILE_UAT_DEALER_EMAIL=${dealer.email}`,
+            `MOBILE_UAT_PASSWORD=${password}`,
+          ].join('\n') + '\n', { mode: 0o600 });
+          console.log(JSON.stringify({ owner: owner.email, dealer: dealer.email, runId }));
+          NODE
+
+      - name: Run exact viewport mobile owner-UAT matrix
+        run: npx playwright test --config playwright.staging.config.ts tests/agents/45-o2-mobile-owner-uat.spec.ts --project=chromium
+
+      - name: Re-prove paired exact-head provenance
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          const [provRes, healthRes] = await Promise.all([
+            fetch(`${process.env.STAGING_WEB_URL}/carup-provenance.json?final=1`, { cache: 'no-store' }),
+            fetch(`${process.env.STAGING_API_URL}/health?final=1`, { cache: 'no-store' }),
+          ]);
+          const provenance = await provRes.json();
+          const health = await healthRes.json();
+          const receipt = {
+            expected: process.env.EXPECTED_HEAD_SHA,
+            frontend_sha: provenance?.commit_sha || null,
+            backend_sha: health?.build?.commit_sha || null,
+            unpaired: provenance?.unpaired,
+            frontend_url: process.env.STAGING_WEB_URL,
+            backend_url: process.env.STAGING_API_URL.replace(/\/api$/, ''),
+          };
+          console.log(JSON.stringify(receipt));
+          if (receipt.frontend_sha !== receipt.expected || receipt.backend_sha !== receipt.expected || receipt.unpaired !== false) process.exit(1);
+          NODE
+
+      - name: Upload exact-head mobile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o2-mobile-owner-uat-${{ github.run_id }}
+          path: |
+            test-results/o2-mobile-owner-uat/
+            test-results/staging-uat-artifacts/
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html/
+          retention-days: 30
+          if-no-files-found: warn
