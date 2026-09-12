@@ -461,3 +461,29 @@ nothing ran. A pre-run sweep would close that, and it is not added here because 
 asked that the current harness be tested before being rewritten, and on the evidence above the
 current harness does remediate. Row count also still grows (48 → 51 fixtures in any state); only
 public visibility is controlled.
+
+---
+# Owner mobile UAT — `a4b74fe7` (FAILED)
+
+**Candidate physically walked:** `a4b74fe7fdadadcf4a0888b716b87a7264e8c900`.
+
+This is a later **Product Owner mobile-first UAT failure** and supersedes any automated claim that
+`a4b74fe7` was ready for owner acceptance. It is retained as history; it must not be rewritten into
+a pass after remediation.
+
+The Product Owner explicitly expanded O2 closure to predominant-customer phone usage and found that
+the candidate was not acceptable as a mobile product. The bounded remediation therefore covers:
+
+- Registration and Dealer onboarding phone composition, refresh stability, typography, controls,
+  contrast and root-width containment at 393–430px;
+- truthful identity-document PDF evidence: PDF is private evidence sent to human review, never
+  passed to the image classifier/OCR path and never capable of automatic identity approval;
+- Workbook Tools phone composition rather than wrapped desktop controls;
+- Home mobile convergence without changing the desktop strategy;
+- Marketplace/Serena as a positive mobile control; and
+- exact capture of any response `>=500`, including the previously observed 503 class, rather than
+  guessing from console symptoms.
+
+The remediation candidate is **not accepted by this historical entry**. A new exact-head deployed
+mobile certification and a fresh physical Product Owner re-UAT are required. PR #208 remains draft
+and no human review is to be requested from this record.
