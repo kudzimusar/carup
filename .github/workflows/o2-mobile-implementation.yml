@@ -1,5 +1,5 @@
 name: O2 Mobile Owner UAT Implementation
-# bounded executor payload v2
+# bounded executor payload v3
 
 on:
   push:
@@ -43,8 +43,8 @@ jobs:
 
       - name: Targeted identity and contract tests
         run: |
-          node --test backend/tests/verification-session-workflow.test.js backend/tests/o2-mobile-owner-uat-contract.test.js
-          node --test backend/tests/o2-x2-registration-journey.test.js backend/tests/o2-x5-dealer-onboarding.test.js
+          NODE_ENV=test ALLOW_OCR_MOCK=true node --test backend/tests/verification-session-workflow.test.js backend/tests/o2-mobile-owner-uat-contract.test.js
+          NODE_ENV=test node --test backend/tests/o2-x2-registration-journey.test.js backend/tests/o2-x5-dealer-onboarding.test.js
 
       - name: Targeted web suites and exact TypeScript build
         run: |
