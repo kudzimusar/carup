@@ -546,9 +546,15 @@ describe('Rule 1b — an unreadable publication state publishes nothing and clai
     // the wide read has already FAILED with a photo_label-missing error. The PUBLICATION GATE, which
     // is what this test is about, still issues no query at all: it reads `publication_status` off
     // the row the passport already holds, asserted below.
-    assert.deepEqual(tableReads, [
-      'vehicles', 'vehicle_evidence', 'listing_images', 'listing_images', 'vehicle_plate_history',
-      'vehicle_ownership_history', 'users',
+    // SORTED, because the builder now ISSUES these reads as one concurrent wave (U2) and their
+    // textual order is an artefact of that wave, not a property anyone relies on. What this test
+    // exists to refuse is unchanged and still fully pinned: the exact SET of tables and the exact
+    // COUNT of reads per table. An added query, a removed query, or a second read of a table that
+    // previously had one all still fail here — reordering, which changes no behaviour, no longer
+    // does.
+    assert.deepEqual([...tableReads].sort(), [
+      'listing_images', 'listing_images', 'users', 'vehicle_evidence',
+      'vehicle_ownership_history', 'vehicle_plate_history', 'vehicles',
     ], 'the gate must not have added a query. A second read is a second failure mode, and a '
       + 'conditional one would also make response time a signal about publication state.');
     // Pin the fallback's guard, so the conditional second read can never quietly become an

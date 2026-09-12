@@ -1,6 +1,8 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import { ValidationError, NotFoundError } from '../utils/errors.js';
 import {
   beginOwnershipTransfer,
@@ -50,6 +52,10 @@ export function createPassportOwnershipTransferRouter({ client = supabase } = {}
   router.patch(
     '/api/ownership-transfers/:transferId',
     authorizeSessionRole([]),
+    // O2-X3: every transfer transition changes who may act on a vehicle — the critical class.
+    // Step-up proves the ACTOR strongly enough; the service's own governance (roles, registry
+    // authority, encumbrance guard) still decides whether the transition is permitted at all.
+    requireAuthenticationAssurance(ACTION_CLASSES.CRITICAL),
     async (req, res, next) => {
       try {
         const result = await transitionOwnershipTransfer(client, {

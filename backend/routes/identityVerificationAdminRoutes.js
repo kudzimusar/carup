@@ -1,5 +1,7 @@
 import express from 'express';
 import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   getVerificationSessionForReview,
   getEvidencePreviewUrl,
@@ -40,6 +42,12 @@ router.get(
 router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
   authorizeRole(['admin']),
+  // Deciding an identity is the most consequential action O2 takes, and it was reachable on role
+  // alone: a borrowed or stolen admin session could approve a person. Owner UAT measured it against
+  // a positive control — a ghost session id returned 404 (the handler ran) while the DEALER decision
+  // two files away returned 403 STEP_UP_REQUIRED before any lookup. Viewing the evidence below was
+  // already step-up gated, so the LESS consequential action was the better protected one.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const result = await reviewVerificationSession(
       undefined,
@@ -61,6 +69,9 @@ router.get(
   // This signs an object in the SAME private ocr-documents bucket — passport, national ID and
   // selfie evidence. An admin id asserted by a spoofable header must not be able to mint it.
   requireProvenIdentity(),
+  // O2-X3: viewing raw identity evidence is a sensitive action — a fresh step-up is required
+  // even for a proven admin session.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
     const preview = await getEvidencePreviewUrl(
       undefined,

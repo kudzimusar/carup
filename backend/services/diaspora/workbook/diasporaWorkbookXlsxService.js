@@ -38,6 +38,14 @@ const FIRST_DATA_ROW_INDEX = 3;
 const SHEET_PROTECTION_PASSWORD = 'diaspora-reference-readonly';
 
 function requireTemplate(templateType) {
+  // O2-X5A: the engine also accepts a fully-formed template OBJECT (the same shape
+  // diasporaWorkbookTemplates.js builds), so non-diaspora catalogs (the workbook field
+  // registry) reuse THIS engine instead of growing a second one. String inputs keep the
+  // exact diaspora resolution below, byte-for-byte.
+  if (templateType && typeof templateType === 'object'
+      && typeof templateType.templateType === 'string' && Array.isArray(templateType.sheets)) {
+    return templateType;
+  }
   const template = getXlsxTemplate(templateType);
   if (!template) {
     throw new ValidationError(
@@ -176,11 +184,14 @@ export async function generateTemplate(templateType, context = {}) {
     worksheet.views = [{ state: 'frozen', ySplit: HELP_ROW_INDEX }];
   }
 
-  // Hidden + protected reference sheet carrying the status allowlists.
+  // Hidden + protected reference sheet carrying the status allowlists. A template
+  // OBJECT may carry its own referenceSheets; diaspora templates carry the same
+  // XLSX_REFERENCE_SHEETS constant, so string-typed calls are byte-identical.
+  const referenceSheets = template.referenceSheets || XLSX_REFERENCE_SHEETS;
   const reference = workbook.addWorksheet(REFERENCE_SHEET_NAME, { state: 'veryHidden' });
   reference.addRow(['StatusList', 'AllowedValues']);
   reference.getRow(1).font = { bold: true };
-  for (const referenceSheet of XLSX_REFERENCE_SHEETS) {
+  for (const referenceSheet of referenceSheets) {
     for (const [listName, values] of Object.entries(referenceSheet.statusLists || {})) {
       reference.addRow([listName, (values || []).join(', ')]);
     }
@@ -384,10 +395,11 @@ export async function exportWorkbook(templateType, rows, { redactFields = [], co
   metaSheet.getColumn(2).width = 60;
 
   // Read-only reference sheet (hidden + protected) mirroring the template.
+  const exportReferenceSheets = template.referenceSheets || XLSX_REFERENCE_SHEETS;
   const reference = workbook.addWorksheet(REFERENCE_SHEET_NAME, { state: 'veryHidden' });
   reference.addRow(['StatusList', 'AllowedValues']);
   reference.getRow(1).font = { bold: true };
-  for (const referenceSheet of XLSX_REFERENCE_SHEETS) {
+  for (const referenceSheet of exportReferenceSheets) {
     for (const [listName, values] of Object.entries(referenceSheet.statusLists || {})) {
       reference.addRow([listName, (values || []).join(', ')]);
     }

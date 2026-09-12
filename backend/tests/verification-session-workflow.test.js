@@ -472,3 +472,69 @@ test('evaluateOcrEvidence unit cases', async () => {
     true
   );
 });
+
+
+// O2 MOBILE OWNER-UAT PDF CONTRACT
+const syntheticPdf = 'data:application/pdf;base64,' + Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF').toString('base64');
+const pngUpload = 'data:image/png;base64,' + Buffer.from('png-payload').toString('base64');
+const webpUpload = 'data:image/webp;base64,' + Buffer.from('webp-payload').toString('base64');
+
+test('O2 mobile: document upload MIME matrix accepts JPEG PNG WebP and PDF but selfie remains image-only', async () => {
+  for (const [mime, payload] of [
+    ['image/jpeg', image],
+    ['image/png', pngUpload],
+    ['image/webp', webpUpload],
+    ['application/pdf', syntheticPdf],
+  ]) {
+    const client = createMockClient();
+    const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
+    const uploaded = await uploadVerificationSessionImage(client, owner, session.id, 'front', { image: payload }, { storage: { uploadToStorage: async () => `front.${mime === 'application/pdf' ? 'pdf' : 'img'}` } });
+    assert.equal(uploaded.uploaded_mime_types.front, mime);
+  }
+
+  const client = createMockClient();
+  const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
+  await assert.rejects(
+    () => uploadVerificationSessionImage(client, owner, session.id, 'selfie', { image: syntheticPdf }, { storage: { uploadToStorage: async () => 'never' } }),
+    /Unsupported selfie file type/
+  );
+});
+
+test('O2 mobile: a real synthetic PDF packet plus selfie bypasses image classifier/OCR and goes straight to human review', async () => {
+  const client = createMockClient();
+  const session = await createVerificationSession(client, owner, { documentType: 'national_id', doubleSided: true });
+  await uploadVerificationSessionImage(client, owner, session.id, 'front', { image: syntheticPdf }, { storage: { uploadToStorage: async () => 'front.pdf' } });
+  const ready = await uploadVerificationSessionImage(client, owner, session.id, 'selfie', { image }, { storage: { uploadToStorage: async () => 'selfie.jpg' } });
+  assert.equal(ready.status, 'uploaded', 'PDF packet may bypass image-back requirement only for manual review');
+  assert.equal(ready.uploaded_sides.back, false);
+  assert.equal(ready.uploaded_mime_types.front, 'application/pdf');
+
+  let downloaded = false;
+  let ocrCalled = false;
+  const result = await submitVerificationSession(client, owner, session.id, {
+    storage: { downloadFromStorage: async () => { downloaded = true; throw new Error('PDF must not reach image pipeline'); } },
+    ocr: { extractDocumentData: async () => { ocrCalled = true; throw new Error('PDF must not reach OCR'); } },
+  });
+  assert.equal(downloaded, false);
+  assert.equal(ocrCalled, false);
+  assert.equal(result.status, 'pending_manual_review');
+  assert.equal(result.primary_reason_code, 'PDF_MANUAL_REVIEW_REQUIRED');
+  assert.equal(result.evidence_classification, 'not_run');
+  assert.equal(result.ocr_execution_status, 'not_run');
+  assert.equal(result.extraction_trust_status, 'not_run');
+  assert.equal(result.confidence_score, null);
+  assert.equal(result.ocr_result, null);
+
+  const fetched = await getVerificationSession(client, owner, session.id);
+  assert.equal(fetched.uploaded_mime_types.front, 'application/pdf', 'reload/read preserves PDF evidence state');
+  assert.equal(fetched.status, 'pending_manual_review');
+});
+
+test('O2 mobile: upload validation distinguishes too-large, unsupported and corrupt evidence', async () => {
+  const client = createMockClient();
+  const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
+  const tooLarge = 'data:image/jpeg;base64,' + Buffer.alloc(15 * 1024 * 1024 + 1, 1).toString('base64');
+  await assert.rejects(() => uploadVerificationSessionImage(client, owner, session.id, 'front', { image: tooLarge }, { storage: { uploadToStorage: async () => 'never' } }), /larger than 15 MB/);
+  await assert.rejects(() => uploadVerificationSessionImage(client, owner, session.id, 'front', { image: 'data:text/plain;base64,SGVsbG8=' }, { storage: { uploadToStorage: async () => 'never' } }), /Unsupported identity document file type/);
+  await assert.rejects(() => uploadVerificationSessionImage(client, owner, session.id, 'front', { image: 'data:application/pdf;base64,AAAA' }, { storage: { uploadToStorage: async () => 'never' } }), /empty or corrupt/);
+});

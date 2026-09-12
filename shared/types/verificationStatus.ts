@@ -325,6 +325,34 @@ export interface ExtendedAdminVerificationSession extends AdminVerificationSessi
   identity_binding_status: IdentityBindingStatus | null;
   assessment?: AssessmentSummary | null;
   decisions?: VerificationDecisionRecord[];
+  /** O2-X4 — provider biometric EVIDENCE (never a decision). Null until an assessment ran. */
+  biometric?: BiometricEvidenceSummary | null;
+  biometric_consent?: BiometricConsentSummary | null;
+}
+
+/** O2-X4 — normalized biometric evidence for the reviewer surface. */
+export interface BiometricEvidenceSummary {
+  face_match_status: 'match' | 'mismatch' | 'indeterminate' | 'provider_failed' | 'not_run';
+  face_match_score: number | null;
+  liveness_status: 'passed' | 'failed' | 'indeterminate' | 'provider_failed' | 'not_run';
+  liveness_score: number | null;
+  provider: string | null;
+  provider_state: 'completed' | 'failed' | 'unavailable' | 'not_configured' | null;
+  provider_reference?: string | null;
+  threshold_policy_version: string | null;
+  assessed_at: string | null;
+  risk_flags?: string[];
+  consent_id?: string | null;
+}
+
+/** O2-X4 — the subject's current biometric-consent state (ledger-derived). */
+export interface BiometricConsentSummary {
+  active: boolean;
+  status: 'granted' | 'withdrawn' | 'none';
+  purposes?: string[] | null;
+  consent_text_version: string | null;
+  granted_at: string | null;
+  withdrawn_at: string | null;
 }
 
 export interface DecisionResponse {

@@ -48,7 +48,15 @@ export async function runFraudAnalysis(vin, price, listingTitle) {
   return result;
 }
 
-export async function runOcrParsing(docType, base64Data, userId = 'u1') {
+export async function runOcrParsing(docType, base64Data, userId) {
+  if (!userId) {
+    // Evidence rows are attribution: outside the test suite the caller must say WHO the
+    // extraction belongs to. The route passes the proven session identity.
+    if (process.env.NODE_ENV !== 'test') {
+      throw new Error('OCR parsing requires the authenticated user id it is being run for.');
+    }
+    userId = 'u1';
+  }
   const systemPrompt = `You are the CarUp OS Document OCR Parser Agent. 
   Analyze the uploaded vehicle registration logbook or ZIMRA Form 21. 
   Extract all structured details into a JSON payload with: { confidenceScore: number, vin: string, owner: string, engineNumber: string, make: string, model: string, year: number, importSource: string, dutyPaid: boolean }`;

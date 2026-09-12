@@ -585,3 +585,60 @@ describe('device retest round 2 regressions (source-level)', () => {
     expect(src).toContain('they are NOT zero')
   })
 })
+
+describe('X4 — biometric evidence section (evidence only, no shortcut actions)', () => {
+  const biometricDetail = {
+    ...sessionDetail,
+    biometric: {
+      face_match_status: 'mismatch',
+      face_match_score: 0.21,
+      liveness_status: 'passed',
+      liveness_score: 0.91,
+      provider: 'test-provider',
+      provider_state: 'completed',
+      provider_reference: 'ref-9',
+      threshold_policy_version: 'biometric_threshold.v1',
+      assessed_at: '2026-09-03T10:00:00.000Z',
+      risk_flags: ['face_mismatch'],
+      consent_id: 'consent-1',
+    },
+    biometric_consent: {
+      active: true, status: 'granted', consent_text_version: 'biometric_consent_text.v1',
+      granted_at: '2026-09-03T09:00:00.000Z', withdrawn_at: null,
+    },
+  }
+
+  it('renders consent state, provider provenance, face and liveness — and offers NO buttons of its own', async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes('/security/csrf-token')) return Promise.resolve(jsonResponse({ csrfToken: 't' }))
+      if (url.includes(SESSION_ID_1)) return Promise.resolve(jsonResponse({ success: true, session: biometricDetail }))
+      return Promise.resolve(jsonResponse({ success: true, sessions: defaultSessions }))
+    })
+    render(<IdentityVerificationCaseManagement />)
+    await waitForSessions()
+    await userEvent.click(openFirstSession())
+    await waitFor(() => expect(screen.getByTestId('biometric-evidence')).toBeInTheDocument())
+
+    expect(screen.getByTestId('biometric-consent-state').textContent).toMatch(/Granted \(biometric_consent_text.v1\)/)
+    expect(screen.getByTestId('biometric-face').textContent).toMatch(/Mismatch \(0.21\)/)
+    expect(screen.getByTestId('biometric-liveness').textContent).toMatch(/Passed \(0.91\)/)
+    expect(screen.getByTestId('biometric-evidence').textContent).toMatch(/biometric_threshold.v1/)
+    // The disposition still travels ONLY through the decision controls below: the evidence
+    // card itself carries no buttons and no "approve because biometric" shortcut exists.
+    expect(screen.getByTestId('biometric-evidence').querySelectorAll('button').length).toBe(0)
+    expect(screen.queryByText(/because biometric/i)).toBeNull()
+  })
+
+  it('says so honestly when no biometric assessment was run', async () => {
+    globalThis.fetch = vi.fn((url: string) => {
+      if (url.includes('/security/csrf-token')) return Promise.resolve(jsonResponse({ csrfToken: 't' }))
+      if (url.includes(SESSION_ID_1)) return Promise.resolve(jsonResponse({ success: true, session: { ...sessionDetail, biometric: null, biometric_consent: { active: false, status: 'none', consent_text_version: null, granted_at: null, withdrawn_at: null } } }))
+      return Promise.resolve(jsonResponse({ success: true, sessions: defaultSessions }))
+    })
+    render(<IdentityVerificationCaseManagement />)
+    await waitForSessions()
+    await userEvent.click(openFirstSession())
+    await waitFor(() => expect(screen.getByTestId('biometric-none')).toBeInTheDocument())
+    expect(screen.getByTestId('biometric-consent-state').textContent).toMatch(/Not granted/)
+  })
+})

@@ -90,6 +90,12 @@ jobs:
       # file and checks its markers). This step applies the DDL Up, exercises R24/R25/R26, the
       # closed-shape settlement_context and the provenance rules against real PostgreSQL, then
       # applies Down and re-applies Up.
+      # O2 post-Ready review closure: the receipt unique key and the uuid target column are
+      # DATABASE facts, and the workbook suite's in-memory client enforces neither. This runs
+      # the real migration DDL so C4/C5/C7 cannot silently return.
+      - name: O2 workbook receipt identity verification (isolated PGlite Postgres)
+        run: node database/test/o2_workbook_receipt_identity_check.mjs
+
       - name: Finance obligation authority verification (isolated PGlite Postgres)
         run: node database/test/finance_obligation_pglite_check.mjs
 

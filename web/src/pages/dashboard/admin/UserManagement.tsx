@@ -2,8 +2,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Search, Users, Shield, Wrench, Building2, Car, MoreHorizontal, Ban } from 'lucide-react'
+import { Search, Users, Shield, Wrench, Building2, Car, MoreHorizontal, Ban, UserCog } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -24,6 +25,7 @@ const API_BASE = resolveApiBaseUrl(
 );
 
 export default function UserManagement() {
+  const navigate = useNavigate()
   const { fetchUsers, suspendUser } = useCarUpApi()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -141,6 +143,12 @@ export default function UserManagement() {
                         <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {/* O2/P3 — the person-centered compliance workspace (identity, authority,
+                            ownership, dealer state as SEPARATE facts). */}
+                        <DropdownMenuItem className="cursor-pointer" data-testid={`open-people-review-${user.id}`} onClick={() => navigate(`/admin/people/${user.id}/review`)}>
+                          <UserCog className="w-4 h-4 mr-2" />
+                          Open People &amp; Compliance Review
+                        </DropdownMenuItem>
                         <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => handleSuspend(user.id)}>
                           <Ban className="w-4 h-4 mr-2" />
                           Suspend User
