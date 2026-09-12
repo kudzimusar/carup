@@ -98,18 +98,20 @@ test('O2-UAT-5: the transition path translates too, not only the begin path', ()
     'begin, transition and read must all translate');
 });
 
-/* ── 3 · the workbook tab row must wrap ───────────────────────────────────
-   Measured at 393x852: document.documentElement.scrollWidth 481 vs innerWidth 393. */
+/* ── 3 · workbook phone composition ───────────────────────────────────────
+   The first owner closure used flex-wrap as a minimal 393px repair. Mobile-first remediation now
+   deliberately replaces those desktop buttons with a four-column phone tab strip. */
 
-test('O2-UAT-6: the workbook header and its tab row wrap instead of overflowing', () => {
+test('O2-UAT-6: the workbook header and tabs use the deliberate compact phone composition', () => {
   const source = read('web/src/components/workbook/WorkbookWorkspace.tsx');
   const at = source.indexOf("{title || 'Workbook tools'}");
   assert.ok(at > -1, 'the workbook header must exist');
-  const block = source.slice(Math.max(0, at - 400), at + 400);
-  const header = block.match(/className="flex[^"]*items-center justify-between[^"]*"/);
-  assert.ok(header, 'the header row must be found');
-  assert.match(header[0], /flex-wrap/, 'the header row must wrap at narrow widths');
-  const tabs = block.match(/className="flex[^"]*gap-1"/);
-  assert.ok(tabs, 'the tab group must be found');
-  assert.match(tabs[0], /flex-wrap/, 'the tab group must wrap at narrow widths');
+  const block = source.slice(Math.max(0, at - 500), at + 900);
+  const header = block.match(/className="space-y-3 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:space-y-0"/);
+  assert.ok(header, 'the header must stack on phones and become a row only from sm');
+  const tabs = block.match(/className="grid w-full grid-cols-4 gap-1 rounded-lg bg-muted p-1 sm:w-auto"/);
+  assert.ok(tabs, 'the phone tab group must be a contained four-column grid');
+  assert.match(block, /role="tablist"/, 'the compact group must preserve tab semantics');
+  assert.match(block, /min-h-10 min-w-0 px-1 text-\[11px\]/,
+    'phone tabs must use compact typography without forcing desktop minimum widths');
 });
