@@ -19,51 +19,20 @@ jobs:
           ref: feat/operations-o2-people-compliance
           fetch-depth: 0
       - name: Preserve failed mobile owner UAT history
+        env:
+          HISTORY_B64: Ci0tLQojIE93bmVyIG1vYmlsZSBVQVQg4oCUIGBhNGI3NGZlN2AgKEZBSUxFRCkKCioqQ2FuZGlkYXRlIHBoeXNpY2FsbHkgd2Fsa2VkOioqIGBhNGI3NGZlN2ZkYWRhZGNmNGEwODg4YjcxNmI4N2E3MjY0ZThjOTAwYC4KClRoaXMgaXMgYSBsYXRlciAqKlByb2R1Y3QgT3duZXIgbW9iaWxlLWZpcnN0IFVBVCBmYWlsdXJlKiogYW5kIHN1cGVyc2VkZXMgYW55IGF1dG9tYXRlZCBjbGFpbSB0aGF0CmBhNGI3NGZlN2Agd2FzIHJlYWR5IGZvciBvd25lciBhY2NlcHRhbmNlLiBJdCBpcyByZXRhaW5lZCBhcyBoaXN0b3J5OyBpdCBtdXN0IG5vdCBiZSByZXdyaXR0ZW4gaW50bwphIHBhc3MgYWZ0ZXIgcmVtZWRpYXRpb24uCgpUaGUgUHJvZHVjdCBPd25lciBleHBsaWNpdGx5IGV4cGFuZGVkIE8yIGNsb3N1cmUgdG8gcHJlZG9taW5hbnQtY3VzdG9tZXIgcGhvbmUgdXNhZ2UgYW5kIGZvdW5kIHRoYXQKdGhlIGNhbmRpZGF0ZSB3YXMgbm90IGFjY2VwdGFibGUgYXMgYSBtb2JpbGUgcHJvZHVjdC4gVGhlIGJvdW5kZWQgcmVtZWRpYXRpb24gdGhlcmVmb3JlIGNvdmVyczoKCi0gUmVnaXN0cmF0aW9uIGFuZCBEZWFsZXIgb25ib2FyZGluZyBwaG9uZSBjb21wb3NpdGlvbiwgcmVmcmVzaCBzdGFiaWxpdHksIHR5cG9ncmFwaHksIGNvbnRyb2xzLAogIGNvbnRyYXN0IGFuZCByb290LXdpZHRoIGNvbnRhaW5tZW50IGF0IDM5M+KAkzQzMHB4OwotIHRydXRoZnVsIGlkZW50aXR5LWRvY3VtZW50IFBERiBldmlkZW5jZTogUERGIGlzIHByaXZhdGUgZXZpZGVuY2Ugc2VudCB0byBodW1hbiByZXZpZXcsIG5ldmVyCiAgcGFzc2VkIHRvIHRoZSBpbWFnZSBjbGFzc2lmaWVyL09DUiBwYXRoIGFuZCBuZXZlciBjYXBhYmxlIG9mIGF1dG9tYXRpYyBpZGVudGl0eSBhcHByb3ZhbDsKLSBXb3JrYm9vayBUb29scyBwaG9uZSBjb21wb3NpdGlvbiByYXRoZXIgdGhhbiB3cmFwcGVkIGRlc2t0b3AgY29udHJvbHM7Ci0gSG9tZSBtb2JpbGUgY29udmVyZ2VuY2Ugd2l0aG91dCBjaGFuZ2luZyB0aGUgZGVza3RvcCBzdHJhdGVneTsKLSBNYXJrZXRwbGFjZS9TZXJlbmEgYXMgYSBwb3NpdGl2ZSBtb2JpbGUgY29udHJvbDsgYW5kCi0gZXhhY3QgY2FwdHVyZSBvZiBhbnkgcmVzcG9uc2UgYD49NTAwYCwgaW5jbHVkaW5nIHRoZSBwcmV2aW91c2x5IG9ic2VydmVkIDUwMyBjbGFzcywgcmF0aGVyIHRoYW4KICBndWVzc2luZyBmcm9tIGNvbnNvbGUgc3ltcHRvbXMuCgpUaGUgcmVtZWRpYXRpb24gY2FuZGlkYXRlIGlzICoqbm90IGFjY2VwdGVkIGJ5IHRoaXMgaGlzdG9yaWNhbCBlbnRyeSoqLiBBIG5ldyBleGFjdC1oZWFkIGRlcGxveWVkCm1vYmlsZSBjZXJ0aWZpY2F0aW9uIGFuZCBhIGZyZXNoIHBoeXNpY2FsIFByb2R1Y3QgT3duZXIgcmUtVUFUIGFyZSByZXF1aXJlZC4gUFIgIzIwOCByZW1haW5zIGRyYWZ0CmFuZCBubyBodW1hbiByZXZpZXcgaXMgdG8gYmUgcmVxdWVzdGVkIGZyb20gdGhpcyByZWNvcmQuCg==
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-          p = Path('docs/features/o2/CARUP_OPERATIONS_O2_OWNER_UAT_RESULT.md')
-          marker = '# Owner mobile UAT — `a4b74fe7` (FAILED)'
-          text = p.read_text()
-          if marker not in text:
-              text += '''
-
----
-
-# Owner mobile UAT — `a4b74fe7` (FAILED)
-
-**Candidate physically walked:** `a4b74fe7fdadadcf4a0888b716b87a7264e8c900`.
-
-This is a later **Product Owner mobile-first UAT failure** and supersedes any automated claim that
-`a4b74fe7` was ready for owner acceptance. It is retained as history; it must not be rewritten into
-a pass after remediation.
-
-The Product Owner explicitly expanded O2 closure to predominant-customer phone usage and found that
-the candidate was not acceptable as a mobile product. The bounded remediation therefore covers:
-
-- Registration and Dealer onboarding phone composition, refresh stability, typography, controls,
-  contrast and root-width containment at 393–430px;
-- truthful identity-document PDF evidence: PDF is private evidence sent to human review, never
-  passed to the image classifier/OCR path and never capable of automatic identity approval;
-- Workbook Tools phone composition rather than wrapped desktop controls;
-- Home mobile convergence without changing the desktop strategy;
-- Marketplace/Serena as a positive mobile control; and
-- exact capture of any response `>=500`, including the previously observed 503 class, rather than
-  guessing from console symptoms.
-
-The remediation candidate is **not accepted by this historical entry**. A new exact-head deployed
-mobile certification and a fresh physical Product Owner re-UAT are required. PR #208 remains draft
-and no human review is to be requested from this record.
-'''
-              p.write_text(text)
-          PY
+          DOC='docs/features/o2/CARUP_OPERATIONS_O2_OWNER_UAT_RESULT.md'
+          if ! grep -Fq '# Owner mobile UAT — `a4b74fe7` (FAILED)' "$DOC"; then
+            printf '%s' "$HISTORY_B64" | base64 --decode >> "$DOC"
+          fi
           git diff --check
-          if git diff --quiet -- docs/features/o2/CARUP_OPERATIONS_O2_OWNER_UAT_RESULT.md; then
-            echo 'History marker already present; no documentation commit needed.'
+          if git diff --quiet -- "$DOC"; then
+            echo 'History marker already present.'
             exit 0
           fi
           git config user.name 'CarUp O2 Mobile Remediation'
           git config user.email 'actions@users.noreply.github.com'
-          git add docs/features/o2/CARUP_OPERATIONS_O2_OWNER_UAT_RESULT.md
+          git add "$DOC"
           git commit -m 'docs(o2): preserve failed a4b74fe7 mobile owner UAT'
           git push origin HEAD:feat/operations-o2-people-compliance
