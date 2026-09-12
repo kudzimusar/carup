@@ -26,6 +26,19 @@ p = 'backend/services/identity/verificationSessionService.js'
 t = read(p)
 t = rep(t, '  parseImagePayload,\\n', '', 'remove obsolete image parser export')
 write(p, t)
+
+# Mobile action-row replacement must keep JSX event braces independent from
+# following props. The original payload accidentally put data-testid inside
+# the onClick expression for Confirm mapping.
+p = 'web/src/components/workbook/WorkbookWorkspace.tsx'
+t = read(p)
+t = rep(
+    t,
+    'onClick={() => void confirmMapping() data-testid="wb-confirm-mapping"',
+    'onClick={() => void confirmMapping()} data-testid="wb-confirm-mapping"',
+    'workbook confirm-mapping JSX closure',
+)
+write(p, t)
 """
 
 path.write_text(text)
