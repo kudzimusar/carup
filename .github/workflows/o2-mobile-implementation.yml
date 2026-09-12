@@ -1,5 +1,5 @@
 name: O2 Mobile Owner UAT Implementation
-# bounded executor payload v3
+# bounded executor payload v4
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
 
       - name: Targeted web suites and exact TypeScript build
         run: |
-          npm run test:unit --workspace=web -- --run web/src/pages/onboarding/RegistrationJourney.test.tsx web/src/pages/dealer/DealerOnboarding.test.tsx web/src/components/workbook/WorkbookWorkspace.test.tsx web/src/pages/workbook/WorkbookTools.test.tsx
+          npm run test:unit --workspace=web -- --run src/pages/onboarding/RegistrationJourney.test.tsx src/pages/dealer/DealerOnboarding.test.tsx src/components/workbook/WorkbookWorkspace.test.tsx src/pages/workbook/WorkbookTools.test.tsx
           npm run build --workspace=web
 
       - name: Commit bounded implementation
