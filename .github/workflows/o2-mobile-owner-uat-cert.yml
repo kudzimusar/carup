@@ -19,6 +19,9 @@ jobs:
     name: Full regression and trust contracts
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-key
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
