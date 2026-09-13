@@ -1,18 +1,10 @@
 /**
- * Phase 9 — SafeTrade MILESTONE service (sandbox-only escrow milestones).
+ * Phase 9 / Trade OS T13 — SafeTrade MILESTONE service (sandbox-only escrow milestones).
  *
- * Operates over the Phase 9 diaspora_safetrade_milestones table (connect, don't duplicate). Milestone
- * DEFINITION goes through the atomic RPC diaspora_safetrade_record_milestone_atomic (single-currency
- * total reconciliation + in-txn CRITICAL audit, idempotent). Money operations (hold/capture/release/
- * refund) drive ONLY the SandboxPaymentProvider (live throws EXTERNAL_ACTIVATION_REQUIRED) and then
- * advance milestone state through the atomic transition RPC diaspora_safetrade_transition_atomic
- * (in-txn CRITICAL audit, idempotency replay, money fail-closed). Totals reconcile to the transaction
- * total within SAFETRADE_RECONCILIATION_TOLERANCE; every money op is idempotent on its idempotencyKey.
- *
- * Non-negotiables (directive §5.2): never moves real money (sandbox only); HIGH-risk release requires a
- * reviewer/admin actor + passing release policy even when conditions pass (enforced here AND in the RPC);
- * critical transitions fail atomically if their audit can't be written (the RPC writes audit in-txn);
- * gated behind DIASPORA_SAFETRADE_ENABLED. Server-derived roles only.
+ * Milestone definition remains authoritative through the atomic reconciliation RPC. Money operations
+ * reserve a durable operation BEFORE provider dispatch, use one canonical economic idempotency key at
+ * the provider/RPC boundary, and never redispatch an unresolved operation. A provider-confirmed result
+ * is not success until the authoritative ledger applies the same operation.
  */
 import { resolveClient, requestCorrelationId } from '../diasporaServiceUtils.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
@@ -32,9 +24,8 @@ import {
 } from '../diasporaAuthorization.js';
 import { selectPaymentProvider } from './safeTradePaymentProvider.js';
 import { evaluateRelease } from './diasporaSafeTradeReleasePolicyService.js';
-// ST-3 item 3 (Issue #127): the durable operation ledger, so no provider call is ever made without a
-// preceding record and no unknown provider result is ever reported to a user as success.
 import {
+  OPERATION_STATE,
   reserveOperation,
   markDispatched,
   markProviderConfirmed,
@@ -42,7 +33,6 @@ import {
   markFailed,
 } from './diasporaSafeTradeOperationService.js';
 
-// Milestone types whose release ALWAYS requires reviewer/admin approval (high-risk), per directive.
 const HIGH_RISK_MILESTONE_TYPES = new Set([
   SAFETRADE_MILESTONE_TYPES.RELEASE,
   SAFETRADE_MILESTONE_TYPES.DELIVERY,
@@ -90,7 +80,6 @@ async function fetchMilestone(supabase, milestoneId) {
   return data;
 }
 
-// Participant-scoped read authorization on a transaction (buyer/seller/creator or privileged).
 function assertCanAccessTransaction(txn, context) {
   const actorId = normalizeId(context.id);
   const participant = [txn.buyer_id, txn.seller_id, txn.created_by, txn.updated_by]
@@ -99,10 +88,45 @@ function assertCanAccessTransaction(txn, context) {
   throw new ForbiddenError('You do not have access to this SafeTrade transaction');
 }
 
+function assertBuyerOrPrivileged(txn, context, privileged, operation) {
+  if (privileged) return;
+  if (normalizeId(txn.buyer_id) === normalizeId(context.id)) return;
+  throw new ForbiddenError(`Only the buyer or a reviewer/admin may initiate ${operation.toLowerCase()}`, {
+    code: 'SAFETRADE_PAYER_AUTHORITY_REQUIRED',
+  });
+}
+
+function assertFullMilestoneAmount(milestone, requestedAmount) {
+  const canonical = round2(milestone.amount);
+  const requested = requestedAmount == null ? canonical : round2(requestedAmount);
+  if (!(canonical > 0) || !(requested > 0)) {
+    throw new ValidationError('SafeTrade milestone money operation requires an amount greater than zero', {
+      code: 'INVALID_AMOUNT',
+    });
+  }
+  if (requested !== canonical) {
+    throw new ValidationError('Partial money cannot advance a full SafeTrade milestone state', {
+      code: 'SAFETRADE_PARTIAL_MONEY_NOT_SUPPORTED',
+      milestoneAmount: canonical,
+      requestedAmount: requested,
+    });
+  }
+  return canonical;
+}
+
+function reconciliationRequired(operationRow, reason = null) {
+  return new ValidationError(
+    reason || 'This SafeTrade money operation is already in progress or requires reconciliation; do not retry it at the provider',
+    {
+      code: 'SAFETRADE_OPERATION_RECONCILIATION_REQUIRED',
+      operationId: operationRow?.id ?? null,
+      state: operationRow?.state ?? null,
+    },
+  );
+}
+
 /**
  * createMilestones — define/seed the milestone set for a transaction via the atomic reconciliation RPC.
- * Reconciles Σ amount to total_amount within SAFETRADE_RECONCILIATION_TOLERANCE (also pre-checked in JS),
- * idempotent on idempotencyKey, CRITICAL audit written in-txn by the RPC.
  */
 export async function createMilestones(supabaseOrOptions, {
   transactionId,
@@ -123,7 +147,6 @@ export async function createMilestones(supabaseOrOptions, {
   const txn = await fetchTransaction(supabase, transactionId);
   assertCanAccessTransaction(txn, context);
 
-  // JS pre-flight reconciliation (the RPC re-asserts authoritatively in-txn).
   const sum = round2(milestones
     .filter((m) => (m.milestoneType || m.milestone_type) !== SAFETRADE_MILESTONE_TYPES.REFUND)
     .reduce((s, m) => s + Number(m.amount || 0), 0));
@@ -133,12 +156,25 @@ export async function createMilestones(supabaseOrOptions, {
     });
   }
 
+  for (const milestone of milestones) {
+    const milestoneAmount = round2(milestone.amount);
+    const milestoneCurrency = String(milestone.currency || txn.currency || '').trim().toUpperCase();
+    if (!(milestoneAmount > 0)) {
+      throw new ValidationError('Milestone amounts must be greater than zero', { code: 'INVALID_AMOUNT' });
+    }
+    if (milestoneCurrency !== String(txn.currency || '').trim().toUpperCase()) {
+      throw new ValidationError('Milestone currency must match the SafeTrade transaction currency', {
+        code: 'CURRENCY_MISMATCH',
+      });
+    }
+  }
+
   const privileged = isPrivileged(context, txn);
   const payload = milestones.map((m, i) => ({
     milestoneType: m.milestoneType || m.milestone_type,
     sequence: m.sequence ?? i,
     amount: round2(m.amount),
-    currency: m.currency || txn.currency,
+    currency: String(m.currency || txn.currency).trim().toUpperCase(),
     payer: m.payer ?? null,
     payee: m.payee ?? null,
     dueTrigger: m.dueTrigger || m.due_trigger || 'MANUAL',
@@ -162,7 +198,6 @@ export async function createMilestones(supabaseOrOptions, {
   return data;
 }
 
-/** listMilestones — read all milestones for a transaction (participant/privileged scoped). */
 export async function listMilestones(supabaseOrOptions, {
   transactionId, userContext = {}, options = {},
 } = {}) {
@@ -187,7 +222,6 @@ const MONEY_OPS = Object.freeze({
   REFUND: 'REFUND',
 });
 
-// Map a money op to the provider call + the target milestone status the transition RPC must reach.
 const MONEY_OP_PLAN = Object.freeze({
   HOLD: { providerMethod: 'authorizeHold', targetStatus: 'FUNDS_PENDING' },
   CAPTURE: { providerMethod: 'captureRelease', targetStatus: 'HELD' },
@@ -195,8 +229,6 @@ const MONEY_OP_PLAN = Object.freeze({
   REFUND: { providerMethod: 'refund', targetStatus: 'REFUNDED' },
 });
 
-// ST-3 item 3 (Issue #127): the durable operation-ledger name for each money op. The ledger's CHECK
-// constraint only accepts these, so a typo fails at INSERT rather than creating an unclassifiable row.
 const OPERATION_FOR_MONEY_OP = Object.freeze({
   HOLD: 'authorize_hold',
   CAPTURE: 'capture',
@@ -205,11 +237,9 @@ const OPERATION_FOR_MONEY_OP = Object.freeze({
 });
 
 /**
- * recordMilestone — perform a sandbox money operation (hold/capture/release/refund) on a milestone and
- * advance its state through the atomic transition RPC. Idempotent on idempotencyKey at BOTH the provider
- * layer and the RPC layer. RELEASE of a high-risk milestone requires a reviewer/admin actor AND a passing
- * release-policy evaluation (evaluationId) — enforced here and re-checked in the RPC. Never moves real
- * money: the provider is sandbox; the live path throws EXTERNAL_ACTIVATION_REQUIRED.
+ * Perform one full-state money operation exactly once. A durable operation replay never causes a
+ * second provider dispatch. `provider_confirmed` may resume only the ledger step; ambiguous states are
+ * handed to reconciliation rather than retried into a possible double-spend.
  */
 export async function recordMilestone(supabaseOrOptions, {
   transactionId,
@@ -239,11 +269,13 @@ export async function recordMilestone(supabaseOrOptions, {
   const privileged = isPrivileged(context, txn);
   const plan = MONEY_OP_PLAN[op];
 
-  // RELEASE is reviewer/admin authority; high-risk milestone release also requires a passing evaluation.
+  if ([MONEY_OPS.HOLD, MONEY_OPS.CAPTURE].includes(op)) {
+    assertBuyerOrPrivileged(txn, context, privileged, op);
+  }
+
   if (op === MONEY_OPS.RELEASE) {
     if (!privileged) throw new ForbiddenError('Only a reviewer/admin may release escrow', { code: 'REVIEWER_REQUIRED' });
     const highRisk = HIGH_RISK_MILESTONE_TYPES.has(milestone.milestone_type);
-    // Re-evaluate release policy against live state (never trust a passed-in verdict).
     const verdict = await evaluateRelease(supabase, {
       safeTradeId: transactionId,
       milestoneId,
@@ -261,39 +293,23 @@ export async function recordMilestone(supabaseOrOptions, {
     throw new ForbiddenError('Only a reviewer/admin may refund escrow', { code: 'REVIEWER_REQUIRED' });
   }
 
-  // Resolve the provider (sandbox unless live activated; live throws on use). Fail-closed selection.
+  const operationAmount = assertFullMilestoneAmount(milestone, amount);
+  const operationIdempotencyKey = String(
+    idempotencyKey || `auto:${transactionId}:${milestoneId}:${op}:${milestone.status}`,
+  );
+
   const provider = selectPaymentProvider(options);
   const providerArgs = {
     intentId: milestone.provider_reference,
     milestoneId,
     tenantId: txn.tenant_id ?? context.tenantId ?? null,
-    amount: amount == null ? Number(milestone.amount) : round2(amount),
+    amount: operationAmount,
     currency: milestone.currency,
     payer: milestone.payer,
     payee: milestone.payee,
-    idempotencyKey,
+    idempotencyKey: operationIdempotencyKey,
     approval: op === MONEY_OPS.RELEASE ? { evaluationId, actorId: context.id } : undefined,
   };
-
-  // ── ST-3 item 3: reserve the operation BEFORE touching the provider (Issue #127) ────────────
-  //
-  // Previously the provider was called first and our ledger was written afterwards. If the process
-  // died, the request timed out, or the RPC below refused the transition (an expired approval, a
-  // failed policy re-check), the provider had already acted — with a live provider, that is real
-  // money moved with no authoritative record of it, and a retry would move it twice.
-  //
-  // Writing `pending` first means every provider call is preceded by a durable row keyed on the same
-  // idempotency key the provider receives. A replay of that key returns the existing row and does NOT
-  // dispatch again.
-  // Not every caller supplies an idempotency key — resolveDispute, for instance, drives a REFUND
-  // without one. The operation ledger cannot have a null key (that is what makes replay safe), so one
-  // is DERIVED from the identity of the transition itself: transaction + milestone + op + the source
-  // status. That is stable across a retry of the same logical operation and necessarily different
-  // once the state machine has advanced, so it never merges two genuinely distinct money moves.
-  // The caller's own key, when present, still governs the provider and the RPC — those semantics are
-  // deliberately left untouched.
-  const operationIdempotencyKey = idempotencyKey
-    || `auto:${transactionId}:${milestoneId}:${op}:${milestone.status}`;
 
   const reservation = await reserveOperation({
     tenantId: txn.tenant_id ?? context.tenantId ?? null,
@@ -308,47 +324,103 @@ export async function recordMilestone(supabaseOrOptions, {
     metadata: { moneyOp: op, correlationId: requestCorrelationId(req) },
     supabaseClient: supabase,
   });
-  const operationRow = reservation.operation;
+  let operationRow = reservation.operation;
 
-  // For HOLD, create the intent first if the milestone has none yet (sandbox intent).
-  let providerResult;
-  try {
-    await markDispatched(operationRow.id, { supabaseClient: supabase });
-    if (op === MONEY_OPS.HOLD && !milestone.provider_reference) {
-      const intent = await provider.createPaymentIntent(providerArgs);
-      providerArgs.intentId = intent.intentId;
-      providerResult = await provider.authorizeHold({ intentId: intent.intentId, idempotencyKey });
-      providerResult.intentId = intent.intentId;
-    } else {
-      providerResult = await provider[plan.providerMethod](providerArgs);
+  let providerResult = null;
+  if (reservation.replay) {
+    if (operationRow.state === OPERATION_STATE.LEDGER_APPLIED) {
+      return {
+        milestone: await fetchMilestone(supabase, milestoneId),
+        transaction: await fetchTransaction(supabase, transactionId),
+        provider: {
+          name: operationRow.provider,
+          intentId: operationRow.provider_ref ?? milestone.provider_reference ?? null,
+          status: operationRow.provider_status ?? null,
+        },
+        idempotentReplay: true,
+      };
     }
-    await markProviderConfirmed(operationRow.id, {
-      providerRef: providerResult?.intentId ?? providerArgs.intentId ?? null,
-      providerStatus: providerResult?.status ?? null,
-      supabaseClient: supabase,
-    });
-  } catch (providerError) {
-    // A provider error is NOT automatically a clean failure. INVALID_INPUT/INVALID_STATE are
-    // definite refusals — the provider rejected the request and nothing moved. Anything else
-    // (timeout, transport failure, unrecognised response) means we genuinely do not know, so the
-    // operation goes to `reconciling` for a human rather than being reported as failed and retried
-    // into a double-spend.
-    const definiteRefusal = ['INVALID_INPUT', 'INVALID_STATE'].includes(providerError?.code);
-    if (definiteRefusal) {
-      await markFailed(operationRow.id, {
-        errorCode: providerError.code,
-        reason: providerError.message,
-        supabaseClient: supabase,
+
+    if (operationRow.state === OPERATION_STATE.PROVIDER_CONFIRMED) {
+      providerResult = {
+        provider: operationRow.provider,
+        intentId: operationRow.provider_ref ?? milestone.provider_reference ?? null,
+        status: operationRow.provider_status ?? null,
+        idempotentReplay: true,
+      };
+      providerArgs.intentId = providerResult.intentId;
+    } else if ([
+      OPERATION_STATE.PENDING,
+      OPERATION_STATE.PROVIDER_DISPATCHED,
+      OPERATION_STATE.RECONCILING,
+    ].includes(operationRow.state)) {
+      throw reconciliationRequired(operationRow);
+    } else if ([OPERATION_STATE.FAILED, OPERATION_STATE.COMPENSATED].includes(operationRow.state)) {
+      throw new ValidationError('This SafeTrade idempotency key belongs to a terminal operation and cannot be reused', {
+        code: 'IDEMPOTENCY_CONFLICT',
+        operationId: operationRow.id,
+        state: operationRow.state,
       });
     } else {
-      await markUnknown(operationRow.id, providerError?.message || 'provider call failed', {
+      throw reconciliationRequired(operationRow, 'SafeTrade operation is in an unknown durable state');
+    }
+  } else {
+    try {
+      operationRow = await markDispatched(operationRow.id, { supabaseClient: supabase }) || operationRow;
+
+      if (op === MONEY_OPS.HOLD && !milestone.provider_reference) {
+        // The intent creation and hold authorization are two provider mutations. They receive related
+        // but distinct provider keys so the provider cannot mistake the intent replay for the hold.
+        const intent = await provider.createPaymentIntent({
+          ...providerArgs,
+          idempotencyKey: `${operationIdempotencyKey}:intent`,
+        });
+        providerArgs.intentId = intent.intentId;
+        providerResult = await provider.authorizeHold({
+          intentId: intent.intentId,
+          idempotencyKey: operationIdempotencyKey,
+        });
+        providerResult.intentId = intent.intentId;
+      } else {
+        providerResult = await provider[plan.providerMethod]({
+          ...providerArgs,
+          idempotencyKey: operationIdempotencyKey,
+        });
+      }
+
+      const confirmedOperation = await markProviderConfirmed(operationRow.id, {
+        providerRef: providerResult?.intentId ?? providerArgs.intentId ?? null,
+        providerStatus: providerResult?.status ?? null,
         supabaseClient: supabase,
       });
+      operationRow = confirmedOperation || operationRow;
+      if (operationRow.state !== OPERATION_STATE.PROVIDER_CONFIRMED) {
+        throw reconciliationRequired(operationRow, 'Provider result is ambiguous and cannot be applied to the SafeTrade ledger');
+      }
+    } catch (providerError) {
+      // Do not overwrite the deliberate reconciling state produced by a duplicate provider reference
+      // or another ambiguity discovered after the provider call.
+      if (providerError?.details?.code === 'SAFETRADE_OPERATION_RECONCILIATION_REQUIRED'
+        || providerError?.code === 'SAFETRADE_OPERATION_RECONCILIATION_REQUIRED') {
+        throw providerError;
+      }
+
+      const definiteRefusal = ['INVALID_INPUT', 'INVALID_STATE'].includes(providerError?.code);
+      if (definiteRefusal) {
+        await markFailed(operationRow.id, {
+          errorCode: providerError.code,
+          reason: providerError.message,
+          supabaseClient: supabase,
+        });
+      } else {
+        await markUnknown(operationRow.id, providerError?.message || 'provider call failed', {
+          supabaseClient: supabase,
+        });
+      }
+      throw providerError;
     }
-    throw providerError;
   }
 
-  // Advance milestone state atomically (in-txn CRITICAL audit, idempotency replay, money fail-closed).
   const { data, error } = await supabase.rpc('diaspora_safetrade_transition_atomic', {
     p_transaction_id: transactionId,
     p_milestone_id: milestoneId,
@@ -359,15 +431,13 @@ export async function recordMilestone(supabaseOrOptions, {
     p_evaluation_id: evaluationId,
     p_payment_provider: resolveSafeTradeProvider(),
     p_live_payment: isSafeTradeLivePaymentEnabled(),
-    p_idempotency_key: idempotencyKey,
+    p_idempotency_key: operationIdempotencyKey,
     p_reason: `milestone ${op}`,
     p_metadata: {
       operation: op,
-      providerReference: providerArgs.intentId ?? null,
-      providerStatus: providerResult?.status ?? null,
-      idempotentReplay: Boolean(providerResult?.idempotentReplay),
-      // ST-3 item 3: the RPC marks this operation `ledger_applied` inside the SAME transaction as
-      // the state change, so an operation is only ever "done" once the authoritative ledger says so.
+      providerReference: providerResult?.intentId ?? providerArgs.intentId ?? null,
+      providerStatus: providerResult?.status ?? operationRow.provider_status ?? null,
+      idempotentReplay: Boolean(providerResult?.idempotentReplay || reservation.replay),
       operationId: operationRow.id,
     },
     p_correlation_id: requestCorrelationId(req),
@@ -376,10 +446,10 @@ export async function recordMilestone(supabaseOrOptions, {
   if (error) throw mapRpcError(error);
 
   return {
-    milestone: data?.milestone ?? null,
-    transaction: data?.transaction ?? null,
+    milestone: data?.milestone ?? await fetchMilestone(supabase, milestoneId),
+    transaction: data?.transaction ?? await fetchTransaction(supabase, transactionId),
     provider: { name: provider.name, ...providerResult },
-    idempotentReplay: Boolean(data?.idempotentReplay),
+    idempotentReplay: Boolean(data?.idempotentReplay || reservation.replay),
   };
 }
 
@@ -409,7 +479,6 @@ export async function reconcileTotals(supabaseOrOptions, {
   return { reconciled, sum, total, tolerance: SAFETRADE_RECONCILIATION_TOLERANCE, milestoneCount: milestones.length };
 }
 
-// Translate a Postgres/RPC error envelope into a typed CarUp error.
 function mapRpcError(error) {
   const message = error?.message || 'SafeTrade milestone operation failed';
   if (/EXTERNAL_ACTIVATION_REQUIRED/.test(message)) return new ForbiddenError(message, { code: 'EXTERNAL_ACTIVATION_REQUIRED' });
