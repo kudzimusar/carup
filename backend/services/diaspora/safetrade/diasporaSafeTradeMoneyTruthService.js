@@ -7,7 +7,7 @@
  */
 import { OPERATION_STATE } from './diasporaSafeTradeOperationService.js';
 
-export const T13_MONEY_TRUTH_VERSION = 'trade-os-t13-money-truth-v1';
+export const T13_MONEY_TRUTH_VERSION = 'trade-os-t13-money-truth-v2';
 
 function money(value) {
   const n = Number(value);
@@ -24,8 +24,19 @@ function openDispute(dispute = {}) {
   return !['RESOLVED', 'CLOSED', 'CANCELLED', 'REJECTED'].includes(status);
 }
 
+function providerHasAcknowledged(operation = {}) {
+  return [OPERATION_STATE.PROVIDER_CONFIRMED, OPERATION_STATE.LEDGER_APPLIED].includes(operation.state)
+    && Boolean(operation.provider)
+    && Boolean(operation.provider_ref)
+    && Boolean(operation.confirmed_at);
+}
+
 function settlementFxFromOperations(operations = []) {
   for (const operation of operations) {
+    // Settlement FX is a provider-side fact. Metadata on a pending/dispatched/reconciling operation,
+    // or metadata without a provider reference and confirmation timestamp, is not settlement truth.
+    if (!providerHasAcknowledged(operation)) continue;
+
     const fx = operation?.metadata?.settlementFx ?? operation?.metadata?.settlement_fx ?? null;
     if (!fx) continue;
     const rate = Number(fx.rate);
@@ -33,8 +44,26 @@ function settlementFxFromOperations(operations = []) {
     const fromCurrency = String(fx.fromCurrency ?? fx.from_currency ?? '').trim().toUpperCase();
     const toCurrency = String(fx.toCurrency ?? fx.to_currency ?? '').trim().toUpperCase();
     const effectiveAt = fx.effectiveAt ?? fx.effective_at ?? null;
-    if (Number.isFinite(rate) && rate > 0 && source && fromCurrency && toCurrency && effectiveAt) {
-      return { rate, source, fromCurrency, toCurrency, effectiveAt, operationId: operation.id ?? null };
+    if (
+      Number.isFinite(rate)
+      && rate > 0
+      && source
+      && /^[A-Z]{3}$/.test(fromCurrency)
+      && /^[A-Z]{3}$/.test(toCurrency)
+      && effectiveAt
+    ) {
+      return {
+        rate,
+        source,
+        fromCurrency,
+        toCurrency,
+        effectiveAt,
+        operationId: operation.id ?? null,
+        provider: operation.provider,
+        providerRef: operation.provider_ref,
+        providerConfirmedAt: operation.confirmed_at,
+        ledgerApplied: operation.state === OPERATION_STATE.LEDGER_APPLIED,
+      };
     }
   }
   return null;
@@ -45,7 +74,8 @@ function settlementFxFromOperations(operations = []) {
  *
  * Provider-confirmed and ledger-applied are intentionally separate: provider confirmation proves an
  * external answer was received, while ledger-applied proves CarUp reconciled that answer into its
- * governed state. Unresolved operations keep releaseBlocked=true even if their amount is known.
+ * governed state. `provider_confirmed` therefore remains unresolved/release-blocking until the
+ * authoritative ledger applies the operation.
  */
 export function projectSafeTradeMoneyTruth({
   transaction = {},
@@ -65,10 +95,12 @@ export function projectSafeTradeMoneyTruth({
   const plannedTotal = money(transaction.total_amount);
 
   const providerConfirmed = activeOperations.filter((row) => row.state === OPERATION_STATE.PROVIDER_CONFIRMED);
+  const providerAcknowledged = activeOperations.filter(providerHasAcknowledged);
   const ledgerApplied = activeOperations.filter((row) => row.state === OPERATION_STATE.LEDGER_APPLIED);
   const unresolved = activeOperations.filter((row) => [
     OPERATION_STATE.PENDING,
     OPERATION_STATE.PROVIDER_DISPATCHED,
+    OPERATION_STATE.PROVIDER_CONFIRMED,
     OPERATION_STATE.RECONCILING,
   ].includes(row.state));
 
@@ -94,9 +126,11 @@ export function projectSafeTradeMoneyTruth({
     },
     provider: {
       providerConfirmedCount: providerConfirmed.length,
+      providerAcknowledgedCount: providerAcknowledged.length,
       ledgerAppliedCount: ledgerApplied.length,
       unresolvedCount: unresolved.length,
       providerConfirmedOperationIds: providerConfirmed.map((row) => row.id).filter(Boolean),
+      providerAcknowledgedOperationIds: providerAcknowledged.map((row) => row.id).filter(Boolean),
       ledgerAppliedOperationIds: ledgerApplied.map((row) => row.id).filter(Boolean),
       unresolvedOperationIds: unresolved.map((row) => row.id).filter(Boolean),
     },
