@@ -2,10 +2,10 @@
  * Trade OS T13 — canonical commercial truth resolver for SafeTrade creation.
  *
  * SafeTrade must not let a client re-price an accepted trade. The accepted RFQ quote is the
- * commercial authority when it carries the complete amount/currency/seller triple. Historical
- * Phase-9 fixtures/rows pre-date those quote fields, so they remain readable/creatable through an
- * explicit legacy fallback that records exactly which accepted-quote facts were absent. The fallback
- * is compatibility debt, not a second pricing authority.
+ * commercial authority for seller, amount and currency. Incomplete historical quote rows remain
+ * readable history, but they are not sufficient authority to create a new money-bearing SafeTrade
+ * transaction. They must be repaired through a governed migration/review path rather than by trusting
+ * caller-supplied financial assertions.
  *
  * This module never performs FX conversion. T6 reference FX is presentation-only; settlement FX is
  * a T13 provider fact and customs FX remains T12.
@@ -22,13 +22,13 @@ import {
 
 function roundMoney(value) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return null;
+  if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 function normalizeCurrency(value) {
   const currency = String(value ?? '').trim().toUpperCase();
-  return currency || null;
+  return /^[A-Z]{3}$/.test(currency) ? currency : null;
 }
 
 function deriveBuyerId(order = {}) {
@@ -47,8 +47,8 @@ function deriveBuyerId(order = {}) {
 function assertionDifferences({ sellerId, currency, totalAmount }, canonical) {
   const differences = [];
   const assertedSeller = normalizeId(sellerId);
-  const assertedCurrency = normalizeCurrency(currency);
-  const assertedAmount = totalAmount == null ? null : roundMoney(totalAmount);
+  const assertedCurrency = currency == null ? null : String(currency).trim().toUpperCase();
+  const assertedAmount = totalAmount == null ? null : Number(totalAmount);
 
   if (assertedSeller && assertedSeller !== canonical.sellerId) {
     differences.push({ field: 'sellerId', asserted: assertedSeller, canonical: canonical.sellerId });
@@ -56,23 +56,18 @@ function assertionDifferences({ sellerId, currency, totalAmount }, canonical) {
   if (assertedCurrency && assertedCurrency !== canonical.currency) {
     differences.push({ field: 'currency', asserted: assertedCurrency, canonical: canonical.currency });
   }
-  if (assertedAmount != null && assertedAmount !== canonical.amount) {
-    differences.push({ field: 'totalAmount', asserted: assertedAmount, canonical: canonical.amount });
+  if (Number.isFinite(assertedAmount) && roundMoney(assertedAmount) !== canonical.amount) {
+    differences.push({ field: 'totalAmount', asserted: roundMoney(assertedAmount), canonical: canonical.amount });
   }
   return differences;
 }
 
 /**
- * Resolve the immutable commercial facts that a new SafeTrade transaction must inherit.
+ * Resolve immutable commercial facts inherited by a new SafeTrade transaction.
  *
- * Complete accepted quote:
- *   quote_amount + quote_currency + seller_id are authoritative. Caller values are assertions only
- *   and can never alter the stored transaction.
- *
- * Historical incomplete accepted quote:
- *   missing facts may fall back to the caller's already-existing Phase-9 inputs, but the resulting
- *   provenance is explicitly LEGACY_INCOMPLETE_ACCEPTED_QUOTE and lists the missing fields. This keeps
- *   old fixtures/data operable without pretending the fallback is accepted-quote truth.
+ * The accepted quote is authoritative. Caller values are assertions only and can never fill missing
+ * quote money/seller facts. That fail-closed boundary prevents a historical incomplete quote from
+ * becoming a client-controlled price or counterparty assignment.
  */
 export async function resolveSafeTradeCommercialTruth(supabase, {
   importOrderId,
@@ -118,6 +113,11 @@ export async function resolveSafeTradeCommercialTruth(supabase, {
       code: 'SAFETRADE_TENANT_MISMATCH',
     });
   }
+  if (requestedTenantId && orderTenantId && requestedTenantId !== orderTenantId && !isPlatformAdmin(context) && !isPlatformReviewer(context)) {
+    throw new ForbiddenError('A client-supplied tenant cannot differ from the linked order tenant', {
+      code: 'SAFETRADE_TENANT_MISMATCH',
+    });
+  }
 
   const buyerId = deriveBuyerId(order);
   if (!buyerId) {
@@ -146,6 +146,13 @@ export async function resolveSafeTradeCommercialTruth(supabase, {
     });
   }
 
+  const quoteTenantId = normalizeId(quote.tenant_id ?? quote.tenantId);
+  if (quoteTenantId && orderTenantId && quoteTenantId !== orderTenantId) {
+    throw new ValidationError('Accepted quote tenant does not match the linked import order tenant', {
+      code: 'SAFETRADE_ACCEPTED_QUOTE_TENANT_MISMATCH',
+    });
+  }
+
   const quoteAmount = roundMoney(quote.quote_amount);
   const quoteCurrency = normalizeCurrency(quote.quote_currency);
   const quoteSellerId = normalizeId(quote.seller_id);
@@ -154,40 +161,35 @@ export async function resolveSafeTradeCommercialTruth(supabase, {
   if (!quoteCurrency) missingFields.push('quote_currency');
   if (!quoteSellerId) missingFields.push('seller_id');
 
-  const complete = missingFields.length === 0;
-  const fallbackAmount = roundMoney(totalAmount);
-  const fallbackCurrency = normalizeCurrency(currency);
-  const fallbackSellerId = normalizeId(sellerId);
+  if (missingFields.length > 0) {
+    throw new ValidationError('Accepted quote is incomplete and cannot authorize a new SafeTrade transaction', {
+      code: 'SAFETRADE_ACCEPTED_QUOTE_INCOMPLETE',
+      quoteId: acceptedQuoteId,
+      missingFields,
+      repairRequired: true,
+    });
+  }
 
-  const amount = quoteAmount ?? fallbackAmount;
-  const resolvedCurrency = quoteCurrency ?? fallbackCurrency;
-  const resolvedSellerId = quoteSellerId ?? fallbackSellerId;
-  if (amount == null) throw new ValidationError('SafeTrade amount is unavailable from both the accepted quote and the legacy assertion');
-  if (!resolvedCurrency) throw new ValidationError('SafeTrade currency is unavailable from both the accepted quote and the legacy assertion');
-  if (!resolvedSellerId) throw new ValidationError('SafeTrade seller is unavailable from both the accepted quote and the legacy assertion');
-
-  const canonical = { amount, currency: resolvedCurrency, sellerId: resolvedSellerId };
-  const ignoredAssertions = complete
-    ? assertionDifferences({ sellerId, currency, totalAmount }, canonical)
-    : [];
+  const canonical = { amount: quoteAmount, currency: quoteCurrency, sellerId: quoteSellerId };
+  const ignoredAssertions = assertionDifferences({ sellerId, currency, totalAmount }, canonical);
 
   return {
     order,
     quote,
     buyerId,
-    sellerId: resolvedSellerId,
-    currency: resolvedCurrency,
-    amount,
-    tenantId: orderTenantId ?? contextTenantId ?? (isPlatformAdmin(context) || isPlatformReviewer(context) ? requestedTenantId : null),
+    sellerId: quoteSellerId,
+    currency: quoteCurrency,
+    amount: quoteAmount,
+    tenantId: orderTenantId ?? quoteTenantId ?? contextTenantId ?? (isPlatformAdmin(context) || isPlatformReviewer(context) ? requestedTenantId : null),
     acceptedQuoteId,
     provenance: {
       authority: 'diaspora_import_quotes',
-      status: complete ? 'ACCEPTED_QUOTE' : 'LEGACY_INCOMPLETE_ACCEPTED_QUOTE',
+      status: 'ACCEPTED_QUOTE',
       quoteId: acceptedQuoteId,
-      amount,
-      currency: resolvedCurrency,
-      sellerId: resolvedSellerId,
-      missingFields,
+      amount: quoteAmount,
+      currency: quoteCurrency,
+      sellerId: quoteSellerId,
+      missingFields: [],
       ignoredAssertions,
       fx: null,
     },
