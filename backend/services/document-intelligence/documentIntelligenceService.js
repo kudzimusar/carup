@@ -353,30 +353,33 @@ export class DocumentIntelligenceService {
 
       // E. Write approved registry records
       const timestamp = new Date().toISOString();
-      if (ocrDoc.document_type === 'registration_book') {
-        await supabase.from('cvr_ownership_records').insert({
-          vin,
-          registration_number: parsedData.additional_fields?.plate_number || 'REG_' + crypto.randomUUID().substring(0, 8).toUpperCase(),
-          owner_id_type: 'National_ID',
-          owner_id_number: parsedData.national_id_number || '29-198427-G-45',
-          owner_full_name: `${parsedData.first_name} ${parsedData.last_name}`,
-          issue_date: new Date().toISOString().split('T')[0],
-          logbook_serial_number: 'LB_' + crypto.randomUUID().substring(0, 10).toUpperCase(),
-          status: 'Current'
-        });
-      } else if (ocrDoc.document_type === 'customs_declaration') {
-        await supabase.from('zimra_declarations').insert({
-          vin,
-          customs_ref_number: 'CUS_' + crypto.randomUUID().substring(0, 8).toUpperCase(),
-          importer_name: `${parsedData.first_name} ${parsedData.last_name}`,
-          port_of_entry: parsedData.additional_fields?.importSource || 'Beitbridge',
-          duty_calculated_zig: parsedData.additional_fields?.duty_value_zig || 50000,
-          duty_paid_zig: parsedData.additional_fields?.duty_value_zig || 50000,
-          exchange_rate_used: 13.5,
-          customs_stamp_date: new Date().toISOString().split('T')[0],
-          officer_signature_hash: crypto.createHash('sha256').update(ocrDocumentId).digest('hex')
-        });
-      }
+
+      // T12.1 — CarUp does not write government registry records. REMOVED, not disabled.
+      //
+      // Approving an OCR document used to INSERT a row into `zimra_declarations` or
+      // `cvr_ownership_records` — tables that model an act by ZIMRA and the CVR. What the row said
+      // was manufactured almost entirely:
+      //
+      //   · customs_ref_number     'CUS_' + a random uuid          — a ZIMRA reference nobody issued
+      //   · port_of_entry          defaulted to 'Beitbridge'       — a port nobody recorded
+      //   · duty_calculated_zig    defaulted to 50000              — an amount nobody assessed
+      //   · duty_paid_zig          the same 50000                  — asserting duty was PAID
+      //   · exchange_rate_used     hardcoded 13.5                  — a rate with no date or source
+      //   · customs_stamp_date     today                           — a stamp date nobody stamped
+      //   · officer_signature_hash sha256(the ocr document's id)   — a ZIMRA OFFICER'S SIGNATURE,
+      //                                                              derived from our own row id
+      //   · owner_id_number        defaulted to '29-198427-G-45'   — one real-looking national ID,
+      //                                                              on every registration book
+      //
+      // A photograph read by OCR and approved by a CarUp administrator is evidence that a document
+      // exists and what it appeared to say. It is not a customs declaration, and CarUp is not ZIMRA:
+      // the provider cannot mint the authority it is supposed to be relying on.
+      //
+      // What actually happened is already recorded, truthfully and separately: `ocr_documents` holds
+      // the document, `ocr_customs_declarations` / `ocr_registration_books` hold what was READ off it
+      // with a confidence, and `administrative_overrides` below holds who approved it and why. Those
+      // are CarUp's own facts and CarUp may state them. Establishing that duty was assessed and paid
+      // is a customs fact, and belongs to whatever authority actually establishes it.
 
       // F. Write immutable administrative audit log
       const sealData = `${actorId}-${vin}-${ocrDoc.document_type}-${timestamp}`;

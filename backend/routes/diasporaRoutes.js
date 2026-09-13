@@ -17,7 +17,8 @@ import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQ
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, getOwnTradeProfiles, submitTradeProfileForReview, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
-import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
+import { buildDocumentWorkspace } from '../services/diaspora/tradeDocumentWorkspaceService.js';
+import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument, replaceTradeDocument, getTradeDocumentLineage } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
 import { createCargoReservation, listCargoReservations, updateReservationStatus } from '../services/diaspora/diasporaReservationService.js';
 import { createShipment, listShipments, getShipment, updateShipmentStage, getShipmentTimeline } from '../services/diaspora/diasporaShipmentService.js';
@@ -280,6 +281,17 @@ router.post('/documents/:id/run-ocr', reviewerAuth, requireProvenIdentity(), asy
 }));
 router.post('/documents/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeDocument(req.params.id, req.body, req.userContext, req))));
 router.post('/documents/:id/reject', reviewerAuth, asyncHandler(async (req, res) => res.json(await rejectTradeDocument(req.params.id, req.body, req.userContext, req))));
+// T8.3 — the Documents & Evidence workspace for one transaction. Read-only projection; authority
+// for every status it reports lives in the layer that owns it.
+router.get('/document-workspace/:subjectType/:subjectId', auth, asyncHandler(async (req, res) => res.json({
+  data: await buildDocumentWorkspace(req.params.subjectType, req.params.subjectId, req.userContext, { req }),
+})));
+
+// T8.4 — a replacement is an UPLOAD, so it carries the uploader's authority, not a reviewer's.
+// It can never verify anything: the new version starts UPLOADED like any other.
+router.post('/trade-documents/:id/replace', auth, asyncHandler(async (req, res) => res.status(201).json(await replaceTradeDocument(req.params.id, req.body, req.userContext, req))));
+router.get('/trade-documents/:id/lineage', auth, asyncHandler(async (req, res) => res.json({ data: await getTradeDocumentLineage(req.params.id, req.userContext) })));
+
 router.post('/trade-documents/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeDocument(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-documents/:id/reject', reviewerAuth, asyncHandler(async (req, res) => res.json(await rejectTradeDocument(req.params.id, req.body, req.userContext, req))));
 
@@ -289,6 +301,9 @@ router.post('/containers', auth, asyncHandler(async (req, res) => res.status(201
 router.get('/containers/:id', auth, asyncHandler(async (req, res) => res.json(await getContainerShipment(req.params.id))));
 router.post('/containers/:id/open-booking', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.BOOKING_OPEN, req.userContext, req))));
 router.post('/containers/:id/close-booking', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.BOOKING_CLOSED, req.userContext, req))));
+// T10: these two no longer accept a free claim. `mark-loading` requires a live T10 load record and
+// `mark-shipped` a completed one, enforced in transitionContainer — the sailing's status REFLECTS the
+// canonical loading authority rather than competing with it. See assertLoadingIsBackedByT10.
 router.post('/containers/:id/mark-loading', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.LOADING, req.userContext, req))));
 router.post('/containers/:id/mark-shipped', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.SHIPPED, req.userContext, req))));
 router.post('/containers/:id/mark-arrived', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.ARRIVED, req.userContext, req))));

@@ -346,7 +346,7 @@ function provenanceEntry(kind, table, row, timestampFields, mode) {
  * (`CUS_`, `REG_`, `LB_` prefixes, documentIntelligenceService.js:337-355) alongside
  * fabricated amounts. They are marked so they can never substantiate a claim.
  */
-function recordMode(table, row) {
+export function recordMode(table, row) {
   if (table === 'zimra_declarations' && startsWith(row.customs_ref_number, 'CUS_')) return 'document_intelligence';
   if (table === 'cvr_ownership_records'
     && (startsWith(row.registration_number, 'REG_') || startsWith(row.logbook_serial_number, 'LB_'))) {
@@ -357,6 +357,17 @@ function recordMode(table, row) {
 
 function substantiates(entry) {
   return !NON_SUBSTANTIATING_MODES.includes(entry.mode);
+}
+
+/**
+ * Is this registry row a record of something an authority actually did?
+ *
+ * Exported because the fact resolver was not the only reader. The trust graph read the same tables
+ * and scored the mere EXISTENCE of a row — so a `CUS_` declaration this codebase had synthesised
+ * itself was worth +10 there while being refused here. One question, one answer.
+ */
+export function isGenuineRegistryRecord(table, row) {
+  return Boolean(row) && substantiates({ mode: recordMode(table, row) });
 }
 
 // ---------------------------------------------------------------------------

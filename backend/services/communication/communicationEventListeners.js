@@ -44,6 +44,43 @@ export const COMMUNICATION_EVENT_TYPES = [
   'vehicle.ownership.transfer_action_required',
   'vehicle.ownership.transfer_state_changed',
   'vehicle.ownership.transfer_completed',
+  // Trade OS T2 — sourcing (Request Quotes) lifecycle. Emitted best-effort by
+  // services/diaspora/rfqLifecycleNotifier.js AFTER the audited authoritative mutation.
+  'diaspora.rfq.quote_submitted',
+  'diaspora.rfq.quote_accepted',
+  'diaspora.rfq.quote_not_selected',
+  // Trade OS T3 — shipping-request (logistics) lifecycle. Emitted best-effort by
+  // services/diaspora/logisticsLifecycleNotifier.js AFTER the audited authoritative mutation.
+  'diaspora.logistics.quote_submitted',
+  'diaspora.logistics.quote_accepted',
+  'diaspora.logistics.quote_not_selected',
+  'diaspora.logistics.quote_withdrawn',
+  // T7.5 — the shipment authority already emitted exceptions and nobody was listening.
+  'diaspora.shipment.exception',
+  // Trade OS T9.4 — warehouse intake. Emitted best-effort by
+  // services/diaspora/warehouseIntakeNotifier.js AFTER the audited authoritative receipt. The
+  // direction is one-way: a notification never receives cargo, and none of these payloads carries a
+  // price, an adjustment or another participant's consignment.
+  'diaspora.warehouse.cargo_received',
+  'diaspora.warehouse.condition_issue',
+  'diaspora.warehouse.measurement_discrepancy',
+  // Trade OS T10.4 — consolidation and loading. Emitted best-effort by
+  // services/diaspora/loadingLifecycleNotifier.js AFTER the audited manifest line. The left-behind
+  // event is the one that matters: a customer whose cargo did not travel is the person waiting for
+  // goods that are not coming, and the reason is the only thing they can act on.
+  'diaspora.loading.cargo_loaded',
+  'diaspora.loading.cargo_left_behind',
+  // Trade OS D7 — container co-loading booking lifecycle. Emitted best-effort by
+  // services/diaspora/containerBookingNotifier.js AFTER the audited authoritative mutation.
+  // Payloads carry `buyerId` (addressable) plus reference/status/route for the governed
+  // `container_booking_update` template. Booking state itself stays in diaspora tables.
+  'diaspora.container_booking.reservation_requested',
+  'diaspora.container_booking.reservation_received', // organiser-directed: recipient is the coordinator
+
+  'diaspora.container_booking.reservation_approved',
+  'diaspora.container_booking.reservation_rejected',
+  'diaspora.container_booking.reservation_cancelled',
+  'diaspora.container_booking.booking_closed',
   // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.

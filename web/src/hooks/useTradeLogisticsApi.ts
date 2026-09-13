@@ -1,0 +1,842 @@
+import { useCallback, useMemo } from 'react'
+import { useAuth } from '@/context/AuthContext'
+import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, type AuthHeaders } from '@/lib/apiClient'
+import type {
+  LogisticsAcceptResult,
+  LogisticsMyQuote,
+  LogisticsOpportunity,
+  LogisticsQuote,
+  LogisticsQuoteInput,
+  LogisticsRequest,
+  LogisticsRequestInput,
+  LogisticsReservationResult,
+  LogisticsSailingMatch,
+  TradeCorridor,
+} from '@/types/tradeLogistics'
+import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
+import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
+import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
+import type { CorridorBenchmark } from '@/pages/diaspora/TradeRateResearch'
+import type { CustomsCaseWorkspace, MyCustomsStatus } from '@/pages/diaspora/customsDisplay'
+
+const BASE_URL = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+)
+
+if (
+  typeof window !== 'undefined'
+  && !import.meta.env.VITE_API_URL
+  && BASE_URL === DEFAULT_PRODUCTION_API_BASE_URL
+  && !['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+) {
+  // Same deployment guard as useCarUpApi: never silently point a preview Trade OS at production.
+  // eslint-disable-next-line no-console
+  console.warn('[CarUp Trade OS] VITE_API_URL is not set; logistics requests would default to the production API.')
+}
+
+export function useTradeLogisticsApi() {
+  const { user, token } = useAuth()
+
+  const request = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+    return apiRequest<T>({ baseUrl: BASE_URL, path, options, authHeaders })
+  }, [token, user])
+
+  const listMyRequests = useCallback(async (): Promise<LogisticsRequest[]> => {
+    const response = await request<{ data: LogisticsRequest[] }>('/diaspora/logistics-requests/mine')
+    return response.data || []
+  }, [request])
+
+  const getRequest = useCallback(async (id: string): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const createRequest = useCallback(async (payload: LogisticsRequestInput): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>('/diaspora/logistics-requests', {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const updateRequest = useCallback(async (id: string, payload: LogisticsRequestInput): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const publishRequest = useCallback(async (id: string): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}/publish`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  // T5.7 — the requester's own lifecycle controls. Cancel before acceptance; close after.
+  // Both are refused server-side while a live container reservation is attached.
+  const cancelRequest = useCallback(async (id: string): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const closeRequest = useCallback(async (id: string): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(id)}/close`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  // T5.2 — corridor reference data (route composition only; ordered by code, never preference).
+  /**
+   * T6 — save a provider's structured cost breakdown against their own quote.
+   *
+   * `breakdownComplete` is a DECLARATION: the server refuses it when the lines do not reconcile
+   * against the provider's own stated total, which is why it is passed rather than inferred.
+   */
+  const saveChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes',
+    quoteId: string,
+    components: DraftComponent[],
+    breakdownComplete = false,
+  ): Promise<unknown[]> => {
+    const payload = toComponentPayload(components)
+    const response = await request<{ data: unknown[] }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`,
+      { method: 'POST', body: JSON.stringify({ components: payload, breakdown_complete: breakdownComplete }) },
+    )
+    return response.data || []
+  }, [request])
+
+  const readChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes', quoteId: string,
+  ): Promise<QuoteCommercials> => {
+    const response = await request<{ data: QuoteCommercials }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  const corridorBenchmark = useCallback(async (): Promise<CorridorBenchmark> => {
+    const response = await request<{ data: CorridorBenchmark }>('/diaspora/trade-rate-observations/corridor-benchmark')
+    return response.data
+  }, [request])
+
+  const compareQuotes = useCallback(async (
+    targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
+    context: { cargo?: Record<string, unknown>; objective?: string | null } = {},
+  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult }> => {
+    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult } }>(
+      '/diaspora/quote-comparison', {
+        method: 'POST',
+        body: JSON.stringify({ quotes: targets, cargo: context.cargo || {}, objective: context.objective ?? null }),
+      })
+    return response.data
+  }, [request])
+
+  // T6.5 — research workspace. Platform authority is enforced server-side; these simply call it.
+  const listRateObservations = useCallback(async (filters: Record<string, string> = {}): Promise<unknown[]> => {
+    const qs = new URLSearchParams(filters).toString()
+    const response = await request<{ data: unknown[] }>(`/diaspora/trade-rate-observations${qs ? `?${qs}` : ''}`)
+    return response.data || []
+  }, [request])
+
+  const recordRateObservation = useCallback(async (payload: Record<string, unknown>): Promise<unknown> => {
+    const response = await request<{ data: unknown }>('/diaspora/trade-rate-observations', {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const listTradeCorridors = useCallback(async (): Promise<TradeCorridor[]> => {
+    const response = await request<{ data: TradeCorridor[] }>('/diaspora/trade-corridors')
+    return response.data || []
+  }, [request])
+
+  const listOpportunities = useCallback(async (): Promise<LogisticsOpportunity[]> => {
+    const response = await request<{ data: LogisticsOpportunity[] }>('/diaspora/logistics-opportunities')
+    return response.data || []
+  }, [request])
+
+  const getOpportunity = useCallback(async (id: string): Promise<LogisticsOpportunity> => {
+    const response = await request<{ data: LogisticsOpportunity }>(`/diaspora/logistics-opportunities/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const createQuote = useCallback(async (requestId: string, payload: LogisticsQuoteInput): Promise<LogisticsQuote> => {
+    const response = await request<{ data: LogisticsQuote }>(`/diaspora/logistics-opportunities/${encodeURIComponent(requestId)}/quotes`, {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const updateQuote = useCallback(async (quoteId: string, payload: LogisticsQuoteInput): Promise<LogisticsQuote> => {
+    const response = await request<{ data: LogisticsQuote }>(`/diaspora/logistics-quotes/${encodeURIComponent(quoteId)}`, {
+      method: 'PATCH', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const submitQuote = useCallback(async (quoteId: string): Promise<LogisticsQuote> => {
+    const response = await request<{ data: LogisticsQuote }>(`/diaspora/logistics-quotes/${encodeURIComponent(quoteId)}/submit`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const withdrawQuote = useCallback(async (quoteId: string): Promise<LogisticsQuote> => {
+    const response = await request<{ data: LogisticsQuote }>(`/diaspora/logistics-quotes/${encodeURIComponent(quoteId)}/withdraw`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const listMyQuotes = useCallback(async (): Promise<LogisticsMyQuote[]> => {
+    const response = await request<{ data: LogisticsMyQuote[] }>('/diaspora/logistics-quotes/mine')
+    return response.data || []
+  }, [request])
+
+  const acceptQuote = useCallback(async (requestId: string, quoteId: string): Promise<LogisticsAcceptResult> => {
+    const response = await request<{ data: LogisticsAcceptResult }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/accept-quote`, {
+      method: 'POST', body: JSON.stringify({ quoteId }),
+    })
+    return response.data
+  }, [request])
+
+  const findSailingMatches = useCallback(async (requestId: string): Promise<LogisticsSailingMatch[]> => {
+    const response = await request<{ data: LogisticsSailingMatch[] }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/sailing-matches`)
+    return response.data || []
+  }, [request])
+
+  const confirmMeasurements = useCallback(async (
+    requestId: string,
+    items: Array<{ item_id: string; estimated_volume_cbm: number; estimated_weight_kg?: number }>,
+  ): Promise<LogisticsRequest> => {
+    const response = await request<{ data: LogisticsRequest }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/confirm-measurements`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    })
+    return response.data
+  }, [request])
+
+  // The participant-scoped container reservations read the hardened marketplace already serves;
+  // T3 uses it to show the TRUE reservation state instead of a frozen "pending" sentence.
+  const fetchContainerReservations = useCallback(async (containerId: string): Promise<Array<Record<string, unknown>>> => {
+    const response = await request<{ data: Array<Record<string, unknown>> }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(containerId)}/reservations`)
+    return response.data || []
+  }, [request])
+
+  const requestContainerSpace = useCallback(async (requestId: string): Promise<LogisticsReservationResult> => {
+    const response = await request<{ data: LogisticsReservationResult }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/request-space`, {
+      method: 'POST', body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const ensureConversation = useCallback(async (requestId: string, providerId?: string): Promise<{ threadId: string | null; role: string }> => {
+    const response = await request<{ data: { threadId: string | null; role: string } }>(`/diaspora/logistics-requests/${encodeURIComponent(requestId)}/conversation`, {
+      method: 'POST', body: JSON.stringify(providerId ? { providerId } : {}),
+    })
+    return response.data
+  }, [request])
+
+  /**
+   * T4 — the operating transaction passport. One projection, two anchors; `kind` is in the path so
+   * the two origins can never be conflated by a missing parameter.
+   */
+  const getTransactionPassport = useCallback(async (kind: 'procurement' | 'logistics', id: string): Promise<TransactionPassport> => {
+    const response = await request<{ data: TransactionPassport }>(
+      `/diaspora/trade-transactions/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  /** Continue an awarded purchase into shipping. Idempotent server-side; safe to retry. */
+  const continueToLogistics = useCallback(async (importOrderId: string): Promise<{ request: { id: string }; idempotentReplay: boolean }> => {
+    const response = await request<{ data: { request: { id: string }; idempotentReplay: boolean } }>(
+      `/diaspora/import-orders/${encodeURIComponent(importOrderId)}/continue-to-logistics`, { method: 'POST' })
+    return response.data
+  }, [request])
+
+  const listOpenContainers = useCallback(async (): Promise<Array<Record<string, unknown>>> => {
+    const response = await request<{ data: Array<Record<string, unknown>> }>('/diaspora/container-marketplace/containers')
+    return response.data || []
+  }, [request])
+
+  // Consumers use these callbacks inside useEffect/useCallback dependencies. Returning a fresh
+  // object every render would make those dependencies change forever and trigger a fetch loop, so
+  // the facade itself is memoized just like the individual operations.
+  // ── T9 — warehouse intake ──────────────────────────────────────────────
+  // Every one of these is a call into the governed service. There is no browser path to the
+  // warehouse tables at all, so nothing below can be re-implemented client-side.
+
+  const listIntakeQueue = useCallback(async (params: { status?: string; warehouseId?: string } = {}): Promise<IntakeQueue> => {
+    const query = new URLSearchParams()
+    if (params.status) query.set('status', params.status)
+    if (params.warehouseId) query.set('warehouseId', params.warehouseId)
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    const response = await request<{ data: IntakeQueue }>(`/diaspora/warehouse-intakes${suffix}`)
+    return response.data
+  }, [request])
+
+  const getIntake = useCallback(async (id: string): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const scheduleIntake = useCallback(async (payload: { warehouseId: string; subjectType: string; subjectId: string; notes?: string }): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>('/diaspora/warehouse-intakes', {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const receiveIntake = useCallback(async (id: string, payload: ReceiveIntakeInput): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}/receive`, {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const recordMeasurement = useCallback(async (id: string, payload: MeasurementInput): Promise<MeasurementResult> => {
+    const response = await request<{ data: MeasurementResult }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}/measurements`, {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
+  const assignStorageLocation = useCallback(async (id: string, storageLocation: string): Promise<WarehouseIntake> => {
+    const response = await request<{ data: WarehouseIntake }>(`/diaspora/warehouse-intakes/${encodeURIComponent(id)}/storage-location`, {
+      method: 'POST', body: JSON.stringify({ storageLocation }),
+    })
+    return response.data
+  }, [request])
+
+  const listWarehouses = useCallback(async (): Promise<WarehouseSummary[]> => {
+    const response = await request<{ data: WarehouseSummary[] }>('/diaspora/warehouses')
+    return response.data || []
+  }, [request])
+
+  const getMyCargo = useCallback(async (subjectType: string, subjectId: string): Promise<MyCargoView> => {
+    const response = await request<{ data: MyCargoView }>(
+      `/diaspora/my-cargo/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
+  // ── T10 — consolidation & loading ──────────────────────────────────────
+
+  const getContainerLoadState = useCallback(async (containerId: string): Promise<ContainerLoadState> => {
+    const response = await request<{ data: ContainerLoadState }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/load-state`)
+    return response.data
+  }, [request])
+
+  const createLoadPlan = useCallback(async (containerId: string): Promise<{ id: string; reference: string; status: string }> => {
+    const response = await request<{ data: { id: string; reference: string; status: string } }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/load-plan`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const setLoadPlanItem = useCallback(async (planId: string, payload: {
+    subjectId: string; disposition: 'PLANNED_IN' | 'PLANNED_OUT'; exclusionReason?: string | null
+  }): Promise<LoadPlanItem> => {
+    const response = await request<{ data: LoadPlanItem }>(
+      `/diaspora/load-plans/${encodeURIComponent(planId)}/items`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const confirmLoadPlan = useCallback(async (planId: string): Promise<{ status: string }> => {
+    const response = await request<{ data: { status: string } }>(
+      `/diaspora/load-plans/${encodeURIComponent(planId)}/confirm`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const openLoad = useCallback(async (containerId: string): Promise<{ id: string; reference: string; status: string }> => {
+    const response = await request<{ data: { id: string; reference: string; status: string } }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/loads`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const recordLoadItem = useCallback(async (loadId: string, payload: {
+    subjectId: string
+    outcome: 'LOADED' | 'LEFT_BEHIND'
+    loadedVolumeCbm?: number | null
+    loadedWeightKg?: number | null
+    leftBehindReason?: string | null
+  }): Promise<LoadManifestItem> => {
+    const response = await request<{ data: LoadManifestItem }>(
+      `/diaspora/loads/${encodeURIComponent(loadId)}/items`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const completeLoad = useCallback(async (loadId: string): Promise<{ status: string; actual_loaded_volume_cbm: number | null }> => {
+    const response = await request<{ data: { status: string; actual_loaded_volume_cbm: number | null } }>(
+      `/diaspora/loads/${encodeURIComponent(loadId)}/complete`, { method: 'POST', body: '{}' })
+    return response.data
+  }, [request])
+
+  const recordSeal = useCallback(async (loadId: string, payload: {
+    containerNumber?: string | null; sealNumber?: string | null
+    recordReason?: 'OBSERVED' | 'CORRECTED' | 'SEAL_REPLACED'; reasonNote?: string | null
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<{ data: Record<string, unknown> }>(
+      `/diaspora/loads/${encodeURIComponent(loadId)}/seal-records`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const getMyLoadStatus = useCallback(async (subjectType: string, subjectId: string): Promise<MyLoadStatus> => {
+    const response = await request<{ data: MyLoadStatus }>(
+      `/diaspora/my-load-status/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
+  // ── T11 — shipment movement & tracking ─────────────────────────────────
+
+  const getShipmentOperatorView = useCallback(async (shipmentId: string): Promise<ShipmentOperatorView> => {
+    const response = await request<{ data: ShipmentOperatorView }>(
+      `/diaspora/shipment-tracking/${encodeURIComponent(shipmentId)}`)
+    return response.data
+  }, [request])
+
+  const recordShipmentStage = useCallback(async (shipmentId: string, payload: {
+    stage: string; notes?: string | null; event_time?: string | null; metadata?: Record<string, unknown>
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<Record<string, unknown>>(
+      `/diaspora/shipments/${encodeURIComponent(shipmentId)}/stage`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response
+  }, [request])
+
+  const getMyTracking = useCallback(async (subjectType: string, subjectId: string): Promise<MyTracking> => {
+    const response = await request<{ data: MyTracking }>(
+      `/diaspora/my-tracking/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
+  // ── T12 — attributed customs coordination & Zimbabwe destination ───────
+
+  const getCustomsCase = useCallback(async (caseId: string): Promise<CustomsCaseWorkspace> => {
+    const response = await request<{ data: CustomsCaseWorkspace }>(
+      `/diaspora/customs-cases/${encodeURIComponent(caseId)}`)
+    return response.data
+  }, [request])
+
+  const appointClearingAgent = useCallback(async (caseId: string, payload: {
+    agent_kind?: string; agent_user_id?: string | null; agent_organisation_id?: string | null
+    agent_display_name: string; licence_reference_claimed?: string | null; scope?: string
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<{ data: Record<string, unknown> }>(
+      `/diaspora/customs-cases/${encodeURIComponent(caseId)}/agent`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const recordCustomsEvent = useCallback(async (caseId: string, payload: {
+    event_type: string; source_kind?: string; evidence_document_id?: string | null
+    amount_value?: string | number | null; amount_currency?: string | null
+    customs_rate_value?: string | number | null; customs_rate_source?: string | null
+    customs_rate_effective_from?: string | null; customs_rate_basis?: string | null
+    location?: string | null; notes?: string | null; event_time?: string | null
+  }): Promise<Record<string, unknown>> => {
+    const response = await request<{ data: Record<string, unknown> }>(
+      `/diaspora/customs-cases/${encodeURIComponent(caseId)}/events`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const getMyCustoms = useCallback(async (subjectType: string, subjectId: string): Promise<MyCustomsStatus> => {
+    const response = await request<{ data: MyCustomsStatus }>(
+      `/diaspora/my-customs/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
+  return useMemo(() => ({
+    listMyRequests,
+    getRequest,
+    createRequest,
+    updateRequest,
+    publishRequest,
+    cancelRequest,
+    closeRequest,
+    listTradeCorridors,
+    saveChargeComponents,
+    readChargeComponents,
+    compareQuotes,
+    listRateObservations,
+    recordRateObservation,
+    corridorBenchmark,
+    listOpportunities,
+    getOpportunity,
+    createQuote,
+    updateQuote,
+    submitQuote,
+    withdrawQuote,
+    listMyQuotes,
+    acceptQuote,
+    findSailingMatches,
+    requestContainerSpace,
+    confirmMeasurements,
+    fetchContainerReservations,
+    ensureConversation,
+    listOpenContainers,
+    getTransactionPassport,
+    continueToLogistics,
+    listIntakeQueue,
+    getIntake,
+    scheduleIntake,
+    receiveIntake,
+    recordMeasurement,
+    assignStorageLocation,
+    listWarehouses,
+    getMyCargo,
+    getContainerLoadState,
+    createLoadPlan,
+    setLoadPlanItem,
+    confirmLoadPlan,
+    openLoad,
+    recordLoadItem,
+    completeLoad,
+    recordSeal,
+    getMyLoadStatus,
+    getShipmentOperatorView,
+    recordShipmentStage,
+    getMyTracking,
+    getCustomsCase,
+    appointClearingAgent,
+    recordCustomsEvent,
+    getMyCustoms,
+  }), [
+    listMyRequests,
+    getRequest,
+    createRequest,
+    updateRequest,
+    publishRequest,
+    cancelRequest,
+    closeRequest,
+    listTradeCorridors,
+    saveChargeComponents,
+    readChargeComponents,
+    compareQuotes,
+    listRateObservations,
+    recordRateObservation,
+    corridorBenchmark,
+    listOpportunities,
+    getOpportunity,
+    createQuote,
+    updateQuote,
+    submitQuote,
+    withdrawQuote,
+    listMyQuotes,
+    acceptQuote,
+    findSailingMatches,
+    requestContainerSpace,
+    confirmMeasurements,
+    fetchContainerReservations,
+    ensureConversation,
+    listOpenContainers,
+    getTransactionPassport,
+    continueToLogistics,
+    listIntakeQueue,
+    getIntake,
+    scheduleIntake,
+    receiveIntake,
+    recordMeasurement,
+    assignStorageLocation,
+    listWarehouses,
+    getMyCargo,
+    getContainerLoadState,
+    createLoadPlan,
+    setLoadPlanItem,
+    confirmLoadPlan,
+    openLoad,
+    recordLoadItem,
+    completeLoad,
+    recordSeal,
+    getMyLoadStatus,
+    getShipmentOperatorView,
+    recordShipmentStage,
+    getMyTracking,
+    getCustomsCase,
+    appointClearingAgent,
+    recordCustomsEvent,
+    getMyCustoms,
+  ])
+}
+
+// ── T11 — shipment movement & tracking ───────────────────────────────────
+// A PLANNED date is an intention; an ETA is an estimate; only the observed dates are records of
+// something that happened. `null` means nobody recorded it.
+
+export interface ShipmentDates {
+  planned_departure: string | null
+  planned_departure_source: string | null
+  observed_departure: string | null
+  estimated_arrival: string | null
+  observed_arrival: string | null
+  note: string
+}
+export interface ShipmentReferences {
+  carrier: string | null
+  tracking_reference: string | null
+  origin_port: string | null
+  destination_port: string | null
+  container_number: string | null
+  seal_number: string | null
+  note: string
+}
+export interface TimelineEvent {
+  id: string
+  stage: string
+  event_time: string | null
+  location: string | null
+  notes: string | null
+  recorded_by: string | null
+  recorded_at: string | null
+  source: string | null
+}
+export interface ShipmentOperatorView {
+  shipment: { id: string; reference: string; stage: string; import_order_id: string; container_id: string | null }
+  dates: ShipmentDates
+  references: ShipmentReferences
+  load: {
+    id: string; reference: string; status: string; completed_at: string | null
+    loaded_lines: number; left_behind_lines: number; actual_loaded_volume_cbm: number | null
+  } | null
+  timeline: TimelineEvent[]
+  note: string
+}
+export interface MyTracking {
+  subject: { type: string; id: string }
+  state: 'NOT_LOADED' | 'LOADED' | 'SHIPMENT_CREATED' | 'IN_TRANSIT' | 'ARRIVED' | 'EXCEPTION' | 'LEFT_BEHIND'
+  sentence: string
+  left_behind_reason: string | null
+  dates: ShipmentDates | null
+  references: ShipmentReferences | null
+  timeline: Array<{ stage: string; event_time: string | null; location: string | null }>
+  exception?: { stage: string; recorded_at: string | null; note: string } | null
+  note: string
+}
+
+// ── T10 — consolidation & loading ────────────────────────────────────────
+// Mirrors containerLoadService's projection. `null` means nobody recorded it — an unmeasured
+// volume, an unassigned seal. Never a zero, and no screen may render it as one.
+
+export interface ReadinessBlocker { code: string; reason: string }
+export interface LoadReadiness {
+  ready: boolean
+  blockers: ReadinessBlocker[]
+  facts: {
+    booking_approved: boolean
+    received: boolean
+    measured_volume_cbm: number | null
+    condition: string | null
+    documents_present: number
+  }
+  disclaimer: string
+}
+export interface LoadCandidate {
+  subject: { type: string; id: string }
+  reference: string
+  booked_volume_cbm: number | null
+  warehouse_volume_cbm: number | null
+  intake_status: string | null
+  condition: string | null
+  readiness: LoadReadiness
+}
+export interface PlanPressure {
+  container_total_cbm: number
+  planned_in_cbm: number
+  planned_in_lines: number
+  lines_without_volume: number
+  over_capacity: boolean
+  over_by_cbm: number
+  headroom_cbm: number
+  note: string | null
+}
+export interface LoadPlanItem {
+  subject: { type: string; id: string }
+  disposition: 'PLANNED_IN' | 'PLANNED_OUT'
+  exclusion_reason: string | null
+  planned_volume_cbm: number | null
+  planned_source: 'WAREHOUSE_ACTUAL' | 'BOOKED_ESTIMATE' | 'UNKNOWN'
+}
+export interface LoadManifestItem {
+  subject: { type: string; id: string }
+  outcome: 'LOADED' | 'LEFT_BEHIND'
+  left_behind_reason: string | null
+  loaded_volume_cbm: number | null
+  loaded_at: string | null
+}
+export interface ContainerLoadState {
+  container: {
+    id: string
+    reference: string
+    status: string
+    booked_capacity: { total_cbm: number; used_cbm: number; available_cbm: number; basis: string }
+  }
+  candidates: LoadCandidate[]
+  summary: { total: number; ready: number; not_ready: number; measured_ready_cbm: number; unmeasured: number }
+  plan: {
+    id: string; reference: string; status: string; confirmed_at: string | null
+    pressure: PlanPressure
+    items: LoadPlanItem[]
+  } | null
+  load: {
+    id: string; reference: string; status: string; confirmed_at: string | null
+    actual_loaded_volume_cbm: number | null
+    items: LoadManifestItem[]
+    container_number: string | null
+    seal_number: string | null
+    seal_history: number
+  } | null
+  note: string
+}
+export interface MyLoadStatus {
+  subject: { type: string; id: string }
+  state: 'NOT_STARTED' | 'NOT_RECORDED' | 'LOADED' | 'LEFT_BEHIND'
+  sentence: string
+  left_behind_reason: string | null
+  loaded_volume_cbm?: number | null
+  loaded_at: string | null
+  note?: string
+}
+
+// ── T9 — warehouse intake & measurement ──────────────────────────────────
+// Mirrors warehouseIntakeService's projection. `null` means the warehouse does not know: an
+// unmeasured volume, an unassigned bay. It is NEVER a zero, and no screen may render it as one.
+
+export interface WarehouseEstimate {
+  volume_cbm: number | null
+  weight_kg: number | null
+  completeness: 'COMPLETE' | 'PARTIAL' | 'UNKNOWN'
+  items_total: number
+  items_with_volume: number
+  source: string
+}
+export interface WarehouseActual {
+  id: string
+  length_value: number | null; width_value: number | null; height_value: number | null
+  dimension_unit: 'cm' | 'm' | null
+  weight_value: number | null; weight_unit: 'kg' | 't' | null
+  package_count: number | null
+  volume_cbm: number | null
+  measured_at: string | null
+  method: string
+}
+export interface WarehouseDiscrepancy {
+  status: 'NOT_MEASURED' | 'NOT_COMPARABLE' | 'MATCHES' | 'DIFFERS'
+  reason?: string
+  volume: { estimated_cbm: number; actual_cbm: number; difference_cbm: number; direction: 'LARGER' | 'SMALLER' | 'SAME' } | null
+  weight: { estimated_kg: number; actual_kg: number; difference_kg: number; direction: 'HEAVIER' | 'LIGHTER' | 'SAME' } | null
+  commercial_effect: 'none'
+  note: string
+}
+export interface WarehouseIntake {
+  id: string
+  reference: string
+  warehouse_id: string
+  subject: { type: string; id: string }
+  status: 'EXPECTED' | 'RECEIVED' | 'CONDITIONALLY_RECEIVED' | 'REFUSED'
+  status_sentence: string
+  received_at: string | null
+  received_at_source: string | null
+  condition: string | null
+  outcome_reason: string | null
+  observed_package_count: number | null
+  storage_location: string | null
+  estimate: WarehouseEstimate
+  actual: WarehouseActual | null
+  earlier_measurements: number
+  discrepancy: WarehouseDiscrepancy
+  received_by?: string | null
+  notes?: string | null
+  warehouse?: { id: string; name: string; country: string; city: string | null }
+}
+export interface WarehouseSummary { id: string; name: string; country: string; city: string | null }
+export interface IntakeQueue { warehouses: WarehouseSummary[]; intakes: WarehouseIntake[] }
+export interface MyCargoView {
+  subject: { type: string; id: string }
+  intake: WarehouseIntake | null
+  estimate: WarehouseEstimate
+  status_sentence: string
+  eligible_for_intake: boolean
+  eligibility_note: string | null
+}
+export interface ReceiveIntakeInput {
+  outcome?: 'RECEIVED' | 'CONDITIONALLY_RECEIVED' | 'REFUSED'
+  condition?: string | null
+  outcomeReason?: string | null
+  observedPackageCount?: number | null
+  storageLocation?: string | null
+  receivedAt?: string | null
+  notes?: string | null
+}
+export interface MeasurementInput {
+  lengthValue?: number | null; widthValue?: number | null; heightValue?: number | null
+  dimensionUnit?: 'cm' | 'm' | null
+  weightValue?: number | null; weightUnit?: 'kg' | 't' | null
+  packageCount?: number | null
+  method?: string
+  notes?: string | null
+}
+export interface MeasurementResult {
+  measurement: Record<string, unknown>
+  estimate: WarehouseEstimate
+  discrepancy: WarehouseDiscrepancy
+}
+
+// ── T4 — Order & Booking Passport ────────────────────────────────────────
+// Mirrors tradeTransactionPassportService's projection. Every field is READ from an authority;
+// nothing here is a second copy of a canonical fact. A `null` means CarUp does not know — it is
+// never a zero, and the UI must render it as unknown rather than as an answer.
+
+export interface PassportStageEntry { key: string; label: string; state: 'DONE' | 'CURRENT' | 'PENDING' | 'NOT_STARTED' | 'NOT_CONNECTED' | 'NOT_RECORDED'; owner?: string }
+export interface PassportParty {
+  display_name: string; role: string; business_type?: string | null
+  identified?: boolean; withheld?: boolean; verification?: string | null
+}
+export interface PassportNextStep {
+  state: 'ACTION' | 'BLOCKED' | 'WAITING' | 'NONE'
+  label: string; detail: string | null; href: string | null
+}
+export interface PassportCargoLine {
+  line_number: number; description: string | null; quantity: number | null
+  estimated_volume_cbm: number | null; estimated_weight_kg: number | null
+  measurement_basis: string; has_linked_vehicle: boolean; linked_vehicle_vin?: string | null
+}
+export interface TransactionPassport {
+  kind: 'procurement' | 'logistics'
+  viewer_role: string
+  next_step: PassportNextStep
+  identity: {
+    reference: string; anchor_id: string; context: string
+    stage: string; stage_evidence: string
+    origin: { city: string | null; country: string | null }
+    destination: { city: string | null; country: string | null }
+    continued_from_order?: { reference: string; anchor_id: string } | null
+    shipping_continuation?: { reference: string; anchor_id: string; status: string } | null
+  }
+  participants: Record<string, PassportParty | PassportParty[] | null>
+  commercial: {
+    quote_reference: string; total_amount: number | string | null; currency: string | null
+    service_mode?: string | null; valid_until?: string | null; agreed_at?: string | null
+    stock_item_id?: string | null
+  } | null
+  offers_visible: number
+  cargo?: PassportCargoLine[]
+  booking: {
+    sailing?: {
+      reference: string
+      origin: { city: string | null; country: string | null }
+      destination: { city: string | null; country: string | null }
+      departure_date: string | null; booking_deadline: string | null; container_type: string | null
+      capacity: { total_cbm: number; used_cbm: number; available_cbm: number }
+    } | null
+    reservation: { reference: string; state: string; reserved_cbm: number | string | null; consumes_capacity: boolean } | null
+  } | null
+  documents: { authority_available: boolean; records: Array<{ id: string; document_type: string | null; verification_status: string | null; recorded_at: string | null }>; note?: string }
+  lifecycle: PassportStageEntry[]
+  communications: { workflow: string; subject_type: string; subject_anchor_id: string; note: string }
+}

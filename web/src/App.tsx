@@ -7,6 +7,11 @@ import type { AuthUser, Notification } from '@shared/types'
 
 // Layout
 import MainLayout from './components/layout/MainLayout'
+import TradeOSWorkspaceLayout from './components/layout/TradeOSWorkspaceLayout'
+import TradeRequestQuotes from './pages/diaspora/TradeRequestQuotes'
+import TradeMyRequests from './pages/diaspora/TradeMyRequests'
+import TradeRequestDetail from './pages/diaspora/TradeRequestDetail'
+import TradeBuyerRequests from './pages/diaspora/TradeBuyerRequests'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
@@ -52,14 +57,24 @@ import {
   NewDiasporaImportOrder,
 } from './pages/diaspora/DiasporaTrade'
 import DiasporaOrderPassport from './pages/diaspora/DiasporaOrderPassport'
+import TradeTransactionPassport from './pages/diaspora/TradeTransactionPassport'
 import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
 import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
 import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
-import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
+import TradeRateResearch from './pages/diaspora/TradeRateResearch'
+import TradeDocumentsWorkspace from './pages/diaspora/TradeDocumentsWorkspace'
+import WarehouseIntakeWorkspace from './pages/diaspora/WarehouseIntakeWorkspace'
+import MyCargoIntake from './pages/diaspora/MyCargoIntake'
+import ContainerLoadingWorkspace from './pages/diaspora/ContainerLoadingWorkspace'
+import MyCargoLoading from './pages/diaspora/MyCargoLoading'
+import ShipmentTimelineWorkspace from './pages/diaspora/ShipmentTimelineWorkspace'
+import MyShipmentTracking from './pages/diaspora/MyShipmentTracking'
+import CustomsDestinationWorkspace from './pages/diaspora/CustomsDestinationWorkspace'
+import MyCustomsDestination from './pages/diaspora/MyCustomsDestination'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
@@ -275,18 +290,10 @@ export default function App() {
           <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
-          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
-          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
-          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
-          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
-          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
-          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/diaspora/trade-profile" element={<DiasporaTradeProfile />} />
           <Route path="/diaspora/stock/:id/passport" element={<DiasporaStockPassport />} />
-          <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
-          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
           <Route path="/diaspora/safetrade" element={<DiasporaSafeTrade />} />
@@ -304,6 +311,61 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+        </Route>
+
+        {/* Trade OS operational workspace (owner UAT #1): the client-demo journey — Container
+            Co-Loading + the linked Import Order/Passport surfaces — runs in an AUTHENTICATED
+            operating shell (compact top bar + local Trade OS nav), not the public marketing
+            MainLayout. Other Diaspora routes stay in MainLayout until deliberately migrated. */}
+        <Route element={<TradeOSWorkspaceLayout />}>
+          {/* T2 — Request Quotes: buyer sourcing + supplier opportunity marketplace. */}
+          {/* The legacy /diaspora/rfq surface is retired: its buyer-facing term is now
+              "Request Quotes" and its mechanics live in the T2 surfaces below. The path is kept
+              as a redirect so existing links and bookmarks still land somewhere correct. */}
+          <Route path="/diaspora/rfq" element={<Navigate to="/diaspora/request-quotes" replace />} />
+          <Route path="/diaspora/request-quotes" element={<TradeRequestQuotes />} />
+          <Route path="/diaspora/requests" element={<TradeMyRequests />} />
+          <Route path="/diaspora/requests/:id" element={<TradeRequestDetail />} />
+          <Route path="/diaspora/buyer-requests" element={<TradeBuyerRequests />} />
+          {/* The SAME canonical Communications surface as /dashboard/communications, mounted in the
+              participant-neutral Trade OS shell. The dashboard path lives in the owner-only layout,
+              so suppliers were bounced to /dealer and could never read the thread they created. */}
+          <Route path="/diaspora/messages" element={<Communications />} />
+          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
+          {/* T6.5 — CarUp's own rate research. Platform authority only, enforced server-side; the
+              page renders an honest refusal rather than a blank screen for anyone else. */}
+          <Route path="/diaspora/rate-research" element={<TradeRateResearch />} />
+          {/* T8.3 — one Documents & Evidence workspace for any authoritative Trade OS object.
+              Access is derived from the transaction server-side; the page shows an honest refusal
+              rather than an empty list when it cannot be read. */}
+          <Route path="/diaspora/documents/:subjectType/:subjectId" element={<TradeDocumentsWorkspace />} />
+          {/* T9.3 — warehouse intake. Receiving authority is derived from the WAREHOUSE server-side,
+              so a customer reaching this route sees an empty queue rather than a locked door: there
+              is nothing here that is theirs to be refused. */}
+          <Route path="/diaspora/warehouse" element={<WarehouseIntakeWorkspace />} />
+          {/* T9.3 — the customer's own cargo. Authorized from the SUBJECT, not the warehouse. */}
+          <Route path="/diaspora/cargo/:subjectType/:subjectId" element={<MyCargoIntake />} />
+          {/* T10.3 — the operator's loading workspace. Sailing authority is resolved server-side
+              (coordinator, tenant admin, platform admin), so a caller without it is refused there
+              rather than hidden here. */}
+          <Route path="/diaspora/loading" element={<ContainerLoadingWorkspace />} />
+          {/* T10.3 — a participant's own cargo against the container. Authorized from the CARGO. */}
+          <Route path="/diaspora/cargo-loading/:subjectType/:subjectId" element={<MyCargoLoading />} />
+          {/* T11.2 — the operator's shipment movement timeline. Sailing authority server-side. */}
+          <Route path="/diaspora/shipments" element={<ShipmentTimelineWorkspace />} />
+          {/* T11.3 — a participant's own cargo journey. Authorized from the CARGO. */}
+          <Route path="/diaspora/tracking/:subjectType/:subjectId" element={<MyShipmentTracking />} />
+          <Route path="/diaspora/customs" element={<CustomsDestinationWorkspace />} />
+          <Route path="/diaspora/my-customs/:subjectType/:subjectId" element={<MyCustomsDestination />} />
+          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
+          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
+          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
+          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
+          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
+          {/* T4 — the operating transaction passport. `kind` is in the path so a purchase and a
+              shipment can never be conflated by a missing parameter. */}
+          <Route path="/diaspora/transactions/:kind/:id" element={<TradeTransactionPassport />} />
         </Route>
 
         {/* Auth Routes */}
