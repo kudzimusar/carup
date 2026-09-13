@@ -2,9 +2,8 @@
  * Phase 9 / Trade OS T13 — SafeTrade TRANSACTION service.
  *
  * SafeTrade remains an assurance/payment overlay: shipment, customs, documents and reputation stay
- * owned by their existing domains. T13 additionally pins transaction commercial money to the accepted
- * quote when that quote carries complete commercial facts; caller-supplied amount/currency/seller can
- * never re-price a complete accepted quote.
+ * owned by their existing domains. T13 pins transaction commercial money to the accepted quote;
+ * caller-supplied amount/currency/seller can never price or repair a money-bearing transaction.
  */
 import { resolveClient, requestCorrelationId, appendBestEffortAudit } from '../diasporaServiceUtils.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
@@ -94,18 +93,43 @@ function assertCanAccessTransaction(txn, context) {
   throw new ForbiddenError('You do not have access to this SafeTrade transaction');
 }
 
+function normalizedMoney(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round((n + Number.EPSILON) * 100) / 100 : null;
+}
+
+function assertCreateReplayMatches(existing, commercial, importOrderId) {
+  const differences = [];
+  const fields = [
+    ['importOrderId', normalizeId(existing.import_order_id), normalizeId(importOrderId)],
+    ['acceptedQuoteId', normalizeId(existing.accepted_quote_id), normalizeId(commercial.acceptedQuoteId)],
+    ['buyerId', normalizeId(existing.buyer_id), normalizeId(commercial.buyerId)],
+    ['sellerId', normalizeId(existing.seller_id), normalizeId(commercial.sellerId)],
+    ['currency', String(existing.currency || '').toUpperCase(), String(commercial.currency || '').toUpperCase()],
+    ['totalAmount', normalizedMoney(existing.total_amount), normalizedMoney(commercial.amount)],
+    ['tenantId', normalizeId(existing.tenant_id), normalizeId(commercial.tenantId)],
+  ];
+  for (const [field, prior, next] of fields) {
+    if (prior !== next) differences.push({ field, existing: prior, requested: next });
+  }
+  if (differences.length > 0) {
+    throw new ValidationError('SafeTrade transaction idempotency key is already bound to a different commercial transaction', {
+      code: 'IDEMPOTENCY_CONFLICT',
+      differences,
+    });
+  }
+}
+
 /**
- * Create a DRAFT SafeTrade transaction from CURRENT server-derived authority and the accepted quote's
- * commercial truth. Complete accepted-quote fields always win; incompatible caller assertions are
- * recorded as ignored assertions, never stored as commercial truth. Historical quotes that pre-date
- * quote_amount/quote_currency/seller_id use an explicit legacy fallback recorded in metadata.
+ * Create a DRAFT SafeTrade transaction from server-derived authority and the accepted quote's
+ * commercial truth. Caller values are assertions only; incomplete accepted quote truth fails closed.
  */
 export async function createTransaction(supabaseOrOptions, {
   importOrderId,
   sellerId = null,
   sellerContext = null,
-  currency = 'USD',
-  totalAmount,
+  currency = null,
+  totalAmount = null,
   tenantId = null,
   idempotencyKey = null,
   userContext = {},
@@ -159,12 +183,18 @@ export async function createTransaction(supabaseOrOptions, {
     let replay = supabase
       .from('diaspora_safetrade_transactions')
       .select('*')
-      .eq('idempotency_key', idempotencyKey)
+      .eq('idempotency_key', String(idempotencyKey))
       .is('deleted_at', null);
     if (effectiveTenantId) replay = replay.eq('tenant_id', effectiveTenantId);
     else replay = replay.is('tenant_id', null);
-    const { data: existing } = await replay.maybeSingle();
-    if (existing) return { transaction: existing, idempotentReplay: true };
+    const { data: existing, error: replayError } = await replay.maybeSingle();
+    if (replayError) {
+      throw new ValidationError(`Failed to check SafeTrade idempotency key: ${replayError.message}`);
+    }
+    if (existing) {
+      assertCreateReplayMatches(existing, commercial, importOrderId);
+      return { transaction: existing, idempotentReplay: true };
+    }
   }
 
   const { data, error } = await supabase
