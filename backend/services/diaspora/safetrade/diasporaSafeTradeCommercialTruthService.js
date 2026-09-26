@@ -10,6 +10,7 @@
  * This module never performs FX conversion. T6 reference FX is presentation-only; settlement FX is
  * a T13 provider fact and customs FX remains T12.
  */
+import { amountFitsCurrency, minorUnitsFor } from '../../../constants/diaspora/currencyMinorUnits.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 import {
   requireUserContext,
@@ -167,6 +168,18 @@ export async function resolveSafeTradeCommercialTruth(supabase, {
       quoteId: acceptedQuoteId,
       missingFields,
       repairRequired: true,
+    });
+  }
+
+  // The accepted quote's money is the agreement. If it cannot be expressed in its own currency's
+  // smallest unit (JPY has none), refuse — rounding it would silently change what was agreed.
+  if (minorUnitsFor(quoteCurrency) !== null && !amountFitsCurrency(quote.quote_amount, quoteCurrency)) {
+    throw new ValidationError('Accepted quote amount is not representable in its own currency', {
+      code: 'SAFETRADE_QUOTE_AMOUNT_NOT_REPRESENTABLE',
+      quoteId: acceptedQuoteId,
+      amount: quote.quote_amount,
+      currency: quoteCurrency,
+      minorUnits: minorUnitsFor(quoteCurrency),
     });
   }
 

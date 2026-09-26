@@ -71,8 +71,8 @@ This receipt does not claim:
 3. Decide canonical subject binding for logistics-only transactions without creating a second payments authority.
 4. ~~Measure/remove the legacy incomplete-quote compatibility path when active data allows.~~ Done for staging (below). Production measurement remains T18's.
 5. Run focused + full regression, staging sandbox journeys, responsive review and mutation testing.
-6. Close the quote write paths that can still produce an incomplete or unauthorized quote (plan §9 items 3 and 6).
-7. Owner/provider decision on SafeTrade settlement currencies for the JPY corridor (plan §9 item 7).
+6. Close the quote write paths that can still produce an incomplete or unauthorized quote (plan §9 items 3 and 6). The unauthorized legacy route is closed (item 6); completeness checks on the remaining RFQ/workbook write paths and the accept RPC remain (item 3).
+7. ~~SafeTrade settlement currencies for the JPY corridor~~ — resolved: JPY settles in JPY, whole yen only, no FX (plan §9 item 7).
 
 ## Fallback retirement — measured (2026-09-26)
 

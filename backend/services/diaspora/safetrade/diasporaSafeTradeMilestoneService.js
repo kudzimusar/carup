@@ -6,6 +6,7 @@
  * the provider/RPC boundary, and never redispatch an unresolved operation. A provider-confirmed result
  * is not success until the authoritative ledger applies the same operation.
  */
+import { assertAmountFitsCurrency } from '../../../constants/diaspora/currencyMinorUnits.js';
 import { resolveClient, requestCorrelationId } from '../diasporaServiceUtils.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 import {
@@ -167,6 +168,9 @@ export async function createMilestones(supabaseOrOptions, {
         code: 'CURRENCY_MISMATCH',
       });
     }
+    // Checked on the RAW amount, before any rounding: a JPY milestone of 1,200,000.5 must be
+    // refused, not rounded into a different figure than the one proposed.
+    assertAmountFitsCurrency(milestone.amount, milestoneCurrency, { field: 'milestone amount' });
   }
 
   const privileged = isPrivileged(context, txn);
