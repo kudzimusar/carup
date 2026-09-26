@@ -5,7 +5,7 @@
  * self-skip until the corresponding staging identities exist. No mocks; direct API mutation attempts
  * use the REAL deployed API (they must be rejected by the server, proving the DB/service boundary).
  */
-import { stagingTest as test, expect, signInViaUi, requireIdentity, API_URL, IDENTITIES } from './staging-helpers';
+import { stagingTest as test, expect, signInViaUi, requireIdentity, withRateLimitRetry, API_URL, IDENTITIES } from './staging-helpers';
 
 test.describe('Public users cannot access private Diaspora records', () => {
   test('unauthenticated /diaspora/imports redirects to login (no data leak)', async ({ page }) => {
@@ -30,7 +30,8 @@ test.describe('Public users cannot access private Diaspora records', () => {
   test('anonymous direct API reads of private diaspora records are denied', async ({ request }) => {
     const probes = ['/diaspora/import-orders', '/diaspora/trade-profiles/me', '/diaspora/stock'];
     for (const p of probes) {
-      const res = await request.get(`${API_URL}${p}`);
+      // A 429 is the limiter, not authorization: wait it out and assert the real answer.
+      const res = await withRateLimitRetry(() => request.get(`${API_URL}${p}`), `anonymous GET ${p}`);
       // 401/403 = denied; 404 = route absent (stale build) — acceptable ONLY with no record payload.
       expect([401, 403, 404], `${p} must deny anonymous access, got ${res.status()}`).toContain(res.status());
       const body = await res.text();

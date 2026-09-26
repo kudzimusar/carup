@@ -62,6 +62,7 @@ import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors
 import {
   securityHeadersMiddleware,
   rateLimiter,
+  resolveGlobalRateLimitMax,
   csrfMiddleware,
   generateCsrfToken,
   parseCookies
@@ -236,11 +237,21 @@ app.use(cors(corsOptions));
 app.use(correlationMiddleware);
 app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
-app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
-
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
-// Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
+// Resolve the real client IP BEFORE any rate limiter, so every limiter keys on the client and not
+// on a Cloudflare edge address. (This used to run after the global limiter, which therefore keyed
+// on req.ip and could put every visitor behind one edge into a single bucket.)
 app.use(edgeClientIpMiddleware());
+
+// Global throttle. Production is always 100/min per client; only a backend provably wired to the
+// staging database may run a larger, bounded capacity (see resolveGlobalRateLimitMax).
+const GLOBAL_RATE_LIMIT = resolveGlobalRateLimitMax(process.env);
+if (GLOBAL_RATE_LIMIT.source !== 'default') {
+  console.log(`[Security] Global rate limit: ${GLOBAL_RATE_LIMIT.max}/min (${GLOBAL_RATE_LIMIT.source})`);
+}
+app.use(rateLimiter({ max: GLOBAL_RATE_LIMIT.max, windowMs: 60 * 1000, isSensitive: false }));
+
+// Sensitive Route Throttling (auth, uploads, safepay creation, verification) — unchanged by the
+// staging capacity above.
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
