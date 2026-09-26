@@ -10,6 +10,10 @@ name: O2 P7 Staging UAT
 # Triggering is deliberately narrow: an explicit push of this workflow or its spec on
 # the O2 candidate branch, plus workflow_dispatch once this file reaches the default
 # branch — the same discipline as the Serena gate.
+#
+# Moderator recertification (2026-09-26): red at f45b353e (run 36275146693 — a harness assertion
+# on error copy); green in acceptance mode at 72993f6e (36276051446) and at the certified runtime
+# head 88000de9 (36277677311). A push of this file re-certifies whichever head carries it.
 on:
   workflow_dispatch: {}
   push:

@@ -9,6 +9,11 @@
 > **§ Owner UAT — `1f26282a` (FAILED)** at the end of this document.
 >
 > Real Product Owner UAT outranks any automated or agent-reported walk.
+>
+> **Later history, also retained below:** blocker closure `7974d0c4` → `a4b74fe7` **physical mobile UAT
+> FAILED** → `965542c4` deployed mobile certification **RED** → `f45b353e` P7 recertification **RED**
+> (harness) → `72993f6e` green → `88000de9` **moderator-recertified, awaiting a fresh Product Owner
+> walk**. No head after `7fe1f821` has been accepted by the Product Owner.
 
 
 **Candidate walked:** `71b81d74` (the PR head at the time of the walk).
@@ -487,3 +492,142 @@ the candidate was not acceptable as a mobile product. The bounded remediation th
 The remediation candidate is **not accepted by this historical entry**. A new exact-head deployed
 mobile certification and a fresh physical Product Owner re-UAT are required. PR #208 remains draft
 and no human review is to be requested from this record.
+
+---
+# Moderator exact-head recertification — `a4b74fe7` → `88000de9` (2026-09-26)
+
+**Disposition: O2-CANDIDATE READY FOR FRESH PRODUCT OWNER UAT — no known engineering blocker remains.**
+Runtime head certified: `88000de91d58a1ff9329c83b71df83ecbcbdfa1c`. Awaiting the Product Owner's fresh
+physical walk; that walk, not this record, decides acceptance.
+
+**This is moderator recertification, not acceptance.** The Product Owner has not re-walked any head
+below. Nothing here may be cited as `OWNER ACCEPTED`. PR #208 stays **DRAFT**; nothing merged;
+`main` = `bb9d9900`; #197 `c23f012c` and #209 `ce45e16f` untouched; production untouched.
+
+## Chronology — every red checkpoint is kept
+
+| head | what happened | disposition |
+|---|---|---|
+| `a4b74fe7` | Physical Product Owner **mobile** UAT | **FAILED** — superseded (see § Owner mobile UAT above) |
+| `965542c4` | Mobile remediation; its own exact-head deployed mobile certification | **RED** — the spec asserted a `display:none` file input was visible (stale harness assertion), and behind it a **real defect**: `display:none` removed the Workbook file input from the tab order, so a keyboard user could not choose a workbook. The run stopped at 393px Workbook, so Dealer onboarding, Home, Marketplace and Serena were never certified on that head |
+| `f45b353e` | Keyboard repair: input `sr-only` inside its visible label, focus ring on the label; spec proves tap → file chooser → filename → Inspect enabled, and keyboard focus | repair correct; **P7 recertification RED on a harness assertion** — the new authority probe matched one historical error sentence, while the server answered with a stricter, legitimate `403 "Requested role 'admin' is not verified for this user context."` |
+| `f4b7fc62` | Probe split into three reasons | superseded before closure — its tenant probe was still **vacuous** (see below) |
+| `72993f6e` | Semantic authority proof · independent tenant-forgery proof · acceptance-mode bundle freeze | **ALL GREEN** — and its deployed screenshots exposed the next defect |
+| `88000de9` | `/onboarding` and `/dealer/onboarding` moved into the canonical shell | **ALL GREEN — runtime head certified below; awaiting a fresh Product Owner walk** |
+
+## Why the `f45b353e` P7 red was harness, not product
+
+The deployed response was `403 {"error":"Forbidden. Requested role 'admin' is not verified for this
+user context."}` — `resolveEffectiveRole` refusing a client-claimed role before route permissions are
+even consulted. That is the anti-forgery guard working. No authority code was changed for it.
+
+## The three harness closures (`72993f6e`)
+
+1. **Error copy is not the contract.** Role forgery is asserted as a 403 authority refusal: JSON
+   error, `Forbidden`-class, not CSRF, not 401/404, not `STEP_UP_REQUIRED`, behind a positive control
+   (`GET /api/vehicles/me` = 200) proving the session is live.
+2. **Tenant forgery is its own experiment.** The actor's genuine role header plus **only** a foreign
+   `x-tenant-id`, anchored on `GET /api/vehicles/me`, which the actor's own role may read: 200 without
+   the header, 403 with it. The only changed input is the tenant, so only tenant verification can have
+   refused. The `f4b7fc62` version probed admin surfaces only, where the actor's own `owner` role is
+   refused anyway — it stayed **green** with tenant verification disabled.
+3. **Acceptance mode is frozen.** After FE/BE commit provenance, both deployed workflows freeze the
+   served Vite entry bundle into `STAGING_EXPECTED_BUNDLE`; `STAGING_REQUIRE_ACCEPTANCE=1` is set at
+   job level, and global setup now throws unless such a run is `mode=acceptance`.
+
+Both probes live in `tests/agents/o2-authority-probes.mjs`, driven by the deployed P7 spec **and** by
+`backend/tests/o2-authority-forgery-probes.test.js` against the real `authorizeRole`.
+
+### Mutation evidence (local, never committed; each restored and re-greened)
+
+| mutation | result |
+|---|---|
+| `resolveEffectiveRole` adopts any claimed role | **RED** — `claiming admin on /admin/identity/verification-sessions: got 200 {"role":"admin"}` |
+| tenant verification accepts a foreign tenant with no membership row (role verification intact) | **RED on the tenant probe** — `only a foreign tenant on /vehicles/me: got 200 {"role":"owner"}`; the role probes ran first and passed |
+| bundle freeze removed, acceptance required | **THROWS** — `STAGING_REQUIRE_ACCEPTANCE=1 but this run is harness-validation`; legacy workflows (not required) unchanged |
+| Workbook input back to `hidden` (from `f45b353e`) | **RED** — unit pin; real Chromium: Tab never reaches the input |
+| `/dealer/onboarding` back in the chromeless group | **RED** — shell pin; real Chromium on the built app: no ARIA banner on `/onboarding` or `/dealer/onboarding` |
+
+## The defect `72993f6e`'s deployed screenshots exposed (closed in `88000de9`)
+
+The 48 exact-head screenshots showed `/onboarding` and `/dealer/onboarding` with **no global header**
+at 393, 430, 768 and 1440 — on desktop only the footer led anywhere else. Both routes were added by
+O2 (X2 `3855f25`, X5 `d8c1188`) into App.tsx's auth group under `MainLayout hideNav`: the exact
+declaration U3 removed `/workbook-tools` from. They are signed-in product surfaces; they now sit in the
+canonical shell. Same `MainLayout`, same `RegistryRouteBoundary` — only `Navbar` now renders. No
+authorization change. The deployed spec asserts the ARIA banner, its home link and the width's
+navigation on all three O2 surfaces at every viewport.
+
+## Deployed evidence at `72993f6e` (runtime head before the shell fix)
+
+| proof | result |
+|---|---|
+| P7 run `36276051446` | **22 passed · 0 failed · 8 skipped** (mutating journeys run on desktop only, by design) · `mode=acceptance` · bundle `index-DWKXNKL1.js` · FE `72993f6e` == BE `72993f6e` · `unpaired:false` |
+| step-up ghost probe | identity decision without step-up → `403` `code: STEP_UP_REQUIRED` before lookup; dealer decision control → `403 STEP_UP_REQUIRED` |
+| role forgery (applicant, dealer applicant) | `403 "Requested role 'admin' is not verified…"` on both platform review surfaces |
+| tenant forgery (applicant, dealer applicant) | own-role surface flips to `403 "…do not have access to this tenant organization."`; both platform surfaces `403` |
+| non-admin identity decision | `403` on authority, never `STEP_UP_REQUIRED` |
+| mobile run `36276051464` | **2/2** · `mode=acceptance` · bundle `index-DWKXNKL1.js` · FE == BE == `72993f6e` · `unpaired:false` (re-proved after the walk) |
+| width matrix | 48 captures (4 viewports × 6 surfaces × before/after), **max overflow 0 px**, every O2 capture authenticated, session token unchanged across every reload |
+| responses ≥ 500 | **0** |
+| Workbook (393/430/768/1440) | visible control · tap opens the OS file chooser · filename shown · Inspect enabled · native input keyboard-focusable |
+| U1 Dealer | applicant reaches `/dealer/onboarding` at all four widths, survives reload, badge "Applicant — not an active Dealer"; individual refused `DEALER_ONBOARDING_CONTEXT_REQUIRED` (P7 X5) |
+| U4 | public listings **28** · automation fixtures publicly listed **0** · Serena listed |
+
+## U2 — Serena `GFC27-027051` Passport, measured on the deployed pair from the CI runner
+
+| route | first | warm median | warm p95 | max | statuses |
+|---|---|---|---|---|---|
+| `GET /api/vehicles/passport/lookup/GFC27-027051` (auth) | 3,954 ms | 2,233 ms | 2,722 ms | 3,954 ms | 8 × 200 |
+| `GET /api/vehicles/GFC27-027051/passport` (auth) | 2,251 ms | 1,880 ms | 2,040 ms | 2,251 ms | 8 × 200 |
+
+**5xx: 0.** In this sample the warm p95 is **under 3 s** on both routes; the first lookup is
+**3.95 s** (over 3 s, under 5 s). Stated with its limits: seven warm samples per route, taken from a
+GitHub runner close to Vercel `iad1`, so a phone in Zimbabwe adds its own network distance. No
+Passport/trust code changed since `7974d0c4`; the concurrency architecture test (8/8, with its
+anti-vacuity control) is unchanged. The remaining cost is still the `iad1` ↔ `ap-southeast-2`
+round trip — region co-location stays a separate Product Owner decision. `<3 s` is **not** claimed as
+a guaranteed property.
+
+## U4 — staging truth (read-only)
+
+Publicly available automation-lifecycle (`JTMLC…`) fixtures: **0**. Published-but-`Sold` automation
+fixtures: **51** — retained history, not public pollution. Serena `GFC27-027051`: `Available`,
+published, untouched. **Observation, not changed:** seven public listings are owned by named
+`@carup-staging.test` reference accounts from other programmes (P6 finance `P6FINVIN…`, Passport
+pass-6 `PASS6…`, Golden Vehicle A `CARUPGLDNA0000001`, created 2026-08-20/24). They are not the U4
+fixture class; whether they should stay public is a Product Owner call.
+
+## Exact-head certification at `88000de9` (the certified runtime head)
+
+| gate | result |
+|---|---|
+| O2 P7 Staging UAT `36277677311` | **success** — 22 passed · 0 failed · 8 skipped (desktop-only mutating journeys) · `mode=acceptance` · bundle `index-Co69lyKy.js` · FE `88000de9` == BE `88000de9` · `unpaired:false` · J15 now also asserts the global header on `/onboarding` |
+| O2 Mobile-First Owner UAT Certification `36277677387` | **success** — regression job + deployed job **2/2** · `mode=acceptance` · bundle `index-Co69lyKy.js` · FE == BE == `88000de9`, `unpaired:false`, re-proved after the walk |
+| width matrix | 48 captures, max overflow **0 px**; canonical shell (banner + home link + width's nav) asserted on `/onboarding`, `/workbook-tools`, `/dealer/onboarding` at 393/430/768/1440 |
+| responses ≥ 500 | **0** |
+| U2 lookup `GFC27-027051` | first 3,796 ms · warm median 2,202 ms · warm p95 2,308 ms · 8 × 200 |
+| U2 passport `GFC27-027051` | first 1,931 ms · warm median 2,005 ms · warm p95 2,611 ms · 8 × 200 |
+| U4 | 28 public listings · **0** automation fixtures · Serena listed |
+| CI · Communication Command Center CI · Navigation Intelligence CI · Vehicle Passport Foundation CI · Marketplace Reference Regression · Diaspora Phases 3-7 Validation · Referral Engine CI | **success** |
+| Diaspora Deployed Staging UAT · Marketplace Reference Media Staging Apply | skipped by path filter (as on every prior head) |
+| check runs | **23 — 18 success · 5 skipped · 0 failure** |
+| backend (CI) | `# tests 6247 · pass 6226 · fail 0 · skipped 21` |
+| web (CI) | **1634 / 1634** across 170 files |
+| `tsc -b` · web build · lint regression | exit 0 · built · `NET_NEW_ERRORS=0 NET_NEW_WARNINGS=0` |
+| migration integrity · PGlite | 24/24 · success |
+
+The two `88000de9` screenshots checked by eye: `/dealer/onboarding` at 393 carries the CarUp header,
+notifications, account menu and bottom nav; `/onboarding` at 1440 carries the full desktop nav and footer.
+
+The documentation commit that records this changes only `docs/` and two workflow custody pins, so the
+certified runtime (`web`, `backend`, `database`, `shared`) is byte-identical at the documentation head;
+both deployed workflows re-run on it.
+
+## Other observations (not O2 blockers)
+
+- The global Navbar account chip renders `<img src={user.avatar}>` with no fallback, so an account
+  without an avatar shows an empty circle. Unchanged from `main`, outside O2 — queued separately.
+- The deployed walk runs from CI (this session's network policy denies the preview hosts), so it is
+  a scripted browser walk with screenshots, not a human one. The fresh physical Product Owner walk
+  remains the acceptance gate.
