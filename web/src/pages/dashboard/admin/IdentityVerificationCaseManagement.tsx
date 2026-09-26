@@ -41,6 +41,7 @@ import type {
   ExtendedAdminVerificationSession,
 } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import {
   EVIDENCE_CLASSIFICATION_LABELS,
   EXTRACTION_TRUST_LABELS,
@@ -140,6 +141,9 @@ export default function IdentityVerificationCaseManagement() {
     fetchEvidencePreview,
     reviewVerificationCase,
   } = useCarUpApi()
+  // Both routes this console calls — the decision and the evidence preview — are step-up gated.
+  // Without this the primary identity console could open a case and never decide it.
+  const { runGuarded, stepUpDialog } = useStepUpGuard()
   const [activeTab, setActiveTab] = useState('reviewer_action_required')
   const [sessions, setSessions] = useState<ExtendedAdminVerificationSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -219,10 +223,11 @@ export default function IdentityVerificationCaseManagement() {
     if (previews[side]) return
     setPreviewsLoading(prev => ({ ...prev, [side]: true }))
     try {
-      const preview = await fetchEvidencePreview(selectedSession.id, side)
-      setPreviews(prev => ({ ...prev, [side]: preview }))
-    } catch {
-      toast.error(`Failed to load ${side} preview`)
+      // Viewing raw identity evidence is a SENSITIVE action; the refusal is recoverable.
+      await runGuarded(`View ${side} evidence`, async () => {
+        const preview = await fetchEvidencePreview(selectedSession.id, side)
+        setPreviews(prev => ({ ...prev, [side]: preview }))
+      })
     } finally {
       setPreviewsLoading(prev => ({ ...prev, [side]: false }))
     }
@@ -244,25 +249,27 @@ export default function IdentityVerificationCaseManagement() {
   const submitDecision = async () => {
     if (!selectedSession || !disposition) return
     setSubmitting(true)
+    // One idempotency key for the whole attempt, so the step-up retry replays the SAME decision
+    // rather than minting a second one.
+    const idempotencyKey = crypto.randomUUID()
     try {
-      const result = await reviewVerificationCase(
-        selectedSession.id,
-        {
-          action: disposition,
-          reasonCode: reasonCode || null,
-          internalNote: internalNote || null,
-          applicantMessage: applicantMessage || null,
-        },
-        { idempotencyKey: crypto.randomUUID() },
-      )
-      setSuccessPanel(result)
-      setShowConfirm(false)
-      toast.success('Decision saved')
-      // Refetch sessions list
-      fetchSessions(activeTab)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to submit decision'
-      toast.error(msg)
+      await runGuarded('Submit identity decision', async () => {
+        const result = await reviewVerificationCase(
+          selectedSession.id,
+          {
+            action: disposition,
+            reasonCode: reasonCode || null,
+            internalNote: internalNote || null,
+            applicantMessage: applicantMessage || null,
+          },
+          { idempotencyKey },
+        )
+        setSuccessPanel(result)
+        setShowConfirm(false)
+        toast.success('Decision saved')
+        // Refetch sessions list
+        fetchSessions(activeTab)
+      })
     } finally {
       setSubmitting(false)
     }
@@ -285,6 +292,7 @@ export default function IdentityVerificationCaseManagement() {
 
   return (
     <div className="space-y-6">
+      {stepUpDialog}
       <div>
         <h1 className="text-2xl font-bold">Identity Verification</h1>
         <p className="text-gray-500">Case management and review queue</p>
@@ -606,6 +614,66 @@ export default function IdentityVerificationCaseManagement() {
                       </div>
                     )}
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Section 3b — Biometric Evidence (O2-X4). Evidence display ONLY: the
+                  disposition still travels through the decision controls below, and there is
+                  deliberately no shortcut action here for any biometric outcome. */}
+              <Card data-testid="biometric-evidence">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Biometric Evidence</CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Consent</span>
+                    <span data-testid="biometric-consent-state" className={sessionDetail.biometric_consent?.active ? 'text-green-600' : 'text-gray-600'}>
+                      {sessionDetail.biometric_consent?.active
+                        ? `Granted (${sessionDetail.biometric_consent.consent_text_version})`
+                        : sessionDetail.biometric_consent?.status === 'withdrawn' ? 'Withdrawn' : 'Not granted'}
+                    </span>
+                  </div>
+                  {sessionDetail.biometric ? (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Provider</span>
+                        <span>{sessionDetail.biometric.provider || '—'} · {humanize(sessionDetail.biometric.provider_state || 'unknown')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Assessed</span>
+                        <span>{sessionDetail.biometric.assessed_at ? new Date(sessionDetail.biometric.assessed_at).toLocaleString() : '—'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Face ↔ document</span>
+                        <span data-testid="biometric-face" className={sessionDetail.biometric.face_match_status === 'mismatch' ? 'text-red-600 font-medium' : sessionDetail.biometric.face_match_status === 'match' ? 'text-green-600' : 'text-amber-600'}>
+                          {humanize(sessionDetail.biometric.face_match_status)}
+                          {sessionDetail.biometric.face_match_score !== null ? ` (${Number(sessionDetail.biometric.face_match_score).toFixed(2)})` : ''}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Liveness</span>
+                        <span data-testid="biometric-liveness" className={sessionDetail.biometric.liveness_status === 'failed' ? 'text-red-600 font-medium' : sessionDetail.biometric.liveness_status === 'passed' ? 'text-green-600' : 'text-amber-600'}>
+                          {humanize(sessionDetail.biometric.liveness_status)}
+                          {sessionDetail.biometric.liveness_score !== null ? ` (${Number(sessionDetail.biometric.liveness_score).toFixed(2)})` : ''}
+                        </span>
+                      </div>
+                      {(sessionDetail.biometric.risk_flags?.length ?? 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Flags</span>
+                          <span className="text-amber-700">{sessionDetail.biometric.risk_flags!.join(', ')}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-[10px] text-gray-400">
+                        <span>{sessionDetail.biometric.threshold_policy_version || ''}</span>
+                        <span>{sessionDetail.biometric.provider_reference || ''}</span>
+                      </div>
+                      {(sessionDetail.biometric.provider_state === 'not_configured' || sessionDetail.biometric.provider_state === 'unavailable') && (
+                        <p className="text-amber-700">Biometric provider {humanize(sessionDetail.biometric.provider_state)} — evidence limited to the non-biometric dimensions; decide via the normal review controls.</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-gray-500" data-testid="biometric-none">No biometric assessment has been run for this session.</p>
+                  )}
                 </CardContent>
               </Card>
 

@@ -86,6 +86,8 @@ and restarts. Closed with the same deployment-environment conjunction.
 
 **Required behaviour:** Gate the whole router: `app.use('/api/verification', authorizeSessionRole(['admin','government']), documentIntelligenceRouter)` at backend/server.js:300, and inside `approveDocumentVerification` take the actor from `req.userContext.id` rather than `req.body.actorId` and assert `ocrDoc` is linked to the supplied `vin` before writing any registry row. The trust write should be replaced by `refreshCanonicalTrust(vin)` so the approval re-materialises through the single canonical writer instead of stamping a +20 over a fabricated 80 baseline.
 
+**O2-X1 addendum (2026-09-03):** the residual half ("route through `refreshCanonicalTrust`") is closed by RETIREMENT rather than rerouting: `approveDocumentVerification` is deleted outright, along with the whole `/api/verification` router, its mount and its path-scoped rate-limit line — there is no approval write left to re-materialise. Registry rows (`cvr_ownership_records`/`zimra_declarations`) now have ZERO in-product writers. Pinned by `backend/tests/o2-x1-document-intelligence-authority.test.js`, the retirement test in `issue164-phase3-trust-authority.test.js` §11, and the B7 writer-set pin in `v16-authority-hardening.test.js` (now two writers).
+
 ### [CLOSED] Unauthenticated /api/verification/promote-trust sets any user's verification level from the request body
 
 **Location:** `backend/services/document-intelligence/documentIntelligenceRouter.js:100`
@@ -93,6 +95,8 @@ and restarts. Closed with the same deployment-environment conjunction.
 **Evidence:** `router.post('/promote-trust', async (req, res) => { const { userId, trustLevel, details } = req.body; ... await TrustService.assignTrustLevel(userId, trustLevel, details || {})`. No auth on the route or the router (same mount as above, backend/server.js:300). `assignTrustLevel` (backend/services/trust-service/trustService.js:17-46) resolves `TRUST_LEVELS[level]` (0..5, 5 = 'Dealer Certified') and upserts `kyc_profiles` with `overall_status: 'Level_${level}_${stringLevel}'`, then writes a `security_events` 'TRUST_LEVEL_UPGRADE' row and a `trust_score_history` row with `new_score: (level+1)*20`. That same `kyc_profiles.overall_status` is read back as a verification signal at trustService.js:105-106 (`if (kyc?.overall_status?.includes('Biometric')) score += 25.0`). This is a second identity-verification-level authority that bypasses the governed one at backend/routes/identityVerificationAdminRoutes.js:39 (`authorizeRole(['admin'])` + `reviewVerificationSession`).
 
 **Required behaviour:** Delete this route, or gate it with `authorizeSessionRole(['admin'])` and route the decision through `reviewVerificationSession` in backend/services/identity/verificationSessionService.js so verification level has one writer. `trustLevel` must never be read from the body without a reviewer identity and an audited decision record.
+
+**O2-X1 addendum (2026-09-03):** resolved by the first option — the route AND `TrustService` are deleted (`assignTrustLevel`, `calculateUserTrustScore`, the six-tier vocabulary). The X1 caller survey found no consumer outside the retired router, and the only reader of `kyc_profiles.overall_status` was `calculateUserTrustScore` itself — a loop closed entirely inside the retired surface. Historical `kyc_profiles` / `trust_score_history` / `security_events` rows are preserved as data; no new rows of these kinds can be produced. Identity verification level now has exactly one writer (`reviewVerificationSession`). Pinned by `backend/tests/o2-x1-document-intelligence-authority.test.js`.
 
 ### [CLOSED] Diaspora ledger writer signs with the retired hardcoded system HMAC secret, permanently breaking passport chain verification for every handed-off VIN
 
@@ -324,6 +328,8 @@ an unreadable input.
 
 **Required behaviour:** Have each foreign writer call `await refreshCanonicalTrust(vin)` immediately after its unstamped write (guarded in try/catch, as vehiclesRoutes.js:986-990 already does), so the row returns to a stamped canonical state instead of being parked at `not_evaluated`.
 
+**O2-X1 addendum (2026-09-03):** the documentIntelligenceService call site no longer exists — the OCR-approval writer was retired outright, so this finding now concerns ONLY the two `trustEnforcementEngine` sites, which still lack a re-materialisation path. The entry stays OPEN at reduced scope.
+
 ### [CLOSED] Unauthenticated /api/verification/trust-score/:userId exposes a second user-trust engine for any user id
 
 **Location:** `backend/services/document-intelligence/documentIntelligenceRouter.js:88`
@@ -331,6 +337,8 @@ an unreadable input.
 **Evidence:** `router.get('/trust-score/:userId', async (req, res) => { const score = await TrustService.calculateUserTrustScore(userId); res.json({ userId, trustScore: score }); })` with no auth on route or router (mount: backend/server.js:300). `calculateUserTrustScore` (backend/services/trust-service/trustService.js:90-119) computes a 20.0-baseline score from `users.phone`, verified `identity_documents` rows, `kyc_profiles.overall_status` and a `security_events` VERIFICATION_FAILURE count. Any anonymous caller can enumerate user ids and read back whether that user has a phone on file, verified identity documents, biometric KYC, and how many verification failures they have — and the number itself is a second trust computation unrelated to canonicalTrustService.
 
 **Required behaviour:** Gate with `authorizeRole(['admin'])` or remove the route; if a user-facing trust tier is needed, expose it only for `req.userContext.id` and derive it from the governed verification session state rather than this parallel engine.
+
+**O2-X1 addendum (2026-09-03):** resolved by removal — the route and the parallel engine (`calculateUserTrustScore`) are deleted with the rest of the legacy lane; no second user-trust computation remains.
 
 ### [OPEN] COMMUNICATION_FAKE_ADAPTERS_ENABLED substitutes FakeCommunicationAdapter for every real transport in production, and BLOCKED startup validation only logs
 

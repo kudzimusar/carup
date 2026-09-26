@@ -140,6 +140,35 @@ export const CSRF_ERROR_MESSAGE =
 export const SESSION_INVALID_MESSAGE = 'Unauthorized. Session is invalid or expired.'
 
 /** Thrown when the backend rejects the request because the session is invalid/expired (401). */
+export type ApiFailure = Error & {
+  status?: number
+  requestId?: string
+  correlationId?: string
+  code?: string
+  data?: unknown
+}
+
+/**
+ * Build the error every failed request throws — ONE place, used by both the direct failure path
+ * and the CSRF-retry path.
+ *
+ * `code` is load-bearing, not decoration: callers branch on it (`STEP_UP_REQUIRED` opens the
+ * step-up prompt), and a path that quietly omitted it turned a recoverable refusal into a
+ * dead end. Keeping the construction in one function is what stops the two paths diverging.
+ */
+export function buildApiFailure(message: string, status: number, data: unknown): ApiFailure {
+  const metadata = extractApiErrorMetadata(data)
+  const failure = new Error(message) as ApiFailure
+  failure.status = status
+  // Preserve the parsed JSON error body so callers can surface structured server detail (e.g. the
+  // provider-smoke endpoint's sanitized Meta failure) instead of only "HTTP error! status: 502".
+  failure.data = data
+  if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
+  if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
+  if (typeof metadata.code === 'string') failure.code = metadata.code
+  return failure
+}
+
 export class SessionExpiredError extends Error {
   constructor(message: string = SESSION_INVALID_MESSAGE) {
     super(message)
@@ -346,12 +375,18 @@ export async function apiRequest<T = any>({
         return retryResponse.json() as Promise<T>
       }
       const retryErrorData = await retryResponse.json().catch(() => ({} as Record<string, unknown>))
-      const retryError = new Error(extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`) as Error & { status?: number; data?: unknown }
-      // Match the non-retry failure path: callers branch on .status/.data
-      // (e.g. tailored 403 messaging), which a bare Error silently disabled.
-      retryError.status = retryResponse.status
-      retryError.data = retryErrorData
-      throw retryError
+      // Every unsafe 403 lands here, because a 403 is presumed to be a stale CSRF token and is
+      // retried once. So this is also where a genuine 403 that merely LOOKS like a CSRF failure
+      // arrives — STEP_UP_REQUIRED above all. The retry error previously carried `status` and
+      // `data` but dropped `code`, so `error.code === 'STEP_UP_REQUIRED'` was undefined for every
+      // real API call and the step-up prompt could never open: the guarded action dead-ended for
+      // the reviewer while the unit tests, which reject with a hand-made error, passed.
+      // Both failure paths now go through ONE attach step so they cannot drift apart again.
+      throw buildApiFailure(
+        extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`,
+        retryResponse.status,
+        retryErrorData,
+      )
     }
 
     if (isSessionFailure(response.status, message)) {
@@ -363,22 +398,7 @@ export async function apiRequest<T = any>({
       throw new SessionExpiredError(message || SESSION_INVALID_MESSAGE)
     }
 
-    const metadata = extractApiErrorMetadata(errorData)
-    const failure = new Error(message || `HTTP error! status: ${response.status}`) as Error & {
-      status?: number
-      requestId?: string
-      correlationId?: string
-      code?: string
-      data?: unknown
-    }
-    failure.status = response.status
-    // Preserve the parsed JSON error body so callers can surface structured server detail (e.g. the
-    // provider-smoke endpoint's sanitized Meta failure) instead of only "HTTP error! status: 502".
-    failure.data = errorData
-    if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
-    if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
-    if (typeof metadata.code === 'string') failure.code = metadata.code
-    throw failure
+    throw buildApiFailure(message || `HTTP error! status: ${response.status}`, response.status, errorData)
   }
 
   return (await response.json()) as T

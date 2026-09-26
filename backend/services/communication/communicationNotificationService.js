@@ -141,6 +141,69 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     transactional: true,
   },
 
+  // O2-X6 — identity lifecycle transitions (suspension/compromise/recovery/revocation/
+  // reverification). Safe state + reason codes only; the ledger keeps the detail.
+  'identity.lifecycle.changed': {
+    notificationType: 'identity_lifecycle',
+    threadType: 'account',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'identity_lifecycle_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — Dealer Compliance decisions finally reach the dealer (emitted since P5,
+  // subscribed now; payload privacy-corrected at the emitter).
+  'dealer.compliance.decided': {
+    notificationType: 'dealer_compliance',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_compliance_decision_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 §15 — ONE batched "we still need" message instead of drip-fed rejections.
+  'dealer.compliance.evidence_required': {
+    notificationType: 'dealer_evidence_required',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_evidence_required_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — a completed ownership transfer ended this person's seller authority.
+  'seller.authority.superseded': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_superseded_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — a vehicle workbook import finished (drafts + receipts ready to review).
+  'workbook.import.completed': {
+    notificationType: 'workbook_import',
+    threadType: 'import',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'workbook_import_result_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+
   // R4 — SafeTrade / marketplace transaction stages.
   //
   // These are REAL canonical events, emitted by `issue164_transition_session_atomic` into

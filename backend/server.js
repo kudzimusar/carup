@@ -49,7 +49,6 @@ import paymentRouter from './services/payment/paymentRouter.js';
 
 // ✅ Phase 7: Object Storage & Media Router Imports
 import mediaRouter from './services/storage/mediaRouter.js';
-import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
 import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
 import { logAuditEvent } from './services/auditLogger.js';
 
@@ -92,6 +91,7 @@ import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.
 import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
+import peopleOperationsRouter from './routes/peopleOperationsRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
 import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
@@ -121,6 +121,12 @@ import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
+import registrationOnboardingRouter from './routes/registrationOnboardingRoutes.js';
+import authSecurityRouter from './routes/authSecurityRoutes.js';
+import identityLifecycleAdminRouter from './routes/identityLifecycleAdminRoutes.js';
+import identityBiometricRouter from './routes/identityBiometricRoutes.js';
+import dealerOnboardingRouter from './routes/dealerOnboardingRoutes.js';
+import workbookRouter from './routes/workbookRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
@@ -154,6 +160,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { resolveDealerListingSubject, hasGovernedDealerVehicleAuthority } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
@@ -238,12 +245,11 @@ app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
 app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
 
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+// Sensitive Route Throttling (auth, uploads, safepay creation)
 // Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
 app.use(edgeClientIpMiddleware());
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
-app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
@@ -341,19 +347,14 @@ app.use('/api/payments', paymentRouter);
 // Mount media upload unified routes
 app.use('/api/media', mediaRouter);
 
-// Mount Trust & Identity verification routes.
-//
-// FAIL CLOSED. This router was mounted bare, with no auth middleware on the mount and none
-// on any of its five routes, which made it a SECOND authority over vehicle trust, registry
-// records (cvr_ownership_records / zimra_declarations) and user verification level —
-// reachable by an unauthenticated caller. CSRF was not a barrier: the token endpoint issues
-// a guest-bound token to anyone.
-//
-// It is gated at the mount rather than per-route so a future route added to this router is
-// closed by default instead of inheriting the old omission. `authorizeSessionRole` is used
-// deliberately in preference to `authorizeRole`: it disables the x-user-id fallback, so a
-// registry/trust decision always requires a PROVEN session, never an asserted header.
-app.use('/api/verification', authorizeSessionRole(['admin', 'government']), documentIntelligenceRouter);
+// RETIRED (O2-X1): the legacy document-intelligence router that mounted at /api/verification
+// was a SECOND authority over vehicle trust, registry records and person verification level.
+// The V16 convergence gated it (proving WHO could call it); O2-X1 removed what there was to
+// call: the approval/promotion endpoints are gone, and document intelligence is an internal
+// EXTRACTION service whose candidates reach canonical state only through the governed
+// deciders — Phase 7C identity review, Dealer Compliance, Seller Authority, the vehicle
+// passport/evidence lanes and canonical Trust. Do not re-mount a verification surface here;
+// the boundary is pinned by backend/tests/o2-x1-document-intelligence-authority.test.js.
 
 // Mount centralized routes (Batch 1)
 app.use(leadsRouter);
@@ -371,6 +372,7 @@ app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehicleOperationsRouter);
+app.use(peopleOperationsRouter);
 app.use(vehiclesRouter);
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);
@@ -396,6 +398,12 @@ app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
 app.use(identityVerificationRouter);
+app.use(registrationOnboardingRouter);
+app.use(authSecurityRouter);
+app.use(identityLifecycleAdminRouter);
+app.use(identityBiometricRouter);
+app.use(dealerOnboardingRouter);
+app.use(workbookRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
 app.use(intelligenceActivityRouter);
@@ -980,13 +988,44 @@ async function buildVehiclePassport(
   historyDisclosureContract = null,
   financeObligationContract = null,
 ) {
-  const { data: vehicle, error: vehicleError } = await supabase
+  // U2 — PASSPORT STAGE TIMING.
+  //
+  // The latency defect was invisible because nothing measured it: the only number anyone had was
+  // the total, and a total cannot tell you whether ONE source is slow or TWELVE are merely waiting
+  // for each other. It was the second, and that difference decides the fix.
+  //
+  // Defined INSIDE this function on purpose. The certification harness executes this body in
+  // isolation over a closed collaborator list, so a helper declared outside would be out of scope
+  // there — the same discipline the gallery fallback below already follows.
+  //
+  // It emits ONE structured server log line per build. It never touches the response body, so no
+  // caller can read timing off the product, and it adds no request-shaped work. The VIN is already
+  // in the request path, so the line discloses nothing the access log does not.
+  const timingStarted = process.hrtime.bigint();
+  const timingMarks = {};
+  const elapsedMs = () => Number(process.hrtime.bigint() - timingStarted) / 1e6;
+  const timing = {
+    async stage(name, run) {
+      const at = elapsedMs();
+      try { return await run(); } finally { timingMarks[name] = Math.round(elapsedMs() - at); }
+    },
+    mark(name, fromMs) { timingMarks[name] = Math.round(elapsedMs() - fromMs); },
+    now: elapsedMs,
+    done(outcome) {
+      console.log(JSON.stringify({
+        event: 'passport_build_timing', vin, outcome,
+        total_ms: Math.round(elapsedMs()), stages_ms: timingMarks,
+      }));
+    },
+  };
+
+  const { data: vehicle, error: vehicleError } = await timing.stage('vehicle_row', () => supabase
     .from('vehicles')
     .select('*')
     .eq('vin', vin)
-    .single();
+    .single());
 
-  if (vehicleError || !vehicle) return null;
+  if (vehicleError || !vehicle) { timing.done('no_vehicle'); return null; }
 
   // AUDIENCE. Read from `req.userContext` and from NO REQUEST HEADER.
   //
@@ -1013,15 +1052,84 @@ async function buildVehiclePassport(
     || actor.id === vehicle.owner_id
   );
 
-  // Fetch timeline, visual evidence, trust score report, and ledger verification
-  const timeline = await getVehicleTimeline(vin);
-  const { data: verifiedEvidence, error: evidenceError } = await supabase
+  // U2 — THE PASSPORT WAS SLOW BECAUSE IT WAS SERIAL, NOT BECAUSE ANY SOURCE WAS SLOW.
+  //
+  // Measured against staging: a single vehicle row read is ~0.28s, and this handler made THIRTEEN
+  // round trips one after another — 9.0s warm and 15.6s cold for `GFC27-027051`, which the edge
+  // then intermittently surfaced to the Product Owner as a 503.
+  //
+  // Every read below is keyed on the VIN and independent of the others; the vehicle row above is
+  // the only true prerequisite. So they are STARTED together here and awaited at exactly the same
+  // places as before. Nothing is reordered, no value is substituted, no error is swallowed and no
+  // unavailable-state becomes an empty array: each consumer still sees the identical
+  // `{ data, error }` or thrown failure it saw when the call was made inline.
+  //
+  // A rejection is captured at creation and re-thrown at the original await point, so a source
+  // that fails still fails the request in the same way — and never as an unhandled rejection
+  // merely because it was started earlier.
+  //
+  // ONE REAL DIFFERENCE, STATED RATHER THAN HIDDEN: when an early consumer throws (a failed
+  // evidence read), the later reads have already been ISSUED where before they would never have
+  // run. They are the same VIN-keyed reads the success path makes, their results reach no caller,
+  // and the request still fails identically — the cost is some wasted work on a failure path,
+  // which is the price of the wave. Reads that are NOT unconditional stay guarded below by the
+  // very same condition that used to guard them, so a passport that never needed them still
+  // issues nothing.
+  const wrap = (name, promise) => {
+    const at = timing.now();
+    return Promise.resolve(promise).then(
+      (value) => { timing.mark(name, at); return { ok: true, value }; },
+      (error) => { timing.mark(name, at); return { ok: false, error }; },
+    );
+  };
+  const unwrap = (settled) => { if (!settled.ok) throw settled.error; return settled.value; };
+
+  const pendingTimeline = wrap('timeline', getVehicleTimeline(vin));
+  const pendingVerifiedEvidence = wrap('verified_evidence', supabase
     .from('vehicle_evidence')
     .select('*')
     .eq('vin', vin)
     .eq('visibility_level', 'public_safe')
     .eq('verification_status', 'verified')
-    .order('captured_at', { ascending: true });
+    .order('captured_at', { ascending: true }));
+  const pendingLifecycle = wrap('lifecycle', typeof lifecycleBuilder === 'function'
+    ? lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
+    : Promise.resolve(null));
+  const pendingFinanceObligation = wrap('finance_obligation', typeof financeObligationContract === 'function'
+    ? financeObligationContract(supabase, vin)
+    : Promise.resolve(null));
+  const pendingLegacySignalReport = wrap('trust_signals', computeVehicleTrustScore(vin));
+  const pendingChainVerification = wrap('chain_verify', verifyChain(vin));
+  const pendingPlateHistory = wrap('plate_history', supabase
+    .from('vehicle_plate_history')
+    .select('*')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false }));
+  const pendingOwnershipHistory = wrap('ownership_history', supabase
+    .from('vehicle_ownership_history')
+    .select('*')
+    .eq('vin', vin));
+  // Guarded exactly as at their original call sites: no media contract, no gallery read; no
+  // recorded seller, no user read. The guard is evaluated HERE and the query issued only if it
+  // passes, so this hoist never turns a skipped read into a performed one.
+  const pendingWideListingImages = typeof mediaContract === 'function'
+    ? wrap('listing_images', supabase
+      .from('listing_images')
+      .select('id, image_url, is_primary, display_order, photo_label')
+      .eq('vin', vin)
+      .order('display_order', { ascending: true }))
+    : null;
+  const pendingSellerUser = vehicle.current_seller_id
+    ? wrap('seller_user', supabase
+      .from('users')
+      .select('name')
+      .eq('id', vehicle.current_seller_id)
+      .single())
+    : null;
+
+  // Fetch timeline, visual evidence, trust score report, and ledger verification
+  const timeline = unwrap(await pendingTimeline);
+  const { data: verifiedEvidence, error: evidenceError } = unwrap(await pendingVerifiedEvidence);
 
   if (evidenceError) throw evidenceError;
 
@@ -1073,11 +1181,7 @@ async function buildVehiclePassport(
     // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
     // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
     // status, which is precisely why nothing in this block may make a trust claim.
-    const wideListingImages = await supabase
-      .from('listing_images')
-      .select('id, image_url, is_primary, display_order, photo_label')
-      .eq('vin', vin)
-      .order('display_order', { ascending: true });
+    const wideListingImages = unwrap(await pendingWideListingImages);
 
     if (!wideListingImages.error) {
       listingImageRows = wideListingImages.data || [];
@@ -1180,9 +1284,7 @@ async function buildVehiclePassport(
   //
   // Deliberately public even for an owner render. Private evidence remains in evidenceVault below;
   // lifecycle is the shared buyer-safe story, which is exactly what must not fork by surface.
-  const lifecycle = typeof lifecycleBuilder === 'function'
-    ? await lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
-    : null;
+  const lifecycle = unwrap(await pendingLifecycle);
 
   // The Seller's history/obligations statements, projected by the injected contract. Same
   // closed-collaborator discipline as `lifecycleBuilder` above; the projection re-validates the
@@ -1196,9 +1298,7 @@ async function buildVehiclePassport(
   // render (contract not injected, or the read failed) publishes NO key at all, exactly like
   // `historyDisclosures` — see the parameter-header comment for why a governed zero must never be
   // manufactured from a read that never happened.
-  const financeObligation = typeof financeObligationContract === 'function'
-    ? await financeObligationContract(supabase, vin)
-    : null;
+  const financeObligation = unwrap(await pendingFinanceObligation);
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
   //
@@ -1214,7 +1314,7 @@ async function buildVehiclePassport(
   // records). They are FACTS COLLECTED, not a score: the deprecated engine's own `trustScore` is
   // discarded here rather than republished under a new name, and `evidence_trust_impact` — a raw
   // scoring component — is dropped with it, so the passport body carries exactly one trust number.
-  const legacySignalReport = await computeVehicleTrustScore(vin);
+  const legacySignalReport = unwrap(await pendingLegacySignalReport);
   const legacyMetrics = legacySignalReport && typeof legacySignalReport === 'object'
     ? legacySignalReport.metrics
     : null;
@@ -1235,22 +1335,15 @@ async function buildVehiclePassport(
     }
     : null;
 
-  const chainVerification = await verifyChain(vin);
+  const chainVerification = unwrap(await pendingChainVerification);
 
   // Collection reads carry explicit availability. A database/read failure must never collapse
   // into []/0: that would turn "CarUp could not read this source" into a factual clean-history claim.
-  const { data: plateHistoryData, error: plateHistoryError } = await supabase
-    .from('vehicle_plate_history')
-    .select('*')
-    .eq('vin', vin)
-    .order('created_at', { ascending: false });
+  const { data: plateHistoryData, error: plateHistoryError } = unwrap(await pendingPlateHistory);
   const plateHistory = plateHistoryError ? [] : (plateHistoryData || []);
   const plateHistoryState = plateHistoryError ? 'unavailable' : 'available';
 
-  const { data: ownershipHistoryData, error: ownershipHistoryError } = await supabase
-    .from('vehicle_ownership_history')
-    .select('*')
-    .eq('vin', vin);
+  const { data: ownershipHistoryData, error: ownershipHistoryError } = unwrap(await pendingOwnershipHistory);
   const ownershipHistory = ownershipHistoryError ? [] : (ownershipHistoryData || []);
   const previousOwnerCount = ownershipHistoryError ? null : ownershipHistory.length;
   const previousOwnerCountState = ownershipHistoryError ? 'unavailable' : 'available';
@@ -1261,11 +1354,7 @@ async function buildVehiclePassport(
   const currentSellerRecorded = Boolean(vehicle.current_seller_id);
   let currentSellerDisplayName = null;
   if (currentSellerRecorded) {
-    const { data: sellerUser } = await supabase
-      .from('users')
-      .select('name')
-      .eq('id', vehicle.current_seller_id)
-      .single();
+    const { data: sellerUser } = unwrap(await pendingSellerUser);
     if (sellerUser?.name) {
       currentSellerDisplayName = sellerUser.name;
     }
@@ -1550,6 +1639,8 @@ async function buildVehiclePassport(
 
     return sanitizedEvent;
   });
+
+  timing.done('ok');
 
   return {
     // `vehicle` is the audience projection with the claim-governed columns withdrawn; `claims` is
@@ -1922,7 +2013,8 @@ app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
 app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
   const { docType, base64Data } = req.body;
   try {
-    const parsedData = await runOcrParsing(docType, base64Data);
+    // Evidence rows must be attributed to the PROVEN caller, never a fallback id.
+    const parsedData = await runOcrParsing(docType, base64Data, req.userContext?.id);
     res.json({ success: true, extractedData: parsedData });
   } catch (error) {
     next(error);
@@ -2739,7 +2831,16 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   // Real-listing eligibility is evaluated against the canonicalized candidate actually stored.
-  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext });
+  // J-3 — the dealer listing subject is a GOVERNED lookup, not a header. `x-tenant-id` proves
+  // membership; `dealer_profiles` (user_id + tenant_id) is what proves a dealership. The workbook
+  // execute path resolves the identical subject through the identical function, so the two
+  // mutation surfaces cannot drift apart.
+  const dealerListingSubject = await resolveDealerListingSubject(supabase, {
+    role: req.userContext?.role ?? req.userContext?.effectiveRole,
+    userId: req.userContext?.id ?? req.userContext?.userId,
+    tenantId: req.userContext?.tenantId ?? null,
+  });
+  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext, dealerListingSubject });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
@@ -3026,12 +3127,18 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // The denial also strips the derived relationship clauses: a stale `current_seller_id` or a
     // previous tenant that outlived the transfer must not authorize either (fail closed on stale
     // secondary state, which is exactly what a failed supersession leaves behind).
-    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied && (
+    // L-2 — the tenant clause is a GOVERNED dealership question, not raw membership. Evaluated
+    // only when the direct clauses have not already answered, so the seller's own path is unchanged.
+    const existingDirectSeller = Boolean(existing && (
       existing.owner_id === req.userContext.id
       || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
-      || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
       || governedSellerEvidence
     ));
+    const existingDealerTenant = Boolean(existing) && !existingDirectSeller
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing)
+      : false;
+    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied
+      && (existingDirectSeller || existingDealerTenant));
 
     // Identity completion is evaluated only AFTER governed Seller scope is established. This
     // prevents an unrelated authenticated account from probing which canonical identity fields
@@ -3417,11 +3524,10 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
     const isAdmin = req.userContext.role === 'admin';
     const isActorSeller = existing.owner_id === req.userContext.id
       || existing.current_seller_id === req.userContext.id;
-    const isActorTenant = Boolean(
-      existing.tenant_id
-      && req.userContext.tenantId
-      && existing.tenant_id === req.userContext.tenantId
-    );
+    // L-2 — a seller draft is a SELLER mutation; belonging to the organisation is not enough.
+    const isActorTenant = isActorSeller
+      ? false
+      : await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing);
     if (!isAdmin && !isActorSeller && !isActorTenant) {
       return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
     }
@@ -3629,7 +3735,13 @@ app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'ad
       if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
       const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      // M4 — this read exposes identity-document and readiness state, and its own comment says it
+      // mirrors `loadScopedVehicle`. It did not: raw membership still granted it. A Service Network
+      // mechanic's service authority is deliberately NOT routed here — servicing a car is not
+      // Seller scope over its completeness.
+      const sameTenant = (!ownsVehicle && !isCurrentSeller)
+        ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow)
+        : false;
       if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         return res.status(403).json({ error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.' });
       }

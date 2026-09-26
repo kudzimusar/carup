@@ -332,57 +332,72 @@ async function computeVehicleTrustScoreContext(vin) {
   
   if (!vehicle) return 0;
 
+  // U2 — FETCH IN ONE WAVE, SCORE IN THE SAME ORDER AS BEFORE.
+  //
+  // Every signal below is keyed on the VIN and independent of the others; the vehicle row above was
+  // the only prerequisite, and the early return still happens before a single one of them is
+  // issued. What follows this block is the SCORING, and it is left in its exact original sequence —
+  // the same `+=`/`-=` operations applied to `baseScore` in the same order, on the same values.
+  // Only the waiting was removed: eleven serial round trips (one of them `verifyChain`, itself
+  // three more) became one.
+  //
+  // The duplicate-plate count keeps its original guard: no `normalized_plate_number`, no query.
+  const [
+    zimraRes, cidRes, cvrRes, vidRes,
+    odoAudit, ledgerAudit,
+    serviceRes, evidenceRes, stolenRes, duplicateRes,
+  ] = await Promise.all([
+    supabase.from('zimra_declarations').select('id').eq('vin', vin).single(),
+    supabase.from('cid_clearance_records').select('stolen_check_status').eq('vin', vin).single(),
+    supabase.from('cvr_ownership_records').select('id').eq('vin', vin).single(),
+    supabase.from('vid_inspections').select('inspection_status').eq('vin', vin)
+      .order('inspected_at', { ascending: false }).limit(1),
+    runOdometerAudit(vin),
+    verifyChain(vin),
+    supabase.from('partsentry_logs').select('*', { count: 'exact', head: true }).eq('vin', vin),
+    supabase.from('vehicle_evidence').select('verification_status, trust_score_impact, trust_impact')
+      .eq('vin', vin).in('verification_status', ['verified', 'rejected']),
+    supabase.from('stolen_vehicles').select('vin').eq('vin', vin)
+      .eq('status', 'ACTIVE_POLICE_ALERT').single(),
+    vehicle.normalized_plate_number
+      ? supabase.from('vehicles').select('vin', { count: 'exact', head: true })
+        .eq('normalized_plate_number', vehicle.normalized_plate_number).neq('vin', vin)
+      : Promise.resolve(null),
+  ]);
+
   const previousScore = vehicle.trust_score;
   let baseScore = 70.0; // Baseline starting score
 
   // 1. ZIMRA Customs Ingestion Check
-  const { data: zimra } = await supabase.from('zimra_declarations').select('id').eq('vin', vin).single();
+  const { data: zimra } = zimraRes;
   const dutyPaidReal = !!zimra || !!vehicle.duty_paid;
   if (dutyPaidReal) baseScore += 10.0;
 
   // 2. CID Police Clearance Check
-  const { data: cid } = await supabase
-    .from('cid_clearance_records')
-    .select('stolen_check_status')
-    .eq('vin', vin)
-    .single();
+  const { data: cid } = cidRes;
   const policeVerifiedReal = (cid && cid.stolen_check_status === 'Cleared') || !!vehicle.police_verified;
   if (policeVerifiedReal) baseScore += 10.0;
 
   // 3. CVR Ownership Registry Sync Check
-  const { data: cvr } = await supabase.from('cvr_ownership_records').select('id').eq('vin', vin).single();
+  const { data: cvr } = cvrRes;
   const cvrSyncedReal = !!cvr;
   if (cvrSyncedReal) baseScore += 5.0;
 
   // 4. VID Inspection Mechanical Health Check
-  const { data: vid } = await supabase
-    .from('vid_inspections')
-    .select('inspection_status')
-    .eq('vin', vin)
-    .order('inspected_at', { ascending: false })
-    .limit(1);
+  const { data: vid } = vidRes;
   const vidStatus = vid?.[0]?.inspection_status;
   if (vidStatus === 'Passed') baseScore += 5.0;
   else if (vidStatus === 'Failed_Unroadworthy') baseScore -= 20.0;
 
   // Odometer and ledger audits
-  const odoAudit = await runOdometerAudit(vin);
   if (!odoAudit.verified) baseScore -= 40.0;
 
-  const ledgerAudit = await verifyChain(vin);
   if (!ledgerAudit.verified) baseScore -= 50.0;
 
-  const { count: serviceCount } = await supabase
-    .from('partsentry_logs')
-    .select('*', { count: 'exact', head: true })
-    .eq('vin', vin);
+  const { count: serviceCount } = serviceRes;
   if (serviceCount >= 3) baseScore += 5.0;
 
-  const { data: evidenceImpacts } = await supabase
-    .from('vehicle_evidence')
-    .select('verification_status, trust_score_impact, trust_impact')
-    .eq('vin', vin)
-    .in('verification_status', ['verified', 'rejected']);
+  const { data: evidenceImpacts } = evidenceRes;
 
   const evidenceTrustImpact = (evidenceImpacts || []).reduce((sum, item) => {
     const impact = Number(item.trust_score_impact ?? item.trust_impact ?? 0);
@@ -391,12 +406,7 @@ async function computeVehicleTrustScoreContext(vin) {
   baseScore += evidenceTrustImpact;
 
   // Check persistent stolen vehicle registry
-  const { data: stolenRecord } = await supabase
-    .from('stolen_vehicles')
-    .select('vin')
-    .eq('vin', vin)
-    .eq('status', 'ACTIVE_POLICE_ALERT')
-    .single();
+  const { data: stolenRecord } = stolenRes;
   if (stolenRecord) baseScore -= 80.0;
 
   // --- NEW ZIMBABWE PLATE TRUST RULES ---
@@ -414,11 +424,7 @@ async function computeVehicleTrustScoreContext(vin) {
 
   // C. Plate maps to multiple VINs or belongs to another vehicle
   if (vehicle.normalized_plate_number) {
-    const { count: duplicateVinCount } = await supabase
-      .from('vehicles')
-      .select('vin', { count: 'exact', head: true })
-      .eq('normalized_plate_number', vehicle.normalized_plate_number)
-      .neq('vin', vin);
+    const { count: duplicateVinCount } = duplicateRes || {};
     if (duplicateVinCount && duplicateVinCount > 0) {
       baseScore -= 50.0;
     }

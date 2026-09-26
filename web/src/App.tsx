@@ -74,6 +74,9 @@ import Register from './pages/auth/Register'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
+import RegistrationJourney from './pages/onboarding/RegistrationJourney'
+import DealerOnboarding from './pages/dealer/DealerOnboarding'
+import WorkbookTools from './pages/workbook/WorkbookTools'
 import KYCVerification from './pages/auth/KYCVerification'
 
 // Owner Dashboard
@@ -145,6 +148,7 @@ import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
 import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
+import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
@@ -304,6 +308,23 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+          {/*
+            U3: this lived in the AUTH group under `MainLayout hideNav`, beside /login and
+            /register. It is not an auth journey — it is a signed-in product surface, and the
+            grouping cost it the global nav, the footer and every trace of who was signed in.
+            Owner UAT reported exactly that. It belongs in the canonical shell with the rest of
+            the product; nothing about the page's behaviour or its backend authorization changes.
+          */}
+          <Route path="/workbook-tools" element={<WorkbookTools />} />
+          {/*
+            Same class as U3, found by the moderator's exact-head mobile recertification: both
+            O2 onboarding journeys also sat in the chromeless auth group, so a signed-in applicant
+            had no global header at any width — on desktop only the footer led anywhere else.
+            They are signed-in product surfaces, not auth steps. Authorization is unchanged: the
+            pages and the backend still decide what an applicant may see.
+          */}
+          <Route path="/onboarding" element={<RegistrationJourney />} />
+          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
         </Route>
 
         {/* Auth Routes */}
@@ -413,6 +434,7 @@ export default function App() {
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
+          <Route path="/admin/people/:userId/review" element={<PeopleComplianceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />

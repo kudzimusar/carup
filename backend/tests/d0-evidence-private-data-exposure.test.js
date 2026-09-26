@@ -76,8 +76,16 @@ test('tenancy is never taken from the x-tenant-id header', () => {
 });
 
 test('a NULL-tenant vehicle cannot be unlocked by tenancy', () => {
-  assert.match(EVIDENCE,
-    /Boolean\(vehicle\.tenant_id\s*&&\s*activeTenantIds\.includes\(vehicle\.tenant_id\)\)/);
+  // M — the truthiness guard is unchanged (`null === null` must never authorize a caller with no
+  // tenant); what changed is that membership alone no longer completes the grant. Asserted as two
+  // separate facts so neither can be lost while the other still passes.
+  assert.match(EVIDENCE, /Boolean\(vehicle\.tenant_id\s*&&/,
+    'the vehicle tenant must be truthy before membership can be considered at all');
+  assert.match(EVIDENCE, /activeTenantIds\.includes\(vehicle\.tenant_id\)/,
+    'membership remains the authentic tenant source');
+  assert.match(EVIDENCE, /hasGovernedDealerVehicleAuthority/,
+    'and membership alone no longer unlocks private evidence — the governed Dealer decision does');
+
 });
 
 // ── The private artifact ─────────────────────────────────────────────────────────────────────────

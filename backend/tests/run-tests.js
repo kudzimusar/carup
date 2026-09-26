@@ -702,79 +702,33 @@ async function runTests() {
     console.log('  ✅ Verified: Government tables are completely empty prior to administrative review approval.');
     console.log('  ✅ Verified: Document extraction alone did not bump vehicle trust score.');
 
-    // 28. ADMINISTRATIVE APPROVAL VALIDATION CHAIN
-    console.log('\n🧪 Test 28: Administrative Approval Validation Chain...');
-    
-    // Create a temporary valid ocr_document in the database to approve
-    const testOcrId = 'ocr_test_valid_999';
-    await supabase.from('ocr_documents').insert({
-      id: testOcrId,
-      user_id: 'u1',
-      document_type: 'registration_book',
-      file_path: 'secure_encrypted_cdn_link',
-      extracted_json: JSON.stringify({
-        confidenceScore: 0.95,
-        first_name: 'Simba',
-        last_name: 'Chitepo',
-        national_id_number: '29-198427-G-45',
-        date_of_birth: '1984-06-15',
-        country: 'Zimbabwe',
-        additional_fields: {
-          vin: testVin,
-          engine_number: '1NZ-FE-4829384',
-          make: 'Toyota',
-          model: 'Land Cruiser',
-          year: 2022
-        }
-      }),
-      confidence_score: 0.95,
-      status: 'Pending_Verification',
-      created_at: new Date().toISOString()
-    });
+    // 28. RETIRED AUTHORITY CHAIN STAYS RETIRED (O2-X1)
+    console.log('\n🧪 Test 28: Legacy OCR approval authority is retired (O2-X1)...');
 
-    // Run approval chain
-    const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
-    const approvalRes = await DocumentIntelligenceService.approveDocumentVerification(testOcrId, 'u1', testVin, 'Test approval verification');
-    
-    if (!approvalRes.success || approvalRes.status !== 'Verified') {
-      throw new Error(`Approval Chain Failure: Could not approve valid document. Res: ${JSON.stringify(approvalRes)}`);
+    // The approval chain that wrote registry rows, an administrative override and a +20 trust
+    // bump from an OCR document was retired by O2-X1: extraction yields candidates; only the
+    // governed domain services decide. The writer must be GONE, not gated.
+    const { DocumentIntelligenceService: DocIntelPostX1 } = await import('../services/document-intelligence/documentIntelligenceService.js');
+    if (typeof DocIntelPostX1.approveDocumentVerification !== 'undefined') {
+      throw new Error('O2-X1 Regression: approveDocumentVerification exists again — a second registry/trust authority has returned!');
     }
 
-    // 1. Verify registry records are written
-    const { data: cvrAfter } = await supabase.from('cvr_ownership_records').select('*').eq('vin', testVin).single();
-    if (!cvrAfter) {
-      throw new Error('Approval Chain Failure: CVR registry record was not successfully written!');
-    }
-    
-    // 2. Verify audit logs are written
-    const { data: auditLogs } = await supabase.from('administrative_overrides').select('*').eq('target_vin', testVin);
-    if (auditLogs.length === 0) {
-      throw new Error('Approval Chain Failure: Administrative override audit log was not written!');
-    }
-    
-    // 3. Verify vehicle trust score was recalculated and updated
-    const { data: vAfter } = await supabase.from('vehicles').select('trust_score, status').eq('vin', testVin).single();
-    console.log(`  ✅ Recalculated dynamic vehicle trust score after approval: ${vAfter.trust_score}`);
-    
-    if (vAfter.trust_score <= updatedVehicle.trust_score) {
-      throw new Error(`Approval Chain Failure: Vehicle trust score was not successfully updated. Before: ${updatedVehicle.trust_score}, After: ${vAfter.trust_score}`);
-    }
-    
-    if (vAfter.status !== 'Available') {
-      throw new Error(`Approval Chain Failure: Vehicle status was not successfully restored to 'Available', got: '${vAfter.status}'`);
+    // Registry tables remain untouched by anything document intelligence can do.
+    const { data: cvrStill } = await supabase.from('cvr_ownership_records').select('*').eq('vin', testVin);
+    const { data: zimraStill } = await supabase.from('zimra_declarations').select('*').eq('vin', testVin);
+    if (cvrStill.length > 0 || zimraStill.length > 0) {
+      throw new Error('O2-X1 Regression: registry rows appeared without a governed registry writer!');
     }
 
-    console.log('  ✅ Validation Chain Verified: Confidence check passed.');
-    console.log('  ✅ Validation Chain Verified: Document quality passed.');
-    console.log('  ✅ Validation Chain Verified: VIN/chassis/owner match confirmed.');
-    console.log('  ✅ Validation Chain Verified: Government registry records written successfully.');
-    console.log('  ✅ Validation Chain Verified: Administrative override log securely recorded.');
-    console.log('  ✅ Validation Chain Verified: Dynamic trust score recalculated successfully.');
+    // And the vehicle is exactly as Test 25 left it — no status flip, no trust bump.
+    const { data: vStill } = await supabase.from('vehicles').select('trust_score, status').eq('vin', testVin).single();
+    if (vStill.status !== 'Suspended' || vStill.trust_score !== updatedVehicle.trust_score) {
+      throw new Error(`O2-X1 Regression: document intelligence moved a vehicle it may not touch. Got status '${vStill.status}', trust ${vStill.trust_score} (expected 'Suspended', ${updatedVehicle.trust_score}).`);
+    }
 
-    // Cleanup Test 28 temporary documents
-    await supabase.from('ocr_documents').delete().eq('id', testOcrId);
-    await supabase.from('cvr_ownership_records').delete().eq('vin', testVin);
-    await supabase.from('administrative_overrides').delete().eq('target_vin', testVin);
+    console.log('  ✅ Verified: approveDocumentVerification no longer exists.');
+    console.log('  ✅ Verified: no registry rows exist without a governed registry writer.');
+    console.log('  ✅ Verified: vehicle status and trust score are untouched by document intelligence.');
 
     // 29. AUTOMATION EVENT HOOKS VALIDATION
     console.log('\n🧪 Test 29: Automation Event Hooks Validation...');

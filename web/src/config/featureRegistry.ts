@@ -740,6 +740,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Composed reviewer workspace: evidence classification, seller authority, registration readiness, trust/governance/risk context and the publication requirement matrix for one vehicle.',
   },
   {
+    // O2/P3 — person-centered People & Compliance workspace. A parameterized
+    // route cannot be a sidebar link; it is reached from User Management and
+    // the Identity Verification queue (per-person "Open People Review" link).
+    id: 'admin.people-operations',
+    label: 'People & Compliance',
+    route: '/admin/people/:userId/review',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'UserCog',
+    sidebarGroup: 'People & Compliance',
+    description: 'Composed reviewer workspace: identity verification state, per-vehicle seller authority, ownership and transfers, dealer compliance and the authority decision history for one person — separate facts, never one verified badge.',
+  },
+  {
     id: 'admin.verification',
     label: 'Verification Cases',
     route: '/admin/verification',
@@ -1042,6 +1057,35 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'ClipboardList',
     description: 'Review a dry run, confirm exactly what you reviewed, then import',
     isHidden: !WORKBOOK_IMPORT_UI_ENABLED,
+  },
+  {
+    // U3 — THE REGISTRY HAD NO ENTRY FOR THIS ROUTE AT ALL.
+    //
+    // `/workbook-tools` shipped and was reachable, but the registry did not know it existed, so
+    // `getFeatureByRoute` returned nothing for it and every registry-derived decision — lifecycle
+    // enforcement, the shell's auth-page detection, the dead-link gate — was made about a page the
+    // registry could not see. Omission is not neutrality; it is the registry stating something
+    // false by saying nothing.
+    //
+    // `hidden` is the truthful lifecycle, not a hedge: the page is directly accessible to any
+    // signed-in, role-eligible account and is advertised in no navigation, which is precisely what
+    // `hidden` means here. Nothing in the app links to it today. Whether it earns a nav placement
+    // is a product decision and is deliberately NOT taken here.
+    //
+    // All seven roles are listed because the page is reachable by any signed-in account. That is
+    // not an authorization claim: WHAT it grants is decided per-account by the server-derived
+    // catalogue, which re-verifies on every call. The registry must not restate that gate, because
+    // a second copy of an authorization rule is a second place for it to drift.
+    id: 'commerce.workbook-tools',
+    label: 'Workbook tools',
+    route: '/workbook-tools',
+    domain: 'commerce',
+    roles: ['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin', 'bank'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    description: 'Bulk templates, exports and governed imports available to your account',
+    lifecycle: 'hidden',
   },
   {
     id: 'diaspora.safetrade-operations',

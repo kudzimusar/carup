@@ -20,6 +20,8 @@ import {
   LEGACY_REVIEWABLE_STATUSES,
 } from './caseWorkflow.js';
 import { getReasonConfig } from './reasonCodes.js';
+import { onVerificationApproved } from './identityLifecycleService.js';
+import { fetchLatestBiometricAssessment } from './biometrics/biometricAssessmentService.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 // Decisions that materially change the applicant's verification outcome and
@@ -70,8 +72,11 @@ export class VerificationDecisionRecorder {
       throw new ValidationError('An applicant message is required when requesting resubmission.');
     }
 
-    // Get the current assessment from the decision policy
-    const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, null);
+    // Get the current assessment from the decision policy — including the latest biometric
+    // evidence, so a provider-reported mismatch or failed liveness gates approval HERE, not
+    // only in the UI's rendering of allowed actions.
+    const biometricAssessment = await fetchLatestBiometricAssessment(client, session.id);
+    const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, null, biometricAssessment);
 
     // Proactive idempotency check — BEFORE the policy gate, so a retried
     // identical command replays the stored decision instead of failing the
@@ -279,6 +284,22 @@ export class VerificationDecisionRecorder {
 
     if (!auditResult.success) {
       console.warn('Decision audit write failed:', auditResult.error);
+    }
+
+    // O2-X3: a durable APPROVE also advances the CURRENT identity lifecycle (verified, or
+    // recovered from compromised). Best-effort by design — the historical approval above is
+    // already immutable truth either way — but LOUD: the one refusal this hook can produce
+    // (an approval landing on a REVOKED lifecycle, which must never auto-resurrect) is a
+    // policy outcome that belongs in the logs, not a silent success.
+    if (action === DECISION_ACTION.APPROVE) {
+      await onVerificationApproved(client, {
+        userId: session.user_id,
+        sessionId: session.id,
+        reviewerId,
+        reviewerRole,
+      }, { req }).catch((lifecycleError) => {
+        console.warn('Identity lifecycle update after approval refused/failed:', lifecycleError.message);
+      });
     }
 
     // Bridge the persisted decision into the communication engine (seam-E E5).

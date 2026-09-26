@@ -59,6 +59,33 @@ const TEMPLATES = Object.freeze({
     subject: 'Seller authority decision',
     body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
   },
+  // O2-X6 — templates render governed structured facts only; no free text, no links to
+  // private evidence, no reviewer notes.
+  identity_lifecycle_v1: {
+    transactional: true,
+    subject: 'Your CarUp identity status changed',
+    body: 'Your identity status is now: {{status}}. {{summary}}',
+  },
+  dealer_compliance_decision_v1: {
+    transactional: true,
+    subject: 'Dealer compliance decision',
+    body: 'Your dealer application received a CarUp decision: {{decision}}.',
+  },
+  dealer_evidence_required_v1: {
+    transactional: true,
+    subject: 'Your dealer application still needs items',
+    body: 'To continue your dealer application, CarUp still needs: {{summary}}.',
+  },
+  seller_authority_superseded_v1: {
+    transactional: true,
+    subject: 'Seller authority ended',
+    body: 'Your seller authority for vehicle {{listing_id}} ended because ownership transferred. No action is needed.',
+  },
+  workbook_import_result_v1: {
+    transactional: true,
+    subject: 'Workbook import finished',
+    body: 'Your workbook import finished: {{status}}. Your imported vehicles are private drafts — review them in My Vehicles.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',
