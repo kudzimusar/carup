@@ -1936,11 +1936,24 @@ security matrix with positive controls on both sides.
 
 ## T13 — SafeTrade / payment milestones / disputes
 
-- [ ] Provider-backed payments only.
-- [ ] Deposit/balance milestones.
-- [ ] Holds/release conditions.
-- [ ] Dispute workflow.
-- [ ] No fabricated settlement.
+**Implementation plan:** `docs/trade-os/T13_SAFETRADE_PAYMENTS_MILESTONES_DISPUTES_IMPLEMENTATION_PLAN.md`
+· **Receipt:** `docs/trade-os/receipts/T13_SAFETRADE_PAYMENTS_MILESTONES_DISPUTES.md`
+
+**`T13-PARTIAL`.** T13 converges the existing Phase-9 SafeTrade foundation; it is not a greenfield
+payment system. Every row below is `[~]` because deployed certification and owner acceptance remain
+(plan §10). Production NOT AUTHORIZED.
+
+- [~] Provider-backed payments only — sandbox provider, fail-closed live-money firewall preserved;
+      no live provider chosen (plan §9 item 5).
+- [~] Deposit/balance milestones — existing milestone authority, exact reconciliation to the total.
+- [~] Holds/release conditions — release policy not yet reconciled to T8/T11/T12 facts (plan §9 item 1).
+- [~] Dispute workflow — existing disputes/evidence reused; UI truth audit remains (plan §9 item 4).
+- [~] No fabricated settlement — **commercial money converged**: the accepted quote is the only
+      source of seller/amount/currency, caller values are recorded and ignored, and an incomplete
+      accepted quote fails closed. The legacy fallback was retired and the precondition measured on
+      staging (0 of 48 incomplete, 0 transactions); pinned at resolver, service and route level.
+      Open: quote write paths that can still produce an incomplete or unauthorized quote (plan §9
+      items 3 and 6) and JPY outside the SafeTrade currency list (item 7).
 
 ## T14 — Supplier and logistics reputation
 

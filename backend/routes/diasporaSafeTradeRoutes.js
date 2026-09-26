@@ -114,7 +114,9 @@ router.post('/safetrade', auth, asyncHandler(async (req, res) => {
   const data = await createTransaction(undefined, {
     importOrderId: req.body.importOrderId,
     sellerId: req.body.sellerId || null,
-    currency: req.body.currency || 'USD',
+    // No default: the accepted quote owns the currency (T13). Defaulting to 'USD' would record a
+    // currency the caller never sent as an ignored assertion on every non-USD transaction.
+    currency: req.body.currency ?? null,
     totalAmount: req.body.totalAmount,
     tenantId: req.userContext.tenantId || null,
     idempotencyKey: req.body.idempotencyKey || req.headers['x-idempotency-key'] || null,

@@ -73,9 +73,22 @@ The first T13 convergence slice therefore makes accepted quote truth load-bearin
 
 A complete accepted quote wins over caller assertions. Mismatching caller seller/currency/amount values are recorded as ignored assertions and can never re-price the SafeTrade transaction.
 
-Historical accepted quotes that pre-date one or more of `seller_id`, `quote_amount`, `quote_currency` remain compatible only through an explicitly labelled `LEGACY_INCOMPLETE_ACCEPTED_QUOTE` fallback. Missing canonical fields are recorded. No FX is invented.
+An accepted quote that the resolver cannot read as complete — no `seller_id`, no positive `quote_amount`, or no three-letter `quote_currency` — **cannot authorize a new SafeTrade transaction** (`SAFETRADE_ACCEPTED_QUOTE_INCOMPLETE`, fail closed). Caller values can never fill the gap. Such a row must be repaired through a governed path, never by trusting a client's financial assertion. No FX is invented.
 
-This compatibility branch is debt to remove after repository/staging data proves all active accepted quotes have complete commercial facts.
+**The retirement precondition was measured, not assumed (2026-09-26).** The first slice kept a `LEGACY_INCOMPLETE_ACCEPTED_QUOTE` fallback as debt "to remove after repository/staging data proves all active accepted quotes have complete commercial facts". `7dc80e46` removed it; the precondition was then measured read-only on carup-staging (`eoyenigwevnxwwhyhaer`), aggregates only, **using the resolver's own completeness rules**:
+
+| measure | value |
+|---|---|
+| `ACCEPTED` quotes (none soft-deleted) | 48 |
+| … `seller_id` missing or blank | **0** |
+| … `quote_amount` null or ≤ 0 | **0** |
+| … `quote_currency` not a three-letter code | **0** |
+| open (`DRAFT`/`ISSUED`) quotes failing the same rules | **0** |
+| existing `diaspora_safetrade_transactions` | 0 |
+
+The schema guarantees less than the resolver requires. `quote_amount` and `quote_currency` are `NOT NULL` (since migration 013), but nothing enforces a positive amount or a three-letter currency, and `seller_id` is nullable **and** `REFERENCES users(id) ON DELETE SET NULL` — so a complete row can become incomplete later. The zeros above are a point-in-time fact, not an invariant; that is an argument *for* failing closed, and it is why §9 item 3 remains open.
+
+On staging, no reachable data depends on the fallback, and no transaction was created through it. The test fixtures that still modelled an incomplete accepted quote — `diaspora-safetrade.test.js` and `diaspora-safetrade-authz.test.js` — were corrected to carry the complete triple, and the refusal itself is now pinned at the service and route level, not only in the resolver. **Production was not measured**: it is outside this phase's authority. T18 must repeat this measurement with the same rules before production readiness.
 
 ## 5. T13.2 money-truth projection
 
@@ -135,9 +148,11 @@ The following are deliberately recorded for the next audit rather than hidden:
 
 1. **Release-policy convergence.** The historical release policy still reads legacy government-document/import-order status assumptions broadly. It must be reconciled against T8/T11/T12 facts and milestone-specific release triggers without making deposit/intermediate releases depend on final delivery.
 2. **Logistics-only subject binding.** Current SafeTrade transactions require `import_order_id`. Trade OS logistics can exist without a procurement import order. T13 needs a canonical subject-binding decision that reuses SafeTrade rather than creating a second payments system.
-3. **Legacy incomplete accepted quotes.** Compatibility fallback must be measured and retired when safe.
+3. **Incomplete accepted quotes — fallback retired, write paths still open.** The fallback is retired (`7dc80e46`) and staging measured 0 of 48 incomplete (§4). But product write paths can still create a quote the resolver will refuse, and nothing refuses it earlier: legacy `addQuote` writes `seller_id: payload.seller_id || null` with an unvalidated amount and currency; RFQ `updateQuote` copies `quote_currency` unvalidated and `submitQuoteById` does not re-validate; a workbook-imported draft can carry `quote_amount || 0`; and `diaspora_accept_quote_atomic` accepts any `ISSUED` quote without checking completeness. Close these by requiring the complete triple before a quote can be `ISSUED` or `ACCEPTED`, then add the equivalent `CHECK` (`NOT VALID` first). The governed repair path for an existing incomplete row is not yet named.
 4. **UI truth projection.** Existing SafeTrade surfaces are substantial, but the new source-money/provider/ledger distinctions must be checked in the deployed buyer/seller/operator experience.
 5. **Live provider/legal/custody.** Not authorized in T13 implementation. Sandbox is sufficient for lifecycle certification; live provider activation requires a separate owner decision.
+6. **Legacy quote write is not authorized (security, pre-existing).** `POST /api/diaspora/import-orders/:id/quotes` is guarded only by authentication, and `addQuote` inserts before any authorization check — when the order is already `QUOTE_ISSUED`, no check runs at all. Any signed-in user can therefore write a complete quote on someone else's order in any seller's name, and an accepted one would be taken by SafeTrade as commercial authority. Fail-closed cannot catch this: the quote is complete. Guard or retire the route (RFQ `createQuote` already derives `seller_id` from the caller and validates money).
+7. **SafeTrade currencies vs the trade corridor.** SafeTrade supports USD, ZAR, GBP and EUR only, while the Japan→Zimbabwe corridor prices in JPY. A JPY accepted quote is refused (`UNSUPPORTED_CURRENCY`), never converted — correct, but it means SafeTrade cannot yet serve the corridor's core purchase. Staging has 2 accepted quotes outside the SafeTrade currency list. Which currencies SafeTrade settles in is an owner/provider decision, not an FX shortcut.
 
 ## 10. Certification plan
 
