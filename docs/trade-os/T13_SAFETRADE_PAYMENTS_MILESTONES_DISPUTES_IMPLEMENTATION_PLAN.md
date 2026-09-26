@@ -146,7 +146,7 @@ Customs assessment/payment/release evidence is not T13 settlement. T13 settlemen
 
 The following are deliberately recorded for the next audit rather than hidden:
 
-1. **Release-policy convergence — CLOSED (2026-09-26, §9A).** Release eligibility is now milestone-specific. T8/T11/T12 facts are read from their frozen owners, and only for the milestones they gate. Every SafeTrade assurance gate still applies to every release.
+1. **RELEASE-POLICY CONVERGENCE — IMPLEMENTED, MODERATOR REMEDIATION REQUIRED (2026-09-26, §9A; remediation §9B).** Release eligibility is now milestone-specific. T8/T11/T12 facts are read from their frozen owners, and only for the milestones they gate. Every SafeTrade assurance gate still applies to every release.
 2. **Logistics-only subject binding.** Current SafeTrade transactions require `import_order_id`. Trade OS logistics can exist without a procurement import order. T13 needs a canonical subject-binding decision that reuses SafeTrade rather than creating a second payments system.
 3. **Incomplete accepted quotes — fallback retired, write paths still open.** The fallback is retired (`7dc80e46`) and staging measured 0 of 48 incomplete (§4). But product write paths can still create a quote the resolver will refuse, and nothing refuses it earlier: legacy `addQuote` writes `seller_id: payload.seller_id || null` with an unvalidated amount and currency; RFQ `updateQuote` copies `quote_currency` unvalidated and `submitQuoteById` does not re-validate; a workbook-imported draft can carry `quote_amount || 0`; and `diaspora_accept_quote_atomic` accepts any `ISSUED` quote without checking completeness. Close these by requiring the complete triple before a quote can be `ISSUED` or `ACCEPTED`, then add the equivalent `CHECK` (`NOT VALID` first). The governed repair path for an existing incomplete row is not yet named.
 4. **UI truth projection.** Existing SafeTrade surfaces are substantial, but the new source-money/provider/ledger distinctions must be checked in the deployed buyer/seller/operator experience.
@@ -165,7 +165,7 @@ The following are deliberately recorded for the next audit rather than hidden:
 | PAYMENT_NOT_HELD | this milestone's status | T13 | every milestone | — | unchanged |
 | TOTALS_UNRECONCILED | milestone sum vs total | T13 | every milestone | — | unchanged |
 | COMPLIANCE_NOT_APPROVED | `diaspora_compliance_reviews` | T13 assurance (human review) | every milestone | — | unchanged (a safety gate, not a fulfilment fact) |
-| DOCUMENTS_NOT_VERIFIED | `diaspora_trade_documents`, current version | **T8** | PROGRESS, SHIPMENT, CUSTOMS_DUTY, DELIVERY, RELEASE, any milestone with trigger `ON_DOCUMENTS_VERIFIED_REVIEWED` | DEPOSIT, FEE, INSURANCE | satisfier moved to T8 (deleted/superseded excluded); a legacy `vehicle_government_documents` row can still block but never satisfy |
+| DOCUMENTS_NOT_VERIFIED | `diaspora_trade_documents`, current version | **T8** | PROGRESS, SHIPMENT, CUSTOMS_DUTY, DELIVERY, RELEASE, any milestone with trigger `ON_DOCUMENTS_VERIFIED_REVIEWED` | DEPOSIT, FEE, INSURANCE | satisfier moved to T8 (deleted/superseded excluded). *At `0105dfd`: a legacy `vehicle_government_documents` row could still block, and T8 was read from the document's own status column. Superseded by §9B: governed type + reviewer verdict; legacy neither satisfies nor vetoes.* |
 | SHIPMENT_MILESTONE_NOT_REACHED | `diaspora_shipments.status` by T11 stage rank | **T11** | SHIPMENT (≥ IN_TRANSIT), DELIVERY/RELEASE (≥ ARRIVED) | DEPOSIT, FEE, INSURANCE, PROGRESS, CUSTOMS_DUTY | milestone-specific; EXCEPTION proves no progress |
 | CUSTOMS_ASSESSMENT_NOT_EVIDENCED *(new)* | `diaspora_customs_events` on the order's live case | **T12** | CUSTOMS_DUTY | all others | document-backed ASSESSMENT_EVIDENCE only; payment evidence satisfies nothing |
 | DESTINATION_RELEASE_NOT_EVIDENCED *(new)* | `diaspora_customs_events` | **T12** | DELIVERY, RELEASE | all others | AUTHORITY_DOCUMENT release evidence only; a reported release is not an evidenced one |
@@ -196,6 +196,66 @@ REFUND, an unknown type, or an evaluation with no `milestoneId` is **FINAL**. A 
 - sandbox-only execution.
 
 **Proof.** `backend/tests/trade-os-t13-release-policy.test.js` holds 20 tests with a positive control for every refusal. The shared SafeTrade fixture now seeds the modern authorities, with no assertion changed. The mutation matrix has 13 mutations, all red. M13's first form survived because a second, independent rank lookup still refused EXCEPTION; re-applied at the rank table, it went red.
+
+**Checkpoint `0105dfd` — certification FAILED.** Exact-head gate run `36268191057`: Bootstrap and Chromium passed; Tablet, Mobile and Aggregate failed at `tests/agents/33-diaspora-staging-browser-parts.spec.ts:92` (`diaspora-stock-merch-result` not found). The moderator also found the T8 gate short of T8's own semantics. Disposition: `T13-PARTIAL — RELEASE-POLICY IMPLEMENTATION SUBSTANTIALLY CORRECT; T8 AUTHORITY REMEDIATION + EXACT-HEAD STAGING RECERTIFICATION REQUIRED`. §9B records the remediation. Nothing above is rewritten.
+
+## 9B. Moderator remediation (2026-09-26)
+
+### T8 authority
+
+The `0105dfd` gate treated a document as verified when its own `verification_status` column said so, required every current document to be verified whatever its type, and let an unverified legacy `vehicle_government_documents` row veto. It now judges documents the way T8 does (`tradeDocumentWorkspaceService.projectRow`):
+
+| layer | source | rule |
+|---|---|---|
+| record | `diaspora_trade_documents` | current version only: not deleted, not superseded |
+| governed type | `trade_document_types.verification_required` by code | decides whether a verdict is needed at all |
+| verdict | latest `diaspora_trade_document_verifications` row for **that** document id | written only by T8's verify/reject routes |
+
+| state | gate |
+|---|---|
+| latest verdict REJECTED (any type) | BLOCK |
+| latest verdict VERIFIED | pass |
+| no verdict, type requires verification | BLOCK (awaiting review) |
+| no verdict, type does not require verification | pass (supplied) |
+| no verdict, type not in T8's vocabulary | BLOCK (no rule says a verdict is unnecessary) |
+| no current document at all | BLOCK |
+
+- OCR/extraction is never verification. `OCR_EXTRACTED`, and even a `VERIFIED` status column with no verdict record, blocks.
+- A verdict belongs to the version it was given on, so a replacement starts unreviewed. Verdicts are fetched only for current document ids, so a predecessor's verdict cannot be read at all. A rejected version that has been replaced no longer speaks.
+- `vehicle_government_documents` is no longer read. No canonical compatibility rule exists, so it neither satisfies nor vetoes.
+- T8 defines no per-type "required documents" rule, and none is invented. T8 readiness (`requested`) is not read by this gate.
+
+Proof: `trade-os-t13-release-policy` 27/27, including the seven required cases (verification-required without verdict → BLOCK; verified verdict → PASS; not-required → not blocked; OCR-only → not verified; superseded verified does not bless its replacement; legacy-only neither satisfies nor vetoes; rejected → BLOCK), plus latest-verdict-wins, mixed, empty and ungoverned-type cases.
+
+Mutation matrix, 11 mutations:
+- Red (10):
+  - T1: verdict requirement ignored;
+  - T2: VERIFIED verdict ignored;
+  - T3: every type requires a verdict;
+  - T4: status column read as verdict;
+  - T5: superseded versions counted (red after the replaced-rejected case was added; it survived first);
+  - T6: legacy veto restored;
+  - T7: REJECTED ignored;
+  - T8: earliest verdict wins;
+  - T9: empty passes;
+  - T10: ungoverned type passes.
+- Inert by construction (1): T5b, a replacement inheriting its predecessor's verdict. Verdicts are fetched only for current document ids.
+
+One Phase-9 SafeTrade test ("missing document blocks release") proved blocking with a pending *legacy* row. Under the ruling that legacy must not veto, it now proves blocking with a current T8 document that has no verdict. The shared fixture seeds the governed type and a reviewer verdict.
+
+### Seller/Parts shard (`spec 33:92`)
+
+Classification: **PRODUCT DEFECT** — a pre-existing render/fetch loop in `DiasporaStockManager`, present on `main` (`bb9d990`). It is not cross-shard contamination, stale data, an environment failure or a responsive defect.
+
+Evidence (exact-head run `36268191057`):
+- The tablet trace recorded **2,107 GET `/diaspora/stock` and 2,106 GET `/diaspora/supply-documents` in 19 s**, and **no PATCH**. The mobile trace recorded 2,389 and 2,388, and no PATCH.
+- The page snapshot shows the form filled, Save enabled, and neither the result nor the error element present.
+- Staging audit log: the tablet and mobile rows each have only `STOCK_ITEM_CREATED` and `STOCK_ADD`, with no `STOCK_ITEM_UPDATED`. The Chromium row has both, plus `STOCK_ITEM_PUBLISHED`.
+- Each shard created and operated on its own new row, so shared-`uat.seller` contamination did not occur. A 409 `STALE_STOCK_VERSION` was ruled out because no PATCH was sent.
+
+Mechanism. The loaders were keyed on the aggregate `useCarUpApi()` object. That hook returns a new object every render and owns loading state, so every request re-rendered the page, recreated `loadList`/`loadDocs` and re-fired the mount effect: the issue #128 defect, fixed on the trade-profile page but never on the stock manager. The spec's forced click (`force: true`) lands on a page that is re-rendering many times a second. Whether the handler runs is timing luck. Chromium won it this run and lost it at `3cdae37`.
+
+Fix: the loaders depend on the individually memoized methods, not the aggregate. `DiasporaStockManager.requests.test.tsx` uses a mock that re-renders on every request, as the real hook does. It asserts one list load and one document load on mount, one reload after create, and exactly one PATCH carrying `expected_updated_at`. Both tests are red without the fix. The spec is unchanged: no skip, no timeout change, and the merch-save proof is kept.
 
 ## 10. Certification plan
 

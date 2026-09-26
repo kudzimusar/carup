@@ -66,7 +66,7 @@ This receipt does not claim:
 
 ## Required next hardening
 
-1. ~~Reconcile historical release conditions to current T8/T11/T12 authorities and milestone-specific triggers.~~ Done (2026-09-26) — see "Release-policy convergence" below and plan §9A.
+1. Reconcile historical release conditions to current T8/T11/T12 authorities and milestone-specific triggers — **RELEASE-POLICY CONVERGENCE — IMPLEMENTED, MODERATOR REMEDIATION REQUIRED** (plan §9A). Remediation implemented (plan §9B); exact-head staging recertification is recorded outside this file, on PR #207.
 2. Audit every SafeTrade UI claim against the new source/provider/ledger truth distinctions.
 3. Decide canonical subject binding for logistics-only transactions without creating a second payments authority.
 4. ~~Measure/remove the legacy incomplete-quote compatibility path when active data allows.~~ Done for staging (below). Production measurement remains T18's.
@@ -97,7 +97,7 @@ SafeTrade suites (`diaspora-safetrade`, `-authz`, `trade-os-t13-safetrade-conver
 
 **Production was not measured.** It is outside this phase's authority. T18 must repeat the measurement with the same rules.
 
-## Release-policy convergence (2026-09-26)
+## Release-policy convergence (2026-09-26) — checkpoint `0105dfd`
 
 Starting authority: branch `feat/trade-os-client-demo-convergence` at `e7b24653` (PR #207 head), `main` `bb9d9900`, clean tree.
 
@@ -112,6 +112,29 @@ Starting authority: branch `feat/trade-os-client-demo-convergence` at `e7b24653`
   - Lint NET_NEW=0.
 - **Mutations.** 13/13 red (plan §9A).
 - Full table: plan §9A.
+
+**Certification of `0105dfd` FAILED.** Gate run `36268191057`: Bootstrap and Chromium passed; Tablet, Mobile and Aggregate failed at `spec 33:92`. The moderator also found the T8 gate short of T8 semantics. Status: `RELEASE-POLICY CONVERGENCE — IMPLEMENTED, MODERATOR REMEDIATION REQUIRED`.
+
+## Moderator remediation (2026-09-26)
+
+Starting authority: `0105dfdf` (PR #207 head), `main` `bb9d9900`, clean tree.
+
+- **T8 authority.** Documents are judged on three layers:
+  - record: current `diaspora_trade_documents` only;
+  - governed type: `trade_document_types.verification_required`;
+  - reviewer verdict: the latest `diaspora_trade_document_verifications` row for that document id.
+
+  REJECTED blocks. VERIFIED passes. No verdict blocks only when the type requires one, or the type is ungoverned. Extraction is never a verdict. A replacement starts unreviewed. Legacy `vehicle_government_documents` neither satisfies nor vetoes. No universal required-document rule was invented.
+- **Seller/Parts shard.** A PRODUCT DEFECT: a pre-existing render/fetch loop in `DiasporaStockManager` (issue #128 class). The traces show about 2,100 list requests in 19 s and no PATCH. Fixed by keying the loaders on memoized methods, with a request-count regression test. The spec is unchanged.
+- **Tests.**
+  - `trade-os-t13-release-policy` 27/27.
+  - SafeTrade + ST-3 + T13 245/0.
+  - T8 30/0.
+  - Diaspora + Trade OS 2021/0 (7 skipped).
+- **Mutations.** 10 of 11 T8 mutations red; the eleventh is inert by construction (plan §9B).
+- Full detail: plan §9B.
+
+Production touched: NO. T14 started: NO. JPY and quote-authorization work: not reopened.
 
 ## Verdict
 

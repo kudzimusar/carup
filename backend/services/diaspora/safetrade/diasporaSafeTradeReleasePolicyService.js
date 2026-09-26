@@ -267,26 +267,74 @@ export async function evaluateRelease(supabaseOrOptions, {
   const needs = new Set(requires);
   evidenceRefs.push(evidenceRef({ kind: 'release_policy', table: 'diaspora_safetrade_milestones', recordId: targetMilestone?.id ?? null, observed: { milestoneType: targetMilestone?.milestone_type ?? null, releaseTrigger: targetMilestone?.release_trigger ?? null, releaseClass, requires }, satisfied: true }));
 
-  // T8 — documents. The satisfier is the T8 authority only: the CURRENT version of every trade
-  // document bound to this order (not deleted, not superseded), all VERIFIED, at least one. A legacy
-  // vehicle_government_documents row can still BLOCK (an unverified one is a real open question) but
-  // can never satisfy — it is not the modern evidence authority.
+  // T8 — documents, judged the way T8 judges them (tradeDocumentWorkspaceService.projectRow):
+  //   record  = diaspora_trade_documents, CURRENT version only (not deleted, not superseded);
+  //   type    = trade_document_types by code, which says whether that kind of document needs a
+  //             reviewer's verdict at all (verification_required);
+  //   verdict = the latest diaspora_trade_document_verifications row for THAT document id.
+  // The document row's own verification_status is not the verdict: OCR moves it to OCR_EXTRACTED,
+  // and extraction is an observation, never a review. A verdict belongs to the version it was given
+  // on, so a replacement starts unreviewed. vehicle_government_documents is not a T8 authority and
+  // neither satisfies nor vetoes this gate. T8 defines no per-type "required documents" rule, so none
+  // is invented here: the gate judges what was supplied, and fails closed only when nothing was.
   if (needs.has(RQ.DOCUMENTS_VERIFIED)) {
     const { data: tradeDocs } = await supabase
       .from('diaspora_trade_documents')
       .select('*')
       .eq('import_order_id', txn.import_order_id);
     const current = (tradeDocs || []).filter((d) => !d.deleted_at && !d.superseded_at);
-    const unverifiedT8 = current.filter((d) => d.verification_status !== 'VERIFIED');
-    const { data: legacyDocs } = await supabase
-      .from('vehicle_government_documents')
-      .select('*')
-      .eq('import_order_id', txn.import_order_id);
-    const unverifiedLegacy = (legacyDocs || []).filter((d) => d.verification_status !== 'VERIFIED');
-    const docsSatisfied = current.length > 0 && unverifiedT8.length === 0 && unverifiedLegacy.length === 0;
-    const docEv = evidenceRef({ kind: 'trade_document', table: 'diaspora_trade_documents', recordId: (unverifiedT8[0] || unverifiedLegacy[0])?.id ?? null, observed: { current: current.length, unverified: unverifiedT8.length, legacyUnverified: unverifiedLegacy.length }, satisfied: docsSatisfied });
+    const docIds = current.map((d) => d.id);
+    const typeCodes = [...new Set(current.map((d) => d.document_type).filter(Boolean))];
+    const [{ data: types }, { data: verdicts }] = await Promise.all([
+      typeCodes.length
+        ? supabase.from('trade_document_types').select('*').in('code', typeCodes)
+        : Promise.resolve({ data: [] }),
+      docIds.length
+        ? supabase.from('diaspora_trade_document_verifications').select('*').in('trade_document_id', docIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const typeByCode = new Map((types || []).filter((t) => !t.deleted_at).map((t) => [t.code, t]));
+    const latestVerdict = new Map();
+    for (const v of (verdicts || []).filter((row) => !row.deleted_at)) {
+      const at = String(v.verified_at || v.created_at || '');
+      const seen = latestVerdict.get(v.trade_document_id);
+      if (!seen || at > String(seen.verified_at || seen.created_at || '')) latestVerdict.set(v.trade_document_id, v);
+    }
+    const assessed = current.map((doc) => {
+      const type = typeByCode.get(doc.document_type) || null;
+      const verdict = String(latestVerdict.get(doc.id)?.verification_status || '').toUpperCase();
+      // An ungoverned type has no rule saying a verdict is unnecessary, so it is held to one.
+      const verdictRequired = type ? Boolean(type.verification_required) : true;
+      let state;
+      if (verdict === 'REJECTED') state = 'REJECTED';
+      else if (verdict === 'VERIFIED') state = 'VERIFIED';
+      else if (verdictRequired) state = type ? 'AWAITING_REVIEW' : 'UNGOVERNED_TYPE_AWAITING_REVIEW';
+      else state = 'SUPPLIED_VERIFICATION_NOT_REQUIRED';
+      return { id: doc.id, documentType: doc.document_type ?? null, state };
+    });
+    const open = assessed.filter((a) => a.state === 'REJECTED' || a.state.endsWith('AWAITING_REVIEW'));
+    const docsSatisfied = current.length > 0 && open.length === 0;
+    const docEv = evidenceRef({
+      kind: 'trade_document',
+      table: 'diaspora_trade_documents',
+      recordId: open[0]?.id ?? null,
+      observed: {
+        current: current.length,
+        verified: assessed.filter((a) => a.state === 'VERIFIED').length,
+        verificationNotRequired: assessed.filter((a) => a.state === 'SUPPLIED_VERIFICATION_NOT_REQUIRED').length,
+        awaitingReview: assessed.filter((a) => a.state.endsWith('AWAITING_REVIEW')).length,
+        rejected: assessed.filter((a) => a.state === 'REJECTED').length,
+        documents: assessed,
+      },
+      satisfied: docsSatisfied,
+    });
     if (!docsSatisfied) {
-      add(docEv, blocker({ code: BLK.DOCUMENTS_NOT_VERIFIED, message: current.length === 0 ? 'No current trade document is attached to this order.' : `${unverifiedT8.length + unverifiedLegacy.length} document(s) are not VERIFIED.`, remediation: 'Have the documents reviewed and VERIFIED in the documents workspace (T8).', policyClause: '§43.documents' }));
+      const rejected = open.filter((a) => a.state === 'REJECTED').length;
+      const awaiting = open.length - rejected;
+      const message = current.length === 0
+        ? 'No current trade document is attached to this order.'
+        : [rejected ? `${rejected} document(s) were rejected by a reviewer` : null, awaiting ? `${awaiting} document(s) need a reviewer's verdict and have none` : null].filter(Boolean).join('; ') + '.';
+      add(docEv, blocker({ code: BLK.DOCUMENTS_NOT_VERIFIED, message, remediation: 'Supply corrected documents and have those that need review verified in the documents workspace (T8).', policyClause: '§43.documents' }));
     } else {
       evidenceRefs.push(docEv);
     }

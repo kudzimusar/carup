@@ -143,8 +143,11 @@ function seedReleaseEvidence(client, { delivery = true } = {}) {
   client._rows('diaspora_compliance_reviews').push({ id: 'cr-1', import_order_id: 'ord-1', status: 'APPROVED', tenant_id: 'tenant-A' });
   client._rows('vehicle_government_documents').push({ id: 'doc-1', import_order_id: 'ord-1', verification_status: 'VERIFIED' });
   // T13 release-policy convergence: a FINAL release reads its facts from their frozen owners — the
-  // current T8 trade document, the T11 shipment stage, and a T12 authority release document.
-  client._rows('diaspora_trade_documents').push({ id: 'tdoc-1', import_order_id: 'ord-1', verification_status: 'VERIFIED', deleted_at: null, superseded_at: null });
+  // current T8 trade document with its governed type and a reviewer's verdict, the T11 shipment
+  // stage, and a T12 authority release document.
+  client._rows('trade_document_types').push({ id: 'tdt-1', code: 'COMMERCIAL_INVOICE', verification_required: true, deleted_at: null });
+  client._rows('diaspora_trade_documents').push({ id: 'tdoc-1', import_order_id: 'ord-1', document_type: 'COMMERCIAL_INVOICE', verification_status: 'VERIFIED', deleted_at: null, superseded_at: null });
+  client._rows('diaspora_trade_document_verifications').push({ id: 'tdv-1', trade_document_id: 'tdoc-1', verification_status: 'VERIFIED', verified_by: 'rev-1', verified_at: '2026-06-18T10:00:00.000Z', deleted_at: null });
   client._rows('diaspora_shipments').push({ id: 'sh-1', import_order_id: 'ord-1', status: 'ARRIVED' });
   client._rows('diaspora_customs_cases').push({ id: 'cc-1', import_order_id: 'ord-1', subject_type: 'import_order', subject_id: 'ord-1', status: 'OPEN' });
   client._rows('diaspora_customs_events').push({ id: 'ce-rel', case_id: 'cc-1', event_type: 'RELEASE_EVIDENCE_RECEIVED', assertion_class: 'ATTRIBUTED', source_kind: 'AUTHORITY_DOCUMENT', event_time: '2026-06-20T10:00:00.000Z' });
@@ -323,7 +326,9 @@ test('missing document blocks release (DOCUMENTS_NOT_VERIFIED)', async () => {
   const client = freshClient(eligibleSeed());
   seedTxn(client, { milestoneStatus: 'HELD' });
   seedReleaseEvidence(client);
-  client._tables.vehicle_government_documents = [{ id: 'doc-1', import_order_id: 'ord-1', verification_status: 'PENDING' }];
+  // The T8 document is present, but its type requires a reviewer's verdict and none was given.
+  // (A legacy vehicle_government_documents row neither satisfies nor vetoes — moderator ruling.)
+  client._tables.diaspora_trade_document_verifications = [];
   const verdict = await releaseService.evaluateRelease(client, { safeTradeId: 'st-1', actorContext: reviewer, evaluatedAt: FIXED_TS });
   assert.equal(verdict.eligible, false);
   assert.ok(verdict.blockers.some((b) => b.code === 'DOCUMENTS_NOT_VERIFIED'));

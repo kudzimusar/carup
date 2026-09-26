@@ -48,6 +48,12 @@ function seed({ type = 'DEPOSIT', total = 1000, releaseTrigger = 'REVIEWER_APPRO
     }],
     diaspora_compliance_reviews: [{ id: 'cr-1', import_order_id: 'ord-1', status: 'APPROVED' }],
     diaspora_trade_documents: [],
+    // T8's governed vocabulary: one type that needs a reviewer's verdict, one that does not.
+    trade_document_types: [
+      { id: 'tdt-1', code: 'COMMERCIAL_INVOICE', display_name: 'Commercial invoice', verification_required: true, deleted_at: null },
+      { id: 'tdt-2', code: 'PACKING_PHOTOS', display_name: 'Packing photos', verification_required: false, deleted_at: null },
+    ],
+    diaspora_trade_document_verifications: [],
     vehicle_government_documents: [],
     diaspora_shipments: [],
     diaspora_customs_cases: [],
@@ -62,7 +68,15 @@ function seed({ type = 'DEPOSIT', total = 1000, releaseTrigger = 'REVIEWER_APPRO
 const evalM = (client, actor = reviewer, milestoneId = 'm-1') => evaluateRelease(client, { safeTradeId: 'st-1', milestoneId, actorContext: actor, evaluatedAt: FIXED_TS });
 const codes = (v) => v.blockers.map((b) => b.code).sort();
 
-const addDoc = (c, over = {}) => c._rows('diaspora_trade_documents').push({ id: `d-${c._rows('diaspora_trade_documents').length}`, import_order_id: 'ord-1', verification_status: 'VERIFIED', deleted_at: null, superseded_at: null, ...over });
+/** A current T8 document; `verdict` records a reviewer's verdict the way T8's verify/reject routes do. */
+function addDoc(c, { verdict = 'VERIFIED', verdictAt = '2026-09-10T00:00:00.000Z', ...over } = {}) {
+  const docs = c._rows('diaspora_trade_documents');
+  const doc = { id: `d-${docs.length}`, import_order_id: 'ord-1', document_type: 'COMMERCIAL_INVOICE', verification_status: verdict || 'UPLOADED', deleted_at: null, superseded_at: null, ...over };
+  docs.push(doc);
+  if (verdict) addVerdict(c, doc.id, verdict, verdictAt);
+  return doc;
+}
+const addVerdict = (c, docId, status, at = '2026-09-10T00:00:00.000Z') => c._rows('diaspora_trade_document_verifications').push({ id: `v-${c._rows('diaspora_trade_document_verifications').length}`, trade_document_id: docId, verification_status: status, verified_by: 'rev-1', verified_at: at, created_at: at, deleted_at: null });
 const setShipment = (c, status) => c._rows('diaspora_shipments').push({ id: `sh-${status}`, import_order_id: 'ord-1', status });
 function addCustomsEvent(c, event_type, source_kind) {
   if (!c._rows('diaspora_customs_cases').length) c._rows('diaspora_customs_cases').push({ id: 'cc-1', import_order_id: 'ord-1', subject_type: 'import_order', subject_id: 'ord-1', status: 'OPEN' });
@@ -180,26 +194,110 @@ test('FINAL: an unknown or REFUND milestone type is treated as FINAL', async () 
 
 // ── Frozen authorities: read, never manufactured ─────────────────────────────
 
-test('T8: only the CURRENT version counts, and a legacy row can block but never satisfy', async () => {
-  const superseded = seed({ type: 'PROGRESS' });
-  addDoc(superseded, { superseded_at: '2026-09-01T00:00:00Z' });
-  addDoc(superseded, { verification_status: 'UPLOADED' });
-  assert.deepEqual(codes(await evalM(superseded)), ['DOCUMENTS_NOT_VERIFIED'], 'a verified predecessor does not verify its replacement');
+// ── T8 authority: record + governed type + reviewer verdict ─────────────────
 
+test('T8: a document whose type requires verification and has no verdict BLOCKS', async () => {
+  const c = seed({ type: 'PROGRESS' });
+  addDoc(c, { verdict: null });
+  const v = await evalM(c);
+  assert.deepEqual(codes(v), ['DOCUMENTS_NOT_VERIFIED']);
+  assert.match(v.blockers[0].message, /need a reviewer's verdict/);
+});
+
+test('T8: a reviewer VERIFIED verdict PASSES', async () => {
+  const c = seed({ type: 'PROGRESS' });
+  addDoc(c, { verdict: 'VERIFIED' });
+  const v = await evalM(c);
+  assert.equal(v.eligible, true, `blockers: ${codes(v)}`);
+});
+
+test('T8: a supplied document whose type does not require verification is NOT blocked', async () => {
+  const c = seed({ type: 'PROGRESS' });
+  addDoc(c, { document_type: 'PACKING_PHOTOS', verdict: null });
+  const v = await evalM(c);
+  assert.equal(v.eligible, true, `blockers: ${codes(v)}`);
+  // …and the same unreviewed file under a type that DOES require a verdict blocks: the type decides.
+  const strict = seed({ type: 'PROGRESS' });
+  addDoc(strict, { document_type: 'COMMERCIAL_INVOICE', verdict: null });
+  assert.deepEqual(codes(await evalM(strict)), ['DOCUMENTS_NOT_VERIFIED']);
+});
+
+test('T8: OCR/extraction is never verification — OCR_EXTRACTED, or even a VERIFIED status column, without a verdict blocks', async () => {
+  const ocr = seed({ type: 'PROGRESS' });
+  addDoc(ocr, { verdict: null, verification_status: 'OCR_EXTRACTED', ocr_document_id: 'ocr-1' });
+  assert.deepEqual(codes(await evalM(ocr)), ['DOCUMENTS_NOT_VERIFIED']);
+  // The document row's status column is not the verdict record.
+  const columnOnly = seed({ type: 'PROGRESS' });
+  addDoc(columnOnly, { verdict: null, verification_status: 'VERIFIED' });
+  assert.deepEqual(codes(await evalM(columnOnly)), ['DOCUMENTS_NOT_VERIFIED']);
+});
+
+test('T8: a superseded VERIFIED version does not bless its replacement', async () => {
+  const c = seed({ type: 'PROGRESS' });
+  const old = addDoc(c, { verdict: 'VERIFIED', superseded_at: '2026-09-11T00:00:00Z' });
+  addDoc(c, { verdict: null, version: 2, supersedes_document_id: old.id });
+  assert.deepEqual(codes(await evalM(c)), ['DOCUMENTS_NOT_VERIFIED'], 'the verdict belongs to the version it was given on');
+  // Once the replacement itself is verified, it passes.
+  addVerdict(c, 'd-1', 'VERIFIED');
+  assert.equal((await evalM(c)).eligible, true);
+
+  // The converse: a rejected version that has been REPLACED no longer speaks for the transaction.
+  const corrected = seed({ type: 'PROGRESS' });
+  const bad = addDoc(corrected, { verdict: 'REJECTED', superseded_at: '2026-09-11T00:00:00Z' });
+  addDoc(corrected, { verdict: 'VERIFIED', version: 2, supersedes_document_id: bad.id });
+  const v = await evalM(corrected);
+  assert.equal(v.eligible, true, `only the CURRENT version counts; blockers: ${codes(v)}`);
+});
+
+test('T8: legacy vehicle_government_documents neither satisfies nor vetoes the gate', async () => {
   const legacyOnly = seed({ type: 'PROGRESS' });
   legacyOnly._rows('vehicle_government_documents').push({ id: 'vg-1', import_order_id: 'ord-1', verification_status: 'VERIFIED' });
-  assert.deepEqual(codes(await evalM(legacyOnly)), ['DOCUMENTS_NOT_VERIFIED'], 'the legacy table is not the T8 authority');
+  assert.deepEqual(codes(await evalM(legacyOnly)), ['DOCUMENTS_NOT_VERIFIED'], 'the legacy table cannot satisfy');
 
   const legacyOpen = seed({ type: 'PROGRESS' });
-  addDoc(legacyOpen);
+  addDoc(legacyOpen, { verdict: 'VERIFIED' });
   legacyOpen._rows('vehicle_government_documents').push({ id: 'vg-1', import_order_id: 'ord-1', verification_status: 'PENDING' });
-  assert.deepEqual(codes(await evalM(legacyOpen)), ['DOCUMENTS_NOT_VERIFIED'], 'an open legacy question still blocks');
+  legacyOpen._rows('vehicle_government_documents').push({ id: 'vg-2', import_order_id: 'ord-1', verification_status: 'REJECTED' });
+  const v = await evalM(legacyOpen);
+  assert.equal(v.eligible, true, `the legacy table cannot veto either; blockers: ${codes(v)}`);
+});
+
+test('T8: a REJECTED verdict BLOCKS — even for a type that needs no verification, and even after an earlier VERIFIED', async () => {
+  const c = seed({ type: 'PROGRESS' });
+  addDoc(c, { verdict: 'REJECTED' });
+  const v = await evalM(c);
+  assert.deepEqual(codes(v), ['DOCUMENTS_NOT_VERIFIED']);
+  assert.match(v.blockers[0].message, /rejected/);
+
+  const lenient = seed({ type: 'PROGRESS' });
+  addDoc(lenient, { document_type: 'PACKING_PHOTOS', verdict: 'REJECTED' });
+  assert.deepEqual(codes(await evalM(lenient)), ['DOCUMENTS_NOT_VERIFIED']);
+
+  // The LATEST verdict is the verdict.
+  const reversed = seed({ type: 'PROGRESS' });
+  addDoc(reversed, { verdict: 'VERIFIED', verdictAt: '2026-09-10T00:00:00.000Z' });
+  addVerdict(reversed, 'd-0', 'REJECTED', '2026-09-12T00:00:00.000Z');
+  assert.deepEqual(codes(await evalM(reversed)), ['DOCUMENTS_NOT_VERIFIED']);
+});
+
+test('T8: one open document among verified ones still blocks; no documents at all blocks; an ungoverned type is held to a verdict', async () => {
+  const mixed = seed({ type: 'PROGRESS' });
+  addDoc(mixed, { verdict: 'VERIFIED' });
+  addDoc(mixed, { verdict: null });
+  assert.deepEqual(codes(await evalM(mixed)), ['DOCUMENTS_NOT_VERIFIED']);
+
+  const none = seed({ type: 'PROGRESS' });
+  assert.match((await evalM(none)).blockers[0].message, /No current trade document/);
+
+  const ungoverned = seed({ type: 'PROGRESS' });
+  addDoc(ungoverned, { document_type: 'SOMETHING_T8_DOES_NOT_KNOW', verdict: null });
+  assert.deepEqual(codes(await evalM(ungoverned)), ['DOCUMENTS_NOT_VERIFIED']);
 });
 
 test('an evaluation writes NOTHING — no T8/T11/T12 fact, no milestone, no transaction, no dispute', async () => {
   const c = seed({ type: 'RELEASE' });
-  addDoc(c, { verification_status: 'UPLOADED' }); setShipment(c, 'IN_TRANSIT');
-  const tables = ['diaspora_trade_documents', 'vehicle_government_documents', 'diaspora_shipments', 'diaspora_customs_cases', 'diaspora_customs_events', 'diaspora_safetrade_milestones', 'diaspora_safetrade_transactions', 'diaspora_safetrade_disputes', 'diaspora_safetrade_release_evaluations', 'diaspora_safetrade_operations', 'diaspora_import_audit_log'];
+  addDoc(c, { verdict: null }); setShipment(c, 'IN_TRANSIT');
+  const tables = ['diaspora_trade_documents', 'diaspora_trade_document_verifications', 'trade_document_types', 'vehicle_government_documents', 'diaspora_shipments', 'diaspora_customs_cases', 'diaspora_customs_events', 'diaspora_safetrade_milestones', 'diaspora_safetrade_transactions', 'diaspora_safetrade_disputes', 'diaspora_safetrade_release_evaluations', 'diaspora_safetrade_operations', 'diaspora_import_audit_log'];
   const before = JSON.stringify(tables.map((t) => c._rows(t)));
   const v = await evalM(c);
   assert.equal(v.eligible, false);
