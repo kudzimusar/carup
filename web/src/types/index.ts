@@ -812,6 +812,13 @@ export interface DiasporaRfqMeta {
   publishedAt?: string;
   acceptedQuoteId?: string;
   acceptedAt?: string;
+  /** T2 sourcing intent captured by the Request Quotes wizard. */
+  neededBy?: string;
+  quoteDeadline?: string;
+  buyerNotes?: string;
+  urgency?: string;
+  /** Explicit buyer consent to show budget to suppliers. Absent/false keeps it private. */
+  discloseBudget?: boolean;
 }
 
 export interface DiasporaQuote {
@@ -826,6 +833,16 @@ export interface DiasporaQuote {
   status: string;
   metadata?: Record<string, unknown>;
   created_at?: string;
+  /** T2 commercial terms. NULL means the supplier did not state it — never a default. */
+  offered_quantity?: number | null;
+  unit_price?: number | string | null;
+  lead_time_days?: number | null;
+  shipping_included?: boolean | null;
+  offered_condition?: string | null;
+  offered_description?: string | null;
+  stock_item_id?: string | null;
+  /** Attached to non-draft quotes on the buyer's read. Absent on the supplier's own draft. */
+  supplier?: DiasporaSupplierIdentity;
   [key: string]: unknown;
 }
 
@@ -866,6 +883,131 @@ export interface DiasporaBuyerOrderPayload {
   budget_currency?: string;
   urgency?: string;
   metadata?: Record<string, unknown>;
+  /** T2 sourcing intent. `disclose_budget` is explicit buyer consent to show budget to suppliers. */
+  needed_by?: string;
+  buyer_notes?: string;
+  disclose_budget?: boolean;
+  lines?: DiasporaRequestLinePayload[];
+}
+
+/** One item on a sourcing request. A multi-item request is one request with several lines. */
+export interface DiasporaRequestLinePayload {
+  item_description: string;
+  item_kind?: 'vehicle' | 'part' | 'other';
+  quantity?: number;
+  vehicle_make?: string;
+  vehicle_model?: string;
+  vehicle_year_min?: number;
+  vehicle_year_max?: number;
+  linked_vehicle_vin?: string;
+  part_number?: string;
+  /** Explicitly false when the buyer does not know it — a real answer, never inferred from blank. */
+  part_number_known?: boolean;
+  condition_preference?: 'new' | 'used' | 'oem' | 'aftermarket' | 'any';
+  notes?: string;
+}
+
+export interface DiasporaRequestLine extends DiasporaRequestLinePayload {
+  id: string;
+  line_number: number;
+  /**
+   * Intake 2.0 line preferences that projectRequestLineForMarketplace() publishes.
+   * Exactly MARKETPLACE_SAFE_LINE_FIELDS — nothing here may be added without adding it
+   * there first, and NEVER_MARKETPLACE_VISIBLE fields must never appear.
+   */
+  vehicle_body_type?: string | null;
+  vehicle_fuel_type?: string | null;
+  vehicle_transmission?: string | null;
+  vehicle_drivetrain?: string | null;
+  vehicle_steering?: string | null;
+  vehicle_seats_min?: number | null;
+  vehicle_mileage_max_km?: number | null;
+  vehicle_colour_preference?: string | null;
+  vehicle_trim_preference?: string | null;
+  vehicle_generation_code?: string | null;
+  vehicle_engine_cc_min?: number | null;
+  vehicle_engine_cc_max?: number | null;
+  vehicle_auction_grade?: string | null;
+  accident_repair_tolerance?: string | null;
+  rust_tolerance?: string | null;
+  intended_use?: string | null;
+  alternative_models?: string[] | null;
+  part_side?: string | null;
+  part_origin_preference?: string | null;
+  brand_preference?: string | null;
+}
+
+/**
+ * What a SUPPLIER sees of another party's buyer request — the sanitized marketplace projection.
+ * Deliberately has no buyer identity, tenant, VIN/chassis or metadata: see
+ * backend/services/diaspora/diasporaRfqService.js projectRfqForMarketplace().
+ */
+export interface DiasporaRfqOpportunity {
+  id: string;
+  reference: string;
+  order_type: string | null;
+  requested_make: string | null;
+  requested_model: string | null;
+  requested_year_min: number | null;
+  requested_year_max: number | null;
+  origin_country: string | null;
+  destination_country: string | null;
+  destination_city: string | null;
+  budget_amount: number | string | null;
+  budget_currency: string | null;
+  budget_disclosed: boolean;
+  needed_by: string | null;
+  urgency: string | null;
+  buyer_notes: string | null;
+  published_at: string | null;
+  quote_deadline: string | null;
+  /** No buyer verification signal is published — see projectRfqForMarketplace(). */
+  lines: DiasporaRequestLine[];
+  quote_count?: number;
+  /**
+   * Intake 2.0 order-level facts that projectRfqForMarketplace() publishes — exactly
+   * MARKETPLACE_SAFE_ORDER_FIELDS. Budget still crosses only through budget_disclosed.
+   */
+  intake_intent?: string | null;
+  destination_outcome?: string | null;
+  preferred_port?: string | null;
+  shipping_objective?: string | null;
+  shipping_mode_preference?: string | null;
+  requested_quote_components?: string[] | null;
+  alternatives_policy?: string | null;
+  available_from?: string | null;
+  arrival_window_start?: string | null;
+  arrival_window_end?: string | null;
+  timing_flexibility?: string | null;
+  deadline_is_hard?: boolean | null;
+  /**
+   * Genuine, supplier-specific match evidence from the caller's OWN published stock, or null when
+   * nothing matches. Never another supplier's stock, never an opaque score.
+   */
+  supplier_match?: {
+    score: number;
+    stock_item_id: string;
+    stock_name: string;
+    available_quantity: number;
+    export_ready: boolean;
+    reasons: string[];
+  } | null;
+}
+
+/** Safe commercial identity of the supplier behind an offer. Never contact details or reputation. */
+export interface DiasporaSupplierIdentity {
+  display_name: string | null;
+  business_type: string | null;
+  account_kind: string | null;
+  country: string | null;
+  verified: boolean;
+}
+
+/** A supplier's own quote paired with the safe projection of the request it answers. */
+export interface DiasporaMyQuote {
+  quote: DiasporaQuote;
+  outcome: string;
+  request: DiasporaRfqOpportunity | null;
 }
 
 export interface DiasporaMatchCandidate {
@@ -894,6 +1036,15 @@ export interface DiasporaQuotePayload {
   leadTimeDays?: number;
   shippingTerms?: string;
   metadata?: Record<string, unknown>;
+  /** T2 commercial terms — real columns, so buyer comparison compares data not prose. */
+  offered_quantity?: number;
+  unit_price?: number;
+  lead_time_days?: number;
+  /** true = included, false = excluded, undefined = supplier did not say (renders "Not provided"). */
+  shipping_included?: boolean;
+  offered_condition?: string;
+  offered_description?: string;
+  stock_item_id?: string;
 }
 
 export interface DiasporaAcceptQuoteResult {
@@ -965,6 +1116,10 @@ export interface DiasporaMarketplaceContainer {
   origin_city?: string;
   destination_country?: string;
   destination_city?: string;
+  origin_port?: string | null;
+  destination_port?: string | null;
+  corridor_id?: string | null;
+  corridor_leg_id?: string | null;
   departure_date?: string;
   booking_deadline?: string;
   container_type?: string;
@@ -993,6 +1148,9 @@ export interface DiasporaMarketplaceReservation {
   currency?: string;
   reservation_status: string;
   created_at?: string;
+  /** Privileged (operator) manifest enrichment — absent on participant-scoped reads. */
+  participant_display_name?: string | null;
+  linked_order_summary?: { id: string; label: string; status: string | null } | null;
   [key: string]: unknown;
 }
 
@@ -1001,12 +1159,38 @@ export interface DiasporaMarketplaceContainerPayload {
   origin_city: string;
   destination_country: string;
   destination_city: string;
+  /** T5.3 — promoted from metadata: the port/terminal facts corridor matching and display read. */
+  origin_port?: string;
+  destination_port?: string;
+  /** T5.2 — which corridor/leg this sailing covers. Validated server-side: the leg must belong to
+   *  the corridor, and its country pair must equal the sailing's own route. */
+  corridor_id?: string;
+  corridor_leg_id?: string;
+  /** T5.3 — `publish: false` records a DRAFT the operator opens deliberately later.
+   *  Default (absent/true) keeps the pre-T5 behaviour: immediately BOOKING_OPEN. */
+  publish?: boolean;
   departure_date: string;
   booking_deadline: string;
+  /** Optional expected arrival (authoritative column on the container row). */
+  estimated_arrival_date?: string;
   container_type?: string;
   total_capacity_volume: number;
   total_capacity_weight?: number;
   metadata?: Record<string, unknown>;
+}
+
+/** Trade OS workspace identity/context projection — commercial context, never a security role. */
+export interface DiasporaTradeContext {
+  user: { id: string; name: string | null };
+  organisation: { id: string; name: string | null } | null;
+  tenant_role: string | null;
+  is_organisation_admin: boolean;
+  account_kind: string | null;
+  business_type: string | null;
+  organization_name: string | null;
+  market_relationship: string | null;
+  country_of_residence: string | null;
+  city: string | null;
 }
 
 export interface DiasporaReservationRequestPayload {
@@ -1014,9 +1198,13 @@ export interface DiasporaReservationRequestPayload {
   estimated_weight?: number;
   import_order_id?: string;
   cargo_type?: string;
+  /** Participant-declared value — recorded as declared, never verified by CarUp. */
+  declared_value?: number;
   currency?: string;
   cargo_description?: string;
   source?: string;
+  /** Free-form request context (e.g. guided-measurement items) — estimates, never verified facts. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface DiasporaReservationActionResult {

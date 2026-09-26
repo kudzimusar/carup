@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { threadLabel } from './threadLabel'
 import {
   useCommunicationProductApi,
   type CommunicationAiDerivation,
@@ -24,6 +25,8 @@ type AccountActivitySummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>[
 type CommunicationPreferences = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationPreferences']>>['preferences']>
 
 type ConversationThread = ThreadSummary & {
+  subject_type?: string
+  subject_id?: string
   business_workflow?: string
   conversation_type?: string
   participant_role?: string
@@ -47,11 +50,6 @@ type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
 
 type ConversationFilter = 'all' | 'unread' | 'marketplace' | 'support' | 'other'
 type AiAction = 'suggest' | 'summary' | 'translate' | 'next'
-
-function threadLabel(thread: ConversationThread) {
-  if (thread.business_workflow === 'marketplace' || thread.thread_type === 'marketplace_inquiry') return 'Marketplace conversation'
-  return (thread.business_workflow || thread.conversation_type || thread.thread_type || 'Conversation').replaceAll('_', ' ')
-}
 
 function participantLabel(detail: ConversationDetail | null) {
   if (!detail?.participants?.length) return null

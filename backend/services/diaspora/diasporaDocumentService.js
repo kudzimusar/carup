@@ -1,6 +1,6 @@
 import { supabase } from '../../db/supabase.js';
 import { DOCUMENT_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, NotFoundError } from '../../utils/errors.js';
+import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateTradeDocumentPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
@@ -46,19 +46,55 @@ async function getOrderAccess(importOrderId, userContext) {
   };
 }
 
+/**
+ * T8.1 — the governed subject vocabulary a document may belong to.
+ *
+ * Kept in step with the `trade_document_subject_vocabulary` CHECK, which is the authority. A
+ * free-text subject is how a shadow entity gets invented later without anybody deciding to.
+ */
+export const DOCUMENT_SUBJECT_TYPES = Object.freeze([
+  'import_order', 'logistics_request', 'container_booking', 'trade_order',
+]);
+
 export async function createTradeDocument(payload, userContext = {}, req = null) {
   validateTradeDocumentPayload(payload);
+
+  // T8.1 — a document may belong to any authoritative Trade OS object, and to exactly one.
+  // Checked BEFORE the order lookup: an obviously malformed owner should be refused for what it is,
+  // not for a missing order it was never going to have.
+  const subjectType = payload.subject_type ? String(payload.subject_type) : null;
+  const subjectId = payload.subject_id ? String(payload.subject_id).trim() : null;
+  if (subjectType && !DOCUMENT_SUBJECT_TYPES.includes(subjectType)) {
+    throw new ValidationError(`Unknown document subject "${subjectType}"`);
+  }
+  if (Boolean(subjectType) !== Boolean(subjectId)) {
+    throw new ValidationError('A document subject needs both a type and an id — a type alone points at every object of that kind');
+  }
+  if (Boolean(payload.import_order_id) === Boolean(subjectType)) {
+    throw new ValidationError('A document belongs to exactly one transaction — give either an import order or a subject, not both and not neither');
+  }
+
   const order = payload.import_order_id ? await getOrder(payload.import_order_id) : null;
+
   const { data, error } = await supabase
     .from('diaspora_trade_documents')
     .insert({
       tenant_id: userContext?.tenantId || order?.tenant_id || payload.tenant_id || null,
       import_order_id: payload.import_order_id || null,
+      subject_type: subjectType,
+      subject_id: subjectId,
       uploaded_by: userContext?.id || payload.uploaded_by || null,
       document_type: payload.document_type,
       document_url: payload.document_url || null,
       storage_path: payload.storage_path || null,
-      verification_status: payload.verification_status || DOCUMENT_STATUSES.UPLOADED,
+      // PRESENCE IS NOT VERIFICATION.
+      //
+      // This previously read `payload.verification_status || UPLOADED`, so a client could post
+      // `verification_status: 'VERIFIED'` at upload time and skip the reviewer route entirely — the
+      // exact collapse the phase contract forbids ("a customer cannot submit verified: true"). An
+      // uploaded document is UPLOADED, always, and only the governed reviewer endpoints
+      // (verifyTradeDocument / rejectTradeDocument, both reviewerAuth-guarded) may move it.
+      verification_status: DOCUMENT_STATUSES.UPLOADED,
       ocr_document_id: payload.ocr_document_id || null,
       metadata: payload.metadata || {},
       created_by: userContext?.id,
@@ -148,6 +184,83 @@ export async function recordDocumentExtraction(documentId, payload, userContext 
   await supabase.from('diaspora_trade_documents').update({ verification_status: DOCUMENT_STATUSES.OCR_EXTRACTED, updated_by: userContext?.id, updated_at: new Date().toISOString() }).eq('id', documentId);
   await writeDiasporaAudit({ importOrderId: doc.import_order_id, tenantId: doc.tenant_id, actorId: userContext?.id, action: 'TRADE_DOCUMENT_OCR_EXTRACTED', resourceType: 'diaspora_trade_document_extraction', resourceId: data.id, newState: data, req });
   return data;
+}
+
+/**
+ * T8.4 — replace a document without destroying the one it replaces.
+ *
+ * A replacement is a NEW row pointing back at its predecessor. The superseded row is never edited
+ * beyond being marked no longer current: it keeps its verification status, its reviewer, its
+ * timestamps and its attribution, so an audit can still answer "what did we hold at the time?".
+ *
+ * The replacement starts UPLOADED even when the document it replaces was VERIFIED. A new file is a
+ * new claim, and inheriting the verdict on a document nobody has looked at is the presence→verified
+ * collapse wearing a different hat.
+ */
+export async function replaceTradeDocument(id, payload = {}, userContext = {}, req = null) {
+  const previous = await getTradeDocument(id, userContext);
+  if (previous.superseded_at) {
+    throw new ValidationError('That version has already been replaced — replace the current one instead');
+  }
+  validateTradeDocumentPayload({ document_type: payload.document_type || previous.document_type });
+
+  const { data: next, error } = await supabase
+    .from('diaspora_trade_documents')
+    .insert({
+      tenant_id: previous.tenant_id,
+      // The owner is INHERITED, never re-supplied: a replacement that could move to a different
+      // transaction would be a way to smuggle evidence between trades.
+      import_order_id: previous.import_order_id,
+      subject_type: previous.subject_type,
+      subject_id: previous.subject_id,
+      uploaded_by: userContext?.id || null,
+      document_type: payload.document_type || previous.document_type,
+      document_url: payload.document_url || null,
+      storage_path: payload.storage_path || null,
+      verification_status: DOCUMENT_STATUSES.UPLOADED,
+      ocr_document_id: payload.ocr_document_id || null,
+      metadata: payload.metadata || {},
+      version: Number(previous.version || 1) + 1,
+      supersedes_document_id: previous.id,
+      created_by: userContext?.id,
+      updated_by: userContext?.id,
+    })
+    .select()
+    .single();
+  if (error) throw new DatabaseError(error.message);
+
+  // Only now is the predecessor marked no longer current. If the insert above had failed, nothing
+  // would have been superseded — the old version stays current rather than the transaction being
+  // left with no current document at all.
+  const { error: markError } = await supabase
+    .from('diaspora_trade_documents')
+    .update({ superseded_at: new Date().toISOString(), superseded_by: userContext?.id || null })
+    .eq('id', previous.id)
+    .is('superseded_at', null);
+  if (markError) throw new DatabaseError(markError.message);
+
+  await writeDiasporaAudit({
+    importOrderId: next.import_order_id, tenantId: next.tenant_id, actorId: userContext?.id,
+    action: 'TRADE_DOCUMENT_REPLACED', resourceType: 'diaspora_trade_document', resourceId: next.id,
+    previousState: previous, newState: next, metadata: { supersedes: previous.id, version: next.version }, req,
+  });
+  return next;
+}
+
+/** The lineage of one document, oldest first — what was held, and when it stopped being current. */
+export async function getTradeDocumentLineage(id, userContext = {}) {
+  const current = await getTradeDocument(id, userContext);
+  const chain = [current];
+  let cursor = current;
+  // Walk backwards through predecessors. Bounded so a corrupt cycle cannot spin forever.
+  for (let i = 0; i < 50 && cursor?.supersedes_document_id; i += 1) {
+    const { data } = await supabase.from('diaspora_trade_documents').select('*')
+      .eq('id', cursor.supersedes_document_id).maybeSingle();
+    if (!data) break;
+    chain.unshift(data);
+    cursor = data;
+  }
+  return chain;
 }
 
 export async function verifyTradeDocument(id, payload = {}, userContext = {}, req = null) {

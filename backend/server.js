@@ -62,6 +62,7 @@ import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors
 import {
   securityHeadersMiddleware,
   rateLimiter,
+  resolveGlobalRateLimitMax,
   csrfMiddleware,
   generateCsrfToken,
   parseCookies
@@ -236,11 +237,21 @@ app.use(cors(corsOptions));
 app.use(correlationMiddleware);
 app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
-app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
-
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
-// Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
+// Resolve the real client IP BEFORE any rate limiter, so every limiter keys on the client and not
+// on a Cloudflare edge address. (This used to run after the global limiter, which therefore keyed
+// on req.ip and could put every visitor behind one edge into a single bucket.)
 app.use(edgeClientIpMiddleware());
+
+// Global throttle. Production is always 100/min per client; only a backend provably wired to the
+// staging database may run a larger, bounded capacity (see resolveGlobalRateLimitMax).
+const GLOBAL_RATE_LIMIT = resolveGlobalRateLimitMax(process.env);
+if (GLOBAL_RATE_LIMIT.source !== 'default') {
+  console.log(`[Security] Global rate limit: ${GLOBAL_RATE_LIMIT.max}/min (${GLOBAL_RATE_LIMIT.source})`);
+}
+app.use(rateLimiter({ max: GLOBAL_RATE_LIMIT.max, windowMs: 60 * 1000, isSensitive: false }));
+
+// Sensitive Route Throttling (auth, uploads, safepay creation, verification) — unchanged by the
+// staging capacity above.
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
@@ -2375,11 +2386,34 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    res.json({ user, token });
+    // Trade OS D2 — surface the caller's governed tenant membership so the client can send
+    // x-tenant-id from first login (previously only /switch-role returned it, so a tenant operator
+    // had NO tenant context until a role switch). Additive and advisory only: the auth middleware
+    // still re-verifies every x-tenant-id against tenant_users on every request. A user with
+    // multiple memberships gets no automatic tenant; they choose through the existing switch path.
+    const tenantContext = await resolveSoleTenantMembership(user.id);
+
+    res.json({ user: { ...user, ...tenantContext }, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Resolve a user's sole governed tenant membership (advisory client hint — never an authority).
+// Returns {} when the user has zero or multiple memberships, or when the read fails.
+async function resolveSoleTenantMembership(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('tenant_users')
+      .select('tenant_id, role')
+      .eq('user_id', userId)
+      .limit(2);
+    if (error || !Array.isArray(data) || data.length !== 1) return {};
+    return { active_tenant_id: data[0].tenant_id, tenant_role: data[0].role || null };
+  } catch {
+    return {};
+  }
+}
 
 // --- AUTH: Validate current session ---
 // authorizeRole() (no required roles) validates the x-session-token against user_sessions and
@@ -2395,7 +2429,12 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized. User record not found.' });
     }
-    res.json({ user });
+    // D2: prefer the session's verified tenant (set by switch-role); otherwise the sole membership.
+    const sessionTenantId = req.userContext.tenantId || null;
+    const tenantContext = sessionTenantId
+      ? { active_tenant_id: sessionTenantId, tenant_role: req.userContext.tenantRole || null }
+      : await resolveSoleTenantMembership(user.id);
+    res.json({ user: { ...user, ...tenantContext } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
