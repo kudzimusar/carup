@@ -4348,3 +4348,51 @@ engine that must replace it. It is named here so it cannot be mistaken for a pre
 ### Verdict
 
 **T6-PARTIAL — owner acceptance remains.** T7 not started. Production untouched.
+
+---
+
+## §46 — SCENARIO LAB: a cross-cutting track, not a T-phase (owner ruling 2026-09-26)
+
+### The collision this settles
+
+Two draft lanes (#210 docs, #211 implementation) called template ingestion and Golden Scenarios
+"**T5**", and #210 added a separate `T5`–`T17` "track alignment" table to
+`docs/CARUP_DIASPORA_TRADE_OS_SYSTEM_PLAN.md`. Here T5 is the Container Marketplace &
+Multi-Corridor phase, OWNER ACCEPTED and FROZEN at `5079b0b3`. That table was also a second phase
+map, which §0 rule 3 forbids. It described T6 FX/landed cost as future work, though T6 was already
+frozen at `2d0a0bc0` and the programme had reached T13.
+
+### The ruling
+
+- **This file's §25 (T0–T18) stays the only phase ledger.** The competing table is removed from
+  the system plan and replaced by a pointer here.
+- Template ingestion and Golden Scenarios become the **Scenario Lab**. Like Intake 2.0 (§36–§39),
+  it is a cross-cutting track with a name and no T-number. Its slices are `SL.0`–`SL.n`.
+- Identifiers drop the phase label:
+  - `REF-T5-*` becomes `REF-*`;
+  - the workbook schema string `2026.09.t5-scenarios.xlsx-v2` becomes `2026.09.scenario-lab.xlsx-v2`;
+  - the tag `T5` becomes `scenario-lab`.
+  - Scenario IDs (`SCN-ALPHARD-HARARE-001`, `SCN-PARTS-CONTAINER-001`,
+    `SCN-BYO-VEHICLE-SHIPPING-001`) are unchanged.
+
+### Boundaries
+
+- The Scenario Lab **consumes** frozen authorities and never re-specifies them:
+  - T5 corridors and sailing capacity;
+  - T6 FX, charge components and landed-cost estimates;
+  - T8 documents and evidence;
+  - T9–T12 facts, as scenarios later reach them.
+- A scenario that needs a later-phase fact asserts the phase's own contract. It never supplies a
+  local stand-in.
+- Workbooks supply structured facts and proposed actions. Trade OS validates and records
+  authoritative state through the existing reviewed/confirmed import path. The dry run writes
+  nothing.
+- Fixture data is `TEST_FIXTURE`/`LEGACY_WORKBOOK` and never presented as live availability,
+  pricing, freight or regulatory truth.
+
+### Status
+
+- Plan: `docs/CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md` (#210, review draft).
+- Implementation: #211, Draft. It is not certified, has no migration and has not touched staging.
+- The Scenario Lab does not block T13 and is not required for any T-phase freeze. It becomes
+  T18's certification-data input when T18 begins.
