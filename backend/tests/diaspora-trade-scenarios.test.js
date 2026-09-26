@@ -128,7 +128,7 @@ test('scenario routes are preview/download only and do not expose a scenario exe
   assert.equal(workbookRouteFile.includes("/workbook/scenarios/:scenarioId/seed"), false);
 });
 
-test('Golden Scenario catalog exposes the three T5 scenarios only', () => {
+test('Golden Scenario catalog exposes the three Scenario Lab scenarios only', () => {
   const ids = listDiasporaTradeScenarios().map((scenario) => scenario.scenarioId).sort();
   assert.deepEqual(ids, Object.values(TRADE_SCENARIO_IDS).sort());
 });

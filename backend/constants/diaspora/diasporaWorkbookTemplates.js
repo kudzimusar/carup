@@ -17,7 +17,7 @@ import {
   getRequiredSheetsForTemplate,
 } from './diasporaWorkbookSchema.js';
 
-export const XLSX_SCHEMA_VERSION = '2026.09.t5-scenarios.xlsx-v2';
+export const XLSX_SCHEMA_VERSION = '2026.09.scenario-lab.xlsx-v2';
 
 export const XLSX_TEMPLATE_TYPES = Object.freeze({
   BUYER: WORKBOOK_TEMPLATE_TYPES.BUYER,

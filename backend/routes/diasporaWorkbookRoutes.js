@@ -88,7 +88,7 @@ router.post('/workbook/dry-run', auth, asyncHandler(async (req, res) => {
   res.json({ data });
 }));
 
-// T5 Golden Scenario laboratory. These routes are intentionally read/preview-only: no route here
+// Scenario Lab (Golden Scenario laboratory). These routes are intentionally read/preview-only: no route here
 // persists or executes fixture data. Scenario services also refuse preview/workbook generation in
 // production, and callers cannot override the server environment through query/body parameters.
 router.get('/workbook/scenarios', scenarioAuth, asyncHandler(async (_req, res) => {

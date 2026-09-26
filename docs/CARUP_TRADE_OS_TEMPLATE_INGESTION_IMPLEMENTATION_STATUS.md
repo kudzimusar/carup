@@ -10,7 +10,7 @@
 
 This note records the implementation state of the approved Template Ingestion & Scenario Testing architecture. It does not replace the canonical system plan or the detailed architecture plan.
 
-The implementation is intentionally bounded to T5. It does not claim production certification and it does not activate T6 landed-cost/rates, T8 document expansion, T9 yard operations, T11 shipment visibility, T12 customs/transit, T13 financial reconciliation, or T17 commercialization.
+The implementation is intentionally bounded to the first Scenario Lab slices (SL.0–SL.3). The Scenario Lab is a cross-cutting track, not a T-phase: earlier drafts called it "T5", but T5 is the frozen Container Marketplace phase (living master plan §46, owner ruling 2026-09-26). It does not claim production certification. It does not re-implement or bypass the phase authorities that already exist — T6 rates/FX/landed cost, T8 documents, T9 warehouse, T11 shipment, T12 customs, all frozen — or the in-progress T13 SafeTrade and the unstarted T17 commercialization. Scenarios that reach those facts must consume those authorities.
 
 ## 2. Implemented
 
@@ -138,7 +138,7 @@ Focused backend coverage now checks:
 - external role-reference warnings vs false rejection;
 - shipping-only vehicle-reference requirement;
 - reviewer-only preview/download surface has no scenario execution route;
-- exactly three T5 Golden Scenarios are registered;
+- exactly three Scenario Lab Golden Scenarios are registered;
 - real XLSX round-trip for each scenario;
 - strict combined dry-run;
 - zero-write invariant;
@@ -172,17 +172,17 @@ Those remain owned by their later T-tracks.
 
 ## 5. Known hardening questions for the next pass
 
-These should be checked after the initial CI/alignment review rather than silently widening this T5 implementation.
+These should be checked after the initial CI/alignment review rather than silently widening this Scenario Lab implementation.
 
 1. **Imported quote lifecycle fidelity.** The existing workbook draft-execution layer intentionally stages quote records as drafts. The scenario source can preserve `SUBMITTED`, `EXPIRED`, and `REJECTED` facts in its validated/audited workbook rows, but the next hardening pass must decide how historical terminal quote states are projected into authoritative RFQ state without creating a workbook bypass around the RFQ service state machine.
 
-2. **Structured parts request lines.** The online RFQ domain already supports multi-line request records, but the current workbook contract still represents the T5 parts fixture primarily through order fields/notes rather than a dedicated request-lines sheet. A later hardening decision should determine whether workbook request lines belong in T5 or a subsequent sourcing-contract expansion.
+2. **Structured parts request lines.** The online RFQ domain already supports multi-line request records, but the current workbook contract still represents the Scenario Lab parts fixture primarily through order fields/notes rather than a dedicated request-lines sheet. A later hardening decision should determine whether workbook request lines belong in T5 or a subsequent sourcing-contract expansion.
 
 3. **Authoritative external-reference resolution at import time.** Role-workbook dry-run correctly identifies external references as domain warnings. Confirmed import must continue to resolve those references through tenant/participant/service authorization before any authoritative relationship is created.
 
 4. **Scenario reset execution.** The fixture catalog is isolated and deterministic, but no generic database reset/seed endpoint was added. If staging scenario execution is later authorized, cleanup should be scenario-run scoped and implemented through existing deletion/rollback/governed services rather than raw fixture truncation.
 
-5. **Vehicle ownership authority for BYO execution.** T5 validates that a shipping-only request identifies a vehicle. Actual operational execution must still use the canonical vehicle-object authority before that vehicle is attached to privileged shipment/ownership workflows.
+5. **Vehicle ownership authority for BYO execution.** The Scenario Lab validates that a shipping-only request identifies a vehicle. Actual operational execution must still use the canonical vehicle-object authority before that vehicle is attached to privileged shipment/ownership workflows.
 
 ## 6. Next gate
 
