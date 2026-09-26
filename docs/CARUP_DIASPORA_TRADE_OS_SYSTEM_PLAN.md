@@ -1,7 +1,7 @@
 # CarUp Diaspora Trade OS System Plan
 
 > **Status:** CANONICAL REVIEW DRAFT — 2026-09-13  
-> **Current delivery context:** T5  
+> **Phase ledger:** this document defines no phases. The only Trade OS phase ledger is `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25 (T0–T18). Template ingestion and Golden Scenarios are the **Scenario Lab**, a cross-cutting track with no T-number (master plan §46, owner ruling 2026-09-26). Earlier drafts of this section called it "T5", but T5 is the Container Marketplace & Multi-Corridor phase, frozen at `5079b0b3`.  
 > **Implementation authorization:** This document is a planning contract. No new product code, migration, staging mutation, production activation, live-money behavior, or external integration is authorized until owner review and explicit approval.  
 > **Detailed companion plan:** [`CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md`](./CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md)
 
@@ -462,7 +462,7 @@ Source type and verification state must remain conceptually separate.
 
 ## 11.4 Golden Scenarios
 
-The initial T5 scenarios are:
+The initial Scenario Lab scenarios are:
 
 - `SCN-ALPHARD-HARARE-001` — vehicle RFQ / competing sellers;
 - `SCN-PARTS-CONTAINER-001` — realistic parts procurement / supplier competition;
@@ -537,8 +537,8 @@ Three FX concepts must remain separate:
 
 Historical confirmed monetary records are immutable snapshots.
 
-**T5 requirement:** preserve original money and schema compatibility.  
-**T6 responsibility:** governed official/reference FX integration and conversion behavior.
+**Scenario Lab requirement:** preserve original money and schema compatibility.  
+**T6 responsibility (frozen at `2d0a0bc0`):** governed official/reference FX integration and conversion behavior. Scenarios consume it and never re-implement it.
 
 ---
 
@@ -1294,32 +1294,23 @@ Testing should reuse the same scenario concepts across layers.
 
 ---
 
-# 36. Current T-Track Alignment
+# 36. Phase Alignment
 
-The current global Trade OS work should be governed through the following track allocation.
+**This document does not allocate phases.** An earlier draft placed a `T5`–`T17` "track alignment" table here and called it "the current governing phase map". That competed with the living master plan (§0 rule 3) and reused T5, which is the frozen Container Marketplace phase, for template ingestion. It has been removed.
 
-| Track | Responsibility |
-|---|---|
-| **T5** | Template/scenario ingestion compatibility, independent RFQ, multi-quote/provider composition, partial journeys, original-currency preservation, scenario provenance/assertions |
-| **T6** | Official/reference FX, rates, cost components, quote normalization, corridor comparison, landed-cost engine |
-| **T8** | Document/evidence relationships and provenance |
-| **T9** | Yard operations, measurements, freight profiles, vanning/consolidation evidence |
-| **T11** | Canonical shipment ledger, carrier/provider adapters, customer timeline |
-| **T12** | Import eligibility, customs valuation, duty/tax/transit/destination rules |
-| **T13** | Payment milestones, settlement evidence, final financial reconciliation |
-| **T17** | Fees, commissions, subscriptions, provider economics, contribution/profitability |
+- Phases, their order and their status: `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25.
+- Template ingestion and Golden Scenarios: the **Scenario Lab** track, master plan §46.
+- Which phase authority a scenario consumes as it grows: `CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md` §22.
 
-This overlay is the current governing phase map for the capabilities above.
-
-Older references to “Phase 5”, “Phase 6”, etc. in historical Trade OS planning must not be confused with the current `T5`, `T6`, etc. programme tracks.
+Older references to “Phase 5”, “Phase 6”, etc. in historical diaspora planning are not the master plan's `T5`, `T6`, etc.
 
 ---
 
-# 37. T5 Compatibility Gate
+# 37. Scenario Lab Compatibility Gate
 
-T5 must not be considered complete if its architecture prevents the later global Trade OS design.
+The Scenario Lab must not be considered complete if its architecture prevents the later global Trade OS design.
 
-T5 must prove or preserve all of the following:
+The Scenario Lab must prove or preserve all of the following:
 
 1. buyer demand/RFQ can exist without an existing listing;
 2. one RFQ can retain multiple competing quotes;
@@ -1346,11 +1337,11 @@ T5 must prove or preserve all of the following:
 
 ---
 
-# 38. T5 Non-Goals
+# 38. Scenario Lab Non-Goals
 
-T5 must not absorb future phase work merely to make a demo appear complete.
+The Scenario Lab must not absorb phase work merely to make a demo appear complete. Where a phase already owns a capability, scenarios consume it.
 
-T5 does not own:
+The Scenario Lab does not own:
 
 - live official FX integration;
 - final landed-cost calculations;
@@ -1363,13 +1354,13 @@ T5 does not own:
 - live escrow release;
 - final commercial profitability engine.
 
-T5 should establish extension points, not fake future functionality.
+The Scenario Lab should establish extension points, not fake future functionality.
 
 ---
 
 # 39. Immediate Documentation / Review State
 
-This master plan is being updated together with:
+This system plan is being updated together with:
 
 [`CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md`](./CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md)
 
@@ -1377,10 +1368,10 @@ The immediate owner-review decisions are:
 
 1. approve Reference Pack vs Scenario Pack separation;
 2. approve the three initial Golden Scenarios;
-3. approve T5 as a compatibility/ingestion/RFQ test gate rather than a full logistics phase;
+3. approve the Scenario Lab as a compatibility/ingestion/RFQ test track rather than a phase (owner ruling 2026-09-26: a named track, master plan §46);
 4. approve mandatory provenance for fixture/import data;
 5. approve reuse of cleaned Universal Motors legacy data as `LEGACY_WORKBOOK` / `TEST_FIXTURE`, not production truth;
-6. approve the T5→T17 scenario inheritance model;
+6. approve the scenario inheritance model, in which scenarios grow by consuming each phase's authority;
 7. approve workbooks as staging/exchange surfaces only.
 
 No implementation follows from this review draft until explicitly approved.
@@ -1389,9 +1380,9 @@ No implementation follows from this review draft until explicitly approved.
 
 # 40. Post-Approval Implementation Sequence
 
-If the owner approves the plan, work should proceed in one bounded T5 lane.
+If the owner approves the plan, work should proceed in one bounded Scenario Lab lane.
 
-### T5-A — Contract Reconciliation
+### SL-A — Contract Reconciliation
 
 - compare current workbook schema to expanded RFQ/provider requirements;
 - identify minimum additive changes;
@@ -1399,27 +1390,27 @@ If the owner approves the plan, work should proceed in one bounded T5 lane.
 - define provenance representation;
 - define isolation/reset contract.
 
-### T5-B — Reference Fixture Preparation
+### SL-B — Reference Fixture Preparation
 
 - clean small vehicle reference pack;
 - clean small parts/fitment pack;
 - create synthetic buyer/provider identities;
 - retain provenance.
 
-### T5-C — Golden Scenario Generation
+### SL-C — Golden Scenario Generation
 
 - Alphard procurement;
 - Parts procurement;
 - Bring-Your-Own shipping.
 
-### T5-D — Dry Run / Validation
+### SL-D — Dry Run / Validation
 
 - structural validation;
 - domain validation;
 - business-rule validation;
 - zero-write proof.
 
-### T5-E — Reviewed Draft Import
+### SL-E — Reviewed Draft Import
 
 - existing parser;
 - existing import state machine;
@@ -1427,12 +1418,12 @@ If the owner approves the plan, work should proceed in one bounded T5 lane.
 - idempotency proof;
 - multi-quote preservation.
 
-### T5-F — UAT / Assertions
+### SL-F — UAT / Assertions
 
 - expected assertions;
 - owner-visible evidence;
 - defect register;
-- no scope creep into T6.
+- no re-implementation of any phase authority (T6 FX and landed cost included).
 
 ---
 
@@ -1444,7 +1435,7 @@ This planning update is complete when:
 - this master plan references and incorporates it;
 - the master plan reflects the current five-template XLSX foundation rather than the historical three-template assumption;
 - the workbook engine is treated as existing capability, not proposed greenfield work;
-- T5 scope and non-goals are explicit;
+- Scenario Lab scope and non-goals are explicit;
 - the three initial Golden Scenarios are defined;
 - provenance and fixture truth boundaries are explicit;
 - current T-track ownership is explicit;
