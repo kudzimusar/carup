@@ -245,10 +245,12 @@ export default function WorkbookWorkspace({ templateKey, title }: { templateKey:
         {tab === 'import' && (
           <div className="space-y-4">
             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch">
-    <label className="flex min-h-12 w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input bg-background px-3 text-sm text-foreground shadow-sm" data-testid="wb-file-control">
+    {/* sr-only, never `hidden`: display:none drops the input from the tab order, so a keyboard user
+        could not choose a workbook at all. The label is the visible control and shows its focus. */}
+    <label className="flex min-h-12 w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input bg-background px-3 text-sm text-foreground shadow-sm focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50" data-testid="wb-file-control">
       <Upload className="h-4 w-4 shrink-0 text-primary" aria-hidden />
       <span className="min-w-0 flex-1 truncate">{file?.name || 'Choose .xlsx workbook'}</span>
-      <input type="file" accept=".xlsx" data-testid="wb-file" className="hidden"
+      <input type="file" accept=".xlsx" data-testid="wb-file" className="sr-only"
         onChange={(event) => void pickFile(event.target.files?.[0])} />
     </label>
     <Button className="min-h-12 w-full sm:w-auto" size="sm" disabled={!file || inspecting} onClick={() => void inspect()} data-testid="wb-inspect">

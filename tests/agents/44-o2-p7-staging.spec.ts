@@ -363,4 +363,53 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
     const detail = serious.flatMap((v) => v.nodes.map((n) => `${v.id} @ ${n.target.join(' ')}`)).join('\n');
     expect(serious.map((v) => v.id), `axe serious/critical:\n${detail}`).toEqual([]);
   });
+
+  test('Moderator recert: identity decision needs step-up before lookup; authority is never borrowed', async ({ request }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'authority probes run once, on desktop');
+    // A ghost id is deliberate: the guard must fire BEFORE the resource lookup, so a 404 here would
+    // mean the handler ran on role alone. 404 is never accepted as proof of refusal.
+    const ghost = `moderator-ghost-${RUN_ID}`;
+    const reviewer = await apiLogin(request, REVIEWER_EMAIL, REVIEWER_PASSWORD);
+    expect(reviewer.user.role, 'P7 reviewer is an admin identity').toBe('admin');
+
+    const identityDecision = await request.post(`${API_URL}/admin/identity/verification-sessions/${ghost}/review`, {
+      headers: await mutationHeaders(request, reviewer), data: { decision: 'approve', reason: 'moderator probe' },
+    });
+    const identityBody = await identityDecision.text();
+    expect(identityDecision.status(), `identity decision without step-up: ${identityBody}`).toBe(403);
+    expect(identityBody).toContain('STEP_UP_REQUIRED');
+
+    // Positive control: the dealer decision route is guarded the same way.
+    const dealerDecision = await request.patch(`${API_URL}/admin/dealers/${ghost}/decision`, {
+      headers: await mutationHeaders(request, reviewer), data: { decision: 'approve', reason: 'moderator probe' },
+    });
+    const dealerBody = await dealerDecision.text();
+    expect(dealerDecision.status(), `dealer decision without step-up: ${dealerBody}`).toBe(403);
+    expect(dealerBody).toContain('STEP_UP_REQUIRED');
+
+    // The applicant and the dealer applicant hold a real session (positive control 200), and every
+    // platform review surface refuses them by ROLE — not by transport, CSRF or a missing route.
+    for (const [label, email] of [['applicant', APPLICANT_EMAIL], ['dealer applicant', DEALER_EMAIL]] as const) {
+      const actor = await apiLogin(request, email, FIXTURE_PASSWORD);
+      const control = await request.get(`${API_URL}/registration/journey`, { headers: baseHeaders(actor) });
+      expect(control.status(), `${label} positive control`).toBe(200);
+      const forgedRole = { ...baseHeaders(actor), 'x-stakeholder-role': 'admin' };
+      const forgedTenant = { ...forgedRole, 'x-tenant-id': 'forged-platform-tenant' };
+      for (const path of ['/admin/identity/verification-sessions', '/admin/dealers']) {
+        const byRole = await request.get(`${API_URL}${path}`, { headers: forgedRole });
+        const byRoleBody = await byRole.text();
+        expect(byRole.status(), `${label} claiming admin on ${path}: ${byRoleBody}`).toBe(403);
+        expect(byRoleBody, 'refused on the server-derived role, not the claimed one').toMatch(/cannot access this resource/i);
+        const byTenant = await request.get(`${API_URL}${path}`, { headers: forgedTenant });
+        expect(byTenant.status(), `${label} with forged tenant on ${path}: ${await byTenant.text()}`).toBe(403);
+      }
+      const selfReview = await request.post(`${API_URL}/admin/identity/verification-sessions/${ghost}/review`, {
+        headers: { ...(await mutationHeaders(request, actor)), 'x-tenant-id': 'forged-platform-tenant' },
+        data: { decision: 'approve', reason: 'self review attempt' },
+      });
+      const selfBody = await selfReview.text();
+      expect(selfReview.status(), `${label} identity decision: ${selfBody}`).toBe(403);
+      expect(selfBody, 'refused by role, before step-up is even considered').not.toContain('STEP_UP_REQUIRED');
+    }
+  });
 });

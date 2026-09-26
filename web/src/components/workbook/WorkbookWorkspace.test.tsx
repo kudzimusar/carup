@@ -146,4 +146,21 @@ describe('WorkbookWorkspace', () => {
     expect(screen.getByTestId('wb-recent').textContent).not.toMatch(/other\.xlsx/)
     expect(screen.getByTestId('wb-recent').textContent).toMatch(/2\/3 accepted/)
   })
+
+  it('keeps the workbook file input inside its visible control and in the keyboard tab order', async () => {
+    render(<WorkbookWorkspace templateKey="seller_vehicles" />)
+    fireEvent.click(screen.getByTestId('tab-import'))
+    const control = screen.getByTestId('wb-file-control')
+    const input = screen.getByTestId('wb-file') as HTMLInputElement
+    // The label is the tap target: the input must be its descendant or tapping it opens nothing.
+    expect(control.tagName).toBe('LABEL')
+    expect(control.contains(input)).toBe(true)
+    // `hidden` is display:none, which removes the input from the tab order; sr-only keeps it focusable.
+    expect(input.classList.contains('hidden')).toBe(false)
+    expect(input.classList.contains('sr-only')).toBe(true)
+    expect(input.tabIndex).not.toBe(-1)
+    const file = new File(['fake'], 'stock.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    fireEvent.change(input, { target: { files: [file] } })
+    await waitFor(() => expect(control).toHaveTextContent('stock.xlsx'))
+  })
 })

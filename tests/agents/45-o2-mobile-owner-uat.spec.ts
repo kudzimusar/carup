@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
-import { stagingTest as test, expect } from './staging-helpers'
+import { stagingTest as test, expect, API_URL } from './staging-helpers'
 
 const SERENA_VIN = 'GFC27-027051'
 const EXPECTED_SHA = process.env.EXPECTED_HEAD_SHA || 'unknown'
@@ -198,7 +198,18 @@ test.describe('O2 mobile-first Product Owner certification', () => {
       widths.push(await captureWidth(page, viewport.label, 'workbook-tools', 'before'))
       await screenshot(page, viewport.label, 'workbook-tools', 'before')
       await page.getByTestId('tab-import').click()
-      await expect(page.getByTestId('wb-file')).toBeVisible()
+      // The visible, tappable control is the label; the native input is sr-only inside it. Prove the
+      // tap path end to end (control → OS file chooser → chosen name → Inspect enabled) and that the
+      // input stays keyboard-reachable. Choosing a file is client-only; nothing is sent to the server.
+      const fileControl = page.getByTestId('wb-file-control')
+      await expect(fileControl).toBeVisible()
+      await expect(fileControl.getByTestId('wb-file')).toHaveCount(1)
+      const [chooser] = await Promise.all([page.waitForEvent('filechooser'), fileControl.click()])
+      await chooser.setFiles({ name: `mobile-uat-${viewport.label}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic') })
+      await expect(fileControl).toContainText(`mobile-uat-${viewport.label}.xlsx`)
+      await expect(page.getByTestId('wb-inspect')).toBeEnabled()
+      await page.getByTestId('wb-file').focus()
+      await expect(page.getByTestId('wb-file'), 'workbook file input must stay in the keyboard tab order').toBeFocused()
       await refreshAndAssertSession(page, ownerAuth.token, '/workbook-tools')
       await expect(page.getByRole('heading', { name: 'Workbook tools' })).toBeVisible({ timeout: 30_000 })
       widths.push(await captureWidth(page, viewport.label, 'workbook-tools', 'after'))
@@ -300,5 +311,62 @@ test.describe('O2 mobile-first Product Owner certification', () => {
     await attachReceipts(testInfo, widths, fiveHundreds)
     expect(widths).toHaveLength(viewports.length * 6 * 2)
     expect(fiveHundreds, `>=500 responses observed:\n${JSON.stringify(fiveHundreds, null, 2)}`).toEqual([])
+  })
+
+  test('moderator recert: Serena Passport latency is measured (never 5xx) and no automation fixture is public', async ({ request }, testInfo) => {
+    test.setTimeout(300_000)
+    mkdirSync(EVIDENCE_DIR, { recursive: true })
+    expect(OWNER_EMAIL, 'MOBILE_UAT_OWNER_EMAIL is required').toBeTruthy()
+
+    // U4 — the public listing surface, read exactly as an anonymous buyer reads it.
+    const publicList = await request.get(`${API_URL}/vehicles`)
+    expect(publicList.status(), 'public vehicle list').toBe(200)
+    const listed = await publicList.json() as Array<{ vin?: string }> | { vehicles?: Array<{ vin?: string }> }
+    const vehicles = Array.isArray(listed) ? listed : (listed.vehicles || [])
+    const vins = vehicles.map((vehicle) => String(vehicle.vin || ''))
+    const automation = vins.filter((vin) => vin.startsWith('JTMLC'))
+    const u4 = { public_listings: vins.length, public_automation_fixtures: automation, serena_listed: vins.includes(SERENA_VIN) }
+
+    // U2 — the Owner's Serena through both Passport routes, authenticated as a real session. Counts
+    // stay inside the routes' own rate limits (lookup 10/min, passport 30/min) so a 429 is never
+    // mistaken for latency. The first call of each route is reported separately as "first".
+    let auth: { token: string; user: { id: string } } | null = null
+    for (let attempt = 0; attempt < 5 && !auth; attempt += 1) {
+      const csrf = await (await request.get(`${API_URL}/security/csrf-token`)).json() as { csrfToken: string }
+      const login = await request.post(`${API_URL}/auth/login`, { headers: { 'x-csrf-token': csrf.csrfToken }, data: { email: OWNER_EMAIL, password: PASSWORD } })
+      if (login.ok()) auth = await login.json() as { token: string; user: { id: string } }
+      else if (login.status() === 429) await new Promise((resolve) => setTimeout(resolve, 3_000))
+      else throw new Error(`API login failed: ${login.status()} ${await login.text()}`)
+    }
+    expect(auth, 'API login').not.toBeNull()
+    const headers = { 'x-session-token': auth!.token, authorization: `Bearer ${auth!.token}`, 'x-user-id': auth!.user.id }
+
+    const measure = async (label: string, url: string, count: number) => {
+      const samples: Array<{ ms: number; status: number }> = []
+      for (let index = 0; index < count; index += 1) {
+        const started = Date.now()
+        const response = await request.get(url, { headers, timeout: 60_000 })
+        samples.push({ ms: Date.now() - started, status: response.status() })
+      }
+      const warm = samples.slice(1).map((sample) => sample.ms).sort((a, b) => a - b)
+      const pick = (q: number) => warm[Math.min(warm.length - 1, Math.ceil(q * warm.length) - 1)]
+      return { label, first_ms: samples[0].ms, warm_median_ms: pick(0.5), warm_p95_ms: pick(0.95), max_ms: Math.max(...samples.map((s) => s.ms)), statuses: samples.map((s) => s.status), samples }
+    }
+    // Let the preceding viewport walk's Serena reads age out of the per-minute windows first.
+    await new Promise((resolve) => setTimeout(resolve, 61_000))
+    const lookup = await measure('lookup', `${API_URL}/vehicles/passport/lookup/${SERENA_VIN}`, 8)
+    const passport = await measure('passport', `${API_URL}/vehicles/${SERENA_VIN}/passport`, 8)
+
+    const receipt = { sha: EXPECTED_SHA, u4, u2: [lookup, passport], target: 'warm p95 < 3000ms (recorded, not asserted: infrastructure-limited)' }
+    writeFileSync(join(EVIDENCE_DIR, 'moderator-u2-u4.json'), JSON.stringify(receipt, null, 2))
+    await testInfo.attach('moderator-u2-u4.json', { body: JSON.stringify(receipt, null, 2), contentType: 'application/json' })
+    console.log(`MODERATOR_U2_U4 ${JSON.stringify({ sha: EXPECTED_SHA, u4, u2: [lookup, passport].map(({ samples, ...rest }) => rest) })}`)
+
+    expect(automation, 'no automation fixture may be publicly listed').toEqual([])
+    expect(u4.serena_listed, 'Serena positive control stays listed').toBe(true)
+    for (const route of [lookup, passport]) {
+      expect(route.statuses.filter((status) => status >= 500), `${route.label} 5xx`).toEqual([])
+      expect(route.statuses.every((status) => status === 200), `${route.label} statuses ${route.statuses.join(',')}`).toBe(true)
+    }
   })
 })
