@@ -96,6 +96,23 @@ describe('U3 — the workbook renders inside the canonical CarUp shell', () => {
   })
 })
 
+describe('U3 class — every signed-in O2 surface renders inside the canonical shell', () => {
+  // The moderator's exact-head mobile walk found /onboarding and /dealer/onboarding chromeless for
+  // the same reason /workbook-tools was: declared in the auth group. The deployed spec asserts the
+  // global header is visible on all three at every viewport; this pins the declaration.
+  const O2_SIGNED_IN_SURFACES = ['/workbook-tools', '/onboarding', '/dealer/onboarding']
+
+  it.each(O2_SIGNED_IN_SURFACES)('%s is in the canonical shell, not the chromeless auth group', (route) => {
+    expect(hideNavRoutes()).not.toContain(route)
+    expect(shellRoutes()).toContain(route)
+    expect(getFeatureByRoute(route)?.id.startsWith('auth.') ?? false).toBe(false)
+  })
+
+  it('the auth group still holds the genuine auth journeys', () => {
+    expect(hideNavRoutes()).toEqual(expect.arrayContaining(['/login', '/register', '/auth/forgot-password']))
+  })
+})
+
 describe('U3 — the registry knows the route exists', () => {
 
   it('has an entry, and it is truthful about being unadvertised', () => {

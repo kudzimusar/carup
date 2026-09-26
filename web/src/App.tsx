@@ -316,14 +316,21 @@ export default function App() {
             the product; nothing about the page's behaviour or its backend authorization changes.
           */}
           <Route path="/workbook-tools" element={<WorkbookTools />} />
+          {/*
+            Same class as U3, found by the moderator's exact-head mobile recertification: both
+            O2 onboarding journeys also sat in the chromeless auth group, so a signed-in applicant
+            had no global header at any width — on desktop only the footer led anywhere else.
+            They are signed-in product surfaces, not auth steps. Authorization is unchanged: the
+            pages and the backend still decide what an applicant may see.
+          */}
+          <Route path="/onboarding" element={<RegistrationJourney />} />
+          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
         </Route>
 
         {/* Auth Routes */}
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/onboarding" element={<RegistrationJourney />} />
-          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so

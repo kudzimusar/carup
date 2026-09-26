@@ -354,6 +354,10 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
 
     await page.goto('/onboarding');
     await expect(page.getByTestId('who-must-act')).toBeVisible({ timeout: 30_000 });
+    // A signed-in O2 surface renders inside the canonical shell on every viewport: the global header
+    // is the page's only ARIA banner, and it carries the way home.
+    await expect(page.getByRole('banner'), 'onboarding must not be chromeless').toBeVisible();
+    await expect(page.getByRole('banner').locator('a[href="/"]').first()).toBeVisible();
     await expect(page.getByTestId('locked-sell_vehicle_publicly')).toBeVisible();
     await expect(page.getByTestId('locked-dealer_tools')).toBeVisible();
 

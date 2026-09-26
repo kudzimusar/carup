@@ -106,6 +106,19 @@ async function signIn(page: Page, email: string, password: string) {
   throw new Error(`UI login remained rate-limited for ${email}`)
 }
 
+/**
+ * The canonical CarUp shell around a signed-in O2 surface: the global header (the only element with
+ * the ARIA banner role — page-level <header>s sit inside <main>), its home link, and the navigation
+ * a user at this width actually has (desktop primary nav, or the compact bottom nav).
+ */
+async function assertCanonicalShell(page: Page, width: number, surface: SurfaceName) {
+  const banner = page.getByRole('banner')
+  await expect(banner, `${surface} ${width}px: global header missing — the page is chromeless`).toBeVisible({ timeout: 30_000 })
+  await expect(banner.locator('a[href="/"]').first(), `${surface} ${width}px: no way home from the header`).toBeVisible()
+  if (width >= 1024) await expect(page.getByTestId('public-primary-nav'), `${surface} ${width}px: primary nav`).toBeVisible()
+  else await expect(page.getByTestId('compact-bottom-nav'), `${surface} ${width}px: compact bottom nav`).toBeVisible()
+}
+
 async function clearAuth(page: Page) {
   await page.goto('/')
   await page.evaluate(() => {
@@ -181,6 +194,7 @@ test.describe('O2 mobile-first Product Owner certification', () => {
       await page.goto('/onboarding')
       await expect(page.getByRole('heading', { name: /Finish setting up your CarUp account/i })).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('context-summary')).toBeVisible({ timeout: 30_000 })
+      await assertCanonicalShell(page, viewport.width, 'onboarding')
       widths.push(await captureWidth(page, viewport.label, 'onboarding', 'before'))
       await screenshot(page, viewport.label, 'onboarding', 'before')
       await page.getByRole('button', { name: 'Edit', exact: true }).click()
@@ -195,6 +209,7 @@ test.describe('O2 mobile-first Product Owner certification', () => {
       await page.goto('/workbook-tools')
       await expect(page.getByRole('heading', { name: 'Workbook tools' })).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('workbook-workspace')).toBeVisible({ timeout: 30_000 })
+      await assertCanonicalShell(page, viewport.width, 'workbook-tools')
       widths.push(await captureWidth(page, viewport.label, 'workbook-tools', 'before'))
       await screenshot(page, viewport.label, 'workbook-tools', 'before')
       await page.getByTestId('tab-import').click()
@@ -224,6 +239,7 @@ test.describe('O2 mobile-first Product Owner certification', () => {
       currentSurface = 'dealer-onboarding'
       await page.goto('/dealer/onboarding')
       await expect(page.getByTestId('dealer-profile-form')).toBeVisible({ timeout: 30_000 })
+      await assertCanonicalShell(page, viewport.width, 'dealer-onboarding')
       widths.push(await captureWidth(page, viewport.label, 'dealer-onboarding', 'before'))
       await screenshot(page, viewport.label, 'dealer-onboarding', 'before')
       const firstDealerField = page.getByTestId('dealer-profile-form').locator('input').first()
