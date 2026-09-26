@@ -43,6 +43,7 @@ import {
   API_URL,
   RUN_ID,
 } from './staging-helpers';
+import { probeAuthorityForgery } from './o2-authority-probes.mjs';
 
 interface SessionAuth { token: string; user: { id: string; role: string; [k: string]: unknown } }
 
@@ -377,7 +378,7 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
     });
     const identityBody = await identityDecision.text();
     expect(identityDecision.status(), `identity decision without step-up: ${identityBody}`).toBe(403);
-    expect(identityBody).toContain('STEP_UP_REQUIRED');
+    expect((JSON.parse(identityBody) as { code?: string }).code, 'the assurance guard answered, ahead of any lookup').toBe('STEP_UP_REQUIRED');
 
     // Positive control: the dealer decision route is guarded the same way.
     const dealerDecision = await request.patch(`${API_URL}/admin/dealers/${ghost}/decision`, {
@@ -385,41 +386,36 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
     });
     const dealerBody = await dealerDecision.text();
     expect(dealerDecision.status(), `dealer decision without step-up: ${dealerBody}`).toBe(403);
-    expect(dealerBody).toContain('STEP_UP_REQUIRED');
+    expect((JSON.parse(dealerBody) as { code?: string }).code, 'the assurance guard answered, ahead of any lookup').toBe('STEP_UP_REQUIRED');
 
-    // The applicant and the dealer applicant hold a real session (positive control 200), and every
-    // platform review surface refuses them by ROLE — not by transport, CSRF or a missing route.
+    // Role forgery and tenant forgery are SEPARATE experiments in one shared module, which a backend
+    // test also runs against the real middleware under deliberate mutation. The contract is the
+    // behaviour — a 403 authority refusal, and for the tenant a 200 → 403 flip on a surface the actor
+    // may read — never the wording of whichever guard answers first.
+    const receipts: unknown[] = [];
     for (const [label, email] of [['applicant', APPLICANT_EMAIL], ['dealer applicant', DEALER_EMAIL]] as const) {
       const actor = await apiLogin(request, email, FIXTURE_PASSWORD);
-      const control = await request.get(`${API_URL}/registration/journey`, { headers: baseHeaders(actor) });
-      expect(control.status(), `${label} positive control`).toBe(200);
-      // Three distinct refusals, each asserted by its own reason so no guard can stand in for another:
-      // the actor's own role · a CLAIMED admin role · a FORGED tenant.
-      const ownRole = { ...baseHeaders(actor) };
-      delete ownRole['x-stakeholder-role'];
-      const claimedAdmin = { ...ownRole, 'x-stakeholder-role': 'admin' };
-      const forgedTenant = { ...ownRole, 'x-tenant-id': 'forged-platform-tenant' };
-      for (const path of ['/admin/identity/verification-sessions', '/admin/dealers']) {
-        const byRole = await request.get(`${API_URL}${path}`, { headers: ownRole });
-        const byRoleBody = await byRole.text();
-        expect(byRole.status(), `${label} on ${path}: ${byRoleBody}`).toBe(403);
-        expect(byRoleBody, 'refused on the server-derived role').toMatch(/cannot access this resource/i);
-        const byClaim = await request.get(`${API_URL}${path}`, { headers: claimedAdmin });
-        const byClaimBody = await byClaim.text();
-        expect(byClaim.status(), `${label} claiming admin on ${path}: ${byClaimBody}`).toBe(403);
-        expect(byClaimBody, 'a claimed role is never adopted').toMatch(/Requested role 'admin' is not verified/i);
-        const byTenant = await request.get(`${API_URL}${path}`, { headers: forgedTenant });
-        const byTenantBody = await byTenant.text();
-        expect(byTenant.status(), `${label} with forged tenant on ${path}: ${byTenantBody}`).toBe(403);
-        expect(byTenantBody, 'a forged tenant grants nothing').toMatch(/tenant organization|cannot access this resource/i);
-      }
+      const client = {
+        get: async (path: string, headers: Record<string, string>) => {
+          const response = await request.get(`${API_URL}${path}`, { headers });
+          return { status: response.status(), body: await response.text() };
+        },
+      };
+      receipts.push(await probeAuthorityForgery(client, baseHeaders(actor), label));
+
+      // A non-admin's identity decision is refused on authority — before step-up is even considered.
       const selfReview = await request.post(`${API_URL}/admin/identity/verification-sessions/${ghost}/review`, {
         headers: await mutationHeaders(request, actor),
         data: { decision: 'approve', reason: 'self review attempt' },
       });
       const selfBody = await selfReview.text();
       expect(selfReview.status(), `${label} identity decision: ${selfBody}`).toBe(403);
-      expect(selfBody, 'refused by role, before step-up is even considered').toMatch(/cannot access this resource/i);
+      const selfError = JSON.parse(selfBody) as { error?: string; code?: string };
+      expect(selfError.code ?? null, 'refused on authority, not on step-up').not.toBe('STEP_UP_REQUIRED');
+      expect(selfError.error ?? '', 'an authorization refusal').toMatch(/^Forbidden\b/);
+      expect(selfError.error ?? '').not.toMatch(/csrf/i);
     }
+    await testInfo.attach('moderator-authority-probes.json', { body: JSON.stringify(receipts, null, 2), contentType: 'application/json' });
+    console.log(`MODERATOR_AUTHORITY ${JSON.stringify(receipts)}`);
   });
 });

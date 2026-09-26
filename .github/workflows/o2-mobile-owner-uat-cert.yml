@@ -109,6 +109,8 @@ jobs:
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
       STAGING_RUN_ID: o2-mobile-${{ github.run_id }}-${{ github.run_attempt }}
+      # Job-level, not set by the freeze step: deleting the freeze must FAIL, never degrade to harness validation.
+      STAGING_REQUIRE_ACCEPTANCE: '1'
 
     steps:
       - name: Checkout exact candidate
@@ -186,6 +188,19 @@ jobs:
           }
           console.error('Exact-head O2 frontend/backend pair never became ready.');
           process.exit(1);
+          NODE
+
+      - name: Freeze exact candidate bundle (after FE/BE provenance)
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const response = await fetch(process.env.STAGING_WEB_URL, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`frontend returned ${response.status}`);
+          const html = await response.text();
+          const bundle = (html.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/) || [])[1];
+          if (!bundle) throw new Error('O2 candidate preview did not expose a Vite entry bundle');
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_EXPECTED_BUNDLE=${bundle}\n`);
+          console.log(`Frozen exact-head bundle: ${bundle}`);
           NODE
 
       - name: Install Chromium

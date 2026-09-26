@@ -8,6 +8,7 @@
  *      "harness-validation only — NOT acceptance".
  *   3. Verifies the backend /health is UP and connected to Supabase.
  *   4. Writes test-results/staging-env-truth.json (urls, bundle, health, runId, mode).
+ *   5. With STAGING_REQUIRE_ACCEPTANCE=1, FAILS unless the run is in acceptance mode.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 
@@ -44,6 +45,15 @@ export default async function globalSetup() {
     console.warn(
       `⚠ STAGING_EXPECTED_BUNDLE not set — run is HARNESS-VALIDATION ONLY (served bundle: ${bundle}). ` +
       `It must NOT be reported as deployed acceptance of PR #90.`,
+    );
+  }
+
+  // Opt-in integrity gate for workflows that REPORT deployed acceptance: without a frozen bundle a
+  // run can only be harness validation, so it must fail rather than be misread as acceptance.
+  if (process.env.STAGING_REQUIRE_ACCEPTANCE === '1' && mode !== 'acceptance') {
+    throw new Error(
+      `STAGING_REQUIRE_ACCEPTANCE=1 but this run is ${mode} (served ${bundle}, expected ${expected || 'UNSET'}). ` +
+      'Freeze the exact-head bundle into STAGING_EXPECTED_BUNDLE after proving FE/BE provenance.',
     );
   }
 
