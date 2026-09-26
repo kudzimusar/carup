@@ -146,13 +146,56 @@ Customs assessment/payment/release evidence is not T13 settlement. T13 settlemen
 
 The following are deliberately recorded for the next audit rather than hidden:
 
-1. **Release-policy convergence.** The historical release policy still reads legacy government-document/import-order status assumptions broadly. It must be reconciled against T8/T11/T12 facts and milestone-specific release triggers without making deposit/intermediate releases depend on final delivery.
+1. **Release-policy convergence — CLOSED (2026-09-26, §9A).** Release eligibility is now milestone-specific. T8/T11/T12 facts are read from their frozen owners, and only for the milestones they gate. Every SafeTrade assurance gate still applies to every release.
 2. **Logistics-only subject binding.** Current SafeTrade transactions require `import_order_id`. Trade OS logistics can exist without a procurement import order. T13 needs a canonical subject-binding decision that reuses SafeTrade rather than creating a second payments system.
 3. **Incomplete accepted quotes — fallback retired, write paths still open.** The fallback is retired (`7dc80e46`) and staging measured 0 of 48 incomplete (§4). But product write paths can still create a quote the resolver will refuse, and nothing refuses it earlier: legacy `addQuote` writes `seller_id: payload.seller_id || null` with an unvalidated amount and currency; RFQ `updateQuote` copies `quote_currency` unvalidated and `submitQuoteById` does not re-validate; a workbook-imported draft can carry `quote_amount || 0`; and `diaspora_accept_quote_atomic` accepts any `ISSUED` quote without checking completeness. Close these by requiring the complete triple before a quote can be `ISSUED` or `ACCEPTED`, then add the equivalent `CHECK` (`NOT VALID` first). The governed repair path for an existing incomplete row is not yet named.
 4. **UI truth projection.** Existing SafeTrade surfaces are substantial, but the new source-money/provider/ledger distinctions must be checked in the deployed buyer/seller/operator experience.
 5. **Live provider/legal/custody.** Not authorized in T13 implementation. Sandbox is sufficient for lifecycle certification; live provider activation requires a separate owner decision.
 6. **Legacy quote write — CLOSED (2026-09-26).** `POST /import-orders/:id/quotes` authenticated but did not authorise, inserted before any check and took `seller_id` from the body. Now every check runs before any write. The seller is server-derived (an assigned seller quotes only as themselves, and an operator only for a seller assigned to this order). The buyer, outsiders and foreign tenant admins are refused, money is validated with no USD default, and the transition is pre-checked. `assign-seller`, which grants the authority quoting relies on, had the same insert-first defect and is now restricted to platform operators or the order's tenant admin. `diaspora-legacy-quote-authz.test.js`: 18 tests, each refusal proven to mutate nothing. The original code fails 14 of them, and 3 guard mutations are each red.
 7. **SafeTrade currencies vs the trade corridor — RESOLVED (2026-09-26): JPY settles in JPY.** SafeTrade now supports JPY directly. The accepted quote's JPY is the settlement money, so no settlement FX exists to source or reconcile, and `settlementFx` stays `null`. A caller asserting USD is recorded and ignored, never applied. JPY has no minor unit, so a fractional yen is refused in an accepted quote (`SAFETRADE_QUOTE_AMOUNT_NOT_REPRESENTABLE`) and in any milestone (`CURRENCY_MINOR_UNIT_VIOLATION`), checked on the raw figure and never rounded. `constants/diaspora/currencyMinorUnits.js` declares minor units for every supported currency, pinned by test. Currencies outside the list stay `UNSUPPORTED_CURRENCY`. The web `formatMoney` no longer renders a missing currency as USD. Tests: `trade-os-t13-jpy-settlement.test.js` (7), with three mutations each red. A separate settlement currency with transaction FX was not modelled: it needs provider FX provenance, which remains a live-provider decision (item 5).
+
+## 9A. Release-policy convergence (2026-09-26)
+
+**Historical behaviour.** `evaluateRelease` judged every release as the FINAL release of the whole transaction. Whatever milestone was being released, it required APPROVED compliance, every `vehicle_government_documents` row VERIFIED, a `diaspora_shipments` row ARRIVED/RELEASED/COMPLETED, and the buyer's delivery confirmation. A deposit therefore could not be released until the goods had been delivered. It also read fulfilment facts from tables that are no longer their owners: the legacy vehicle-government table stood in for the T8 evidence authority, and T11's RELEASED/COMPLETED stood in for customs facts that T11 hands to T12 (`STAGES_HANDED_TO_T12`).
+
+**Authority map.**
+
+| blocker | current source | owning authority | relevant to | irrelevant to | change |
+|---|---|---|---|---|---|
+| PAYMENT_NOT_HELD | this milestone's status | T13 | every milestone | — | unchanged |
+| TOTALS_UNRECONCILED | milestone sum vs total | T13 | every milestone | — | unchanged |
+| COMPLIANCE_NOT_APPROVED | `diaspora_compliance_reviews` | T13 assurance (human review) | every milestone | — | unchanged (a safety gate, not a fulfilment fact) |
+| DOCUMENTS_NOT_VERIFIED | `diaspora_trade_documents`, current version | **T8** | PROGRESS, SHIPMENT, CUSTOMS_DUTY, DELIVERY, RELEASE, any milestone with trigger `ON_DOCUMENTS_VERIFIED_REVIEWED` | DEPOSIT, FEE, INSURANCE | satisfier moved to T8 (deleted/superseded excluded); a legacy `vehicle_government_documents` row can still block but never satisfy |
+| SHIPMENT_MILESTONE_NOT_REACHED | `diaspora_shipments.status` by T11 stage rank | **T11** | SHIPMENT (≥ IN_TRANSIT), DELIVERY/RELEASE (≥ ARRIVED) | DEPOSIT, FEE, INSURANCE, PROGRESS, CUSTOMS_DUTY | milestone-specific; EXCEPTION proves no progress |
+| CUSTOMS_ASSESSMENT_NOT_EVIDENCED *(new)* | `diaspora_customs_events` on the order's live case | **T12** | CUSTOMS_DUTY | all others | document-backed ASSESSMENT_EVIDENCE only; payment evidence satisfies nothing |
+| DESTINATION_RELEASE_NOT_EVIDENCED *(new)* | `diaspora_customs_events` | **T12** | DELIVERY, RELEASE | all others | AUTHORITY_DOCUMENT release evidence only; a reported release is not an evidenced one |
+| DELIVERY_NOT_CONFIRMED | transaction `deliveryConfirmed` flag | T13 (buyer acknowledgement) | DELIVERY, RELEASE, any milestone with trigger `ON_DELIVERY_CONFIRMED_REVIEWED` | DEPOSIT, FEE, INSURANCE, PROGRESS, SHIPMENT, CUSTOMS_DUTY | milestone-specific; a T12 DELIVERY_OBSERVED is not accepted |
+| ACTIVE_DISPUTE | transaction `DISPUTED` **and now** active `diaspora_safetrade_disputes` rows | T13 | every milestone | — | strengthened: an active dispute record blocks even if the transaction status lags |
+| SECURITY_HOLD | metadata flag / SUSPENDED | T13 | every milestone | — | unchanged |
+| ACTOR_NOT_AUTHORIZED | server-derived platform role | T13 | every milestone | — | unchanged |
+| LIVE_PAYMENT_DISABLED | provider / live flag | T13 | every milestone | — | unchanged |
+| REVIEWER_APPROVAL_REQUIRED | recorded reviewer evaluation | T13 maker-checker | every HIGH-risk release, any class | — | unchanged |
+
+**The model.** `MILESTONE_RELEASE_POLICY` maps the schema's own milestone types to three classes, using no new vocabulary, table or percentage:
+- **EARLY** — DEPOSIT, FEE, INSURANCE.
+- **INTERMEDIATE** — PROGRESS, SHIPMENT, CUSTOMS_DUTY.
+- **FINAL** — DELIVERY, RELEASE.
+
+REFUND, an unknown type, or an evaluation with no `milestoneId` is **FINAL**. A milestone's `release_trigger` can add a requirement and never removes one. The verdict now states `releaseClass`, `milestoneType` and `requirements`. `eligible:true` remains permission for the release path to proceed. It is not provider confirmation, ledger application or funds released, and the engine still writes nothing.
+
+**Retained, unchanged:**
+- held funds;
+- reconciliation;
+- compliance;
+- security hold;
+- the reviewer actor;
+- the live-payment firewall;
+- HIGH-risk maker-checker, including the existing ST-3 approval request, the self-approval refusal and the `EVALUATION_NOT_REVIEWED` refusal;
+- provider dispatch ≠ confirmation ≠ ledger;
+- operation idempotency;
+- sandbox-only execution.
+
+**Proof.** `backend/tests/trade-os-t13-release-policy.test.js` holds 20 tests with a positive control for every refusal. The shared SafeTrade fixture now seeds the modern authorities, with no assertion changed. The mutation matrix has 13 mutations, all red. M13's first form survived because a second, independent rank lookup still refused EXCEPTION; re-applied at the rank table, it went red.
 
 ## 10. Certification plan
 

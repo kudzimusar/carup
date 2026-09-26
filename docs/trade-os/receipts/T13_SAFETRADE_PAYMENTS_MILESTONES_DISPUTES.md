@@ -66,7 +66,7 @@ This receipt does not claim:
 
 ## Required next hardening
 
-1. Reconcile historical release conditions to current T8/T11/T12 authorities and milestone-specific triggers.
+1. ~~Reconcile historical release conditions to current T8/T11/T12 authorities and milestone-specific triggers.~~ Done (2026-09-26) — see "Release-policy convergence" below and plan §9A.
 2. Audit every SafeTrade UI claim against the new source/provider/ledger truth distinctions.
 3. Decide canonical subject binding for logistics-only transactions without creating a second payments authority.
 4. ~~Measure/remove the legacy incomplete-quote compatibility path when active data allows.~~ Done for staging (below). Production measurement remains T18's.
@@ -96,6 +96,22 @@ SafeTrade suites (`diaspora-safetrade`, `-authz`, `trade-os-t13-safetrade-conver
 **Found and recorded, not fixed here** (plan §9 items 3, 6 and 7): product write paths can still create a quote the resolver will refuse; the legacy `POST /import-orders/:id/quotes` inserts before any authorization check; and SafeTrade's currency list (USD/ZAR/GBP/EUR) excludes the corridor's JPY.
 
 **Production was not measured.** It is outside this phase's authority. T18 must repeat the measurement with the same rules.
+
+## Release-policy convergence (2026-09-26)
+
+Starting authority: branch `feat/trade-os-client-demo-convergence` at `e7b24653` (PR #207 head), `main` `bb9d9900`, clean tree.
+
+- **Root cause.** One global final-state gate served every milestone, so a deposit could not be released before delivery. Fulfilment facts were read from non-owning tables.
+- **Change.** The policy is milestone-specific (EARLY / INTERMEDIATE / FINAL, derived from the schema's milestone types). T8, T11 and T12 are read as external authorities, only where a milestone needs them. Unknown or absent milestones are FINAL. Two T12 blocker codes were added: `CUSTOMS_ASSESSMENT_NOT_EVIDENCED` and `DESTINATION_RELEASE_NOT_EVIDENCED`. The dispute gate now also reads active dispute records.
+- **Retained.** Held funds, reconciliation, compliance, security hold, reviewer actor, live-payment firewall and HIGH-risk maker-checker all apply to every release.
+- **Tests.**
+  - `trade-os-t13-release-policy` 20/20.
+  - SafeTrade + ST-3 + T13 238/0.
+  - Diaspora + Trade OS 2021/0 (7 skipped).
+  - Full backend 6524/0 (21 skipped).
+  - Lint NET_NEW=0.
+- **Mutations.** 13/13 red (plan §9A).
+- Full table: plan §9A.
 
 ## Verdict
 

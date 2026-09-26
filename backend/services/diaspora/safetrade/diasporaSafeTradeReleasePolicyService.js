@@ -45,6 +45,9 @@ export const SAFETRADE_RELEASE_BLOCKER_CODES = Object.freeze({
   ACTOR_NOT_AUTHORIZED: 'ACTOR_NOT_AUTHORIZED',
   LIVE_PAYMENT_DISABLED: 'LIVE_PAYMENT_DISABLED',
   REVIEWER_APPROVAL_REQUIRED: 'REVIEWER_APPROVAL_REQUIRED',
+  // T13 release-policy convergence: facts owned by T12, required only by the milestones they gate.
+  CUSTOMS_ASSESSMENT_NOT_EVIDENCED: 'CUSTOMS_ASSESSMENT_NOT_EVIDENCED',
+  DESTINATION_RELEASE_NOT_EVIDENCED: 'DESTINATION_RELEASE_NOT_EVIDENCED',
 });
 
 const BLK = SAFETRADE_RELEASE_BLOCKER_CODES;
@@ -57,6 +60,79 @@ const HIGH_RISK_AMOUNT_THRESHOLD = 25000;
 
 // Reconciliation tolerance at numeric(_,2) scale.
 const RECONCILIATION_TOLERANCE = 0.005;
+
+/**
+ * ── T13 release-policy convergence ─────────────────────────────────────────
+ *
+ * Historically every release was evaluated as if it were the FINAL release of the whole transaction:
+ * compliance, verified documents, an ARRIVED/RELEASED shipment and buyer delivery confirmation were
+ * required for ANY milestone. That made a deposit unreleasable until the goods had been delivered, and
+ * it read fulfilment facts from tables that are no longer their owners.
+ *
+ * Now the fulfilment facts are milestone-specific, and each is read from its frozen owner:
+ *   T8  documents  → diaspora_trade_documents (current version: not deleted, not superseded)
+ *   T11 movement   → diaspora_shipments.status, by the T11 stage rank
+ *   T12 customs    → diaspora_customs_events on the order's live customs case(s)
+ * SafeTrade reads these; it never writes them, and nothing here can make one of them true.
+ *
+ * Unchanged for EVERY milestone (SafeTrade's own assurance, not fulfilment): the milestone's own funds
+ * held, totals reconciled, compliance approved, no active dispute, no security hold, a
+ * reviewer/admin actor, the live-payment firewall, and — for HIGH risk — a recorded reviewer approval.
+ *
+ * Unknown is conservative: a milestone type not listed below, a REFUND line, or an evaluation with no
+ * milestoneId is FINAL.
+ */
+export const SAFETRADE_RELEASE_CLASSES = Object.freeze({ EARLY: 'EARLY', INTERMEDIATE: 'INTERMEDIATE', FINAL: 'FINAL' });
+const RC = SAFETRADE_RELEASE_CLASSES;
+
+export const RELEASE_REQUIREMENTS = Object.freeze({
+  DOCUMENTS_VERIFIED: 'DOCUMENTS_VERIFIED', // T8
+  SHIPMENT_DEPARTED: 'SHIPMENT_DEPARTED', // T11 — IN_TRANSIT or later
+  SHIPMENT_ARRIVED: 'SHIPMENT_ARRIVED', // T11 — ARRIVED or later
+  CUSTOMS_ASSESSMENT_EVIDENCED: 'CUSTOMS_ASSESSMENT_EVIDENCED', // T12 — document-backed assessment
+  DESTINATION_RELEASE_EVIDENCED: 'DESTINATION_RELEASE_EVIDENCED', // T12 — authority release document
+  DELIVERY_CONFIRMED: 'DELIVERY_CONFIRMED', // SafeTrade's own buyer acknowledgement
+});
+const RQ = RELEASE_REQUIREMENTS;
+
+/** Milestone type → release class and the fulfilment facts it needs. Types mirror the DB CHECK. */
+export const MILESTONE_RELEASE_POLICY = Object.freeze({
+  DEPOSIT: { releaseClass: RC.EARLY, requires: [] },
+  FEE: { releaseClass: RC.EARLY, requires: [] },
+  INSURANCE: { releaseClass: RC.EARLY, requires: [] },
+  PROGRESS: { releaseClass: RC.INTERMEDIATE, requires: [RQ.DOCUMENTS_VERIFIED] },
+  SHIPMENT: { releaseClass: RC.INTERMEDIATE, requires: [RQ.DOCUMENTS_VERIFIED, RQ.SHIPMENT_DEPARTED] },
+  CUSTOMS_DUTY: { releaseClass: RC.INTERMEDIATE, requires: [RQ.DOCUMENTS_VERIFIED, RQ.CUSTOMS_ASSESSMENT_EVIDENCED] },
+  DELIVERY: { releaseClass: RC.FINAL, requires: [RQ.DOCUMENTS_VERIFIED, RQ.SHIPMENT_ARRIVED, RQ.DESTINATION_RELEASE_EVIDENCED, RQ.DELIVERY_CONFIRMED] },
+  RELEASE: { releaseClass: RC.FINAL, requires: [RQ.DOCUMENTS_VERIFIED, RQ.SHIPMENT_ARRIVED, RQ.DESTINATION_RELEASE_EVIDENCED, RQ.DELIVERY_CONFIRMED] },
+});
+const FINAL_POLICY = MILESTONE_RELEASE_POLICY.RELEASE;
+
+/** A milestone's release_trigger can ADD a requirement; it can never remove one. */
+const RELEASE_TRIGGER_REQUIREMENTS = Object.freeze({
+  ON_DOCUMENTS_VERIFIED_REVIEWED: [RQ.DOCUMENTS_VERIFIED],
+  ON_DELIVERY_CONFIRMED_REVIEWED: [RQ.DELIVERY_CONFIRMED],
+});
+
+/** Pure: the class and requirement set for one milestone (or FINAL when unknown/absent). */
+export function releaseRequirementsFor(milestone = null) {
+  const policy = (milestone && MILESTONE_RELEASE_POLICY[milestone.milestone_type]) || FINAL_POLICY;
+  const extra = (milestone && RELEASE_TRIGGER_REQUIREMENTS[milestone.release_trigger]) || [];
+  return {
+    releaseClass: policy.releaseClass,
+    requires: [...new Set([...policy.requires, ...extra])],
+  };
+}
+
+/** T11 stage rank (mirrors diasporaShipmentService STAGE_RANK). EXCEPTION is unranked: not progress. */
+const T11_STAGE_RANK = Object.freeze({ PLANNED: 0, BOOKED: 1, LOADING: 2, IN_TRANSIT: 3, ARRIVED: 4, CUSTOMS_HOLD: 5, RELEASED: 6, COMPLETED: 7 });
+const T11_IN_TRANSIT = T11_STAGE_RANK.IN_TRANSIT;
+const T11_ARRIVED = T11_STAGE_RANK.ARRIVED;
+
+/** T12 sources that rest on a document (an agent's word or a CarUp observation does not). */
+const T12_DOCUMENT_SOURCES = new Set(['AUTHORITY_DOCUMENT', 'IMPORTER_DOCUMENT', 'THIRD_PARTY_DOCUMENT']);
+/** Active dispute statuses (mirror SAFETRADE_ACTIVE_DISPUTE_STATUSES in the dispute service). */
+const ACTIVE_DISPUTE_STATUSES = ['OPEN', 'UNDER_REVIEW', 'AWAITING_INFO'];
 
 async function resolveSafeTradeClient(supabaseOrOptions, options = {}) {
   if (supabaseOrOptions && typeof supabaseOrOptions.from === 'function') return supabaseOrOptions;
@@ -183,51 +259,121 @@ export async function evaluateRelease(supabaseOrOptions, {
     evidenceRefs.push(compEv);
   }
 
-  // Check 3 — required documents verified.
-  const { data: docs } = await supabase
-    .from('vehicle_government_documents')
+  // ── Milestone-specific fulfilment requirements (T13 release-policy convergence) ──────────────
+  // The milestone being released decides which fulfilment facts apply. No milestoneId, or an unknown
+  // type, is FINAL (strictest). Requirements are read from their frozen owners and only ever READ.
+  const targetMilestone = milestoneId ? milestones.find((m) => m.id === milestoneId) || null : null;
+  const { releaseClass, requires } = releaseRequirementsFor(targetMilestone);
+  const needs = new Set(requires);
+  evidenceRefs.push(evidenceRef({ kind: 'release_policy', table: 'diaspora_safetrade_milestones', recordId: targetMilestone?.id ?? null, observed: { milestoneType: targetMilestone?.milestone_type ?? null, releaseTrigger: targetMilestone?.release_trigger ?? null, releaseClass, requires }, satisfied: true }));
+
+  // T8 — documents. The satisfier is the T8 authority only: the CURRENT version of every trade
+  // document bound to this order (not deleted, not superseded), all VERIFIED, at least one. A legacy
+  // vehicle_government_documents row can still BLOCK (an unverified one is a real open question) but
+  // can never satisfy — it is not the modern evidence authority.
+  if (needs.has(RQ.DOCUMENTS_VERIFIED)) {
+    const { data: tradeDocs } = await supabase
+      .from('diaspora_trade_documents')
+      .select('*')
+      .eq('import_order_id', txn.import_order_id);
+    const current = (tradeDocs || []).filter((d) => !d.deleted_at && !d.superseded_at);
+    const unverifiedT8 = current.filter((d) => d.verification_status !== 'VERIFIED');
+    const { data: legacyDocs } = await supabase
+      .from('vehicle_government_documents')
+      .select('*')
+      .eq('import_order_id', txn.import_order_id);
+    const unverifiedLegacy = (legacyDocs || []).filter((d) => d.verification_status !== 'VERIFIED');
+    const docsSatisfied = current.length > 0 && unverifiedT8.length === 0 && unverifiedLegacy.length === 0;
+    const docEv = evidenceRef({ kind: 'trade_document', table: 'diaspora_trade_documents', recordId: (unverifiedT8[0] || unverifiedLegacy[0])?.id ?? null, observed: { current: current.length, unverified: unverifiedT8.length, legacyUnverified: unverifiedLegacy.length }, satisfied: docsSatisfied });
+    if (!docsSatisfied) {
+      add(docEv, blocker({ code: BLK.DOCUMENTS_NOT_VERIFIED, message: current.length === 0 ? 'No current trade document is attached to this order.' : `${unverifiedT8.length + unverifiedLegacy.length} document(s) are not VERIFIED.`, remediation: 'Have the documents reviewed and VERIFIED in the documents workspace (T8).', policyClause: '§43.documents' }));
+    } else {
+      evidenceRefs.push(docEv);
+    }
+  }
+
+  // T11 — movement. Read by stage rank; EXCEPTION has no rank and proves no progress.
+  if (needs.has(RQ.SHIPMENT_DEPARTED) || needs.has(RQ.SHIPMENT_ARRIVED)) {
+    const { data: shipments } = await supabase
+      .from('diaspora_shipments')
+      .select('*')
+      .eq('import_order_id', txn.import_order_id);
+    const shipmentRows = (shipments || []).filter((sh) => !sh.deleted_at);
+    const furthest = shipmentRows.reduce((best, sh) => {
+      const rank = T11_STAGE_RANK[sh.status];
+      return rank !== undefined && (best === null || rank > T11_STAGE_RANK[best.status]) ? sh : best;
+    }, null);
+    const rank = furthest ? T11_STAGE_RANK[furthest.status] : -1;
+    const minRank = needs.has(RQ.SHIPMENT_ARRIVED) ? T11_ARRIVED : T11_IN_TRANSIT;
+    const shipSatisfied = rank >= minRank;
+    const shipEv = evidenceRef({ kind: 'shipment', table: 'diaspora_shipments', recordId: furthest?.id ?? null, observed: { status: furthest?.status ?? null, count: shipmentRows.length, required: minRank === T11_ARRIVED ? 'ARRIVED' : 'IN_TRANSIT' }, satisfied: shipSatisfied });
+    if (!shipSatisfied) {
+      add(shipEv, blocker({ code: BLK.SHIPMENT_MILESTONE_NOT_REACHED, message: minRank === T11_ARRIVED ? 'The shipment has not been observed ARRIVED.' : 'The shipment has not been observed IN_TRANSIT.', remediation: 'Wait until the shipment timeline (T11) records the stage this milestone depends on.', policyClause: '§43.shipment' }));
+    } else {
+      evidenceRefs.push(shipEv);
+    }
+  }
+
+  // T12 — customs. Read from the order's live customs case(s). A payment-evidence event is never
+  // read here: customs payment is not SafeTrade settlement, and it satisfies nothing in this engine.
+  if (needs.has(RQ.CUSTOMS_ASSESSMENT_EVIDENCED) || needs.has(RQ.DESTINATION_RELEASE_EVIDENCED)) {
+    const { data: cases } = await supabase
+      .from('diaspora_customs_cases')
+      .select('*')
+      .eq('import_order_id', txn.import_order_id);
+    const liveCases = (cases || []).filter((c) => !c.deleted_at && c.status !== 'ABANDONED');
+    let events = [];
+    if (liveCases.length) {
+      const { data: rows } = await supabase
+        .from('diaspora_customs_events')
+        .select('*')
+        .in('case_id', liveCases.map((c) => c.id));
+      events = (rows || []).filter((e) => !e.deleted_at);
+    }
+    if (needs.has(RQ.CUSTOMS_ASSESSMENT_EVIDENCED)) {
+      const assessment = events.find((e) => e.event_type === 'ASSESSMENT_EVIDENCE_RECEIVED' && T12_DOCUMENT_SOURCES.has(e.source_kind));
+      const ev = evidenceRef({ kind: 'customs_event', table: 'diaspora_customs_events', recordId: assessment?.id ?? null, observed: { cases: liveCases.length, assessmentEvidenced: Boolean(assessment), source_kind: assessment?.source_kind ?? null }, satisfied: Boolean(assessment) });
+      if (!assessment) {
+        add(ev, blocker({ code: BLK.CUSTOMS_ASSESSMENT_NOT_EVIDENCED, message: 'No document-backed customs assessment is recorded for this order.', remediation: 'Record the assessment with its document in the customs case (T12).', policyClause: '§43.customs' }));
+      } else {
+        evidenceRefs.push(ev);
+      }
+    }
+    if (needs.has(RQ.DESTINATION_RELEASE_EVIDENCED)) {
+      const release = events.find((e) => e.event_type === 'RELEASE_EVIDENCE_RECEIVED' && e.source_kind === 'AUTHORITY_DOCUMENT');
+      const ev = evidenceRef({ kind: 'customs_event', table: 'diaspora_customs_events', recordId: release?.id ?? null, observed: { cases: liveCases.length, releaseEvidenced: Boolean(release) }, satisfied: Boolean(release) });
+      if (!release) {
+        add(ev, blocker({ code: BLK.DESTINATION_RELEASE_NOT_EVIDENCED, message: 'No authority release document is recorded for this order.', remediation: 'Attach the customs release document to the customs case (T12).', policyClause: '§43.customs' }));
+      } else {
+        evidenceRefs.push(ev);
+      }
+    }
+  }
+
+  // Buyer delivery acknowledgement (SafeTrade's own CONFIRM_DELIVERY flag). A T12 DELIVERY_OBSERVED is
+  // a CarUp observation of a handoff and is deliberately NOT accepted as the buyer's acknowledgement.
+  if (needs.has(RQ.DELIVERY_CONFIRMED)) {
+    const deliveryConfirmed = Boolean(txn?.metadata?.safetrade?.deliveryConfirmed)
+      || Boolean(txn?.metadata?.delivery?.buyerConfirmed);
+    const delEv = evidenceRef({ kind: 'delivery_flag', table: 'diaspora_safetrade_transactions', recordId: txn.id, observed: { deliveryConfirmed }, satisfied: deliveryConfirmed });
+    if (!deliveryConfirmed) {
+      add(delEv, blocker({ code: BLK.DELIVERY_NOT_CONFIRMED, message: 'Buyer delivery confirmation has not been recorded.', remediation: 'Record buyer (or reviewer override) delivery confirmation.', policyClause: '§43.delivery' }));
+    } else {
+      evidenceRefs.push(delEv);
+    }
+  }
+
+  // Check 6 — no active dispute: the transaction state OR any active dispute record for it. Either
+  // blocks every milestone; the milestone policy above never reaches this check's outcome.
+  const { data: disputeRows } = await supabase
+    .from('diaspora_safetrade_disputes')
     .select('*')
-    .eq('import_order_id', txn.import_order_id);
-  const docRows = docs || [];
-  const unverified = docRows.filter((d) => d.verification_status !== 'VERIFIED');
-  const docsSatisfied = docRows.length > 0 && unverified.length === 0;
-  const docEv = evidenceRef({ kind: 'government_document', table: 'vehicle_government_documents', recordId: unverified[0]?.id ?? null, observed: { total: docRows.length, unverified: unverified.length }, satisfied: docsSatisfied });
-  if (!docsSatisfied) {
-    add(docEv, blocker({ code: BLK.DOCUMENTS_NOT_VERIFIED, message: docRows.length === 0 ? 'No required documents are attached.' : `${unverified.length} required document(s) are not VERIFIED.`, remediation: 'Verify all required government documents.', policyClause: '§43.documents' }));
-  } else {
-    evidenceRefs.push(docEv);
-  }
-
-  // Check 5 — shipment milestone reached (observed from shipments; never auto-completed).
-  const { data: shipments } = await supabase
-    .from('diaspora_shipments')
-    .select('*')
-    .eq('import_order_id', txn.import_order_id);
-  const shipmentRows = shipments || [];
-  const arrived = shipmentRows.find((s) => ['ARRIVED', 'RELEASED', 'COMPLETED'].includes(s.status));
-  const shipEv = evidenceRef({ kind: 'shipment', table: 'diaspora_shipments', recordId: arrived?.id ?? null, observed: { status: arrived?.status ?? null, count: shipmentRows.length }, satisfied: Boolean(arrived) });
-  if (!arrived) {
-    add(shipEv, blocker({ code: BLK.SHIPMENT_MILESTONE_NOT_REACHED, message: 'The shipment has not reached an ARRIVED/RELEASED milestone.', remediation: 'Wait until the shipment is observed arrived/released.', policyClause: '§43.shipment' }));
-  } else {
-    evidenceRefs.push(shipEv);
-  }
-
-  // Check 5b — buyer delivery confirmation flag (set by CONFIRM_DELIVERY on the transaction metadata).
-  const deliveryConfirmed = Boolean(txn?.metadata?.safetrade?.deliveryConfirmed)
-    || Boolean(txn?.metadata?.delivery?.buyerConfirmed);
-  const delEv = evidenceRef({ kind: 'delivery_flag', table: 'diaspora_safetrade_transactions', recordId: txn.id, observed: { deliveryConfirmed }, satisfied: deliveryConfirmed });
-  if (!deliveryConfirmed) {
-    add(delEv, blocker({ code: BLK.DELIVERY_NOT_CONFIRMED, message: 'Buyer delivery confirmation has not been recorded.', remediation: 'Record buyer (or reviewer override) delivery confirmation.', policyClause: '§43.delivery' }));
-  } else {
-    evidenceRefs.push(delEv);
-  }
-
-  // Check 6 — no active dispute (transaction state).
-  const disputed = ['DISPUTED'].includes(txn.status);
-  if (disputed) {
+    .eq('transaction_id', txn.id);
+  const activeDispute = (disputeRows || []).find((d) => !d.deleted_at && ACTIVE_DISPUTE_STATUSES.includes(d.status));
+  if (txn.status === 'DISPUTED' || activeDispute) {
     add(
-      evidenceRef({ kind: 'safetrade_transaction', table: 'diaspora_safetrade_transactions', recordId: txn.id, observed: { status: txn.status }, satisfied: false }),
-      blocker({ code: BLK.ACTIVE_DISPUTE, message: 'The transaction is currently DISPUTED.', remediation: 'Resolve the dispute before releasing.', policyClause: '§43.dispute' }),
+      evidenceRef({ kind: 'safetrade_dispute', table: activeDispute ? 'diaspora_safetrade_disputes' : 'diaspora_safetrade_transactions', recordId: activeDispute?.id ?? txn.id, observed: { status: txn.status, disputeStatus: activeDispute?.status ?? null }, satisfied: false }),
+      blocker({ code: BLK.ACTIVE_DISPUTE, message: activeDispute ? `A dispute is ${activeDispute.status}.` : 'The transaction is currently DISPUTED.', remediation: 'Resolve the dispute before releasing.', policyClause: '§43.dispute' }),
     );
   }
 
@@ -281,6 +427,8 @@ export async function evaluateRelease(supabaseOrOptions, {
 
   // eligible ONLY if no blockers (and, by construction, a held milestone is present and — if HIGH —
   // an approval record exists; both are encoded as blockers above).
+  // `eligible` is PERMISSION for the release path to proceed. It is not provider confirmation, not
+  // ledger application and not funds released; nothing in this engine writes or moves anything.
   return {
     eligible: blockers.length === 0,
     blockers,
@@ -290,6 +438,9 @@ export async function evaluateRelease(supabaseOrOptions, {
     requiresApproval,
     riskTier,
     providerMode,
+    releaseClass,
+    milestoneType: targetMilestone?.milestone_type ?? null,
+    requirements: requires,
   };
 }
 

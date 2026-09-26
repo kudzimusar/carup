@@ -142,7 +142,12 @@ function seedTxn(client, { txnStatus = 'IN_PROGRESS', milestoneStatus = 'HELD', 
 function seedReleaseEvidence(client, { delivery = true } = {}) {
   client._rows('diaspora_compliance_reviews').push({ id: 'cr-1', import_order_id: 'ord-1', status: 'APPROVED', tenant_id: 'tenant-A' });
   client._rows('vehicle_government_documents').push({ id: 'doc-1', import_order_id: 'ord-1', verification_status: 'VERIFIED' });
+  // T13 release-policy convergence: a FINAL release reads its facts from their frozen owners — the
+  // current T8 trade document, the T11 shipment stage, and a T12 authority release document.
+  client._rows('diaspora_trade_documents').push({ id: 'tdoc-1', import_order_id: 'ord-1', verification_status: 'VERIFIED', deleted_at: null, superseded_at: null });
   client._rows('diaspora_shipments').push({ id: 'sh-1', import_order_id: 'ord-1', status: 'ARRIVED' });
+  client._rows('diaspora_customs_cases').push({ id: 'cc-1', import_order_id: 'ord-1', subject_type: 'import_order', subject_id: 'ord-1', status: 'OPEN' });
+  client._rows('diaspora_customs_events').push({ id: 'ce-rel', case_id: 'cc-1', event_type: 'RELEASE_EVIDENCE_RECEIVED', assertion_class: 'ATTRIBUTED', source_kind: 'AUTHORITY_DOCUMENT', event_time: '2026-06-20T10:00:00.000Z' });
   if (delivery) {
     const txn = client._rows('diaspora_safetrade_transactions').find((t) => t.id === 'st-1');
     txn.metadata = { ...(txn.metadata || {}), safetrade: { ...((txn.metadata || {}).safetrade || {}), deliveryConfirmed: true } };
