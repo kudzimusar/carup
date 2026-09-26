@@ -3,7 +3,8 @@
 > **Status:** REVIEW DRAFT — planning and documentation only  
 > **Date:** 2026-09-13  
 > **Program:** CarUp Diaspora Trade OS  
-> **Current delivery context:** T5  
+> **Track:** **Scenario Lab** — a cross-cutting track, not a T-phase (owner ruling 2026-09-26; living master plan §46). Earlier drafts called this work "T5"; in the master plan T5 is the Container Marketplace & Multi-Corridor phase, frozen at `5079b0b3`.  
+> **Programme position when renamed:** T5–T12 OWNER ACCEPTED / FROZEN; T13 SafeTrade in progress. The phase ledger is `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25, and this document does not define phases.  
 > **Implementation authorization:** **NOT GRANTED** by this document. Product code, migrations, staging data writes, and production behavior remain unchanged until owner review and approval.
 
 ---
@@ -33,7 +34,7 @@ The core principle is:
 
 Trade OS has reached the point where empty-state testing and manually created toy records are no longer sufficient.
 
-T5 and the later Trade OS tracks need to prove increasingly connected business journeys:
+The Scenario Lab and the Trade OS phases need to prove increasingly connected business journeys:
 
 - buyer demand;
 - independent RFQs;
@@ -173,7 +174,7 @@ This plan covers:
 - environment isolation;
 - test reset strategy;
 - legacy fixture reuse;
-- T5 minimum capability;
+- Scenario Lab minimum capability;
 - later T-track extension points.
 
 This plan does **not** authorize implementation of:
@@ -351,11 +352,11 @@ Example:
 ```yaml
 scenario_id: SCN-ALPHARD-HARARE-001
 scenario_version: 1
-purpose: T5 multi-quote vehicle procurement
+purpose: Scenario Lab multi-quote vehicle procurement
 production_forbidden: true
 reference_pack_dependencies:
   - REF-VEHICLES-JP-ZW-V1
-  - REF-PARTNERS-T5-V1
+  - REF-PARTNERS-V1
 template_inputs:
   - buyer
   - seller-a
@@ -743,7 +744,7 @@ Scenario tests should eventually verify:
 - historical quote does not change when a later rate changes;
 - customs FX can differ from display/reference FX.
 
-**T5 does not implement live official FX.** It must only avoid a schema/design choice that destroys original-currency truth or prevents later USD normalization.
+**The Scenario Lab implements no FX.** T6 already owns reference FX (ECB, behind `FxRateProvider`, frozen at `2d0a0bc0`) and T12 owns customs FX. Scenarios preserve original-currency truth and, where a USD comparison is asserted, assert T6's own AVAILABLE/UNAVAILABLE output rather than computing one.
 
 ---
 
@@ -858,7 +859,7 @@ Purpose:
 - accepted provider;
 - later corridor/rate/shipment extension.
 
-Initial T5 scope:
+Initial Scenario Lab scope:
 
 ```text
 Buyer in Zimbabwe
@@ -870,16 +871,16 @@ Buyer in Zimbabwe
 → composed Trade Order
 ```
 
-Later extension:
+Later extension (each consumes that phase's existing authority; see §22):
 
 ```text
-T6  FX + freight + corridor + landed cost
-T8  documents/evidence
-T9  yard + vehicle measurements
-T11 shipment events
-T12 customs/transit
-T13 payments/reconciliation
-T17 commercial contribution
+T6  FX + freight + corridor + landed cost      (frozen 2d0a0bc0)
+T8  documents/evidence                         (frozen 00f164e4)
+T9  yard + vehicle measurements                (frozen ee747940)
+T11 shipment events                            (frozen 9ce19115)
+T12 customs/transit                            (frozen, runtime 4d880f59)
+T13 payments/reconciliation                    (in progress)
+T17 commercial contribution                    (not started)
 ```
 
 ## 19.2 `SCN-PARTS-CONTAINER-001` — Parts Procurement
@@ -955,15 +956,15 @@ Minimum exception catalogue should eventually include:
 
 ---
 
-# 21. T5 Scope
+# 21. Scenario Lab Scope
 
-T5 must **not** become the full landed-cost, customs, shipment, or integration programme.
+The Scenario Lab must **not** become the full landed-cost, customs, shipment, or integration programme.
 
-T5's responsibility is to prove that template-driven data can exercise the expanded commercial architecture without forcing later redesign.
+The Scenario Lab's responsibility is to prove that template-driven data can exercise the expanded commercial architecture without forcing later redesign.
 
-## 21.1 T5 Minimum Capability
+## 21.1 Scenario Lab Minimum Capability (SL.0–SL.3)
 
-T5 should prove:
+The Scenario Lab should prove:
 
 1. realistic workbook data passes through the existing XLSX parser;
 2. template/schema version is explicit;
@@ -984,9 +985,9 @@ T5 should prove:
 17. expected assertions can be evaluated manually and/or automatically;
 18. test data can be reset without damaging unrelated staging data.
 
-## 21.2 T5 Initial Scenario Set
+## 21.2 Scenario Lab Initial Scenario Set
 
-T5 should use exactly three primary scenarios first:
+The Scenario Lab should use exactly three primary scenarios first:
 
 ### A. Vehicle Procurement
 
@@ -1004,20 +1005,20 @@ This is enough to prove the architecture without prematurely building the entire
 
 ---
 
-# 22. Later T-Track Alignment
+# 22. How scenarios grow with the phases
 
-The same canonical scenarios should grow with the product rather than being discarded after T5.
+The same canonical scenarios should grow with the product rather than being discarded after the first Scenario Lab slice. **This is not a phase map.** Phases and their status live only in the living master plan §25. The table says which existing authority a scenario must *consume* when it reaches that phase's facts; the Scenario Lab never re-specifies them.
 
-| Track | Scenario capability added |
-|---|---|
-| **T5** | Template ingestion compatibility, independent RFQ, multi-quote/provider composition, partial journey, scenario provenance/assertions |
-| **T6** | Governed FX, rates, cost components, quote normalization, corridor comparison, landed-cost estimation |
-| **T8** | Document/evidence relationships, document provenance, cost/event evidence |
-| **T9** | Yard events, measurements, freight profile, packaging/vanning/consolidation evidence |
-| **T11** | Canonical shipment event ledger, provider/carrier adapters, customer timeline |
-| **T12** | Import eligibility, customs valuation, duty/tax rules, transit/border processing |
-| **T13** | Payment milestones, settlement evidence, reconciliation, quote-to-actual financial flow |
-| **T17** | Fees, commissions, logistics margin, subscriptions, provider economics, contribution/profitability |
+| Phase (master plan) | Status at renaming | What a scenario consumes |
+|---|---|---|
+| **T5** Container Marketplace & Multi-Corridor | frozen `5079b0b3` | corridors, sailing lifecycle, capacity (APPROVED-only) |
+| **T6** Rates, FX, landed cost | frozen `2d0a0bc0` | charge components, ECB reference FX, comparability, landed-cost estimate |
+| **T8** Documents & Evidence | frozen `00f164e4` | subject-bound documents, versioning, presence ≠ verification |
+| **T9** Warehouse intake | frozen `ee747940` | receipts and measurements; estimated ≠ actual |
+| **T11** Shipment & tracking | frozen `9ce19115` | append-only movement timeline |
+| **T12** Customs & Zimbabwe destination | frozen, runtime `4d880f59` | attributed customs facts; no CarUp duty calculator |
+| **T13** SafeTrade | in progress | accepted-quote commercial truth, milestones, settlement evidence |
+| **T17** Commercialization | not started | fees, subscriptions, provider economics |
 
 This allows one Golden Scenario to become a longitudinal certification journey across Trade OS.
 
@@ -1317,29 +1318,29 @@ The architecture should support multiple layers using the same scenario source.
 
 ---
 
-# 32. T5 Implementation Sequence After Approval
+# 32. Scenario Lab Implementation Sequence After Approval
 
 No implementation starts until owner approval of this plan.
 
-If approved, T5 should proceed incrementally:
+If approved, the Scenario Lab should proceed incrementally:
 
-## T5-A — Contract Reconciliation
+## SL-A — Contract Reconciliation
 
-- compare current workbook schema to T5 RFQ/multi-provider requirements;
+- compare current workbook schema to the RFQ/multi-provider requirements the Golden Scenarios exercise;
 - identify the minimum additive schema changes;
 - confirm no duplicate parser/service is needed;
 - define scenario manifest contract;
 - define provenance representation;
 - document data/reset boundaries.
 
-## T5-B — Reference Fixture Preparation
+## SL-B — Reference Fixture Preparation
 
 - extract a small cleaned vehicle reference set;
 - extract a small cleaned parts/fitment set from legacy workbook;
 - create synthetic test actors/providers;
 - label every legacy-derived row as fixture/provenance data.
 
-## T5-C — Scenario Pack Generation
+## SL-C — Scenario Pack Generation
 
 Create:
 
@@ -1349,7 +1350,7 @@ Create:
 
 Generate workbook assets from canonical template definitions where possible.
 
-## T5-D — Validation & Dry Run
+## SL-D — Validation & Dry Run
 
 - structural validation;
 - cross-reference validation;
@@ -1358,29 +1359,29 @@ Generate workbook assets from canonical template definitions where possible.
 - dry-run diagnostics;
 - prove zero authoritative writes.
 
-## T5-E — Reviewed Draft Import
+## SL-E — Reviewed Draft Import
 
 - import through existing services;
 - prove idempotency;
 - prove rejected/expired quotes remain preserved;
 - prove partial journey does not require Marketplace purchase.
 
-## T5-F — Assertions & UAT
+## SL-F — Assertions & UAT
 
 - execute expected assertions;
 - capture pass/fail evidence;
 - run desktop/mobile UAT where relevant;
-- record defects without broadening into T6.
+- record defects without re-implementing any phase's authority (T6 FX and landed cost included).
 
 ---
 
-# 33. T5 Non-Goals
+# 33. Scenario Lab Non-Goals
 
-T5 must not implement merely because the scenario needs a future field:
+The Scenario Lab must not implement any of the following, whether a phase already owns it or it is not yet built:
 
-- live ECB or other official FX adapter;
+- any FX adapter or conversion (T6 owns reference FX; T12 owns customs FX);
 - ZIMRA customs exchange-rate automation;
-- final landed-cost calculator;
+- a second landed-cost calculator (T6 owns the estimate);
 - Dar/Beira/Durban recommendation engine;
 - live ocean freight procurement;
 - carrier API tracking;
@@ -1391,7 +1392,7 @@ T5 must not implement merely because the scenario needs a future field:
 - production regulatory automation;
 - automated profitability statements.
 
-T5 may establish extension points for these later capabilities.
+The Scenario Lab may establish extension points for capabilities not yet built. For those already built, it consumes the owning phase.
 
 ---
 
@@ -1403,10 +1404,10 @@ This documentation phase is complete when:
 - the master Trade OS plan references and aligns to it;
 - existing workbook implementation is described as a reusable foundation rather than future work;
 - reference packs and scenario packs are clearly separated;
-- three T5 Golden Scenarios are defined;
+- three Scenario Lab Golden Scenarios are defined;
 - data provenance is mandatory;
 - dry-run/service-layer authority boundaries are explicit;
-- T5 scope and non-goals are explicit;
+- Scenario Lab scope and non-goals are explicit;
 - later T-track ownership is explicit;
 - no product code has been changed;
 - owner has reviewed and explicitly approved implementation.
@@ -1415,7 +1416,7 @@ This documentation phase is complete when:
 
 # 35. Implementation Acceptance Criteria — Reserved for Owner Approval
 
-If implementation is approved, T5 Template Ingestion & Scenario Testing is accepted only when all of the following are demonstrated:
+If implementation is approved, the Scenario Lab (template ingestion & scenario testing) is accepted only when all of the following are demonstrated:
 
 1. canonical template generation remains the schema source;
 2. `.xlsx` parsing uses the existing workbook engine;
@@ -1433,9 +1434,9 @@ If implementation is approved, T5 Template Ingestion & Scenario Testing is accep
 14. authoritative state changes execute through governed services;
 15. re-import is idempotent;
 16. scenario runs are attributable by scenario/run/import identifiers;
-17. `SCN-ALPHARD-HARARE-001` passes its T5 assertions;
-18. `SCN-PARTS-CONTAINER-001` passes its T5 assertions;
-19. `SCN-BYO-VEHICLE-SHIPPING-001` passes its T5 assertions;
+17. `SCN-ALPHARD-HARARE-001` passes its Scenario Lab assertions;
+18. `SCN-PARTS-CONTAINER-001` passes its Scenario Lab assertions;
+19. `SCN-BYO-VEHICLE-SHIPPING-001` passes its Scenario Lab assertions;
 20. scenario reset/re-run does not damage unrelated staging records.
 
 ---
@@ -1447,10 +1448,10 @@ This document intentionally stops before implementation.
 Owner review should confirm:
 
 - the Reference Pack / Scenario Pack separation;
-- the three T5 Golden Scenarios;
-- the T5 minimum scope;
+- the three Scenario Lab Golden Scenarios;
+- the Scenario Lab minimum scope;
 - the provenance model;
 - the rule that workbooks remain staging/exchange surfaces, never authoritative bypasses;
-- the phase allocation from T5 through T17.
+- how scenarios consume the T5–T17 phase authorities (§22), without defining phases.
 
 Only after explicit approval should implementation planning move from this architecture document into code-level task decomposition.
