@@ -283,7 +283,7 @@ export default function SellerIntelligence() {
         )}
       />
 
-      <div className="flex flex-wrap items-center gap-2" aria-label="Seller Intelligence period">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Seller Intelligence period">
         {WINDOWS.map(days => (
           <Button
             key={days}

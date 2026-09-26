@@ -20,6 +20,8 @@ import {
   expect,
   signInViaUi,
   requireIdentity,
+  withRateLimitRetry,
+  IDENTITIES,
   API_URL,
   RUN_ID,
 } from './staging-helpers';
@@ -41,7 +43,7 @@ interface EnvTruth {
 
 // The certification runs as its OWN Seller (see the workflow's per-run provisioning). The default
 // keeps a local run working against the historical shared identity.
-const SELLER_EMAIL = process.env.STAGING_UAT_BUYER_EMAIL || 'uat.buyer@carup-staging.test';
+const SELLER_EMAIL = IDENTITIES.goldenSeller.email;
 const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
 
 // Browser visual acceptance uses seven 320x180 vehicle-like PNG entries with multiple distinct views. They are deliberately
@@ -93,7 +95,7 @@ async function authFromPage(page: Page): Promise<SessionAuth> {
 
 async function mutationHeaders(request: APIRequestContext, auth: SessionAuth): Promise<Record<string, string>> {
   const headers = baseHeaders(auth);
-  const response = await request.get(`${API_URL}/security/csrf-token`, { headers });
+  const response = await withRateLimitRetry(() => request.get(`${API_URL}/security/csrf-token`, { headers }), 'CSRF token');
   expect(response.status(), 'CSRF token endpoint refused the staging test identity').toBe(200);
   const body = await response.json() as { csrfToken?: string };
   expect(body.csrfToken, 'CSRF token response omitted csrfToken').toBeTruthy();
@@ -244,7 +246,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     test.setTimeout(480_000);
     const truth = envTruth();
     expect(truth.mode, 'Seller acceptance is not pinned to the frozen exact-head bundle').toBe('acceptance');
-    expect(requireIdentity('buyer'), 'owner Seller identity is unavailable').toBe(true);
+    expect(requireIdentity('goldenSeller'), 'owner Seller identity is unavailable').toBe(true);
     expect(requireIdentity('reviewer'), 'reviewer identity is unavailable').toBe(true);
 
     const suffix = sixDigits(`${RUN_ID}-${testInfo.project.name}`);
@@ -263,7 +265,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
 
     // Use the real login UI. The staging "buyer" identity is role=owner and therefore is also a
     // legitimate private Seller; no privileged role is needed to sell the owner's own vehicle.
-    await signInViaUi(page, 'buyer');
+    await signInViaUi(page, 'goldenSeller');
     await expect(page.locator('body')).not.toContainText(/permission denied|42501/i);
     const sellerAuth = await authFromPage(page);
     cleanupState.auth = sellerAuth;
@@ -581,7 +583,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // Return as Seller. Marketplace inquiry capture is immediate and has its own governed inbox on
     // My Listings. Communication threads are an asynchronous downstream projection and must not be
     // confused with the durable inquiry itself.
-    await signInViaUi(page, 'buyer');
+    await signInViaUi(page, 'goldenSeller');
     cleanupState.auth = await authFromPage(page);
 
     // Phase N save instrumentation must come from the real authenticated save route. This Seller is
@@ -645,6 +647,12 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // The dedicated Seller cockpit must consume the same projection; "Unavailable" is explicitly not
     // accepted here because the bounded rollup/read assertion above proved measured data exists.
     await page.goto('/dashboard/intelligence');
+    // Compare like with like. The API figure above is the 7-day window; the cockpit defaults to 30
+    // days, so an identity with inquiries older than a week made the two differ by exactly those
+    // (a constant 114 on 2026-09-13). Select the same window explicitly and prove it took effect.
+    const sevenDays = page.getByRole('group', { name: 'Seller Intelligence period' }).getByRole('button', { name: '7 days' });
+    await sevenDays.click();
+    await expect(sevenDays).toHaveAttribute('aria-pressed', 'true');
     const inquiryKpi = page.getByTestId('seller-intelligence-kpi-inquiries');
     await expect(inquiryKpi).toBeVisible({ timeout: 20_000 });
     await expect(inquiryKpi).not.toContainText('Unavailable');
@@ -698,7 +706,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // minted per run: it must still be an unmistakably synthetic staging identity, and it must be
     // either the historical shared account or this run's own `golden.seller.<run-id>`. Any other
     // address — a real user, another gate's fixture — fails here by name.
-    expect(SELLER_EMAIL).toMatch(/^(uat\.buyer|golden\.seller\.\d+)@carup-staging\.test$/);
+    expect(SELLER_EMAIL).toMatch(/^(uat\.buyer|golden\.seller\.\d+(-\d+-(chromium|tablet|mobile))?)@carup-staging\.test$/);
   });
 
   // Teardown, with its own budget. It runs whether the journey passed, failed or timed out —

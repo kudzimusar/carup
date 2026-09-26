@@ -16,7 +16,7 @@
  * ── What it refuses ────────────────────────────────────────────────────────
  * Each refusal is NAMED, because a refusal nobody can distinguish is not a gate:
  *   missing-password · missing-database-url · unparseable-database-url · wrong-staging-project ·
- *   non-staging-identity · missing-staging-identity
+ *   non-staging-identity · missing-staging-identity · golden-seller-not-provisioned
  *
  * ── Staging identity is PROVED, not assumed ────────────────────────────────
  * The old check was `dbUrl.includes(expectedRef)` — which passes if the ref happens to occur in the
@@ -28,6 +28,7 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
 import { pathToFileURL } from 'node:url';
+import { goldenSellerIdentitiesForRun } from './golden-seller-identity.mjs';
 
 /** The five original UAT identities, plus the ones the additive Trade OS specs need. */
 export const STAGING_UAT_IDENTITIES = [
@@ -145,10 +146,11 @@ async function connectWithRetry(connectionString, attempts = 6) {
   throw lastError;
 }
 
-export async function bootstrapIdentities({ databaseUrl, expectedRef, password, identities = STAGING_UAT_IDENTITIES, connect = connectWithRetry }) {
+export async function bootstrapIdentities({ databaseUrl, expectedRef, password, identities = STAGING_UAT_IDENTITIES, goldenSellers = [], connect = connectWithRetry }) {
   if (!password) throw new BootstrapRefusal('missing-password', 'STAGING_UAT_PASSWORD is not configured');
   const connection = assertApprovedStagingConnection(databaseUrl, expectedRef);
   assertStagingOnlyIdentities(identities);
+  assertStagingOnlyIdentities(goldenSellers.map((g) => [g.email, g.role]));
 
   const passwordHash = await hashPassword(password);
   const client = await connect(cleanConnectionString(databaseUrl));
@@ -164,6 +166,21 @@ export async function bootstrapIdentities({ databaseUrl, expectedRef, password, 
         throw new BootstrapRefusal('missing-staging-identity', `expected exactly 1 row for ${email}, got ${result.rowCount}`);
       }
     }
+    // Per-run, per-viewport Golden Sellers (see golden-seller-identity.mjs). These are NEW rows by
+    // design — an empty garage is the point — so they are upserted, not updated. Same transaction:
+    // if any of them cannot be written, none of the rotation above commits either.
+    for (const seller of goldenSellers) {
+      const result = await client.query(
+        `insert into public.users (id, name, email, role, join_date, is_verified, password_hash)
+         values ($1, $2, $3, $4, to_char(now(), 'YYYY-MM-DD'), false, $5)
+         on conflict (email) do update set password_hash = excluded.password_hash, role = excluded.role
+         returning id`,
+        [seller.id, seller.name, seller.email, seller.role, passwordHash],
+      );
+      if (result.rowCount !== 1) {
+        throw new BootstrapRefusal('golden-seller-not-provisioned', `could not provision ${seller.email}`);
+      }
+    }
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -171,7 +188,7 @@ export async function bootstrapIdentities({ databaseUrl, expectedRef, password, 
   } finally {
     await client.end();
   }
-  return { identities: identities.length, connection, printed: false };
+  return { identities: identities.length, goldenSellers: goldenSellers.length, connection, printed: false };
 }
 
 // `file://${argv[1]}` is NOT equivalent to import.meta.url: the latter is percent-encoded, so any
@@ -183,9 +200,10 @@ if (invokedDirectly) {
       databaseUrl: process.env.DIASPORA_STAGING_DATABASE_URL || '',
       expectedRef: process.env.EXPECTED_STAGING_PROJECT_REF || '',
       password: process.env.STAGING_UAT_PASSWORD || '',
+      goldenSellers: process.env.STAGING_RUN_ID ? goldenSellerIdentitiesForRun(process.env.STAGING_RUN_ID) : [],
     });
     console.log(
-      `${result.identities} staging-only UAT identities were provisioned once for this aggregate run, ` +
+      `${result.identities} staging-only UAT identities and ${result.goldenSellers} per-viewport Golden Sellers were provisioned once for this aggregate run, ` +
       `role-verified, without printing credentials (host=${result.connection.host}).`,
     );
   } catch (error) {

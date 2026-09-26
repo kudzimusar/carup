@@ -129,6 +129,12 @@ jobs:
             printf '%s=%s\n' "$name" "$STAGING_UAT_PASSWORD" >> "$GITHUB_ENV"
           done
           echo 'Derived 11 staging-only UAT credentials from the protected secret (no database contact).'
+          # Spec 38 runs as THIS viewport's own Golden Seller, minted by Bootstrap for this aggregate
+          # run, so it can never inherit another run's (or another viewport's) inventory or inquiries.
+          golden="$(node scripts/ci/golden-seller-identity.mjs "$STAGING_RUN_ID" "$PLAYWRIGHT_PROJECT")"
+          printf 'STAGING_GOLDEN_SELLER_EMAIL=%s\n' "$golden" >> "$GITHUB_ENV"
+          printf 'STAGING_GOLDEN_SELLER_PASSWORD=%s\n' "$STAGING_UAT_PASSWORD" >> "$GITHUB_ENV"
+          echo "Golden Seller for this shard: $golden"
 
       # `--project` selects ONE Playwright project. The testMatch contract is untouched, so this runs
       # every spec applicable to this viewport.

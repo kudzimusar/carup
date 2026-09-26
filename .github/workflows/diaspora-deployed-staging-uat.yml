@@ -137,6 +137,10 @@ jobs:
       # Proves the staging project AND provisions/repairs the 11 synthetic identities in ONE
       # transaction. The password is never printed, never an output, never an artifact.
       - name: Provision the staging-only UAT identities once
+        env:
+          # The same aggregate id the next step publishes to the shards, so the per-viewport Golden
+          # Sellers minted here are exactly the ones each shard derives (golden-seller-identity.mjs).
+          STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/ci/bootstrap-staging-uat-identities.mjs
 
       - name: Create the aggregate run identifier
