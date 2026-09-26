@@ -26,12 +26,6 @@ function parseSheetsPayload(payload = {}) {
   return sheets && typeof sheets === 'object' && !Array.isArray(sheets) ? sheets : {};
 }
 
-// `options` carries values the CALLER computed rather than the client supplying — notably the
-// .xlsx upload route, which hashes the raw bytes itself and passes sourceChecksum/sourceFilename.
-// Those were previously ignored here, so every workbook uploaded as .xlsx persisted with
-// checksum_sha256 = NULL and could never be confirmed: POST /confirm refuses a batch with no
-// recorded checksum (BATCH_CHECKSUM_MISSING). A server-computed checksum is more trustworthy than
-// a client-declared one, so it wins.
 function sourceMetadata(payload = {}, options = {}) {
   const source = payload.source || payload.file || payload.workbookFile || {};
   return {
@@ -41,6 +35,30 @@ function sourceMetadata(payload = {}, options = {}) {
     source_storage_path: source.storagePath || payload.sourceStoragePath || null,
     source_drive_file_id: source.driveFileId || payload.sourceDriveFileId || null,
     checksum_sha256: options.sourceChecksum || source.checksumSha256 || source.sha256 || payload.checksumSha256 || null,
+  };
+}
+
+function scenarioMetadata(payload = {}) {
+  const scenario = payload.scenario && typeof payload.scenario === 'object' ? payload.scenario : {};
+  const provenance = payload.provenance && typeof payload.provenance === 'object' ? payload.provenance : {};
+  const scenarioId = scenario.scenarioId || scenario.scenario_id || payload.scenarioId || payload.scenario_id || null;
+  const scenarioRunId = scenario.runId || scenario.run_id || payload.scenarioRunId || payload.scenario_run_id || null;
+  const scenarioVersion = scenario.scenarioVersion || scenario.scenario_version || null;
+  const sourceType = provenance.sourceType || provenance.source_type || scenario.sourceType || scenario.source_type || null;
+  const fixtureClass = provenance.fixtureClass || provenance.fixture_class || scenario.fixtureClass || scenario.fixture_class || null;
+  const productionForbidden = scenario.productionForbidden ?? scenario.production_forbidden ?? null;
+
+  if (!scenarioId && !scenarioRunId && !scenarioVersion && !sourceType && !fixtureClass && productionForbidden === null) {
+    return null;
+  }
+
+  return {
+    scenarioId,
+    scenarioRunId,
+    scenarioVersion,
+    sourceType,
+    fixtureClass,
+    productionForbidden: productionForbidden === null ? null : Boolean(productionForbidden),
   };
 }
 
@@ -121,6 +139,7 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
   const tenantId = userContext.tenantId || null;
   const idempotencyKey = payload.idempotencyKey || payload.idempotency_key || dryRun.dryRunId;
   const source = sourceMetadata(payload, options);
+  const scenario = scenarioMetadata(payload);
   const diagnostics = buildWorkbookRowDiagnostics(payload, dryRun);
   const acceptedRows = countDiagnosticsByStatus(diagnostics, 'ACCEPTED');
   const warningRows = countDiagnosticsByStatus(diagnostics, 'WARNING');
@@ -154,6 +173,7 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
       persistedFrom: 'workbook_dry_run',
       dryRunId: dryRun.dryRunId,
       requestId: options.req?.headers?.['x-request-id'] || options.req?.headers?.['x-correlation-id'] || null,
+      scenario,
     },
     created_by: uploadedBy,
     updated_by: uploadedBy,
@@ -187,6 +207,7 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
     metadata: {
       phase: '1C',
       dryRunId: dryRun.dryRunId,
+      scenario,
     },
     created_by: uploadedBy,
     updated_by: uploadedBy,
@@ -201,6 +222,7 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
     warningRows,
     rejectedRows,
     importStatus: batch.import_status,
+    scenario,
     persisted: true,
   };
 }
