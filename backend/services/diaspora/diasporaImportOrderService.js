@@ -203,51 +203,6 @@ export async function assignSeller(importOrderId, { sellerId, roleType = 'seller
   return { order: updatedOrder, participant };
 }
 
-export async function addQuote(importOrderId, payload, userContext = {}, req = null) {
-  const { data: order, error: orderError } = await supabase
-    .from('diaspora_import_orders')
-    .select('*')
-    .eq('id', importOrderId)
-    .single();
-  if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
-
-  const { data: quote, error } = await supabase
-    .from('diaspora_import_quotes')
-    .insert({
-      import_order_id: importOrderId,
-      tenant_id: order.tenant_id,
-      seller_id: payload.seller_id || null,
-      quote_amount: payload.quote_amount,
-      quote_currency: payload.quote_currency || 'USD',
-      valid_until: payload.valid_until || null,
-      inclusions: payload.inclusions || [],
-      exclusions: payload.exclusions || [],
-      metadata: payload.metadata || {},
-      created_by: userContext?.id,
-      updated_by: userContext?.id,
-    })
-    .select()
-    .single();
-  if (error) throw new DatabaseError(error.message);
-
-  await writeDiasporaAudit({
-    importOrderId,
-    tenantId: order.tenant_id,
-    actorId: userContext?.id,
-    action: 'QUOTE_ISSUED',
-    resourceType: 'diaspora_import_quote',
-    resourceId: quote.id,
-    newState: quote,
-    req,
-  });
-
-  const updatedOrder = order.status === IMPORT_ORDER_STATUSES.QUOTE_ISSUED
-    ? order
-    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.QUOTE_ISSUED, actorId: userContext?.id, userContext, metadata: { quoteId: quote.id }, req });
-
-  return { order: updatedOrder, quote };
-}
-
 /** Milestone statuses that still count against the order's payment allocation. */
 const ACTIVE_MILESTONE_STATUSES = new Set(['PENDING', 'CONFIRMED']);
 

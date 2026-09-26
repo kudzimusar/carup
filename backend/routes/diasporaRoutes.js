@@ -13,7 +13,7 @@ import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
 import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import diasporaSchedulerRouter from './diasporaSchedulerRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
-import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
+import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, getOwnTradeProfiles, submitTradeProfileForReview, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
@@ -105,9 +105,18 @@ router.post('/import-orders/:id/assign-seller', auth, asyncHandler(async (req, r
   res.json(await assignSeller(req.params.id, req.body, req.userContext, req));
 }));
 
-router.post('/import-orders/:id/quotes', auth, asyncHandler(async (req, res) => {
-  res.status(201).json(await addQuote(req.params.id, req.body, req.userContext, req));
-}));
+// Retired (T13 plan §9 item 6). This route inserted a quote BEFORE any authorization check, with
+// seller_id, amount and currency taken from the body — so any signed-in user could put a complete
+// ISSUED quote on someone else's order in any seller's name, and SafeTrade treats an accepted quote
+// as commercial authority. Sellers quote through POST /buyer-orders/:id/quotes (RFQ createQuote),
+// which derives seller_id from the caller and validates money before it writes.
+// Kept as a fail-closed tombstone so a stale caller gets a pointer instead of a silent 404.
+router.post('/import-orders/:id/quotes', auth, (_req, res) => {
+  res.status(410).json({
+    error: 'This quote route is retired. Quote through POST /api/diaspora/buyer-orders/:id/quotes.',
+    code: 'LEGACY_IMPORT_ORDER_QUOTE_WRITE_RETIRED',
+  });
+});
 
 router.get('/import-orders/:id/documents', auth, asyncHandler(async (req, res) => {
   res.json({ data: await listTradeDocuments({ importOrderId: req.params.id, ...pagination(req) }, req.userContext) });

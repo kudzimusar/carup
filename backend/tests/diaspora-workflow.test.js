@@ -23,6 +23,7 @@ const documentService = readFileSync(new URL('../services/diaspora/diasporaDocum
 const containerService = readFileSync(new URL('../services/diaspora/diasporaContainerService.js', import.meta.url), 'utf8');
 const reservationService = readFileSync(new URL('../services/diaspora/diasporaReservationService.js', import.meta.url), 'utf8');
 const shipmentService = readFileSync(new URL('../services/diaspora/diasporaShipmentService.js', import.meta.url), 'utf8');
+const rfqService = readFileSync(new URL('../services/diaspora/diasporaRfqService.js', import.meta.url), 'utf8');
 const eventWorker = readFileSync(new URL('../services/eventBus/eventWorker.js', import.meta.url), 'utf8');
 
 const authOrder = Object.freeze({
@@ -141,7 +142,9 @@ test('Vehicle linking is isolated to verified import identity records and does n
 
 test('Critical workflow/document/container/shipment actions write audit logs', () => {
   const criticalSources = [
-    ['import orders', importOrderService, ['IMPORT_ORDER_CREATED', 'SELLER_ASSIGNED', 'QUOTE_ISSUED', 'PAYMENT_MILESTONE_CREATED', 'VEHICLE_IMPORT_RECORD_LINKED']],
+    // Quote issuance is no longer an import-order action: the legacy addQuote writer was retired
+    // (T13 plan §9 item 6). Quotes are issued, and audited, by the RFQ path below.
+    ['import orders', importOrderService, ['IMPORT_ORDER_CREATED', 'SELLER_ASSIGNED', 'PAYMENT_MILESTONE_CREATED', 'VEHICLE_IMPORT_RECORD_LINKED']],
     ['documents', documentService, ['TRADE_DOCUMENT_UPLOADED', 'TRADE_DOCUMENT_OCR_EXTRACTED', 'TRADE_DOCUMENT_VERIFIED', 'TRADE_DOCUMENT_REJECTED']],
     ['containers', containerService, ['CONTAINER_CREATED', 'CONTAINER_STATUS_CHANGED']],
     ['reservations', reservationService, ['CARGO_RESERVATION_CREATED', 'CARGO_RESERVATION_']],
@@ -153,6 +156,11 @@ test('Critical workflow/document/container/shipment actions write audit logs', (
     for (const action of actions) {
       assert.equal(source.includes(action), true, `${label} should audit ${action}`);
     }
+  }
+
+  assert.equal(importOrderService.includes("from('diaspora_import_quotes')"), false, 'import orders must not write quotes');
+  for (const action of ['RFQ_QUOTE_DRAFTED', 'RFQ_QUOTE_SUBMITTED']) {
+    assert.equal(rfqService.includes(action), true, `quotes should audit ${action}`);
   }
 });
 
