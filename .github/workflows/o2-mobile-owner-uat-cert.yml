@@ -39,6 +39,7 @@ jobs:
           git merge-base --is-ancestor a4b74fe7fdadadcf4a0888b716b87a7264e8c900 HEAD
           # Moderator recertification: 965542c4 was the last head whose deployed mobile run went red.
           git merge-base --is-ancestor 965542c4262d855c91895b142d3351d21cc63ad0 HEAD
+          git merge-base --is-ancestor f45b353e602fc77a4a6c4b59baaeb42b325e023e HEAD
           test "$(git rev-parse origin/main)" = "bb9d9900c700873ca57df0ac18a1a5c01f77711a"
 
       - uses: actions/setup-node@v4

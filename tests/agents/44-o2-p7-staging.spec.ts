@@ -393,23 +393,33 @@ test.describe('O2 P7 — People & Compliance staging certification', () => {
       const actor = await apiLogin(request, email, FIXTURE_PASSWORD);
       const control = await request.get(`${API_URL}/registration/journey`, { headers: baseHeaders(actor) });
       expect(control.status(), `${label} positive control`).toBe(200);
-      const forgedRole = { ...baseHeaders(actor), 'x-stakeholder-role': 'admin' };
-      const forgedTenant = { ...forgedRole, 'x-tenant-id': 'forged-platform-tenant' };
+      // Three distinct refusals, each asserted by its own reason so no guard can stand in for another:
+      // the actor's own role · a CLAIMED admin role · a FORGED tenant.
+      const ownRole = { ...baseHeaders(actor) };
+      delete ownRole['x-stakeholder-role'];
+      const claimedAdmin = { ...ownRole, 'x-stakeholder-role': 'admin' };
+      const forgedTenant = { ...ownRole, 'x-tenant-id': 'forged-platform-tenant' };
       for (const path of ['/admin/identity/verification-sessions', '/admin/dealers']) {
-        const byRole = await request.get(`${API_URL}${path}`, { headers: forgedRole });
+        const byRole = await request.get(`${API_URL}${path}`, { headers: ownRole });
         const byRoleBody = await byRole.text();
-        expect(byRole.status(), `${label} claiming admin on ${path}: ${byRoleBody}`).toBe(403);
-        expect(byRoleBody, 'refused on the server-derived role, not the claimed one').toMatch(/cannot access this resource/i);
+        expect(byRole.status(), `${label} on ${path}: ${byRoleBody}`).toBe(403);
+        expect(byRoleBody, 'refused on the server-derived role').toMatch(/cannot access this resource/i);
+        const byClaim = await request.get(`${API_URL}${path}`, { headers: claimedAdmin });
+        const byClaimBody = await byClaim.text();
+        expect(byClaim.status(), `${label} claiming admin on ${path}: ${byClaimBody}`).toBe(403);
+        expect(byClaimBody, 'a claimed role is never adopted').toMatch(/Requested role 'admin' is not verified/i);
         const byTenant = await request.get(`${API_URL}${path}`, { headers: forgedTenant });
-        expect(byTenant.status(), `${label} with forged tenant on ${path}: ${await byTenant.text()}`).toBe(403);
+        const byTenantBody = await byTenant.text();
+        expect(byTenant.status(), `${label} with forged tenant on ${path}: ${byTenantBody}`).toBe(403);
+        expect(byTenantBody, 'a forged tenant grants nothing').toMatch(/tenant organization|cannot access this resource/i);
       }
       const selfReview = await request.post(`${API_URL}/admin/identity/verification-sessions/${ghost}/review`, {
-        headers: { ...(await mutationHeaders(request, actor)), 'x-tenant-id': 'forged-platform-tenant' },
+        headers: await mutationHeaders(request, actor),
         data: { decision: 'approve', reason: 'self review attempt' },
       });
       const selfBody = await selfReview.text();
       expect(selfReview.status(), `${label} identity decision: ${selfBody}`).toBe(403);
-      expect(selfBody, 'refused by role, before step-up is even considered').not.toContain('STEP_UP_REQUIRED');
+      expect(selfBody, 'refused by role, before step-up is even considered').toMatch(/cannot access this resource/i);
     }
   });
 });
