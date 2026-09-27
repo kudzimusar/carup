@@ -311,6 +311,30 @@ app.get('/api/health', async (req, res) => {
   const snapshot = metricsHub.getSnapshot();
   const communicationConfiguration = validateCommunicationConfiguration();
 
+  // Canonical OCR runtime projection — the AUTHORITATIVE, non-secret description of the CURRENT
+  // Document Intelligence OCR boundary. Derived from the same resolveVisionProvider() /
+  // provider.isConfigured() / isOcrMockAllowed() the runtime uses, so it never drifts from what
+  // an OCR request would actually do. The legacy `ocrProviders` map (below) describes unrelated
+  // AI credentials and must NOT be read as "the OCR provider is available". No secret VALUES.
+  let ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false };
+  let cloudflareConfigured = false;
+  try {
+    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { isCloudflareVisionConfigured } = await import('./services/ai/CloudflareVisionClient.js');
+    const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
+    const provider = resolveVisionProvider();
+    let model = null; try { model = provider.model; } catch { model = null; }
+    ocr = {
+      selectedProvider: provider.id,
+      selectedModel: model,
+      configured: (() => { try { return provider.isConfigured() === true; } catch { return false; } })(),
+      mockRuntimeAllowed: DocumentIntelligenceService.isOcrMockAllowed() === true,
+    };
+    cloudflareConfigured = (() => { try { return isCloudflareVisionConfigured() === true; } catch { return false; } })();
+  } catch (e) {
+    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, error: e.message };
+  }
+
   res.json({
     status: 'UP',
     timestamp: new Date().toISOString(),
@@ -324,7 +348,11 @@ app.get('/api/health', async (req, res) => {
     sentry: {
       enabled: !!process.env.SENTRY_DSN
     },
+    // Canonical current OCR runtime status (authoritative for "is OCR available").
+    ocr,
     ocrProviders: {
+      // Truthful presence of the SELECTED OCR provider's credentials alongside the legacy map.
+      cloudflare: cloudflareConfigured,
       gemini: !!process.env.GEMINI_API_KEY,
       groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
       openrouter: !!process.env.OPENROUTER_API_KEY,

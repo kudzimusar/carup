@@ -101,6 +101,8 @@ export function diasporaCertifiable(s = {}) {
     && s.rawExecutionStatus === 'provider_succeeded'
     && s.rawSuccess === true
     && s.verificationCount === 0
+    // Independent T13 negative: OCR created/advanced no SafeTrade payment/release authority.
+    && s.safeTradeAuthorityUnchanged === true
   );
 }
 
@@ -127,6 +129,9 @@ export function vehicleCertifiable(s = {}) {
     && s.authorityEffectsAllFalse === true
     && s.evidenceStatusAfter === 'pending'
     && s.authorityUnchanged === true
+    // Independent canonical Seller Authority ledger negative: OCR neither created nor changed a
+    // vehicle_seller_authority decision (self-reported authority_effects is not sufficient alone).
+    && s.sellerAuthorityUnchanged === true
   );
 }
 

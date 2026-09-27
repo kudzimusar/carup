@@ -56,3 +56,15 @@ test('SOURCE: the boot diagnostic describes the current provider boundary, not r
   assert.doesNotMatch(src, /Loose OCR mode enabled/, 'retired "Loose OCR mode" message must be removed');
   assert.doesNotMatch(src, /Mock OCR (enabled|disabled)/, 'retired "Mock OCR enabled/disabled" message must be removed');
 });
+
+test('SOURCE: /api/health exposes the canonical OCR runtime projection derived from resolveVisionProvider', () => {
+  const src = fs.readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8');
+  // The health handler must project the SELECTED provider/model/configured/mock from the canonical
+  // resolver, and add a truthful ocrProviders.cloudflare, so "is OCR available" is authoritative.
+  assert.match(src, /selectedProvider:\s*provider\.id/, 'health must project the selected provider id');
+  assert.match(src, /selectedModel:\s*model/, 'health must project the selected model');
+  assert.match(src, /isOcrMockAllowed\(\)/, 'health must project the real mock-reachability rule');
+  assert.match(src, /isCloudflareVisionConfigured\(\)/, 'health must derive cloudflare configured truthfully');
+  assert.match(src, /ocr,/, 'health response must include the canonical ocr projection object');
+  assert.match(src, /cloudflare:\s*cloudflareConfigured/, 'ocrProviders must carry a truthful cloudflare member');
+});

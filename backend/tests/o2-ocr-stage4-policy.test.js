@@ -68,6 +68,7 @@ test('Identity: OCR provider_failed → BLOCKED_PROVIDER', () => {
 const diaBase = {
   runStatus: 201, documentStatus: 'OCR_EXTRACTED', extractionProvider: 'cloudflare',
   rawProvider: 'cloudflare', rawModel: CERTIFIED_MODEL, rawExecutionStatus: 'provider_succeeded', rawSuccess: true, verificationCount: 0,
+  safeTradeAuthorityUnchanged: true,
 };
 
 test('Diaspora: exact cloudflare/Qwen/provider_succeeded HTTP 201 → certifiable', () => {
@@ -89,6 +90,7 @@ test('Diaspora: non-201 → NOT certified', () => {
 const vehBase = {
   success: true, provider: 'cloudflare', model: CERTIFIED_MODEL, executionStatus: 'provider_succeeded',
   candidatesPersisted: 3, pendingReviewCount: 3, authorityEffectsAllFalse: true, evidenceStatusAfter: 'pending', authorityUnchanged: true,
+  sellerAuthorityUnchanged: true,
 };
 
 test('Vehicle: exact provenance + candidates + pending + zero authority effect → certifiable', () => {
@@ -108,6 +110,19 @@ test('Vehicle: authority changed → NOT certified', () => {
 });
 test('Vehicle: evidence not pending → NOT certified', () => {
   assert.equal(vehicleCertifiable({ ...vehBase, evidenceStatusAfter: 'verified' }), false);
+});
+
+test('Vehicle: exact provider/model success + sellerAuthorityUnchanged=false → NOT CERTIFIED', () => {
+  assert.equal(vehicleCertifiable({ ...vehBase, sellerAuthorityUnchanged: false }), false);
+});
+test('Vehicle: exact provider/model success + sellerAuthorityUnchanged=true → eligible', () => {
+  assert.equal(vehicleCertifiable({ ...vehBase, sellerAuthorityUnchanged: true }), true);
+});
+test('Diaspora: exact OCR proof + safeTradeAuthorityUnchanged=false → NOT CERTIFIED', () => {
+  assert.equal(diasporaCertifiable({ ...diaBase, safeTradeAuthorityUnchanged: false }), false);
+});
+test('Diaspora: exact OCR proof + safeTradeAuthorityUnchanged=true → eligible', () => {
+  assert.equal(diasporaCertifiable({ ...diaBase, safeTradeAuthorityUnchanged: true }), true);
 });
 
 test('Global: fewer than 3/3 is never CERTIFIED', () => {

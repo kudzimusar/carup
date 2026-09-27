@@ -106,6 +106,34 @@ async function countRows(client, table, whereCol, val) {
   const r = await client.query(`select count(*)::int as c from public.${table} where ${whereCol} = $1`, [val]);
   return { present: true, count: r.rows[0].c };
 }
+/** Canonical Seller Authority (T-Ops) ledger snapshot for a (vin, seller) — OCR must never change it. */
+async function sellerAuthoritySnapshot(client, vinArg, sellerId) {
+  if (!(await tableExists(client, 'vehicle_seller_authority'))) return { present: false, rows: [] };
+  const r = await client.query(
+    `select id, status, claim_type, basis, evidence_ids, decided_by, decided_by_role, decided_at, updated_at
+     from public.vehicle_seller_authority where vin=$1 and seller_user_id=$2 order by id`,
+    [vinArg, sellerId],
+  );
+  return { present: true, count: r.rowCount, rows: r.rows };
+}
+/** Canonical SafeTrade (T13) transaction snapshot for a run-scoped import order id — OCR must create none. */
+async function safeTradeSnapshot(client, orderUuid) {
+  if (!(await tableExists(client, 'diaspora_safetrade_transactions'))) return { present: false, total: 0, release_authorized: 0 };
+  const total = (await client.query('select count(*)::int c from public.diaspora_safetrade_transactions where import_order_id = $1', [orderUuid])).rows[0].c;
+  const rel = (await client.query(
+    "select count(*)::int c from public.diaspora_safetrade_transactions where import_order_id = $1 and status in ('RELEASE_REVIEW','RELEASE_AUTHORIZED','SETTLED')",
+    [orderUuid],
+  )).rows[0].c;
+  return { present: true, total, release_authorized: rel };
+}
+/** Stable comparable projection of a seller-authority snapshot (order-independent). */
+function sellerAuthorityFingerprint(snap) {
+  return JSON.stringify((snap?.rows || []).map((r) => ({
+    id: r.id, status: r.status, claim_type: r.claim_type, basis: r.basis,
+    evidence_ids: r.evidence_ids, decided_by: r.decided_by, decided_by_role: r.decided_by_role,
+    decided_at: r.decided_at, updated_at: r.updated_at,
+  })));
+}
 
 // ── HTTP client with cookie jar + CSRF double-submit ─────────────────────────
 class Client {
@@ -319,11 +347,15 @@ class Client {
   if (identityReachedGenuineOcr && !receipt.provider_blocked) {
     const customsEvidence = await uploadEvidence(vin, FIXTURES.customs, 'import', 'customs_entry');
     const subjectId = `trade_${crypto.randomUUID()}`;
+    // Run-scoped SafeTrade (T13) order id for the independent payment/release negative proof.
+    const orderUuid = subjectId.replace(/^trade_/, '');
     const createDoc = await reviewer.raw('POST', '/diaspora/documents', { body: { document_type: 'customs_declaration', subject_type: 'trade_order', subject_id: subjectId, storage_path: customsEvidence.file_path } });
     if (createDoc.status !== 201 || !createDoc.json?.id) die('diaspora document create failed', { status: createDoc.status, body: createDoc.json });
     const docId = createDoc.json.id;
     receipt.diaspora.document_id = docId;
     receipt.diaspora.initial_status = createDoc.json.verification_status;
+    // Independent SafeTrade authority BEFORE genuine OCR.
+    const safeTradeBefore = await withDb((client) => safeTradeSnapshot(client, orderUuid));
 
     // Forged client-authored extraction must be retired (410) and write NOTHING.
     const forged = await reviewer.raw('POST', `/diaspora/documents/${docId}/extractions`, { body: { extraction_provider: 'forged', confidence_score: 1, extracted_fields: { verified: true } } });
@@ -345,21 +377,36 @@ class Client {
       const ext = (await client.query('select extraction_provider, raw_response from public.diaspora_trade_document_extractions where trade_document_id=$1 order by created_at desc limit 1', [docId])).rows[0];
       const extCount = await countRows(client, 'diaspora_trade_document_extractions', 'trade_document_id', docId);
       const ver = await countRows(client, 'diaspora_trade_document_verifications', 'trade_document_id', docId);
-      return { doc, ext, extCount, ver };
+      const safeTrade = await safeTradeSnapshot(client, orderUuid);
+      return { doc, ext, extCount, ver, safeTrade };
     });
     const draw = diaState.ext?.raw_response || {};
+    // Independent SafeTrade (T13) negative proof: OCR created/advanced no payment/release authority.
+    const safeTradeAfter = diaState.safeTrade;
+    const safeTradeAuthorityUnchanged = safeTradeBefore.total === safeTradeAfter.total
+      && safeTradeBefore.release_authorized === safeTradeAfter.release_authorized;
+    receipt.diaspora.safetrade = {
+      order_uuid: orderUuid,
+      transactions_before: safeTradeBefore.total, transactions_after: safeTradeAfter.total,
+      release_authorized_before: safeTradeBefore.release_authorized, release_authorized_after: safeTradeAfter.release_authorized,
+      unchanged: safeTradeAuthorityUnchanged,
+    };
+    // OCR must create no SafeTrade transaction for this run and no release-authorized state.
+    if (safeTradeAfter.total !== safeTradeBefore.total) die('OCR changed SafeTrade transaction count', receipt.diaspora.safetrade);
+    if (safeTradeAfter.release_authorized !== safeTradeBefore.release_authorized) die('OCR changed SafeTrade release-authorized state', receipt.diaspora.safetrade);
     receipt.diaspora.genuine = {
       run_status: runDia.status, document_status: diaState.doc?.verification_status, extraction_provider: diaState.ext?.extraction_provider,
       raw_provider: draw.provider, raw_model: draw.model, raw_execution: draw.executionStatus, raw_success: draw.success,
       extraction_count: diaState.extCount.count, verification_count: diaState.ver.count,
     };
     // Exact, positive proof at BOTH persisted levels (extraction_provider + raw_response.*); a null
-    // model is a failure.
+    // model is a failure. Certification also requires SafeTrade authority unchanged.
     const diaPolicyInput = {
       runStatus: runDia.status, documentStatus: diaState.doc?.verification_status,
       extractionProvider: diaState.ext?.extraction_provider,
       rawProvider: draw.provider, rawModel: draw.model, rawExecutionStatus: draw.executionStatus, rawSuccess: draw.success,
-      verificationCount: diaState.ver.count, error: runDia.json?.error || runDia.json?.message || runDia.text, rawError: draw.error,
+      verificationCount: diaState.ver.count, safeTradeAuthorityUnchanged,
+      error: runDia.json?.error || runDia.json?.message || runDia.text, rawError: draw.error,
     };
     if (diasporaCertifiable(diaPolicyInput)) {
       receipt.diaspora_certified = true;
@@ -388,32 +435,47 @@ class Client {
   }
   if (identityReachedGenuineOcr && receipt.diaspora_certified && !receipt.provider_blocked) {
     const regEvidence = await uploadEvidence(vin, FIXTURES.registration, 'registration', 'registration_book');
-    const before = await withDb(async (client) => ({ vehicle: await vehicleSnap(client) }));
+    const before = await withDb(async (client) => ({
+      vehicle: await vehicleSnap(client),
+      sellerAuthority: await sellerAuthoritySnapshot(client, vin, ownerId),
+    }));
     const runVeh = await owner.raw('POST', `/vehicles/${vin}/evidence/${regEvidence.id}/run-ocr`, { body: {} });
     const vres = runVeh.json || {};
     // AFTER snapshot + DB state ALWAYS (success or failure).
     const after = await withDb(async (client) => ({
       vehicle: await vehicleSnap(client),
+      sellerAuthority: await sellerAuthoritySnapshot(client, vin, ownerId),
       pending: (await client.query(`select count(*)::int c from public.vehicle_document_extractions where evidence_id=$1 and review_status='pending'`, [regEvidence.id])).rows[0]?.c ?? 0,
       total_candidates: (await client.query(`select count(*)::int c from public.vehicle_document_extractions where evidence_id=$1`, [regEvidence.id])).rows[0]?.c ?? 0,
       evidence_status: (await client.query('select verification_status from public.vehicle_evidence where id=$1', [regEvidence.id])).rows[0]?.verification_status,
     }));
+    // Independent canonical Seller Authority ledger negative — before == after (fingerprint + count).
+    const sellerAuthorityUnchanged = before.sellerAuthority.count === after.sellerAuthority.count
+      && sellerAuthorityFingerprint(before.sellerAuthority) === sellerAuthorityFingerprint(after.sellerAuthority);
     receipt.vehicle = {
       vin, evidence_id: regEvidence.id, evidence_class: 'registration', evidence_subtype: 'registration_book',
       run_status: runVeh.status, success: vres.success, provider: vres.provider, model: vres.model, execution_status: vres.execution_status,
       document_type: vres.document_type, candidates_persisted: vres.candidates_persisted, pending_review_count: vres.pending_review_count, authority_effects: vres.authority_effects,
       before: before.vehicle, after: after.vehicle, pending_candidate_rows: after.pending, total_candidate_rows: after.total_candidates, evidence_status_after: after.evidence_status,
+      seller_authority: {
+        rows_before: before.sellerAuthority.count ?? 0, rows_after: after.sellerAuthority.count ?? 0,
+        statuses_before: (before.sellerAuthority.rows || []).map((r) => r.status),
+        statuses_after: (after.sellerAuthority.rows || []).map((r) => r.status),
+        unchanged: sellerAuthorityUnchanged,
+      },
     };
-    // Authority must be unchanged whether OCR succeeded or failed (§11).
+    // Canonical vehicle authority columns must be unchanged whether OCR succeeded or failed (§11).
     const authorityUnchanged = snapCols.every((col) => !(col in (before.vehicle || {})) || String(before.vehicle[col]) === String(after.vehicle[col]));
     for (const col of snapCols) if (col in (before.vehicle || {}) && String(before.vehicle[col]) !== String(after.vehicle[col])) die(`vehicle authority column ${col} changed after OCR`, { before: before.vehicle[col], after: after.vehicle[col] });
+    // The canonical Seller Authority ledger must be unchanged on EITHER path — OCR is not seller authority.
+    if (!sellerAuthorityUnchanged) die('OCR changed the vehicle_seller_authority ledger', receipt.vehicle.seller_authority);
     // document_type provenance is part of the vehicle proof — a wrong type fails certification.
     const authorityEffectsAllFalse = Object.values(vres.authority_effects || { _absent: true }).every((v) => v === false)
       && vres.authority_effects && Object.keys(vres.authority_effects).length > 0;
     const vehPolicyInput = {
       success: vres.success, provider: vres.provider, model: vres.model, executionStatus: vres.execution_status,
       candidatesPersisted: vres.candidates_persisted, pendingReviewCount: after.pending,
-      authorityEffectsAllFalse, evidenceStatusAfter: after.evidence_status, authorityUnchanged,
+      authorityEffectsAllFalse, evidenceStatusAfter: after.evidence_status, authorityUnchanged, sellerAuthorityUnchanged,
       error: runVeh.json?.error || runVeh.json?.message || runVeh.text,
     };
     if (vehicleCertifiable(vehPolicyInput)) {
@@ -443,13 +505,23 @@ class Client {
     return { cvr, zimra, decisions: decisions.count };
   });
   receipt.negative_authority = {
+    // Government truth (unchanged invariant).
     cvr_ownership_records_for_vin: neg.cvr, zimra_declarations_for_vin: neg.zimra,
+    // T8 reviewer verdict authority.
     verification_decisions_for_session: neg.decisions,
     diaspora_verification_verdicts: receipt.diaspora.genuine?.verification_count ?? 0,
+    // Independent SafeTrade (T13) payment/release-authority negative — positively stated, not inferred.
+    safetrade_transactions_created_by_ocr: (receipt.diaspora.safetrade?.transactions_after ?? 0) - (receipt.diaspora.safetrade?.transactions_before ?? 0),
+    safetrade_release_authorized_created_by_ocr: (receipt.diaspora.safetrade?.release_authorized_after ?? 0) - (receipt.diaspora.safetrade?.release_authorized_before ?? 0),
+    safetrade_payment_release_authority_mutations: receipt.diaspora.safetrade ? (receipt.diaspora.safetrade.unchanged ? 0 : 1) : 0,
+    // Independent Seller Authority ledger negative.
+    seller_authority_ledger_mutations_by_ocr: receipt.vehicle?.seller_authority ? (receipt.vehicle.seller_authority.unchanged ? 0 : 1) : 0,
   };
   if (neg.cvr !== 0) die('OCR run created a cvr_ownership_records row', neg);
   if (neg.zimra !== 0) die('OCR run created a zimra_declarations row', neg);
   if (neg.decisions !== 0) die('OCR run created a verification decision', neg);
+  if (receipt.negative_authority.safetrade_transactions_created_by_ocr !== 0) die('OCR created a SafeTrade transaction', receipt.negative_authority);
+  if (receipt.negative_authority.safetrade_release_authorized_created_by_ocr !== 0) die('OCR created a SafeTrade release-authorized state', receipt.negative_authority);
 
   // ── Disposition — strict 3/3 via the pure policy; provider block over journey failure ─
   receipt.disposition = overallDisposition({
