@@ -231,7 +231,13 @@ empty field set (no invented identity) rather than being a quota/output-budget
 failure counted as success. `unsupported-file` is refused at the correct media
 boundary. Zero required fixtures are INCONCLUSIVE.
 
-## E. Stage 4 — real product-journey certification — **BLOCKED (infrastructure)**
+## E. Stage 4 — real product-journey certification — **BLOCKED (infrastructure)** — SUPERSEDED CHECKPOINT
+
+> **SUPERSEDED — see §MODERATOR RECONCILIATION below.** This checkpoint's claim that there was
+> "no deployed exact-head preview" was **incorrect**: moderator inspection (and this agent's own
+> re-check) confirmed READY Vercel deployments and a healthy Supabase for the certified SHA. The
+> corrected Stage-4 disposition and its precise (different) blockers are recorded in the
+> reconciliation section. The text below is preserved verbatim as history, not rewritten.
 
 Stage 3 produced a valid live-provider result, so Stage 4 was authorized to
 begin. It is **blocked** on environment access this cloud session does not have,
@@ -301,3 +307,111 @@ a staging/preview environment.
 * **Garage/Mechanic business OCR** deferred (Service Network absent) — no
   garage/mechanic document class invented.
 * Live provider cost/quota is bounded to the single authorized full-corpus run.
+
+---
+
+## MODERATOR RECONCILIATION
+
+Continuation remediation on moderator disposition `REMEDIATION REQUIRED`. Accepted work (Closures
+A/B/C, offline gate, live Qwen run 36287013223) preserved. History above is not rewritten.
+
+**Corrected candidate SHA:** `34c41136a7f5d2f2284094994b43581ef3de64b6` (branch head, pushed).
+Previous certified code baseline `e2961ad` remains the SHA the live Qwen corpus ran against.
+
+### 1. `/api/verification/ocr` reviewer attribution regression (P1) — FIXED
+* **Root cause:** `documentIntelligenceRouter.js` called `extractDocumentData(docType, capturedFront)`
+  with no actor; the converged service requires the authenticated user id outside test mode, so the
+  preserved admin/government surface failed at runtime ("OCR extraction requires the authenticated
+  user id it is being run for") despite green unit suites.
+* **Fix:** the extraction is attributed to the PROVEN reviewer session `req.userContext.id`
+  (established by the `authorizeSessionRole(['admin','government'])` mount, which disables the
+  x-user-id fallback); an unattributed request is refused with 401; no body-authored id, header, or
+  fallback identity is ever read.
+* **Test:** `backend/tests/o2-verification-ocr-attribution.test.js` — 6 tests, executed behaviourally
+  over the shipped route (session id passed through; body actorId ignored; x-user-id header ignored;
+  unattributed 401; service still fails closed unattributed; source-anchored mount + no-fallback).
+
+### 2. Reviewer image-quality policy — MADE EXPLICIT
+* CarUp does not measure image quality (old blur/glare/tamper scores were hash-derived fabrications).
+  `approveDocumentVerification` now derives an explicit `imageQualityStatus` ∈
+  {`measured_passed`,`measured_failed`,`not_measured`}; only `measured_failed` blocks; `not_measured`
+  does NOT block the human reviewer. The truthful status is recorded on the `administrative_overrides`
+  row (`new_state.image_quality_check`), so an approval never implies an automated quality check
+  passed when none was performed. No fabricated scores; no new automated authority.
+* **Test:** `backend/tests/o2-reviewer-quality-policy.test.js` — proves not-measured does not block
+  and is recorded as `not_measured`; no cvr/zimra row forged; source pins the gate + the corrected
+  module comment.
+
+### 3. Corrected `documentIntelligenceService.js` module comment
+The header no longer falsely claims extraction is the only writer / the approval chain is retired. It
+now states the actual Trade OS boundary: `extractDocumentData()` is observation/candidate-only;
+`approveDocumentVerification()` is a DISTINCT, gated human-reviewer decision preserved by Trade OS
+(T12.1-hardened; clears the trust stamp per INV-TRUST-2).
+
+### 4. Corrected Vercel deployment evidence (the previous Stage-4 blocker was WRONG)
+The exact-head preview **exists** and built successfully — the earlier "no deployed preview" claim is
+withdrawn:
+* Certified `e2961ad`: Vercel commit statuses `success` for `carup-backend-staging`
+  (`dpl_BVjE77B73DTB6zg42GZgoo1XwtpB`), `carup-staging` (`dpl_BAMDzU1xe8HSSbBo3BqwP6rigyhj`),
+  `carup-backend`, `carup`. Moderator independently queried backend `/api/health` → HTTP 200, status
+  UP, `commit_sha=e2961ad`, environment preview, `supabase.status=healthy`.
+* Corrected `34c4113`: Vercel commit statuses `success` for `carup-backend-staging`, `carup-backend`,
+  `carup`, `carup-staging` — the corrected exact-head preview built.
+
+### 5. Supabase health
+Confirmed healthy on the exact-head preview by moderator's `/api/health` probe (`supabase.status=healthy`).
+
+### 6. Preview Cloudflare-provider availability — NOT INTROSPECTABLE FROM THIS SESSION
+This session cannot introspect the preview's OCR provider env (`CARUP_OCR_PROVIDER`,
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CARUP_OCR_MODEL`): there is no Vercel API token in
+the session, and the egress network policy denies Vercel (below), so neither the Vercel API nor the
+preview runtime can be reached to report presence/absence or the effective provider/model. No secrets
+were printed or added.
+
+### 7. Stage-4 journey results — corrected disposition
+
+* **Journeys 1–3 (Person Identity, Diaspora, Owner/Seller Vehicle):** the deployed exact-head preview
+  for `34c4113` exists and built (Vercel `success`), but **this session's egress network policy denies
+  all Vercel hosts** — `vercel.com` and `*.vercel.app` both return `000` (proxy: `403 CONNECT policy
+  denial`), while `api.github.com` returns `200`. The deployed journeys therefore **cannot be driven
+  from this session**. This is a precise, external environment-configuration blocker (network access),
+  distinct from and correcting the earlier false "no preview exists" claim. **No journey evidence is
+  fabricated.** Remedy: allow `*.vercel.app` (and `vercel.com`) in the environment's Network access
+  settings, or broaden network access; and provide a Vercel API token if preview env introspection
+  (§6) is required. The journey invariants remain proven offline (Stage 2) and the governed provider
+  boundary live (Stage 3).
+* **Journey 4 (Dealer):** **BLOCKED — cross-lane dependency** (see §8). Not certified; not represented
+  as certified from schema-level evidence.
+
+### 8. Dealer cross-lane dependency disposition — BLOCKED (exact graph)
+Dealer OCR is `runOwnDealerDocumentOcr` in `backend/services/dealer/dealerOnboardingService.js`, which
+lives on PR #208 / `feat/operations-o2-people-compliance @ e65c0bb`. Its module load alone requires
+these Trade-OS-**absent** dependencies (the O2 People & Compliance stack), so it cannot be
+forward-ported without importing a not-yet-authorized authority stack (and PR #208 must not be merged):
+
+| Dependency (import) | Symbol used | Trade OS state |
+| --- | --- | --- |
+| `registration/registrationJourneyService.js` (O2-X2) | `FIELD_STATE`, `isFallbackMarker`, `sanitizeCandidateValue` | **ABSENT** — brings the X2 registration journey + `user_registration_profiles` account-kind/business-type model |
+| `identity/identityAssuranceService.js` (O2-X6) | `getIdentityAssurance` | **ABSENT** — brings identity_assurance.v1 projection + events |
+| `operations/safeNarrationService.js` | `narrateActionSummary` | **ABSENT** |
+| `dealer/dealerComplianceService.js` (X5/X6 extensions) | `toResponsibilityProjection`, `buildDealerActionSummary` | **ABSENT** (pre-X5 service present) — brings the X5 dealer onboarding schema (`dealer_profiles`, `dealer_compliance_documents` extraction columns, requirements catalogue) |
+| `eventBus/eventBusService.js` | `emitDomainEvent` | present |
+
+`assertDealerOnboardingContext` also gates on `user_registration_profiles.account_kind=business /
+business_type=dealer` — the X2 model. Porting Dealer OCR therefore pulls in X2 + X5 + X6 + operations
+narration and their migrations. Per the task's Section 12.6 this is reported as the exact bounded
+cross-lane blocker rather than importing the stack. The governed dealer BUSINESS document schema
+(`resolveSchema('dealer_business_registration') → business_document`, kept apart from identity schemas)
+is proven offline.
+
+### 9/10. Corrected candidate + evidence
+* Corrected candidate SHA `34c4113`; final documentation head appended after it.
+* Offline recertification on the corrected head: OCR convergence + attribution + quality-policy +
+  diaspora + frozen `issue164-phase3-trust-authority` + `non-seller-authority-hardening` suites =
+  **216 pass / 0 fail / 5 skip**. Provider-path files unchanged vs `e2961ad`, so live Qwen run
+  `36287013223` is retained (no paid rerun).
+
+### Authority preservation (confirmed unmoved)
+Identity verification, Dealer Compliance, Seller Authority, T8 document-verification, government
+registry truth, canonical Trust, vehicle registration, and listing/publication authority are all
+unchanged. OCR observes; provenance is server-observed; humans/owning domains decide.
