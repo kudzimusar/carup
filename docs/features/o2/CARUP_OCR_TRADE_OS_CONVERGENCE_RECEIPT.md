@@ -536,3 +536,97 @@ Stage-4 blocker; the deployed exact-head PAIRING and route-gating are proven abo
 Provider-path code (`CloudflareVisionClient`, `ocrVisionProvider`, `documentSchemas`, media
 transport, `extractDocumentData` provider execution, grader-v2) unchanged across this continuation.
 **Live grader-v2 run `36287013223` (11/11, 0 fabrications, 0 INCONCLUSIVE) retained; no paid rerun.**
+
+---
+
+## MODERATOR CONTINUATION 3 — AUTHENTICATED STAGE-4 PRODUCT JOURNEY CLOSURE
+
+Task: run three real, **session-authenticated**, deployed product journeys (Person Identity,
+Diaspora, Owner/Seller Vehicle) against the exact-head CarUp Vercel preview with real
+Cloudflare/Qwen, proving OCR stays candidate-only. Constraints held verbatim:
+`workflow_dispatch`-only for provider journeys; ≤1 real provider call per journey; **no fallback
+provider** (never Gemini as OCR fallback); **no mocks, no fabricated results/scores/confidence**;
+staging/preview only (Supabase project **`eoyenigwevnxwwhyhaer`** — FAIL CLOSED otherwise); never
+production, never real PII, never print secrets; run through the already-registered
+`o2-ocr-hardening-offline.yml` (no new standalone workflow); do not rerun the 11-fixture Qwen
+corpus; retain grader-v2 run `36287013223`; preserve Dealer as a cross-lane blocker (PR #208 — not
+ported, not merged).
+
+### 1. Stage-4 authenticated driver + registered-workflow architecture
+* **Driver** `backend/scripts/o2-ocr-stage4-staging-uat.mjs` (exact head `aff9723`). It: (a) enforces
+  the staging-DB guard (`DIASPORA_STAGING_DATABASE_URL` must resolve to project
+  `eoyenigwevnxwwhyhaer`, else FAIL CLOSED before any write); (b) gates on exact-head deployed
+  provenance (frontend `unpaired=false` + `commit_sha==EXPECTED_HEAD_SHA`; backend `/api/health`
+  `UP` + matching `commit_sha` + `supabase=healthy`); (c) provisions **per-run synthetic**
+  owner+admin identities (scrypt `hashPassword`) and a vehicle via pg — no real PII; (d) logs in
+  over real sessions with the identity-bound CSRF double-submit (cookie `csrf-token` + header
+  `x-csrf-token`, refreshed from `GET /api/security/csrf-token`); then drives the three journeys
+  with **≤1 provider-touching call each**, and writes a **sanitized** artifact to
+  `test-results/o2-ocr-stage4-<run>.json` (no secrets, no PII).
+* **Registration:** a brand-new `workflow_dispatch`-only workflow is not API-registrable while `main`
+  is frozen (confirmed 404 earlier). The authenticated journeys therefore run as a **dispatch-gated**
+  job (`stage4-authenticated-journeys`, job-level `concurrency: staging-preview-<ref>`,
+  `cancel-in-progress:false`) on the **already-registered** `o2-ocr-hardening-offline.yml`. Push runs
+  stay purely offline; the standalone `o2-ocr-stage4-staging-uat.yml` was retired (git rm) so this
+  registered gate is the single Stage-4 authority.
+
+### 2. Dispatched run `36296446383` (candidate `aff9723`) — job "OCR Stage-4 authenticated deployed journeys"
+The staging-DB guard, exact-head provenance gate, and session authentication all **passed**:
+> `✓ exact-head paired deployment confirmed @ aff97235ebe4a727a33872653c05bfbb3ceaecdb (supabase healthy)`
+> `✓ session-authenticated owner + reviewer`
+
+The three real journeys then executed. **No journey reached a successful Cloudflare/Qwen execution:**
+
+* **Journey 1 — Person Identity** (create session `national_id` → upload front + selfie → submit):
+  routed to **candidate-only manual review** (`status=pending_manual_review`). The Layer-2 **Gemini
+  classifier** returned `provider=unavailable` (`reason=DOCUMENT_NOT_VISIBLE`), so — correctly, by
+  design — **OCR never ran** (`ocr_execution_status=null`) and `verification_decisions=0`. **The
+  identity was never auto-verified.** (This is the candidate-only invariant working, but it also
+  means the preview could not exercise the classifier, so no provider OCR followed.)
+* **Journey 2 — Diaspora** (reviewer surface): the **forged** client-authored
+  `POST /documents/:id/extractions` → **410** (`CLIENT_AUTHORED_OCR_EXTRACTION_RETIRED`), **zero
+  writes** — the server-observed provenance boundary held. The **genuine** reviewer `/run-ocr` →
+  **HTTP 400 `VALIDATION_FAILED`** ("Provider-backed OCR execution evidence is required before a
+  Diaspora extraction can be recorded") — i.e. **no `provider_succeeded` evidence was produced**;
+  `raw_execution=none`.
+* **Journey 3 — Owner/Seller Vehicle** (`/vehicles/:vin/evidence/upload` registration + customs →
+  `/run-ocr`): `run-ocr` answered **HTTP 200** but with
+  **`execution_status=provider_failed`** — the candidate-only route ran, called the provider, and the
+  provider **did not execute**. No candidate was fabricated.
+
+Job disposition: **exit 2 — `STAGE4 BLOCKED`** ("no deployed journey reached a successful
+Cloudflare/Qwen execution … No fallback provider used"). The other two jobs in the same run —
+"Offline OCR regression" and "Deployed exact-head provenance + OCR route gating" — both `success`.
+
+### 3. Candidate-only invariants held under real load
+Even though the provider could not execute, the safety law held on the live deployed head:
+identity was **never** auto-verified (`decisions=0`); the forged Diaspora client-extraction was
+**refused 410 with zero writes**; the vehicle route surfaced `provider_failed` rather than
+inventing a candidate; and the negative assertions (`cvr` / `zimra` rows) stayed empty. **No
+extraction silently became identity, ownership, registration, compliance, trust or publication
+truth.**
+
+### 4. Precise blocker (genuine external Stage-4 blocker — Sections 13/16/42)
+The exact-head preview is correctly **paired** and **route-gated**, but its runtime **cannot execute
+the certified Cloudflare Workers AI / `@cf/qwen/qwen3.8-27b` OCR provider** (nor the Layer-2 Gemini
+classifier that precedes identity OCR). All three journeys converged on the same root cause: **the
+deployed preview environment lacks usable Cloudflare Workers AI OCR runtime configuration**
+(account/token/model binding + the classifier provider config). This is an **environment
+configuration** blocker owned by the deployment, **not** a code defect on the certified head — the
+same provider path passed grader-v2 run `36287013223` (11/11). Per the moderator's stop rule, the
+remaining provider journeys were halted after the first genuine failure; **no fallback provider was
+substituted, no mock was used, and no journey is represented as certified.** Remediation is owner
+action: provision the Cloudflare Workers AI credentials/model binding (and Gemini classifier config)
+into the staging preview environment, then re-dispatch this same registered job — no code change is
+required to re-attempt.
+
+### 5. Preserved authorities
+* **Dealer** remains a **separate cross-lane blocker** (PR #208 convergence) — not ported, not merged.
+* **Qwen model-level evidence** — grader-v2 run `36287013223` (11/11) — **retained**; the corpus was
+  **not** rerun.
+* **`main` / production** — **untouched**; all Stage-4 work ran on `workflow_dispatch` against the
+  staging preview (project `eoyenigwevnxwwhyhaer`) only.
+
+**Stage-4 disposition: BLOCKED — deployed preview cannot execute the certified Cloudflare/Qwen OCR
+runtime.** Exact-head CI and preview pairing are green; the blocker is a deployment-environment
+provider-configuration gap, reported precisely rather than worked around.
