@@ -853,11 +853,11 @@ Hardening** run `36302612710` — job "Offline OCR regression" = **success**:
 `# tests 254 # pass 249 # fail 0 # skipped 5` (dispatch-gated jobs skipped on push).
 
 ### 6. Deployment + provider readiness (network-only, no provider spend)
-Network-only probe run `<PROBE_RUN>` (deployed head `<DEPLOYED_SHA>`):
+Network-only probe run `36302735937` (deployed head `9f6b49063a8abe8883ecf2445f650053be35f169`):
 frontend `unpaired=false` + SHA match; backend `/api/health` UP + SHA match + branch match +
 `supabase=healthy`; deployed OCR routes fail closed. Canonical readiness:
 `health.ocr.selectedProvider=cloudflare`, `selectedModel=@cf/qwen/qwen3.8-27b`,
-`configured=<CONFIGURED>`, `mockRuntimeAllowed=false`; `health.ocrProviders.gemini=<GEMINI>`.
+`configured=false`, `mockRuntimeAllowed=false`; `health.ocrProviders.gemini=false`, `ocrProviders.cloudflare=false`.
 
 ### 7. Provider configuration handoff (owner action)
 Backend project `carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`), **Preview** environment
