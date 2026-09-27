@@ -505,6 +505,33 @@ surface unauthenticated (legacy `/api/ai/ocr` retired-or-gated; diaspora client 
 vehicle `run-ocr` fail closed; none answer 200 anonymously) and records what `/api/health` exposes
 about the OCR provider. It never fabricates a journey verdict.
 
+Because GitHub does not register a brand-new `workflow_dispatch`-only workflow while `main` is frozen
+(and the dispatch-only rule forbids a registering trigger), the dedicated
+`o2-ocr-stage4-staging-uat.yml` could not be API-dispatched (confirmed 404). To still EXECUTE a
+deployed proof from a GitHub runner, the same probe was added as a dispatch-gated, provider-free,
+secret-free job on the already-registered `o2-ocr-hardening-offline.yml` (push runs stay purely
+offline). **Dispatched run `36293952658` on candidate `69a5392` — job "Deployed exact-head
+provenance + OCR route gating" = `success`:**
+
+* **Exact-head deployed pair CONFIRMED** — frontend `carup-provenance.json` `unpaired=false` +
+  `commit_sha=69a5392…`; backend `/api/health` `status=UP`, `build.commit_sha=69a5392…`,
+  `branch=fix/o2-ocr-trade-os-convergence`, `supabase=healthy`. Frontend alias
+  `carup-staging-git-fix-o2-ocr-trade-os-convergence-11-11.vercel.app`; backend alias
+  `carup-backend-staging-git-fix-o2-ocr-trade-os-convergence-11-11.vercel.app`.
+* **Deployed OCR route surface fails closed (unauthenticated):** `POST /api/ai/ocr` → **403**,
+  `POST /api/diaspora/documents/:id/extractions` → **403**, `POST /api/vehicles/:vin/evidence/:id/run-ocr`
+  → **403**; **none answered 200**. The legacy generic OCR path is gated, not a live extraction, on
+  the real deployed head.
+* `/api/health` does **not** expose the OCR provider (`ocr_provider: not_exposed_by_health`), so the
+  preview's Cloudflare/Qwen configuration cannot be confirmed without an authenticated OCR call.
+
+**Authenticated end-to-end provider journeys (Person Identity submit→OCR→review; Diaspora reviewer
+`/run-ocr`; Owner/Seller vehicle `run-ocr`) with real Qwen execution + DB before/after are NOT yet
+executed.** They require (a) staging UAT role credentials (`STAGING_UAT_*_PASSWORD`) + a drivable
+deployed OCR journey, and (b) the provider-consuming dedicated Stage-4 workflow, which GitHub will
+not register under frozen `main`. No journey verdict is fabricated. This is the precise remaining
+Stage-4 blocker; the deployed exact-head PAIRING and route-gating are proven above.
+
 ### 6. Qwen certification retained
 Provider-path code (`CloudflareVisionClient`, `ocrVisionProvider`, `documentSchemas`, media
 transport, `extractDocumentData` provider execution, grader-v2) unchanged across this continuation.
