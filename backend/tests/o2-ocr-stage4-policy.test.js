@@ -13,7 +13,51 @@ import {
   identityCertifiable, identityDisposition,
   diasporaCertifiable, vehicleCertifiable,
   overallDisposition, classifierReasonIndicatesProviderError,
+  stage4ProviderReadiness,
 } from '../scripts/o2-ocr-stage4-policy.mjs';
+
+// ── Provider readiness (fail-before-side-effects preflight) ───────────────────
+const readyHealth = {
+  ocr: { selectedProvider: 'cloudflare', selectedModel: CERTIFIED_MODEL, configured: true, mockRuntimeAllowed: false },
+  ocrProviders: { cloudflare: true, gemini: true },
+};
+
+test('Readiness: Cloudflare configured=false → NOT ready', () => {
+  const r = stage4ProviderReadiness({ ...readyHealth, ocr: { ...readyHealth.ocr, configured: false } });
+  assert.equal(r.ready, false);
+});
+test('Readiness: Cloudflare configured=true but Gemini absent → NOT ready', () => {
+  const r = stage4ProviderReadiness({ ...readyHealth, ocrProviders: { cloudflare: true, gemini: false } });
+  assert.equal(r.ready, false);
+});
+test('Readiness: wrong selected provider → NOT ready', () => {
+  const r = stage4ProviderReadiness({ ...readyHealth, ocr: { ...readyHealth.ocr, selectedProvider: 'gemini' } });
+  assert.equal(r.ready, false);
+});
+test('Readiness: wrong selected model → NOT ready', () => {
+  const r = stage4ProviderReadiness({ ...readyHealth, ocr: { ...readyHealth.ocr, selectedModel: '@cf/meta/llama-3.2-11b-vision-instruct' } });
+  assert.equal(r.ready, false);
+});
+test('Readiness: mockRuntimeAllowed=true → NOT ready', () => {
+  const r = stage4ProviderReadiness({ ...readyHealth, ocr: { ...readyHealth.ocr, mockRuntimeAllowed: true } });
+  assert.equal(r.ready, false);
+});
+test('Readiness: cloudflare provider credential absent → NOT ready', () => {
+  const r = stage4ProviderReadiness({ ...readyHealth, ocrProviders: { cloudflare: false, gemini: true } });
+  assert.equal(r.ready, false);
+});
+test('Readiness: missing health.ocr entirely → NOT ready (positive proof, never inferred)', () => {
+  assert.equal(stage4ProviderReadiness({}).ready, false);
+});
+test('Readiness: exact Cloudflare/Qwen + configured + Gemini + mock false → ready', () => {
+  const r = stage4ProviderReadiness(readyHealth);
+  assert.equal(r.ready, true);
+  assert.equal(r.selected_provider, 'cloudflare');
+  assert.equal(r.selected_model, CERTIFIED_MODEL);
+  assert.equal(r.cloudflare_configured, true);
+  assert.equal(r.gemini_present, true);
+  assert.equal(r.mock_runtime_allowed, false);
+});
 
 const idBase = {
   classificationProvider: 'gemini', classification: 'valid_identity_document',

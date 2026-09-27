@@ -25,7 +25,7 @@ import {
   identityCertifiable, identityProviderBlocked,
   diasporaCertifiable, diasporaProviderBlocked,
   vehicleCertifiable, vehicleProviderBlocked,
-  overallDisposition,
+  overallDisposition, stage4ProviderReadiness,
 } from './o2-ocr-stage4-policy.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -52,7 +52,7 @@ const receipt = {
   frontend_unpaired: null, supabase: null,
   // Strict per-journey dispositions — full Stage-4 success requires ALL three true (no aggregate boolean).
   identity_certified: false, diaspora_certified: false, vehicle_certified: false,
-  provider_blocked: false, provider_block_detail: null,
+  provider_readiness: null, provider_blocked: false, provider_block_detail: null,
   fixture_custody: {}, identity: {}, diaspora: {}, vehicle: {}, negative_authority: {},
   disposition: 'in_progress',
 };
@@ -211,6 +211,20 @@ class Client {
   if (health?.status !== 'UP' || health?.build?.commit_sha !== EXPECTED_SHA || health?.build?.branch !== EXPECTED_BRANCH) die('Backend health not exact-head', { backend: health?.build });
   if (health?.supabase?.status !== 'healthy') die('Supabase not healthy', { supabase: health?.supabase });
   log(`✓ exact-head paired deployment confirmed @ ${EXPECTED_SHA} (supabase healthy)`);
+
+  // 1b) FAIL BEFORE SIDE EFFECTS — positive, exact provider readiness from the canonical health
+  // contract, checked BEFORE any fixture creation, storage upload or provider call. A dispatch
+  // during a configuration hold terminates here as PROVIDER_CONFIGURATION_HOLD (never
+  // FAILED_PRODUCT_JOURNEY) without touching users, vehicles, sessions, storage, Gemini or Cloudflare.
+  const readiness = stage4ProviderReadiness(health);
+  receipt.provider_readiness = readiness;
+  if (!readiness.ready) {
+    receipt.disposition = 'PROVIDER_CONFIGURATION_HOLD';
+    writeReceipt();
+    console.error(`\nSTAGE4 PROVIDER_CONFIGURATION_HOLD — deployed OCR providers are not ready; no fixtures created, no storage upload, no provider call. ${JSON.stringify(readiness)}`);
+    process.exit(4);
+  }
+  log(`✓ provider readiness confirmed: cloudflare configured + gemini present + mock disabled (@cf/qwen/qwen3.8-27b)`);
 
   // 2) Provision isolated synthetic fixtures (owner + admin reviewer + vehicle). Pre-provider.
   const runPw = `S4!${crypto.randomBytes(18).toString('base64url')}`;

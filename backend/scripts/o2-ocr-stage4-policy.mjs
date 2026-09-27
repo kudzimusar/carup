@@ -150,6 +150,33 @@ export function vehicleProviderBlocked(s = {}) {
 }
 
 /**
+ * Provider readiness — POSITIVE and EXACT, computed from the deployed `/api/health` payload
+ * (`{ ocr: {selectedProvider, selectedModel, configured, mockRuntimeAllowed}, ocrProviders: {...} }`).
+ * The Stage-4 driver calls this BEFORE any fixture creation, storage upload or provider call, so a
+ * dispatch during a configuration hold fails before side effects. Pure; no network, no secrets.
+ */
+export function stage4ProviderReadiness(health = {}) {
+  const ocr = health.ocr || {};
+  const providers = health.ocrProviders || {};
+  const selected_provider = ocr.selectedProvider ?? null;
+  const selected_model = ocr.selectedModel ?? null;
+  const cloudflare_configured = ocr.configured === true;
+  const cloudflare_provider_present = providers.cloudflare === true;
+  const gemini_present = providers.gemini === true;
+  const mock_runtime_allowed = ocr.mockRuntimeAllowed === true;
+  const ready = selected_provider === CERTIFIED_PROVIDER
+    && selected_model === CERTIFIED_MODEL
+    && cloudflare_configured === true
+    && mock_runtime_allowed === false
+    && cloudflare_provider_present === true
+    && gemini_present === true;
+  return {
+    selected_provider, selected_model, cloudflare_configured, cloudflare_provider_present,
+    gemini_present, mock_runtime_allowed, ready,
+  };
+}
+
+/**
  * Global disposition — strict 3/3. A provider block takes precedence over a product-journey
  * failure so the hold is reported honestly; only all-three-certified yields CERTIFIED.
  */
