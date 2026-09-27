@@ -39,6 +39,7 @@ on:
       - 'backend/tests/diaspora-supabase-integration.test.js'
       - 'backend/tests/diaspora-ocr-route.test.js'
       - '.github/workflows/o2-ocr-hardening-offline.yml'
+      - 'backend/scripts/o2-ocr-stage4-staging-uat.mjs'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
