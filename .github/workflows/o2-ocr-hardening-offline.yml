@@ -39,7 +39,15 @@ on:
       - 'backend/tests/diaspora-supabase-integration.test.js'
       - 'backend/tests/diaspora-ocr-route.test.js'
       - '.github/workflows/o2-ocr-hardening-offline.yml'
+  # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
+  # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
+  # it stays within this gate's credential-free contract. Push runs remain purely offline.
   workflow_dispatch:
+    inputs:
+      deployed_expected_sha:
+        description: 'If set on manual dispatch, also probe the exact-head deployed preview for this SHA (provenance + route gating). Leave blank to skip.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -94,3 +102,77 @@ jobs:
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
             backend/tests/diaspora-ocr-route.test.js
+
+  # ── Deployed exact-head provenance + route-gating probe ─────────────────────
+  # Runs ONLY on manual dispatch with a non-empty deployed_expected_sha input, so push runs stay
+  # purely offline. Network-only (public preview endpoints); no live-provider call, no secret. It
+  # proves the paired Vercel preview serves the exact candidate SHA (frontend unpaired=false + SHA;
+  # backend /api/health UP + SHA + supabase healthy) and that the deployed OCR routes fail closed.
+  deployed-provenance-probe:
+    name: Deployed exact-head provenance + OCR route gating
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deployed_expected_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.deployed_expected_sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const fe = (JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json','utf8')).branches||{})[branch];
+          const be = (JSON.parse(fs.readFileSync('web/preview-backend-pairing.json','utf8')).branches||{})[branch];
+          if (!fe || !be) { console.error(JSON.stringify({error:'preview pair not governed',branch,fe:Boolean(fe),be:Boolean(be)})); process.exit(1); }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${fe}\nSTAGING_API_URL=${be.replace(/\/$/,'')}/api\n`);
+          console.log(JSON.stringify({branch, fe, be}));
+          NODE
+      - name: Prove exact-head frontend/backend provenance (pairing + health)
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA, web = process.env.STAGING_WEB_URL, api = process.env.STAGING_API_URL;
+          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+          for (let a=1;a<=72;a++){
+            try {
+              const [pR,hR] = await Promise.all([fetch(`${web}/carup-provenance.json?a=${a}`,{cache:'no-store'}), fetch(`${api}/health?a=${a}`,{cache:'no-store'})]);
+              const p = pR.ok? await pR.json():null; const h = hR.ok? await hR.json():null;
+              if (p?.commit_sha===expected && p?.unpaired===false && h?.status==='UP' && h?.build?.commit_sha===expected){
+                console.log('EXACT-HEAD DEPLOYED PAIR CONFIRMED');
+                console.log(JSON.stringify({frontend_sha:p.commit_sha, frontend_unpaired:p.unpaired, api_base_url:p.api_base_url, backend_sha:h.build.commit_sha, backend_branch:h.build?.branch, supabase:h.supabase?.status}, null, 2));
+                process.exit(0);
+              }
+              console.log(`attempt ${a}: fe=${p?.commit_sha||'n/a'} unpaired=${p?.unpaired} be=${h?.build?.commit_sha||'n/a'} supa=${h?.supabase?.status||'n/a'}`);
+            } catch(e){ console.log(`attempt ${a}: ${e.message}`); }
+            await sleep(5000);
+          }
+          console.error('Exact-head preview pair never reported the candidate SHA.'); process.exit(1);
+          NODE
+      - name: Probe deployed OCR route surface + provider config (no fabricated verdict)
+        run: |
+          node --input-type=module <<'NODE'
+          const api = process.env.STAGING_API_URL; const out = {};
+          try { const h = await (await fetch(`${api}/health`,{cache:'no-store'})).json();
+            out.health = { status:h.status, commit_sha:h.build?.commit_sha, branch:h.build?.branch, environment:h.environment, supabase:h.supabase?.status, ocr_provider:h.ocr?.provider||h.providers?.ocr||h.build?.ocr_provider||'not_exposed_by_health' };
+          } catch(e){ out.health_error = e.message; }
+          async function probe(method, path, body){ try { const res = await fetch(`${api}${path}`,{method,cache:'no-store',headers:body?{'content-type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined}); let code; try{code=(await res.json())?.code;}catch{} return {path,method,status:res.status,code}; } catch(e){ return {path,method,error:e.message}; } }
+          out.route_gating = [
+            await probe('POST','/ai/ocr',{docType:'national_id',base64Data:'x'}),
+            await probe('POST','/diaspora/documents/probe-doc/extractions',{extraction_provider:'forged'}),
+            await probe('POST','/vehicles/PROBEVIN0000000000/evidence/probe-ev/run-ocr',{}),
+          ];
+          console.log('DEPLOYED OCR ROUTE SURFACE:'); console.log(JSON.stringify(out,null,2));
+          const leak = out.route_gating.find(r=>r.status===200);
+          if (leak){ console.error('A deployed OCR route answered 200 without authentication:', JSON.stringify(leak)); process.exit(1); }
+          const legacy = out.route_gating.find(r=>r.path==='/ai/ocr');
+          if (legacy && ![410,401,403].includes(legacy.status)){ console.error('Legacy /api/ai/ocr neither retired nor gated:', JSON.stringify(legacy)); process.exit(1); }
+          NODE

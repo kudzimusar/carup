@@ -415,3 +415,97 @@ is proven offline.
 Identity verification, Dealer Compliance, Seller Authority, T8 document-verification, government
 registry truth, canonical Trust, vehicle registration, and listing/publication authority are all
 unchanged. OCR observes; provenance is server-observed; humans/owning domains decide.
+
+---
+
+## MODERATOR CONTINUATION 2 — EXACT-HEAD CI CLOSURE + PREVIEW PAIRING + STAGE-4 ATTEMPT
+
+Progressive continuation. Accepted work preserved (Closures A/B/C, reviewer attribution + quality
+policy, live Qwen run 36287013223). History above not rewritten.
+
+Candidate SHA progression:
+`34c4113` (remediation) → `d2c1448` (CI gap closed + preview paired + fraud-report truth) →
+`9b54fa3` (adds the dispatch-only Stage-4 deployed-UAT workflow).
+
+### 1. Exact-head CI truth (local evidence vs CI authority)
+* The previously-reported `216 pass / 0 fail / 5 skip` was a **local** shell run.
+* The exact-head GitHub Actions run **36290039546** on `34c4113` executed only **148 tests /
+  143 pass / 0 fail / 5 skip** — because `o2-ocr-hardening-offline.yml` did not yet execute the two
+  remediation suites or the two frozen authority suites, and its path filter omitted
+  `documentIntelligenceRouter.js`.
+* **Fix:** the workflow now triggers on and executes
+  `o2-verification-ocr-attribution`, `o2-reviewer-quality-policy`,
+  `issue164-phase3-trust-authority`, `non-seller-authority-hardening`, and adds
+  `documentIntelligenceRouter.js` to the path filter.
+* **Corrected exact-head CI run 36293005149 on `d2c1448`: 224 tests / 219 pass / 0 fail / 5 skip.**
+  The GitHub workflow, not a local shell, is the certification authority for this gate.
+
+### 2. Reviewer-route truth closure
+* **Attribution** (retained): `/api/verification/ocr` derives OCR attribution from
+  `req.userContext.id`; unattributed → 401; no body/header/fallback identity.
+* **Quality policy** (strengthened to behavioral): the shipped `approveDocumentVerification` is now
+  exercised for all three states via an injected `analyzeImageQuality` — not_measured → proceed +
+  audit `not_measured`; measured_passed → proceed + audit `measured_passed`; measured_failed →
+  **refused with zero side-effect writes** (no override, no vehicle trust/status, no ocr Verified,
+  no trust history).
+* **Fraud-report truth** (new fix): `/api/verification/ocr` previously ran
+  `FraudService.scanFraudRisk('system_user', …)`, returning a `riskRating:'Low'` for a phantom
+  subject the route never established (and scanFraudRisk returns Low on internal failure too). The
+  route establishes no document-subject identity, so it now returns
+  `fraudReport.status='not_evaluated'` — no manufactured subject, no false Low. Regression test in
+  `o2-verification-ocr-attribution.test.js` proves the route never invokes the scanner and returns
+  `not_evaluated`.
+
+### 3. Preview pairing (Stage B)
+* **Before:** `fix/o2-ocr-trade-os-convergence` was absent from both
+  `web/preview-frontend-pairing.json` and `web/preview-backend-pairing.json`, so the frontend
+  provenance reported `unpaired=true` / `api_base_url=https://unpaired-preview.carup.invalid/api`
+  (fail-closed — a READY preview that cannot perform a paired frontend→backend journey).
+* **Patch:** the branch added to both maps with the moderator-verified stable per-branch aliases
+  (`carup-staging-git-fix-o2-ocr-trade-os-convergence-11-11.vercel.app` frontend;
+  `carup-backend-staging-git-fix-o2-ocr-trade-os-convergence-11-11.vercel.app` backend). The
+  existing fail-closed architecture is preserved (no staging fallback).
+* **Deploy:** Vercel deployed `9b54fa3` — commit statuses `success` for `carup-staging` and
+  `carup-backend-staging`. The exact-head deployed provenance/health proof
+  (frontend `unpaired=false` + `commit_sha==9b54fa3`; backend `/api/health` UP + `commit_sha` +
+  supabase healthy) is performed by the Stage-4 workflow's provenance gate (see §5).
+
+### 4. Dealer — refined cross-lane blocker (business-semantics vs incidental module coupling)
+Current Trade OS already owns `dealerComplianceService`, dealer profiles/documents,
+`user_registration_profiles`, and a **metadata-only** `POST /api/dealer/documents`. It lacks the
+governed private-binary Dealer onboarding OCR journey. The Dealer OCR function
+`runOwnDealerDocumentOcr` (PR #208 / `feat/operations-o2-people-compliance @ e65c0bb`) itself needs
+only these **business-semantic** pieces:
+
+1. governed **private** Dealer evidence upload (real bytes to the private `ocr-documents` bucket) —
+   today's `/api/dealer/documents` is metadata-only;
+2. the Dealer applicant **self-scope onboarding context** (`assertDealerOnboardingContext` on the
+   X2 `user_registration_profiles` account_kind=business/business_type=dealer model);
+3. the OCR **candidate persistence columns** on `dealer_compliance_documents`
+   (`extraction_candidates`/`extraction_provider`/`extraction_confidence`/`extracted_at` —
+   migration `20260903220000_dealer_onboarding_extensions.sql`; absent on Trade OS);
+4. the **Dealer OCR product route** (`POST /api/dealer-onboarding/documents/:id/ocr`);
+5. the X2 candidate machine helpers it calls (`FIELD_STATE`, `sanitizeCandidateValue`).
+
+Distinct from those, the wider imports that block a **wholesale** module port —
+`identityAssuranceService.getIdentityAssurance` (X6), `safeNarrationService.narrateActionSummary`,
+`dealerComplianceService.toResponsibilityProjection`/`buildDealerActionSummary` — are **incidental
+module coupling**: they are used by the module's *other* functions (`getDealerOnboardingOverview`),
+**not** by `runOwnDealerDocumentOcr`. A later moderator-authorized **minimal semantic** forward-port
+could lift the OCR function + its four business-semantic pieces without importing the X6/narration
+authority stack. This task does not make that architecture decision or import PR #208.
+**Dealer Stage-4 disposition: BLOCKED — cross-lane Dealer onboarding convergence required.**
+
+### 5. Stage-4 deployed workflow
+`.github/workflows/o2-ocr-stage4-staging-uat.yml` created: `workflow_dispatch` ONLY; shared
+`staging-preview` concurrency lock; `EXPECTED_HEAD_SHA` gate; staging-DB guard to project
+`eoyenigwevnxwwhyhaer`; resolves the OCR preview pair; proves exact-head provenance (frontend
+`unpaired=false` + SHA; backend health UP + SHA + supabase healthy); probes the deployed OCR route
+surface unauthenticated (legacy `/api/ai/ocr` retired-or-gated; diaspora client `/extractions` and
+vehicle `run-ocr` fail closed; none answer 200 anonymously) and records what `/api/health` exposes
+about the OCR provider. It never fabricates a journey verdict.
+
+### 6. Qwen certification retained
+Provider-path code (`CloudflareVisionClient`, `ocrVisionProvider`, `documentSchemas`, media
+transport, `extractDocumentData` provider execution, grader-v2) unchanged across this continuation.
+**Live grader-v2 run `36287013223` (11/11, 0 fabrications, 0 INCONCLUSIVE) retained; no paid rerun.**
