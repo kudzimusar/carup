@@ -107,7 +107,9 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
  * and returns the same generic simulated payload, so test-mode behaviour of
  * callers is identical to the text path.
  */
-export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false) {
+export const GEMINI_VISION_MODEL = 'gemini-2.5-flash';
+
+export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false, options = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -125,26 +127,64 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
     return 'This is a simulated high-fidelity response from the CarUp OS AI Orchestration engine.';
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${apiKey}`;
   const parts = [{ text: `${systemPrompt}\n\n${textPrompt}` }];
   for (const image of images) {
     if (!image?.base64) continue;
     parts.push({ inline_data: { mime_type: image.mimeType || 'image/jpeg', data: image.base64 } });
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: jsonMode ? { responseMimeType: 'application/json' } : undefined
-    })
-  });
+  const generationConfig = { ...(jsonMode ? { responseMimeType: 'application/json' } : {}), ...(options.generationConfig || {}) };
 
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error('Malformed Gemini vision API response');
+  // A hung provider must not hold a user's upload open indefinitely; without this a stalled
+  // call ran for 105 seconds before surfacing as an unexplained "malformed response".
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 90_000;
+  const abort = AbortSignal.timeout(timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        ...(Object.keys(generationConfig).length ? { generationConfig } : {})
+      }),
+      signal: abort,
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw new Error(`Gemini vision request timed out after ${timeoutMs}ms`);
+    }
+    throw new Error(`Gemini vision request failed: ${error.message}`);
   }
-  return text;
+
+  const data = await response.json().catch(() => null);
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (text) return text;
+
+  // Say WHY there is no text. "Malformed response" hid a MAX_TOKENS finish, a safety block and
+  // an HTTP error behind one message, which is unusable for diagnosis and, worse, indistinguishable
+  // from a genuinely unreadable document.
+  const candidate = data?.candidates?.[0];
+  const reason = data?.error?.status || data?.error?.message
+    || data?.promptFeedback?.blockReason
+    || candidate?.finishReason
+    || (response.ok ? 'no text part in the response' : `HTTP ${response.status}`);
+  const usage = data?.usageMetadata
+    ? ` (tokens: prompt ${data.usageMetadata.promptTokenCount ?? '?'}, candidates ${data.usageMetadata.candidatesTokenCount ?? '?'}, thoughts ${data.usageMetadata.thoughtsTokenCount ?? '?'})`
+    : '';
+
+  // A quota refusal must say WHICH quota. "Rate limited" and "you have used your allowance for
+  // the day" call for completely different responses, and only the provider knows which it is.
+  const quota = (data?.error?.details || [])
+    .flatMap((detail) => detail?.violations || [])
+    .map((violation) => violation.quotaId || violation.quotaMetric)
+    .filter(Boolean);
+  const retryAfter = (data?.error?.details || []).find((detail) => detail?.retryDelay)?.retryDelay;
+  const quotaDetail = quota.length
+    ? ` [quota: ${quota.join(', ')}${retryAfter ? `; provider suggests retrying after ${retryAfter}` : ''}]`
+    : '';
+
+  throw new Error(`Gemini vision returned no text: ${reason}${quotaDetail}${usage}`);
 }

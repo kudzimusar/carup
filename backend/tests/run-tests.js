@@ -191,9 +191,21 @@ async function runTests() {
     const fraudScan = await runFraudAnalysis(vin, 28000.0, '2019 Mercedes-Benz W205 C200 AMG Line');
     console.log('Fraud analysis risk:', fraudScan.riskRating);
     
-    const ocrScan = await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_IMAGE_DATA');
-    console.log('OCR document owner parsed:', ocrScan.owner);
-    
+    // O2 OCR convergence: the legacy generic OCR parser (truncated base64 → text-only Gemini,
+    // substituted confidence) is RETIRED and fails closed with 410. Genuine document OCR now flows
+    // through the governed DocumentIntelligenceService provider boundary (identity/dealer/diaspora
+    // run-ocr and the vehicle-evidence run-ocr route). Assert the retirement rather than call it.
+    let legacyOcrRetired = false;
+    try {
+      await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_IMAGE_DATA');
+    } catch (err) {
+      legacyOcrRetired = err?.statusCode === 410 && err?.code === 'LEGACY_OCR_PATH_RETIRED';
+    }
+    if (!legacyOcrRetired) {
+      throw new Error('Security Failure: the legacy runOcrParsing path must be retired (410 LEGACY_OCR_PATH_RETIRED).');
+    }
+    console.log('  ✅ Verified: legacy generic OCR path is retired (410 LEGACY_OCR_PATH_RETIRED).');
+
     const riskScan = await runRiskScoring(vin, 48500, 42000.0);
     console.log('Insurance risk tier factors:', riskScan.factors);
     console.log('✅ AI Orchestrator functional.');
