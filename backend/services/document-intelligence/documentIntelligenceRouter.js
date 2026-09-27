@@ -16,8 +16,22 @@ router.post('/ocr', async (req, res) => {
     });
   }
 
+  // O2 OCR convergence — reviewer OCR attribution. The extraction is attributed to the PROVEN
+  // reviewer session established by the mount's authorizeSessionRole(['admin','government']) — the
+  // x-user-id header fallback is disabled there. The reviewer id is NEVER taken from the request
+  // body, an arbitrary header, or any default/fallback identity ('u1', 'system_user', …). An
+  // unattributed runtime extraction is refused here (and refused again at the service boundary,
+  // which requires the authenticated user id outside test mode).
+  const reviewerId = req.userContext?.id;
+  if (!reviewerId) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authenticated reviewer session is required to run document OCR.'
+    });
+  }
+
   try {
-    const analysis = await DocumentIntelligenceService.extractDocumentData(docType, capturedFront);
+    const analysis = await DocumentIntelligenceService.extractDocumentData(docType, capturedFront, reviewerId);
     
     // Automatically perform a fraud scan on the submission
     const fraudScan = await FraudService.scanFraudRisk('system_user', {

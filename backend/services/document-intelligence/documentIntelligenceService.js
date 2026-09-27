@@ -8,16 +8,29 @@ import { resolveSchema, OCR_SCHEMA_VERSION, normalizeVin, FIELD_ALIASES, printed
 import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js';
 
 /**
- * O2-X1 BOUNDARY: Document Intelligence OBSERVES; domain authorities DECIDE.
+ * DOCUMENT INTELLIGENCE BOUNDARY (Trade OS line): EXTRACTION observes; the reviewer/owning
+ * domain DECIDES. These are two DISTINCT methods on this class, and the distinction is the whole
+ * boundary:
  *
- * This module may write ONLY the ocr evidence tables (the master record plus the structured
- * per-document-type candidate rows). Its output is candidate data + provenance + confidence +
- * quality flags — never verified truth. Approving, registering, licensing, trusting or
- * publishing anything on the strength of an extraction is the exclusive business of the owning
- * domain services — Phase 7C identity review, Dealer Compliance, Seller Authority, the vehicle
- * passport/evidence lanes and canonical Trust — each through its own governed, audited decision
- * path. The retired approval/promotion chain must not return; the boundary is pinned by
- * backend/tests/o2-x1-document-intelligence-authority.test.js.
+ *   · extractDocumentData() is OBSERVATION / CANDIDATE-ONLY. It may write ONLY the ocr evidence
+ *     tables (the master record plus the structured per-document-type candidate rows). Its output
+ *     is candidate data + provenance + confidence + quality flags — never verified truth, never a
+ *     vehicle/trust/registry/authority write.
+ *   · approveDocumentVerification() is a DISTINCT, gated HUMAN REVIEWER decision that the Trade OS
+ *     line deliberately PRESERVES (mounted at /api/verification behind
+ *     authorizeSessionRole(['admin','government'])). It records an administrative_overrides audit
+ *     row and updates the vehicle's OCR verification state + trust cache/status + trust history —
+ *     a reviewer decision, NOT something extraction does. It is T12.1-hardened: it forges NO
+ *     government registry rows (cvr_ownership_records / zimra_declarations). Its trust write clears
+ *     the canonical trust stamp (INV-TRUST-2), pinned by issue164-phase3-trust-authority.test.js.
+ *
+ * Registering, licensing, trusting or publishing on the strength of an extraction alone is the
+ * business of the owning domain services — identity review, Dealer Compliance, Seller Authority,
+ * the vehicle passport/evidence lanes and canonical Trust — each through its own governed, audited
+ * path. The O2 reference branch RETIRED approveDocumentVerification and the /api/verification
+ * surface entirely; that wholesale authority retirement is a separate programme decision NOT taken
+ * on the Trade OS line. The extraction-side boundary is pinned by
+ * backend/tests/o2-x1-document-intelligence-authority.test.js (adapted to the Trade OS authority).
  *
  * TRUTHFULNESS CONTRACT (Live OCR Operationalization):
  *   - extraction reads the actual document bytes through the vision provider; a text prompt
@@ -696,12 +709,25 @@ export class DocumentIntelligenceService {
         throw new Error('VERIFICATION_FAILED: Document OCR confidence is too low (< 0.80).');
       }
 
-      // B. Verify document quality. O2 OCR convergence: image quality is NOT measured (the old
-      // hash-derived blur/glare/tamper scores were fabrications), so analyzeImageQuality reports
-      // qualityPassed=null ("not measured"). Only a genuine, measured failure may block a reviewer
-      // approval; "not measured" must not, or an honest extraction could never be approved.
+      // B. Image-quality policy — EXPLICIT (O2 OCR convergence reviewer-authority decision).
+      //
+      // CarUp does NOT measure image quality: the previous blur/glare/tamper scores were derived
+      // from a hash of the payload (fabricated), so analyzeImageQuality now truthfully reports
+      // measured=false / qualityPassed=null. The reviewer-approval policy is therefore, explicitly:
+      //
+      //   · measured & passed  → does not block
+      //   · measured & FAILED  → blocks (never currently reached, since nothing is measured)
+      //   · NOT measured       → does NOT block the human reviewer on its own
+      //
+      // "Not measured" must not block, or an honest extraction could never reach a reviewer. But an
+      // approval must not IMPLY an automated image-quality check passed when none was performed — so
+      // the truthful status is recorded on the reviewer override below (imageQualityStatus). This is
+      // a reviewer-authority policy, deliberately explicit, not silent OCR plumbing.
       const quality = this.analyzeImageQuality(ocrDoc.file_path === 'inline_b64' ? 'mock' : ocrDoc.extracted_json);
-      if (quality.qualityPassed === false) {
+      const imageQualityStatus = quality.measured === true
+        ? (quality.qualityPassed === false ? 'measured_failed' : 'measured_passed')
+        : 'not_measured';
+      if (imageQualityStatus === 'measured_failed') {
         throw new Error('VERIFICATION_FAILED: Image quality metrics failed (blur, glare, or tampering detected).');
       }
 
@@ -763,7 +789,13 @@ export class DocumentIntelligenceService {
         override_action: 'ADMIN_APPROVE_OCR_DOCUMENT',
         justification: overrideJustification,
         previous_state: { trust_score: vehicle.trust_score, status: vehicle.status },
-        new_state: { trust_score: Math.min(100, (vehicle.trust_score || 80) + 20), status: 'Available' },
+        new_state: {
+          trust_score: Math.min(100, (vehicle.trust_score || 80) + 20),
+          status: 'Available',
+          // Truthful record so the approval never implies an automated image-quality check passed
+          // when none was performed. One of: 'measured_passed' | 'measured_failed' | 'not_measured'.
+          image_quality_check: { status: imageQualityStatus, measured: quality.measured === true, note: quality.note || null },
+        },
         cryptographic_seal: seal,
         ip_address: '127.0.0.1',
         user_agent: 'Console'
