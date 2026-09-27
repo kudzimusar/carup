@@ -12,6 +12,9 @@ on:
       - 'backend/services/diaspora/diasporaDocumentService.js'
       - 'backend/services/identity/verificationSessionService.js'
       - 'backend/services/document-intelligence/documentIntelligenceService.js'
+      # The preserved reviewer OCR route — a reviewer-route-only regression (e.g. the attribution
+      # defect) must trigger this gate, so its file is an explicit dependant here.
+      - 'backend/services/document-intelligence/documentIntelligenceRouter.js'
       - 'backend/services/evidence/vehicleDocumentOcrService.js'
       - 'backend/routes/ocrConvergenceRoutes.js'
       - 'backend/routes/identityVerificationRoutes.js'
@@ -23,6 +26,13 @@ on:
       - 'backend/tests/o2-cloudflare-ocr-provider.test.js'
       - 'backend/tests/o2-ocr-accuracy-corpus.test.js'
       - 'backend/tests/o2-x1-document-intelligence-authority.test.js'
+      # Remediation suites (reviewer OCR attribution + explicit image-quality policy).
+      - 'backend/tests/o2-verification-ocr-attribution.test.js'
+      - 'backend/tests/o2-reviewer-quality-policy.test.js'
+      # Directly-affected frozen Trade OS authority suites — approveDocumentVerification + the gated
+      # /api/verification mount. A convergence change that touched them must trigger this gate.
+      - 'backend/tests/issue164-phase3-trust-authority.test.js'
+      - 'backend/tests/non-seller-authority-hardening.test.js'
       # Both of these consume the RETIRED OCR symbols. They are not "OCR lane" files by name, which
       # is exactly why they were invisible to this path filter while the retirement broke one of
       # them. A path-filtered gate is only as honest as its list of dependants.
@@ -78,5 +88,9 @@ jobs:
             backend/tests/o2-cloudflare-ocr-provider.test.js \
             backend/tests/o2-ocr-accuracy-corpus.test.js \
             backend/tests/o2-x1-document-intelligence-authority.test.js \
+            backend/tests/o2-verification-ocr-attribution.test.js \
+            backend/tests/o2-reviewer-quality-policy.test.js \
+            backend/tests/issue164-phase3-trust-authority.test.js \
+            backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
             backend/tests/diaspora-ocr-route.test.js

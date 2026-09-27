@@ -137,6 +137,26 @@ test('the runtime extraction service itself refuses an unattributed call outside
   }
 });
 
+test('the reviewer OCR route reports fraud as not_evaluated — no phantom subject, no misleading Low', async () => {
+  injectedUserContext = { id: 'reviewer-admin-3', role: 'admin' };
+  // Spy: if the extraction route calls the fraud scanner at all, record it. It must NOT — there is
+  // no established document subject on this route, so a fraud verdict here would be manufactured.
+  let scanCalls = 0;
+  const spied = FraudService.scanFraudRisk;
+  FraudService.scanFraudRisk = async (...args) => { scanCalls += 1; return spied(...args); };
+  try {
+    const { status, body } = await postOcr({ docType: 'national_id', capturedFront: 'data:image/png;base64,QUJD' });
+    assert.equal(status, 200);
+    assert.equal(scanCalls, 0, 'the extraction route must not run a fraud scan for a phantom subject');
+    assert.equal(body.fraudReport?.status, 'not_evaluated', 'fraud risk is explicitly not evaluated on this route');
+    const envelope = JSON.stringify(body);
+    assert.doesNotMatch(envelope, /system_user/, 'no phantom system_user subject may appear');
+    assert.doesNotMatch(envelope, /"riskRating"\s*:\s*"Low"/, 'no misleading Low fraud rating may be returned');
+  } finally {
+    FraudService.scanFraudRisk = spied;
+  }
+});
+
 test('SOURCE: the /api/verification mount stays gated by authorizeSessionRole (x-user-id fallback disabled), and the handler reads no fallback identity', () => {
   const server = read('../server.js');
   assert.match(
