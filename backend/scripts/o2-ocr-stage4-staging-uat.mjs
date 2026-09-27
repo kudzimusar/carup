@@ -19,6 +19,14 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { hashPassword } from '../utils/passwordAuth.js';
+import {
+  CERTIFIED_PROVIDER, CERTIFIED_MODEL,
+  isProviderBlockText, isProviderBlockStatus,
+  identityCertifiable, identityProviderBlocked,
+  diasporaCertifiable, diasporaProviderBlocked,
+  vehicleCertifiable, vehicleProviderBlocked,
+  overallDisposition,
+} from './o2-ocr-stage4-policy.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
@@ -49,18 +57,9 @@ const receipt = {
   disposition: 'in_progress',
 };
 
-/**
- * Distinguish a definitive PROVIDER-level configuration/outage failure (stop the sequence) from a
- * journey-specific outcome (unreadable document, no fields, candidate mismatch, product-route
- * validation defect — do NOT stop for these). Matches the exact deployed runtime signals only.
- */
-function isProviderBlockText(...parts) {
-  const s = parts.filter(Boolean).map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ');
-  return /provider unavailable|not configured|OCR_PROVIDER_UNAVAILABLE|OCR provider unavailable|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_API_TOKEN|GEMINI_API_KEY/i.test(s);
-}
-function isProviderBlockStatus(execStatus) {
-  return execStatus === 'provider_failed' || execStatus === 'provider_unavailable';
-}
+// Provider-block detection and all certification predicates live in o2-ocr-stage4-policy.mjs
+// (pure, unit-tested). This driver observes the deployed journeys and hands the observations to
+// those predicates; it never re-implements the decision logic inline.
 
 function die(msg, extra) {
   receipt.disposition = 'FAILED';
@@ -250,7 +249,7 @@ class Client {
     const sessRow = (await client.query('select status, primary_reason_code, failure_reason, evidence_classification, ocr_execution_status, ocr_document_id from public.verification_sessions where id=$1', [sessionId])).rows[0] || {};
     let classification = null;
     if (await tableExists(client, 'verification_assessments')) {
-      classification = (await client.query('select evidence_classification, provider, provider_model, document_classification_confidence from public.verification_assessments where session_id=$1 order by created_at desc limit 1', [sessionId])).rows[0] || null;
+      classification = (await client.query('select evidence_classification, provider, provider_model, document_classification_confidence, risk_flags from public.verification_assessments where session_id=$1 order by created_at desc limit 1', [sessionId])).rows[0] || null;
     }
     const decisions = await countRows(client, 'verification_decisions', 'session_id', sessionId);
     let prov = null, ocrStatus = null;
@@ -261,14 +260,24 @@ class Client {
     return { sessRow, classification, decisions, prov, ocrStatus };
   });
   const idExecStatus = idInfo.sessRow.ocr_execution_status || null;
-  const idOcrRan = idExecStatus === 'provider_succeeded';
   const idClassProvider = idInfo.classification?.provider || null;
+  const idClassification = idInfo.sessRow.evidence_classification || idInfo.classification?.evidence_classification || null;
+  // Persisted classifier reasons (verification_assessments.risk_flags = { reasons: [...] }) — used to
+  // tell a genuine Gemini PROVIDER failure ("Classification provider error: …") from a model VERDICT
+  // (unreadable / non_document / uncertain about the document itself).
+  const idClassReasons = (() => {
+    const rf = idInfo.classification?.risk_flags;
+    if (!rf) return [];
+    const parsed = typeof rf === 'string' ? (() => { try { return JSON.parse(rf); } catch { return null; } })() : rf;
+    return Array.isArray(parsed?.reasons) ? parsed.reasons : [];
+  })();
   receipt.identity = {
     session_id: sessionId, final_status: idInfo.sessRow.status || submit.json?.session?.status || null,
     primary_reason_code: idInfo.sessRow.primary_reason_code || null, failure_reason: idInfo.sessRow.failure_reason || null,
-    evidence_classification: idInfo.sessRow.evidence_classification || idInfo.classification?.evidence_classification || null,
+    evidence_classification: idClassification,
     classification_provider: idClassProvider,
-    ocr_execution_status: idExecStatus, ocr_reached_cloudflare: idOcrRan,
+    classification_reasons: idClassReasons, // sanitized: classifier reason strings only, no bytes/secrets
+    ocr_execution_status: idExecStatus,
     provider: idInfo.prov?.provider || null, model: idInfo.prov?.model || null,
     is_mock: idInfo.prov ? idInfo.prov.executionStatus === 'simulated' : null,
     verification_decisions: idInfo.decisions.count,
@@ -276,32 +285,32 @@ class Client {
   // Candidate-only invariants hold in EVERY outcome (success, provider block, journey failure):
   if (['verified', 'approved'].includes(String(receipt.identity.final_status))) die('identity was auto-verified/approved', receipt.identity);
   if (idInfo.decisions.count !== 0) die('identity created a verification decision (must be reviewer-owned)', { count: idInfo.decisions.count });
+  if (receipt.identity.is_mock === true) die('identity OCR was a MOCK', {});
 
-  if (idOcrRan) {
-    // Full identity certification requires the whole product path proven.
-    if (idClassProvider && idClassProvider !== 'gemini') die('identity classifier provider not gemini', receipt.identity);
-    if (receipt.identity.provider !== 'cloudflare') die('identity OCR provider not cloudflare', receipt.identity);
-    if (receipt.identity.model && receipt.identity.model !== '@cf/qwen/qwen3.8-27b') die('identity OCR model not certified Qwen', receipt.identity);
-    if (receipt.identity.is_mock === true) die('identity OCR was a MOCK', {});
+  // Certification is POSITIVE and EXACT: gemini classifier + valid/likely classification +
+  // cloudflare/@cf/qwen provider_succeeded (null classifier provider or null model never pass).
+  const idPolicyInput = {
+    classificationProvider: idClassProvider, classification: idClassification, reasons: idClassReasons,
+    ocrExecutionStatus: idExecStatus, ocrProvider: receipt.identity.provider, ocrModel: receipt.identity.model,
+    failureReason: idInfo.sessRow.failure_reason, ocrError: idInfo.sessRow.primary_reason_code,
+  };
+  if (identityCertifiable(idPolicyInput)) {
     if (receipt.identity.final_status !== 'pending_manual_review') die('identity did not land in pending_manual_review', receipt.identity);
     receipt.identity_certified = true;
-    log(`✓ JOURNEY 1 Person Identity CERTIFIED: classifier=gemini→allowed; OCR cloudflare/@cf/qwen provider_succeeded; status=pending_manual_review; decisions=0`);
+    log(`✓ JOURNEY 1 Person Identity CERTIFIED: classifier=gemini classification=${idClassification}; OCR cloudflare/@cf/qwen provider_succeeded; status=pending_manual_review; decisions=0`);
+  } else if (identityProviderBlocked(idPolicyInput)) {
+    // Gemini/OCR provider outage (missing key, timeout, quota, provider error) — STOP the sequence.
+    blockProvider('identity', {
+      phase: (idClassProvider === 'unavailable' || idExecStatus == null) ? 'layer2_classifier' : 'cloudflare_ocr',
+      classification_provider: idClassProvider, classification: idClassification,
+      classification_reasons: idClassReasons, ocr_execution_status: idExecStatus,
+      reason: idInfo.sessRow.failure_reason || idClassReasons[0] || 'classifier/OCR provider unavailable',
+    });
+    log(`• JOURNEY 1 Person Identity: PROVIDER BLOCK — classifier provider=${idClassProvider} reasons=${JSON.stringify(idClassReasons)}, ocr_execution_status=${idExecStatus}; candidate-only held (decisions=0). Stopping provider sequence.`);
   } else {
-    // Identity did NOT reach genuine OCR. Classify the cause and STOP the provider sequence
-    // (Diaspora/Vehicle run only after Identity reaches genuine OCR — §21).
-    const classifierUnavailable = idClassProvider === 'unavailable' || idClassProvider === null;
-    const ocrProviderFailed = isProviderBlockStatus(idExecStatus) || isProviderBlockText(idInfo.sessRow.failure_reason, idInfo.sessRow.primary_reason_code);
-    if (receipt.provider_blocked || classifierUnavailable || ocrProviderFailed) {
-      blockProvider('identity', {
-        phase: classifierUnavailable ? 'layer2_classifier' : 'cloudflare_ocr',
-        classification_provider: idClassProvider, ocr_execution_status: idExecStatus,
-        reason: idInfo.sessRow.failure_reason || idInfo.sessRow.primary_reason_code || 'classifier/OCR provider unavailable',
-      });
-      log(`• JOURNEY 1 Person Identity: PROVIDER BLOCK — classifier provider=${idClassProvider}, ocr_execution_status=${idExecStatus}; candidate-only held (decisions=0, not auto-verified). Stopping provider sequence.`);
-    } else {
-      receipt.identity.note = `classifier ran (provider=${idClassProvider}) but did not permit extraction / OCR did not succeed on document grounds (reason=${receipt.identity.primary_reason_code}); candidate-only held.`;
-      log(`• JOURNEY 1 Person Identity: journey-specific failure (classifier=${idClassProvider}, reason=${receipt.identity.primary_reason_code}); candidate-only held (decisions=0). Identity NOT certified; downstream journeys require genuine identity OCR, so stopping.`);
-    }
+    // Genuine model verdict / missing exact provenance — a PRODUCT-journey failure, not an outage.
+    receipt.identity.note = `NOT certified: classifier provider=${idClassProvider}, classification=${idClassification}, ocr_execution_status=${idExecStatus}, model=${receipt.identity.model}. This is a document/provenance failure, not a provider outage. 3/3 certification is impossible, so downstream provider journeys are not run.`;
+    log(`• JOURNEY 1 Person Identity: FAILED_PRODUCT_JOURNEY (classifier=${idClassProvider}, classification=${idClassification}); candidate-only held (decisions=0). Not certified; stopping.`);
   }
 
   const identityReachedGenuineOcr = receipt.identity_certified;
@@ -344,10 +353,15 @@ class Client {
       raw_provider: draw.provider, raw_model: draw.model, raw_execution: draw.executionStatus, raw_success: draw.success,
       extraction_count: diaState.extCount.count, verification_count: diaState.ver.count,
     };
-    if (runDia.status === 201 && diaState.doc?.verification_status === 'OCR_EXTRACTED' && draw.executionStatus === 'provider_succeeded' && draw.success === true) {
-      if (diaState.ext?.extraction_provider !== 'cloudflare' || draw.provider !== 'cloudflare') die('diaspora provider not cloudflare', receipt.diaspora.genuine);
-      if (draw.model && draw.model !== '@cf/qwen/qwen3.8-27b') die('diaspora model not certified Qwen', { model: draw.model });
-      if (diaState.ver.count !== 0) die('diaspora created a verification verdict (must stay reviewer-owned)', { count: diaState.ver.count });
+    // Exact, positive proof at BOTH persisted levels (extraction_provider + raw_response.*); a null
+    // model is a failure.
+    const diaPolicyInput = {
+      runStatus: runDia.status, documentStatus: diaState.doc?.verification_status,
+      extractionProvider: diaState.ext?.extraction_provider,
+      rawProvider: draw.provider, rawModel: draw.model, rawExecutionStatus: draw.executionStatus, rawSuccess: draw.success,
+      verificationCount: diaState.ver.count, error: runDia.json?.error || runDia.json?.message || runDia.text, rawError: draw.error,
+    };
+    if (diasporaCertifiable(diaPolicyInput)) {
       receipt.diaspora_certified = true;
       log('✓ JOURNEY 2 Diaspora CERTIFIED: forged=410 (no writes); genuine HTTP 201 OCR_EXTRACTED provider=cloudflare/@cf/qwen provider_succeeded verifications=0');
     } else {
@@ -355,7 +369,7 @@ class Client {
       if (['OCR_EXTRACTED', 'VERIFIED'].includes(String(diaState.doc?.verification_status))) die('diaspora reached OCR_EXTRACTED/VERIFIED without a provider_succeeded execution', receipt.diaspora.genuine);
       if (diaState.extCount.count !== 0) die('diaspora persisted an extraction row without provider success', { count: diaState.extCount.count });
       if (diaState.ver.count !== 0) die('diaspora persisted a verification row on failure', { count: diaState.ver.count });
-      const provBlock = isProviderBlockStatus(draw.executionStatus) || isProviderBlockText(runDia.json?.error, runDia.json?.message, runDia.text, draw.error);
+      const provBlock = diasporaProviderBlocked(diaPolicyInput);
       if (provBlock) blockProvider('diaspora', { run_status: runDia.status, raw_execution: draw.executionStatus || null, reason: runDia.json?.error || runDia.json?.message || 'provider unavailable' });
       log(`• JOURNEY 2 Diaspora: forged=410 OK; genuine run-ocr did NOT reach provider_succeeded (run_status=${runDia.status}, raw_execution=${draw.executionStatus || 'none'}); fail-closed DB verified (extractions=0, verifications=0, not OCR_EXTRACTED). ${provBlock ? 'PROVIDER BLOCK — stopping.' : 'Journey-specific failure.'}`);
     }
@@ -391,25 +405,27 @@ class Client {
       before: before.vehicle, after: after.vehicle, pending_candidate_rows: after.pending, total_candidate_rows: after.total_candidates, evidence_status_after: after.evidence_status,
     };
     // Authority must be unchanged whether OCR succeeded or failed (§11).
+    const authorityUnchanged = snapCols.every((col) => !(col in (before.vehicle || {})) || String(before.vehicle[col]) === String(after.vehicle[col]));
     for (const col of snapCols) if (col in (before.vehicle || {}) && String(before.vehicle[col]) !== String(after.vehicle[col])) die(`vehicle authority column ${col} changed after OCR`, { before: before.vehicle[col], after: after.vehicle[col] });
-
-    if (vres.success === true && vres.execution_status === 'provider_succeeded') {
-      if (vres.provider !== 'cloudflare') die('vehicle provider not cloudflare', { provider: vres.provider });
-      if (vres.model && vres.model !== '@cf/qwen/qwen3.8-27b') die('vehicle model not certified Qwen', { model: vres.model });
+    // document_type provenance is part of the vehicle proof — a wrong type fails certification.
+    const authorityEffectsAllFalse = Object.values(vres.authority_effects || { _absent: true }).every((v) => v === false)
+      && vres.authority_effects && Object.keys(vres.authority_effects).length > 0;
+    const vehPolicyInput = {
+      success: vres.success, provider: vres.provider, model: vres.model, executionStatus: vres.execution_status,
+      candidatesPersisted: vres.candidates_persisted, pendingReviewCount: after.pending,
+      authorityEffectsAllFalse, evidenceStatusAfter: after.evidence_status, authorityUnchanged,
+      error: runVeh.json?.error || runVeh.json?.message || runVeh.text,
+    };
+    if (vehicleCertifiable(vehPolicyInput)) {
       if (vres.document_type !== 'registration_book') die('vehicle document_type not registration_book', { document_type: vres.document_type });
-      if (!(vres.candidates_persisted > 0)) die('vehicle produced no candidates', vres);
-      if (!(vres.pending_review_count > 0)) die('vehicle produced no pending-review candidates', vres);
-      for (const [k, v] of Object.entries(vres.authority_effects || {})) if (v !== false) die(`vehicle authority effect ${k} not false`, vres.authority_effects);
-      if (after.evidence_status !== 'pending') die('vehicle evidence left pending state after OCR', { status: after.evidence_status });
-      if (!(after.pending > 0)) die('no pending candidate rows after vehicle OCR', { pending: after.pending });
       receipt.vehicle_certified = true;
-      log(`✓ JOURNEY 3 Owner/Seller Vehicle CERTIFIED: candidates=${vres.candidates_persisted} pending=${after.pending} authority_effects all false; vehicle authority unchanged; evidence pending`);
+      log(`✓ JOURNEY 3 Owner/Seller Vehicle CERTIFIED: provider=cloudflare/@cf/qwen candidates=${vres.candidates_persisted} pending=${after.pending} authority_effects all false; vehicle authority unchanged; evidence pending`);
     } else {
       // Failure side — prove zero authority effect: no candidate rows, evidence stays pending.
       if (after.total_candidates !== 0) die('vehicle persisted candidate rows without provider success', { total: after.total_candidates });
       if (after.evidence_status && after.evidence_status !== 'pending') die('vehicle evidence left pending state on provider failure', { status: after.evidence_status });
       for (const [k, v] of Object.entries(vres.authority_effects || {})) if (v !== false) die(`vehicle authority effect ${k} not false on failure`, vres.authority_effects);
-      const provBlock = isProviderBlockStatus(vres.execution_status) || isProviderBlockText(runVeh.json?.error, runVeh.json?.message, runVeh.text);
+      const provBlock = vehicleProviderBlocked(vehPolicyInput);
       if (provBlock) blockProvider('vehicle', { run_status: runVeh.status, execution_status: vres.execution_status || null, reason: runVeh.json?.error || runVeh.json?.message || 'provider unavailable' });
       log(`• JOURNEY 3 Vehicle: run-ocr did NOT reach provider_succeeded (run_status=${runVeh.status}, execution_status=${vres.execution_status || 'none'}); zero authority effect verified (candidate rows=0, evidence pending, authority unchanged). ${provBlock ? 'PROVIDER BLOCK.' : 'Journey-specific failure.'}`);
     }
@@ -435,23 +451,23 @@ class Client {
   if (neg.zimra !== 0) die('OCR run created a zimra_declarations row', neg);
   if (neg.decisions !== 0) die('OCR run created a verification decision', neg);
 
-  // ── Disposition — strict 3/3; provider block over journey failure ────────────
-  const allCertified = receipt.identity_certified && receipt.diaspora_certified && receipt.vehicle_certified;
-  if (allCertified) {
-    receipt.disposition = 'CERTIFIED';
-    writeReceipt();
-    log('\nSTAGE4 CERTIFIED — Person Identity, Diaspora, and Owner/Seller Vehicle all reached real Cloudflare/@cf/qwen candidate-only execution with zero authority effect. See receipt.');
+  // ── Disposition — strict 3/3 via the pure policy; provider block over journey failure ─
+  receipt.disposition = overallDisposition({
+    identityCertified: receipt.identity_certified,
+    diasporaCertified: receipt.diaspora_certified,
+    vehicleCertified: receipt.vehicle_certified,
+    providerBlocked: receipt.provider_blocked,
+  });
+  writeReceipt();
+  if (receipt.disposition === 'CERTIFIED') {
+    log('\nSTAGE4 CERTIFIED — Person Identity, Diaspora, and Owner/Seller Vehicle all reached real Cloudflare/@cf/qwen candidate-only execution with exact provider/model provenance and zero authority effect. See receipt.');
     log(JSON.stringify(receipt, null, 2));
     process.exit(0);
   }
-  if (receipt.provider_blocked) {
-    receipt.disposition = 'BLOCKED_PROVIDER';
-    writeReceipt();
+  if (receipt.disposition === 'BLOCKED_PROVIDER') {
     console.error(`\nSTAGE4 BLOCKED_PROVIDER — ${JSON.stringify(receipt.provider_block_detail)}. Provider sequence stopped; no fallback provider, no mock. Journeys certified: identity=${receipt.identity_certified} diaspora=${receipt.diaspora_certified} vehicle=${receipt.vehicle_certified}.`);
     process.exit(2);
   }
-  receipt.disposition = 'FAILED_PRODUCT_JOURNEY';
-  writeReceipt();
   console.error(`\nSTAGE4 FAILED_PRODUCT_JOURNEY — not all three journeys certified and no provider block: identity=${receipt.identity_certified} diaspora=${receipt.diaspora_certified} vehicle=${receipt.vehicle_certified}.`);
   process.exit(3);
 })().catch((e) => die('unhandled error', { error: e.message, stack: e.stack?.split('\n').slice(0, 4) }));

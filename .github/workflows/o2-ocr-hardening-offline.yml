@@ -43,6 +43,9 @@ on:
       - 'backend/tests/diaspora-ocr-route.test.js'
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/scripts/o2-ocr-stage4-staging-uat.mjs'
+      # Stage-4 certification policy (pure predicates) + its behavioral regression.
+      - 'backend/scripts/o2-ocr-stage4-policy.mjs'
+      - 'backend/tests/o2-ocr-stage4-policy.test.js'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -108,6 +111,7 @@ jobs:
             backend/tests/o2-verification-ocr-attribution.test.js \
             backend/tests/o2-reviewer-quality-policy.test.js \
             backend/tests/o2-ocr-startup-diagnostic.test.js \
+            backend/tests/o2-ocr-stage4-policy.test.js \
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
