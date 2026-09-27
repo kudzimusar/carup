@@ -630,3 +630,86 @@ required to re-attempt.
 **Stage-4 disposition: BLOCKED — deployed preview cannot execute the certified Cloudflare/Qwen OCR
 runtime.** Exact-head CI and preview pairing are green; the blocker is a deployment-environment
 provider-configuration gap, reported precisely rather than worked around.
+
+---
+
+## MODERATOR CONTINUATION 4 — PROVIDER CONFIGURATION READINESS + STRICT STAGE-4 RECERTIFICATION
+
+The moderator accepted the previous run (`aff9723` / run `36296446383`) as a genuine BLOCKED
+checkpoint and independently inspected the exact Vercel backend deployment
+`dpl_CgMoaXo7H1u1G6J6SYrSmXv2mXAD`, whose runtime logs prove both Diaspora and Vehicle reached the
+real Document Intelligence boundary and failed with the exact error:
+`OCR provider unavailable: cloudflare is selected but CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN
+are not configured for this environment.` The historical `aff9723` checkpoint is preserved above and
+NOT rewritten. This continuation hardens the certifier and re-runs offline CI; the provider
+recertification is held pending Preview configuration.
+
+### 1. Certifier hardening (no provider consumed)
+* **Strict 3/3 dispositions.** The Stage-4 driver (`backend/scripts/o2-ocr-stage4-staging-uat.mjs`)
+  no longer uses an aggregate `cloudflareProven` boolean. It records explicit
+  `identity_certified` / `diaspora_certified` / `vehicle_certified`. `CERTIFIED` requires **all
+  three** true; there is no "one Cloudflare route succeeded" shortcut. Exit codes: `0` CERTIFIED,
+  `2` BLOCKED_PROVIDER, `3` FAILED_PRODUCT_JOURNEY.
+* **Person Identity is the mandatory provider gate.** Identity must prove the Layer-2 **Gemini**
+  classifier ran (`provider=gemini`), permitted extraction, and Cloudflare/Qwen OCR reached
+  `ocr_execution_status=provider_succeeded` (`provider=cloudflare`, `model=@cf/qwen/qwen3.8-27b`),
+  with `final_status=pending_manual_review` and `verification_decisions=0`. Identity is no longer
+  non-fatal: if it does not reach genuine OCR, `CERTIFIED` is impossible and the run is classified
+  `BLOCKED_PROVIDER` (classifier/OCR provider unavailable) or `FAILED_PRODUCT_JOURNEY` (document
+  cause). Diaspora and Vehicle run **only after** Identity reaches genuine OCR (execution order §21).
+* **Immediate provider-failure stop.** A definitive provider-level signal — classifier
+  `provider=unavailable`, `execution_status ∈ {provider_failed, provider_unavailable}`, or a runtime
+  error matching the provider-config strings (`CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN`/
+  `GEMINI_API_KEY`/`provider unavailable`/`not configured`) — sets `provider_blocked` and stops all
+  remaining provider-consuming journeys. Document-specific failures (unreadable, no fields, mismatch,
+  route validation) do **not** stop the sequence.
+* **Failure-side authority proof.** The vehicle authority snapshot (owner/seller/registration/status/
+  publication + full trust column set incl. `trust_known_limitations`/`trust_evidence_basis`) is
+  captured **before and after** regardless of provider outcome and asserted unchanged. On provider
+  failure the driver asserts **zero** candidate rows and evidence stays `pending`. Diaspora failure
+  asserts fail-closed DB state: not `OCR_EXTRACTED`/`VERIFIED`, `0` extraction rows, `0` verification
+  rows. `fixture_custody` (run id, owner/reviewer ids, VIN, cleanup disposition — **no passwords**)
+  is recorded; per-run identities remain isolated and retained as certification evidence.
+* **Startup diagnostic truth (`backend/server.js`).** The boot OCR diagnostic no longer prints the
+  retired `OCR_PRIMARY_PROVIDER`/`OCR_FALLBACK_PROVIDER`/`OCR_MODE` messages ("OCR provider
+  initialized: None", "Loose OCR mode", "Mock OCR enabled"). It now describes the actual boundary
+  via `resolveVisionProvider()` and `isOcrMockAllowed()`: selected provider, selected model, provider
+  configured (yes/no), mock runtime allowed (yes/no). **No secret values are printed.** The mock rule
+  (`NODE_ENV==='test' && ALLOW_OCR_MOCK==='true'`) is unchanged and pinned by a new bounded test.
+* **Least-privilege secrets.** The confirmed-unused `STAGING_UAT_REVIEWER_EMAIL` /
+  `STAGING_UAT_REVIEWER_PASSWORD` were removed from the Stage-4 job env (the driver provisions its own
+  per-run reviewer). The job receives only `DIASPORA_STAGING_DATABASE_URL`.
+
+### 2. Exact-head offline CI
+New candidate `e800f87e8f0557d0e77553bda4606947e3bd5767`. Push-triggered **O2 OCR Offline Hardening**
+run `36298645326` — job "Offline OCR regression" = **success**:
+`# tests 226 # pass 221 # fail 0 # skipped 5` (the new `o2-ocr-startup-diagnostic.test.js` added 2
+tests to the prior 224; total is not hardcoded). The dispatch-gated deployed jobs correctly skipped
+on push. The CI run incidentally reproduced the **exact** deployed provider-config error string in an
+unconfigured-environment unit test (`OCR provider unavailable: … CLOUDFLARE_ACCOUNT_ID and
+CLOUDFLARE_API_TOKEN are not configured`, `executionStatus=provider_failed`), confirming the
+hardened provider-block detection matches the real runtime signal.
+
+### 3. Provider configuration presence — HOLD
+The required backend Preview environment configuration is:
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `GEMINI_API_KEY` (Layer-2 identity classifier), with
+`CARUP_OCR_PROVIDER=cloudflare` + `ALLOW_OCR_MOCK=false` recommended (`CARUP_OCR_MODEL` optional — the
+certified default `@cf/qwen/qwen3.8-27b` applies via `CLOUDFLARE_VISION_MODEL`). This session has **no
+authorized Vercel read access** (no Vercel token in the environment; egress to `*.vercel.app` is
+denied by policy) and is **not authorized to provision** provider credentials. The last authoritative
+signal — the moderator's own inspection of `dpl_CgMoaXo7H1u1G6J6SYrSmXv2mXAD` — shows the Cloudflare
+keys **absent**. Per the stop rule, Stage-4 was **not** re-dispatched (no provider quota consumed
+rediscovering the known gap). **Owner action required:** add `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN`, and `GEMINI_API_KEY` securely to the backend Preview environment, then
+redeploy the exact head and re-dispatch **O2 OCR Offline Hardening** with
+`deployed_expected_sha=e800f87e8f0557d0e77553bda4606947e3bd5767` and `stage4_authenticated=true`.
+
+### 4. Preserved authorities
+* **Dealer** remains a **separate cross-lane blocker** (PR #208) — not ported, not merged.
+* **Qwen model-level evidence** — grader-v2 run `36287013223` (11/11) — **retained**; corpus not
+  rerun.
+* **`main` / production** — **untouched**.
+
+**Stage-4 disposition: PROVIDER CONFIGURATION HOLD — moderator hardening and exact-head CI green;
+authenticated Stage-4 not re-dispatched because the backend Preview environment is still missing
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `GEMINI_API_KEY`. No provider quota consumed.**
