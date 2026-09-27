@@ -713,3 +713,82 @@ redeploy the exact head and re-dispatch **O2 OCR Offline Hardening** with
 **Stage-4 disposition: PROVIDER CONFIGURATION HOLD — moderator hardening and exact-head CI green;
 authenticated Stage-4 not re-dispatched because the backend Preview environment is still missing
 `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `GEMINI_API_KEY`. No provider quota consumed.**
+
+---
+
+## MODERATOR CONTINUATION 5 — FINAL CERTIFIER TRUTH PATCH + PROVIDER READINESS HANDOFF
+
+The moderator materially accepted continuation 4 and, by independent inspection, closed three
+certification-truth defects before any live-provider execution. History above is preserved; this is
+an additive correction.
+
+### 1. Fresh moderator deployment evidence (validates the diagnostic patch)
+Current documentation-head backend deployment `dpl_HemBbEnbsKYGT1pxi3nVczEQDdXs`
+(branch `fix/o2-ocr-trade-os-convergence`, deployed SHA `f6058c9`) reports `/api/health` HTTP 200,
+`status=UP`, `supabase=healthy`, and the corrected startup diagnostic now truthfully prints:
+`OCR provider selected: cloudflare` · `OCR model selected: @cf/qwen/qwen3.8-27b` ·
+`OCR provider configured: false` · `OCR mock runtime allowed: false`. This independently confirms
+the continuation-4 startup-diagnostic patch.
+
+### 2. Certifier-truth defects closed (code candidate `bdf5842494a2330b2af90693424aff71861e0fc1`)
+* **Defect A — Identity classifier proof was too permissive.** The prior check
+  `if (idClassProvider && idClassProvider !== 'gemini') fail` let a **null** classifier provider pass
+  toward certification. Identity certification is now POSITIVE and EXACT: it requires
+  `classification_provider === 'gemini'` **and** the persisted classification ∈
+  {`valid_identity_document`, `likely_identity_document`} **and** `ocr_execution_status ===
+  provider_succeeded`. Missing classifier provenance can never certify.
+* **Defect B — model proof was too permissive.** The prior checks `if (model && model !== '@cf/qwen…')`
+  let a **null** model pass. All three journeys now require **exact equality**:
+  `provider === cloudflare` **and** `model === @cf/qwen/qwen3.8-27b` **and** `executionStatus ===
+  provider_succeeded`. Diaspora requires this at **both** persisted levels
+  (`extraction_provider` and `raw_response.{provider,model,executionStatus,success}`). A `null` model
+  is a failure.
+* **Defect C — Gemini provider errors could be misclassified.** `DocumentClassifier.classifyDocument()`
+  catches a provider error and persists `provider='gemini'`, `model=null`,
+  `reason='Classification provider error: …'` (quota / timeout / HTTP / refusal / transport). The
+  driver now reads the persisted classifier reasons (`verification_assessments.risk_flags.reasons`)
+  and classifies such genuine provider failures as **BLOCKED_PROVIDER**, while a genuine model
+  verdict (`unreadable` / `non_document` / document-`uncertain`) remains **FAILED_PRODUCT_JOURNEY`.
+  Sanitized classifier reasons are recorded in the receipt (no bytes, no secrets).
+* **Bounded policy module + tests.** The pure certification predicates were extracted to
+  `backend/scripts/o2-ocr-stage4-policy.mjs` (no product authority, no I/O) and covered by
+  `backend/tests/o2-ocr-stage4-policy.test.js` (23 behavioral cases: null/unavailable/provider-error/
+  document-verdict Identity; null/wrong-model Diaspora & Vehicle; strict 1/3·2/3·3/3 global rule).
+
+### 3. Cloudflare configuration language — corrected (evidence-bounded)
+The continuation-4 statement that the Preview is "missing `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN`" overstated the runtime evidence. The canonical `isConfigured()` requires
+**both** `CLOUDFLARE_ACCOUNT_ID` **and** `CLOUDFLARE_API_TOKEN`, and the historical error text is
+emitted whenever it is false; it does **not** distinguish account-absent vs token-absent vs both.
+The truthful current-state conclusion is:
+
+```
+Cloudflare provider selected: cloudflare
+Cloudflare provider configured: false
+Required pair:
+  CLOUDFLARE_ACCOUNT_ID
+  CLOUDFLARE_API_TOKEN
+Exact individual missing member(s):
+  not independently enumerated by current runtime evidence
+
+GEMINI_API_KEY:
+  verified absent on current Preview via /api/health ocrProviders.gemini=false
+  (health defines gemini as !!process.env.GEMINI_API_KEY)
+```
+
+This session has no authorized Vercel environment-metadata access, so individual Cloudflare key
+presence is not independently enumerated and is not claimed.
+
+### 4. Exact-head CI + hold
+New code candidate `bdf5842494a2330b2af90693424aff71861e0fc1`; push-triggered **O2 OCR Offline Hardening** run `36299768986` —
+`249`/`244`/`0`/`5` (totals not hardcoded). Grader-v2 run `36287013223` retained;
+corpus not rerun. Dealer remains **BLOCKED — PR #208 cross-lane** (not ported, not merged).
+`main`/production untouched. Because the Preview still reports `cloudflare configured=false` and
+`ocrProviders.gemini=false`, Stage-4 was **not** re-dispatched and **no provider quota was consumed**.
+
+**Owner handoff to lift the hold:** configure valid `GEMINI_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN` (with `CARUP_OCR_PROVIDER=cloudflare`, `ALLOW_OCR_MOCK=false`; `CARUP_OCR_MODEL`
+optional) in the backend Preview environment, **redeploy the exact code candidate**, then confirm
+`provider configured=true` + `/api/health ocrProviders.gemini=true` and dispatch **O2 OCR Offline
+Hardening** once with `deployed_expected_sha=bdf5842494a2330b2af90693424aff71861e0fc1` and `stage4_authenticated=true`. The certifier
+will require exact, positive 3/3 proof.
