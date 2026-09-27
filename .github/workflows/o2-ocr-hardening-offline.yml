@@ -48,6 +48,11 @@ on:
         description: 'If set on manual dispatch, also probe the exact-head deployed preview for this SHA (provenance + route gating). Leave blank to skip.'
         required: false
         default: ''
+      stage4_authenticated:
+        description: 'Set true to run the AUTHENTICATED deployed Stage-4 product journeys (Person Identity, Diaspora, Owner/Seller Vehicle) against the exact-head preview. Consumes bounded Cloudflare/Qwen provider calls. Requires deployed_expected_sha. Manual dispatch only.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -176,3 +181,71 @@ jobs:
           const legacy = out.route_gating.find(r=>r.path==='/ai/ocr');
           if (legacy && ![410,401,403].includes(legacy.status)){ console.error('Legacy /api/ai/ocr neither retired nor gated:', JSON.stringify(legacy)); process.exit(1); }
           NODE
+
+  # ── Authenticated deployed Stage-4 product journeys ─────────────────────────
+  # Manual-dispatch ONLY, with stage4_authenticated=true and a non-empty deployed_expected_sha. This
+  # is the SINGLE canonical Stage-4 execution authority (the standalone o2-ocr-stage4-staging-uat.yml
+  # was retired). It runs session-authenticated Person Identity, Diaspora and Owner/Seller Vehicle
+  # journeys against the exact-head Vercel preview with real Cloudflare/Qwen, proving OCR stays
+  # candidate-only. Never runs on push/pull_request/schedule/workflow_run.
+  stage4-authenticated-journeys:
+    name: OCR Stage-4 authenticated deployed journeys
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.stage4_authenticated == 'true' && github.event.inputs.deployed_expected_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Share the deployed-UAT preview lock; never cancel an in-flight certification.
+    concurrency:
+      group: staging-preview-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.deployed_expected_sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGE4_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      # Reviewer identity for the Diaspora reviewer run-ocr (existing approved staging account).
+      STAGING_UAT_REVIEWER_EMAIL: ${{ secrets.STAGING_UAT_REVIEWER_EMAIL }}
+      STAGING_UAT_REVIEWER_PASSWORD: ${{ secrets.STAGING_UAT_REVIEWER_PASSWORD }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Require staging operator secret (approved project only)
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; authenticated Stage-4 cannot provision isolated staging fixtures.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo '::error::Refusing Stage-4: database URL is not the approved carup-staging project.'; exit 1 ;;
+          esac
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const fe = (JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json','utf8')).branches||{})[branch];
+          const be = (JSON.parse(fs.readFileSync('web/preview-backend-pairing.json','utf8')).branches||{})[branch];
+          if (!fe || !be) { console.error(JSON.stringify({error:'preview pair not governed',branch})); process.exit(1); }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${fe}\nSTAGING_API_URL=${be.replace(/\/$/,'')}/api\n`);
+          console.log(JSON.stringify({branch, fe, be}));
+          NODE
+      - name: Install backend dependencies
+        run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
+      - name: Run authenticated Stage-4 deployed journeys
+        run: node backend/scripts/o2-ocr-stage4-staging-uat.mjs
+      - name: Upload sanitized Stage-4 certification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o2-ocr-stage4-${{ github.run_id }}
+          path: test-results/o2-ocr-stage4-*.json
+          retention-days: 14
+          if-no-files-found: warn
