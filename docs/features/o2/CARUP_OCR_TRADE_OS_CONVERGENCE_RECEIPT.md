@@ -1018,3 +1018,28 @@ Dealer — BLOCKED (PR #208, `e65c0bb…`); Garage/Mechanic — deferred; grader
 **PROVIDER CONFIGURATION HOLD** — the authenticated Stage-4 harness now fails before fixture creation
 or provider execution when readiness is incomplete; backend + Seller UI CI green; exact-head paired
 Preview healthy; `Cloudflare configured=false`, `Gemini present=false`. No provider quota consumed.
+
+---
+
+## MODERATOR CONTINUATION 9 — LIVE PROVIDER-CUTOVER RE-CHECK (HOLD SUSTAINED)
+
+Final live readiness re-check before any authenticated Stage-4 dispatch. No code change; no provider
+quota consumed.
+
+* **Network-only probe run `36307458067`** against the current deployed head
+  `c8c1415b4274f7269e7e50c729abf22db5d440d9`: `status=UP`, branch match, `supabase=healthy`;
+  frontend `unpaired=false` + exact SHA; routes fail closed (403).
+* **Live canonical readiness:** `health.ocr.selectedProvider=cloudflare`,
+  `selectedModel=@cf/qwen/qwen3.8-27b`, `configured=false`, `mockRuntimeAllowed=false`;
+  `health.ocrProviders.cloudflare=false`, `health.ocrProviders.gemini=false` → **not ready**.
+* **Missing readiness dimensions:** `Cloudflare configured=false` AND `Gemini present=false`.
+* **Action:** per the fail-before-side-effects rule, authenticated Stage-4 was **not** dispatched;
+  no synthetic users/vehicle/import-order created, no storage upload, no Gemini or Cloudflare call.
+
+**Disposition: PROVIDER CONFIGURATION HOLD.** All OCR 1.0 implementation and pre-UAT hardening
+remains green (backend `36306447794` 268/263/0/5; Seller UI 6/6; readiness preflight in place). The
+remaining action is environmental: the owner configures `GEMINI_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`,
+`CLOUDFLARE_API_TOKEN` in the `carup-backend-staging` Preview environment, redeploys the exact head,
+and re-checks readiness before the one authenticated Stage-4 certification. grader-v2 run
+`36287013223` retained; Dealer (PR #208) and Garage/Mechanic outside core UAT; main/production
+untouched.
