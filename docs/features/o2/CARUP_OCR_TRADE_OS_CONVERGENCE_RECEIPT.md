@@ -881,3 +881,80 @@ required; only when `health.ocr.configured=true` AND `health.ocrProviders.gemini
 **PROVIDER CONFIGURATION HOLD** — final authority-proof hardening complete and exact-head CI green;
 authenticated Stage-4 not re-dispatched because the backend Preview still reports
 `cloudflare configured=false` and `ocrProviders.gemini=false`. No provider quota consumed.
+
+---
+
+## MODERATOR CONTINUATION 7 — UAT READINESS CLOSURE
+
+Progressive continuation. Historical checkpoints preserved; this closes the last three UAT-readiness
+proof gaps before provider cutover.
+
+### 0. Starting lineage
+`main` `bb9d9900…` (frozen); Trade OS `577428d…` (T8/T12/T13 preserved); OCR branch head `2f3775c…`;
+Phase-A code candidate `45fa70c…` ancestor of HEAD; working tree clean.
+
+### 1. Finding A — orphan SafeTrade identifier → real synthetic import order
+The prior SafeTrade negative queried `diaspora_safetrade_transactions.import_order_id = orderUuid`
+where `orderUuid` had no owning `diaspora_import_orders` row — a SafeTrade row could not legitimately
+exist for it, so "0 before / 0 after" was structurally weak. **Correction:** the Stage-4 Diaspora
+journey now provisions one isolated synthetic `diaspora_import_orders` row (id = run uuid,
+buyer = synthetic owner, `status='DOCUMENTS_PENDING'`, `verification_status='PENDING_REVIEW'`) and
+creates the trade document through the real product endpoint with `import_order_id = orderUuid`
+(no competing subject). The driver asserts `diaspora_trade_documents.import_order_id == orderUuid`
+before OCR, so T8 document authority and T13 SafeTrade authority share **one real transaction**.
+
+### 2. Import-order authority unchanged by OCR
+The import order's authority projection (`status`, `verification_status`, `updated_at`) is captured
+before and after genuine OCR and required identical. OCR extraction must not transition
+`DOCUMENTS_PENDING → DOCUMENTS_VERIFIED` — that belongs to reviewer verification. `diaspora_certified`
+now requires `importOrderAuthorityUnchanged`.
+
+### 3. Finding B — authority-table absence now fails closed
+`vehicle_seller_authority` and `diaspora_safetrade_transactions` (and the real import order) must be
+**present** to certify. A missing ledger is "certification evidence unavailable", never "authority
+preserved". The pure policy now requires `sellerAuthorityLedgerPresent` (vehicle),
+`safeTradeLedgerPresent` + `realImportOrderPresent` (diaspora); the driver dies with a precise
+schema/infrastructure blocker if any is absent. The certifier distinguishes *table exists + zero
+rows* from *table missing*.
+
+### 4. Finding C — Seller UI capability truth is now exact-head CI
+`web/src/components/sell/SellerDocumentAutofillNotice.test.tsx` is now executed by a dedicated
+GitHub-Actions job (`Seller OCR capability UI`) in **O2 OCR Offline Hardening** — the bounded suite
+only (`npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx`),
+credential-free, no provider call. Local-only Vitest is no longer the sole evidence.
+
+### 5. Pure policy + tests
+`o2-ocr-stage4-policy.mjs` extended: `diasporaCertifiable` now also requires `realImportOrderPresent`,
+`safeTradeLedgerPresent`, `importOrderAuthorityUnchanged`; `vehicleCertifiable` also requires
+`sellerAuthorityLedgerPresent`. `o2-ocr-stage4-policy.test.js` extended (33 cases) incl. ledger-missing
+→ NOT certifiable (both journeys), real-order-missing → NOT certifiable, import-order-status-changed →
+NOT certifiable. Strict 3/3 preserved.
+
+### 6. Exact-head CI
+New code candidate `1a27adc98025af0391b0ef8419234644b6c89e51`.
+* Backend OCR/authority gate — **O2 OCR Offline Hardening** run `36304353880`, job "Offline OCR
+  regression": `260`/`255`/`0`/`5`.
+* Seller capability UI gate — job "Seller OCR capability UI" run `36304353880`:
+  `SellerDocumentAutofillNotice.test.tsx` = **6 passed / 0 fail**.
+
+### 7. Deployment + provider readiness (network-only, no provider spend)
+Probe run `<PROBE_RUN>` (deployed head `<DEPLOYED_SHA>`): frontend `unpaired=false` + SHA;
+backend UP + SHA + branch + `supabase=healthy`; routes fail closed. Canonical readiness:
+`health.ocr.selectedProvider=cloudflare`, `selectedModel=@cf/qwen/qwen3.8-27b`, `configured=<CONFIGURED>`,
+`mockRuntimeAllowed=false`; `health.ocrProviders.gemini=<GEMINI>`, `cloudflare=<CFCONF>`.
+
+### 8. Provider configuration handoff (owner action)
+`carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`) **Preview** needs valid `GEMINI_API_KEY`,
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (with `CARUP_OCR_PROVIDER=cloudflare`,
+`ALLOW_OCR_MOCK=false`; `CARUP_OCR_MODEL` unset). Then redeploy the exact head and confirm
+`health.ocr.configured=true`, `health.ocrProviders.cloudflare=true`, `gemini=true` before dispatching
+authenticated Stage-4 once.
+
+### 9. Preserved dispositions
+Dealer — BLOCKED (PR #208, `e65c0bb…`); Garage/Mechanic — deferred; grader-v2 `36287013223` retained;
+`main`/production untouched. "OCR 1.0 CORE" = Person Identity + Diaspora + Owner/Seller Vehicle only.
+
+### 10. Disposition
+**PROVIDER CONFIGURATION HOLD** — UAT-readiness hardening complete, backend + Seller UI CI green,
+paired deployment healthy; authenticated Stage-4 not dispatched (Preview `configured=<CONFIGURED>`,
+`gemini=<GEMINI>`). No provider quota consumed.
