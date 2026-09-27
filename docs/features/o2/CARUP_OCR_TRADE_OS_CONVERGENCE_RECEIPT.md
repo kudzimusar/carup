@@ -938,10 +938,10 @@ New code candidate `1a27adc98025af0391b0ef8419234644b6c89e51`.
   `SellerDocumentAutofillNotice.test.tsx` = **6 passed / 0 fail**.
 
 ### 7. Deployment + provider readiness (network-only, no provider spend)
-Probe run `<PROBE_RUN>` (deployed head `<DEPLOYED_SHA>`): frontend `unpaired=false` + SHA;
+Probe run `36304439910` (deployed head `f935958edec3a326c6a8383b3966102fc11d74b0`): frontend `unpaired=false` + SHA;
 backend UP + SHA + branch + `supabase=healthy`; routes fail closed. Canonical readiness:
-`health.ocr.selectedProvider=cloudflare`, `selectedModel=@cf/qwen/qwen3.8-27b`, `configured=<CONFIGURED>`,
-`mockRuntimeAllowed=false`; `health.ocrProviders.gemini=<GEMINI>`, `cloudflare=<CFCONF>`.
+`health.ocr.selectedProvider=cloudflare`, `selectedModel=@cf/qwen/qwen3.8-27b`, `configured=false`,
+`mockRuntimeAllowed=false`; `health.ocrProviders.gemini=false`, `cloudflare=false`.
 
 ### 8. Provider configuration handoff (owner action)
 `carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`) **Preview** needs valid `GEMINI_API_KEY`,
@@ -956,5 +956,5 @@ Dealer — BLOCKED (PR #208, `e65c0bb…`); Garage/Mechanic — deferred; grader
 
 ### 10. Disposition
 **PROVIDER CONFIGURATION HOLD** — UAT-readiness hardening complete, backend + Seller UI CI green,
-paired deployment healthy; authenticated Stage-4 not dispatched (Preview `configured=<CONFIGURED>`,
-`gemini=<GEMINI>`). No provider quota consumed.
+paired deployment healthy; authenticated Stage-4 not dispatched (Preview `configured=false`,
+`gemini=false`). No provider quota consumed.
