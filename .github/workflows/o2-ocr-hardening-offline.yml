@@ -176,7 +176,10 @@ jobs:
           node --input-type=module <<'NODE'
           const api = process.env.STAGING_API_URL; const out = {};
           try { const h = await (await fetch(`${api}/health`,{cache:'no-store'})).json();
-            out.health = { status:h.status, commit_sha:h.build?.commit_sha, branch:h.build?.branch, environment:h.environment, supabase:h.supabase?.status, ocr_provider:h.ocr?.provider||h.providers?.ocr||h.build?.ocr_provider||'not_exposed_by_health' };
+            // Canonical OCR readiness (continuation 6): read the authoritative health.ocr projection
+            // and ocrProviders.gemini so the readiness gate no longer depends on log interpretation.
+            out.health = { status:h.status, commit_sha:h.build?.commit_sha, branch:h.build?.branch, environment:h.environment, supabase:h.supabase?.status,
+              ocr: h.ocr || 'not_exposed_by_health', ocrProviders_gemini: h.ocrProviders?.gemini, ocrProviders_cloudflare: h.ocrProviders?.cloudflare };
           } catch(e){ out.health_error = e.message; }
           async function probe(method, path, body){ try { const res = await fetch(`${api}${path}`,{method,cache:'no-store',headers:body?{'content-type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined}); let code; try{code=(await res.json())?.code;}catch{} return {path,method,status:res.status,code}; } catch(e){ return {path,method,error:e.message}; } }
           out.route_gating = [
