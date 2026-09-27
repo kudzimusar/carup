@@ -126,6 +126,28 @@ async function safeTradeSnapshot(client, orderUuid) {
   )).rows[0].c;
   return { present: true, total, release_authorized: rel };
 }
+/** Provision one isolated synthetic import order so the T8 document + T13 SafeTrade share a REAL owning transaction (staging fixture custody only). */
+async function insertImportOrder(client, orderUuid, buyerId) {
+  if (!(await tableExists(client, 'diaspora_import_orders'))) return { present: false };
+  await client.query(
+    `insert into public.diaspora_import_orders (id, buyer_id, order_type, origin_country, destination_country, status, verification_status, created_by, updated_by)
+     values ($1,$2,'vehicle','Japan','Zimbabwe','DOCUMENTS_PENDING','PENDING_REVIEW',$2,$2)
+     on conflict (id) do nothing`,
+    [orderUuid, buyerId],
+  );
+  const row = (await client.query('select id, status, verification_status, updated_at from public.diaspora_import_orders where id=$1', [orderUuid])).rows[0] || null;
+  return { present: Boolean(row), row };
+}
+/** Import-order authority projection — OCR extraction must not transition it (reviewer verify owns that). */
+async function importOrderSnapshot(client, orderUuid) {
+  if (!(await tableExists(client, 'diaspora_import_orders'))) return { present: false, row: null };
+  const row = (await client.query('select id, status, verification_status, updated_at from public.diaspora_import_orders where id=$1', [orderUuid])).rows[0] || null;
+  return { present: Boolean(row), row };
+}
+function importOrderFingerprint(snap) {
+  const r = snap?.row;
+  return r ? JSON.stringify({ id: r.id, status: r.status, verification_status: r.verification_status, updated_at: r.updated_at }) : 'ABSENT';
+}
 /** Stable comparable projection of a seller-authority snapshot (order-independent). */
 function sellerAuthorityFingerprint(snap) {
   return JSON.stringify((snap?.rows || []).map((r) => ({
@@ -346,15 +368,27 @@ class Client {
   // ── JOURNEY 2: DIASPORA — runs only after Identity reaches genuine OCR ────────
   if (identityReachedGenuineOcr && !receipt.provider_blocked) {
     const customsEvidence = await uploadEvidence(vin, FIXTURES.customs, 'import', 'customs_entry');
-    const subjectId = `trade_${crypto.randomUUID()}`;
-    // Run-scoped SafeTrade (T13) order id for the independent payment/release negative proof.
-    const orderUuid = subjectId.replace(/^trade_/, '');
-    const createDoc = await reviewer.raw('POST', '/diaspora/documents', { body: { document_type: 'customs_declaration', subject_type: 'trade_order', subject_id: subjectId, storage_path: customsEvidence.file_path } });
+    // Real synthetic import order — the T8 document and T13 SafeTrade share ONE actual owning
+    // transaction, so a "0 SafeTrade before/after" is meaningful (the FK target genuinely exists).
+    const orderUuid = crypto.randomUUID();
+    const orderProvision = await withDb((client) => insertImportOrder(client, orderUuid, ownerId));
+    const realImportOrderPresent = orderProvision.present === true;
+    // Fail closed: the canonical import-order + SafeTrade ledgers must be PRESENT to certify.
+    const safeTradeLedgerPresent = await withDb(async (client) => tableExists(client, 'diaspora_safetrade_transactions'));
+    receipt.diaspora.import_order = { id: orderUuid, present: realImportOrderPresent, initial: orderProvision.row || null, safetrade_ledger_present: safeTradeLedgerPresent };
+    if (!realImportOrderPresent) die('could not provision the synthetic diaspora_import_orders row (table absent or insert failed) — cannot certify Diaspora authority chain', receipt.diaspora.import_order);
+    // Import-order authority BEFORE genuine OCR.
+    const importOrderBefore = orderProvision;
+    // Bind the document to the REAL import order (no competing subject).
+    const createDoc = await reviewer.raw('POST', '/diaspora/documents', { body: { document_type: 'customs_declaration', import_order_id: orderUuid, storage_path: customsEvidence.file_path } });
     if (createDoc.status !== 201 || !createDoc.json?.id) die('diaspora document create failed', { status: createDoc.status, body: createDoc.json });
     const docId = createDoc.json.id;
     receipt.diaspora.document_id = docId;
     receipt.diaspora.initial_status = createDoc.json.verification_status;
-    // Independent SafeTrade authority BEFORE genuine OCR.
+    // The document must be bound to the real order before OCR.
+    const boundOrderId = await withDb(async (client) => (await client.query('select import_order_id from public.diaspora_trade_documents where id=$1', [docId])).rows[0]?.import_order_id);
+    if (String(boundOrderId) !== String(orderUuid)) die('diaspora document not bound to the real import order', { boundOrderId, orderUuid });
+    // Independent SafeTrade authority BEFORE genuine OCR (real owning order now exists).
     const safeTradeBefore = await withDb((client) => safeTradeSnapshot(client, orderUuid));
 
     // Forged client-authored extraction must be retired (410) and write NOTHING.
@@ -378,22 +412,31 @@ class Client {
       const extCount = await countRows(client, 'diaspora_trade_document_extractions', 'trade_document_id', docId);
       const ver = await countRows(client, 'diaspora_trade_document_verifications', 'trade_document_id', docId);
       const safeTrade = await safeTradeSnapshot(client, orderUuid);
-      return { doc, ext, extCount, ver, safeTrade };
+      const importOrder = await importOrderSnapshot(client, orderUuid);
+      return { doc, ext, extCount, ver, safeTrade, importOrder };
     });
     const draw = diaState.ext?.raw_response || {};
     // Independent SafeTrade (T13) negative proof: OCR created/advanced no payment/release authority.
     const safeTradeAfter = diaState.safeTrade;
-    const safeTradeAuthorityUnchanged = safeTradeBefore.total === safeTradeAfter.total
+    const safeTradeAuthorityUnchanged = safeTradeBefore.present && safeTradeAfter.present
+      && safeTradeBefore.total === safeTradeAfter.total
       && safeTradeBefore.release_authorized === safeTradeAfter.release_authorized;
+    // Independent import-order authority negative: OCR extraction must not transition the order.
+    const importOrderAuthorityUnchanged = importOrderBefore.present && diaState.importOrder.present
+      && importOrderFingerprint(importOrderBefore) === importOrderFingerprint(diaState.importOrder);
     receipt.diaspora.safetrade = {
-      order_uuid: orderUuid,
+      order_uuid: orderUuid, ledger_present: safeTradeAfter.present,
       transactions_before: safeTradeBefore.total, transactions_after: safeTradeAfter.total,
       release_authorized_before: safeTradeBefore.release_authorized, release_authorized_after: safeTradeAfter.release_authorized,
       unchanged: safeTradeAuthorityUnchanged,
     };
-    // OCR must create no SafeTrade transaction for this run and no release-authorized state.
+    receipt.diaspora.import_order_authority = {
+      before: importOrderBefore.row || null, after: diaState.importOrder.row || null, unchanged: importOrderAuthorityUnchanged,
+    };
+    // OCR must create no SafeTrade transaction / release state, and must not transition the order.
     if (safeTradeAfter.total !== safeTradeBefore.total) die('OCR changed SafeTrade transaction count', receipt.diaspora.safetrade);
     if (safeTradeAfter.release_authorized !== safeTradeBefore.release_authorized) die('OCR changed SafeTrade release-authorized state', receipt.diaspora.safetrade);
+    if (!importOrderAuthorityUnchanged) die('OCR changed the import-order authority state', receipt.diaspora.import_order_authority);
     receipt.diaspora.genuine = {
       run_status: runDia.status, document_status: diaState.doc?.verification_status, extraction_provider: diaState.ext?.extraction_provider,
       raw_provider: draw.provider, raw_model: draw.model, raw_execution: draw.executionStatus, raw_success: draw.success,
@@ -406,6 +449,8 @@ class Client {
       extractionProvider: diaState.ext?.extraction_provider,
       rawProvider: draw.provider, rawModel: draw.model, rawExecutionStatus: draw.executionStatus, rawSuccess: draw.success,
       verificationCount: diaState.ver.count, safeTradeAuthorityUnchanged,
+      // Fail-closed presence + real-order + import-order-authority requirements (continuation 7).
+      safeTradeLedgerPresent, realImportOrderPresent, importOrderAuthorityUnchanged,
       error: runDia.json?.error || runDia.json?.message || runDia.text, rawError: draw.error,
     };
     if (diasporaCertifiable(diaPolicyInput)) {
@@ -449,8 +494,12 @@ class Client {
       total_candidates: (await client.query(`select count(*)::int c from public.vehicle_document_extractions where evidence_id=$1`, [regEvidence.id])).rows[0]?.c ?? 0,
       evidence_status: (await client.query('select verification_status from public.vehicle_evidence where id=$1', [regEvidence.id])).rows[0]?.verification_status,
     }));
+    // Fail closed: the canonical Seller Authority ledger must be PRESENT to certify (absence is
+    // "certification evidence unavailable", not "authority preserved").
+    const sellerAuthorityLedgerPresent = before.sellerAuthority.present === true && after.sellerAuthority.present === true;
     // Independent canonical Seller Authority ledger negative — before == after (fingerprint + count).
-    const sellerAuthorityUnchanged = before.sellerAuthority.count === after.sellerAuthority.count
+    const sellerAuthorityUnchanged = sellerAuthorityLedgerPresent
+      && before.sellerAuthority.count === after.sellerAuthority.count
       && sellerAuthorityFingerprint(before.sellerAuthority) === sellerAuthorityFingerprint(after.sellerAuthority);
     receipt.vehicle = {
       vin, evidence_id: regEvidence.id, evidence_class: 'registration', evidence_subtype: 'registration_book',
@@ -458,12 +507,14 @@ class Client {
       document_type: vres.document_type, candidates_persisted: vres.candidates_persisted, pending_review_count: vres.pending_review_count, authority_effects: vres.authority_effects,
       before: before.vehicle, after: after.vehicle, pending_candidate_rows: after.pending, total_candidate_rows: after.total_candidates, evidence_status_after: after.evidence_status,
       seller_authority: {
+        ledger_present: sellerAuthorityLedgerPresent,
         rows_before: before.sellerAuthority.count ?? 0, rows_after: after.sellerAuthority.count ?? 0,
         statuses_before: (before.sellerAuthority.rows || []).map((r) => r.status),
         statuses_after: (after.sellerAuthority.rows || []).map((r) => r.status),
         unchanged: sellerAuthorityUnchanged,
       },
     };
+    if (!sellerAuthorityLedgerPresent) die('vehicle_seller_authority ledger absent — certification evidence unavailable (fail closed)', receipt.vehicle.seller_authority);
     // Canonical vehicle authority columns must be unchanged whether OCR succeeded or failed (§11).
     const authorityUnchanged = snapCols.every((col) => !(col in (before.vehicle || {})) || String(before.vehicle[col]) === String(after.vehicle[col]));
     for (const col of snapCols) if (col in (before.vehicle || {}) && String(before.vehicle[col]) !== String(after.vehicle[col])) die(`vehicle authority column ${col} changed after OCR`, { before: before.vehicle[col], after: after.vehicle[col] });
@@ -475,7 +526,8 @@ class Client {
     const vehPolicyInput = {
       success: vres.success, provider: vres.provider, model: vres.model, executionStatus: vres.execution_status,
       candidatesPersisted: vres.candidates_persisted, pendingReviewCount: after.pending,
-      authorityEffectsAllFalse, evidenceStatusAfter: after.evidence_status, authorityUnchanged, sellerAuthorityUnchanged,
+      authorityEffectsAllFalse, evidenceStatusAfter: after.evidence_status, authorityUnchanged,
+      sellerAuthorityLedgerPresent, sellerAuthorityUnchanged,
       error: runVeh.json?.error || runVeh.json?.message || runVeh.text,
     };
     if (vehicleCertifiable(vehPolicyInput)) {

@@ -46,6 +46,11 @@ on:
       # Stage-4 certification policy (pure predicates) + its behavioral regression.
       - 'backend/scripts/o2-ocr-stage4-policy.mjs'
       - 'backend/tests/o2-ocr-stage4-policy.test.js'
+      # Seller OCR capability-truth UI + its vitest suite (exact-head CI, not local-only).
+      - 'web/src/components/sell/SellerDocumentAutofillNotice.tsx'
+      - 'web/src/components/sell/SellerDocumentAutofillNotice.test.tsx'
+      - 'web/vite.config.ts'
+      - 'web/package.json'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -116,6 +121,27 @@ jobs:
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
             backend/tests/diaspora-ocr-route.test.js
+
+  # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
+  # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
+  # GitHub-Actions evidence on the same candidate lineage, not a local-only pass. Credential-free,
+  # no provider call. Only the one suite runs — not the full browser QA suite.
+  seller-ui-capability:
+    name: Seller OCR capability UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run Seller OCR capability suite (bounded)
+        run: npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx
 
   # ── Deployed exact-head provenance + route-gating probe ─────────────────────
   # Runs ONLY on manual dispatch with a non-empty deployed_expected_sha input, so push runs stay

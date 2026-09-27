@@ -68,7 +68,7 @@ test('Identity: OCR provider_failed → BLOCKED_PROVIDER', () => {
 const diaBase = {
   runStatus: 201, documentStatus: 'OCR_EXTRACTED', extractionProvider: 'cloudflare',
   rawProvider: 'cloudflare', rawModel: CERTIFIED_MODEL, rawExecutionStatus: 'provider_succeeded', rawSuccess: true, verificationCount: 0,
-  safeTradeAuthorityUnchanged: true,
+  safeTradeAuthorityUnchanged: true, realImportOrderPresent: true, safeTradeLedgerPresent: true, importOrderAuthorityUnchanged: true,
 };
 
 test('Diaspora: exact cloudflare/Qwen/provider_succeeded HTTP 201 → certifiable', () => {
@@ -90,7 +90,7 @@ test('Diaspora: non-201 → NOT certified', () => {
 const vehBase = {
   success: true, provider: 'cloudflare', model: CERTIFIED_MODEL, executionStatus: 'provider_succeeded',
   candidatesPersisted: 3, pendingReviewCount: 3, authorityEffectsAllFalse: true, evidenceStatusAfter: 'pending', authorityUnchanged: true,
-  sellerAuthorityUnchanged: true,
+  sellerAuthorityUnchanged: true, sellerAuthorityLedgerPresent: true,
 };
 
 test('Vehicle: exact provenance + candidates + pending + zero authority effect → certifiable', () => {
@@ -123,6 +123,26 @@ test('Diaspora: exact OCR proof + safeTradeAuthorityUnchanged=false → NOT CERT
 });
 test('Diaspora: exact OCR proof + safeTradeAuthorityUnchanged=true → eligible', () => {
   assert.equal(diasporaCertifiable({ ...diaBase, safeTradeAuthorityUnchanged: true }), true);
+});
+
+// ── Fail-closed ledger presence (continuation 7) ──────────────────────────────
+test('Vehicle: Seller Authority ledger MISSING → NOT certifiable (evidence unavailable, not preserved)', () => {
+  assert.equal(vehicleCertifiable({ ...vehBase, sellerAuthorityLedgerPresent: false }), false);
+});
+test('Vehicle: Seller Authority ledger present + unchanged → eligible', () => {
+  assert.equal(vehicleCertifiable({ ...vehBase, sellerAuthorityLedgerPresent: true, sellerAuthorityUnchanged: true }), true);
+});
+test('Diaspora: SafeTrade ledger MISSING → NOT certifiable', () => {
+  assert.equal(diasporaCertifiable({ ...diaBase, safeTradeLedgerPresent: false }), false);
+});
+test('Diaspora: SafeTrade present but real import order MISSING → NOT certifiable', () => {
+  assert.equal(diasporaCertifiable({ ...diaBase, realImportOrderPresent: false }), false);
+});
+test('Diaspora: real import order + SafeTrade present + unchanged → eligible', () => {
+  assert.equal(diasporaCertifiable({ ...diaBase, realImportOrderPresent: true, safeTradeLedgerPresent: true, importOrderAuthorityUnchanged: true }), true);
+});
+test('Diaspora: import order status changed by OCR → NOT certifiable', () => {
+  assert.equal(diasporaCertifiable({ ...diaBase, importOrderAuthorityUnchanged: false }), false);
 });
 
 test('Global: fewer than 3/3 is never CERTIFIED', () => {
