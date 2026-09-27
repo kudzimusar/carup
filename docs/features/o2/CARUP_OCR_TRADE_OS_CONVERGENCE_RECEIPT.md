@@ -958,3 +958,63 @@ Dealer — BLOCKED (PR #208, `e65c0bb…`); Garage/Mechanic — deferred; grader
 **PROVIDER CONFIGURATION HOLD** — UAT-readiness hardening complete, backend + Seller UI CI green,
 paired deployment healthy; authenticated Stage-4 not dispatched (Preview `configured=false`,
 `gemini=false`). No provider quota consumed.
+
+---
+
+## MODERATOR CONTINUATION 8 — PROVIDER CUTOVER PREFLIGHT (FAIL BEFORE SIDE EFFECTS)
+
+Final pre-UAT harness gate. Historical checkpoints preserved.
+
+### 0. Starting lineage
+`main` `bb9d9900…` (frozen); Trade OS `577428d…` (T8/T12/T13 preserved); OCR branch head `3bf1ec0…`;
+Continuation-7 runtime candidate `1a27adc…` ancestor of HEAD; working tree clean.
+
+### 1. Fail-before-side-effects provider-readiness preflight
+The Stage-4 driver now evaluates a **positive, exact** provider-readiness gate immediately after the
+exact-head health/provenance check and **before any fixture creation, storage upload or provider
+call**. Readiness (pure `stage4ProviderReadiness(health)` in `o2-ocr-stage4-policy.mjs`) is true ONLY
+when `health.ocr.selectedProvider==='cloudflare'`, `selectedModel==='@cf/qwen/qwen3.8-27b'`,
+`configured===true`, `mockRuntimeAllowed===false`, `ocrProviders.cloudflare===true` AND
+`ocrProviders.gemini===true`. If not ready, the driver writes a sanitized artifact and terminates
+with **`PROVIDER_CONFIGURATION_HOLD`** (exit 4) — no users, no vehicle, no verification session, no
+uploads, no Gemini call, no Cloudflare call. `provider_readiness` (non-secret) is recorded in the
+receipt. A careless manual dispatch during the hold can therefore no longer begin a run that cannot
+succeed.
+
+### 2. Pure readiness policy tests
+`o2-ocr-stage4-policy.test.js` extended (**41 cases**): `configured=false` → not ready; Cloudflare
+configured but Gemini absent → not ready; wrong selected provider → not ready; wrong selected model →
+not ready; `mockRuntimeAllowed=true` → not ready; Cloudflare credential absent → not ready; missing
+`health.ocr` → not ready; exact Cloudflare/Qwen + configured + Gemini + mock false → ready.
+
+### 3. Exact-head CI
+Final pre-provider candidate **`878d75a727906477bc6dc1b83e7bf7b034d938b1`**.
+* Backend OCR/authority gate — run `36306447794`, job "Offline OCR regression":
+  **268 tests / 263 pass / 0 fail / 5 skip**.
+* Seller capability UI gate — job "Seller OCR capability UI": `SellerDocumentAutofillNotice.test.tsx`
+  **6 passed / 0 fail**.
+
+### 4. Deployment + readiness (network-only probe run `36306527958`, deployed head `878d75a`)
+Frontend `unpaired=false` + SHA; backend UP + SHA + branch + `supabase=healthy`; routes fail closed
+(403). Canonical readiness: `health.ocr.selectedProvider=cloudflare`,
+`selectedModel=@cf/qwen/qwen3.8-27b`, `configured=false`, `mockRuntimeAllowed=false`;
+`health.ocrProviders.cloudflare=false`, `gemini=false` → **not ready**.
+
+### 5. Owner configuration handoff (unchanged)
+`carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`) **Preview** needs valid `GEMINI_API_KEY`,
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (`CARUP_OCR_PROVIDER=cloudflare`,
+`ALLOW_OCR_MOCK=false`; `CARUP_OCR_MODEL` unset). Redeploy the exact candidate lineage, prove
+`health.ocr.configured=true` + `ocrProviders.cloudflare=true` + `gemini=true` via the network-only
+probe, then dispatch **O2 OCR Offline Hardening** ONCE with `deployed_expected_sha=<deployed head>`
+and `stage4_authenticated=true`. On a genuine 3/3 certification, **freeze the branch on the certified
+SHA** (no further commits, not even docs) before owner UAT, and use the GitHub Actions run as the
+certification receipt.
+
+### 6. Preserved dispositions
+Dealer — BLOCKED (PR #208, `e65c0bb…`); Garage/Mechanic — deferred; grader-v2 `36287013223` retained;
+`main`/production untouched. "OCR 1.0 CORE" = Person Identity + Diaspora + Owner/Seller Vehicle only.
+
+### 7. Disposition
+**PROVIDER CONFIGURATION HOLD** — the authenticated Stage-4 harness now fails before fixture creation
+or provider execution when readiness is incomplete; backend + Seller UI CI green; exact-head paired
+Preview healthy; `Cloudflare configured=false`, `Gemini present=false`. No provider quota consumed.
