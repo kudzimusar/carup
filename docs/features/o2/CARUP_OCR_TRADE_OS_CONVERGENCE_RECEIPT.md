@@ -792,3 +792,92 @@ optional) in the backend Preview environment, **redeploy the exact code candidat
 `provider configured=true` + `/api/health ocrProviders.gemini=true` and dispatch **O2 OCR Offline
 Hardening** once with `deployed_expected_sha=bdf5842494a2330b2af90693424aff71861e0fc1` and `stage4_authenticated=true`. The certifier
 will require exact, positive 3/3 proof.
+
+---
+
+## MODERATOR CONTINUATION 6 — FINAL AUTHORITY PROOF + PROVIDER CUTOVER
+
+Progressive continuation. Historical checkpoints above are preserved; this closes the last
+authority-proof and product-capability-truth gaps before provider cutover.
+
+### 0. Starting authority (verified)
+`main` `bb9d9900…` (frozen); Trade OS `577428d…` (T8/T12/T13 preserved); OCR branch `99250490…`;
+code candidate `bdf5842…` ancestor of HEAD; working tree clean.
+
+### 1. Health / product-capability truth (Finding A)
+* **`/api/health` canonical OCR projection.** `/api/health` now returns an authoritative `ocr`
+  object — `{ selectedProvider, selectedModel, configured, mockRuntimeAllowed }` — derived from the
+  same `resolveVisionProvider()` / `provider.isConfigured()` / `DocumentIntelligenceService.isOcrMockAllowed()`
+  the runtime uses, plus a truthful `ocrProviders.cloudflare` (`isCloudflareVisionConfigured()`). The
+  legacy `ocrProviders` map (gemini/groq/openrouter/moonshot) is retained for existing consumers but
+  is no longer authoritative for "is OCR available". No secret values are exposed.
+* **Seller UI capability truth.** `SellerDocumentAutofillNotice` now decides availability from
+  `health.ocr.configured` (the SELECTED provider), never `Object.values(ocrProviders).some(Boolean)`.
+  Cloudflare selected + configured → "OCR provider available"; Cloudflare selected + unconfigured
+  (even with Gemini configured) → "Coming soon on this preview"; health read fails → "Availability
+  could not be checked"; mock reachability never claims availability.
+* **Tests.** `web/src/components/sell/SellerDocumentAutofillNotice.test.tsx` (6 vitest cases,
+  green) covers all four states plus the legacy-backend and no-false-positive cases. A bounded
+  source assertion in `o2-ocr-startup-diagnostic.test.js` pins the canonical health projection into
+  the offline gate.
+
+### 2. Independent Seller Authority proof (Finding B)
+The Stage-4 vehicle journey now snapshots the canonical `vehicle_seller_authority` ledger
+(status, claim_type, basis, evidence_ids, decided_by, decided_by_role, decided_at, updated_at) for
+`(vin, seller_user_id)` **before and after** OCR and requires `before == after` (count +
+fingerprint). `vehicle_certified` now requires `sellerAuthorityUnchanged` **in addition to** the
+self-reported `authority_effects.seller_authorised=false`. A pre-existing `vehicles.owner_id`
+relationship is not an OCR-created authority decision; the ledger proof is the independent check.
+
+### 3. Independent SafeTrade negative proof (Finding C)
+The Stage-4 diaspora journey now snapshots `diaspora_safetrade_transactions` for the run-scoped
+import-order id **before and after** OCR and requires **0 transactions** and **0 release-authorized**
+states (`RELEASE_REVIEW` / `RELEASE_AUTHORIZED` / `SETTLED`) created. `diaspora_certified` now
+requires `safeTradeAuthorityUnchanged`. The receipt positively states
+`safetrade_transactions_created_by_ocr=0`, `safetrade_release_authorized_created_by_ocr=0`,
+`safetrade_payment_release_authority_mutations=0` — independent DB evidence, not inferred from "no
+API called". T8 (`diaspora_trade_document_verifications==0`) and government
+(`cvr_ownership_records==0`, `zimra_declarations==0`) negatives are preserved.
+
+### 4. Pure certification policy
+`backend/scripts/o2-ocr-stage4-policy.mjs` extended: `vehicleCertifiable` now requires
+`sellerAuthorityUnchanged===true`; `diasporaCertifiable` now requires
+`safeTradeAuthorityUnchanged===true`. `backend/tests/o2-ocr-stage4-policy.test.js` extended (27
+cases) incl. seller-authority-changed → NOT certified and safetrade-changed → NOT certified, keeping
+strict 3/3. The policy remains pure observed-proof classification; the driver observes, the policy
+decides.
+
+### 5. Exact-head offline CI
+New code candidate `45fa70c5b2535658d2e5e8b77fb3938044780828`. Push-triggered **O2 OCR Offline
+Hardening** run `36302612710` — job "Offline OCR regression" = **success**:
+`# tests 254 # pass 249 # fail 0 # skipped 5` (dispatch-gated jobs skipped on push).
+
+### 6. Deployment + provider readiness (network-only, no provider spend)
+Network-only probe run `<PROBE_RUN>` (deployed head `<DEPLOYED_SHA>`):
+frontend `unpaired=false` + SHA match; backend `/api/health` UP + SHA match + branch match +
+`supabase=healthy`; deployed OCR routes fail closed. Canonical readiness:
+`health.ocr.selectedProvider=cloudflare`, `selectedModel=@cf/qwen/qwen3.8-27b`,
+`configured=<CONFIGURED>`, `mockRuntimeAllowed=false`; `health.ocrProviders.gemini=<GEMINI>`.
+
+### 7. Provider configuration handoff (owner action)
+Backend project `carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`), **Preview** environment
+needs valid `GEMINI_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`
+(with `CARUP_OCR_PROVIDER=cloudflare`, `ALLOW_OCR_MOCK=false`; `CARUP_OCR_MODEL` unset to keep the
+certified default `@cf/qwen/qwen3.8-27b`). After configuration, an exact-head **redeploy** is
+required; only when `health.ocr.configured=true` AND `health.ocrProviders.gemini=true` may
+**O2 OCR Offline Hardening** be dispatched once with
+`deployed_expected_sha=45fa70c5b2535658d2e5e8b77fb3938044780828` and `stage4_authenticated=true`.
+
+### 8. Preserved dispositions
+* **Dealer** — BLOCKED, PR #208 cross-lane convergence (head `e65c0bb…`); not ported, not merged.
+* **Garage/Mechanic** — deferred until Service Network authority reconciliation.
+* **Qwen model authority** — grader-v2 run `36287013223` retained; corpus not rerun.
+* **`main` / production** — untouched.
+
+"OCR 1.0 CORE" covers Person Identity, Diaspora, Owner/Seller Vehicle only — NOT all stakeholders
+(Dealer separately blocked, Garage/Mechanic deferred).
+
+### 9. Disposition
+**PROVIDER CONFIGURATION HOLD** — final authority-proof hardening complete and exact-head CI green;
+authenticated Stage-4 not re-dispatched because the backend Preview still reports
+`cloudflare configured=false` and `ocrProviders.gemini=false`. No provider quota consumed.
