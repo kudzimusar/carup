@@ -427,11 +427,27 @@ if (connectionError) {
   console.error('Please apply the schema at: database/migrations/supabase_schema.sql');
 } else {
   console.log('✅ CarUp OS connected to Supabase');
-  console.log(`✅ OCR provider initialized: ${process.env.OCR_PRIMARY_PROVIDER === 'gemini' ? 'Gemini' : 'None'}`);
-  console.log(`✅ OCR fallback provider initialized: ${process.env.OCR_FALLBACK_PROVIDER === 'groq' ? 'Groq' : 'None'}`);
-  console.log(`${process.env.OCR_MODE === 'strict' ? '✅ Strict OCR mode enabled' : '⚠️ Loose OCR mode enabled'}`);
-  console.log(`${process.env.ALLOW_OCR_MOCK === 'false' ? '❌ Mock OCR disabled' : '⚠️ Mock OCR enabled'}`);
-  
+  // OCR startup diagnostic — describes the ACTUAL current Document Intelligence provider boundary
+  // (CARUP_OCR_PROVIDER / CARUP_OCR_MODEL, resolveVisionProvider(), isOcrMockAllowed()), NOT the
+  // retired OCR_PRIMARY_PROVIDER/OCR_FALLBACK_PROVIDER/OCR_MODE conventions. Secret VALUES are never
+  // printed — only selected provider, selected model, configured (yes/no), and whether a mock
+  // execution is genuinely reachable at runtime. Guarded so a diagnostic can never fail the boot.
+  try {
+    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
+    const provider = resolveVisionProvider();
+    let model = 'unresolved';
+    try { model = provider.model; } catch (e) { model = `unresolved (${e.message})`; }
+    const configured = (() => { try { return provider.isConfigured() === true; } catch { return false; } })();
+    const mockAllowed = DocumentIntelligenceService.isOcrMockAllowed() === true;
+    console.log(`✅ OCR provider selected: ${provider.id}`);
+    console.log(`✅ OCR model selected: ${model}`);
+    console.log(`${configured ? '✅' : '⚠️'} OCR provider configured: ${configured}`);
+    console.log(`${mockAllowed ? '⚠️' : '❌'} OCR mock runtime allowed: ${mockAllowed}`);
+  } catch (e) {
+    console.log(`⚠️ OCR provider diagnostic unavailable: ${e.message}`);
+  }
+
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
   registerCommunicationListeners(eventWorker);

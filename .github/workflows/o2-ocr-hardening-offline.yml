@@ -29,6 +29,9 @@ on:
       # Remediation suites (reviewer OCR attribution + explicit image-quality policy).
       - 'backend/tests/o2-verification-ocr-attribution.test.js'
       - 'backend/tests/o2-reviewer-quality-policy.test.js'
+      # Startup OCR diagnostic truth + mock-reachability rule.
+      - 'backend/server.js'
+      - 'backend/tests/o2-ocr-startup-diagnostic.test.js'
       # Directly-affected frozen Trade OS authority suites — approveDocumentVerification + the gated
       # /api/verification mount. A convergence change that touched them must trigger this gate.
       - 'backend/tests/issue164-phase3-trust-authority.test.js'
@@ -104,6 +107,7 @@ jobs:
             backend/tests/o2-x1-document-intelligence-authority.test.js \
             backend/tests/o2-verification-ocr-attribution.test.js \
             backend/tests/o2-reviewer-quality-policy.test.js \
+            backend/tests/o2-ocr-startup-diagnostic.test.js \
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
@@ -204,9 +208,9 @@ jobs:
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
       STAGE4_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      # Reviewer identity for the Diaspora reviewer run-ocr (existing approved staging account).
-      STAGING_UAT_REVIEWER_EMAIL: ${{ secrets.STAGING_UAT_REVIEWER_EMAIL }}
-      STAGING_UAT_REVIEWER_PASSWORD: ${{ secrets.STAGING_UAT_REVIEWER_PASSWORD }}
+      # The driver provisions its OWN isolated per-run owner + reviewer identities (scrypt) via the
+      # staging DB URL; it consumes no pre-provisioned UAT reviewer account, so no reviewer
+      # email/password secret is injected here (least-privilege: only DIASPORA_STAGING_DATABASE_URL).
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@v4
