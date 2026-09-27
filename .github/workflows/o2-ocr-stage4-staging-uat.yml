@@ -1,0 +1,158 @@
+name: O2 OCR Stage-4 Deployed UAT
+
+# Deployed product-journey certification for the OCR Trade OS convergence lane.
+#
+# workflow_dispatch ONLY. A deployed product certification against the exact-head Vercel preview may
+# reach the real Cloudflare/Qwen OCR provider and consume neurons, so it requires an explicit human
+# dispatch — never push / pull_request / schedule / workflow_run.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact candidate SHA to certify (must match the branch head being dispatched).
+        required: true
+        default: ''
+
+# Share the one staging-preview lock with the other deployed-staging gates so concurrent runs do not
+# rate-limit the shared preview. A certification run never cancels another.
+concurrency:
+  group: staging-preview-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ocr-stage4-deployed:
+    name: OCR Stage-4 deployed product journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.expected_sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      # Staging DB is used ONLY for read-only before/after authority inspection and synthetic-fixture
+      # provisioning; guarded to the approved carup-staging project.
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          echo "candidate SHA: $EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
+          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
+          const frontend = frontendPairs[branch];
+          const backend = backendPairs[branch];
+          if (!frontend || !backend) {
+            console.error(JSON.stringify({ error: 'OCR candidate preview pair is not governed', branch,
+              frontend_configured: Boolean(frontend), backend_configured: Boolean(backend) }));
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `STAGING_WEB_URL=${frontend}\nSTAGING_API_URL=${backend.replace(/\/$/, '')}/api\n`);
+          console.log(JSON.stringify({ branch, frontend, backend }));
+          NODE
+
+      - name: Prove exact-head frontend/backend provenance (pairing + health)
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA;
+          const web = process.env.STAGING_WEB_URL;
+          const api = process.env.STAGING_API_URL;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          for (let attempt = 1; attempt <= 72; attempt += 1) {
+            try {
+              const [provRes, healthRes] = await Promise.all([
+                fetch(`${web}/carup-provenance.json?a=${attempt}`, { cache: 'no-store' }),
+                fetch(`${api}/health?a=${attempt}`, { cache: 'no-store' }),
+              ]);
+              const prov = provRes.ok ? await provRes.json() : null;
+              const health = healthRes.ok ? await healthRes.json() : null;
+              const frontendOk = prov?.commit_sha === expected && prov?.unpaired === false;
+              const backendOk = health?.status === 'UP' && health?.build?.commit_sha === expected;
+              if (frontendOk && backendOk) {
+                console.log('EXACT-HEAD DEPLOYED PAIR CONFIRMED');
+                console.log(JSON.stringify({
+                  frontend_sha: prov.commit_sha, frontend_unpaired: prov.unpaired,
+                  frontend_api_base_url: prov.api_base_url,
+                  backend_sha: health.build.commit_sha, backend_branch: health.build?.branch,
+                  supabase: health.supabase?.status,
+                }, null, 2));
+                process.exit(0);
+              }
+              console.log(`provenance attempt ${attempt}: frontend=${prov?.commit_sha || 'n/a'} unpaired=${prov?.unpaired} backend=${health?.build?.commit_sha || 'n/a'}`);
+            } catch (e) { console.log(`provenance attempt ${attempt}: ${e.message}`); }
+            await sleep(5000);
+          }
+          console.error('Exact-head OCR preview pair never reported the candidate SHA.');
+          process.exit(1);
+          NODE
+
+      - name: Probe deployed OCR route surface + provider configuration (no fabricated verdict)
+        run: |
+          node --input-type=module <<'NODE'
+          const api = process.env.STAGING_API_URL;
+          const out = {};
+          // 1) Health snapshot — record whatever the deployed build reports about the OCR provider,
+          //    without printing secrets. This is the Section-16 decision signal.
+          try {
+            const h = await (await fetch(`${api}/health`, { cache: 'no-store' })).json();
+            out.health = {
+              status: h.status, commit_sha: h.build?.commit_sha, branch: h.build?.branch,
+              environment: h.environment, supabase: h.supabase?.status,
+              ocr_provider: h.ocr?.provider || h.providers?.ocr || h.build?.ocr_provider || 'not_exposed_by_health',
+            };
+          } catch (e) { out.health_error = e.message; }
+          // 2) Route-gating probes (UNAUTHENTICATED): prove the OCR routes are DEPLOYED on this head
+          //    and fail closed. A gated route must NOT return 200 to an anonymous caller.
+          async function probe(method, path, body) {
+            try {
+              const res = await fetch(`${api}${path}`, {
+                method, cache: 'no-store',
+                headers: body ? { 'content-type': 'application/json' } : undefined,
+                body: body ? JSON.stringify(body) : undefined,
+              });
+              let code; try { code = (await res.json())?.code; } catch { code = undefined; }
+              return { path, method, status: res.status, code };
+            } catch (e) { return { path, method, error: e.message }; }
+          }
+          out.route_gating = [
+            await probe('POST', '/ai/ocr', { docType: 'national_id', base64Data: 'x' }),
+            await probe('POST', '/diaspora/documents/probe-doc/extractions', { extraction_provider: 'forged' }),
+            await probe('POST', '/vehicles/PROBEVIN0000000000/evidence/probe-ev/run-ocr', {}),
+          ];
+          console.log('DEPLOYED OCR ROUTE SURFACE:');
+          console.log(JSON.stringify(out, null, 2));
+          // Assertion: none of the gated/retired routes may answer 200 to an anonymous caller.
+          const leak = out.route_gating.find((r) => r.status === 200);
+          if (leak) { console.error('A deployed OCR route answered 200 without authentication:', JSON.stringify(leak)); process.exit(1); }
+          // /api/ai/ocr must be retired (410) or gated (401/403) — never a live extraction.
+          const legacy = out.route_gating.find((r) => r.path === '/ai/ocr');
+          if (legacy && ![410, 401, 403].includes(legacy.status)) {
+            console.error('Legacy /api/ai/ocr is neither retired nor gated on the deployed head:', JSON.stringify(legacy));
+            process.exit(1);
+          }
+          NODE
+
+      # NOTE: authenticated end-to-end product journeys (Person Identity, Diaspora run-ocr with a
+      # provisioned reviewer, Owner/Seller vehicle run-ocr) require staging UAT role credentials
+      # (STAGING_UAT_*_PASSWORD) and a drivable deployed OCR UI/API, and consume Cloudflare neurons.
+      # They are added as a follow-up step once those staging inputs are confirmed for this lane, so
+      # a first run proves deployed pairing + route-gating without burning provider quota on fixture
+      # setup. This gate never fabricates a journey verdict.
