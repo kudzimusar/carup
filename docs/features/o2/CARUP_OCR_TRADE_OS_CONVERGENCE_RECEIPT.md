@@ -196,14 +196,98 @@ exact candidate head. Results appended below once the run completes._
 * Provider: Cloudflare Workers AI · Model: `@cf/qwen/qwen3.8-27b` · `ALLOW_OCR_MOCK=false`
 * Grader: v2 (no successful provider execution ⇒ no accuracy PASS; quota /
   refusal / timeout / output-budget exhaustion ⇒ INCONCLUSIVE, never PASS)
+* Run conclusion: **success** · workflow_dispatch · started 2026-09-27T01:55:57Z
+* Provenance proof: the "Prove one real vision request" step succeeded (a real
+  Workers AI Qwen vision request), and the exact-head assert confirmed
+  `HEAD == e2961ad`.
 
-_(fixture-by-fixture results, execution status, totals, fabrications, shortfalls,
-neuron usage, and any INCONCLUSIVE recorded on completion — see Section D-Results.)_
+### D-Results — full corpus (grader-v2, `@cf/qwen/qwen3.8-27b`)
 
-## E. Stage 4 — real product-journey certification
+| Fixture | Execution | Extraction status | Confidence | Neurons | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| national-id-clean | provider_succeeded | Pending_Verification | 0.99 | 175.95 | PASS |
+| national-id-rotated | provider_succeeded | Pending_Verification | 0.98 | 279.79 | PASS |
+| national-id-blurred | provider_succeeded | Pending_Manual_Review | not reported | 547.15 | PASS (genuine abstention — degraded image, no fabricated fields) |
+| national-id-glare | provider_succeeded | Pending_Verification | 0.98 | 206.79 | PASS |
+| national-id-cropped | provider_succeeded | Pending_Verification | 0.95 | 204.17 | PASS |
+| passport-clean | provider_succeeded | Pending_Verification | 0.98 | 232.30 | PASS |
+| drivers-licence-clean | provider_succeeded | Pending_Verification | 0.98 | 180.30 | PASS |
+| registration-book-clean | provider_succeeded | Pending_Verification | 0.98 | 250.78 | PASS |
+| customs-declaration-clean | provider_succeeded | Pending_Verification | 0.98 | 279.48 | PASS |
+| non-document | provider_succeeded | Pending_Manual_Review | not reported | 180.03 | PASS (genuine model execution + abstention — 0 fields, no invented identity) |
+| unsupported-file | not_attempted (unsupported_media_type) | Pending_Manual_Review | — | — | PASS (refused at the media boundary, no provider call) |
 
-_Gated on a valid Stage 3 result and a staging/preview environment. See final
-report for disposition._
+**Gate verdict:** `OCR_ACCURACY_GATE: PASS` — fixtures **11/11** · fabrications **0**
+· shortfalls **0** · INCONCLUSIVE **0**; field results **45 exact, 0 normalized,
+6 missing, 0 incorrect, 0 inconclusive**. Total provider spend ≈ **2,536.7
+neurons** across the corpus (plus one proof request). No quota exhaustion, no
+provider refusal, no timeout: every required fixture genuinely executed.
+
+**Why this is stronger than the historical "11/11".** The two fixtures the old
+grader had laundered now genuinely execute and abstain honestly under grader-v2:
+`national-id-blurred` ran (547 neurons, 187 s) and reported no confidence →
+manual review (no fabrication); `non-document` ran (180 neurons) and returned an
+empty field set (no invented identity) rather than being a quota/output-budget
+failure counted as success. `unsupported-file` is refused at the correct media
+boundary. Zero required fixtures are INCONCLUSIVE.
+
+## E. Stage 4 — real product-journey certification — **BLOCKED (infrastructure)**
+
+Stage 3 produced a valid live-provider result, so Stage 4 was authorized to
+begin. It is **blocked** on environment access this cloud session does not have,
+and no journey evidence is fabricated in its place:
+
+* **No deployed exact-head preview/staging environment** for
+  `fix/o2-ocr-trade-os-convergence`. The four journeys require the app deployed
+  at the exact head with a live database, storage buckets and the Cloudflare
+  provider wired in; this session cannot deploy, seed or drive such a stack.
+* **No session-level live credentials.** Cloudflare and Supabase credentials are
+  not present in this interactive session's environment (Cloudflare exists only
+  as GitHub Actions **secrets**, usable by the dispatched Stage-3 workflow, not by
+  an interactive session). The backend cannot reach a real DB/storage/provider
+  here (offline tests surface `Missing SUPABASE_URL` / `fetch failed`).
+* **Dealer journey OCR path absent (X5 residual).** Journey 2's governed dealer
+  onboarding OCR (`dealer/dealerOnboardingService.js :: runOwnDealerDocumentOcr`)
+  is an O2-X5 feature not present on the Trade OS line, so the Dealer OCR journey
+  cannot be exercised here even against a deployed environment. The governed
+  dealer BUSINESS document *schema* is proven offline.
+
+**Supporting (NOT a substitute for Stage 4) — journey invariants proven at the
+route/service level by the Stage-2 offline suites, and the same governed provider
+boundary proven live in Stage 3:**
+
+* **Person Identity** — `verificationSessionService`: extraction is candidate
+  only; `evaluateOcrEvidence` refuses to verify on an unreported confidence and no
+  longer substitutes an image-quality number; a session reaches at most
+  `PARTIALLY_TRUSTED` from extraction. (verification-session-workflow / stakeholder
+  suites.)
+* **Dealer** — the dealer BUSINESS document schema routes apart from identity
+  schemas; the governed onboarding-OCR service is an X5 residual (above).
+* **Diaspora** — genuine `/documents/:id/run-ocr` records provider provenance and
+  `OCR_EXTRACTED` (never `VERIFIED`); the client-authored `/extractions` path is
+  `410 CLIENT_AUTHORED_OCR_EXTRACTION_RETIRED` and refused at the service level.
+  (diaspora-ocr-route / three-problem / adversarial suites.)
+* **Owner/Seller vehicle** — `run-ocr` for `registration/registration_book` and
+  `import/customs_entry` persists candidates only with `authority_effects` all
+  `false`; scope/bucket/traversal/revocation guards proven adversarially.
+  (three-problem / adversarial / path-convergence suites.)
+
+These offline proofs and the live Stage-3 provider certification are recorded as
+**supporting evidence only**; they are explicitly **not** represented as the
+deployed Stage-4 product-journey certification, which remains outstanding pending
+a staging/preview environment.
+
+## Final disposition
+
+* Stage 1 (forward-convergence): **COMPLETE**.
+* Stage 2 (credential-free exact-head recertification): **COMPLETE** — offline
+  gate 143 pass / 0 fail / documented skips; zero regressions.
+* Stage 3 (live Qwen grader-v2 certification): **COMPLETE & VALID** — full corpus
+  11/11 PASS, 0 fabrications, 0 shortfalls, 0 INCONCLUSIVE, exact head `e2961ad`.
+* Stage 4 (deployed product-journey certification): **BLOCKED** on staging/preview
+  infrastructure + session-level live DB/storage/provider access (and the Dealer
+  OCR journey's absent X5 path).
+* `main` (`bb9d9900…`) and production remain **untouched**.
 
 ## F. Residuals
 
