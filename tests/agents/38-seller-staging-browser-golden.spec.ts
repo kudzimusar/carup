@@ -607,6 +607,57 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(inquiryInbox).toContainText(vin, { timeout: 20_000 });
     await expect(inquiryInbox).toContainText(`Is ${vin} still available for inspection?`, { timeout: 20_000 });
 
+    // Phase Q: the durable inquiry row is only the ingress. Wait for the asynchronous outbox to
+    // materialize the canonical Communications thread, then use the real in-app Communications UI
+    // to read the exact buyer message and send the Seller reply. This bounded poll fails rather than
+    // silently accepting an inbox-only state.
+    const sellerCommunicationHeaders = baseHeaders(cleanupAuth);
+    let projectedThreadId: string | null = null;
+    await expect.poll(async () => {
+      const response = await request.get(`${API_URL}/communications/threads`, {
+        headers: sellerCommunicationHeaders,
+      });
+      if (response.status() !== 200) return 0;
+      const body = await response.json() as {
+        threads?: Array<{ id?: string; marketplace_listing_id?: string | null }>;
+      };
+      const thread = (body.threads || []).find(item =>
+        String(item.marketplace_listing_id || '').toUpperCase() === vin.toUpperCase()
+      );
+      projectedThreadId = thread?.id || null;
+      return projectedThreadId ? 1 : 0;
+    }, {
+      message: 'Marketplace inquiry never projected into canonical Communications thread',
+      timeout: 90_000,
+      intervals: [1000, 2000, 5000],
+    }).toBe(1);
+
+    await page.goto('/dashboard/communications');
+    await page.getByTestId('communication-search').fill(vin);
+    const communicationThread = page.locator(`button[data-marketplace-listing-id="${vin}"]`).first();
+    await expect(communicationThread).toBeVisible({ timeout: 20_000 });
+    await communicationThread.click();
+    await expect(page.getByTestId('communication-active-listing')).toContainText(vin, { timeout: 20_000 });
+    await expect(page.getByTestId('communication-message-text')).toContainText(
+      `Is ${vin} still available for inspection?`,
+      { timeout: 20_000 },
+    );
+    const sellerReply = `Thanks for your inquiry about ${vin}. We can continue through CarUp.`;
+    await page.getByTestId('communication-reply-text').fill(sellerReply);
+    const replyWait = page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes(`/api/communications/threads/${projectedThreadId}/messages`)
+    );
+    await page.getByTestId('communication-reply-send').click();
+    const replyResponse = await replyWait;
+    expect(replyResponse.status(), await replyResponse.text()).toBe(200);
+    await expect(page.getByTestId('communication-status')).toContainText('Sent through CarUp', { timeout: 20_000 });
+    await expect(page.getByTestId('communication-message-text')).toContainText(sellerReply, { timeout: 20_000 });
+    await page.screenshot({
+      path: testInfo.outputPath(`phase-q-communications-${testInfo.project.name}.png`),
+      fullPage: true,
+    });
+
     // Phase N: a successful write is not enough. Recompute the governed read model for the UTC day
     // that contains this real inquiry, then require the Seller projection to observe it. The reviewer
     // is a proven staging admin using the same authenticated + CSRF path as any manual rollup.
