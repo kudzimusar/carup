@@ -4,9 +4,6 @@ import { toast } from 'sonner'
 import {
   ArrowRight,
   BarChart3,
-  Bell,
-  Car,
-  FileCheck2,
   FileText,
   Gauge,
   MessageSquare,
@@ -17,7 +14,6 @@ import {
   Wrench,
 } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { ListingImage } from '@/components/marketplace/ListingImage'
@@ -25,8 +21,15 @@ import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Escrow, Notification, Vehicle } from '@/types'
+import type { Escrow, Vehicle } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
+
+type OwnerDashboardNotification = {
+  id: string
+  read?: boolean
+  title?: string
+  message?: string
+}
 
 function isSold(vehicle: Vehicle) {
   return String(vehicle.status || '').toLowerCase() === 'sold'
@@ -50,7 +53,7 @@ export default function OwnerDashboard() {
   const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
+  const [liveNotifications, setLiveNotifications] = useState<OwnerDashboardNotification[]>([])
   const [vehiclesState, setVehiclesState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [notificationsState, setNotificationsState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [lowBandwidth, setLowBandwidth] = useState(false)
@@ -360,6 +363,24 @@ export default function OwnerDashboard() {
         <div className="border-y border-slate-200 py-6" data-testid="owner-priority-communications">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 6</p>
           <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Communications</h2>
+          <div className="mt-2">
+            {notificationsState === 'loading' ? (
+              <span className="text-xs font-bold text-slate-500" data-testid="owner-notifications-not-read">
+                Notification count not read yet
+              </span>
+            ) : notificationsState === 'unavailable' ? (
+              <span className="text-xs font-bold text-amber-700" data-testid="owner-notifications-unavailable">
+                Could not read notifications
+              </span>
+            ) : (
+              <span
+                className="text-xs font-bold text-slate-600"
+                data-testid={liveNotifications.length === 0 ? 'owner-notifications-none' : 'owner-notifications-count'}
+              >
+                {unreadNotifications} new
+              </span>
+            )}
+          </div>
           {notificationsState === 'unavailable' ? (
             <p className="mt-4 text-sm text-slate-600">Notification state is unavailable, not zero.</p>
           ) : recentNotifications.length ? (

@@ -8,7 +8,6 @@ import {
   MessageSquare,
   MousePointerClick,
   RefreshCw,
-  Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
