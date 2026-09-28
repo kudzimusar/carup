@@ -141,27 +141,16 @@ export default function SellerIntelligence() {
   const [windowDays, setWindowDays] = useState<(typeof WINDOWS)[number]>(30)
   const [pulse, setPulse] = useState<SellerPulse | null>(null)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [vehiclesReadable, setVehiclesReadable] = useState<boolean | null>(null)
   const [listingInsights, setListingInsights] = useState<Record<string, ListingInsight | null>>({})
   const [inquiries, setInquiries] = useState<Inquiry[] | null>(null)
   const [threads, setThreads] = useState<Thread[] | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [refreshKey, setRefreshKey] = useState(0)
-
-  // The read this page is currently showing. Returning to 'loading' when the window or a refresh
-  // changes is an ADJUSTMENT to a changed input, not a synchronisation with an external system —
-  // so it is DERIVED here rather than written by the effect, where a synchronous setState is a
-  // cascading render. `settled` records which read produced the outcome, so a stale 'ready' from
-  // the previous window can never be shown as the answer for the new one: the moment `readKey`
-  // changes, `state` reads 'loading' again on the very same render.
-  const readKey = `${windowDays}:${refreshKey}`
-  const [settled, setSettled] = useState<{ key: string; status: 'ready' | 'error'; vehiclesRead: boolean } | null>(null)
-  const state: 'loading' | 'ready' | 'error' = settled?.key === readKey ? settled.status : 'loading'
-  // The owned-vehicles read settles INDEPENDENTLY of the pulse read (Promise.allSettled), and a
-  // rejected one becomes `[]`. Tracked separately so an unreadable listing set cannot render as an
-  // empty comparison table — which reads as "you have no listings", a claim nobody measured.
-  const vehiclesRead = settled?.key === readKey ? settled.vehiclesRead : false
 
   useEffect(() => {
     let active = true
+    setState('loading')
 
     Promise.allSettled([
       fetchSellerIntelligence(windowDays),
@@ -175,6 +164,7 @@ export default function SellerIntelligence() {
         ? vehicleResult.value
         : []
       setVehicles(nextVehicles)
+      setVehiclesReadable(vehicleResult.status === 'fulfilled')
       setPulse(pulseResult.status === 'fulfilled' ? pulseResult.value as SellerPulse : null)
       setInquiries(inquiryResult.status === 'fulfilled' ? (inquiryResult.value.inquiries || []) as Inquiry[] : null)
       setThreads(threadResult.status === 'fulfilled' ? (threadResult.value.threads || []) as Thread[] : null)
@@ -189,11 +179,7 @@ export default function SellerIntelligence() {
       }))
       if (!active) return
       setListingInsights(Object.fromEntries(insightPairs))
-      setSettled({
-        key: readKey,
-        status: pulseResult.status === 'fulfilled' ? 'ready' : 'error',
-        vehiclesRead: vehicleResult.status === 'fulfilled',
-      })
+      setState(pulseResult.status === 'fulfilled' ? 'ready' : 'error')
     })
 
     return () => { active = false }
@@ -203,7 +189,6 @@ export default function SellerIntelligence() {
     fetchMyMarketplaceInquiries,
     fetchOwnedVehicles,
     fetchSellerIntelligence,
-    readKey,
     refreshKey,
     windowDays,
   ])
@@ -227,6 +212,13 @@ export default function SellerIntelligence() {
 
   const unreadThreads = threads?.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0) ?? null
   const marketplaceThreads = threads?.filter(thread => Boolean(thread.marketplace_listing_id)).length ?? null
+  const draftsNeedingAction = vehiclesReadable === true
+    ? vehicles.filter(vehicle => {
+        const publication = String(vehicle.publication_status || '').toLowerCase()
+        const lifecycle = String(vehicle.status || '').toLowerCase()
+        return publication !== 'published' && lifecycle !== 'sold'
+      }).length
+    : null
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-9" data-testid="seller-intelligence-page">
@@ -290,8 +282,13 @@ export default function SellerIntelligence() {
         <>
           <section className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-6" data-testid="seller-intelligence-kpi-band">
             <SignalCard label="Active listings" value={metricCopy(metrics.active_listings)} detail="Measured active inventory" icon={BarChart3} />
-            <SignalCard label="Listing views" value={metricCopy(metrics.views)} detail="Listing opens in this window" icon={Eye} />
-            <SignalCard label="Unique visitors" value={metricCopy(metrics.unique_viewers)} detail="Governed distinct-viewer basis" icon={Users} />
+            <SignalCard
+              label="Drafts needing action"
+              value={draftsNeedingAction === null ? 'Unavailable' : String(draftsNeedingAction)}
+              detail={draftsNeedingAction === null ? 'Owned-listing read failed' : 'Unpublished active Seller drafts'}
+              icon={RefreshCw}
+            />
+            <SignalCard label="Listing views" value={metricCopy(metrics.views)} detail="Tracked listing opens in this window" icon={Eye} />
             <SignalCard label="Saves" value={metricCopy(metrics.saves)} detail="Authoritative saved-listing actions" icon={Heart} />
             <SignalCard label="Inquiries" value={metricCopy(metrics.inquiries)} detail="Authoritative inquiry rows" icon={MessageSquare} />
             <SignalCard
@@ -316,13 +313,16 @@ export default function SellerIntelligence() {
 
             <div className="border-y border-slate-200 py-6" data-testid="seller-intelligence-funnel">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Conversion funnel</p>
-              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">From discovery to contact</h2>
+              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">From discovery to transaction handoff</h2>
               <div className="mt-6 space-y-3">
                 {[
                   ['Impressions', metrics.impressions],
                   ['Views', metrics.views],
                   ['Saves', metrics.saves],
+                  ['Compare adds', metrics.compare_adds],
                   ['Inquiries', metrics.inquiries],
+                  ['Inspection requests', metrics.inspections],
+                  ['Transaction handoff · reservations', metrics.reservations],
                 ].map(([label, metric]) => (
                   <div key={String(label)} className="flex items-center justify-between border-b border-slate-200 pb-3">
                     <span className="text-sm font-bold text-slate-600">{String(label)}</span>
@@ -367,20 +367,7 @@ export default function SellerIntelligence() {
                   </tr>
                 </thead>
                 <tbody>
-                  {!vehiclesRead ? (
-                    <tr className="border-b border-slate-200">
-                      <td colSpan={6} className="py-6 text-sm text-slate-600" data-testid="seller-intelligence-listings-unavailable">
-                        CarUp could not read your listings. This table is empty because nothing was
-                        read — it is not a statement that you have no listings.
-                      </td>
-                    </tr>
-                  ) : vehicles.length === 0 ? (
-                    <tr className="border-b border-slate-200">
-                      <td colSpan={6} className="py-6 text-sm text-slate-600" data-testid="seller-intelligence-no-listings">
-                        You have no listings yet.
-                      </td>
-                    </tr>
-                  ) : vehicles.map(vehicle => {
+                  {vehicles.map(vehicle => {
                     const insight = listingInsights[vehicle.vin]
                     return (
                       <tr key={vehicle.vin} className="border-b border-slate-200">
