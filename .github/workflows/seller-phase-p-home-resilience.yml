@@ -1,0 +1,35 @@
+name: Seller Phase P Home Resilience Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/pages/Landing.tsx'
+      - 'web/src/pages/Landing.*.test.*'
+      - 'web/src/components/home/JourneyMediaStory.tsx'
+      - 'web/src/components/marketplace/MarketplaceListingCard.tsx'
+      - 'web/src/lib/marketplaceCardModel.ts'
+      - '.github/workflows/seller-phase-p-home-resilience.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  home-resilience:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Home Seller-publication resilience contracts
+        run: npm run test:unit --workspace=web -- src/pages/Landing.sellerResilience.test.ts
+      - name: Web production build
+        run: npm run build --workspace=web
