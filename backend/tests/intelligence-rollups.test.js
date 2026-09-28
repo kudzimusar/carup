@@ -153,6 +153,18 @@ test('a listing with no activity produces genuine zeros, not invented ones', () 
 
 // ── Scope grain: uniques must not sum ───────────────────────────────────────
 
+test('seller-scope rollup preserves compare intent as its own stage', () => {
+  const events = [
+    ev('marketplace_listing_opened', { session: 'shopper' }),
+    ev('marketplace_listing_saved', { session: 'shopper', user: 'buyer-1' }),
+    ev('marketplace_compare_added', { session: 'shopper' }),
+  ];
+  const scope = computeScopeMetrics(events);
+  assert.equal(scope.views, 1);
+  assert.equal(scope.saves, 1);
+  assert.equal(scope.compare_adds, 1);
+});
+
 test('one shopper viewing three of a dealer\'s cars is ONE unique viewer', () => {
   const events = [
     ev('marketplace_listing_opened', { vin: 'VIN1', session: 'shopper' }),
@@ -264,6 +276,7 @@ test('a full rollup reconciles listing, seller, tenant and platform grains', asy
       ev('marketplace_listing_opened', { vin: 'VIN2', session: 'shopper' }),
       ev('marketplace_listing_opened', { vin: 'VIN1', session: 'other' }),
       ev('marketplace_listing_saved', { vin: 'VIN1', session: 'shopper', user: 'buyer-1' }),
+      ev('marketplace_compare_added', { vin: 'VIN1', session: 'shopper' }),
     ],
     inquiries: [
       { id: 'i1', listing_id: 'VIN1', seller_id: 'seller-1', seller_tenant_id: 'tenant-a', inquiry_type: 'vehicle_purchase_interest', status: 'new' },
@@ -280,7 +293,7 @@ test('a full rollup reconciles listing, seller, tenant and platform grains', asy
 
   const result = await rollupDay(DAY, { client });
   assert.equal(result.ok, true);
-  assert.equal(result.events_scanned, 4);
+  assert.equal(result.events_scanned, 5);
 
   const vin1 = client.written.listing.find((r) => r.listing_id === 'VIN1');
   assert.equal(vin1.views, 2);
@@ -296,6 +309,7 @@ test('a full rollup reconciles listing, seller, tenant and platform grains', asy
   assert.equal(seller.unique_viewers, 2, 'but the shopper who saw both cars is one person');
   assert.equal(seller.active_listings, 2);
   assert.equal(seller.inquiries, 2);
+  assert.equal(seller.compare_adds, 1, 'compare intent remains visible at Seller grain');
 
   const tenant = client.written.tenant.find((r) => r.tenant_id === 'tenant-a');
   assert.equal(tenant.unique_viewers, 2);

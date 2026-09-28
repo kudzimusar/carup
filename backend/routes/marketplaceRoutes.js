@@ -28,8 +28,22 @@ import {
   priceEstimate,
   shareCopy,
 } from '../services/marketplace/marketplaceAiAssistantService.js';
+import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 
 const router = express.Router();
+
+// Q10 — lazy singleton over the SAME Communications 2.0 authority used by /api/communications.
+// Inquiry capture needs an immediate in-app canonical thread even when Vercel's scheduled outbox
+// drain or external providers are unavailable. Lazy construction avoids provider setup work on
+// Marketplace reads that never create an inquiry.
+let marketplaceCommunicationServices = null;
+function getMarketplaceCommunicationServices() {
+  if (!marketplaceCommunicationServices) marketplaceCommunicationServices = createCommunicationServices();
+  return marketplaceCommunicationServices;
+}
+async function canonicalizeMarketplaceInquiryInline(event) {
+  return getMarketplaceCommunicationServices().orchestrator.handleDomainEvent(event);
+}
 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -162,7 +176,10 @@ router.post('/api/marketplace/inquiries', inquiryLimiter, optionalAuth(), asyncH
   };
   // `req` reaches the service only so the Intelligence observation can carry the
   // shopper's session/page-view context; the inquiry itself never reads it.
-  const inquiry = await createInquiry(supabase, payload, req.userContext || null, { req });
+  const inquiry = await createInquiry(supabase, payload, req.userContext || null, {
+    req,
+    canonicalizeCommunicationInquiry: canonicalizeMarketplaceInquiryInline,
+  });
   res.status(201).json({ inquiry });
 }));
 

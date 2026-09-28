@@ -1,61 +1,51 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
-import NextBestActions from '@/components/intelligence/NextBestActions'
-import PeriodicReport from '@/components/intelligence/PeriodicReport'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import {
-  Car,
-  Wrench,
-  Shield,
-  FileText,
   ArrowRight,
-  Plus,
+  BarChart3,
+  FileText,
   Gauge,
-  CheckCircle,
   MessageSquare,
+  Plus,
+  Shield,
+  Upload,
   WifiOff,
-  Wallet,
-  Upload
+  Wrench,
 } from 'lucide-react'
-import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
+
+import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
+import { ListingImage } from '@/components/marketplace/ListingImage'
+import MarketplacePulse from '@/components/intelligence/MarketplacePulse'
+import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Vehicle, Escrow } from '@/types'
+import type { Escrow, Vehicle } from '@/types'
 import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
 
-// ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
-/**
- * Phase 3 made `canonicalTrustService` the only authority that may state a vehicle's trust
- * position, and every list endpoint an owner sees — `/api/vehicles/me`, `/api/vehicles/saved`,
- * the marketplace listing summaries — now carries its projection verbatim on `trust`. These
- * dashboard rows still read the flat `trust_score` and drew `<Progress value={trust_score} />`
- * beside it. With no evaluation that number is null, so the row rendered "Trust Index: %" over a
- * track filled to 0%: a vehicle CarUp has never assessed, presented as one it assessed and found
- * worthless. That is the same absence-as-proof Phase 3 removed from VehicleDetail and
- * VehicleProfile, left live on four further pages.
- *
- * `evaluation_state` is the required discriminator, which is what makes the deprecated
- * `{vin, trustScore, metrics}` body parse as no trust record rather than as a score of 90.
- *
- * Exported because MyGarage and MyListings are this same surface in another layout. One
- * definition of what a trust claim is, three call sites — a per-page copy is how the surfaces
- * drifted apart in the first place. All four pages are statically imported by App.tsx into one
- * bundle, so the shared import adds no chunk.
- */
-type OwnerActivityNotification = {
+type OwnerDashboardNotification = {
   id: string
   read?: boolean
   title?: string
   message?: string
-  notification_type?: string
-  priority?: string | null
-  action_path?: string | null
-  created_at?: string | null
+}
+
+function isSold(vehicle: Vehicle) {
+  return String(vehicle.status || '').toLowerCase() === 'sold'
+}
+
+function isPublished(vehicle: Vehicle) {
+  return String(vehicle.publication_status || '').toLowerCase() === 'published'
+}
+
+function hasSellerThread(vehicle: Vehicle, userId?: string | null) {
+  const row = vehicle as Vehicle & { current_seller_id?: string | null }
+  return Boolean(
+    (userId && row.current_seller_id === userId)
+    || vehicle.seller_description
+    || (Array.isArray(vehicle.seller_features) && vehicle.seller_features.length > 0),
+  )
 }
 
 export default function OwnerDashboard() {
@@ -63,415 +53,413 @@ export default function OwnerDashboard() {
   const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<OwnerActivityNotification[]>([])
-
-  // Loading and failure are distinct from "you own nothing". Both reads previously left `vehicles` at
-  // its initial [], and a rejection had no handler at all — so a real owner whose read failed would be
-  // told their garage is empty. Only a SUCCESSFUL empty response may support that claim.
+  const [liveNotifications, setLiveNotifications] = useState<OwnerDashboardNotification[]>([])
   const [vehiclesState, setVehiclesState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [notificationsState, setNotificationsState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
-  useEffect(() => {
-    let mounted = true
-    fetchOwnedVehicles()
-      .then(data => { if (mounted) { setVehicles(Array.isArray(data) ? data : []); setVehiclesState('ready') } })
-      .catch(() => { if (mounted) { setVehicles([]); setVehiclesState('unavailable') } })
-    fetchNotifications()
-      .then(data => { if (mounted) { setLiveNotifications(Array.isArray(data) ? data : []); setNotificationsState('ready') } })
-      .catch(() => { if (mounted) { setLiveNotifications([]); setNotificationsState('unavailable') } })
-    return () => { mounted = false }
-  }, [fetchOwnedVehicles, fetchNotifications])
-
-  const recentNotifications = liveNotifications.slice(0, 3)
-
-  // Onboarding & settings states.
-  //
-  // The WhatsApp verification alert that used to live here held its own `whatsappLinked` state,
-  // initialised to `true`. No endpoint reports whether this account's WhatsApp is linked, so every
-  // owner was told their channel was verified on the strength of a default; and its "Verify Now"
-  // button set that flag locally and raised "WhatsApp communication verified successfully" without
-  // contacting anything. Both the status and the verification were fabricated, so both are gone
-  // rather than restated more carefully.
   const [lowBandwidth, setLowBandwidth] = useState(false)
-
-  // SafePay escrow is the only authoritative money source this dashboard has. There is no
-  // per-user wallet/ledger endpoint and no per-user trust-score endpoint, so those cards must
-  // report that no authoritative value exists rather than render invented figures — previously
-  // fixed balances, a fixed trust percentage and a verified-status label were shown to every
-  // account, including brand-new ones.
   const [escrow, setEscrow] = useState<{ status: 'loading' | 'ready' | 'error'; usd: number; count: number }>({
     status: 'loading',
     usd: 0,
     count: 0,
   })
 
-  // Fetch SafePay escrows on mount
   useEffect(() => {
     let mounted = true
-    const loadEscrows = async () => {
-      try {
-        const escrows = await fetchSafePayEscrows()
+    fetchOwnedVehicles()
+      .then(data => {
         if (!mounted) return
-        const list = escrows || []
-        const totalUsd = list.reduce((sum: number, e: Escrow) => e.currency === 'USD' ? sum + e.amount : sum, 0)
-        setEscrow({ status: 'ready', usd: totalUsd, count: list.length })
-      } catch (err) {
-        console.error('Failed to load escrows', err)
+        setVehicles(Array.isArray(data) ? data : [])
+        setVehiclesState('ready')
+      })
+      .catch(() => {
+        if (!mounted) return
+        setVehicles([])
+        setVehiclesState('unavailable')
+      })
+
+    fetchNotifications()
+      .then(data => {
+        if (!mounted) return
+        setLiveNotifications(Array.isArray(data) ? data : [])
+        setNotificationsState('ready')
+      })
+      .catch(() => {
+        if (!mounted) return
+        setLiveNotifications([])
+        setNotificationsState('unavailable')
+      })
+
+    return () => { mounted = false }
+  }, [fetchNotifications, fetchOwnedVehicles])
+
+  useEffect(() => {
+    let mounted = true
+    fetchSafePayEscrows()
+      .then((rows) => {
+        if (!mounted) return
+        const list = Array.isArray(rows) ? rows : []
+        const usd = list.reduce((sum: number, item: Escrow) =>
+          item.currency === 'USD' ? sum + item.amount : sum, 0)
+        setEscrow({ status: 'ready', usd, count: list.length })
+      })
+      .catch((error) => {
+        console.error('Failed to load escrows', error)
         if (mounted) setEscrow({ status: 'error', usd: 0, count: 0 })
-      }
-    }
-    loadEscrows()
+      })
     return () => { mounted = false }
   }, [fetchSafePayEscrows])
 
-  // ── Needs Your Attention ───────────────────────────────────────────────────
-  // Ported from the Owner-experience work, rebuilt on the canonical contracts. Every item is derived
-  // ONLY from counts of real, caller-scoped reads and from the CANONICAL trust claim — never from the
-  // raw `vehicles.trust_score` column, and never from an invented average. An empty rail means there
-  // is genuinely nothing outstanding, not that the check was skipped.
-  const unreadNotifications = notificationsState === 'ready' ? liveNotifications.filter((n) => !n.read).length : 0
-  const awaitingTrust = vehicles.filter((v) => readOwnerTrustClaim(v).state !== 'evaluated').length
-  const attentionItems: Array<{ key: string; label: string; detail: string; to: string; cta: string }> = []
-  // Every item below is gated on a SUCCESSFUL read. While loading, or after a failed read, the rail
-  // stays silent rather than asserting something about a garage it could not see.
-  if (vehiclesState === 'ready' && vehicles.length === 0) {
-    attentionItems.push({
-      key: 'no-vehicles', label: 'Add your first vehicle',
-      detail: 'Your garage is empty. Add a vehicle to start building its Passport.',
-      to: '/dashboard/sell-vehicle', cta: 'Add vehicle',
-    })
-  } else if (vehiclesState === 'ready' && awaitingTrust > 0) {
-    attentionItems.push({
-      key: 'awaiting-trust',
-      label: `${awaitingTrust} ${awaitingTrust === 1 ? 'vehicle has' : 'vehicles have'} no completed trust assessment`,
-      detail: 'CarUp evaluates a vehicle once its governed evidence is in place. Upload or complete the outstanding documents.',
-      to: '/dashboard/garage', cta: 'Open garage',
-    })
-  } else if (vehiclesState === 'unavailable') {
-    attentionItems.push({
-      key: 'garage-unavailable', label: 'Your garage could not be loaded',
-      detail: 'This is a loading failure, not an empty garage. Retry shortly.',
-      to: '/dashboard/garage', cta: 'Retry',
-    })
-  }
-  if (unreadNotifications > 0) {
-    attentionItems.push({
-      key: 'unread',
-      label: `${unreadNotifications} unread ${unreadNotifications === 1 ? 'notification' : 'notifications'}`,
-      detail: 'Recent activity on your vehicles and conversations.',
-      to: '/dashboard/communications', cta: 'Open communications',
-    })
-  }
+  const draftSellerVehicle = useMemo(() => vehicles.find(vehicle =>
+    !isSold(vehicle)
+    && !isPublished(vehicle)
+    && hasSellerThread(vehicle, user?.id),
+  ) || null, [user?.id, vehicles])
+
+  const unreadNotifications = notificationsState === 'ready'
+    ? liveNotifications.filter(item => !item.read).length
+    : null
+  const awaitingTrust = vehiclesState === 'ready'
+    ? vehicles.filter(vehicle => readOwnerTrustClaim(vehicle).state !== 'evaluated').length
+    : null
+  const publishedCount = vehiclesState === 'ready'
+    ? vehicles.filter(vehicle => isPublished(vehicle) && !isSold(vehicle)).length
+    : null
+  const activeDraftCount = vehiclesState === 'ready'
+    ? vehicles.filter(vehicle => !isPublished(vehicle) && !isSold(vehicle) && hasSellerThread(vehicle, user?.id)).length
+    : null
+  const recentNotifications = liveNotifications.slice(0, 3)
+
+  const attentionItems = useMemo(() => {
+    const items: Array<{ key: string; label: string; detail: string; to: string; cta: string }> = []
+    if (vehiclesState === 'unavailable') {
+      items.push({
+        key: 'garage-unavailable',
+        label: 'Your Garage could not be loaded',
+        detail: 'This is a read failure, not an empty Garage.',
+        to: '/dashboard/garage',
+        cta: 'Open Garage',
+      })
+      return items
+    }
+    if (vehiclesState !== 'ready') return items
+
+    if (draftSellerVehicle) {
+      items.push({
+        key: 'continue-listing',
+        label: `Continue ${[draftSellerVehicle.year, draftSellerVehicle.make, draftSellerVehicle.model].filter(Boolean).join(' ') || draftSellerVehicle.vin}`,
+        detail: 'A private Seller draft is already attached to this Vehicle Passport.',
+        to: `/dashboard/sell-vehicle?vin=${encodeURIComponent(draftSellerVehicle.vin)}`,
+        cta: 'Continue listing',
+      })
+    } else if (vehicles.length === 0) {
+      items.push({
+        key: 'no-vehicles',
+        label: 'Start your first vehicle thread',
+        detail: 'Identify an existing Passport or add a vehicle new to CarUp.',
+        to: '/sell',
+        cta: 'Choose vehicle',
+      })
+    }
+
+    if ((awaitingTrust || 0) > 0) {
+      items.push({
+        key: 'trust',
+        label: `${awaitingTrust} ${awaitingTrust === 1 ? 'vehicle needs' : 'vehicles need'} Trust/evidence attention`,
+        detail: 'Canonical Trust is not complete for these vehicle records.',
+        to: '/dashboard/evidence',
+        cta: 'Review evidence',
+      })
+    }
+
+    if ((unreadNotifications || 0) > 0) {
+      items.push({
+        key: 'messages',
+        label: `${unreadNotifications} unread ${unreadNotifications === 1 ? 'notification' : 'notifications'}`,
+        detail: 'Review activity that may need an owner or Seller response.',
+        to: '/dashboard/communications',
+        cta: 'Open communications',
+      })
+    }
+    return items
+  }, [awaitingTrust, draftSellerVehicle, unreadNotifications, vehicles.length, vehiclesState])
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Owner Dashboard</h1>
-          <p className="text-gray-500">Welcome back{user?.name ? `, ${user.name}` : ''}! Monitor your vehicles, escrows, and insurance logs.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Low Bandwidth mode toggle */}
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border text-xs text-gray-600">
-            <WifiOff className={`w-4 h-4 ${lowBandwidth ? 'text-orange-500 animate-pulse' : 'text-gray-400'}`} />
-            <span>Low-Bandwidth Mode</span>
-            <input 
-              type="checkbox" 
-              checked={lowBandwidth} 
-              onChange={() => {
-                setLowBandwidth(!lowBandwidth);
-                // The toggle hides images; it does not compress them, and saying so was a claim
-                // about work the page never did.
-                toast.success(lowBandwidth ? 'Images restored.' : 'Low-bandwidth mode enabled. Images are not loaded.');
-              }}
-              className="rounded text-orange-500 focus:ring-orange-400 cursor-pointer h-4 w-4"
-            />
+    <div className="mx-auto max-w-[1440px] space-y-10" data-testid="owner-dashboard-cockpit">
+      <header className="border-b border-slate-200 pb-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">Ownership &amp; Seller cockpit</p>
+            <h1 className="mt-2 text-4xl font-black tracking-[-0.05em] text-slate-950 sm:text-5xl">Owner Dashboard</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              Welcome back{user?.name ? `, ${user.name}` : ''}! Start with what needs attention, then move through vehicles, buyer activity, evidence, operating records, communications and measured Seller intelligence.
+            </p>
           </div>
-
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/dashboard/garage"><Car className="w-4 h-4 mr-1" /> My Garage</Link>
-          </Button>
-          <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" asChild>
-            <Link to="/dashboard/ai"><MessageSquare className="w-4 h-4 mr-1" /> Ask Gutu AI</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex min-h-11 items-center gap-2 border border-slate-200 px-3 text-xs font-bold text-slate-600">
+              <WifiOff className={`h-4 w-4 ${lowBandwidth ? 'text-orange-600' : 'text-slate-400'}`} />
+              Low-bandwidth
+              <input
+                type="checkbox"
+                checked={lowBandwidth}
+                onChange={() => {
+                  setLowBandwidth(value => !value)
+                  toast.success(lowBandwidth ? 'Images restored.' : 'Low-bandwidth mode enabled. Images are not loaded.')
+                }}
+                className="h-4 w-4"
+              />
+            </label>
+            <Button asChild className="min-h-11 rounded-none bg-orange-600 font-black hover:bg-orange-700">
+              <Link to="/sell"><Plus className="mr-2 h-4 w-4" /> Sell / add vehicle</Link>
+            </Button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Marketplace Pulse (Intelligence I7). Governed, session-scoped figures:
-          every metric arrives in an availability envelope, so an unmeasured
-          figure shows words rather than a zero that reads as "nobody came". */}
-      <MarketplacePulse />
-
-      {/* Deterministic next-best-action. A rule abstains rather than advising
-          from a figure nobody measured. */}
-      <NextBestActions />
-
-      {/* The periodic summary, with the export that carries its own provenance. */}
-      <PeriodicReport period="monthly" />
-
-      {/* Needs Your Attention — real outstanding items only; hidden entirely when there are none. */}
-      {attentionItems.length > 0 && (
-        <Card className="border-0 card-shadow border-l-4 border-l-orange-400" data-testid="owner-needs-attention">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Needs your attention</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {attentionItems.map((item) => (
-              <div key={item.key} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-orange-50/60 rounded-lg">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">{item.detail}</p>
+      <section data-testid="owner-priority-attention">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 1</p>
+            <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">What needs attention</h2>
+          </div>
+        </div>
+        {attentionItems.length ? (
+          <div className="divide-y divide-slate-200 border-y border-slate-200" data-testid="owner-needs-attention">
+            {attentionItems.map(item => (
+              <div key={item.key} className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-black text-slate-950">{item.label}</p>
+                  <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
                 </div>
-                <Button size="sm" variant="outline" asChild>
-                  <Link to={item.to}>{item.cta}</Link>
+                <Button variant="outline" className="min-h-11 rounded-none font-bold" asChild>
+                  <Link to={item.to}>{item.cta} <ArrowRight className="ml-2 h-4 w-4" /></Link>
                 </Button>
               </div>
             ))}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        ) : vehiclesState === 'loading' || notificationsState === 'loading' ? (
+          <p className="border-y border-slate-200 py-6 text-sm text-slate-500" role="status">Checking current owner/Seller priorities…</p>
+        ) : (
+          <p className="border-y border-slate-200 py-6 text-sm text-slate-500">No governed attention item is currently recorded.</p>
+        )}
+      </section>
 
-      {/* Multi-currency Wallet Card */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase font-semibold">Automotive Wallet (USD)</p>
-                <p data-testid="wallet-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>
-                <p className="text-[10px] text-gray-400 mt-1">No wallet established for this account</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-green-50 text-green-500 flex items-center justify-center">
-                <Wallet className="w-5 h-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <section data-testid="owner-priority-vehicles">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 2</p>
+            <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Vehicles &amp; listings</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {vehiclesState === 'ready'
+                ? `${vehicles.length} vehicle${vehicles.length === 1 ? '' : 's'} · ${publishedCount} published · ${activeDraftCount} active drafts`
+                : vehiclesState === 'unavailable' ? 'Vehicle state unavailable' : 'Loading governed vehicle state'}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="rounded-none" asChild><Link to="/dashboard/garage">My Garage</Link></Button>
+            <Button variant="outline" className="rounded-none" asChild><Link to="/dashboard/listings">My Listings</Link></Button>
+          </div>
+        </div>
 
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase font-semibold">Automotive Wallet (ZiG)</p>
-                <p data-testid="wallet-zig-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>
-                <p className="text-[10px] text-gray-400 mt-1">No wallet established for this account</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center">
-                <Wallet className="w-5 h-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase font-semibold">Locked SafePay Escrows</p>
-                {escrow.status === 'loading' && <p data-testid="escrow-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Loading…</p>}
-                {escrow.status === 'error' && <p data-testid="escrow-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>}
-                {escrow.status === 'ready' && <p data-testid="escrow-usd-value" className="text-2xl font-bold mt-1">${escrow.usd.toLocaleString()}</p>}
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {escrow.status === 'ready'
-                    ? `${escrow.count} active purchase escrow${escrow.count !== 1 ? 's' : ''}`
-                    : escrow.status === 'error'
-                      ? 'Could not load your escrows'
-                      : 'Checking your escrows'}
-                </p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center">
-                <Shield className="w-5 h-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase font-semibold">Auto-calculated Trust Index</p>
-                <p data-testid="trust-index-value" className="text-lg font-semibold mt-1 text-gray-500">Not calculated</p>
-                <p data-testid="trust-index-label" className="text-[10px] text-gray-400 font-medium mt-1">Verification pending</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-500 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Grid */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* My Garage */}
-          <Card className="border-0 card-shadow">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">My Vehicles</CardTitle>
-              <Button variant="ghost" size="sm" asChild>
-                <Link to="/dashboard/garage" className="gap-1">View All <ArrowRight className="w-4 h-4" /></Link>
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {vehicles.slice(0, 3).map((vehicle) => {
-                const trust = readOwnerTrustClaim(vehicle)
-                return (
-                <Link key={vehicle.vin} to={`/dashboard/garage/${vehicle.vin}`} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors group">
-                  {/* An unrelated stock car is a claim about this vehicle's condition. ListingImage
-                      renders a neutral "Image unavailable" placeholder instead. */}
-                  {!lowBandwidth && (
-                    <OwnerListingMedia
-                      media={vehicle.listing_media}
-                      alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
-                      className="w-20 h-14 rounded-lg overflow-hidden shrink-0"
+        {vehiclesState === 'ready' && vehicles.length > 0 ? (
+          <div className="divide-y divide-slate-200 border-y border-slate-200">
+            {vehicles.slice(0, 3).map(vehicle => {
+              const trust = readOwnerTrustClaim(vehicle)
+              const draft = !isPublished(vehicle) && !isSold(vehicle) && hasSellerThread(vehicle, user?.id)
+              return (
+                <article key={vehicle.vin} className="grid gap-5 py-6 sm:grid-cols-[180px_1fr_auto] sm:items-center">
+                  {!lowBandwidth ? (
+                    <ListingImage
+                      src={primaryListingImageUrl(vehicle.listing_media)}
+                      alt={`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle media'}
+                      className="h-32 overflow-hidden bg-slate-100"
+                      imgClassName="h-full w-full"
                     />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-sm text-gray-800">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-                      <Badge variant="outline" className="text-[10px]">{vehicle.vin}</Badge>
-                    </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                      <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{statedMileage(vehicle.mileage)}</span>
-                    </div>
-                    <div className="mt-2" data-testid={`trust-claim-${vehicle.vin}`}>
+                  ) : <div className="flex h-20 items-center justify-center bg-slate-100 text-xs text-slate-500">Image not loaded</div>}
+                  <div className="min-w-0">
+                    <h3 className="text-xl font-black tracking-[-0.03em] text-slate-950">
+                      {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle identity incomplete'}
+                    </h3>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400">{vehicle.vin}</p>
+                    <p className="mt-2 text-xs text-slate-500"><Gauge className="mr-1 inline h-3.5 w-3.5" />{statedMileage(vehicle.mileage)}</p>
+                    <div className="mt-3" data-testid={`trust-claim-${vehicle.vin}`}>
                       {trust.score !== null ? (
                         <>
-                          <span className="text-xs text-gray-500">
-                            Trust Index: <b data-testid={`trust-claim-score-${vehicle.vin}`}>{trust.score} / 100</b> · {trust.headline}
-                          </span>
-                          <Progress value={trust.score} className="h-1 mt-1" indicatorClassName="bg-orange-500" />
+                          <p className="text-xs font-bold text-slate-700">
+                            Canonical Trust: <span data-testid={`trust-claim-score-${vehicle.vin}`}>{trust.score} / 100</span> · {trust.headline}
+                          </p>
+                          <Progress value={trust.score} className="mt-2 h-1.5" />
                         </>
                       ) : (
-                        /* No bar at all. A track drawn at 0% is a measurement, and none was made —
-                           the empty track WAS the fabrication, not the missing number beside it. */
-                        <span className="text-xs italic text-gray-400" data-testid={`trust-claim-state-${vehicle.vin}`}>
-                          Trust Index: {trust.headline}
-                        </span>
+                        <p className="text-xs font-bold text-slate-500" data-testid={`trust-claim-state-${vehicle.vin}`}>
+                          Canonical Trust: {trust.headline}
+                        </p>
                       )}
                     </div>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-orange-500 transition-colors" />
-                </Link>
-                )
-              })}
-            </CardContent>
-          </Card>
+                  <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
+                    <Link to={draft ? `/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}` : `/dashboard/garage/${encodeURIComponent(vehicle.vin)}`}>
+                      {draft ? 'Continue listing' : 'Open Passport'} <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                </article>
+              )
+            })}
+          </div>
+        ) : vehiclesState === 'ready' ? (
+          <p className="border-y border-slate-200 py-8 text-sm text-slate-500">No vehicle is recorded in this Garage yet.</p>
+        ) : vehiclesState === 'unavailable' ? (
+          <p className="border-y border-amber-200 bg-amber-50 px-4 py-7 text-sm text-slate-700">Garage read unavailable — this is not an empty-Garage claim.</p>
+        ) : (
+          <p className="border-y border-slate-200 py-8 text-sm text-slate-500" role="status">Loading vehicles…</p>
+        )}
+      </section>
 
-          {/* Digital Document Vault.
-              The upload control is disabled on purpose. It previously called the OCR endpoint with a
-              hardcoded mock payload, so a user who never chose a file still got a success toast and a
-              fabricated document row. There is no per-user document store to upload into yet, so the
-              honest state is an unavailable control and an empty vault — not a simulated upload. */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Digital Document Vault</CardTitle>
-              <Button
-                size="sm"
-                disabled
-                data-testid="ocr-upload-btn"
-                title="Document upload is not available from this dashboard yet"
-                className="gap-1 text-xs font-semibold"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                Upload unavailable
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-3" data-testid="document-vault-list">
-              <p data-testid="document-vault-empty" className="text-xs text-gray-500 py-2">
-                No documents uploaded yet.
-              </p>
-              <p data-testid="document-vault-unavailable" className="text-[10px] text-gray-400">
-                Document upload is not available from this dashboard yet.
-              </p>
-            </CardContent>
-          </Card>
+      <section className="grid gap-8 lg:grid-cols-2" data-testid="owner-priority-buyer-activity">
+        <div className="border-y border-slate-200 py-6">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 3</p>
+          <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Buyer activity</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-600">Inquiries, listing lifecycle and performance stay attached to My Listings. No buyer count is invented when the Communications/Intelligence authorities are unread.</p>
+          <Button variant="outline" className="mt-5 min-h-11 rounded-none font-bold" asChild>
+            <Link to="/dashboard/listings">Open buyer activity <ArrowRight className="ml-2 h-4 w-4" /></Link>
+          </Button>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* There is no per-user valuation history endpoint, so this card must not plot a series.
-              It previously rendered a fixed $28k→$26.3k trend for every account, including brand-new
-              ones with no vehicles at all. */}
-          {!lowBandwidth && (
-            <Card className="border-0 card-shadow bg-white">
-              <CardHeader className="pb-3"><CardTitle className="text-lg">Vehicle Value Trend</CardTitle></CardHeader>
-              <CardContent>
-                <p data-testid="value-trend-unavailable" className="text-xs text-gray-500 py-2">
-                  Valuation history is not available for your account yet.
-                </p>
-              </CardContent>
-            </Card>
-          )}
+        <div className="border-y border-slate-200 py-6" data-testid="owner-priority-trust">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 4</p>
+          <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Trust &amp; evidence readiness</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            {awaitingTrust === null
+              ? 'Trust/evidence readiness is unavailable because the Garage read did not complete.'
+              : awaitingTrust === 0
+                ? 'Every loaded vehicle currently carries an evaluated canonical Trust state.'
+                : `${awaitingTrust} loaded ${awaitingTrust === 1 ? 'vehicle has' : 'vehicles have'} no completed canonical Trust assessment.`}
+          </p>
+          <Button variant="outline" className="mt-5 min-h-11 rounded-none font-bold" asChild>
+            <Link to="/dashboard/evidence">Open Evidence Vault <ArrowRight className="ml-2 h-4 w-4" /></Link>
+          </Button>
+        </div>
+      </section>
 
-          {/* Quick Actions */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Quick Actions</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              {[
-                { label: 'Add Vehicle', icon: Plus, href: '/dashboard/garage' },
-                { label: 'Service History', icon: Wrench, href: '/dashboard/service-history' },
-                { label: 'Insurance Records', icon: Shield, href: '/dashboard/insurance' },
-                { label: 'PartSentry', icon: FileText, href: '/dashboard/partsentry' },
-                { label: 'Gutu AI Assistant', icon: MessageSquare, href: '/dashboard/ai' },
-              ].map((action) => (
-                <Link
-                  key={action.label}
-                  to={action.href}
-                  className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                >
-                  <action.icon className="w-4 h-4 text-orange-500" />
-                  <span className="flex-1 font-semibold">{action.label}</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
+      <section data-testid="owner-priority-operating-records">
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 5</p>
+        <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Service, insurance &amp; PartSentry</h2>
+        <div className="mt-5 grid gap-px bg-slate-200 sm:grid-cols-3">
+          {[
+            ['Service history', 'Governed maintenance records', '/dashboard/service-history', Wrench],
+            ['Insurance records', 'Recorded insurance/claim history', '/dashboard/insurance', Shield],
+            ['PartSentry', 'Parts provenance and tracked components', '/dashboard/partsentry', FileText],
+          ].map(([label, detail, href, Icon]) => (
+            <Link key={String(label)} to={String(href)} className="group bg-white p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">
+              <Icon className="h-5 w-5 text-orange-600" />
+              <p className="mt-4 font-black text-slate-950">{String(label)}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">{String(detail)}</p>
+              <span className="mt-4 inline-flex items-center text-xs font-black text-slate-600 group-hover:text-orange-600">Open <ArrowRight className="ml-1 h-3.5 w-3.5" /></span>
+            </Link>
+          ))}
+        </div>
+      </section>
 
-          {/* Notifications */}
-          <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Notifications</CardTitle>
-                {/* The badge is a COUNT, so it may only exist once something has been counted. It was
-                    rendered unconditionally off `recentNotifications`, which is [] both before the
-                    read settles and after it fails — so a pending or broken read published a
-                    measured "0 new". The same file already gates `unreadNotifications` on this exact
-                    state; this is that rule applied to the surface a user actually reads. */}
-                {notificationsState === 'ready' && (
-                  <Badge className="bg-orange-100 text-orange-700 text-[10px]">{recentNotifications.filter(n => !n.read).length} new</Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {notificationsState === 'loading' ? (
-                <p className="text-xs text-gray-600" data-testid="owner-notifications-not-read">
-                  Your notifications have not been read yet. No count is shown, because none has been counted.
-                </p>
-              ) : notificationsState === 'unavailable' ? (
-                <p className="text-xs text-gray-600" data-testid="owner-notifications-unavailable">
-                  CarUp could not read your notifications. This is NOT “you have no notifications” — nothing below has been counted.
-                </p>
-              ) : recentNotifications.length === 0 ? (
-                <p className="text-xs text-gray-600" data-testid="owner-notifications-none">
-                  No notifications yet.
-                </p>
-              ) : recentNotifications.map((n) => (
-                <div key={n.id} className={`p-3 rounded-lg ${n.read ? 'bg-gray-50' : 'bg-orange-50 border border-orange-100 text-xs'}`}>
-                  <div className="flex items-start gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
-                    <div>
-                      <p className="font-semibold text-gray-800">{n.title}</p>
-                      <p className="text-gray-500 mt-0.5">{n.message}</p>
-                    </div>
-                  </div>
+      <section className="grid gap-8 xl:grid-cols-[0.72fr_1.28fr]">
+        <div className="border-y border-slate-200 py-6" data-testid="owner-priority-communications">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 6</p>
+          <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Communications</h2>
+          <div className="mt-2">
+            {notificationsState === 'loading' ? (
+              <span className="text-xs font-bold text-slate-500" data-testid="owner-notifications-not-read">
+                Notification count not read yet
+              </span>
+            ) : notificationsState === 'unavailable' ? (
+              <span className="text-xs font-bold text-amber-700" data-testid="owner-notifications-unavailable">
+                Could not read notifications
+              </span>
+            ) : (
+              <span
+                className="text-xs font-bold text-slate-600"
+                data-testid={liveNotifications.length === 0 ? 'owner-notifications-none' : 'owner-notifications-count'}
+              >
+                {unreadNotifications} new
+              </span>
+            )}
+          </div>
+          {notificationsState === 'unavailable' ? (
+            <p className="mt-4 text-sm text-slate-600">Notification state is unavailable, not zero.</p>
+          ) : recentNotifications.length ? (
+            <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
+              {recentNotifications.map(item => (
+                <div key={item.id} className="py-3">
+                  <p className="text-sm font-black text-slate-900">{item.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{item.message}</p>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">{notificationsState === 'loading' ? 'Loading communications activity…' : 'No notifications recorded.'}</p>
+          )}
+          <Button variant="outline" className="mt-5 min-h-11 rounded-none font-bold" asChild>
+            <Link to="/dashboard/communications"><MessageSquare className="mr-2 h-4 w-4" /> Open Communications</Link>
+          </Button>
         </div>
-      </div>
+
+        <div className="border-y border-slate-200 py-6" data-testid="owner-priority-intelligence">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Priority 7</p>
+              <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-slate-950">Seller Intelligence</h2>
+              <p className="mt-2 text-sm text-slate-500">Measured Marketplace activity only; unread signals remain unavailable rather than becoming decorative zeroes.</p>
+            </div>
+            <Button variant="outline" className="min-h-11 rounded-none font-bold" asChild>
+              <Link to="/dashboard/intelligence"><BarChart3 className="mr-2 h-4 w-4" /> Open cockpit</Link>
+            </Button>
+          </div>
+          <div className="mt-5"><MarketplacePulse /></div>
+          <Link to="/dashboard/ai" className="mt-4 inline-flex min-h-11 items-center text-xs font-bold text-slate-500 hover:text-slate-900">
+            Gutu AI vehicle assistant <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          </Link>
+        </div>
+      </section>
+
+      <details className="border-t border-slate-200 pt-5 text-sm" data-testid="owner-unavailable-capabilities">
+        <summary className="cursor-pointer font-bold text-slate-600">Unavailable or not-yet-governed account capabilities</summary>
+        <div className="mt-5 grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Automotive Wallet (USD)</p>
+            <p data-testid="wallet-usd-value" className="mt-2 font-bold text-slate-500">Not available</p>
+          </div>
+          <div className="bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Automotive Wallet (ZiG)</p>
+            <p data-testid="wallet-zig-value" className="mt-2 font-bold text-slate-500">Not available</p>
+          </div>
+          <div className="bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Account-wide Trust index</p>
+            <p data-testid="trust-index-value" className="mt-2 font-bold text-slate-500">Not calculated</p>
+            <p data-testid="trust-index-label" className="mt-1 text-xs text-slate-400">Verification pending</p>
+          </div>
+          <div className="bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Vehicle value trend</p>
+            <p data-testid="value-trend-unavailable" className="mt-2 text-xs leading-5 text-slate-500">Valuation history is not available for your account yet.</p>
+          </div>
+        </div>
+
+        <div className="mt-px grid gap-px bg-slate-200 sm:grid-cols-2">
+          <div className="bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">SafePay escrow authority</p>
+            <p data-testid="escrow-usd-value" className="mt-2 font-bold text-slate-700">
+              {escrow.status === 'loading' ? 'Loading…' : escrow.status === 'error' ? 'Not available' : `$${escrow.usd.toLocaleString()}`}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {escrow.status === 'ready' ? `${escrow.count} active purchase escrow${escrow.count === 1 ? '' : 's'}` : escrow.status === 'error' ? 'Could not load your escrows' : 'Checking your escrows'}
+            </p>
+          </div>
+          <div className="bg-white p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Digital Document Vault</p>
+            <p data-testid="document-vault-empty" className="mt-2 text-xs text-slate-500">No documents uploaded yet.</p>
+            <p data-testid="document-vault-unavailable" className="mt-1 text-xs text-slate-400">Document upload is not available from this dashboard yet.</p>
+            <Button size="sm" disabled data-testid="ocr-upload-btn" className="mt-3 rounded-none">
+              <Upload className="mr-1.5 h-3.5 w-3.5" /> Upload unavailable
+            </Button>
+          </div>
+        </div>
+      </details>
     </div>
   )
 }

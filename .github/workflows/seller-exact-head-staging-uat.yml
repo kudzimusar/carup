@@ -141,6 +141,7 @@ jobs:
             'database/migrations/20260830123000_seller_listing_photo_labels.sql',
             'database/migrations/20260831100000_seller_listing_submission_id.sql',
             'database/migrations/20260831150000_seller_vehicle_history_disclosures.sql',
+            'database/migrations/20260928133000_seller_intelligence_compare_funnel.sql',
             'database/migrations/20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql',
             'database/migrations/20260902123000_auth_activity_not_conversation.sql',
           ]
@@ -165,10 +166,11 @@ jobs:
                    or (table_name='vehicles' and column_name='seller_accident_disclosure')
                    or (table_name='vehicles' and column_name='seller_insurance_disclosure')
                    or (table_name='vehicles' and column_name='seller_finance_disclosure')
+                   or (table_name='seller_daily_metrics' and column_name='compare_adds')
                  )
                order by table_name, column_name
             `)
-            if (columnProof.rows.length !== 5) {
+            if (columnProof.rows.length !== 6) {
               throw new Error(`Seller additive columns did not land: ${JSON.stringify(columnProof.rows)}`)
             }
 

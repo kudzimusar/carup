@@ -1,0 +1,38 @@
+name: Seller Phase O Owner Dashboard Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/vehicle-passport-v16-cert
+    paths:
+      - 'web/src/pages/dashboard/owner/OwnerDashboard.tsx'
+      - 'web/src/pages/dashboard/owner/OwnerDashboard.*.test.*'
+      - 'web/src/components/intelligence/**'
+      - '.github/workflows/seller-phase-o-owner-dashboard.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  owner-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Owner Dashboard priority, truthfulness and Trust contracts
+        run: |
+          npm run test:unit --workspace=web -- \
+            src/pages/dashboard/owner/OwnerDashboard.convergence.test.ts \
+            src/pages/dashboard/owner/OwnerDashboard.identity.test.tsx \
+            src/pages/dashboard/owner/OwnerDashboard.trust.test.tsx \
+            src/pages/dashboard/owner/OwnerDashboard.truthfulness.test.tsx
+      - name: Web production build
+        run: npm run build --workspace=web

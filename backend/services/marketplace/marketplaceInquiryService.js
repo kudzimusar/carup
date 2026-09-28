@@ -147,6 +147,11 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
   const persistCommunicationEvent = deps.emitCommunicationEvent || persistDomainEvent;
+  // Q10: canonical in-app conversation materialization must not depend on the serverless
+  // outbox scheduler or any external provider. The durable event remains the recovery/replay
+  // authority; this optional seam lets the HTTP request run the SAME idempotent Communications
+  // orchestrator immediately after the event is durable.
+  const canonicalizeCommunicationInquiry = deps.canonicalizeCommunicationInquiry || null;
 
   const inquiryType = String(payload.inquiry_type || '').trim();
   if (!MARKETPLACE_INQUIRY_TYPES.includes(inquiryType)) {
@@ -227,8 +232,9 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   // Communications 2.0 invariant: a successful Marketplace inquiry must have its durable canonical
   // conversation event. The inquiry row may already exist if this outbox write fails, so fail closed
   // and return a recovery id rather than pretending the journey succeeded.
+  let communicationEvent;
   try {
-    await persistCommunicationEvent(null, 'marketplace.inquiry.created', {
+    communicationEvent = await persistCommunicationEvent(null, 'marketplace.inquiry.created', {
       inquiryId: inserted.id,
       listingId: listingId || null,
       inquiry_type: inquiryType,
@@ -245,6 +251,25 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
       inquiry_id: inserted.id,
       recovery_required: true,
     });
+  }
+
+  // The event is durable BEFORE this call. On Vercel the background interval is intentionally
+  // disabled, and staging/preview may have no CRON/worker secret or provider credentials at all.
+  // Phase Q still requires the in-app buyer↔seller conversation to exist. Run the canonical
+  // Communications orchestrator inline when the HTTP route supplies it; the pending outbox row is
+  // deliberately left intact so the normal worker can replay/recover later. Canonicalization is
+  // idempotent by inquiry/thread/message identity, so worker replay cannot create a shadow thread.
+  if (canonicalizeCommunicationInquiry) {
+    try {
+      await canonicalizeCommunicationInquiry(communicationEvent);
+    } catch (error) {
+      throw new DatabaseError('Failed to materialize canonical in-app conversation for inquiry.', {
+        reason: error.message,
+        inquiry_id: inserted.id,
+        event_id: communicationEvent?.id || null,
+        recovery_required: true,
+      });
+    }
   }
 
   let referralLeadEventId = null;

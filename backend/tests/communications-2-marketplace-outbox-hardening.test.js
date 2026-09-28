@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL ||= 'http://127.0.0.1:54321';
@@ -67,4 +68,84 @@ test('Marketplace inquiry cannot report success when canonical communication out
 
   assert.equal(client.tables.marketplace_inquiries.length, 1, 'the already-written inquiry remains explicitly recoverable');
   assert.equal(client.tables.marketplace_inquiries[0].message, 'Exact buyer text that must not be silently lost');
+});
+
+test('Marketplace inquiry materializes the same durable communication event inline when a canonicalizer is supplied', async () => {
+  const client = new MinimalMarketplaceClient();
+  const events = [];
+  const canonicalized = [];
+  const referralBridge = {
+    async emitMarketplaceReferralEvent() { return { emitted: false }; },
+  };
+
+  const result = await createInquiry(client, {
+    listing_id: 'VIN-C2-OUTBOX',
+    inquiry_type: 'vehicle_purchase_interest',
+    message: 'Please contact me inside CarUp.',
+    guest_name: 'In-app Buyer',
+    guest_email: 'buyer@example.test',
+    source_channel: 'web',
+  }, null, {
+    referralBridge,
+    emitCommunicationEvent: async (_pg, eventType, payload, tenantId) => {
+      const event = { id: 'evt-inline-1', event_type: eventType, payload, tenant_id: tenantId, status: 'pending' };
+      events.push(event);
+      return event;
+    },
+    canonicalizeCommunicationInquiry: async (event) => {
+      canonicalized.push(event);
+      return [{ thread: { id: 'thread-inline-1' } }];
+    },
+    emitDomainEvent: async () => ({ id: 'unused' }),
+  });
+
+  assert.equal(result.id, client.tables.marketplace_inquiries[0].id);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event_type, 'marketplace.inquiry.created');
+  assert.equal(events[0].payload.inquiryId, result.id);
+  assert.equal(events[0].status, 'pending', 'inline materialization must not erase the durable recovery event');
+  assert.equal(canonicalized.length, 1);
+  assert.equal(canonicalized[0], events[0], 'inline path must consume the exact durable event record');
+});
+
+test('Marketplace inquiry fails closed when inline canonical conversation materialization fails', async () => {
+  const client = new MinimalMarketplaceClient();
+  const referralBridge = {
+    async emitMarketplaceReferralEvent() { return { emitted: false }; },
+  };
+  let durableEvent = null;
+
+  await assert.rejects(
+    () => createInquiry(client, {
+      listing_id: 'VIN-C2-OUTBOX',
+      inquiry_type: 'vehicle_purchase_interest',
+      message: 'This inquiry must remain recoverable.',
+      guest_name: 'Recovery Buyer',
+      guest_email: 'recovery@example.test',
+      source_channel: 'web',
+    }, null, {
+      referralBridge,
+      emitCommunicationEvent: async (_pg, eventType, payload, tenantId) => {
+        durableEvent = { id: 'evt-recovery-1', event_type: eventType, payload, tenant_id: tenantId, status: 'pending' };
+        return durableEvent;
+      },
+      canonicalizeCommunicationInquiry: async () => { throw new Error('simulated inline canonicalizer outage'); },
+      emitDomainEvent: async () => ({ id: 'unused' }),
+    }),
+    (error) => error instanceof DatabaseError
+      && /canonical in-app conversation/i.test(error.message)
+      && error.details?.recovery_required === true,
+  );
+
+  assert.equal(client.tables.marketplace_inquiries.length, 1, 'durable inquiry remains for recovery');
+  assert.equal(durableEvent?.status, 'pending', 'durable event remains replayable by the outbox worker');
+  assert.equal(durableEvent?.payload?.inquiryId, client.tables.marketplace_inquiries[0].id);
+});
+
+test('Marketplace HTTP route injects the canonical Communications orchestrator into inquiry capture', () => {
+  const source = readFileSync(new URL('../routes/marketplaceRoutes.js', import.meta.url), 'utf8');
+  assert.match(source, /createCommunicationServices/);
+  assert.match(source, /canonicalizeMarketplaceInquiryInline/);
+  assert.match(source, /canonicalizeCommunicationInquiry:\s*canonicalizeMarketplaceInquiryInline/);
+  assert.match(source, /\.orchestrator\.handleDomainEvent\(event\)/);
 });

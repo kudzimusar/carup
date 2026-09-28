@@ -27,7 +27,7 @@ import { ROLLUP_EXCLUDED_FLAGS } from './activityEventTypes.js';
  * Bump when ANY number below changes meaning. Rollup rows are keyed by version,
  * so two versions coexist and a surface can never blend them silently.
  */
-export const ROLLUP_CALCULATION_VERSION = 'rollup@1';
+export const ROLLUP_CALCULATION_VERSION = 'rollup@2';
 
 const LEDGER = 'marketplace_activity_events';
 const RUNS = 'intelligence_rollup_runs';
@@ -150,6 +150,7 @@ export function computeScopeMetrics(events) {
     unique_viewers: countDistinct(business, isType('marketplace_listing_opened')),
     saves: business.filter(isType('marketplace_listing_saved')).length,
     unsaves: business.filter(isType('marketplace_listing_unsaved')).length,
+    compare_adds: business.filter(isType('marketplace_compare_added')).length,
     shares_confirmed: shares.filter((e) => e.metadata?.share_resolution === 'confirmed').length,
     inquiry_starts: business.filter(isType('marketplace_inquiry_started')).length,
     source_event_count: events.length,
@@ -358,6 +359,7 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
 
     const inquiriesBySeller = new Map();
     const inspectionsBySeller = new Map();
+    const reservationsBySeller = new Map();
     const inquiriesByTenant = new Map();
     const inspectionsByTenant = new Map();
     for (const row of inquiryRows) {
@@ -372,6 +374,17 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
       }
     }
 
+    // Reservation is the current governed transaction-handoff signal. Attribute it through the
+    // same listing→Seller authority map rather than inventing a user relation from the event ledger.
+    for (const row of reservationRows) {
+      const owner = ownerByVin.get(row.vin);
+      if (!owner?.sellerUserId) continue;
+      reservationsBySeller.set(
+        owner.sellerUserId,
+        (reservationsBySeller.get(owner.sellerUserId) || 0) + 1,
+      );
+    }
+
     const sellerRows = [];
     for (const [sellerId, bucket] of bySeller.entries()) {
       sellerRows.push({
@@ -382,7 +395,7 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
         ...computeScopeMetrics(bucket.events),
         inquiries: inquiriesBySeller.get(sellerId) || 0,
         inspections: inspectionsBySeller.get(sellerId) || 0,
-        reservations: 0,
+        reservations: reservationsBySeller.get(sellerId) || 0,
         calculation_version: calculationVersion,
         computed_at: new Date().toISOString(),
       });

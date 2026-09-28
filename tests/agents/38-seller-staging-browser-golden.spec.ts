@@ -187,8 +187,10 @@ async function retireStaleAutomationVehicles(
   }
 }
 
-async function expectMeaningfulRenderedImage(page: Page) {
-  const image = page.getByTestId('vehicle-image').first();
+async function expectMeaningfulRenderedImage(
+  page: Page,
+  image = page.getByTestId('vehicle-image').first(),
+) {
   await expect(image).toBeVisible();
   // Visibility can precede image decode: wait for the browser to finish loading a genuinely
   // meaningful asset instead of sampling naturalWidth/naturalHeight during the transient 0x0 state.
@@ -491,8 +493,27 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await page.getByTestId(`publish-toggle-${vin}`).click();
     await expect(page.getByTestId(`publication-badge-${vin}`)).toContainText('Published', { timeout: 20_000 });
 
-    // Drop Seller auth and prove the VIN is genuinely public through the real Marketplace.
+    // Phase P: ordinary Home must still exclude automation from human discovery, while the explicit
+    // preview fixture scope proves the SAME Home ranking/card contract can render this newly
+    // published Seller cover on desktop/tablet/mobile.
     await page.evaluate(() => localStorage.clear());
+    await page.goto('/');
+    await expect(page.getByTestId('home-live-inventory')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('home-live-inventory').locator(`a[href^="/marketplace/${vin}"]`)).toHaveCount(0);
+
+    await page.goto(`/?fixture_scope=${encodeURIComponent(RUN_ID)}`);
+    await expect(page.getByTestId('home-live-inventory').locator(`a[href^="/marketplace/${vin}"]`).first()).toBeVisible({ timeout: 20_000 });
+    const scopedHero = page.getByTestId('featured-view-passport');
+    if ((await scopedHero.getAttribute('href'))?.startsWith(`/marketplace/${vin}`)) {
+      await expect(page.getByTestId('home-live-showroom-media-fallback')).toHaveCount(0);
+      await expectMeaningfulRenderedImage(page, scopedHero.locator('img').first());
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`phase-p-home-published-${testInfo.project.name}.png`),
+      fullPage: true,
+    });
+
+    // Drop Seller auth and prove the VIN is genuinely public through the real Marketplace.
     // Drive the shareable Marketplace search contract directly through its governed URL state.
     // Typing into the command bar is intentionally debounced; using the URL avoids making UAT
     // timing-sensitive while still exercising the real Marketplace page + backend q filter.
@@ -588,6 +609,57 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     await expect(inquiryInbox).toContainText(vin, { timeout: 20_000 });
     await expect(inquiryInbox).toContainText(`Is ${vin} still available for inspection?`, { timeout: 20_000 });
 
+    // Phase Q: the durable inquiry row is only the ingress. Wait for the asynchronous outbox to
+    // materialize the canonical Communications thread, then use the real in-app Communications UI
+    // to read the exact buyer message and send the Seller reply. This bounded poll fails rather than
+    // silently accepting an inbox-only state.
+    const sellerCommunicationHeaders = baseHeaders(cleanupAuth);
+    let projectedThreadId: string | null = null;
+    await expect.poll(async () => {
+      const response = await request.get(`${API_URL}/communications/threads`, {
+        headers: sellerCommunicationHeaders,
+      });
+      if (response.status() !== 200) return 0;
+      const body = await response.json() as {
+        threads?: Array<{ id?: string; marketplace_listing_id?: string | null }>;
+      };
+      const thread = (body.threads || []).find(item =>
+        String(item.marketplace_listing_id || '').toUpperCase() === vin.toUpperCase()
+      );
+      projectedThreadId = thread?.id || null;
+      return projectedThreadId ? 1 : 0;
+    }, {
+      message: 'Marketplace inquiry never projected into canonical Communications thread',
+      timeout: 90_000,
+      intervals: [1000, 2000, 5000],
+    }).toBe(1);
+
+    await page.goto('/dashboard/communications');
+    await page.getByTestId('communication-search').fill(vin);
+    const communicationThread = page.locator(`button[data-marketplace-listing-id="${vin}"]`).first();
+    await expect(communicationThread).toBeVisible({ timeout: 20_000 });
+    await communicationThread.click();
+    await expect(page.getByTestId('communication-active-listing')).toContainText(vin, { timeout: 20_000 });
+    await expect(page.getByTestId('communication-message-text')).toContainText(
+      `Is ${vin} still available for inspection?`,
+      { timeout: 20_000 },
+    );
+    const sellerReply = `Thanks for your inquiry about ${vin}. We can continue through CarUp.`;
+    await page.getByTestId('communication-reply-text').fill(sellerReply);
+    const replyWait = page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+      && response.url().includes(`/api/communications/threads/${projectedThreadId}/messages`)
+    );
+    await page.getByTestId('communication-reply-send').click();
+    const replyResponse = await replyWait;
+    expect(replyResponse.status(), await replyResponse.text()).toBe(201);
+    await expect(page.getByTestId('communication-status')).toContainText('Sent through CarUp', { timeout: 20_000 });
+    await expect(page.getByTestId('communication-message-text')).toContainText(sellerReply, { timeout: 20_000 });
+    await page.screenshot({
+      path: testInfo.outputPath(`phase-q-communications-${testInfo.project.name}.png`),
+      fullPage: true,
+    });
+
     // Phase N: a successful write is not enough. Recompute the governed read model for the UTC day
     // that contains this real inquiry, then require the Seller projection to observe it. The reviewer
     // is a proven staging admin using the same authenticated + CSRF path as any manual rollup.
@@ -664,11 +736,44 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     });
     expect(unsaveResponse.status(), await unsaveResponse.text()).toBe(200);
 
-    // Unpublish from the Seller UI, then mark sold so the UAT vehicle is retired from active stock.
+    // Phase R: prove the whole commerce lifecycle. Unpublish first and prove public discovery/Home
+    // withdraw the listing, then republish it and prove it returns before the terminal sold state.
     await page.getByTestId(`publish-toggle-${vin}`).click();
     await expect(page.getByTestId(`publication-badge-${vin}`)).toContainText('Ready to publish', { timeout: 20_000 });
+
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(RUN_ID)}`);
+    await expect(page.getByTestId('marketplace-results-count')).toContainText('0', { timeout: 20_000 });
+    await page.goto(`/?fixture_scope=${encodeURIComponent(RUN_ID)}`);
+    await expect(page.getByTestId('home-live-inventory').locator(`a[href^="/marketplace/${vin}"]`)).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`phase-p-home-unpublished-${testInfo.project.name}.png`),
+      fullPage: true,
+    });
+
+    await signInViaUi(page, 'buyer');
+    cleanupAuth = await authFromPage(page);
+    await page.goto('/dashboard/listings');
+    await page.getByTestId(`publish-toggle-${vin}`).click();
+    await expect(page.getByTestId(`publication-badge-${vin}`)).toContainText('Published', { timeout: 20_000 });
+
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(`/marketplace?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(RUN_ID)}`);
+    await expect(page.getByTestId('marketplace-results-count')).toContainText('1', { timeout: 20_000 });
+    await expect(page.locator(`a[href^="/marketplace/${vin}"]`).first()).toBeVisible();
+
+    // Terminal sale happens only after the republished listing has been independently rediscovered.
+    await signInViaUi(page, 'buyer');
+    cleanupAuth = await authFromPage(page);
+    await page.goto('/dashboard/listings');
+    const finalSellerCard = page.getByTestId(`my-listing-card-${vin}`);
     await page.getByTestId(`mark-sold-${vin}`).click();
-    await expect(sellerCard).toContainText(/Sold/i, { timeout: 20_000 });
+    await expect(finalSellerCard).toContainText(/Sold/i, { timeout: 20_000 });
+
+    // The durable Passport remains available to the owner after commerce ends.
+    await page.goto(`/dashboard/garage/${vin}`);
+    await expect(page.locator('body')).toContainText(vin, { timeout: 20_000 });
+    await expect(page.locator('body')).toContainText(/Vehicle Passport|Passport/i);
 
     // Public Marketplace must no longer expose the retired VIN.
     await page.evaluate(() => localStorage.clear());

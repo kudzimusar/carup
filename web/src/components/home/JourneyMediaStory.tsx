@@ -233,8 +233,9 @@ export function JourneyMediaStory({
     )
   }
 
-  return (
-    <div className={shell} data-testid="home-journey-media" data-scene="parts">
+  if (scene === 'parts') {
+    return (
+      <div className={shell} data-testid="home-journey-media" data-scene="parts">
       <div className="absolute left-6 top-8 h-32 w-32 rounded-full border-[14px] border-slate-800 shadow-[inset_0_0_0_5px_#cbd5e1] transition duration-500 motion-safe:group-hover:rotate-6">
         <div className="absolute inset-[34%] rounded-full bg-slate-500" />
       </div>
@@ -243,7 +244,10 @@ export function JourneyMediaStory({
         <p className="mt-3 text-[9px] font-black uppercase tracking-[0.15em] text-slate-400">Fitment</p>
         <p className="mt-1 max-w-[130px] text-xs font-black text-slate-900">Match the part to the vehicle</p>
       </div>
-      <Signal icon={ShieldCheck} eyebrow="PartSentry" label="Keep verification context" className="absolute bottom-4 right-4 max-w-[185px]" />
-    </div>
-  )
+        <Signal icon={ShieldCheck} eyebrow="PartSentry" label="Keep verification context" className="absolute bottom-4 right-4 max-w-[185px]" />
+      </div>
+    )
+  }
+
+  return null
 }
