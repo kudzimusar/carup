@@ -24,8 +24,8 @@ describe('SellerIntelligence listing comparison (SJO-5)', () => {
     // The four reads settle INDEPENDENTLY under Promise.allSettled, and a rejected owned-vehicles
     // read becomes []. Deriving the page state from the PULSE result alone meant a failed vehicles
     // read still rendered state 'ready' — with a table body of zero rows.
-    expect(SRC).toMatch(/vehiclesRead: vehicleResult\.status === 'fulfilled'/)
-    expect(SRC).toMatch(/const vehiclesRead = settled\?\.key === readKey \? settled\.vehiclesRead : false/)
+    expect(SRC).toMatch(/setVehiclesReadable\(vehicleResult\.status === 'fulfilled'\)/)
+    expect(SRC).toMatch(/vehiclesReadable === false/)
   })
 
   it('an unread listing set is stated, not rendered as "no listings"', () => {

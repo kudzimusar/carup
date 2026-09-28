@@ -187,8 +187,10 @@ async function retireStaleAutomationVehicles(
   }
 }
 
-async function expectMeaningfulRenderedImage(page: Page) {
-  const image = page.getByTestId('vehicle-image').first();
+async function expectMeaningfulRenderedImage(
+  page: Page,
+  image = page.getByTestId('vehicle-image').first(),
+) {
   await expect(image).toBeVisible();
   // Visibility can precede image decode: wait for the browser to finish loading a genuinely
   // meaningful asset instead of sampling naturalWidth/naturalHeight during the transient 0x0 state.
@@ -504,7 +506,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     const scopedHero = page.getByTestId('featured-view-passport');
     if ((await scopedHero.getAttribute('href'))?.startsWith(`/marketplace/${vin}`)) {
       await expect(page.getByTestId('home-live-showroom-media-fallback')).toHaveCount(0);
-      await expectMeaningfulRenderedImage(page);
+      await expectMeaningfulRenderedImage(page, scopedHero.locator('img').first());
     }
     await page.screenshot({
       path: testInfo.outputPath(`phase-p-home-published-${testInfo.project.name}.png`),

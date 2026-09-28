@@ -353,7 +353,22 @@ export default function SellerIntelligence() {
               </Link>
             </div>
 
-            <div className="mt-6 overflow-x-auto">
+            {vehiclesReadable === false ? (
+              <div
+                className="mt-6 border-l-2 border-amber-400 bg-amber-50 p-4 text-sm text-slate-700"
+                data-testid="seller-intelligence-listings-unavailable"
+              >
+                Owned listings could not be read. This is a read failure; it is not a statement that you have no listings.
+              </div>
+            ) : vehicles.length === 0 ? (
+              <div
+                className="mt-6 border-y border-slate-200 py-8 text-sm text-slate-500"
+                data-testid="seller-intelligence-no-listings"
+              >
+                You have no listings yet.
+              </div>
+            ) : (
+              <div className="mt-6 overflow-x-auto">
               <table className="w-full min-w-[780px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-300 text-[10px] font-black uppercase tracking-[0.13em] text-slate-400">
@@ -390,7 +405,8 @@ export default function SellerIntelligence() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            )}
           </section>
 
           <section className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
