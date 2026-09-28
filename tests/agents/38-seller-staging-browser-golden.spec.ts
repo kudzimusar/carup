@@ -650,7 +650,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     );
     await page.getByTestId('communication-reply-send').click();
     const replyResponse = await replyWait;
-    expect(replyResponse.status(), await replyResponse.text()).toBe(200);
+    expect(replyResponse.status(), await replyResponse.text()).toBe(201);
     await expect(page.getByTestId('communication-status')).toContainText('Sent through CarUp', { timeout: 20_000 });
     await expect(page.getByTestId('communication-message-text')).toContainText(sellerReply, { timeout: 20_000 });
     await page.screenshot({
