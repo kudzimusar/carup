@@ -21,8 +21,12 @@ describe('Seller master Phase N — decision-grade intelligence surface', () => 
     expect(page).toContain('seller-intelligence-time-series')
     expect(page).toContain('seller-intelligence-funnel')
     expect(page).toContain('seller-intelligence-listing-comparison')
+    expect(page).toContain('Drafts needing action')
     expect(page).toContain('Response state')
     expect(page).toContain('Inquiry distribution')
+    expect(page).toContain('Compare adds')
+    expect(page).toContain('Inspection requests')
+    expect(page).toContain('Transaction handoff · reservations')
   })
 
   it('refuses to fabricate unsupported geographic/source/price-response analytics', () => {
