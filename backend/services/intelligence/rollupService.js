@@ -27,7 +27,7 @@ import { ROLLUP_EXCLUDED_FLAGS } from './activityEventTypes.js';
  * Bump when ANY number below changes meaning. Rollup rows are keyed by version,
  * so two versions coexist and a surface can never blend them silently.
  */
-export const ROLLUP_CALCULATION_VERSION = 'rollup@1';
+export const ROLLUP_CALCULATION_VERSION = 'rollup@2';
 
 const LEDGER = 'marketplace_activity_events';
 const RUNS = 'intelligence_rollup_runs';
@@ -150,6 +150,7 @@ export function computeScopeMetrics(events) {
     unique_viewers: countDistinct(business, isType('marketplace_listing_opened')),
     saves: business.filter(isType('marketplace_listing_saved')).length,
     unsaves: business.filter(isType('marketplace_listing_unsaved')).length,
+    compare_adds: business.filter(isType('marketplace_compare_added')).length,
     shares_confirmed: shares.filter((e) => e.metadata?.share_resolution === 'confirmed').length,
     inquiry_starts: business.filter(isType('marketplace_inquiry_started')).length,
     source_event_count: events.length,
