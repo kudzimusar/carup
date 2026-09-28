@@ -141,6 +141,7 @@ export default function SellerIntelligence() {
   const [windowDays, setWindowDays] = useState<(typeof WINDOWS)[number]>(30)
   const [pulse, setPulse] = useState<SellerPulse | null>(null)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [vehiclesReadable, setVehiclesReadable] = useState<boolean | null>(null)
   const [listingInsights, setListingInsights] = useState<Record<string, ListingInsight | null>>({})
   const [inquiries, setInquiries] = useState<Inquiry[] | null>(null)
   const [threads, setThreads] = useState<Thread[] | null>(null)
@@ -163,6 +164,7 @@ export default function SellerIntelligence() {
         ? vehicleResult.value
         : []
       setVehicles(nextVehicles)
+      setVehiclesReadable(vehicleResult.status === 'fulfilled')
       setPulse(pulseResult.status === 'fulfilled' ? pulseResult.value as SellerPulse : null)
       setInquiries(inquiryResult.status === 'fulfilled' ? (inquiryResult.value.inquiries || []) as Inquiry[] : null)
       setThreads(threadResult.status === 'fulfilled' ? (threadResult.value.threads || []) as Thread[] : null)
@@ -210,6 +212,13 @@ export default function SellerIntelligence() {
 
   const unreadThreads = threads?.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0) ?? null
   const marketplaceThreads = threads?.filter(thread => Boolean(thread.marketplace_listing_id)).length ?? null
+  const draftsNeedingAction = vehiclesReadable === true
+    ? vehicles.filter(vehicle => {
+        const publication = String(vehicle.publication_status || '').toLowerCase()
+        const lifecycle = String(vehicle.status || '').toLowerCase()
+        return publication !== 'published' && lifecycle !== 'sold'
+      }).length
+    : null
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-9" data-testid="seller-intelligence-page">
@@ -273,8 +282,13 @@ export default function SellerIntelligence() {
         <>
           <section className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-6" data-testid="seller-intelligence-kpi-band">
             <SignalCard label="Active listings" value={metricCopy(metrics.active_listings)} detail="Measured active inventory" icon={BarChart3} />
-            <SignalCard label="Listing views" value={metricCopy(metrics.views)} detail="Listing opens in this window" icon={Eye} />
-            <SignalCard label="Unique visitors" value={metricCopy(metrics.unique_viewers)} detail="Governed distinct-viewer basis" icon={Users} />
+            <SignalCard
+              label="Drafts needing action"
+              value={draftsNeedingAction === null ? 'Unavailable' : String(draftsNeedingAction)}
+              detail={draftsNeedingAction === null ? 'Owned-listing read failed' : 'Unpublished active Seller drafts'}
+              icon={RefreshCw}
+            />
+            <SignalCard label="Listing views" value={metricCopy(metrics.views)} detail="Tracked listing opens in this window" icon={Eye} />
             <SignalCard label="Saves" value={metricCopy(metrics.saves)} detail="Authoritative saved-listing actions" icon={Heart} />
             <SignalCard label="Inquiries" value={metricCopy(metrics.inquiries)} detail="Authoritative inquiry rows" icon={MessageSquare} />
             <SignalCard
@@ -299,13 +313,16 @@ export default function SellerIntelligence() {
 
             <div className="border-y border-slate-200 py-6" data-testid="seller-intelligence-funnel">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-600">Conversion funnel</p>
-              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">From discovery to contact</h2>
+              <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">From discovery to transaction handoff</h2>
               <div className="mt-6 space-y-3">
                 {[
                   ['Impressions', metrics.impressions],
                   ['Views', metrics.views],
                   ['Saves', metrics.saves],
+                  ['Compare adds', metrics.compare_adds],
                   ['Inquiries', metrics.inquiries],
+                  ['Inspection requests', metrics.inspections],
+                  ['Transaction handoff · reservations', metrics.reservations],
                 ].map(([label, metric]) => (
                   <div key={String(label)} className="flex items-center justify-between border-b border-slate-200 pb-3">
                     <span className="text-sm font-bold text-slate-600">{String(label)}</span>
