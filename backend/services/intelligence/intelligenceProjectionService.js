@@ -504,9 +504,11 @@ export async function getSellerPulse(client, actor, { windowDays = 7 } = {}) {
       views: metric(views),
       unique_viewers: windowUnique(sellerRows, 'unique_viewers'),
       saves: metric(saves),
+      compare_adds: metric(sumRows(sellerRows, 'compare_adds')),
       shares_confirmed: metric(sumRows(sellerRows, 'shares_confirmed')),
       inquiries: metric(inquiries),
       inspections: metric(sumRows(sellerRows, 'inspections')),
+      reservations: metric(sumRows(sellerRows, 'reservations')),
     },
     conversion: {
       view_to_save: rate(saves, views),
