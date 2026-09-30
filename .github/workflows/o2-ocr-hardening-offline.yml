@@ -1,0 +1,289 @@
+name: O2 OCR Offline Hardening
+
+# This gate is deliberately safe to run on every OCR-lane hardening push.
+# It references no live-provider secret and never invokes the live accuracy workflow.
+on:
+  push:
+    branches:
+      - fix/o2-live-ocr-operationalization
+      - fix/o2-ocr-trade-os-convergence
+    paths:
+      - 'backend/services/ai/aiServiceBus.js'
+      - 'backend/services/diaspora/diasporaDocumentService.js'
+      - 'backend/services/identity/verificationSessionService.js'
+      - 'backend/services/document-intelligence/documentIntelligenceService.js'
+      # The preserved reviewer OCR route — a reviewer-route-only regression (e.g. the attribution
+      # defect) must trigger this gate, so its file is an explicit dependant here.
+      - 'backend/services/document-intelligence/documentIntelligenceRouter.js'
+      - 'backend/services/evidence/vehicleDocumentOcrService.js'
+      - 'backend/routes/ocrConvergenceRoutes.js'
+      - 'backend/routes/identityVerificationRoutes.js'
+      - 'backend/tests/o2-ocr-three-problem-hardening.test.js'
+      - 'backend/tests/o2-ocr-path-convergence.test.js'
+      - 'backend/tests/o2-ocr-adversarial-hardening.test.js'
+      - 'backend/tests/o2-ocr-stakeholder-coverage.test.js'
+      - 'backend/tests/o2-live-ocr-operationalization.test.js'
+      - 'backend/tests/o2-cloudflare-ocr-provider.test.js'
+      - 'backend/tests/o2-ocr-accuracy-corpus.test.js'
+      - 'backend/tests/o2-x1-document-intelligence-authority.test.js'
+      # Remediation suites (reviewer OCR attribution + explicit image-quality policy).
+      - 'backend/tests/o2-verification-ocr-attribution.test.js'
+      - 'backend/tests/o2-reviewer-quality-policy.test.js'
+      # Startup OCR diagnostic truth + mock-reachability rule.
+      - 'backend/server.js'
+      - 'backend/tests/o2-ocr-startup-diagnostic.test.js'
+      # Directly-affected frozen Trade OS authority suites — approveDocumentVerification + the gated
+      # /api/verification mount. A convergence change that touched them must trigger this gate.
+      - 'backend/tests/issue164-phase3-trust-authority.test.js'
+      - 'backend/tests/non-seller-authority-hardening.test.js'
+      # Both of these consume the RETIRED OCR symbols. They are not "OCR lane" files by name, which
+      # is exactly why they were invisible to this path filter while the retirement broke one of
+      # them. A path-filtered gate is only as honest as its list of dependants.
+      - 'backend/tests/diaspora-supabase-integration.test.js'
+      - 'backend/tests/diaspora-ocr-route.test.js'
+      - '.github/workflows/o2-ocr-hardening-offline.yml'
+      - 'backend/scripts/o2-ocr-stage4-staging-uat.mjs'
+      # Stage-4 certification policy (pure predicates) + its behavioral regression.
+      - 'backend/scripts/o2-ocr-stage4-policy.mjs'
+      - 'backend/tests/o2-ocr-stage4-policy.test.js'
+      # Seller OCR capability-truth UI + its vitest suite (exact-head CI, not local-only).
+      - 'web/src/components/sell/SellerDocumentAutofillNotice.tsx'
+      - 'web/src/components/sell/SellerDocumentAutofillNotice.test.tsx'
+      - 'web/vite.config.ts'
+      - 'web/package.json'
+  # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
+  # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
+  # it stays within this gate's credential-free contract. Push runs remain purely offline.
+  workflow_dispatch:
+    inputs:
+      deployed_expected_sha:
+        description: 'If set on manual dispatch, also probe the exact-head deployed preview for this SHA (provenance + route gating). Leave blank to skip.'
+        required: false
+        default: ''
+      stage4_authenticated:
+        description: 'Set true to run the AUTHENTICATED deployed Stage-4 product journeys (Person Identity, Diaspora, Owner/Seller Vehicle) against the exact-head preview. Consumes bounded Cloudflare/Qwen provider calls. Requires deployed_expected_sha. Manual dispatch only.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: o2-ocr-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-ocr-regression:
+    name: Offline OCR regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # backend/package.json currently contains dependencies added after backend/package-lock.json.
+      # Do not rewrite that unrelated lockfile from this OCR lane; install the declared package graph
+      # without scripts or lockfile mutation so these zero-network-provider unit guards can execute.
+      - name: Install backend dependencies for offline tests
+        run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
+
+      - name: Run OCR convergence and authority regression suites
+        run: |
+          node --test \
+            backend/tests/o2-ocr-three-problem-hardening.test.js \
+            backend/tests/o2-ocr-path-convergence.test.js \
+            backend/tests/o2-ocr-adversarial-hardening.test.js \
+            backend/tests/o2-ocr-stakeholder-coverage.test.js \
+            backend/tests/o2-live-ocr-operationalization.test.js \
+            backend/tests/o2-cloudflare-ocr-provider.test.js \
+            backend/tests/o2-ocr-accuracy-corpus.test.js \
+            backend/tests/o2-x1-document-intelligence-authority.test.js \
+            backend/tests/o2-verification-ocr-attribution.test.js \
+            backend/tests/o2-reviewer-quality-policy.test.js \
+            backend/tests/o2-ocr-startup-diagnostic.test.js \
+            backend/tests/o2-ocr-stage4-policy.test.js \
+            backend/tests/issue164-phase3-trust-authority.test.js \
+            backend/tests/non-seller-authority-hardening.test.js \
+            backend/tests/diaspora-supabase-integration.test.js \
+            backend/tests/diaspora-ocr-route.test.js
+
+  # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
+  # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
+  # GitHub-Actions evidence on the same candidate lineage, not a local-only pass. Credential-free,
+  # no provider call. Only the one suite runs — not the full browser QA suite.
+  seller-ui-capability:
+    name: Seller OCR capability UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run Seller OCR capability suite (bounded)
+        run: npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx
+
+  # ── Deployed exact-head provenance + route-gating probe ─────────────────────
+  # Runs ONLY on manual dispatch with a non-empty deployed_expected_sha input, so push runs stay
+  # purely offline. Network-only (public preview endpoints); no live-provider call, no secret. It
+  # proves the paired Vercel preview serves the exact candidate SHA (frontend unpaired=false + SHA;
+  # backend /api/health UP + SHA + supabase healthy) and that the deployed OCR routes fail closed.
+  deployed-provenance-probe:
+    name: Deployed exact-head provenance + OCR route gating
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deployed_expected_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.deployed_expected_sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const fe = (JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json','utf8')).branches||{})[branch];
+          const be = (JSON.parse(fs.readFileSync('web/preview-backend-pairing.json','utf8')).branches||{})[branch];
+          if (!fe || !be) { console.error(JSON.stringify({error:'preview pair not governed',branch,fe:Boolean(fe),be:Boolean(be)})); process.exit(1); }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${fe}\nSTAGING_API_URL=${be.replace(/\/$/,'')}/api\n`);
+          console.log(JSON.stringify({branch, fe, be}));
+          NODE
+      - name: Prove exact-head frontend/backend provenance (pairing + health)
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.EXPECTED_HEAD_SHA, web = process.env.STAGING_WEB_URL, api = process.env.STAGING_API_URL;
+          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+          for (let a=1;a<=72;a++){
+            try {
+              const [pR,hR] = await Promise.all([fetch(`${web}/carup-provenance.json?a=${a}`,{cache:'no-store'}), fetch(`${api}/health?a=${a}`,{cache:'no-store'})]);
+              const p = pR.ok? await pR.json():null; const h = hR.ok? await hR.json():null;
+              if (p?.commit_sha===expected && p?.unpaired===false && h?.status==='UP' && h?.build?.commit_sha===expected){
+                console.log('EXACT-HEAD DEPLOYED PAIR CONFIRMED');
+                console.log(JSON.stringify({frontend_sha:p.commit_sha, frontend_unpaired:p.unpaired, api_base_url:p.api_base_url, backend_sha:h.build.commit_sha, backend_branch:h.build?.branch, supabase:h.supabase?.status}, null, 2));
+                process.exit(0);
+              }
+              console.log(`attempt ${a}: fe=${p?.commit_sha||'n/a'} unpaired=${p?.unpaired} be=${h?.build?.commit_sha||'n/a'} supa=${h?.supabase?.status||'n/a'}`);
+            } catch(e){ console.log(`attempt ${a}: ${e.message}`); }
+            await sleep(5000);
+          }
+          console.error('Exact-head preview pair never reported the candidate SHA.'); process.exit(1);
+          NODE
+      - name: Probe deployed OCR route surface + provider config (no fabricated verdict)
+        run: |
+          node --input-type=module <<'NODE'
+          const api = process.env.STAGING_API_URL; const out = {};
+          try { const h = await (await fetch(`${api}/health`,{cache:'no-store'})).json();
+            // Canonical OCR readiness (continuation 6): read the authoritative health.ocr projection
+            // and ocrProviders.gemini so the readiness gate no longer depends on log interpretation.
+            out.health = { status:h.status, commit_sha:h.build?.commit_sha, branch:h.build?.branch, environment:h.environment, supabase:h.supabase?.status,
+              ocr: h.ocr || 'not_exposed_by_health', ocrProviders_gemini: h.ocrProviders?.gemini, ocrProviders_cloudflare: h.ocrProviders?.cloudflare };
+          } catch(e){ out.health_error = e.message; }
+          async function probe(method, path, body){ try { const res = await fetch(`${api}${path}`,{method,cache:'no-store',headers:body?{'content-type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined}); let code; try{code=(await res.json())?.code;}catch{} return {path,method,status:res.status,code}; } catch(e){ return {path,method,error:e.message}; } }
+          out.route_gating = [
+            await probe('POST','/ai/ocr',{docType:'national_id',base64Data:'x'}),
+            await probe('POST','/diaspora/documents/probe-doc/extractions',{extraction_provider:'forged'}),
+            await probe('POST','/vehicles/PROBEVIN0000000000/evidence/probe-ev/run-ocr',{}),
+          ];
+          console.log('DEPLOYED OCR ROUTE SURFACE:'); console.log(JSON.stringify(out,null,2));
+          const leak = out.route_gating.find(r=>r.status===200);
+          if (leak){ console.error('A deployed OCR route answered 200 without authentication:', JSON.stringify(leak)); process.exit(1); }
+          const legacy = out.route_gating.find(r=>r.path==='/ai/ocr');
+          if (legacy && ![410,401,403].includes(legacy.status)){ console.error('Legacy /api/ai/ocr neither retired nor gated:', JSON.stringify(legacy)); process.exit(1); }
+          NODE
+
+  # ── Authenticated deployed Stage-4 product journeys ─────────────────────────
+  # Manual-dispatch ONLY, with stage4_authenticated=true and a non-empty deployed_expected_sha. This
+  # is the SINGLE canonical Stage-4 execution authority (the standalone o2-ocr-stage4-staging-uat.yml
+  # was retired). It runs session-authenticated Person Identity, Diaspora and Owner/Seller Vehicle
+  # journeys against the exact-head Vercel preview with real Cloudflare/Qwen, proving OCR stays
+  # candidate-only. Never runs on push/pull_request/schedule/workflow_run.
+  stage4-authenticated-journeys:
+    name: OCR Stage-4 authenticated deployed journeys
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.stage4_authenticated == 'true' && github.event.inputs.deployed_expected_sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Share the deployed-UAT preview lock; never cancel an in-flight certification.
+    concurrency:
+      group: staging-preview-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.inputs.deployed_expected_sha }}
+      CANDIDATE_BRANCH: ${{ github.ref_name }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      STAGE4_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      # The driver provisions its OWN isolated per-run owner + reviewer identities (scrypt) via the
+      # staging DB URL; it consumes no pre-provisioned UAT reviewer account, so no reviewer
+      # email/password secret is injected here (least-privilege: only DIASPORA_STAGING_DATABASE_URL).
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+      - name: Assert exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Require staging operator secret (approved project only)
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; authenticated Stage-4 cannot provision isolated staging fixtures.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo '::error::Refusing Stage-4: database URL is not the approved carup-staging project.'; exit 1 ;;
+          esac
+      - name: Resolve governed exact-head preview pair
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const branch = process.env.CANDIDATE_BRANCH;
+          const fe = (JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json','utf8')).branches||{})[branch];
+          const be = (JSON.parse(fs.readFileSync('web/preview-backend-pairing.json','utf8')).branches||{})[branch];
+          if (!fe || !be) { console.error(JSON.stringify({error:'preview pair not governed',branch})); process.exit(1); }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${fe}\nSTAGING_API_URL=${be.replace(/\/$/,'')}/api\n`);
+          console.log(JSON.stringify({branch, fe, be}));
+          NODE
+      - name: Install backend dependencies
+        run: npm install --prefix backend --ignore-scripts --no-save --package-lock=false --no-audit --no-fund
+      - name: Run authenticated Stage-4 deployed journeys
+        run: node backend/scripts/o2-ocr-stage4-staging-uat.mjs
+      - name: Upload sanitized Stage-4 certification artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: o2-ocr-stage4-${{ github.run_id }}
+          path: test-results/o2-ocr-stage4-*.json
+          retention-days: 14
+          if-no-files-found: warn

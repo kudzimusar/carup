@@ -62,6 +62,7 @@ import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors
 import {
   securityHeadersMiddleware,
   rateLimiter,
+  resolveGlobalRateLimitMax,
   csrfMiddleware,
   generateCsrfToken,
   parseCookies
@@ -236,11 +237,21 @@ app.use(cors(corsOptions));
 app.use(correlationMiddleware);
 app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
-app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
-
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
-// Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
+// Resolve the real client IP BEFORE any rate limiter, so every limiter keys on the client and not
+// on a Cloudflare edge address. (This used to run after the global limiter, which therefore keyed
+// on req.ip and could put every visitor behind one edge into a single bucket.)
 app.use(edgeClientIpMiddleware());
+
+// Global throttle. Production is always 100/min per client; only a backend provably wired to the
+// staging database may run a larger, bounded capacity (see resolveGlobalRateLimitMax).
+const GLOBAL_RATE_LIMIT = resolveGlobalRateLimitMax(process.env);
+if (GLOBAL_RATE_LIMIT.source !== 'default') {
+  console.log(`[Security] Global rate limit: ${GLOBAL_RATE_LIMIT.max}/min (${GLOBAL_RATE_LIMIT.source})`);
+}
+app.use(rateLimiter({ max: GLOBAL_RATE_LIMIT.max, windowMs: 60 * 1000, isSensitive: false }));
+
+// Sensitive Route Throttling (auth, uploads, safepay creation, verification) — unchanged by the
+// staging capacity above.
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
@@ -300,6 +311,30 @@ app.get('/api/health', async (req, res) => {
   const snapshot = metricsHub.getSnapshot();
   const communicationConfiguration = validateCommunicationConfiguration();
 
+  // Canonical OCR runtime projection — the AUTHORITATIVE, non-secret description of the CURRENT
+  // Document Intelligence OCR boundary. Derived from the same resolveVisionProvider() /
+  // provider.isConfigured() / isOcrMockAllowed() the runtime uses, so it never drifts from what
+  // an OCR request would actually do. The legacy `ocrProviders` map (below) describes unrelated
+  // AI credentials and must NOT be read as "the OCR provider is available". No secret VALUES.
+  let ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false };
+  let cloudflareConfigured = false;
+  try {
+    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { isCloudflareVisionConfigured } = await import('./services/ai/CloudflareVisionClient.js');
+    const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
+    const provider = resolveVisionProvider();
+    let model = null; try { model = provider.model; } catch { model = null; }
+    ocr = {
+      selectedProvider: provider.id,
+      selectedModel: model,
+      configured: (() => { try { return provider.isConfigured() === true; } catch { return false; } })(),
+      mockRuntimeAllowed: DocumentIntelligenceService.isOcrMockAllowed() === true,
+    };
+    cloudflareConfigured = (() => { try { return isCloudflareVisionConfigured() === true; } catch { return false; } })();
+  } catch (e) {
+    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, error: e.message };
+  }
+
   res.json({
     status: 'UP',
     timestamp: new Date().toISOString(),
@@ -313,7 +348,11 @@ app.get('/api/health', async (req, res) => {
     sentry: {
       enabled: !!process.env.SENTRY_DSN
     },
+    // Canonical current OCR runtime status (authoritative for "is OCR available").
+    ocr,
     ocrProviders: {
+      // Truthful presence of the SELECTED OCR provider's credentials alongside the legacy map.
+      cloudflare: cloudflareConfigured,
       gemini: !!process.env.GEMINI_API_KEY,
       groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
       openrouter: !!process.env.OPENROUTER_API_KEY,
@@ -416,11 +455,27 @@ if (connectionError) {
   console.error('Please apply the schema at: database/migrations/supabase_schema.sql');
 } else {
   console.log('✅ CarUp OS connected to Supabase');
-  console.log(`✅ OCR provider initialized: ${process.env.OCR_PRIMARY_PROVIDER === 'gemini' ? 'Gemini' : 'None'}`);
-  console.log(`✅ OCR fallback provider initialized: ${process.env.OCR_FALLBACK_PROVIDER === 'groq' ? 'Groq' : 'None'}`);
-  console.log(`${process.env.OCR_MODE === 'strict' ? '✅ Strict OCR mode enabled' : '⚠️ Loose OCR mode enabled'}`);
-  console.log(`${process.env.ALLOW_OCR_MOCK === 'false' ? '❌ Mock OCR disabled' : '⚠️ Mock OCR enabled'}`);
-  
+  // OCR startup diagnostic — describes the ACTUAL current Document Intelligence provider boundary
+  // (CARUP_OCR_PROVIDER / CARUP_OCR_MODEL, resolveVisionProvider(), isOcrMockAllowed()), NOT the
+  // retired OCR_PRIMARY_PROVIDER/OCR_FALLBACK_PROVIDER/OCR_MODE conventions. Secret VALUES are never
+  // printed — only selected provider, selected model, configured (yes/no), and whether a mock
+  // execution is genuinely reachable at runtime. Guarded so a diagnostic can never fail the boot.
+  try {
+    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
+    const provider = resolveVisionProvider();
+    let model = 'unresolved';
+    try { model = provider.model; } catch (e) { model = `unresolved (${e.message})`; }
+    const configured = (() => { try { return provider.isConfigured() === true; } catch { return false; } })();
+    const mockAllowed = DocumentIntelligenceService.isOcrMockAllowed() === true;
+    console.log(`✅ OCR provider selected: ${provider.id}`);
+    console.log(`✅ OCR model selected: ${model}`);
+    console.log(`${configured ? '✅' : '⚠️'} OCR provider configured: ${configured}`);
+    console.log(`${mockAllowed ? '⚠️' : '❌'} OCR mock runtime allowed: ${mockAllowed}`);
+  } catch (e) {
+    console.log(`⚠️ OCR provider diagnostic unavailable: ${e.message}`);
+  }
+
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
   registerCommunicationListeners(eventWorker);
@@ -2375,11 +2430,34 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    res.json({ user, token });
+    // Trade OS D2 — surface the caller's governed tenant membership so the client can send
+    // x-tenant-id from first login (previously only /switch-role returned it, so a tenant operator
+    // had NO tenant context until a role switch). Additive and advisory only: the auth middleware
+    // still re-verifies every x-tenant-id against tenant_users on every request. A user with
+    // multiple memberships gets no automatic tenant; they choose through the existing switch path.
+    const tenantContext = await resolveSoleTenantMembership(user.id);
+
+    res.json({ user: { ...user, ...tenantContext }, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Resolve a user's sole governed tenant membership (advisory client hint — never an authority).
+// Returns {} when the user has zero or multiple memberships, or when the read fails.
+async function resolveSoleTenantMembership(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('tenant_users')
+      .select('tenant_id, role')
+      .eq('user_id', userId)
+      .limit(2);
+    if (error || !Array.isArray(data) || data.length !== 1) return {};
+    return { active_tenant_id: data[0].tenant_id, tenant_role: data[0].role || null };
+  } catch {
+    return {};
+  }
+}
 
 // --- AUTH: Validate current session ---
 // authorizeRole() (no required roles) validates the x-session-token against user_sessions and
@@ -2395,7 +2473,12 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized. User record not found.' });
     }
-    res.json({ user });
+    // D2: prefer the session's verified tenant (set by switch-role); otherwise the sole membership.
+    const sessionTenantId = req.userContext.tenantId || null;
+    const tenantContext = sessionTenantId
+      ? { active_tenant_id: sessionTenantId, tenant_role: req.userContext.tenantRole || null }
+      : await resolveSoleTenantMembership(user.id);
+    res.json({ user: { ...user, ...tenantContext } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

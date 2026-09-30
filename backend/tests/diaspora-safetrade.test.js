@@ -66,8 +66,12 @@ function eligibleSeed(extra = {}) {
     diaspora_import_orders: [
       { id: 'ord-1', tenant_id: 'tenant-A', buyer_id: 'buyer-1', status: 'SELLER_ASSIGNED', metadata: { rfq: { acceptedQuoteId: 'q-1' } }, created_by: 'buyer-1' },
     ],
+    // T13: the accepted quote is the commercial authority, and SafeTrade creation fails closed on an
+    // incomplete one. So the fixture carries the full seller/amount/currency triple the resolver
+    // requires (the database already requires quote_amount and quote_currency), matching makeDraft's
+    // 1000 USD.
     diaspora_import_quotes: [
-      { id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' },
+      { id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A', seller_id: 'seller-1', quote_amount: 1000, quote_currency: 'USD' },
     ],
     diaspora_cargo_reservations: [
       { id: 'res-1', import_order_id: 'ord-1', reservation_status: 'APPROVED', tenant_id: 'tenant-A' },
@@ -138,7 +142,15 @@ function seedTxn(client, { txnStatus = 'IN_PROGRESS', milestoneStatus = 'HELD', 
 function seedReleaseEvidence(client, { delivery = true } = {}) {
   client._rows('diaspora_compliance_reviews').push({ id: 'cr-1', import_order_id: 'ord-1', status: 'APPROVED', tenant_id: 'tenant-A' });
   client._rows('vehicle_government_documents').push({ id: 'doc-1', import_order_id: 'ord-1', verification_status: 'VERIFIED' });
+  // T13 release-policy convergence: a FINAL release reads its facts from their frozen owners — the
+  // current T8 trade document with its governed type and a reviewer's verdict, the T11 shipment
+  // stage, and a T12 authority release document.
+  client._rows('trade_document_types').push({ id: 'tdt-1', code: 'COMMERCIAL_INVOICE', verification_required: true, deleted_at: null });
+  client._rows('diaspora_trade_documents').push({ id: 'tdoc-1', import_order_id: 'ord-1', document_type: 'COMMERCIAL_INVOICE', verification_status: 'VERIFIED', deleted_at: null, superseded_at: null });
+  client._rows('diaspora_trade_document_verifications').push({ id: 'tdv-1', trade_document_id: 'tdoc-1', verification_status: 'VERIFIED', verified_by: 'rev-1', verified_at: '2026-06-18T10:00:00.000Z', deleted_at: null });
   client._rows('diaspora_shipments').push({ id: 'sh-1', import_order_id: 'ord-1', status: 'ARRIVED' });
+  client._rows('diaspora_customs_cases').push({ id: 'cc-1', import_order_id: 'ord-1', subject_type: 'import_order', subject_id: 'ord-1', status: 'OPEN' });
+  client._rows('diaspora_customs_events').push({ id: 'ce-rel', case_id: 'cc-1', event_type: 'RELEASE_EVIDENCE_RECEIVED', assertion_class: 'ATTRIBUTED', source_kind: 'AUTHORITY_DOCUMENT', event_time: '2026-06-20T10:00:00.000Z' });
   if (delivery) {
     const txn = client._rows('diaspora_safetrade_transactions').find((t) => t.id === 'st-1');
     txn.metadata = { ...(txn.metadata || {}), safetrade: { ...((txn.metadata || {}).safetrade || {}), deliveryConfirmed: true } };
@@ -201,6 +213,23 @@ test('unverified participant is blocked from creating a SafeTrade transaction', 
   assert.equal(client._rows('diaspora_safetrade_transactions').length, 0);
 });
 
+test('T13: an incomplete accepted quote fails closed at creation — caller values never fill the gap', async () => {
+  const seed = eligibleSeed();
+  seed.diaspora_import_quotes = [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' }];
+  const client = freshClient(seed);
+  // makeDraft supplies a complete seller/currency/amount of its own; none of it may be used.
+  await assert.rejects(
+    () => makeDraft(client),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.details?.code, 'SAFETRADE_ACCEPTED_QUOTE_INCOMPLETE');
+      assert.deepEqual([...err.details.missingFields].sort(), ['quote_amount', 'quote_currency', 'seller_id']);
+      return true;
+    },
+  );
+  assert.equal(client._rows('diaspora_safetrade_transactions').length, 0);
+});
+
 test('eligibility engine reports an exhaustive blocker list (read-only, no DB writes)', async () => {
   const seed = eligibleSeed();
   seed.diaspora_cargo_reservations = []; // break reservation
@@ -224,9 +253,10 @@ test('missing entitlement blocks creation when subscription enforcement is on', 
   await assert.rejects(
     () => makeDraft(client),
     (err) => {
-      // requireFeature throws ForbiddenError with the structured denial in .details.
+      // requireFeature throws ForbiddenError with the structured denial in .details. Pin the code so
+      // this proves the primary entitlement gate, not the eligibility engine's ENTITLEMENT_MISSING.
       assert.equal(err.statusCode, 403);
-      assert.ok(err.details);
+      assert.equal(err.details?.code, 'FEATURE_NOT_IN_PLAN');
       return true;
     },
   );
@@ -296,7 +326,9 @@ test('missing document blocks release (DOCUMENTS_NOT_VERIFIED)', async () => {
   const client = freshClient(eligibleSeed());
   seedTxn(client, { milestoneStatus: 'HELD' });
   seedReleaseEvidence(client);
-  client._tables.vehicle_government_documents = [{ id: 'doc-1', import_order_id: 'ord-1', verification_status: 'PENDING' }];
+  // The T8 document is present, but its type requires a reviewer's verdict and none was given.
+  // (A legacy vehicle_government_documents row neither satisfies nor vetoes — moderator ruling.)
+  client._tables.diaspora_trade_document_verifications = [];
   const verdict = await releaseService.evaluateRelease(client, { safeTradeId: 'st-1', actorContext: reviewer, evaluatedAt: FIXED_TS });
   assert.equal(verdict.eligible, false);
   assert.ok(verdict.blockers.some((b) => b.code === 'DOCUMENTS_NOT_VERIFIED'));
@@ -985,6 +1017,42 @@ test('ROUTE: create + list + timeline happy path for an authenticated buyer', as
     const list = await httpReq(baseUrl, 'GET', '/api/diaspora/safetrade', { userId: 'buyer-1' });
     assert.equal(list.status, 200);
     assert.ok(Array.isArray(list.json.data));
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('ROUTE (T13): an incomplete accepted quote is refused with 400 and nothing is written', async () => {
+  const seed = eligibleSeed();
+  seed.diaspora_import_quotes = [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' }];
+  const mock = routeMock(seed);
+  installSupabaseMock(mock);
+  const { server, baseUrl } = await startServer();
+  try {
+    const created = await httpReq(baseUrl, 'POST', '/api/diaspora/safetrade', {
+      userId: 'buyer-1', body: { importOrderId: 'ord-1', sellerId: 'seller-1', currency: 'USD', totalAmount: 1000 },
+    });
+    assert.equal(created.status, 400);
+    assert.equal(mock._rows('diaspora_safetrade_transactions').length, 0);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('ROUTE (T13): an omitted currency is not recorded as a caller assertion; the quote currency wins', async () => {
+  const seed = eligibleSeed();
+  seed.diaspora_import_quotes = [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A', seller_id: 'seller-1', quote_amount: 9500, quote_currency: 'EUR' }];
+  installSupabaseMock(routeMock(seed));
+  const { server, baseUrl } = await startServer();
+  try {
+    const created = await httpReq(baseUrl, 'POST', '/api/diaspora/safetrade', {
+      userId: 'buyer-1', body: { importOrderId: 'ord-1' },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.transaction.currency, 'EUR');
+    assert.equal(Number(created.json.transaction.total_amount), 9500);
+    const ignored = created.json.transaction.metadata.safetrade.commercialSource.ignoredAssertions;
+    assert.deepEqual(ignored, []);
   } finally {
     await new Promise((r) => server.close(r));
   }
