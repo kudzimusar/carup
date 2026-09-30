@@ -59,6 +59,29 @@ const TEMPLATES = Object.freeze({
     subject: 'Seller authority decision',
     body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
   },
+  // Trade OS D7 — in-code mirror of the governed `container_booking_update` template
+  // (registered + approved in 20260811131700_communications_2_workflow_template_foundations.sql).
+  // Used only pre-registry (dev/tests); the governed registry wins wherever it is deployed.
+  container_booking_update: {
+    transactional: true,
+    subject: 'Container booking {{reference}}',
+    body: 'Container booking {{reference}} status: {{status}}. Route: {{route}}.',
+  },
+  // Trade OS T2 — sourcing lifecycle. Same required variables as the container template so a
+  // missing value can never render as a blank commercial claim.
+  rfq_update_v1: {
+    transactional: true,
+    subject: 'Sourcing request {{reference}}',
+    body: 'Sourcing request {{reference}} update: {{status}}. Route: {{route}}.',
+  },
+  // Trade OS T3 — shipping-request lifecycle. Same required variables as the container and
+  // sourcing templates. It reports the OFFER's state and nothing further: an accepted offer is
+  // not approved container space, carrier acceptance, customs clearance or payment.
+  logistics_update_v1: {
+    transactional: true,
+    subject: 'Shipping request {{reference}}',
+    body: 'Shipping request {{reference}} update: {{status}}. Route: {{route}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',

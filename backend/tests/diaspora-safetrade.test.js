@@ -66,8 +66,12 @@ function eligibleSeed(extra = {}) {
     diaspora_import_orders: [
       { id: 'ord-1', tenant_id: 'tenant-A', buyer_id: 'buyer-1', status: 'SELLER_ASSIGNED', metadata: { rfq: { acceptedQuoteId: 'q-1' } }, created_by: 'buyer-1' },
     ],
+    // T13: the accepted quote is the commercial authority, and SafeTrade creation fails closed on an
+    // incomplete one. So the fixture carries the full seller/amount/currency triple the resolver
+    // requires (the database already requires quote_amount and quote_currency), matching makeDraft's
+    // 1000 USD.
     diaspora_import_quotes: [
-      { id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' },
+      { id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A', seller_id: 'seller-1', quote_amount: 1000, quote_currency: 'USD' },
     ],
     diaspora_cargo_reservations: [
       { id: 'res-1', import_order_id: 'ord-1', reservation_status: 'APPROVED', tenant_id: 'tenant-A' },
@@ -201,6 +205,23 @@ test('unverified participant is blocked from creating a SafeTrade transaction', 
   assert.equal(client._rows('diaspora_safetrade_transactions').length, 0);
 });
 
+test('T13: an incomplete accepted quote fails closed at creation — caller values never fill the gap', async () => {
+  const seed = eligibleSeed();
+  seed.diaspora_import_quotes = [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' }];
+  const client = freshClient(seed);
+  // makeDraft supplies a complete seller/currency/amount of its own; none of it may be used.
+  await assert.rejects(
+    () => makeDraft(client),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.details?.code, 'SAFETRADE_ACCEPTED_QUOTE_INCOMPLETE');
+      assert.deepEqual([...err.details.missingFields].sort(), ['quote_amount', 'quote_currency', 'seller_id']);
+      return true;
+    },
+  );
+  assert.equal(client._rows('diaspora_safetrade_transactions').length, 0);
+});
+
 test('eligibility engine reports an exhaustive blocker list (read-only, no DB writes)', async () => {
   const seed = eligibleSeed();
   seed.diaspora_cargo_reservations = []; // break reservation
@@ -224,9 +245,10 @@ test('missing entitlement blocks creation when subscription enforcement is on', 
   await assert.rejects(
     () => makeDraft(client),
     (err) => {
-      // requireFeature throws ForbiddenError with the structured denial in .details.
+      // requireFeature throws ForbiddenError with the structured denial in .details. Pin the code so
+      // this proves the primary entitlement gate, not the eligibility engine's ENTITLEMENT_MISSING.
       assert.equal(err.statusCode, 403);
-      assert.ok(err.details);
+      assert.equal(err.details?.code, 'FEATURE_NOT_IN_PLAN');
       return true;
     },
   );
@@ -985,6 +1007,42 @@ test('ROUTE: create + list + timeline happy path for an authenticated buyer', as
     const list = await httpReq(baseUrl, 'GET', '/api/diaspora/safetrade', { userId: 'buyer-1' });
     assert.equal(list.status, 200);
     assert.ok(Array.isArray(list.json.data));
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('ROUTE (T13): an incomplete accepted quote is refused with 400 and nothing is written', async () => {
+  const seed = eligibleSeed();
+  seed.diaspora_import_quotes = [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' }];
+  const mock = routeMock(seed);
+  installSupabaseMock(mock);
+  const { server, baseUrl } = await startServer();
+  try {
+    const created = await httpReq(baseUrl, 'POST', '/api/diaspora/safetrade', {
+      userId: 'buyer-1', body: { importOrderId: 'ord-1', sellerId: 'seller-1', currency: 'USD', totalAmount: 1000 },
+    });
+    assert.equal(created.status, 400);
+    assert.equal(mock._rows('diaspora_safetrade_transactions').length, 0);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('ROUTE (T13): an omitted currency is not recorded as a caller assertion; the quote currency wins', async () => {
+  const seed = eligibleSeed();
+  seed.diaspora_import_quotes = [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A', seller_id: 'seller-1', quote_amount: 9500, quote_currency: 'EUR' }];
+  installSupabaseMock(routeMock(seed));
+  const { server, baseUrl } = await startServer();
+  try {
+    const created = await httpReq(baseUrl, 'POST', '/api/diaspora/safetrade', {
+      userId: 'buyer-1', body: { importOrderId: 'ord-1' },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.transaction.currency, 'EUR');
+    assert.equal(Number(created.json.transaction.total_amount), 9500);
+    const ignored = created.json.transaction.metadata.safetrade.commercialSource.ignoredAssertions;
+    assert.deepEqual(ignored, []);
   } finally {
     await new Promise((r) => server.close(r));
   }

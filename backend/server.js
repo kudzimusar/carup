@@ -2375,11 +2375,34 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    res.json({ user, token });
+    // Trade OS D2 — surface the caller's governed tenant membership so the client can send
+    // x-tenant-id from first login (previously only /switch-role returned it, so a tenant operator
+    // had NO tenant context until a role switch). Additive and advisory only: the auth middleware
+    // still re-verifies every x-tenant-id against tenant_users on every request. A user with
+    // multiple memberships gets no automatic tenant; they choose through the existing switch path.
+    const tenantContext = await resolveSoleTenantMembership(user.id);
+
+    res.json({ user: { ...user, ...tenantContext }, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Resolve a user's sole governed tenant membership (advisory client hint — never an authority).
+// Returns {} when the user has zero or multiple memberships, or when the read fails.
+async function resolveSoleTenantMembership(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('tenant_users')
+      .select('tenant_id, role')
+      .eq('user_id', userId)
+      .limit(2);
+    if (error || !Array.isArray(data) || data.length !== 1) return {};
+    return { active_tenant_id: data[0].tenant_id, tenant_role: data[0].role || null };
+  } catch {
+    return {};
+  }
+}
 
 // --- AUTH: Validate current session ---
 // authorizeRole() (no required roles) validates the x-session-token against user_sessions and
@@ -2395,7 +2418,12 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized. User record not found.' });
     }
-    res.json({ user });
+    // D2: prefer the session's verified tenant (set by switch-role); otherwise the sole membership.
+    const sessionTenantId = req.userContext.tenantId || null;
+    const tenantContext = sessionTenantId
+      ? { active_tenant_id: sessionTenantId, tenant_role: req.userContext.tenantRole || null }
+      : await resolveSoleTenantMembership(user.id);
+    res.json({ user: { ...user, ...tenantContext } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
