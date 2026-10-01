@@ -4,8 +4,8 @@ This directory is the canonical documentation entry point for the **OCR 1.0 — 
 
 ## Start here
 
-**Canonical subordinate plan:**  
-[`CARUP_OCR_1_0_GLOBAL_DOCUMENT_INTELLIGENCE_CANONICAL_PLAN.md`](./CARUP_OCR_1_0_GLOBAL_DOCUMENT_INTELLIGENCE_CANONICAL_PLAN.md)
+**Canonical OCR 1.0 master plan:**  
+[`CARUP_OCR_1_0_GLOBAL_DOCUMENT_INTELLIGENCE_MASTER_PLAN.md`](./CARUP_OCR_1_0_GLOBAL_DOCUMENT_INTELLIGENCE_MASTER_PLAN.md)
 
 ## Governing law
 
