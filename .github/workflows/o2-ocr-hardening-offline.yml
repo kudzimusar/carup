@@ -9,6 +9,7 @@ on:
       - fix/o2-ocr-trade-os-convergence
       - feat/ocr10-c1-trust-authority-convergence
       - feat/ocr10-c2-identity-classifier-provider-convergence
+      - feat/ocr10-c3-garage-evidence-consumer-convergence
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -54,6 +55,21 @@ on:
       - 'backend/tests/o2-ocr-stage4-policy.test.js'
       - 'backend/tests/o2-ocr-c2-identity-provider-convergence.test.js'
       - 'backend/tests/identity-document-classifier.test.js'
+      # OCR 1.0-C3 Garage evidence consumer convergence.
+      - 'backend/services/garageOnboarding/garageApplicationService.js'
+      - 'backend/services/garageOnboarding/garageEvidenceService.js'
+      - 'backend/routes/garageOnboardingRoutes.js'
+      - 'backend/tests/o2-ocr-c3-garage-consumer.test.js'
+      - 'database/migrations/20260918090000_ocr_c3_garage_applications.sql'
+      - 'database/migrations/20260918100000_ocr_c3_garage_application_evidence.sql'
+      - 'database/migrations/20260918110000_ocr_c3_garage_onboarding_rls.sql'
+      - 'web/src/lib/garageOnboarding.ts'
+      - 'web/src/pages/dashboard/garage/GarageEvidence.tsx'
+      - 'web/src/pages/dashboard/garage/GarageSetup.tsx'
+      - 'web/src/pages/dashboard/garage/garageEvidence.test.tsx'
+      - 'web/src/pages/dashboard/garage/garageSetupC3.test.tsx'
+      - 'web/src/hooks/useCarUpApi.ts'
+      - 'web/src/App.tsx'
       # Seller OCR capability-truth UI + its vitest suite (exact-head CI, not local-only).
       - 'web/src/components/sell/SellerDocumentAutofillNotice.tsx'
       - 'web/src/components/sell/SellerDocumentAutofillNotice.test.tsx'
@@ -127,6 +143,7 @@ jobs:
             backend/tests/o2-ocr-stage4-policy.test.js \
             backend/tests/o2-ocr-c2-identity-provider-convergence.test.js \
             backend/tests/identity-document-classifier.test.js \
+            backend/tests/o2-ocr-c3-garage-consumer.test.js \
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
@@ -152,6 +169,24 @@ jobs:
         run: npm ci || npm install
       - name: Run Seller OCR capability suite (bounded)
         run: npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx
+
+  # ── OCR C3 Garage assistance UI gate (exact-head, targeted) ─────────────────
+  garage-c3-ui:
+    name: Garage OCR assistance UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run Garage OCR assistance suites (bounded)
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/garage/garageEvidence.test.tsx src/pages/dashboard/garage/garageSetupC3.test.tsx
 
   # ── Deployed exact-head provenance + route-gating probe ─────────────────────
   # Runs ONLY on manual dispatch with a non-empty deployed_expected_sha input, so push runs stay
