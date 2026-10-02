@@ -224,7 +224,7 @@ class Client {
     console.error(`\nSTAGE4 PROVIDER_CONFIGURATION_HOLD — deployed OCR providers are not ready; no fixtures created, no storage upload, no provider call. ${JSON.stringify(readiness)}`);
     process.exit(4);
   }
-  log(`✓ provider readiness confirmed: cloudflare configured + gemini present + mock disabled (@cf/qwen/qwen3.8-27b)`);
+  log(`✓ provider readiness confirmed: governed cloudflare/@cf/qwen/qwen3.8-27b configured + mock disabled (Gemini not required for OCR/Identity readiness)`);
 
   // 2) Provision isolated synthetic fixtures (owner + admin reviewer + vehicle). Pre-provider.
   const runPw = `S4!${crypto.randomBytes(18).toString('base64url')}`;
@@ -286,12 +286,11 @@ class Client {
   }
 
   // ── JOURNEY 1: PERSON IDENTITY — the mandatory provider gate ─────────────────
-  // The identity product path REQUIRES two providers: (1) the Layer-2 Gemini document-presence
-  // classifier, then (2) Cloudflare/Qwen OCR. Certification requires the classifier to run
-  // (provider=gemini), permit extraction, and the OCR to reach provider_succeeded on cloudflare/Qwen
-  // — with the session held in manual review and ZERO reviewer decisions. If the classifier or OCR
-  // provider is unavailable this is a definitive provider block: STOP, do not spend Diaspora/Vehicle
-  // provider calls. Diaspora/Vehicle run ONLY after Identity reaches genuine OCR (§21).
+  // The Identity product path now uses ONE governed provider boundary for both Layer-2 document
+  // presence classification and structured OCR extraction. Certification requires exact positive
+  // provenance for BOTH stages: cloudflare/@cf/qwen/qwen3.8-27b, valid/likely classification,
+  // provider_succeeded extraction, pending_manual_review and ZERO reviewer decisions. A provider
+  // outage is distinct from a document verdict and stops downstream provider spend.
   const cs = await owner.raw('POST', '/identity/verification-sessions', { body: { documentType: 'national_id', doubleSided: false } });
   if (cs.status !== 201 || !cs.json?.session?.id) die('create verification session failed', { status: cs.status, body: cs.json });
   const sessionId = cs.json.session.id;
@@ -325,10 +324,12 @@ class Client {
   });
   const idExecStatus = idInfo.sessRow.ocr_execution_status || null;
   const idClassProvider = idInfo.classification?.provider || null;
+  const idClassModel = idInfo.classification?.provider_model || null;
   const idClassification = idInfo.sessRow.evidence_classification || idInfo.classification?.evidence_classification || null;
-  // Persisted classifier reasons (verification_assessments.risk_flags = { reasons: [...] }) — used to
-  // tell a genuine Gemini PROVIDER failure ("Classification provider error: …") from a model VERDICT
-  // (unreadable / non_document / uncertain about the document itself).
+  // Persisted classifier reasons (verification_assessments.risk_flags = { reasons: [...] }) distinguish
+  // a genuine governed-provider failure ("Classification provider error: …") from a model VERDICT
+  // (unreadable / non_document / unsupported / uncertain about the document itself). Historical
+  // Gemini error strings remain interpretable by policy, but current runtime proof is Cloudflare/Qwen.
   const idClassReasons = (() => {
     const rf = idInfo.classification?.risk_flags;
     if (!rf) return [];
@@ -340,6 +341,7 @@ class Client {
     primary_reason_code: idInfo.sessRow.primary_reason_code || null, failure_reason: idInfo.sessRow.failure_reason || null,
     evidence_classification: idClassification,
     classification_provider: idClassProvider,
+    classification_model: idClassModel,
     classification_reasons: idClassReasons, // sanitized: classifier reason strings only, no bytes/secrets
     ocr_execution_status: idExecStatus,
     provider: idInfo.prov?.provider || null, model: idInfo.prov?.model || null,
@@ -351,29 +353,31 @@ class Client {
   if (idInfo.decisions.count !== 0) die('identity created a verification decision (must be reviewer-owned)', { count: idInfo.decisions.count });
   if (receipt.identity.is_mock === true) die('identity OCR was a MOCK', {});
 
-  // Certification is POSITIVE and EXACT: gemini classifier + valid/likely classification +
-  // cloudflare/@cf/qwen provider_succeeded (null classifier provider or null model never pass).
+  // Certification is POSITIVE and EXACT at both governed vision stages. Missing classifier OR OCR
+  // provider/model provenance never passes.
   const idPolicyInput = {
-    classificationProvider: idClassProvider, classification: idClassification, reasons: idClassReasons,
+    classificationProvider: idClassProvider, classificationModel: idClassModel,
+    classification: idClassification, reasons: idClassReasons,
     ocrExecutionStatus: idExecStatus, ocrProvider: receipt.identity.provider, ocrModel: receipt.identity.model,
     failureReason: idInfo.sessRow.failure_reason, ocrError: idInfo.sessRow.primary_reason_code,
   };
   if (identityCertifiable(idPolicyInput)) {
     if (receipt.identity.final_status !== 'pending_manual_review') die('identity did not land in pending_manual_review', receipt.identity);
     receipt.identity_certified = true;
-    log(`✓ JOURNEY 1 Person Identity CERTIFIED: classifier=gemini classification=${idClassification}; OCR cloudflare/@cf/qwen provider_succeeded; status=pending_manual_review; decisions=0`);
+    log(`✓ JOURNEY 1 Person Identity CERTIFIED: classifier=cloudflare/${idClassModel} classification=${idClassification}; OCR cloudflare/@cf/qwen provider_succeeded; status=pending_manual_review; decisions=0`);
   } else if (identityProviderBlocked(idPolicyInput)) {
-    // Gemini/OCR provider outage (missing key, timeout, quota, provider error) — STOP the sequence.
+    // Governed classifier/OCR provider outage (missing credentials, timeout, quota, provider error)
+    // — STOP the sequence. Historical Gemini reasons may still classify old evidence correctly.
     blockProvider('identity', {
-      phase: (idClassProvider === 'unavailable' || idExecStatus == null) ? 'layer2_classifier' : 'cloudflare_ocr',
-      classification_provider: idClassProvider, classification: idClassification,
+      phase: idExecStatus == null ? 'layer2_classifier' : 'cloudflare_ocr',
+      classification_provider: idClassProvider, classification_model: idClassModel, classification: idClassification,
       classification_reasons: idClassReasons, ocr_execution_status: idExecStatus,
       reason: idInfo.sessRow.failure_reason || idClassReasons[0] || 'classifier/OCR provider unavailable',
     });
     log(`• JOURNEY 1 Person Identity: PROVIDER BLOCK — classifier provider=${idClassProvider} reasons=${JSON.stringify(idClassReasons)}, ocr_execution_status=${idExecStatus}; candidate-only held (decisions=0). Stopping provider sequence.`);
   } else {
     // Genuine model verdict / missing exact provenance — a PRODUCT-journey failure, not an outage.
-    receipt.identity.note = `NOT certified: classifier provider=${idClassProvider}, classification=${idClassification}, ocr_execution_status=${idExecStatus}, model=${receipt.identity.model}. This is a document/provenance failure, not a provider outage. 3/3 certification is impossible, so downstream provider journeys are not run.`;
+    receipt.identity.note = `NOT certified: classifier provider=${idClassProvider}, classifier model=${idClassModel}, classification=${idClassification}, ocr_execution_status=${idExecStatus}, OCR model=${receipt.identity.model}. This is a document/provenance failure, not a provider outage. 3/3 certification is impossible, so downstream provider journeys are not run.`;
     log(`• JOURNEY 1 Person Identity: FAILED_PRODUCT_JOURNEY (classifier=${idClassProvider}, classification=${idClassification}); candidate-only held (decisions=0). Not certified; stopping.`);
   }
 
