@@ -1,6 +1,6 @@
 import {
   AI_GATEWAY_CAPABILITIES,
-  assertSupportedInput,
+  assertOperationInput,
   inspectAiCapabilities,
 } from './aiCapabilities.js';
 import { CARUP_AI_MODEL, CARUP_AI_PROVIDER } from './aiRuntimeConfig.js';
@@ -55,10 +55,9 @@ export function createCarUpAiGateway({
 } = {}) {
   const selectedProvider = provider || createCloudflareGemmaProvider({ env, fetchImpl });
 
-  async function run(input, request, transform = (value) => value, preflight = null) {
+  async function run(operation, input, request, transform = (value) => value) {
     try {
-      assertSupportedInput(input);
-      if (preflight) preflight();
+      assertOperationInput(operation, input);
       const result = await selectedProvider.generate(request);
       return {
         ok: true,
@@ -73,7 +72,7 @@ export function createCarUpAiGateway({
 
   return Object.freeze({
     async generateText(input = {}) {
-      return run(input, {
+      return run('generateText', input, {
         systemPrompt: input.systemPrompt,
         userPrompt: input.userPrompt,
         timeoutMs: input.timeoutMs,
@@ -83,7 +82,7 @@ export function createCarUpAiGateway({
     },
 
     async generateJson(input = {}) {
-      return run(input, {
+      return run('generateJson', input, {
         systemPrompt: input.systemPrompt,
         userPrompt: input.userPrompt,
         expectJson: true,
@@ -94,22 +93,18 @@ export function createCarUpAiGateway({
     },
 
     async analyzeImage(input = {}) {
-      return run(input, {
+      return run('analyzeImage', input, {
         systemPrompt: input.systemPrompt,
         userPrompt: input.userPrompt,
         image: input.image,
         timeoutMs: input.timeoutMs,
         maxTokens: input.maxTokens,
         signal: input.signal,
-      }, undefined, () => {
-        if (!input.image) {
-          throw new CarUpAiProviderError('analyzeImage requires an image.', { code: 'AI_IMAGE_REQUIRED' });
-        }
       });
     },
 
     async classifyImage(input = {}) {
-      return run(input, {
+      return run('classifyImage', input, {
         systemPrompt: input.systemPrompt,
         userPrompt: input.userPrompt,
         image: input.image,
@@ -117,15 +112,11 @@ export function createCarUpAiGateway({
         timeoutMs: input.timeoutMs,
         maxTokens: input.maxTokens,
         signal: input.signal,
-      }, parseStructuredContent, () => {
-        if (!input.image) {
-          throw new CarUpAiProviderError('classifyImage requires an image.', { code: 'AI_IMAGE_REQUIRED' });
-        }
-      });
+      }, parseStructuredContent);
     },
 
     async extractStructuredData(input = {}) {
-      return run(input, {
+      return run('extractStructuredData', input, {
         systemPrompt: input.systemPrompt,
         userPrompt: input.userPrompt,
         image: input.image || null,
