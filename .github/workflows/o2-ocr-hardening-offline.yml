@@ -7,11 +7,15 @@ on:
     branches:
       - fix/o2-live-ocr-operationalization
       - fix/o2-ocr-trade-os-convergence
+      - feat/ocr10-c1-trust-authority-convergence
     paths:
+      - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
       - 'backend/services/diaspora/diasporaDocumentService.js'
       - 'backend/services/identity/verificationSessionService.js'
       - 'backend/services/document-intelligence/documentIntelligenceService.js'
+      - 'backend/services/trust-service/trustEnforcementEngine.js'
+      - 'backend/services/trustDecision/canonicalTrustService.js'
       # The preserved reviewer OCR route — a reviewer-route-only regression (e.g. the attribution
       # defect) must trigger this gate, so its file is an explicit dependant here.
       - 'backend/services/document-intelligence/documentIntelligenceRouter.js'
