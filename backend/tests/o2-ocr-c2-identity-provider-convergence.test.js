@@ -122,7 +122,7 @@ test('C2: classifier sends real front/back bytes through Cloudflare/Qwen and ret
   const backBody = JSON.stringify(requests[1].body);
   assert.ok(frontBody.includes(front.toString('base64')), 'front bytes did not reach provider request');
   assert.ok(backBody.includes(back.toString('base64')), 'back bytes did not reach provider request');
-  assert.ok(requests.every((r) => r.url.includes(encodeURIComponent(MODEL))), 'wrong model endpoint used');
+  assert.ok(requests.every((r) => r.url.includes(`/ai/run/${MODEL}`)), 'wrong model endpoint used');
 });
 
 test('C2: governed provider failure fails closed as UNCERTAIN and is not a document verdict', async (t) => {
