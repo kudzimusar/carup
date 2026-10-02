@@ -260,10 +260,9 @@ test('stakeholder: vehicle documents — reading a VIN does NOT register a vehic
 
   // owner_name is a READING off a document, never an ownership assertion.
   assert.equal(result.extractionStatus, 'Pending_Verification');
-  // Trade OS adaptation: scope the "touches no vehicle/trust/ownership" guard to the EXTRACTION
-  // method. The preserved admin/government reviewer method (approveDocumentVerification) legitimately
-  // updates vehicle status/trust — that is a reviewer decision, not extraction — so the guard must
-  // pin the extraction body, which is what OCR convergence owns.
+  // The extraction guard stays scoped to extraction. OCR 1.0-C1 also removes Vehicle Trust/status
+  // authority from the preserved human reviewer method; its separate authority-negative behavior is
+  // pinned by o2-x1 + issue164 tests.
   const service = read('../services/document-intelligence/documentIntelligenceService.js');
   const extractFn = service.slice(service.indexOf('static async extractDocumentData'));
   const extractBody = extractFn.slice(0, extractFn.indexOf('\n  static '));
@@ -279,12 +278,10 @@ test('stakeholder: vehicle documents — reading a VIN does NOT register a vehic
 
 test('stakeholder: reviewer/admin/government — OCR EXTRACTION decides nothing; the reviewer decision path is separate and governed', () => {
   const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  // Trade OS adaptation: this line did NOT take the O2-X1 wholesale retirement of the
-  // /api/verification reviewer surface. approveDocumentVerification is PRESERVED here as a governed
-  // admin/government REVIEWER decision (pinned by the frozen issue164-phase3-trust-authority.test.js,
-  // T12.1-hardened so it writes NO government registry rows). The OCR invariant that still holds and
-  // is proven here is the one this task owns: the EXTRACTION path (extractDocumentData) makes no
-  // decision and writes no authority — it is a distinct method from the reviewer decision path.
+  // The /api/verification reviewer surface is PRESERVED as a governed admin/government human
+  // decision. OCR 1.0-C1 removes its former Vehicle Trust/status authority: the reviewer records the
+  // OCR-document decision, while canonical Vehicle/Trust owns downstream consequences. Extraction
+  // remains a distinct observation-only method.
   const extractFn = service.slice(service.indexOf('static async extractDocumentData'));
   const extractBody = extractFn.slice(0, extractFn.indexOf('\n  static '));
   for (const forbidden of [
