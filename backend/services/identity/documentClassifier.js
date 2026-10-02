@@ -82,11 +82,11 @@ export class DocumentClassifier {
   }
 
   /**
-   * Layer 2 — Constrained vision classification via Gemini.
+   * Layer 2 — Constrained vision classification through the governed OCR provider boundary.
    *
-   * This call ONLY determines whether the image contains a visible identity
-   * document. It does NOT extract personal fields. The prompt is designed to
-   * return a strict enum value and nothing more.
+   * This call ONLY determines whether the image contains a visible identity document. It does NOT
+   * extract personal fields. Provider selection/model/provenance come from resolveVisionProvider();
+   * there is no classifier-specific vendor path and no automatic fallback.
    */
   static async classifyDocument(frontBuffer, backBuffer, selfieBuffer, declaredDocType) {
     const systemPrompt = `You are a document presence classifier. Your ONLY task is to determine whether the uploaded image contains a visible identity document.
