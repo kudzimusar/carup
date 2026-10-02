@@ -328,6 +328,259 @@ test('audio and video fail closed at the gateway boundary', async () => {
   assert.equal(fetchCalls, 0);
 });
 
+test('generateText rejects image rather than silently dropping it', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+  const out = await gateway.generateText({
+    userPrompt: 'describe this',
+    image: IMAGE,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('generateJson rejects image rather than silently dropping it', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('{"unexpected":true}');
+    },
+  });
+  const out = await gateway.generateJson({
+    userPrompt: 'classify this',
+    image: IMAGE,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('generateText rejects non-empty media container rather than silently dropping it', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+  const out = await gateway.generateText({
+    userPrompt: 'inspect media',
+    media: [{ mimeType: 'image/png', base64: 'QUJDRA==' }],
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('generateJson rejects non-empty media container rather than silently dropping it', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('{"unexpected":true}');
+    },
+  });
+  const out = await gateway.generateJson({
+    userPrompt: 'inspect media',
+    media: [{ mimeType: 'image/png', base64: 'QUJDRA==' }],
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('generateText rejects non-empty images alias rather than silently dropping it', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+  const out = await gateway.generateText({
+    userPrompt: 'inspect images',
+    images: [IMAGE],
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('analyzeImage rejects video/mp4 disguised through the image field', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+  const out = await gateway.analyzeImage({
+    userPrompt: 'analyze',
+    image: { mimeType: 'video/mp4', base64: 'QUJDRA==' },
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('analyzeImage rejects audio MIME through the image field', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+  const out = await gateway.analyzeImage({
+    userPrompt: 'analyze',
+    image: { mimeType: 'audio/mpeg', base64: 'QUJDRA==' },
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('analyzeImage rejects application/pdf through the image field', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+  const out = await gateway.analyzeImage({
+    userPrompt: 'analyze',
+    image: { mimeType: 'application/pdf', base64: 'JVBERi0xLjQ=' },
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('classifyImage rejects non-image MIME', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('{"class":"unexpected"}');
+    },
+  });
+  const out = await gateway.classifyImage({
+    userPrompt: 'classify',
+    image: { mimeType: 'text/plain', base64: 'aGVsbG8=' },
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('analyzeImage still transmits a supported image', async () => {
+  const capture = captureFetch(() => okResponse('visible vehicle'));
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: capture.fetchImpl,
+  });
+  const out = await gateway.analyzeImage({
+    userPrompt: 'analyze',
+    image: { mimeType: 'image/jpeg', base64: 'QUJDRA==' },
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.value, 'visible vehicle');
+  assert.equal(capture.calls.length, 1);
+  assert.equal(
+    capture.calls[0].body.messages[0].content[1].image_url.url,
+    'data:image/jpeg;base64,QUJDRA==',
+  );
+});
+
+test('extractStructuredData accepts one genuine supported image', async () => {
+  const capture = captureFetch(() => okResponse('{"ok":true}'));
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: capture.fetchImpl,
+  });
+  const out = await gateway.extractStructuredData({
+    userPrompt: 'extract',
+    image: { mimeType: 'image/webp', base64: 'QUJDRA==' },
+  });
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.value, { ok: true });
+  assert.equal(capture.calls.length, 1);
+  assert.equal(
+    capture.calls[0].body.messages[0].content[1].image_url.url,
+    'data:image/webp;base64,QUJDRA==',
+  );
+});
+
+test('extractStructuredData rejects non-image MIME', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('{"unexpected":true}');
+    },
+  });
+  const out = await gateway.extractStructuredData({
+    userPrompt: 'extract',
+    image: { mimeType: 'application/octet-stream', base64: 'QUJDRA==' },
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
+test('unsupported media aliases perform zero provider fetch calls across image operations', async () => {
+  let fetchCalls = 0;
+  const gateway = createCarUpAiGateway({
+    env: CONFIGURED_ENV,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return okResponse('unexpected');
+    },
+  });
+
+  const analyze = await gateway.analyzeImage({
+    userPrompt: 'analyze',
+    image: IMAGE,
+    media: [{ mimeType: 'video/webm', base64: 'QUJDRA==' }],
+  });
+  const classify = await gateway.classifyImage({
+    userPrompt: 'classify',
+    image: IMAGE,
+    images: [IMAGE],
+  });
+  const extract = await gateway.extractStructuredData({
+    userPrompt: 'extract',
+    image: IMAGE,
+    video: Buffer.from('x'),
+  });
+
+  assert.equal(analyze.ok, false);
+  assert.equal(analyze.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(classify.ok, false);
+  assert.equal(classify.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(extract.ok, false);
+  assert.equal(extract.error.code, 'AI_UNSUPPORTED_MODALITY');
+  assert.equal(fetchCalls, 0);
+});
+
 test('image-specific operations fail closed when no image is supplied', async () => {
   let fetchCalls = 0;
   const gateway = createCarUpAiGateway({
