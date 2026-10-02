@@ -55,9 +55,10 @@ export function createCarUpAiGateway({
 } = {}) {
   const selectedProvider = provider || createCloudflareGemmaProvider({ env, fetchImpl });
 
-  async function run(input, request, transform = (value) => value) {
+  async function run(input, request, transform = (value) => value, preflight = null) {
     try {
       assertSupportedInput(input);
+      if (preflight) preflight();
       const result = await selectedProvider.generate(request);
       return {
         ok: true,
@@ -100,6 +101,10 @@ export function createCarUpAiGateway({
         timeoutMs: input.timeoutMs,
         maxTokens: input.maxTokens,
         signal: input.signal,
+      }, undefined, () => {
+        if (!input.image) {
+          throw new CarUpAiProviderError('analyzeImage requires an image.', { code: 'AI_IMAGE_REQUIRED' });
+        }
       });
     },
 
@@ -112,7 +117,11 @@ export function createCarUpAiGateway({
         timeoutMs: input.timeoutMs,
         maxTokens: input.maxTokens,
         signal: input.signal,
-      }, parseStructuredContent);
+      }, parseStructuredContent, () => {
+        if (!input.image) {
+          throw new CarUpAiProviderError('classifyImage requires an image.', { code: 'AI_IMAGE_REQUIRED' });
+        }
+      });
     },
 
     async extractStructuredData(input = {}) {
