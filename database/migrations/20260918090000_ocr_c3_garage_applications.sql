@@ -8,8 +8,8 @@
 -- reviewer has something to decide and an activation service has something to act on.
 --
 -- What this table is NOT: it is not authority. A row here grants nothing. Only
--- BusinessActivationService (GMO-4), acting on an approved decision, may create a tenant or a
--- membership.
+-- the external Garage activation authority, acting on an approved decision, may create a tenant or
+-- membership. C3 does not import or expose that authority.
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS public.garage_applications (
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.garage_applications (
   -- one it follows, so the full prior audit trail survives instead of being overwritten.
   supersedes_application_id UUID REFERENCES public.garage_applications(id) ON DELETE SET NULL,
 
-  -- Set by BusinessActivationService only (GMO-4). Its presence is what makes activation idempotent:
+  -- Reserved for the external Garage activation authority. Its presence is what makes activation idempotent:
   -- an already-activated application cannot produce a second tenant.
   activated_tenant_id       UUID REFERENCES public.tenants(id) ON DELETE SET NULL,
   activated_at              TIMESTAMPTZ,
@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_garage_applications_applicant ON public.garage_ap
 -- Append-only decision ledger. Mirrors the Dealer Compliance pattern: the reviewer's verbs are
 -- recorded as events, and the application row carries the resulting state.
 CREATE TABLE IF NOT EXISTS public.garage_application_decisions (
-  id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   application_id     UUID NOT NULL REFERENCES public.garage_applications(id) ON DELETE CASCADE,
   decision           TEXT NOT NULL
                      CHECK (decision IN ('request_more_info','approve','reject','start_review')),
