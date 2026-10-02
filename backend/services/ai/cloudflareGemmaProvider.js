@@ -4,6 +4,7 @@ import {
   inspectAiRuntimeConfig,
   resolveAiRuntimeConfig,
 } from './aiRuntimeConfig.js';
+import { normalizeSupportedImage } from './aiCapabilities.js';
 
 const CLOUDFLARE_AI_BASE = 'https://api.cloudflare.com/client/v4/accounts';
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -40,22 +41,7 @@ function redactSecrets(value, secrets = []) {
 }
 
 function validateImage(image) {
-  if (!image || typeof image !== 'object' || !image.base64) {
-    throw new CarUpAiProviderError(
-      'Gemma image inference requires one image with base64 bytes.',
-      { code: 'AI_IMAGE_REQUIRED' },
-    );
-  }
-  if (Array.isArray(image)) {
-    throw new CarUpAiProviderError(
-      'Gemma image inference accepts one image per request in AI-01-B.',
-      { code: 'AI_IMAGE_COUNT_UNSUPPORTED' },
-    );
-  }
-  return {
-    mimeType: cleanPrompt(image.mimeType) || 'image/jpeg',
-    base64: String(image.base64),
-  };
+  return normalizeSupportedImage(image, { operation: 'Gemma image inference' });
 }
 
 export function buildGemmaRequestBody({
