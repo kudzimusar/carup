@@ -8,11 +8,13 @@ on:
       - fix/o2-live-ocr-operationalization
       - fix/o2-ocr-trade-os-convergence
       - feat/ocr10-c1-trust-authority-convergence
+      - feat/ocr10-c2-identity-classifier-provider-convergence
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
       - 'backend/services/diaspora/diasporaDocumentService.js'
       - 'backend/services/identity/verificationSessionService.js'
+      - 'backend/services/identity/documentClassifier.js'
       - 'backend/services/document-intelligence/documentIntelligenceService.js'
       - 'backend/services/trust-service/trustEnforcementEngine.js'
       - 'backend/services/trustDecision/canonicalTrustService.js'
@@ -50,6 +52,8 @@ on:
       # Stage-4 certification policy (pure predicates) + its behavioral regression.
       - 'backend/scripts/o2-ocr-stage4-policy.mjs'
       - 'backend/tests/o2-ocr-stage4-policy.test.js'
+      - 'backend/tests/o2-ocr-c2-identity-provider-convergence.test.js'
+      - 'backend/tests/identity-document-classifier.test.js'
       # Seller OCR capability-truth UI + its vitest suite (exact-head CI, not local-only).
       - 'web/src/components/sell/SellerDocumentAutofillNotice.tsx'
       - 'web/src/components/sell/SellerDocumentAutofillNotice.test.tsx'
@@ -121,6 +125,8 @@ jobs:
             backend/tests/o2-reviewer-quality-policy.test.js \
             backend/tests/o2-ocr-startup-diagnostic.test.js \
             backend/tests/o2-ocr-stage4-policy.test.js \
+            backend/tests/o2-ocr-c2-identity-provider-convergence.test.js \
+            backend/tests/identity-document-classifier.test.js \
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
