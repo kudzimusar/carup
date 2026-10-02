@@ -18,11 +18,12 @@ import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js'
  *     vehicle/trust/registry/authority write.
  *   · approveDocumentVerification() is a DISTINCT, gated HUMAN REVIEWER decision that the Trade OS
  *     line deliberately PRESERVES (mounted at /api/verification behind
- *     authorizeSessionRole(['admin','government'])). It records an administrative_overrides audit
- *     row and updates the vehicle's OCR verification state + trust cache/status + trust history —
- *     a reviewer decision, NOT something extraction does. It is T12.1-hardened: it forges NO
- *     government registry rows (cvr_ownership_records / zimra_declarations). Its trust write clears
- *     the canonical trust stamp (INV-TRUST-2), pinned by issue164-phase3-trust-authority.test.js.
+ *     authorizeSessionRole(['admin','government'])). It records the human review in
+ *     administrative_overrides and marks ONLY the OCR evidence row Verified. OCR 1.0-C1 removes
+ *     its former vehicle-status/trust authority: it never writes vehicles.status,
+ *     vehicles.trust_score or trust_score_history. Any derived Trust consequence is delegated to
+ *     canonicalTrustService.refreshCanonicalTrust(), the existing canonical Vehicle/Trust writer.
+ *     It remains T12.1-hardened: it forges NO government registry rows.
  *
  * Registering, licensing, trusting or publishing on the strength of an extraction alone is the
  * business of the owning domain services — identity review, Dealer Compliance, Seller Authority,
@@ -43,20 +44,6 @@ import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js'
  */
 
 const AUTOMATIC_VERIFICATION_CONFIDENCE_FLOOR = 0.8;
-
-// The stamp columns on `vehicles` that ONLY canonicalTrustService.refreshCanonicalTrust() may set
-// (INV-TRUST-2). approveDocumentVerification (a governed admin/government reviewer decision, NOT an
-// OCR-silent path) owns the number it writes and none of the provenance behind it, so it must clear
-// all six in the SAME update — otherwise a write landing after a legitimate refresh would inherit
-// that refresh's calculation_version/band/confidence and be published as canonical.
-const UNSTAMPED_TRUST_CACHE = Object.freeze({
-  trust_calculation_version: null,
-  trust_evaluated_at: null,
-  trust_band: null,
-  trust_confidence: null,
-  trust_known_limitations: null,
-  trust_evidence_basis: null,
-});
 
 class OcrProviderUnavailableError extends Error {
   constructor(message) {
@@ -686,11 +673,16 @@ export class DocumentIntelligenceService {
    * that has not been made on the Trade OS line, so OCR convergence preserves it rather than
    * rolling Trade OS trust/document authority backwards.
    */
-  static async approveDocumentVerification(ocrDocumentId, actorId, vin, overrideJustification = 'Admin document review approval') {
+  static async approveDocumentVerification(
+    ocrDocumentId,
+    actorId,
+    vin,
+    overrideJustification = 'Admin document review approval',
+    options = {},
+  ) {
     console.log(`👤 [Verification] Admin ${actorId} approving OCR document ${ocrDocumentId} for VIN ${vin}`);
-    
+
     try {
-      // 1. Fetch the master OCR document
       const { data: ocrDoc, error: ocrErr } = await supabase
         .from('ocr_documents')
         .select('*')
@@ -704,26 +696,13 @@ export class DocumentIntelligenceService {
       const parsedData = JSON.parse(ocrDoc.extracted_json);
       const confidence = ocrDoc.confidence_score;
 
-      // A. Verify OCR confidence
       if (confidence < 0.80) {
         throw new Error('VERIFICATION_FAILED: Document OCR confidence is too low (< 0.80).');
       }
 
-      // B. Image-quality policy — EXPLICIT (O2 OCR convergence reviewer-authority decision).
-      //
-      // CarUp does NOT measure image quality: the previous blur/glare/tamper scores were derived
-      // from a hash of the payload (fabricated), so analyzeImageQuality now truthfully reports
-      // measured=false / qualityPassed=null. The reviewer-approval policy is therefore, explicitly:
-      //
-      //   · measured & passed  → does not block
-      //   · measured & FAILED  → blocks (never currently reached, since nothing is measured)
-      //   · NOT measured       → does NOT block the human reviewer on its own
-      //
-      // "Not measured" must not block, or an honest extraction could never reach a reviewer. But an
-      // approval must not IMPLY an automated image-quality check passed when none was performed — so
-      // the truthful status is recorded on the reviewer override below (imageQualityStatus). This is
-      // a reviewer-authority policy, deliberately explicit, not silent OCR plumbing.
-      const quality = this.analyzeImageQuality(ocrDoc.file_path === 'inline_b64' ? 'mock' : ocrDoc.extracted_json);
+      const quality = this.analyzeImageQuality(
+        ocrDoc.file_path === 'inline_b64' ? 'mock' : ocrDoc.extracted_json,
+      );
       const imageQualityStatus = quality.measured === true
         ? (quality.qualityPassed === false ? 'measured_failed' : 'measured_passed')
         : 'not_measured';
@@ -731,56 +710,39 @@ export class DocumentIntelligenceService {
         throw new Error('VERIFICATION_FAILED: Image quality metrics failed (blur, glare, or tampering detected).');
       }
 
-      // Import lazily to avoid circular dependencies
       const { TrustEnforcementEngine } = await import('../trust-service/trustEnforcementEngine.js');
+      const assessDocumentDataMatch = options.assessDocumentDataMatch
+        || TrustEnforcementEngine.assessDocumentDataMatch.bind(TrustEnforcementEngine);
 
-      // C. Verify VIN/chassis/engine/owner match using TrustEnforcementEngine
-      const matchCheck = await TrustEnforcementEngine.verifyDocumentDataMatch(vin, ocrDoc.document_type, {
+      // C1: comparison is READ-ONLY here. A mismatch may block this human approval, but Document
+      // Intelligence no longer invokes the legacy consequence-bearing wrapper that changes Trust
+      // or vehicle status/quarantine as a side effect of the comparison.
+      const matchCheck = await assessDocumentDataMatch(vin, ocrDoc.document_type, {
         vin: parsedData.additional_fields?.vin || parsedData.vin,
-        owner_name: parsedData.additional_fields?.owner || `${parsedData.first_name || ''} ${parsedData.last_name || ''}`.trim()
+        owner_name: parsedData.additional_fields?.owner
+          || parsedData.additional_fields?.owner_name
+          || `${parsedData.first_name || ''} ${parsedData.last_name || ''}`.trim(),
       });
 
       if (!matchCheck.match) {
-        throw new Error(`VERIFICATION_FAILED: Metadata mismatch detected. Details: ${JSON.stringify(matchCheck.penalties)}`);
+        throw new Error(
+          `VERIFICATION_FAILED: Metadata mismatch detected. Details: ${JSON.stringify(matchCheck.penalties || [])}`,
+        );
       }
 
-      // D. Fetch vehicle previous state for audit logging
-      const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
+      const { data: vehicle } = await supabase
+        .from('vehicles')
+        .select('vin, trust_score, status')
+        .eq('vin', vin)
+        .single();
       if (!vehicle) {
         throw new Error(`Vehicle not found for VIN: ${vin}`);
       }
 
-      // E. Write approved registry records
       const timestamp = new Date().toISOString();
 
-      // T12.1 — CarUp does not write government registry records. REMOVED, not disabled.
-      //
-      // Approving an OCR document used to INSERT a row into `zimra_declarations` or
-      // `cvr_ownership_records` — tables that model an act by ZIMRA and the CVR. What the row said
-      // was manufactured almost entirely:
-      //
-      //   · customs_ref_number     'CUS_' + a random uuid          — a ZIMRA reference nobody issued
-      //   · port_of_entry          defaulted to 'Beitbridge'       — a port nobody recorded
-      //   · duty_calculated_zig    defaulted to 50000              — an amount nobody assessed
-      //   · duty_paid_zig          the same 50000                  — asserting duty was PAID
-      //   · exchange_rate_used     hardcoded 13.5                  — a rate with no date or source
-      //   · customs_stamp_date     today                           — a stamp date nobody stamped
-      //   · officer_signature_hash sha256(the ocr document's id)   — a ZIMRA OFFICER'S SIGNATURE,
-      //                                                              derived from our own row id
-      //   · owner_id_number        defaulted to '29-198427-G-45'   — one real-looking national ID,
-      //                                                              on every registration book
-      //
-      // A photograph read by OCR and approved by a CarUp administrator is evidence that a document
-      // exists and what it appeared to say. It is not a customs declaration, and CarUp is not ZIMRA:
-      // the provider cannot mint the authority it is supposed to be relying on.
-      //
-      // What actually happened is already recorded, truthfully and separately: `ocr_documents` holds
-      // the document, `ocr_customs_declarations` / `ocr_registration_books` hold what was READ off it
-      // with a confidence, and `administrative_overrides` below holds who approved it and why. Those
-      // are CarUp's own facts and CarUp may state them. Establishing that duty was assessed and paid
-      // is a customs fact, and belongs to whatever authority actually establishes it.
-
-      // F. Write immutable administrative audit log
+      // CarUp records only what its reviewer actually decided. It does not mint CVR/ZIMRA truth,
+      // vehicle availability, or a Trust number from the document approval.
       const sealData = `${actorId}-${vin}-${ocrDoc.document_type}-${timestamp}`;
       const seal = crypto.createHash('sha512').update(sealData).digest('hex');
       await supabase.from('administrative_overrides').insert({
@@ -788,62 +750,81 @@ export class DocumentIntelligenceService {
         target_vin: vin,
         override_action: 'ADMIN_APPROVE_OCR_DOCUMENT',
         justification: overrideJustification,
-        previous_state: { trust_score: vehicle.trust_score, status: vehicle.status },
+        previous_state: {
+          ocr_document_status: ocrDoc.status,
+          vehicle_status: vehicle.status,
+          canonical_trust_score: vehicle.trust_score,
+        },
         new_state: {
-          trust_score: Math.min(100, (vehicle.trust_score || 80) + 20),
-          status: 'Available',
-          // Truthful record so the approval never implies an automated image-quality check passed
-          // when none was performed. One of: 'measured_passed' | 'measured_failed' | 'not_measured'.
-          image_quality_check: { status: imageQualityStatus, measured: quality.measured === true, note: quality.note || null },
+          ocr_document_status: 'Verified',
+          vehicle_status: vehicle.status,
+          vehicle_status_changed: false,
+          trust_authority: 'canonicalTrustService.refreshCanonicalTrust',
+          image_quality_check: {
+            status: imageQualityStatus,
+            measured: quality.measured === true,
+            note: quality.note || null,
+          },
         },
         cryptographic_seal: seal,
         ip_address: '127.0.0.1',
         user_agent: 'Console'
       });
 
-      // G. Mark document verified
-      await supabase.from('ocr_documents').update({ status: 'Verified' }).eq('id', ocrDocumentId);
-
-      // H. Recalculate dynamic trust score (+20 for verified documentation)
-      const baseScore = vehicle.trust_score || 80.0;
-      const finalScore = Math.min(100.0, baseScore + 20.0);
-      // Only refreshCanonicalTrust() may STAMP a score. This write owns the number and none of the
-      // provenance behind it, so it clears the stamp in the same update — otherwise a write landing
-      // after a legitimate refresh would keep that refresh's calculation_version and be published as
-      // canonical, with a band and confidence still describing the score it replaced.
-      await supabase.from('vehicles').update({
-        trust_score: finalScore,
-        status: 'Available',
-        ...UNSTAMPED_TRUST_CACHE,
-      }).eq('vin', vin);
-
-      // Emit internal DOCUMENT_VERIFICATION_APPROVED event
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_APPROVED', { ocrDocumentId, actorId, vin, newTrustScore: finalScore });
-
-      // Write trust history log
-      try {
-        await supabase.from('trust_score_history').insert({
-          entity_type: 'VEHICLE',
-          entity_id: vin,
-          previous_score: baseScore,
-          new_score: finalScore,
-          trigger_event: `ADMIN_DOCUMENT_APPROVAL|${ocrDoc.document_type}`,
-          timestamp
-        });
-      } catch (e) {
-        console.warn('Skipping score history persistence:', e.message);
+      // The governed human review decision is preserved.
+      const { error: verifyError } = await supabase
+        .from('ocr_documents')
+        .update({ status: 'Verified' })
+        .eq('id', ocrDocumentId);
+      if (verifyError) {
+        throw new Error(`Failed to persist OCR document review: ${verifyError.message}`);
       }
+
+      // C1 authority handoff: the review fact is durable first; only the canonical Trust service may
+      // derive/materialize a Vehicle Trust consequence from governed facts. As on vehicle-evidence
+      // review, refresh failure does not roll back the human review because the cache is derived and
+      // can be refreshed later.
+      let trustRefresh = { attempted: true, written: false, reason: null };
+      try {
+        const refreshCanonicalTrust = options.refreshCanonicalTrust
+          || (await import('../trustDecision/canonicalTrustService.js')).refreshCanonicalTrust;
+        const refreshed = await refreshCanonicalTrust(vin);
+        trustRefresh = {
+          attempted: true,
+          written: refreshed?.written === true,
+          reason: refreshed?.reason ?? null,
+        };
+      } catch (trustError) {
+        trustRefresh = {
+          attempted: true,
+          written: false,
+          reason: `refresh_failed:${trustError?.message || trustError}`,
+        };
+        console.warn('[Trust] OCR document-review canonical refresh failed:', trustError?.message || trustError);
+      }
+
+      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_APPROVED', {
+        ocrDocumentId,
+        actorId,
+        vin,
+        trustRefreshWritten: trustRefresh.written,
+      });
 
       return {
         success: true,
         ocrDocumentId,
-        newTrustScore: finalScore,
-        status: 'Verified'
+        status: 'Verified',
+        vehicleStatusChanged: false,
+        trustRefresh,
       };
     } catch (err) {
       console.error('Document approval failed:', err.message);
-      // Emit internal DOCUMENT_VERIFICATION_REJECTED event
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_REJECTED', { ocrDocumentId, actorId, vin, reason: err.message });
+      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_REJECTED', {
+        ocrDocumentId,
+        actorId,
+        vin,
+        reason: err.message,
+      });
       throw err;
     }
   }
