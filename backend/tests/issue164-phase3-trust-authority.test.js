@@ -1248,6 +1248,56 @@ test('OCR C1: governed document approval cannot write Vehicle Trust/status and d
   // Any Trust consequence is handed to the one canonical writer.
   assert.deepEqual(refreshCalls, [vin]);
 });
+
+test('OCR C1: a metadata mismatch blocks document approval without Trust penalty, quarantine, status change or canonical refresh', async () => {
+  const vin = 'JTDBR32E870JJ00016';
+  const vehicle = freshCacheRow({
+    vin, trust_score: 76, trust_band: 'moderate', trust_confidence: 'medium',
+    status: 'Available', owner_id: null, make: 'Toyota', model: 'Corolla', year: 2018,
+  });
+  const vehicleBefore = structuredClone(vehicle);
+  seedDb({
+    vehicles: [vehicle],
+    ocr_documents: [{
+      id: 'ocr-doc-mismatch',
+      document_type: 'registration_book',
+      file_path: 'inline_b64',
+      confidence_score: 0.95,
+      extracted_json: JSON.stringify({
+        additional_fields: { vin: 'JTDBR32E870JJ99999', owner_name: 'SPECIMEN OWNER' },
+      }),
+      status: 'Pending_Verification',
+    }],
+    trust_score_history: [],
+    administrative_overrides: [],
+    security_events: [],
+  });
+
+  const refreshCalls = [];
+  await assert.rejects(
+    DocumentIntelligenceService.approveDocumentVerification(
+      'ocr-doc-mismatch',
+      'admin-1',
+      vin,
+      'C1 mismatch refusal',
+      {
+        refreshCanonicalTrust: async (requestedVin) => {
+          refreshCalls.push(requestedVin);
+          return { written: true, reason: null };
+        },
+      },
+    ),
+    /VERIFICATION_FAILED: Metadata mismatch detected/,
+  );
+
+  assert.deepEqual(memoryDb.vehicles[0], vehicleBefore, 'mismatch review must not mutate Vehicle authority');
+  assert.equal(memoryDb.ocr_documents[0].status, 'Pending_Verification', 'rejected review must not verify the OCR row');
+  assert.equal(memoryDb.administrative_overrides.length, 0, 'a refused approval must not write an approval override');
+  assert.equal(memoryDb.trust_score_history.length, 0, 'Document Intelligence must not write Trust history');
+  assert.equal(memoryDb.security_events.length, 0, 'read-only assessment must not create legacy mismatch enforcement events');
+  assert.deepEqual(refreshCalls, [], 'a refused review has no accepted fact to refresh');
+});
+
 test('an OCR-mismatch penalty writes a trust score that CANNOT publish as canonical — the penalised number never inherits the previous stamp', async () => {
   const vin = 'JTDBR32E870JJ00012';
   const vehicle = freshCacheRow({
