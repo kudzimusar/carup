@@ -221,12 +221,13 @@ test('C3 null-like OCR text is never converted into applicant data', async () =>
     storage,
     ocr: { async extractDocumentData() {
       return successOcr({
-        trading_name: 'Unknown',
+        trading_name: 'Real Garage',
         additional_fields: { physical_address: 'N/A', city: 'null' },
       });
     } },
   });
-  assert.equal(out.candidates.trading_name.state, 'missing');
+  assert.equal(out.candidates.trading_name.state, 'machine_candidate');
+  assert.equal(out.candidates.trading_name.value, 'Real Garage');
   assert.equal(out.candidates.address_line.state, 'missing');
   assert.equal(out.candidates.location_city.state, 'missing');
 });
