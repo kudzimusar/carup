@@ -97,8 +97,9 @@
  *                                       import it and the evidence-review routes now call
  *                                       refreshCanonicalTrust); backend/tests/run-tests.js still
  *                                       invokes it, and it still writes an UNCLEARED stamp.
- *   documentIntelligenceService.js      writes a score off OCR approval
- *   trustEnforcementEngine.js           penalty writes over an assumed 80.0 baseline
+ *   documentIntelligenceService.js      RETIRED as a Trust writer by OCR 1.0-C1; governed document
+ *                                       review now delegates derived Trust refresh here
+ *   trustEnforcementEngine.js           legacy penalty writes over an assumed 80.0 baseline
  * Listing creation is NO LONGER one of them: server.js inserts an explicit `trust_score: null`,
  * because the column DEFAULTS TO 80.0 and omitting it would fabricate a score.
  *
@@ -110,7 +111,8 @@
  * basis belonging to the score it replaced. The two writers above therefore null all six stamp
  * columns in the SAME update as the score, which is what puts the row back into `unversioned` and
  * makes the refusal real. A new writer of this column must do the same, or it is publishing under
- * refreshCanonicalTrust's authority. Retiring them is INV-TRUST-2's remaining work.
+ * refreshCanonicalTrust's authority. OCR 1.0-C1 retires the Document Intelligence writer; the
+ * remaining TrustEnforcementEngine foreign writers are later convergence work.
  */
 async function getDefaultClient() {
   const { supabase } = await import('../../db/supabase.js');
