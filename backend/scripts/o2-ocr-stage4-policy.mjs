@@ -14,7 +14,8 @@
 
 export const CERTIFIED_PROVIDER = 'cloudflare';
 export const CERTIFIED_MODEL = '@cf/qwen/qwen3.8-27b';
-export const CLASSIFIER_PROVIDER = 'gemini';
+export const CLASSIFIER_PROVIDER = CERTIFIED_PROVIDER;
+export const CLASSIFIER_MODEL = CERTIFIED_MODEL;
 export const EXTRACTION_ALLOWED_CLASSIFICATIONS = Object.freeze([
   'valid_identity_document',
   'likely_identity_document',
@@ -49,14 +50,15 @@ export function classifierReasonIndicatesProviderError(reasons) {
 
 /**
  * Positive, exact Identity certification proof:
- *   classifier provider == gemini AND classification ∈ {valid,likely} AND
- *   OCR provider == cloudflare AND model == @cf/qwen/qwen3.8-27b AND
- *   ocr_execution_status == provider_succeeded.
- * A null/missing classifier provider or a null/missing model is NOT proof.
+ *   classifier provider == cloudflare AND classifier model == @cf/qwen/qwen3.8-27b AND
+ *   classification ∈ {valid,likely} AND OCR provider == cloudflare AND
+ *   OCR model == @cf/qwen/qwen3.8-27b AND ocr_execution_status == provider_succeeded.
+ * Missing provider/model provenance on either classifier or extraction is NOT proof.
  */
 export function identityCertifiable(s = {}) {
   return (
     s.classificationProvider === CLASSIFIER_PROVIDER
+    && s.classificationModel === CLASSIFIER_MODEL
     && EXTRACTION_ALLOWED_CLASSIFICATIONS.includes(s.classification)
     && s.ocrExecutionStatus === 'provider_succeeded'
     && s.ocrProvider === CERTIFIED_PROVIDER
@@ -75,8 +77,8 @@ export function identityProviderBlocked(s = {}) {
 
 /**
  * Identity disposition: 'certified' | 'blocked_provider' | 'failed'.
- * A genuine model verdict (unreadable / non_document / uncertain about the document) with a
- * gemini provider and no provider-error reason is a product failure, never a provider outage.
+ * A genuine model verdict (unreadable / non_document / unsupported / uncertain) from the
+ * governed provider with no provider-error reason is a product failure, never a provider outage.
  */
 export function identityDisposition(s = {}) {
   if (identityCertifiable(s)) return 'certified';
@@ -168,8 +170,7 @@ export function stage4ProviderReadiness(health = {}) {
     && selected_model === CERTIFIED_MODEL
     && cloudflare_configured === true
     && mock_runtime_allowed === false
-    && cloudflare_provider_present === true
-    && gemini_present === true;
+    && cloudflare_provider_present === true;
   return {
     selected_provider, selected_model, cloudflare_configured, cloudflare_provider_present,
     gemini_present, mock_runtime_allowed, ready,
