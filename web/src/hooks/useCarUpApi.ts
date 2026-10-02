@@ -2862,7 +2862,73 @@ export function useCarUpApi() {
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
+
+  // OCR 1.0-C3 — Garage applicant application + private evidence consumer only.
+  // Reviewer, activation, invitation and Garage workspace authority remain outside this lane.
+  type GarageApiJson = Record<string, unknown>
+
+  const fetchMyGarageApplication = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage-onboarding/application', { method: 'GET' })
+  }, [request])
+
+  const startGarageApplication = useCallback(async (body: { supersedes?: string } = {}): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage-onboarding/application', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const saveGarageApplication = useCallback(async (id: string, patch: Record<string, unknown>): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    })
+  }, [request])
+
+  const submitGarageApplication = useCallback(async (id: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}/submit`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const garageEvidenceBase = (appId: string) =>
+    `/garage-onboarding/application/${encodeURIComponent(appId)}/evidence`
+
+  const listGarageEvidence = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageEvidenceBase(appId), { method: 'GET' })
+  }, [request])
+
+  const uploadGarageEvidence = useCallback(async (appId: string, body: Record<string, unknown>): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageEvidenceBase(appId), { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const removeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const previewGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
+  const extractGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/extract`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const acknowledgeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/acknowledge`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
   return {
+    fetchMyGarageApplication,
+    startGarageApplication,
+    saveGarageApplication,
+    submitGarageApplication,
+    listGarageEvidence,
+    uploadGarageEvidence,
+    removeGarageEvidence,
+    previewGarageEvidence,
+    extractGarageEvidence,
+    acknowledgeGarageEvidence,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,
