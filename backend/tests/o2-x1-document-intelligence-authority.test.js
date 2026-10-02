@@ -143,7 +143,7 @@ test('OCR C1: the governed reviewer decision records review but owns no Vehicle 
   assert.match(body, /status:\s*'Verified'/);
 
   // Document Intelligence may read the vehicle for scope/audit, but it may not author the Vehicle.
-  assert.doesNotMatch(body, /from\(['"]vehicles['"]\)\.update/);
+  assert.doesNotMatch(body, /from\(['"]vehicles['"]\)[\s\S]{0,180}\.update\(/);
   assert.doesNotMatch(body, /status:\s*'Available'/);
   assert.doesNotMatch(body, /trust_score_history/);
   assert.doesNotMatch(body, /newTrustScore/);
