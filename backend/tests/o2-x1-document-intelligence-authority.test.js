@@ -3,13 +3,11 @@
  *
  * ADAPTED for the Trade OS programme line by the O2 OCR convergence.
  *
- * The O2 branch's X1 change RETIRED the whole /api/verification authority surface — it deleted the
- * documentIntelligenceRouter, TrustService (six-tier person trust), FraudService, and
- * DocumentIntelligenceService.approveDocumentVerification. That wholesale authority retirement is a
- * separate programme-authority decision that has NOT been made on the Trade OS line, and taking it
- * here would roll Trade OS trust/document authority backwards and break the frozen
- * issue164-phase3-trust-authority.test.js (which calls approveDocumentVerification and pins that its
- * write clears the canonical trust stamp — INV-TRUST-2).
+ * The O2 branch's X1 change RETIRED the whole /api/verification authority surface. The Trade OS
+ * line instead preserves the governed human-review surface. OCR 1.0-C1 converges its authority:
+ * approveDocumentVerification remains callable by a proven admin/government reviewer, but it no
+ * longer writes Vehicle status/Trust/history; any derived Trust consequence is delegated to the
+ * canonical Vehicle/Trust writer.
  *
  * On the Trade OS line the owning authority is:
  *   · /api/verification is GATED (V16 convergence), not gone: authorizeSessionRole(['admin',
@@ -73,6 +71,13 @@ function extractionBody() {
   return fn.slice(0, fn.indexOf('\n  static '));
 }
 
+/** The governed reviewer method body, isolated so C1 can pin its authority-negative boundary. */
+function approvalBody() {
+  const service = read('../services/document-intelligence/documentIntelligenceService.js');
+  const fn = service.slice(service.indexOf('static async approveDocumentVerification'));
+  return fn.slice(0, fn.indexOf('\n  }\n}'));
+}
+
 // ---------------------------------------------------------------------------------------
 // 1. The /api/verification surface is GATED (Trade OS line), and closed-by-default.
 // ---------------------------------------------------------------------------------------
@@ -126,6 +131,30 @@ test('X1: the EXTRACTION method writes no authority, and the reviewer decision i
 
   // The legitimate internal consumer is intact (behaviour covered by diaspora-ocr-route.test.js).
   assert.match(read('../routes/diasporaRoutes.js'), /DocumentIntelligenceService\.extractDocumentData/);
+});
+
+
+test('OCR C1: the governed reviewer decision records review but owns no Vehicle Trust/status authority', () => {
+  const body = approvalBody();
+
+  // Human review survives.
+  assert.match(body, /administrative_overrides/);
+  assert.match(body, /ocr_documents/);
+  assert.match(body, /status:\s*'Verified'/);
+
+  // Document Intelligence may read the vehicle for scope/audit, but it may not author the Vehicle.
+  assert.doesNotMatch(body, /from\(['"]vehicles['"]\)\.update/);
+  assert.doesNotMatch(body, /status:\s*'Available'/);
+  assert.doesNotMatch(body, /trust_score_history/);
+  assert.doesNotMatch(body, /newTrustScore/);
+
+  // Metadata mismatch assessment is read-only here; the legacy consequence-bearing wrapper is not.
+  assert.match(body, /assessDocumentDataMatch/);
+  assert.doesNotMatch(body, /TrustEnforcementEngine\.verifyDocumentDataMatch/);
+
+  // The only permitted derived Trust handoff is the existing canonical writer.
+  assert.match(body, /refreshCanonicalTrust/);
+  assert.match(body, /vehicleStatusChanged:\s*false/);
 });
 
 // ---------------------------------------------------------------------------------------
