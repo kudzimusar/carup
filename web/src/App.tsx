@@ -94,6 +94,7 @@ import KYCVerification from './pages/auth/KYCVerification'
 // Owner Dashboard
 import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
 import MyGarage from './pages/dashboard/owner/MyGarage'
+import GarageSetup from './pages/dashboard/garage/GarageSetup'
 import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
 import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
 import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
@@ -389,6 +390,7 @@ export default function App() {
         <Route element={<DashboardLayout role="owner" />}>
           <Route path="/dashboard" element={<OwnerDashboard />} />
           <Route path="/dashboard/garage" element={<MyGarage />} />
+          <Route path="/dashboard/garage-setup" element={<GarageSetup />} />
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
