@@ -2,8 +2,8 @@
  * Phase 7C — Document classification tests.
  *
  * Exercises the two-pass classifier (deterministic Layer 1 + vision Layer 2)
- * using synthetic image fixtures. The Gemini Layer 2 shortcut is tested in
- * mock mode (skipped) and in unavailable mode (returns uncertain).
+ * using synthetic image fixtures. Layer 2 uses the governed OCR vision-provider boundary;
+ * mock mode remains test-only and an unavailable configured provider returns uncertain.
  *
  * The critical hallucination quarantine test proves that OCR-extracted fields
  * from a non-document are never exposed as trusted identity data.
@@ -239,25 +239,40 @@ test('HALLUCINATION QUARANTINE: non-document with hallucinated high-confidence O
 });
 
 // ---------------------------------------------------------------------------
-// 9. Gemini unavailable (no API key, mock=false) — returns UNCERTAIN
+// 9. The CONFIGURED governed provider cannot run (mock=false) — returns UNCERTAIN
 // ---------------------------------------------------------------------------
-test('classifier returns UNCERTAIN when Gemini unavailable and mock disabled', async () => {
-  // Temporarily disable mock mode and clear API key
-  const origMock = process.env.ALLOW_OCR_MOCK;
-  const origKey = process.env.GEMINI_API_KEY;
+test('classifier returns UNCERTAIN when the configured provider cannot run and mock is disabled', async () => {
+  const saved = {
+    mock: process.env.ALLOW_OCR_MOCK,
+    provider: process.env.CARUP_OCR_PROVIDER,
+    account: process.env.CLOUDFLARE_ACCOUNT_ID,
+    token: process.env.CLOUDFLARE_API_TOKEN,
+    gemini: process.env.GEMINI_API_KEY,
+  };
   process.env.ALLOW_OCR_MOCK = 'false';
-  delete process.env.GEMINI_API_KEY;
+  process.env.CARUP_OCR_PROVIDER = 'cloudflare';
+  delete process.env.CLOUDFLARE_ACCOUNT_ID;
+  delete process.env.CLOUDFLARE_API_TOKEN;
+  process.env.GEMINI_API_KEY = 'present-and-must-not-be-used';
 
   try {
-    // Call classifyDocument directly (bypasses the classsify shortcut)
-    const result = await DocumentClassifier.classifyDocument(
-      jpegFixture(), null, null, 'passport',
-    );
+    const result = await DocumentClassifier.classifyDocument(jpegFixture(), null, null, 'passport');
     assert.equal(result.classification, EVIDENCE_CLASSIFICATION.UNCERTAIN);
-    assert.ok(result.reason.includes('unavailable'));
+    assert.equal(result.provider, 'cloudflare');
+    assert.match(result.reason, /not configured/i);
+    assert.match(result.reason, /CLOUDFLARE_API_TOKEN/);
+    assert.doesNotMatch(result.reason, /gemini/i, 'no silent fallback to Gemini');
   } finally {
-    process.env.ALLOW_OCR_MOCK = origMock;
-    if (origKey) process.env.GEMINI_API_KEY = origKey;
+    for (const [key, value] of Object.entries({
+      ALLOW_OCR_MOCK: saved.mock,
+      CARUP_OCR_PROVIDER: saved.provider,
+      CLOUDFLARE_ACCOUNT_ID: saved.account,
+      CLOUDFLARE_API_TOKEN: saved.token,
+      GEMINI_API_KEY: saved.gemini,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 
@@ -347,7 +362,7 @@ test('two-pass: UNREADABLE/UNSUPPORTED at Layer 2 would block extraction', async
     jpegFixture(), null, null, 'passport',
   );
 
-  // Without API key and no mock, returns UNCERTAIN
+  // Without configured governed-provider credentials, returns UNCERTAIN
   // And the classify() function would NOT allow extraction for uncertain
   assert.ok(
     result.classification === EVIDENCE_CLASSIFICATION.UNCERTAIN,
