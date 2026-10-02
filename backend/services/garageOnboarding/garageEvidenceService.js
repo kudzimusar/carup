@@ -74,10 +74,16 @@ export function garageOcrAvailability(env = process.env) {
   try {
     const provider = resolveVisionProvider(env);
     const model = (() => { try { return provider.model; } catch { return null; } })();
-    // requiredEnv comes from the canonical provider boundary. Garage does not choose credentials,
-    // models or fallback providers; it only asks whether the selected canonical provider can run.
-    const configured = provider.requiredEnv.every((name) => Boolean(env[name]));
-    const mockAllowed = env.NODE_ENV === 'test' && env.ALLOW_OCR_MOCK === 'true';
+    // At runtime, ask the canonical provider and Document Intelligence predicates directly so
+    // Garage cannot drift into a second answer to "is OCR ready?". The injected-env branch exists
+    // only to make this pure enough for credential-free unit tests.
+    const ambientRuntime = env === process.env;
+    const configured = ambientRuntime
+      ? provider.isConfigured() === true
+      : provider.requiredEnv.every((name) => Boolean(env[name]));
+    const mockAllowed = ambientRuntime
+      ? DocumentIntelligenceService.isOcrMockAllowed() === true
+      : env.NODE_ENV === 'test' && env.ALLOW_OCR_MOCK === 'true';
     const available = provider.id === GARAGE_OCR_PROVIDER
       && model === GARAGE_OCR_MODEL
       && configured
@@ -435,7 +441,7 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
   const candidates = {};
   let anyPresent = false;
   for (const field of EVIDENCE_CANDIDATE_FIELDS) {
-    // `sanitizeCandidateValue` is what stops "N/A" being offered to a person as their own address.
+    // Canonical document-schema normalization stops "N/A"/"Unknown"/null-like text being offered as applicant data.
     const value = sanitizeGarageCandidate(sources[field]);
     if (value.present) anyPresent = true;
     candidates[field] = value.present
