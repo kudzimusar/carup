@@ -8,30 +8,22 @@ import { resolveSchema, OCR_SCHEMA_VERSION, normalizeVin, FIELD_ALIASES, printed
 import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js';
 
 /**
- * DOCUMENT INTELLIGENCE BOUNDARY (Trade OS line): EXTRACTION observes; the reviewer/owning
- * domain DECIDES. These are two DISTINCT methods on this class, and the distinction is the whole
- * boundary:
+ * DOCUMENT INTELLIGENCE BOUNDARY: Document Intelligence OBSERVES; domain authorities DECIDE.
  *
- *   · extractDocumentData() is OBSERVATION / CANDIDATE-ONLY. It may write ONLY the ocr evidence
- *     tables (the master record plus the structured per-document-type candidate rows). Its output
- *     is candidate data + provenance + confidence + quality flags — never verified truth, never a
- *     vehicle/trust/registry/authority write.
- *   · approveDocumentVerification() is a DISTINCT, gated HUMAN REVIEWER decision that the Trade OS
- *     line deliberately PRESERVES (mounted at /api/verification behind
- *     authorizeSessionRole(['admin','government'])). It records the human review in
- *     administrative_overrides and marks ONLY the OCR evidence row Verified. OCR 1.0-C1 removes
- *     its former vehicle-status/trust authority: it never writes vehicles.status,
- *     vehicles.trust_score or trust_score_history. Any derived Trust consequence is delegated to
- *     canonicalTrustService.refreshCanonicalTrust(), the existing canonical Vehicle/Trust writer.
- *     It remains T12.1-hardened: it forges NO government registry rows.
+ * This module is an internal EXTRACTION service. It may write ONLY the ocr evidence tables (the
+ * master record plus the structured per-document-type candidate rows). Its output is candidate
+ * data + provenance + confidence + quality flags — never verified truth, never a vehicle, Trust,
+ * registry, identity-level or authority write.
  *
- * Registering, licensing, trusting or publishing on the strength of an extraction alone is the
- * business of the owning domain services — identity review, Dealer Compliance, Seller Authority,
- * the vehicle passport/evidence lanes and canonical Trust — each through its own governed, audited
- * path. The O2 reference branch RETIRED approveDocumentVerification and the /api/verification
- * surface entirely; that wholesale authority retirement is a separate programme decision NOT taken
- * on the Trade OS line. The extraction-side boundary is pinned by
- * backend/tests/o2-x1-document-intelligence-authority.test.js (adapted to the Trade OS authority).
+ * OC-2A (converging on O2-X1) RETIRED the reviewer-approval method that used to live here, together
+ * with the /api/verification document-intelligence router that exposed it (and the person-trust
+ * tier and legacy fraud heuristics that router called). There is no approval surface left in
+ * this module. Registering, licensing, trusting or publishing on the strength of an extraction is
+ * the business of the owning domain services — identity review, garage and vehicle evidence
+ * review, diaspora document review and canonical Trust — each through its own governed, audited
+ * path. The retired approval chain must not return; the boundary is pinned by
+ * backend/tests/o2-x1-document-intelligence-authority.test.js and
+ * backend/tests/oc2a-verification-route-convergence.test.js.
  *
  * TRUTHFULNESS CONTRACT (Live OCR Operationalization):
  *   - extraction reads the actual document bytes through the vision provider; a text prompt
@@ -658,174 +650,6 @@ export class DocumentIntelligenceService {
             country: 'Zimbabwe',
           },
         };
-    }
-  }
-
-  /**
-   * PRESERVED on the Trade OS line (O2 OCR convergence).
-   *
-   * This is a governed admin/government REVIEWER decision surface (mounted at
-   * /api/verification, gated by authorizeSessionRole(['admin','government'])), not an OCR-silent
-   * authority path: a human decider approves, using the extraction as evidence. It is pinned by
-   * the frozen backend/tests/issue164-phase3-trust-authority.test.js (INV-TRUST-2: this write
-   * clears the trust stamp) and its T12.1 hardening (it writes NO government registry rows). The
-   * O2 branch's wholesale retirement of this surface is a separate programme-authority decision
-   * that has not been made on the Trade OS line, so OCR convergence preserves it rather than
-   * rolling Trade OS trust/document authority backwards.
-   */
-  static async approveDocumentVerification(
-    ocrDocumentId,
-    actorId,
-    vin,
-    overrideJustification = 'Admin document review approval',
-    options = {},
-  ) {
-    console.log(`👤 [Verification] Admin ${actorId} approving OCR document ${ocrDocumentId} for VIN ${vin}`);
-
-    try {
-      const { data: ocrDoc, error: ocrErr } = await supabase
-        .from('ocr_documents')
-        .select('*')
-        .eq('id', ocrDocumentId)
-        .single();
-
-      if (ocrErr || !ocrDoc) {
-        throw new Error(`OCR document not found: ${ocrDocumentId}`);
-      }
-
-      const parsedData = JSON.parse(ocrDoc.extracted_json);
-      const confidence = ocrDoc.confidence_score;
-
-      if (confidence < 0.80) {
-        throw new Error('VERIFICATION_FAILED: Document OCR confidence is too low (< 0.80).');
-      }
-
-      const quality = this.analyzeImageQuality(
-        ocrDoc.file_path === 'inline_b64' ? 'mock' : ocrDoc.extracted_json,
-      );
-      const imageQualityStatus = quality.measured === true
-        ? (quality.qualityPassed === false ? 'measured_failed' : 'measured_passed')
-        : 'not_measured';
-      if (imageQualityStatus === 'measured_failed') {
-        throw new Error('VERIFICATION_FAILED: Image quality metrics failed (blur, glare, or tampering detected).');
-      }
-
-      const { TrustEnforcementEngine } = await import('../trust-service/trustEnforcementEngine.js');
-      const assessDocumentDataMatch = options.assessDocumentDataMatch
-        || TrustEnforcementEngine.assessDocumentDataMatch.bind(TrustEnforcementEngine);
-
-      // C1: comparison is READ-ONLY here. A mismatch may block this human approval, but Document
-      // Intelligence no longer invokes the legacy consequence-bearing wrapper that changes Trust
-      // or vehicle status/quarantine as a side effect of the comparison.
-      const matchCheck = await assessDocumentDataMatch(vin, ocrDoc.document_type, {
-        vin: parsedData.additional_fields?.vin || parsedData.vin,
-        owner_name: parsedData.additional_fields?.owner
-          || parsedData.additional_fields?.owner_name
-          || `${parsedData.first_name || ''} ${parsedData.last_name || ''}`.trim(),
-      });
-
-      if (!matchCheck.match) {
-        throw new Error(
-          `VERIFICATION_FAILED: Metadata mismatch detected. Details: ${JSON.stringify(matchCheck.penalties || [])}`,
-        );
-      }
-
-      const { data: vehicle } = await supabase
-        .from('vehicles')
-        .select('vin, trust_score, status')
-        .eq('vin', vin)
-        .single();
-      if (!vehicle) {
-        throw new Error(`Vehicle not found for VIN: ${vin}`);
-      }
-
-      const timestamp = new Date().toISOString();
-
-      // CarUp records only what its reviewer actually decided. It does not mint CVR/ZIMRA truth,
-      // vehicle availability, or a Trust number from the document approval.
-      const sealData = `${actorId}-${vin}-${ocrDoc.document_type}-${timestamp}`;
-      const seal = crypto.createHash('sha512').update(sealData).digest('hex');
-      await supabase.from('administrative_overrides').insert({
-        actor_id: actorId,
-        target_vin: vin,
-        override_action: 'ADMIN_APPROVE_OCR_DOCUMENT',
-        justification: overrideJustification,
-        previous_state: {
-          ocr_document_status: ocrDoc.status,
-          vehicle_status: vehicle.status,
-          canonical_trust_score: vehicle.trust_score,
-        },
-        new_state: {
-          ocr_document_status: 'Verified',
-          vehicle_status: vehicle.status,
-          vehicle_status_changed: false,
-          trust_authority: 'canonicalTrustService.refreshCanonicalTrust',
-          image_quality_check: {
-            status: imageQualityStatus,
-            measured: quality.measured === true,
-            note: quality.note || null,
-          },
-        },
-        cryptographic_seal: seal,
-        ip_address: '127.0.0.1',
-        user_agent: 'Console'
-      });
-
-      // The governed human review decision is preserved.
-      const { error: verifyError } = await supabase
-        .from('ocr_documents')
-        .update({ status: 'Verified' })
-        .eq('id', ocrDocumentId);
-      if (verifyError) {
-        throw new Error(`Failed to persist OCR document review: ${verifyError.message}`);
-      }
-
-      // C1 authority handoff: the review fact is durable first; only the canonical Trust service may
-      // derive/materialize a Vehicle Trust consequence from governed facts. As on vehicle-evidence
-      // review, refresh failure does not roll back the human review because the cache is derived and
-      // can be refreshed later.
-      let trustRefresh = { attempted: true, written: false, reason: null };
-      try {
-        const refreshCanonicalTrust = options.refreshCanonicalTrust
-          || (await import('../trustDecision/canonicalTrustService.js')).refreshCanonicalTrust;
-        const refreshed = await refreshCanonicalTrust(vin);
-        trustRefresh = {
-          attempted: true,
-          written: refreshed?.written === true,
-          reason: refreshed?.reason ?? null,
-        };
-      } catch (trustError) {
-        trustRefresh = {
-          attempted: true,
-          written: false,
-          reason: `refresh_failed:${trustError?.message || trustError}`,
-        };
-        console.warn('[Trust] OCR document-review canonical refresh failed:', trustError?.message || trustError);
-      }
-
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_APPROVED', {
-        ocrDocumentId,
-        actorId,
-        vin,
-        trustRefreshWritten: trustRefresh.written,
-      });
-
-      return {
-        success: true,
-        ocrDocumentId,
-        status: 'Verified',
-        vehicleStatusChanged: false,
-        trustRefresh,
-      };
-    } catch (err) {
-      console.error('Document approval failed:', err.message);
-      dispatchAutomationWebhook('DOCUMENT_VERIFICATION_REJECTED', {
-        ocrDocumentId,
-        actorId,
-        vin,
-        reason: err.message,
-      });
-      throw err;
     }
   }
 }
