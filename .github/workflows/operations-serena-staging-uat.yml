@@ -10,11 +10,22 @@ name: Operations Serena Staging UAT
 # change — an explicit, reviewable act. The spec is state-aware/idempotent:
 # re-runs converge on the same final state instead of re-deciding it.
 on:
-  workflow_dispatch: {}
-  pull_request:
-    paths:
-      - '.github/workflows/operations-serena-staging-uat.yml'
-      - 'tests/agents/43-operations-serena-staging.spec.ts'
+  # VC-03 — RELEASE-ONLY. This is DEPLOYED staging certification, so it never runs from a pull_request
+  # or push: Vercel no longer builds branch previews (PR #218), and a deployed run must name the exact
+  # candidate it certifies. Dispatch it with the candidate SHA; the staging-release job below proves
+  # (or, with deploy_staging=true, first makes) every stable staging runtime serve that SHA.
+  # Historical trigger: pull_request on this workflow/spec path; it reviews and publishes a real UAT vehicle, so it is now dispatch-only.
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Exact 40-character candidate commit SHA to certify on staging'
+        required: true
+        type: string
+      deploy_staging:
+        description: 'Deploy the candidate to the STAGING projects first (false = staging must already serve it)'
+        required: true
+        type: boolean
+        default: false
 
 concurrency:
   group: operations-serena-staging-uat
@@ -24,12 +35,20 @@ permissions:
   contents: read
 
 jobs:
+  staging-release:
+    name: Staging exact-head release
+    uses: ./.github/workflows/staging-exact-head-release.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      deploy: ${{ inputs.deploy_staging }}
+    secrets: inherit
+
   serena-operations-uat:
+    needs: staging-release
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      EXPECTED_HEAD_SHA: ${{ needs.staging-release.outputs.candidate_sha }}
       STAGING_RUN_ID: serena-ops-${{ github.run_id }}-${{ github.run_attempt }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
@@ -64,28 +83,13 @@ jobs:
               ;;
           esac
 
-      - name: Resolve governed exact-head preview pair
+      - name: Use the stable staging aliases (verified by staging-release)
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const branch = process.env.CANDIDATE_BRANCH;
-          const frontendPairs = JSON.parse(fs.readFileSync('web/preview-frontend-pairing.json', 'utf8')).branches || {};
-          const backendPairs = JSON.parse(fs.readFileSync('web/preview-backend-pairing.json', 'utf8')).branches || {};
-          const frontend = frontendPairs[branch];
-          const backend = backendPairs[branch];
-          if (!frontend || !backend) {
-            console.error(JSON.stringify({
-              error: 'Serena candidate preview pair is not governed',
-              branch,
-              frontend_configured: Boolean(frontend),
-              backend_configured: Boolean(backend),
-            }));
-            process.exit(1);
-          }
-          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_WEB_URL=${frontend}\n`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_API_URL=${backend}/api\n`);
-          console.log(JSON.stringify({ branch, frontend, backend }));
-          NODE
+          # VC-03: branch previews no longer exist. staging-release has already proven that
+          # staging.carup.dev and both staging backend hosts serve EXPECTED_HEAD_SHA; the exact-head
+          # wait below re-proves it from this job before anything touches staging.
+          echo "STAGING_WEB_URL=https://staging.carup.dev" >> "$GITHUB_ENV"
+          echo "STAGING_API_URL=https://api-staging.carup.dev/api" >> "$GITHUB_ENV"
 
       - name: Wait for exact-head frontend and backend provenance
         run: |
