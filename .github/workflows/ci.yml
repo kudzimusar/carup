@@ -184,6 +184,14 @@ jobs:
       - name: Trade OS T12 attributed customs schema verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t12_customs_check.mjs
 
+      # OCR 1.0-C3 — the Garage evidence migrations (20260918090000/100000/110000) and the lineage
+      # reconciliation (20261003100000). Same NEW_MIGRATIONS gap as the steps above. What only real
+      # Postgres shows: with #209's tables already present, C3's IF NOT EXISTS creates are silent
+      # no-ops, and only the reconciliation restores the column the consumer writes; the coherence
+      # CHECKs accept a reading with no reported confidence (NULL, never 0); no browser role has access.
+      - name: OCR C3 Garage evidence migrations (isolated PGlite Postgres)
+        run: node database/test/ocr_c3_garage_evidence_check.mjs
+
       # The deployed-staging gate's product assertions must MATTER. Its own suite takes ~30 minutes
       # on one viewport and cannot run concurrently, so the load-bearing security/T5/T2 assertions
       # are pinned here and checked in seconds.
