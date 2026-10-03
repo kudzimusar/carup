@@ -10,6 +10,7 @@ on:
       - feat/ocr10-c1-trust-authority-convergence
       - feat/ocr10-c2-identity-classifier-provider-convergence
       - feat/ocr10-c3-garage-evidence-consumer-convergence
+      - fix/oc-2a-verification-authority-convergence
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -19,9 +20,15 @@ on:
       - 'backend/services/document-intelligence/documentIntelligenceService.js'
       - 'backend/services/trust-service/trustEnforcementEngine.js'
       - 'backend/services/trustDecision/canonicalTrustService.js'
-      # The preserved reviewer OCR route — a reviewer-route-only regression (e.g. the attribution
-      # defect) must trigger this gate, so its file is an explicit dependant here.
+      # The RETIRED reviewer OCR router (OC-2A). Kept as a filter so re-adding the file triggers
+      # this gate, whose suites require it to stay deleted.
       - 'backend/services/document-intelligence/documentIntelligenceRouter.js'
+      # The routers that own the /api/verification prefix after OC-2A, and the real-mount-order
+      # suite that proves no prefix gate/limiter shadows them.
+      - 'backend/routes/trustFactRoutes.js'
+      - 'backend/routes/partsentryReviewRoutes.js'
+      - 'backend/tests/oc2a-verification-route-convergence.test.js'
+      - 'backend/tests/rate-limit-global-capacity.test.js'
       - 'backend/services/evidence/vehicleDocumentOcrService.js'
       - 'backend/routes/ocrConvergenceRoutes.js'
       - 'backend/routes/identityVerificationRoutes.js'
@@ -39,8 +46,8 @@ on:
       # Startup OCR diagnostic truth + mock-reachability rule.
       - 'backend/server.js'
       - 'backend/tests/o2-ocr-startup-diagnostic.test.js'
-      # Directly-affected frozen Trade OS authority suites — approveDocumentVerification + the gated
-      # /api/verification mount. A convergence change that touched them must trigger this gate.
+      # Directly-affected authority suites — they pin the retired approveDocumentVerification and
+      # the absent /api/verification mount (OC-2A). A change that touched them must trigger this gate.
       - 'backend/tests/issue164-phase3-trust-authority.test.js'
       - 'backend/tests/non-seller-authority-hardening.test.js'
       # Both of these consume the RETIRED OCR symbols. They are not "OCR lane" files by name, which
@@ -167,7 +174,9 @@ jobs:
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
-            backend/tests/diaspora-ocr-route.test.js
+            backend/tests/diaspora-ocr-route.test.js \
+            backend/tests/oc2a-verification-route-convergence.test.js \
+            backend/tests/rate-limit-global-capacity.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
