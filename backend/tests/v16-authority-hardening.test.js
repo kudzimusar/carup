@@ -549,8 +549,8 @@ test('B7: the canonical vehicle trust column has exactly the known governed writ
   //   trustEnforcementEngine         stakeholder-risk penalties (two multi-line chains)
   //
   // documentIntelligenceService was the third writer (the OCR approval `(trust_score || 80) + 20`
-  // write). OCR 1.0-C1 retired it: document review now hands off to refreshCanonicalTrust and writes
-  // no vehicle trust or status (see o2-x1-document-intelligence-authority and
+  // write). OCR 1.0-C1 removed its vehicle trust/status writes, and OC-2A (converging on O2-X1)
+  // deleted the approval method outright (see o2-x1-document-intelligence-authority and
   // issue164-phase3-trust-authority). The set shrank, so the pin shrinks with it — re-adding that
   // writer, or any other, fails here.
   assert.deepEqual(vehicleTrustWriters(), [

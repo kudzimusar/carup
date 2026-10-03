@@ -537,10 +537,10 @@ test('live-ocr: extraction still writes ONLY ocr evidence tables and decides not
   for (const write of writes) {
     assert.ok(allowed.has(write.table), `extraction wrote to ${write.table}`);
   }
-  // Trade OS adaptation: this line preserves the governed admin/government reviewer decision path
-  // (approveDocumentVerification), rather than taking the O2-X1 wholesale retirement. The invariant
-  // OCR convergence owns and proves here is that the EXTRACTION runtime (exercised above) writes ONLY
-  // the OCR evidence tables and decides nothing — the reviewer decision is a distinct, gated method.
+  // OC-2A converged this line onto the O2-X1 retirement: the Document Intelligence reviewer
+  // approval and its /api/verification router are gone (pinned by
+  // o2-x1-document-intelligence-authority). The invariant proven here is that the EXTRACTION
+  // runtime (exercised above) writes ONLY the OCR evidence tables and decides nothing.
   const extractFn = SERVICE.slice(SERVICE.indexOf('static async extractDocumentData'));
   const extractBody = extractFn.slice(0, extractFn.indexOf('\n  static '));
   assert.doesNotMatch(extractBody, /identity_verifications|is_verified|dealer_profiles|seller_authority|administrative_overrides|from\(['"]vehicles['"]\)/,

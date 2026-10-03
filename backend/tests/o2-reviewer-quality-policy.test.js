@@ -1,18 +1,28 @@
 /**
- * O2 OCR convergence — reviewer image-quality policy (explicit, behavioral).
+ * O2 OCR convergence — image-quality truth handed to reviewers, CONVERGED by OC-2A.
  *
  * CarUp does not measure image quality (the old blur/glare/tamper scores were hash-derived
- * fabrications). The reviewer-approval policy is therefore, explicitly:
- *   · measured & passed  → does not block; override records image_quality_check.status='measured_passed'
- *   · measured & FAILED  → blocks; NO approval/trust/status/Verified mutation is written
- *   · NOT measured       → does not block; override records image_quality_check.status='not_measured'
+ * fabrications). The governing rule is unchanged: nothing downstream of extraction may be told,
+ * or may imply, that an automated image-quality check passed when none was performed.
  *
- * An approval must never IMPLY an automated image-quality check passed when none was performed. This
- * suite executes the SHIPPED approveDocumentVerification for all three states, injecting only the
- * analyzeImageQuality reading (no production behavior is created to make the test possible).
+ * WHAT WAS DROPPED, AND WHY. Three cases ran the shipped approveDocumentVerification under each
+ * quality reading (not measured → proceed and record `not_measured`; measured & passed → proceed
+ * and record `measured_passed`; measured & FAILED → refuse with no writes), plus a SOURCE case
+ * pinning that method's `measured_failed` gate and its "preserved reviewer decision" comment.
+ * OC-2A (converging on O2-X1) RETIRED approveDocumentVerification and the /api/verification
+ * router that exposed it; there is no Document Intelligence approval left to gate, so those cases
+ * have nothing to execute. The comment pin is FLIPPED: the module now really does write only the
+ * ocr evidence tables, so the boundary statement it once had to retract is true again and is
+ * required here.
+ *
+ * WHAT IS KEPT. The quality envelope every surviving reviewer (identity review, garage and vehicle
+ * evidence review, diaspora document review) receives with an extraction candidate must say
+ * "not measured" — never a pass — for readable and unreadable payloads alike.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -20,91 +30,45 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
 const { supabase } = await import('../db/supabase.js');
-const trustEngineMod = await import('../services/trust-service/trustEnforcementEngine.js');
+const { providerFromClient } = await import('../services/ai/ocrVisionProvider.js');
 
-const OCR_DOC = {
-  id: 'ocr-doc-q1', document_type: 'national_id', file_path: 'inline_b64',
-  confidence_score: 0.95,
-  extracted_json: JSON.stringify({ first_name: 'Tinashe', last_name: 'Moyo', additional_fields: {} }),
-  status: 'Pending_Verification',
-};
-const VEHICLE = { vin: 'VINQUALITY0001', trust_score: 60, status: 'Pending_Review' };
+const PNG_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-/**
- * Run the shipped approveDocumentVerification with a given analyzeImageQuality reading, capturing
- * every DB write. `quality` is what analyzeImageQuality returns for this case.
- */
-async function approveWithQuality(t, quality) {
-  const writes = [];
-  t.mock.method(supabase, 'from', (table) => ({
-    select: () => ({
-      eq: () => ({
-        single: () => Promise.resolve({
-          data: table === 'ocr_documents' ? OCR_DOC : table === 'vehicles' ? VEHICLE : null,
-          error: null,
-        }),
-      }),
-    }),
-    insert: (row) => { writes.push({ table, op: 'insert', row }); return Promise.resolve({ data: null, error: null }); },
-    update: (row) => { writes.push({ table, op: 'update', row }); return { eq: () => Promise.resolve({ data: null, error: null }) }; },
-  }));
-  t.mock.method(trustEngineMod.TrustEnforcementEngine, 'verifyDocumentDataMatch', async () => ({ match: true, penalties: [] }));
-  t.mock.method(DocumentIntelligenceService, 'analyzeImageQuality', () => quality);
-
-  let result; let error;
-  try {
-    result = await DocumentIntelligenceService.approveDocumentVerification('ocr-doc-q1', 'reviewer-admin-1', 'VINQUALITY0001');
-  } catch (e) {
-    error = e;
+function assertNotMeasured(quality, label) {
+  assert.equal(quality.measured, false, `${label}: quality is reported as NOT measured`);
+  assert.equal(quality.qualityPassed, null, `${label}: no pass/fail verdict is implied`);
+  for (const key of ['blur', 'glare', 'tamperSuspicion']) {
+    assert.equal(quality[key], 'not_measured', `${label}: ${key} is not measured`);
   }
-  return { writes, result, error };
+  for (const key of ['blurScore', 'glareScore', 'tamperSuspicionScore']) {
+    assert.equal(quality[key], null, `${label}: ${key} carries no fabricated number`);
+  }
 }
 
-test('Case 1 — NOT measured: reviewer may proceed; override records not_measured', async (t) => {
-  const { writes, result, error } = await approveWithQuality(t, {
-    measured: false, qualityPassed: null, note: 'CarUp does not measure image quality.',
-  });
-  assert.ifError(error);
-  assert.equal(result.success, true, 'not_measured must not block the reviewer');
-  const override = writes.find((w) => w.table === 'administrative_overrides' && w.op === 'insert');
-  assert.equal(override.row.new_state.image_quality_check.status, 'not_measured');
-  assert.equal(override.row.new_state.image_quality_check.measured, false);
+test('the extraction candidate carries a NOT-measured quality envelope — never an implied pass', async (t) => {
+  t.mock.method(supabase, 'from', () => ({
+    insert: () => Promise.resolve({ data: null, error: null }),
+    update: () => Promise.resolve({ data: null, error: null }),
+    upsert: () => Promise.resolve({ data: null, error: null }),
+    select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+  }));
+  const visionProvider = providerFromClient(async () => ({
+    document_class_observed: 'zimbabwe_national_id', confidence: 0.97, fields: { first_name: 'Tinashe', last_name: 'Moyo' },
+  }), { id: 'cloudflare', model: '@cf/qwen/qwen3.8-27b' });
+
+  const result = await DocumentIntelligenceService.extractDocumentData('national_id', PNG_DATA_URI, 'reviewer-q1', { visionProvider });
+  assert.ok(result.qualityMetrics, 'quality diagnostics travel with the candidate');
+  assertNotMeasured(result.qualityMetrics, 'extraction');
 });
 
-test('Case 2 — measured & PASSED: reviewer may proceed; override records measured_passed', async (t) => {
-  const { writes, result, error } = await approveWithQuality(t, {
-    measured: true, qualityPassed: true, note: null,
-  });
-  assert.ifError(error);
-  assert.equal(result.success, true, 'a measured pass does not block');
-  const override = writes.find((w) => w.table === 'administrative_overrides' && w.op === 'insert');
-  assert.equal(override.row.new_state.image_quality_check.status, 'measured_passed');
-  assert.equal(override.row.new_state.image_quality_check.measured, true);
+test('analyzeImageQuality reports not-measured for readable and unreadable payloads alike', () => {
+  assertNotMeasured(DocumentIntelligenceService.analyzeImageQuality(PNG_DATA_URI), 'readable');
+  assertNotMeasured(DocumentIntelligenceService.analyzeImageQuality('not-a-document'), 'unreadable');
 });
 
-test('Case 3 — measured & FAILED: reviewer is REFUSED; no approval/trust/status/Verified mutation is written', async (t) => {
-  const { writes, result, error } = await approveWithQuality(t, {
-    measured: true, qualityPassed: false, note: null,
-  });
-  assert.equal(result, undefined, 'a measured failure must not return a successful approval');
-  assert.ok(error, 'a measured failure must throw');
-  assert.match(error.message, /VERIFICATION_FAILED: Image quality/);
-  // No side effects: no audit override, no vehicle trust/status write, no ocr_documents Verified,
-  // no trust history. The block happens before any write.
-  for (const forbidden of ['administrative_overrides', 'vehicles', 'ocr_documents', 'trust_score_history']) {
-    assert.equal(writes.some((w) => w.table === forbidden), false, `measured_failed must write nothing to ${forbidden}`);
-  }
-  assert.equal(writes.length, 0, 'a blocked approval writes nothing at all');
-});
-
-test('SOURCE: the gate blocks only measured_failed, and the module comment is truthful', async () => {
-  const fs = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
+test('SOURCE: no Document Intelligence approval gate remains, and the module comment states the extraction-only boundary', () => {
   const src = fs.readFileSync(fileURLToPath(new URL('../services/document-intelligence/documentIntelligenceService.js', import.meta.url)), 'utf8');
-  assert.match(src, /imageQualityStatus === 'measured_failed'/, 'only a measured failure may block');
-  assert.match(src, /'not_measured'/, 'the not-measured state is explicit');
-  assert.doesNotMatch(src, /This module may write ONLY the ocr evidence tables/,
-    'the false extraction-only claim must be corrected for the Trade OS line');
-  assert.match(src, /approveDocumentVerification\(\) is a DISTINCT, gated HUMAN REVIEWER decision/,
-    'the module comment must state the preserved reviewer-decision boundary');
+  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'undefined');
+  assert.doesNotMatch(src, /measured_failed|measured_passed/, 'no approval-time quality gate remains in Document Intelligence');
+  assert.match(src, /It may write ONLY the ocr evidence tables/, 'the module comment states the extraction-only boundary');
 });

@@ -1,27 +1,34 @@
 /**
- * O2-X1 — Document Intelligence observes; domain authorities decide (TRADE OS LINE).
+ * O2-X1 / OC-2A — Document Intelligence observes; domain authorities decide.
  *
- * ADAPTED for the Trade OS programme line by the O2 OCR convergence.
+ * CONVERGED onto the O2-X1 retirement by OC-2A. This line previously PRESERVED the legacy
+ * /api/verification document-intelligence router behind authorizeSessionRole(['admin',
+ * 'government']) and kept approveDocumentVerification as a reviewer decision. That was a second
+ * authority over vehicle trust/registry/person verification level, and — because the gate was a
+ * PREFIX mount — it also shadowed the Trust Fact and PartSentry review routes that share the
+ * /api/verification prefix (see oc2a-verification-route-convergence.test.js, which proves the
+ * mount order over real HTTP). OC-2A retires the authority surface and keeps the extraction engine.
  *
- * The O2 branch's X1 change RETIRED the whole /api/verification authority surface. The Trade OS
- * line instead preserves the governed human-review surface. OCR 1.0-C1 converges its authority:
- * approveDocumentVerification remains callable by a proven admin/government reviewer, but it no
- * longer writes Vehicle status/Trust/history; any derived Trust consequence is delegated to the
- * canonical Vehicle/Trust writer.
+ * This suite is the permanent guard on that boundary:
  *
- * On the Trade OS line the owning authority is:
- *   · /api/verification is GATED (V16 convergence), not gone: authorizeSessionRole(['admin',
- *     'government']) with the x-user-id fallback disabled — a PROVEN session, never an asserted
- *     header, and closed-by-default at the mount.
- *   · approveDocumentVerification is PRESERVED as a governed admin/government REVIEWER decision, and
- *     is T12.1-hardened: it writes NO government registry rows (cvr_ownership_records /
- *     zimra_declarations were REMOVED, not disabled).
+ *   1. The legacy router file, its import and its mount are GONE — not gated, gone — and nothing
+ *      of any kind (gate, limiter, router) is mounted at the /api/verification PREFIX, because the
+ *      Trust Fact and PartSentry routers own their route-level authorization there.
+ *   2. The person-trust tier (TrustService) and the legacy device-heuristic fraud scanner
+ *      (FraudService) are deleted, and no runtime module references their entry points.
+ *   3. The service itself has no authority writer left: no registry-table writes, no vehicle
+ *      reads/writes, no override/audit writes, no trust or KYC mutation of any kind. Extraction is
+ *      still present — the module is narrowed, not gutted.
+ *   4. Extraction still works for its legitimate internal consumers and still yields CANDIDATE
+ *      data: writes confined to the ocr evidence tables, caller attributed, and the sample-document
+ *      fallback reachable only under the explicit test-mode flag.
+ *   5. An extraction failure outside test mode stays an HONEST failure.
+ *   6. No replacement shortcut writer forges the government registry tables (T12.1).
  *
- * What OCR convergence owns and this suite therefore pins is the invariant that DOES hold here and
- * is this task's mandate: Document Intelligence EXTRACTION observes and decides nothing. The
- * extraction method writes only the OCR evidence tables, yields CANDIDATE data, fails honestly, and
- * no runtime module forges a government registry row. The reviewer DECISION is a separate, gated
- * method — extraction is never it.
+ * Intentional difference from the O2 branch: this line keeps its stronger OCR platform (the
+ * real-bytes Cloudflare vision provider boundary, /api/ai/ocr answering 410 via
+ * ocrConvergenceRoutes, OCR 1.0-C1 canonical-Trust convergence and C2 identity classifier), so the
+ * behavioural extraction tests below drive the Cloudflare provider env rather than O2's Gemini one.
  *
  * Approach: mount-level and module-shape guarantees are pinned on SOURCE; behavioural guarantees
  * run the SHIPPED extractDocumentData against a captured fake client.
@@ -64,101 +71,87 @@ function runtimeHits(pattern) {
     .map((file) => path.relative(at('..'), file));
 }
 
-/** The extraction method body, isolated from the reviewer-decision method in the same class. */
-function extractionBody() {
-  const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  const fn = service.slice(service.indexOf('static async extractDocumentData'));
-  return fn.slice(0, fn.indexOf('\n  static '));
-}
-
-/** The governed reviewer method body, isolated so C1 can pin its authority-negative boundary. */
-function approvalBody() {
-  const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  const fn = service.slice(service.indexOf('static async approveDocumentVerification'));
-  return fn.slice(0, fn.indexOf('\n  }\n}'));
-}
-
 // ---------------------------------------------------------------------------------------
-// 1. The /api/verification surface is GATED (Trade OS line), and closed-by-default.
+// 1. The mounted authority surface is gone — router file, server import, mount, prefix middleware.
 // ---------------------------------------------------------------------------------------
 
-test('X1 (Trade OS): /api/verification is gated at the mount with the header fallback disabled', () => {
-  const server = read('../server.js');
-  // Trade OS preserves the surface behind authorizeSessionRole, which disables the x-user-id
-  // fallback: a registry/trust decision always requires a PROVEN session, never an asserted header.
-  assert.match(
-    server,
-    /app\.use\('\/api\/verification',\s*authorizeSessionRole\(\['admin',\s*'government'\]\),\s*documentIntelligenceRouter\)/,
-    'the /api/verification mount must stay gated by a proven admin/government session',
+test('X1/OC-2A: the legacy /api/verification router is retired — file, import and mount all gone', () => {
+  assert.equal(
+    fs.existsSync(at('../services/document-intelligence/documentIntelligenceRouter.js')), false,
+    'documentIntelligenceRouter.js must be deleted, not merely unmounted',
   );
-  // A bare (ungated) mount must never exist.
-  assert.doesNotMatch(server, /app\.use\('\/api\/verification',\s*documentIntelligenceRouter\)/,
-    'no bare /api/verification mount may exist');
+
+  const server = read('../server.js');
+  assert.doesNotMatch(server, /documentIntelligenceRouter/, 'server.js must not import the retired router');
+  // No PREFIX middleware of any kind — gate, limiter or router. A prefix mount runs before the
+  // Trust Fact / PartSentry routers and shadows their route-level authorization (OC-2A defect).
+  assert.doesNotMatch(
+    server, /app\.use\(\s*\[?\s*['"`]\/api\/verification\b/,
+    'no /api/verification prefix mount of any kind may exist — gated, bare, limiter or router',
+  );
+  // The routers that legitimately own the prefix are still mounted, path-less.
+  assert.match(server, /app\.use\(trustFactRouter\);/);
+  assert.match(server, /app\.use\(partsentryReviewRouter\);/);
 });
 
 // ---------------------------------------------------------------------------------------
-// 2. Extraction is not an authority writer; the reviewer decision path is a SEPARATE method.
+// 2. The retired concepts cannot return under their old names.
 // ---------------------------------------------------------------------------------------
 
-test('X1: the EXTRACTION method writes no authority, and the reviewer decision is a distinct path', () => {
-  const body = extractionBody();
+test('X1/OC-2A: the person-trust tier and legacy fraud heuristics are deleted with zero runtime references', () => {
+  assert.equal(fs.existsSync(at('../services/trust-service/trustService.js')), false,
+    'trustService.js (six-tier person trust, a second kyc_profiles writer) must be deleted');
+  assert.equal(fs.existsSync(at('../services/fraud-service/fraudService.js')), false,
+    'fraudService.js (legacy device-heuristic scanner) must be deleted');
+
+  // The retirement must not have taken the legitimate neighbour with it.
+  assert.equal(fs.existsSync(at('../services/trust-service/trustEnforcementEngine.js')), true,
+    'trustEnforcementEngine.js has other consumers and stays');
+
+  for (const token of [/assignTrustLevel/, /calculateUserTrustScore/, /promote-trust/, /scanFraudRisk/, /approveDocumentVerification/]) {
+    assert.deepEqual(runtimeHits(token), [], `no runtime module may reference ${token}`);
+  }
+});
+
+// ---------------------------------------------------------------------------------------
+// 3. Document Intelligence keeps extraction and loses every authority writer.
+// ---------------------------------------------------------------------------------------
+
+test('X1/OC-2A: the service has no authority writer left — and extraction was not gutted', () => {
+  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'undefined',
+    'approveDocumentVerification must no longer exist');
+
+  const service = read('../services/document-intelligence/documentIntelligenceService.js');
   for (const forbidden of [
-    /cvr_ownership_records/, //  registry truth
-    /zimra_declarations/, //     customs truth
-    /administrative_overrides/, // reviewer override audit sink
-    /trust_score/, //            canonical Trust
-    /from\(['"]vehicles['"]\)/, // no vehicle writes from extraction
+    /cvr_ownership_records/, // registry truth — owned by external-registry ingestion, read by the fact resolver
+    /zimra_declarations/, //    customs truth — same ownership
+    /administrative_overrides/, // override audit sink for REAL administrative actions only
+    /trust_score/, //           canonical Trust — one writer (refreshCanonicalTrust)
     /trust_score_history/,
+    /from\(['"]vehicles['"]\)/, // no vehicle reads or writes of any kind remain
     /kyc_profiles/,
+    /refreshCanonicalTrust/, // no Trust handoff either — DI decides nothing that needs one
     /status:\s*'Verified'/, /status:\s*'Available'/,
   ]) {
-    assert.doesNotMatch(body, forbidden, `the extraction method must not touch ${forbidden}`);
+    assert.doesNotMatch(service, forbidden, `service must not touch ${forbidden}`);
   }
 
   // Narrowed, not gutted: the candidate-extraction engine and its evidence tables remain.
-  const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  assert.match(service, /extractDocumentData/);
+  assert.equal(typeof DocumentIntelligenceService.extractDocumentData, 'function');
   assert.match(service, /ocr_documents/);
   assert.match(service, /analyzeImageQuality/);
   // The sample-document fallback stays strictly test-gated.
   assert.match(service, /NODE_ENV === 'test' && process\.env\.ALLOW_OCR_MOCK === 'true'/);
 
-  // Extraction and the reviewer decision are DISTINCT methods. Extraction decides nothing; the
-  // gated reviewer decision (approveDocumentVerification) is preserved on the Trade OS line.
-  assert.equal(typeof DocumentIntelligenceService.extractDocumentData, 'function');
-  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'function',
-    'the governed reviewer decision path is preserved and is separate from extraction');
-
-  // The legitimate internal consumer is intact (behaviour covered by diaspora-ocr-route.test.js).
+  // The legitimate internal consumers are intact (behaviour covered by their own suites).
   assert.match(read('../routes/diasporaRoutes.js'), /DocumentIntelligenceService\.extractDocumentData/);
-});
-
-
-test('OCR C1: the governed reviewer decision records review but owns no Vehicle Trust/status authority', () => {
-  const body = approvalBody();
-
-  // Human review survives.
-  assert.match(body, /administrative_overrides/);
-  assert.match(body, /ocr_documents/);
-  assert.match(body, /status:\s*'Verified'/);
-
-  // Document Intelligence may read the vehicle for scope/audit, but it may not author the Vehicle.
-  assert.doesNotMatch(body, /from\(['"]vehicles['"]\)[\s\S]{0,180}\.update\(/);
-  assert.doesNotMatch(body, /status:\s*'Available'/);
-  assert.doesNotMatch(body, /trust_score_history/);
-  assert.doesNotMatch(body, /newTrustScore/);
-
-  // Metadata mismatch assessment is read-only here; the legacy consequence-bearing wrapper is not.
-  assert.match(body, /assessDocumentDataMatch/);
-  assert.doesNotMatch(body, /TrustEnforcementEngine\.verifyDocumentDataMatch/);
-
-  // The only permitted derived Trust handoff is the existing canonical writer.
-  assert.match(body, /refreshCanonicalTrust/);
-  assert.match(body, /vehicleStatusChanged:\s*false/);
+  assert.match(read('../services/identity/verificationSessionService.js'), /ocr\.extractDocumentData\(/);
+  assert.match(read('../services/evidence/vehicleDocumentOcrService.js'), /ocr\.extractDocumentData\(/);
+  assert.match(read('../services/garageOnboarding/garageEvidenceService.js'), /ocr\.extractDocumentData\(/);
 });
 
 // ---------------------------------------------------------------------------------------
-// 3 + 4. Extraction behaviour: candidates only, honest failure, confined writes.
+// 4 + 5. Extraction behaviour: candidates only, honest failure, confined writes.
 // ---------------------------------------------------------------------------------------
 
 /** Fake supabase.from that records every write and answers like the thenable builder. */
@@ -244,7 +237,7 @@ test('X1: outside the explicit test-mode flag an extraction failure stays HONEST
 });
 
 // ---------------------------------------------------------------------------------------
-// 5. No shortcut writer forges the government registry tables (T12.1).
+// 6. No shortcut writer forges the government registry tables (T12.1).
 // ---------------------------------------------------------------------------------------
 
 test('X1: no runtime module writes the government registry tables an OCR approval used to forge (T12.1)', () => {

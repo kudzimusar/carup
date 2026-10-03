@@ -276,27 +276,22 @@ test('stakeholder: vehicle documents — reading a VIN does NOT register a vehic
 //    Stakeholders 20, 23, 29, 30.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
-test('stakeholder: reviewer/admin/government — OCR EXTRACTION decides nothing; the reviewer decision path is separate and governed', () => {
+test('stakeholder: reviewer/admin/government — OCR EXTRACTION decides nothing; decisions live in the governed domain reviewers', () => {
   const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  // The /api/verification reviewer surface is PRESERVED as a governed admin/government human
-  // decision. OCR 1.0-C1 removes its former Vehicle Trust/status authority: the reviewer records the
-  // OCR-document decision, while canonical Vehicle/Trust owns downstream consequences. Extraction
-  // remains a distinct observation-only method.
-  const extractFn = service.slice(service.indexOf('static async extractDocumentData'));
-  const extractBody = extractFn.slice(0, extractFn.indexOf('\n  static '));
+  // OC-2A (converging on O2-X1) RETIRED the /api/verification document-intelligence reviewer
+  // surface and its approveDocumentVerification method: Document Intelligence is extraction-only,
+  // so the WHOLE module — not just the extraction method — must be free of decision writes.
   for (const forbidden of [
     /administrative_overrides/, /from\(['"]vehicles['"]\)/, /trust_score/, /trust_score_history/,
     /status:\s*'Verified'/, /status:\s*'Available'/,
   ]) {
-    assert.doesNotMatch(extractBody, forbidden,
-      `the extraction method must never write ${forbidden} — that is the reviewer decision path, not extraction`);
+    assert.doesNotMatch(service, forbidden,
+      `Document Intelligence must never write ${forbidden} — that is a governed domain reviewer's decision`);
   }
-  // The reviewer decision is a SEPARATE, explicitly-named method — never something extraction does.
   assert.equal(typeof DocumentIntelligenceService.extractDocumentData, 'function');
-  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'function',
-    'the governed reviewer decision path is preserved on the Trade OS line and is distinct from extraction');
-  // And CarUp still never fabricates a government registry row from an OCR approval (T12.1): assert
-  // no actual `.from('<registry>')` write exists (the reviewer method's comment names them in prose).
+  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'undefined',
+    'the retired Document Intelligence approval must not return');
+  // CarUp never fabricates a government registry row from OCR (T12.1).
   assert.doesNotMatch(service, /from\(['"](?:cvr_ownership_records|zimra_declarations)['"]\)/);
   // A reviewer decision is written by the identity/dealer review services, not by extraction.
   const identity = read('../services/identity/verificationSessionService.js');

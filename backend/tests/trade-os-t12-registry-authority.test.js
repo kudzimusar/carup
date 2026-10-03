@@ -71,8 +71,14 @@ test('T12: what CarUp DID observe is still recorded — the positive control', a
   assert.match(schemas, /table:\s*'ocr_customs_declarations'/, 'the customs reading no longer has a table to land in');
   assert.match(code, /persistStructuredCandidate\(\s*schema/, 'structured readings are no longer persisted');
   assert.match(code, /from\(table\)\.insert\(row\)/, 'what the document SAID is no longer recorded');
-  assert.match(code, /from\('administrative_overrides'\)[\s\S]{0,200}\.insert/, 'who approved it is no longer recorded');
   assert.match(code, /raw_verification_confidence/, 'the confidence of the reading is no longer recorded');
+  // OC-2A (converging on O2-X1) RETIRED the Document Intelligence approval itself, so there is no
+  // approver here to record any more: the former `administrative_overrides` positive control is
+  // FLIPPED. Document Intelligence records only what the document said; a human decision is
+  // recorded by the governed domain reviewer that makes it, never by extraction.
+  assert.doesNotMatch(code, /administrative_overrides/, 'Document Intelligence must not write an approval override any more');
+  const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
+  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'undefined', 'the retired approval must not return');
 });
 
 test('T12: a synthesised registry row cannot substantiate anything', () => {
