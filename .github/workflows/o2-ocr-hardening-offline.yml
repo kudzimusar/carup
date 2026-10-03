@@ -125,6 +125,10 @@ jobs:
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
+        with:
+          # v16-authority-hardening diffs two historical Seller-lane commits by SHA, exactly as it
+          # does under ci.yml (fetch-depth: 0). A shallow checkout fails it with "bad object".
+          fetch-depth: 0
 
       - name: Set up Node 20
         uses: actions/setup-node@v4
