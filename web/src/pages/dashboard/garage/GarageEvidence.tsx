@@ -4,8 +4,8 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Trash2, Eye, Sparkles } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
-  GARAGE_EVIDENCE_TYPES, evidenceTypeLabel, extractionPresentation,
-  type EvidenceDocument,
+  GARAGE_EVIDENCE_TYPES, evidenceTypeLabel, extractionPresentation, isAutoReadable,
+  type EvidenceDocument, type ExtractionAvailability,
 } from '@/lib/garageOnboarding'
 
 const TONE_CLASS = {
@@ -58,19 +58,28 @@ export default function GarageEvidence({
   const [description, setDescription] = useState('')
   const [uploading, setUploading] = useState(false)
   const [workingOn, setWorkingOn] = useState<string | null>(null)
+  const [readingAvailable, setReadingAvailable] = useState<boolean | null>(null)
   const fileInput = useRef<HTMLInputElement | null>(null)
+
+  // The parent's callback is read through a ref, NOT listed as a dependency. A parent that passes an
+  // inline function hands this component a new identity on every render; with that identity in
+  // `load`'s dependencies, load → onChanged → parent re-render → new load → effect → load … is an
+  // unbounded request loop. The latest callback is still the one called.
+  const onChangedRef = useRef(onChanged)
+  useEffect(() => { onChangedRef.current = onChanged }, [onChanged])
 
   const load = useCallback(() => {
     listGarageEvidence(applicationId)
-      .then((res: { documents?: EvidenceDocument[] }) => {
+      .then((res: { documents?: EvidenceDocument[]; extraction?: ExtractionAvailability }) => {
         const docs = res?.documents ?? []
         setDocuments(docs)
+        setReadingAvailable(typeof res?.extraction?.available === 'boolean' ? res.extraction.available : null)
         setState('ready')
-        onChanged?.(docs.length)
+        onChangedRef.current?.(docs.length)
       })
       // A failed read is a loading problem. It must never render as "you have uploaded nothing".
       .catch(() => setState('error'))
-  }, [applicationId, listGarageEvidence, onChanged])
+  }, [applicationId, listGarageEvidence])
 
   useEffect(() => { load() }, [load])
 
@@ -209,6 +218,12 @@ export default function GarageEvidence({
         </p>
       )}
 
+      {readingAvailable === false && docs.length > 0 && (
+        <p className="text-sm text-gray-600" data-testid="evidence-reading-unavailable">
+          Automatic reading is not available right now. Type your details in yourself — that works exactly as well.
+        </p>
+      )}
+
       {docs.length === 0 ? (
         <p className="text-sm text-gray-600 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center" data-testid="evidence-empty">
           Nothing added yet.
@@ -264,7 +279,7 @@ export default function GarageEvidence({
                       <Eye className="w-4 h-4 mr-1" aria-hidden="true" /> View
                     </Button>
                   )}
-                  {editable && doc.extraction_state === 'not_attempted' && (
+                  {editable && doc.extraction_state === 'not_attempted' && readingAvailable !== false && isAutoReadable(doc) && (
                     <Button className="min-h-11"
                       variant="outline" size="sm" disabled={busy} data-testid="evidence-extract"
                       onClick={() => act(doc.id, () => extractGarageEvidence(applicationId, doc.id), 'We could not try to read that document.')}

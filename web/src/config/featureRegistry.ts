@@ -330,6 +330,25 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     lifecycle: 'active',
   },
   {
+    // OCR 1.0-C3 — the Garage applicant surface. Without this entry the registry-driven route
+    // boundary sends every visitor of /dashboard/garage-setup to /login, so the page exists in
+    // App.tsx but can never render. Same id, label, route and role as PR #209's entry, so the two
+    // lanes converge on one feature rather than two.
+    //
+    // Deliberately NOT "Set Up My Garage": the owner sidebar already carries "My Garage", and a
+    // label containing another label's full text makes every by-text locator in the navigation
+    // suite ambiguous. Named for what the page itself says — "Finish setting up your garage".
+    id: 'owner.garage-setup',
+    label: 'Finish Garage Setup',
+    route: '/dashboard/garage-setup',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Apply to operate a garage on CarUp',
+  },
+  {
     id: 'owner.service-history',
     label: 'Service History',
     route: '/dashboard/service-history',

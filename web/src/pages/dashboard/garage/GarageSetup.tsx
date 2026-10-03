@@ -61,8 +61,9 @@ export default function GarageSetup() {
     }
   }, [])
 
+  // `loading` starts true and is only cleared here, after the response — so the mount effect sets no
+  // state synchronously, and a reload after submit keeps the page in place instead of blanking it.
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await fetchMyGarageApplication()
       adopt(res)
@@ -81,7 +82,7 @@ export default function GarageSetup() {
     }
   }, [fetchMyGarageApplication, adopt])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { queueMicrotask(load) }, [load])
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
 
   const queueSave = useCallback((patch: Record<string, unknown>) => {
@@ -108,6 +109,14 @@ export default function GarageSetup() {
     setForm((current) => ({ ...current, [key]: value }))
     queueSave({ [key]: value })
   }
+
+  // Stable identity: the evidence panel calls this after every load, and a fresh function per render
+  // is what turned that into a refetch loop. Only the blockers are refreshed, never the form.
+  const refreshBlockers = useCallback(() => {
+    fetchMyGarageApplication()
+      .then((res) => setBlockers((res as unknown as Envelope).blockers ?? null))
+      .catch(() => {})
+  }, [fetchMyGarageApplication])
 
   function toggleCategory(category: string) {
     const current = (form.service_categories as string[] | undefined) ?? []
@@ -259,11 +268,7 @@ export default function GarageSetup() {
           applicationId={application.id}
           editable={editable}
           onUseValue={(field, value) => setField(field, value)}
-          onChanged={() => {
-            fetchMyGarageApplication()
-              .then((res) => setBlockers((res as unknown as Envelope).blockers ?? null))
-              .catch(() => {})
-          }}
+          onChanged={refreshBlockers}
         />
       </section>
 

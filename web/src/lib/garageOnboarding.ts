@@ -144,6 +144,23 @@ export const GARAGE_EVIDENCE_TYPES: ReadonlyArray<readonly [string, string, stri
   ['other', 'Something else', 'Tell us what it is'],
 ] as const
 
+/**
+ * Evidence CarUp can attempt to read automatically. Mirrors the backend's EXTRACTABLE_TYPES:
+ * workshop and signage photos are visual evidence with no text to read, and PDFs are not read by
+ * the current image transport. Offering "Try to read it for me" on either could only ever fail.
+ */
+const AUTO_READABLE_TYPES = new Set([
+  'utility_bill', 'lease_or_title', 'council_or_trade_licence',
+  'company_registration', 'tax_document', 'bank_or_mobile_money_statement',
+])
+
+export function isAutoReadable(doc: Pick<EvidenceDocument, 'evidence_type' | 'mime_type'>): boolean {
+  return AUTO_READABLE_TYPES.has(doc.evidence_type) && doc.mime_type !== 'application/pdf'
+}
+
+/** Whether this deployment offers automatic reading at all — reported by the evidence list. */
+export type ExtractionAvailability = { available: boolean; reason: string | null }
+
 export function evidenceTypeLabel(value: string): string {
   return GARAGE_EVIDENCE_TYPES.find(([v]) => v === value)?.[1] ?? value.replace(/_/g, ' ')
 }
