@@ -21,8 +21,13 @@ const pairing = resolvePreviewApiUrl({
 if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 // The SHA this bundle was built from, so the running app can prove which candidate it is and compare
 // itself against the backend's `/api/health`. Empty when built outside Vercel (local/dev).
-process.env.VITE_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? ''
-process.env.VITE_GIT_REF = process.env.VERCEL_GIT_COMMIT_REF ?? ''
+//
+// VC-03: Vercel is release-only and Git deployments are disabled, so an explicit CLI release may
+// carry no VERCEL_GIT_COMMIT_SHA. The staging release workflow passes the candidate as
+// CARUP_BUILD_SHA instead — the same fallback backend/config/buildProvenance.js already honours — so
+// a release is never mistaken for "no provenance".
+process.env.VITE_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA || process.env.CARUP_BUILD_SHA || ''
+process.env.VITE_GIT_REF = process.env.VERCEL_GIT_COMMIT_REF || process.env.CARUP_BUILD_REF || ''
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.
 console.log(
   `[carup] API base for this build: ${pairing.apiUrl ?? '(runtime host resolution)'} — ${pairing.reason}`,

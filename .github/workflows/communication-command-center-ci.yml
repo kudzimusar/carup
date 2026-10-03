@@ -3,8 +3,10 @@ name: Communication Command Center CI
 # Real CI for the Enterprise Communication Command Center + Communications 2.0 Phase 0-7 closure.
 # Unit: conversation/UAT/routing/outbox/receipt/template/product/media/stakeholder/campaign/runner.
 # Postgres: mandatory existing Command Center + Communications 2 core/privacy + Phase 7 schema gates.
-# Staging: PR #148 only, canonical Supabase ref guard, frozen verify -> apply -> verify,
-# then exact-head deployment to the dedicated staging Vercel projects when the repository token exists.
+# Staging (VC-03, release-only): NEVER from pull_request/push. An explicit workflow_dispatch with
+# staging_release=true runs the canonical Supabase ref guard, frozen verify -> apply -> verify, then the
+# shared staging-exact-head-release workflow (staging projects only, exact-SHA provenance proof).
+# The previous PR #148-gated inline deploy (stale `--scope pay-pass-project`) is retired.
 
 on:
   pull_request:
@@ -12,6 +14,21 @@ on:
     branches:
       - fix/issue-110-agent8-telegram-auto-delivery
   workflow_dispatch:
+    inputs:
+      staging_release:
+        description: 'Run the Communications staging apply + exact-head staging release (explicit owner/moderator action)'
+        required: true
+        type: boolean
+        default: false
+      candidate_sha:
+        description: 'Exact 40-character candidate commit SHA (required when staging_release=true)'
+        required: false
+        type: string
+      deploy_staging:
+        description: 'Deploy the candidate to the STAGING projects (false = staging must already serve it)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   communication-unit:
@@ -94,13 +111,22 @@ jobs:
           fi
 
   communication-staging:
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 148
+    if: github.event_name == 'workflow_dispatch' && inputs.staging_release
+    needs: [communication-unit, communication-postgres]
     runs-on: ubuntu-latest
     env:
       COMMUNICATION_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - name: Assert exact candidate checkout
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          printf '%s' "$CANDIDATE_SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo '::error::candidate_sha must be a full 40-character SHA'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -119,57 +145,12 @@ jobs:
       - name: Communications staging post-apply verification
         run: MODE=verify node backend/scripts/staging-apply-communications-2.mjs
 
-  communication-staging-deploy:
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 148
+  communication-staging-release:
+    name: Communications exact-head staging release
+    if: github.event_name == 'workflow_dispatch' && inputs.staging_release
     needs: [communication-unit, communication-postgres, communication-staging]
-    runs-on: ubuntu-latest
-    env:
-      VERCEL_TOKEN_PRIMARY: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_TOKEN_FALLBACK: ${{ secrets.VERCEL_ACCESS_TOKEN }}
-      VERCEL_ORG_ID: team_InL2Jmsg4dbG0rFY8nxriTha
-      BACKEND_STAGING_PROJECT_ID: prj_ddsVeXDxxHxyMAaZxX4v5ORya27W
-      FRONTEND_STAGING_PROJECT_ID: prj_auYmL5hA2ppWA15jdTK4GAdy3AYm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Resolve staging deployment credential without printing it
-        id: vercel-auth
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "$VERCEL_TOKEN_PRIMARY" ]; then
-            echo "token=$VERCEL_TOKEN_PRIMARY" >> "$GITHUB_OUTPUT"
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          elif [ -n "$VERCEL_TOKEN_FALLBACK" ]; then
-            echo "token=$VERCEL_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No repository Vercel CLI token is available. Exact-head stable-staging deployment remains an authenticated owner/operator gate; no deployment write was attempted."
-          fi
-      - name: Deploy exact head to backend STAGING project production target
-        if: steps.vercel-auth.outputs.available == 'true'
-        env:
-          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
-          VERCEL_PROJECT_ID: ${{ env.BACKEND_STAGING_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
-      - name: Deploy exact head to frontend STAGING project production target
-        if: steps.vercel-auth.outputs.available == 'true'
-        env:
-          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
-          VERCEL_PROJECT_ID: ${{ env.FRONTEND_STAGING_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
-      - name: Record staging-only safety boundary
-        run: |
-          if [ "${{ steps.vercel-auth.outputs.available }}" = "true" ]; then
-            echo "Deployment lane targeted only carup-backend-staging and carup-staging project IDs."
-          else
-            echo "Deployment not attempted: authenticated Vercel owner/operator action remains required."
-          fi
-          echo "No carup-backend or carup production project ID is present in this job."
+    uses: ./.github/workflows/staging-exact-head-release.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      deploy: ${{ inputs.deploy_staging }}
+    secrets: inherit
