@@ -49,7 +49,6 @@ import paymentRouter from './services/payment/paymentRouter.js';
 
 // ✅ Phase 7: Object Storage & Media Router Imports
 import mediaRouter from './services/storage/mediaRouter.js';
-import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
 import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
 import { logAuditEvent } from './services/auditLogger.js';
 
@@ -251,11 +250,12 @@ if (GLOBAL_RATE_LIMIT.source !== 'default') {
 }
 app.use(rateLimiter({ max: GLOBAL_RATE_LIMIT.max, windowMs: 60 * 1000, isSensitive: false }));
 
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification) — unchanged by the
-// staging capacity above.
+// Sensitive Route Throttling (auth, uploads, safepay creation) — unchanged by the staging
+// capacity above. There is deliberately NO /api/verification prefix limiter (OC-2A): it existed
+// for the retired document-intelligence router and was throttling the Trust Fact and PartSentry
+// review routes that now own that prefix. See the retirement note at the former mount below.
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
-app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
@@ -381,19 +381,21 @@ app.use('/api/payments', paymentRouter);
 // Mount media upload unified routes
 app.use('/api/media', mediaRouter);
 
-// Mount Trust & Identity verification routes.
+// RETIRED (OC-2A, converging on O2-X1): the legacy document-intelligence router that mounted at
+// /api/verification was a SECOND authority over vehicle trust, registry records and person
+// verification level. The V16 convergence gated it (proving WHO could call it); O2-X1 and OC-2A
+// removed what there was to call: its five OCR, approval, fraud, user-trust and trust-level endpoints
+// are gone, and document intelligence is an internal EXTRACTION service whose candidates reach
+// canonical state only through the governed deciders (identity review, garage/vehicle evidence
+// review, diaspora document review, canonical Trust).
 //
-// FAIL CLOSED. This router was mounted bare, with no auth middleware on the mount and none
-// on any of its five routes, which made it a SECOND authority over vehicle trust, registry
-// records (cvr_ownership_records / zimra_declarations) and user verification level —
-// reachable by an unauthenticated caller. CSRF was not a barrier: the token endpoint issues
-// a guest-bound token to anyone.
-//
-// It is gated at the mount rather than per-route so a future route added to this router is
-// closed by default instead of inheriting the old omission. `authorizeSessionRole` is used
-// deliberately in preference to `authorizeRole`: it disables the x-user-id fallback, so a
-// registry/trust decision always requires a PROVEN session, never an asserted header.
-app.use('/api/verification', authorizeSessionRole(['admin', 'government']), documentIntelligenceRouter);
+// Do NOT mount anything at the /api/verification PREFIX — no gate, no limiter, no router. The
+// gated prefix mount ran before the routers below and shadowed them: it refused owners, dealers
+// and mechanics on the Trust Fact (trustFactRoutes.js) and PartSentry review
+// (partsentryReviewRoutes.js) routes that their own route-level authorizeRole(...) admits, and its
+// 5/min limiter throttled every review call. Those two routers own their route-level
+// authorization. Pinned by backend/tests/oc2a-verification-route-convergence.test.js (real mount
+// order) and backend/tests/o2-x1-document-intelligence-authority.test.js.
 
 // Mount centralized routes (Batch 1)
 app.use(leadsRouter);
