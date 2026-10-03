@@ -12,8 +12,6 @@ process.env.JWT_SECRET ||= 'test-jwt-secret';
 
 const {
   GARAGE_EVIDENCE_TYPES,
-  GARAGE_OCR_MODEL,
-  GARAGE_OCR_PROVIDER,
   EXTRACTION_STATE,
   acknowledgeExtraction,
   garageOcrAvailability,
@@ -53,14 +51,20 @@ const documentRow = {
   removed_at: null,
 };
 
-const READY_ENV = {
-  GARAGE_OCR_ENABLED: 'true',
-  CARUP_OCR_PROVIDER: 'cloudflare',
-  CLOUDFLARE_ACCOUNT_ID: 'test-account',
-  CLOUDFLARE_API_TOKEN: 'test-token',
-  NODE_ENV: 'test',
-  ALLOW_OCR_MOCK: 'false',
+// The canonical boundary's certified model. Garage holds no copy of it; the tests name it only to
+// prove Garage records what the boundary and Document Intelligence report.
+const QWEN = '@cf/qwen/qwen3.8-27b';
+const ENABLED = { GARAGE_OCR_ENABLED: 'true' };
+// A configured canonical provider, injected the same way production resolves one. Readiness is
+// asked of THIS object, and the same object is handed to Document Intelligence for the run.
+const readyProvider = {
+  id: 'cloudflare',
+  model: QWEN,
+  isConfigured: () => true,
+  requiredEnv: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
+  async extract() { throw new Error('the injected Document Intelligence double answers; Garage never calls the provider directly'); },
 };
+const READY = { env: ENABLED, visionProvider: readyProvider };
 
 function clone(v) { return JSON.parse(JSON.stringify(v)); }
 
@@ -137,29 +141,53 @@ const storage = {
   },
 };
 
-function successOcr(extra = {}) {
+/** The exact result shape canonical Document Intelligence returns for a provider reading. */
+function successOcr(extra = {}, top = {}) {
   return {
     success: true,
-    provider: GARAGE_OCR_PROVIDER,
-    model: GARAGE_OCR_MODEL,
+    provider: 'cloudflare',
+    model: QWEN,
+    executionStatus: 'provider_succeeded',
+    confidence: 0.91,
+    confidenceReported: true,
     extractedData: {
       trading_name: 'Specimen Motors',
       additional_fields: { physical_address: '12 Test Road' },
       confidenceScore: 0.91,
       ...extra,
     },
+    ...top,
   };
 }
 
-test('C3 readiness requires feature policy AND exact canonical Cloudflare/Qwen readiness', () => {
-  assert.equal(isExtractionEnabled({}), false);
-  assert.equal(isExtractionEnabled({ GARAGE_OCR_ENABLED: 'true' }), false);
-  assert.equal(isExtractionEnabled(READY_ENV), true);
-  assert.deepEqual(
-    garageOcrAvailability(READY_ENV),
-    { available: true, reason: null, provider: 'cloudflare', model: '@cf/qwen/qwen3.8-27b' },
-  );
-  assert.equal(isExtractionEnabled({ ...READY_ENV, CARUP_OCR_PROVIDER: 'gemini', GEMINI_API_KEY: 'test' }), false);
+test('C3 readiness = Garage feature policy AND the canonical provider is ready — nothing else', () => {
+  assert.equal(isExtractionEnabled({}), false, 'off unless the deployment turns it on');
+  assert.equal(isExtractionEnabled({}, { provider: readyProvider }), false, 'a ready provider does not switch the feature on');
+  assert.equal(isExtractionEnabled(ENABLED, { provider: { ...readyProvider, isConfigured: () => false } }), false);
+  assert.equal(isExtractionEnabled(ENABLED, { provider: readyProvider }), true);
+  const ready = garageOcrAvailability(ENABLED, { provider: readyProvider });
+  assert.equal(ready.available, true);
+  assert.equal(ready.reason, null);
+  assert.equal(ready.provider, 'cloudflare');
+  assert.equal(ready.model, QWEN);
+  // The canonical boundary refuses a rejected model by throwing from `model`; Garage reports that as
+  // not ready instead of substituting a model of its own.
+  const refused = { ...readyProvider, get model() { throw new Error('Refusing to use a rejected model'); } };
+  assert.equal(garageOcrAvailability(ENABLED, { provider: refused }).available, false);
+});
+
+test('C3 Garage holds no provider or model of its own — the canonical boundary decides', () => {
+  // Real boundary, no injection: the canonical default resolves to Cloudflare/Qwen. It is not READY
+  // here only because this test process has no Cloudflare credentials.
+  const ambient = garageOcrAvailability(ENABLED);
+  assert.equal(ambient.provider, 'cloudflare');
+  assert.equal(ambient.model, QWEN);
+  assert.equal(ambient.available, false);
+  assert.equal(ambient.reason, 'canonical_provider_not_ready');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const source = readFileSync(path.join(here, '../services/garageOnboarding/garageEvidenceService.js'), 'utf8');
+  assert.doesNotMatch(source, /@cf\/|qwen|gemma|llama/i, 'Garage names a model: model choice belongs to the canonical boundary');
+  assert.doesNotMatch(source, /=== 'cloudflare'|GARAGE_OCR_PROVIDER|GARAGE_OCR_MODEL/, 'Garage pins a provider');
 });
 
 test('C3 preserves the broad Garage evidence catalogue without making incorporation mandatory', () => {
@@ -190,11 +218,11 @@ test('C3 successful OCR uses business_document and produces candidates only', as
   const client = mockClient({}, writes);
   const calls = [];
   const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: READY_ENV,
+    ...READY,
     storage,
     ocr: {
-      async extractDocumentData(docType, dataUri, userId) {
-        calls.push({ docType, dataUri, userId });
+      async extractDocumentData(docType, dataUri, userId, options) {
+        calls.push({ docType, dataUri, userId, options });
         return successOcr();
       },
     },
@@ -204,20 +232,21 @@ test('C3 successful OCR uses business_document and produces candidates only', as
   assert.equal(calls[0].docType, 'business_document');
   assert.equal(calls[0].userId, USER);
   assert.match(calls[0].dataUri, /^data:image\/png;base64,/);
+  assert.equal(calls[0].options.visionProvider, readyProvider, 'DI reads with the provider that answered ready');
   assert.equal(out.extraction_state, EXTRACTION_STATE.AWAITING_CONFIRMATION);
   assert.equal(out.candidates.trading_name.state, 'machine_candidate');
   assert.equal(out.candidates.trading_name.value, 'Specimen Motors');
   assert.equal(out.candidates.address_line.value, '12 Test Road');
   assert.equal(out.candidates.location_city.state, 'missing');
-  assert.equal(out.document.extraction_provider, GARAGE_OCR_PROVIDER);
-  assert.equal(out.document.extraction_model, GARAGE_OCR_MODEL);
+  assert.equal(out.document.extraction_provider, 'cloudflare');
+  assert.equal(out.document.extraction_model, QWEN);
   assert.equal(writes.some((w) => w.table === 'garage_applications'), false);
 });
 
 test('C3 null-like OCR text is never converted into applicant data', async () => {
   const client = mockClient();
   const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: READY_ENV,
+    ...READY,
     storage,
     ocr: { async extractDocumentData() {
       return successOcr({
@@ -236,7 +265,7 @@ test('C3 provider failure is FAILED and leaves the manual application path untou
   const writes = [];
   const client = mockClient({}, writes);
   const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: READY_ENV,
+    ...READY,
     storage,
     ocr: { async extractDocumentData() { throw new Error('provider transport unavailable'); } },
   });
@@ -249,7 +278,8 @@ test('C3 unconfigured OCR is UNAVAILABLE, distinct from provider failure', async
   let calls = 0;
   const client = mockClient();
   const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: { GARAGE_OCR_ENABLED: 'true', CARUP_OCR_PROVIDER: 'cloudflare' },
+    env: ENABLED,
+    visionProvider: { ...readyProvider, isConfigured: () => false },
     storage,
     ocr: { async extractDocumentData() { calls += 1; return successOcr(); } },
   });
@@ -265,7 +295,7 @@ test('C3 premises/signage evidence never invokes document extraction', async () 
       garage_application_documents: [{ ...documentRow, evidence_type }],
     });
     const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-      env: READY_ENV,
+      ...READY,
       storage,
       ocr: { async extractDocumentData() { calls += 1; return successOcr(); } },
     });
@@ -280,7 +310,7 @@ test('C3 PDF is valid evidence but unsupported for current image OCR transport',
     garage_application_documents: [{ ...documentRow, mime_type: 'application/pdf', file_ref: 'garage-onboarding/a/bill.pdf' }],
   });
   const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: READY_ENV,
+    ...READY,
     storage,
     ocr: { async extractDocumentData() { calls += 1; return successOcr(); } },
   });
@@ -292,9 +322,9 @@ test('C3 PDF is valid evidence but unsupported for current image OCR transport',
 test('C3 low-confidence extraction remains a warning state, not verified evidence', async () => {
   const client = mockClient();
   const out = await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: READY_ENV,
+    ...READY,
     storage,
-    ocr: { async extractDocumentData() { return successOcr({ confidenceScore: 0.31 }); } },
+    ocr: { async extractDocumentData() { return successOcr({ confidenceScore: 0.31 }, { confidence: 0.31 }); } },
   });
   assert.equal(out.extraction_state, EXTRACTION_STATE.LOW_CONFIDENCE);
   assert.equal(out.document.extraction_confidence, 0.31);
@@ -320,7 +350,7 @@ test('C3 extraction touches no Garage approval, tenant, Trust or Seller Authorit
   const writes = [];
   const client = mockClient({}, writes);
   await runEvidenceExtraction(client, actor, APP, DOC, {
-    env: READY_ENV,
+    ...READY,
     storage,
     ocr: { async extractDocumentData() { return successOcr(); } },
   });

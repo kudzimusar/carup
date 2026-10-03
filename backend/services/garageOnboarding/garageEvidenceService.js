@@ -63,44 +63,45 @@ const LOW_CONFIDENCE_BELOW = 0.6;
  * This lane is not authorized to activate a live OCR provider, and defaulting to on would spend
  * against a provider the moment the branch reached an environment with a key configured. Off means
  * the honest state `unavailable` and the manual path — which must work anyway.
+ *
+ * The flag decides whether Garage USES automatic reading. It never decides WHICH provider or model
+ * reads: that answer belongs to the canonical OCR provider boundary alone, so Garage holds no
+ * provider or model constant of its own. The same provider object that answers "is OCR ready?"
+ * is handed to Document Intelligence for the run, so readiness and execution cannot disagree.
  */
-export const GARAGE_OCR_PROVIDER = 'cloudflare';
-export const GARAGE_OCR_MODEL = '@cf/qwen/qwen3.8-27b';
-
-export function garageOcrAvailability(env = process.env) {
+export function garageOcrAvailability(env = process.env, { provider: injectedProvider } = {}) {
   if (env.GARAGE_OCR_ENABLED !== 'true') {
-    return { available: false, reason: 'feature_disabled', provider: null, model: null };
+    return { available: false, reason: 'feature_disabled', provider: null, model: null, visionProvider: null };
   }
+  let provider;
   try {
-    const provider = resolveVisionProvider(env);
-    const model = (() => { try { return provider.model; } catch { return null; } })();
-    // At runtime, ask the canonical provider and Document Intelligence predicates directly so
-    // Garage cannot drift into a second answer to "is OCR ready?". The injected-env branch exists
-    // only to make this pure enough for credential-free unit tests.
-    const ambientRuntime = env === process.env;
-    const configured = ambientRuntime
-      ? provider.isConfigured() === true
-      : provider.requiredEnv.every((name) => Boolean(env[name]));
-    const mockAllowed = ambientRuntime
-      ? DocumentIntelligenceService.isOcrMockAllowed() === true
-      : env.NODE_ENV === 'test' && env.ALLOW_OCR_MOCK === 'true';
-    const available = provider.id === GARAGE_OCR_PROVIDER
-      && model === GARAGE_OCR_MODEL
-      && configured
-      && mockAllowed === false;
-    return {
-      available,
-      reason: available ? null : 'canonical_provider_not_ready',
-      provider: provider.id,
-      model,
-    };
+    provider = injectedProvider || resolveVisionProvider(env);
   } catch {
-    return { available: false, reason: 'canonical_provider_unavailable', provider: null, model: null };
+    return { available: false, reason: 'canonical_provider_unavailable', provider: null, model: null, visionProvider: null };
   }
+  // The canonical boundary refuses a rejected or transport-less model by throwing here; Garage
+  // reports that as "not ready" rather than choosing a model itself.
+  let model = null;
+  try { model = provider.model || null; } catch { model = null; }
+  let configured = false;
+  try { configured = provider.isConfigured() === true; } catch { configured = false; }
+  const available = Boolean(model) && configured;
+  return {
+    available,
+    reason: available ? null : 'canonical_provider_not_ready',
+    provider: provider.id,
+    model,
+    visionProvider: available ? provider : null,
+  };
 }
 
-export function isExtractionEnabled(env = process.env) {
-  return garageOcrAvailability(env).available;
+export function isExtractionEnabled(env = process.env, deps = {}) {
+  return garageOcrAvailability(env, deps).available;
+}
+
+/** The applicant-facing projection of availability: no provider object leaves the server. */
+function publicAvailability(availability) {
+  return { available: availability.available, reason: availability.reason };
 }
 
 const FIELD_STATE = Object.freeze({
@@ -119,6 +120,15 @@ const EXTRACTABLE_TYPES = new Set([
   'utility_bill', 'lease_or_title', 'council_or_trade_licence',
   'company_registration', 'tax_document', 'bank_or_mobile_money_statement',
 ]);
+
+export function isExtractableEvidenceType(evidenceType) {
+  return EXTRACTABLE_TYPES.has(evidenceType);
+}
+
+const NOT_READABLE_NOTE = 'There is no text to read on this kind of evidence. Type the details in yourself.';
+
+/** Fields cleared whenever a run produces no candidates, so a stale reading can never survive it. */
+const NO_READING = Object.freeze({ extraction_candidates: null, extraction_confidence: null });
 
 /** The application fields an extraction may PROPOSE. Deliberately narrow. */
 export const EVIDENCE_CANDIDATE_FIELDS = Object.freeze(['trading_name', 'address_line', 'location_city']);
@@ -195,8 +205,11 @@ export async function listEvidence(client = defaultClient, applicationId, option
   return (data || []).map(sanitizeEvidence);
 }
 
-/** The applicant's own evidence list. */
-export async function listOwnEvidence(client = defaultClient, actor = {}, applicationId) {
+/**
+ * The applicant's own evidence list, with whether automatic reading can be offered at all — so the
+ * page can say "type it yourself" up front instead of offering a button that can only fail.
+ */
+export async function listOwnEvidence(client = defaultClient, actor = {}, applicationId, options = {}) {
   const { userId } = await assertGarageOnboardingContext(client, actor);
   const { data, error } = await client
     .from('garage_applications')
@@ -205,7 +218,8 @@ export async function listOwnEvidence(client = defaultClient, actor = {}, applic
     .maybeSingle();
   if (error) throw new DatabaseError(`Could not load your application: ${error.message}`);
   if (!data || String(data.applicant_user_id) !== String(userId)) throw new NotFoundError('Application not found.');
-  return { documents: await listEvidence(client, applicationId) };
+  const availability = garageOcrAvailability(options.env || process.env, { provider: options.visionProvider });
+  return { documents: await listEvidence(client, applicationId), extraction: publicAvailability(availability) };
 }
 
 /** Upload one piece of business-presence evidence to the caller's own application. */
@@ -223,6 +237,9 @@ export async function uploadEvidence(client = defaultClient, actor = {}, applica
   const storage = options.storage || garageEvidenceStorage;
   await storage.uploadToStorage(GARAGE_EVIDENCE_BUCKET, storagePath, parsed.buffer, parsed.mimeType);
 
+  // A workshop or signage photo is visual evidence: there is nothing to read, so it starts in the
+  // truthful `unavailable` state instead of inviting a reading attempt that can never succeed.
+  const readable = isExtractableEvidenceType(evidenceType);
   const { data, error } = await client
     .from('garage_application_documents')
     .insert({
@@ -233,7 +250,8 @@ export async function uploadEvidence(client = defaultClient, actor = {}, applica
       file_ref: storagePath,
       mime_type: parsed.mimeType,
       size_bytes: parsed.buffer.length,
-      extraction_state: EXTRACTION_STATE.NOT_ATTEMPTED,
+      extraction_state: readable ? EXTRACTION_STATE.NOT_ATTEMPTED : EXTRACTION_STATE.UNAVAILABLE,
+      extraction_note: readable ? null : NOT_READABLE_NOTE,
     })
     .select()
     .single();
@@ -337,9 +355,26 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
     return sanitizeEvidence(data);
   };
 
-  // Two honest ways to be unavailable: the deployment has no extraction, or this kind of evidence
-  // has nothing to read. Both leave the applicant with a working manual path and say so.
-  const availability = garageOcrAvailability(options.env || process.env);
+  // Two honest ways to be unavailable: this kind of evidence has nothing to read, or the deployment
+  // has no extraction. Both leave the applicant with a working manual path and say so. The type is
+  // checked first because it is the permanent reason — a signage photo is unreadable whether or
+  // not the provider is up.
+  if (!EXTRACTABLE_TYPES.has(doc.evidence_type)) {
+    return {
+      document: await persist({
+        extraction_state: EXTRACTION_STATE.UNAVAILABLE,
+        extraction_provider: null,
+        extraction_model: null,
+        extraction_confidence: null,
+        extracted_at: null,
+        extraction_candidates: null,
+        extraction_note: NOT_READABLE_NOTE,
+      }),
+      candidates: null,
+      extraction_state: EXTRACTION_STATE.UNAVAILABLE,
+    };
+  }
+  const availability = garageOcrAvailability(options.env || process.env, { provider: options.visionProvider });
   if (!availability.available) {
     return {
       document: await persist({
@@ -353,22 +388,7 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
       }),
       candidates: null,
       extraction_state: EXTRACTION_STATE.UNAVAILABLE,
-      availability,
-    };
-  }
-  if (!EXTRACTABLE_TYPES.has(doc.evidence_type)) {
-    return {
-      document: await persist({
-        extraction_state: EXTRACTION_STATE.UNAVAILABLE,
-        extraction_provider: null,
-        extraction_model: null,
-        extraction_confidence: null,
-        extracted_at: null,
-        extraction_candidates: null,
-        extraction_note: 'There is no text to read on this kind of evidence. Type the details in yourself.',
-      }),
-      candidates: null,
-      extraction_state: EXTRACTION_STATE.UNAVAILABLE,
+      availability: publicAvailability(availability),
     };
   }
 
@@ -393,55 +413,62 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
   const storage = options.storage || garageEvidenceStorage;
   const ocr = options.ocr || DocumentIntelligenceService;
 
+  // Every failed exit records ONLY the provenance Document Intelligence itself reported. Garage never
+  // fills in a provider or model that did not answer, and every failed exit clears any earlier
+  // reading so a stale candidate cannot outlive the run that replaced it.
+  const failed = async (provenance, note, extra = {}) => {
+    const document = await persist({
+      extraction_state: EXTRACTION_STATE.FAILED,
+      ...NO_READING,
+      extraction_provider: provenance?.provider || null,
+      extraction_model: provenance?.model || null,
+      extracted_at: new Date().toISOString(),
+      extraction_note: note,
+    });
+    await writeAudit(client, {
+      req: options.req,
+      event_type: 'GARAGE_EVIDENCE_EXTRACTION_FAILED',
+      actor_user_id: userId,
+      actor_role: actor.role,
+      source_route: '/api/garage-onboarding/application/:id/evidence/:docId/extract',
+      targetType: 'garage_application_document',
+      targetId: documentId,
+      new_value: {
+        extraction_state: EXTRACTION_STATE.FAILED,
+        provider: provenance?.provider || null,
+        model: provenance?.model || null,
+        execution_status: provenance?.executionStatus || null,
+      },
+    });
+    return { document, candidates: null, extraction_state: EXTRACTION_STATE.FAILED, ...extra };
+  };
+  const UNREADABLE_NOTE = 'We could not read this document automatically. Your upload is safe — type the details in yourself.';
+
   let result;
   try {
     const file = await storage.downloadFromStorage(GARAGE_EVIDENCE_BUCKET, doc.file_ref);
     const dataUri = `data:${file.mimeType || doc.mime_type};base64,${file.buffer.toString('base64')}`;
-    result = await ocr.extractDocumentData('business_document', dataUri, userId);
+    // The provider object that answered "ready" is the one that reads, through canonical DI.
+    result = await ocr.extractDocumentData('business_document', dataUri, userId, {
+      visionProvider: availability.visionProvider,
+    });
   } catch (err) {
-    // A provider outage is an extraction failure, never an application failure.
-    return {
-      document: await persist({
-        extraction_state: EXTRACTION_STATE.FAILED,
-        extraction_provider: availability.provider,
-        extraction_model: availability.model,
-        extracted_at: new Date().toISOString(),
-        extraction_note: 'We could not read this document automatically. Your upload is safe — type the details in yourself.',
-      }),
-      candidates: null,
-      extraction_state: EXTRACTION_STATE.FAILED,
-      error: err.message,
-    };
+    // A provider outage is an extraction failure, never an application failure. Nothing reported a
+    // reading here, so nothing is recorded as having produced one.
+    return failed(null, UNREADABLE_NOTE, { error: err.message });
   }
 
   if (!result || result.success !== true) {
-    return {
-      document: await persist({
-        extraction_state: EXTRACTION_STATE.FAILED,
-        extraction_provider: result?.provider || availability.provider || null,
-        extraction_model: result?.model || availability.model || null,
-        extracted_at: new Date().toISOString(),
-        extraction_note: 'We could not read this document automatically. Your upload is safe — type the details in yourself.',
-      }),
-      candidates: null,
-      extraction_state: EXTRACTION_STATE.FAILED,
-    };
+    return failed(result, UNREADABLE_NOTE);
   }
 
-  // Success is usable only with exact canonical provider/model provenance. Missing or foreign
-  // provenance becomes a failed convenience, never a Garage/application failure.
-  if (result.provider !== GARAGE_OCR_PROVIDER || result.model !== GARAGE_OCR_MODEL) {
-    return {
-      document: await persist({
-        extraction_state: EXTRACTION_STATE.FAILED,
-        extraction_provider: result.provider || null,
-        extraction_model: result.model || null,
-        extracted_at: new Date().toISOString(),
-        extraction_note: 'We could not verify how this automatic reading was produced. Type the details in yourself.',
-      }),
-      candidates: null,
-      extraction_state: EXTRACTION_STATE.FAILED,
-    };
+  // A reading is usable only when canonical DI reports a real provider execution by the same
+  // provider and model the canonical boundary declared ready. A simulated, foreign or unattributed
+  // reading becomes a failed convenience, never a Garage/application failure.
+  if (result.executionStatus !== 'provider_succeeded'
+    || !result.provider || !result.model
+    || result.provider !== availability.provider || result.model !== availability.model) {
+    return failed(result, 'We could not verify how this automatic reading was produced. Type the details in yourself.');
   }
 
   const extracted = result.extractedData || {};
@@ -464,23 +491,17 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
       : { state: FIELD_STATE.MISSING };
   }
 
-  const rawConfidence = Number(extracted.confidenceScore);
-  const confidence = Number.isFinite(rawConfidence) ? Math.min(1, Math.max(0, rawConfidence)) : null;
+  // Confidence is the provider's own number or nothing. Canonical DI reports `confidence: null` with
+  // `confidenceReported: false` when the provider gave none; that absence stays null here — it is
+  // never coerced to 0 (which would mislabel every silent reading as low confidence), nor to 0.5/0.9.
+  const confidence = result.confidenceReported === true
+    && typeof result.confidence === 'number' && Number.isFinite(result.confidence)
+    ? Math.min(1, Math.max(0, result.confidence))
+    : null;
 
   // A run that succeeded technically but found nothing usable is not a success to show a person.
   if (!anyPresent) {
-    return {
-      document: await persist({
-        extraction_state: EXTRACTION_STATE.FAILED,
-        extraction_provider: result.provider || null,
-        extraction_model: result.model || null,
-        extraction_confidence: confidence,
-        extracted_at: new Date().toISOString(),
-        extraction_note: 'We read the document but could not find the garage details on it. Type them in yourself.',
-      }),
-      candidates: null,
-      extraction_state: EXTRACTION_STATE.FAILED,
-    };
+    return failed(result, 'We read the document but could not find the garage details on it. Type them in yourself.');
   }
 
   const state = (confidence !== null && confidence < LOW_CONFIDENCE_BELOW)
@@ -490,13 +511,15 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
   const document = await persist({
     extraction_state: state,
     extraction_candidates: candidates,
-    extraction_provider: result.provider || null,
-    extraction_model: result.model || null,
+    extraction_provider: result.provider,
+    extraction_model: result.model,
     extraction_confidence: confidence,
     extracted_at: new Date().toISOString(),
     extraction_note: state === EXTRACTION_STATE.LOW_CONFIDENCE
       ? 'We are not confident we read this correctly. Please check each value before you use it.'
-      : 'Check these against your document before you use them.',
+      : confidence === null
+        ? 'The reader did not say how sure it was. Check each value against your document before you use it.'
+        : 'Check these against your document before you use them.',
   });
 
   await writeAudit(client, {
