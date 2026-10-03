@@ -124,7 +124,14 @@ describe('SellerDocumentAutofillNotice availability (SJO-7)', () => {
   })
 
   it('a SUCCESSFUL read with a live provider reports it available', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ocrProviders: { gemini: true } }) }) as unknown as typeof fetch
+    // OCR 1.0-A/B made the canonical `health.ocr` projection the only availability authority: the
+    // SELECTED provider must be configured. A legacy `ocrProviders` map with some unrelated AI key
+    // is deliberately NOT availability any more (see SellerDocumentAutofillNotice.test.tsx), so the
+    // live-provider case is expressed in the canonical shape.
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      ocr: { selectedProvider: 'cloudflare', selectedModel: '@cf/qwen/qwen3.8-27b', configured: true, mockRuntimeAllowed: false },
+      ocrProviders: { cloudflare: true },
+    }) }) as unknown as typeof fetch
     await renderNotice()
     await waitFor(() =>
       expect(screen.getByTestId('seller-autofill-availability').textContent)

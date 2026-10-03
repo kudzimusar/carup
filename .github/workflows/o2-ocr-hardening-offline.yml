@@ -63,6 +63,15 @@ on:
       - 'database/migrations/20260918090000_ocr_c3_garage_applications.sql'
       - 'database/migrations/20260918100000_ocr_c3_garage_application_evidence.sql'
       - 'database/migrations/20260918110000_ocr_c3_garage_onboarding_rls.sql'
+      - 'database/migrations/20261003100000_ocr_c3_garage_evidence_lineage_reconciliation.sql'
+      - 'database/test/ocr_c3_garage_evidence_check.mjs'
+      - 'backend/tests/o2-ocr-c3-garage-security.test.js'
+      # Guards the OCR lineage itself re-pinned (A/B moved the structured write; C1 retired the DI
+      # vehicle-trust writer). They live outside the OCR files by name, so they must be listed here.
+      - 'backend/tests/trade-os-t12-registry-authority.test.js'
+      - 'backend/tests/v16-authority-hardening.test.js'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/pages/dashboard/garage/garageSetupRoute.test.tsx'
       - 'web/src/lib/garageOnboarding.ts'
       - 'web/src/pages/dashboard/garage/GarageEvidence.tsx'
       - 'web/src/pages/dashboard/garage/GarageSetup.tsx'
@@ -73,6 +82,10 @@ on:
       # Seller OCR capability-truth UI + its vitest suite (exact-head CI, not local-only).
       - 'web/src/components/sell/SellerDocumentAutofillNotice.tsx'
       - 'web/src/components/sell/SellerDocumentAutofillNotice.test.tsx'
+      # The owner-surface availability test asserts the same badge. It was left on the legacy
+      # ocrProviders map when A/B made health.ocr the authority, and no gate ran it — now one does.
+      - 'web/src/pages/dashboard/owner/ownerSurfaces.truthStates.test.tsx'
+      - 'shared/navigation/feature-manifest.json'
       - 'web/vite.config.ts'
       - 'web/package.json'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
@@ -144,6 +157,9 @@ jobs:
             backend/tests/o2-ocr-c2-identity-provider-convergence.test.js \
             backend/tests/identity-document-classifier.test.js \
             backend/tests/o2-ocr-c3-garage-consumer.test.js \
+            backend/tests/o2-ocr-c3-garage-security.test.js \
+            backend/tests/trade-os-t12-registry-authority.test.js \
+            backend/tests/v16-authority-hardening.test.js \
             backend/tests/issue164-phase3-trust-authority.test.js \
             backend/tests/non-seller-authority-hardening.test.js \
             backend/tests/diaspora-supabase-integration.test.js \
@@ -168,7 +184,7 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci || npm install
       - name: Run Seller OCR capability suite (bounded)
-        run: npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx
+        run: npm run test:unit --workspace=web -- src/components/sell/SellerDocumentAutofillNotice.test.tsx src/pages/dashboard/owner/ownerSurfaces.truthStates.test.tsx
 
   # ── OCR C3 Garage assistance UI gate (exact-head, targeted) ─────────────────
   garage-c3-ui:
@@ -186,7 +202,12 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci || npm install
       - name: Run Garage OCR assistance suites (bounded)
-        run: npm run test:unit --workspace=web -- src/pages/dashboard/garage/garageEvidence.test.tsx src/pages/dashboard/garage/garageSetupC3.test.tsx
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/garage/garageEvidence.test.tsx src/pages/dashboard/garage/garageSetupC3.test.tsx src/pages/dashboard/garage/garageSetupRoute.test.tsx
+      # The C3 migrations and the lineage reconciliation are executed by no other gate (ci.yml's
+      # NEW_MIGRATIONS list ends at 20260810120000). Real Postgres proves the #209-first lineage is
+      # reconciled, the CHECKs accept every consumer write, and no browser role reaches the tables.
+      - name: Garage evidence migrations (isolated PGlite Postgres)
+        run: node database/test/ocr_c3_garage_evidence_check.mjs
 
   # ── Deployed exact-head provenance + route-gating probe ─────────────────────
   # Runs ONLY on manual dispatch with a non-empty deployed_expected_sha input, so push runs stay

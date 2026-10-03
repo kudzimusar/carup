@@ -25,6 +25,7 @@ import { readFile } from 'node:fs/promises';
 import { isGenuineRegistryRecord, NON_SUBSTANTIATING_MODES } from '../services/evidence/vehicleFactResolver.js';
 
 const DOC_INTEL = 'backend/services/document-intelligence/documentIntelligenceService.js';
+const DOC_SCHEMAS = 'backend/services/document-intelligence/documentSchemas.js';
 const TRUST_GRAPH = 'backend/services/trustGraph/trustGraphService.js';
 
 test('T12: the OCR approval path writes NO government registry record', async () => {
@@ -63,7 +64,13 @@ test('T12: what CarUp DID observe is still recorded — the positive control', a
   // just as well if the whole OCR path had been deleted.
   const source = await readFile(DOC_INTEL, 'utf8');
   const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
-  assert.match(code, /from\('ocr_customs_declarations'\)[\s\S]{0,200}\.insert/, 'what the document SAID is no longer recorded');
+  // OCR 1.0-A/B moved the per-class structured write behind the canonical schema registry: the
+  // customs schema names its table, and Document Intelligence persists every structured candidate
+  // through that one insert. The positive control follows the write to where it now lives.
+  const schemas = (await readFile(DOC_SCHEMAS, 'utf8')).replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  assert.match(schemas, /table:\s*'ocr_customs_declarations'/, 'the customs reading no longer has a table to land in');
+  assert.match(code, /persistStructuredCandidate\(\s*schema/, 'structured readings are no longer persisted');
+  assert.match(code, /from\(table\)\.insert\(row\)/, 'what the document SAID is no longer recorded');
   assert.match(code, /from\('administrative_overrides'\)[\s\S]{0,200}\.insert/, 'who approved it is no longer recorded');
   assert.match(code, /raw_verification_confidence/, 'the confidence of the reading is no longer recorded');
 });
@@ -87,8 +94,14 @@ test('T12: the sample-document parser stays gated to the test suite', async () =
   const source = await readFile(DOC_INTEL, 'utf8');
   const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
   assert.match(code, /NODE_ENV === 'test' && process\.env\.ALLOW_OCR_MOCK === 'true'/);
-  assert.match(code, /if \(DocumentIntelligenceService\.isOcrMockAllowed\(\)\) \{\n\s*const mockResult/,
+  // OCR 1.0-A/B moved the sample reader to the provider boundary: it runs only when no provider is
+  // configured AND the test-suite gate allows it, and it is the ONLY caller of the sample documents.
+  assert.match(code, /const simulate = !configuredProvider\.isConfigured\(\) && DocumentIntelligenceService\.isOcrMockAllowed\(\);/,
     'the sample parser is reachable without the gate');
+  assert.match(code, /if \(simulate\) \{[\s\S]{0,600}getMockZimbabweDocument\(/,
+    'the sample documents are produced outside the gated branch');
+  assert.equal((code.match(/getMockZimbabweDocument\(/g) || []).length, 2,
+    'the sample documents gained a caller outside the gated branch (expected: its definition and one gated call)');
 });
 
 test('T12: an absent row is not a genuine one', () => {
