@@ -161,6 +161,16 @@ on:
       - 'backend/tests/oc3d-*.test.js'
       - 'backend/tests/issue-158-private-key-custody.test.js'
       - 'docs/ledger/**'
+      # OC-3 programme authority guards (AI cannot exercise an authority; the ledger records only).
+      - 'backend/tests/oc3-programme-authority.test.js'
+      - 'backend/services/identity/decisionRecorder.js'
+      - 'backend/services/trustDecision/canonicalTrustService.js'
+      - 'backend/services/trustGraph/trustGraphService.js'
+      - 'backend/services/marketplace/marketplaceModerationService.js'
+      - 'backend/services/finance/lenderWorkflow.js'
+      - 'backend/services/insurance/insurerWorkflow.js'
+      - 'backend/services/diaspora/safetrade/diasporaSafeTradeAvailableActions.js'
+      - 'backend/routes/evidenceCatalogRoutes.js'
       - 'web/src/pages/dashboard/owner/PartSentry.tsx'
       - 'web/src/pages/dashboard/owner/PartSentry.test.tsx'
       - 'web/src/types/index.ts'
@@ -258,7 +268,8 @@ jobs:
             backend/tests/oc3c-cloudflare-ai-transport.test.js \
             backend/tests/ai01b-carup-ai-gateway.test.js \
             backend/tests/oc3e-w1-ai-consumer-convergence.test.js \
-            backend/tests/issue-158-private-key-custody.test.js
+            backend/tests/issue-158-private-key-custody.test.js \
+            backend/tests/oc3-programme-authority.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
