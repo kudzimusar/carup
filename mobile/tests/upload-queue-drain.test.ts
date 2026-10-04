@@ -91,7 +91,9 @@ async function main() {
   // capture failed for ever while the header test above stayed green.
   await test('makeHttpUploader sends the canonical body the server reads (shared contract)', async () => {
     const { readFileSync } = await import('node:fs');
-    const contract = JSON.parse(readFileSync(new URL('../../shared/contracts/native-odometer-capture.contract.json', import.meta.url), 'utf8'));
+    const { fileURLToPath } = await import('node:url');
+    const contractPath = fileURLToPath(new URL('../../shared/contracts/native-odometer-capture.contract.json', import.meta.url).href);
+    const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
     const bodies: any[] = [];
     (globalThis as any).fetch = async (_url: string, init: any) => {
       bodies.push(JSON.parse(init.body));

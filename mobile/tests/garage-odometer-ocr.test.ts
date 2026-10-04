@@ -13,14 +13,18 @@
  */
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { useUploadQueueStore, __resetUploadQueueForTest, type UploadQueueItem, type QueuePersistence } from '../store/uploadQueueStore';
 import { drainUploadQueue, makeHttpUploader, NATIVE_EVIDENCE_CONTRACTS } from '../utils/uploadQueueDrain';
 import {
   ODOMETER_NATIVE_EVIDENCE_TYPE, ODOMETER_UPLOAD_CONTRACT, odometerOcrUrl, odometerOutcomeMessage, requestOdometerReading,
 } from '../utils/odometerCapture';
 
-const CONTRACT = JSON.parse(readFileSync(new URL('../../shared/contracts/native-odometer-capture.contract.json', import.meta.url), 'utf8'));
-const GARAGE = readFileSync(new URL('../app/(tabs)/garage.tsx', import.meta.url), 'utf8');
+// Plain string paths: the mobile tsconfig mixes the DOM and Node `URL` types, and readFileSync(URL) fails
+// to typecheck under the @types/node the lockfile resolves.
+const repoPath = (relative: string): string => fileURLToPath(new URL(relative, import.meta.url).href);
+const CONTRACT = JSON.parse(readFileSync(repoPath('../../shared/contracts/native-odometer-capture.contract.json'), 'utf8'));
+const GARAGE: string = readFileSync(repoPath('../app/(tabs)/garage.tsx'), 'utf8');
 
 function test(name: string, fn: () => void | Promise<void>) {
   try {
