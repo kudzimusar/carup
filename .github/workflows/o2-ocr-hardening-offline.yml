@@ -313,6 +313,13 @@ on:
       - 'web/src/components/owner/WorkOrderRequests*.tsx'
       - 'web/src/pages/dashboard/owner/PartSentry*.tsx'
       - 'web/src/pages/dashboard/mechanic/ServiceLogs*.tsx'
+      # OC-5B: evidence-image analysis — one selector, the simulator a test fixture only.
+      - 'backend/tests/oc5b-*.test.js'
+      - 'backend/services/ai/evidenceVisionProvider.js'
+      - 'backend/services/ai/aiVisionProvider.js'
+      - 'backend/services/ai/analysisProvider.js'
+      - 'backend/services/evidence/evidenceService.js'
+      - 'web/src/pages/dashboard/admin/EvidenceReview*.tsx'
       # OC-4F source RC1: the residual-scan guards (committed credentials; retired routes in the web
       # client), the residual scan and the open-PR disposition, and every doc the RC carries.
       - 'backend/tests/oc4f-*.test.js'
@@ -654,7 +661,7 @@ jobs:
   # P1-C: one commit boundary + durable ledger intent (ledger unavailable, retry, crash, concurrency).
   # Plus every pre-existing suite whose premise OC-5A moved, and the web surfaces that show it.
   oc5a-p1-closure:
-    name: OC-5A RC1 source P1 closure
+    name: OC-5A RC1 source P1 closure + OC-5B simulator disposition
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -699,6 +706,11 @@ jobs:
           src/components/owner/WorkOrderRequests.test.tsx
           src/pages/dashboard/owner/PartSentry.test.tsx
           src/pages/dashboard/mechanic/ServiceLogs.test.tsx
+      - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
+        run: |
+          node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js
+          ALLOW_OCR_MOCK=false node --test backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js
+          npm run test:unit --workspace=web -- src/pages/dashboard/admin/EvidenceReview.analysis.test.tsx
 
   # ── OC-4F source RC1 residual guards (exact-head, targeted) ────────────────
   # The credential tripwire walks the WHOLE tree, so any document change re-runs it (hence the

@@ -1,17 +1,21 @@
 /**
  * Typed analysis provider abstraction — Milestone 3A (master plan §7.2, §7.3).
  *
- * One contract for many separate, typed tasks (no single opaque prompt). A deterministic
- * mock provider exists for the test suite ONLY (OC-3B-R): it reads nothing — it echoes the
- * caller's own metadata and calls every image usable — so outside the test-fixture runtime it
- * throws AnalysisUnavailableError and the job fails instead of persisting an echo. The "live" seam is selected when a
- * Gemini key is configured, but it still runs the aiVisionProvider SIMULATOR for every task —
- * no Gemini call exists on this path — and is labelled `simulated` accordingly (OC-3B). The
- * abstraction keeps AI strictly advisory — it returns observations + confidence, never
- * verification or trust decisions (§2.2).
+ * One contract for many separate, typed tasks (no single opaque prompt). A deterministic mock provider
+ * exists for the test suite ONLY (OC-3B-R): it reads nothing — it echoes the caller's own metadata and
+ * calls every image usable — so outside the test-fixture runtime it throws AnalysisUnavailableError
+ * and the job fails instead of persisting an echo.
+ *
+ * OC-5B: the "live" seam is gone. It was selected whenever GEMINI_API_KEY existed and then ran the
+ * evidence-vision SIMULATOR for every task (no provider call). Selection is now
+ * evidenceVisionProvider.resolveEvidenceVision: the test-fixture runtime gets the mock; anywhere else an
+ * adapter must be selected AND certified, and none is, so every task fails terminally with
+ * AI_ANALYSIS_UNAVAILABLE — an honest "not configured", never a simulation. AI stays strictly
+ * advisory — observations + confidence, never verification or trust decisions (§2.2).
  */
-import { analyzeEvidenceImage, honouredMockScenario } from './aiVisionProvider.js';
+import { honouredMockScenario } from './aiVisionProvider.js';
 import { isTestFixtureAllowed } from '../../config/testFixtureGuard.js';
+import { resolveEvidenceVision } from './evidenceVisionProvider.js';
 
 export const TASK_TYPES = Object.freeze([
   'image_quality', 'viewpoint', 'identity_cues', 'plate_ocr', 'vin_ocr', 'odometer_ocr',
@@ -19,19 +23,14 @@ export const TASK_TYPES = Object.freeze([
   'repair_paint_inconsistency', 'manipulation', 'near_duplicate', 'same_vehicle_similarity',
 ]);
 
-const OCR_TASKS = new Set(['plate_ocr', 'vin_ocr', 'odometer_ocr', 'document_extraction']);
-
-export function isLiveConfigured() {
-  return Boolean(process.env.GEMINI_API_KEY) && process.env.ALLOW_OCR_MOCK !== 'true';
-}
 
 /**
  * No analysis provider can run this task in this runtime (OC-3B-R). Not retryable: a retry cannot
  * create a provider, so a job that meets it fails terminally rather than queueing for ever.
  */
 export class AnalysisUnavailableError extends Error {
-  constructor(task) {
-    super(`No AI analysis provider can run '${task}' in this runtime: the deterministic mock is a test fixture.`);
+  constructor(task, reason = 'the deterministic mock is a test fixture') {
+    super(`No AI analysis provider can run '${task}' in this runtime: ${reason}.`);
     this.name = 'AnalysisUnavailableError';
     this.code = 'AI_ANALYSIS_UNAVAILABLE';
     this.retryable = false;
@@ -81,49 +80,26 @@ export const mockAnalysisProvider = {
 };
 
 /**
- * The "live" provider seam — which, today, is NOT live (OC-3B).
- *
- * Every task it serves runs `aiVisionProvider.analyzeEvidenceImage`, a simulator that calls no
- * provider. It used to label that output `provider: 'gemini'`, `model: 'gemini-2.5-flash'`, and
- * `analysisJobService` persisted those labels into `ai_analysis_jobs` — a durable record claiming a
- * provider executed that never did. Invariant: the provider field names the EXECUTOR. The label is
- * therefore taken from what actually ran, so wiring a real provider later changes the label by
- * construction, and nothing here can claim Gemini without Gemini having answered.
+ * Outside the test-fixture runtime, with no certified adapter selected: every task is refused,
+ * terminally, with the selector's own reason. Nothing is simulated and nothing is persisted as a result.
  */
-export const liveAnalysisProvider = {
-  id: 'simulated',
-  mode: 'simulated',
-  async analyze(task, ctx = {}) {
-    const { buffer, mimeType, evidenceType, metadata = {} } = ctx;
-    if (OCR_TASKS.has(task) || task === 'damage_detection' || task === 'manipulation') {
-      // analyzeEvidenceImage returns a structured advisory result; adapt to the typed shape.
-      const r = await analyzeEvidenceImage(buffer, mimeType, evidenceType, metadata);
-      return {
-        task,
-        provider: r.provider || 'simulated',
-        model: r.model || null,
-        execution: r.execution || 'simulated',
-        advisory: true,
-        confidence: typeof r.confidence === 'number' ? r.confidence : 0,
-        result: {
-          plate: r.visible_plate ?? null, vin: r.visible_vin ?? null, odometer: r.visible_odometer ?? null,
-          damage: r.damage_indicators || [], manipulation: r.manipulation_indicators || [],
-        },
-        // A simulation has no public-safe summary to give.
-        safe_summary: r.execution === 'provider_executed' ? (r.public_safe_summary || null) : null,
-        observations: [],
-      };
-    }
-    // No live model wired for this task yet. The deterministic mock answers only in the test-fixture
-    // runtime; anywhere else it throws AnalysisUnavailableError and the job fails honestly (OC-3B-R).
-    return mockAnalysisProvider.analyze(task, ctx);
-  },
-};
-
-/** Resolve the active provider. Live only when configured; mock otherwise (master plan §7.2). */
-export function resolveAnalysisProvider({ forceMock = false } = {}) {
-  if (forceMock || !isLiveConfigured()) return mockAnalysisProvider;
-  return liveAnalysisProvider;
+export function unavailableAnalysisProvider(reason) {
+  return {
+    id: 'unavailable',
+    mode: 'unavailable',
+    async analyze(task) {
+      if (!TASK_TYPES.includes(task)) throw new Error(`unknown task '${task}'`);
+      throw new AnalysisUnavailableError(task, reason);
+    },
+  };
 }
 
-export default { TASK_TYPES, isLiveConfigured, AnalysisUnavailableError, mockAnalysisProvider, liveAnalysisProvider, resolveAnalysisProvider };
+/** Resolve the active provider through the one evidence-vision selector (OC-5B). */
+export function resolveAnalysisProvider({ forceMock = false } = {}) {
+  if (forceMock) return mockAnalysisProvider;
+  const vision = resolveEvidenceVision();
+  if (vision.state === 'test_fixture') return mockAnalysisProvider;
+  return unavailableAnalysisProvider(vision.available ? 'no typed adapter is wired for this provider' : vision.reason.replace(/\.$/, ''));
+}
+
+export default { TASK_TYPES, AnalysisUnavailableError, mockAnalysisProvider, unavailableAnalysisProvider, resolveAnalysisProvider };

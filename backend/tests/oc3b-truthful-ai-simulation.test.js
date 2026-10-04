@@ -31,7 +31,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { analyzeEvidenceImage } = await import('../services/ai/aiVisionProvider.js');
-const { liveAnalysisProvider, mockAnalysisProvider } = await import('../services/ai/analysisProvider.js');
+const { mockAnalysisProvider, resolveAnalysisProvider } = await import('../services/ai/analysisProvider.js');
 const { runAnalysisJob } = await import('../services/ai/analysisJobService.js');
 const { publicAiSummary } = await import('../utils/publicVehicleProjection.js');
 
@@ -70,9 +70,10 @@ async function withFixtureRuntime(fn) {
 
 // ── 1. The simulator labels itself and claims nothing ─────────────────────────────────────────
 
+// OC-5B: the simulator exists ONLY in the test-fixture runtime, so the cases that exercise it say so.
 test('OC-3B sim: the default simulated analysis is labelled simulated, advisory and non-verifying', async () => {
   for (const evidenceType of ['damage_photo', 'odometer_photo', 'exterior_photo']) {
-    const r = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', evidenceType, { ...UPLOADER_METADATA });
+    const r = await withFixtureRuntime(() => analyzeEvidenceImage(Buffer.from('x'), 'image/png', evidenceType, { ...UPLOADER_METADATA }));
     assert.equal(r.provider, 'simulated', `${evidenceType}: provider names the executor`);
     assert.equal(r.execution, 'simulated');
     assert.equal(r.advisory, true);
@@ -85,7 +86,7 @@ test('OC-3B sim: the default simulated analysis is labelled simulated, advisory 
 });
 
 test('OC-3B sim: the simulator does not present the uploader\'s own metadata as something it saw, nor invent findings', async () => {
-  const r = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { ...UPLOADER_METADATA });
+  const r = await withFixtureRuntime(() => analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { ...UPLOADER_METADATA }));
   assert.equal(r.visible_vin, null);
   assert.equal(r.visible_plate, null);
   assert.equal(r.visible_odometer, null);
@@ -110,15 +111,15 @@ test('OC-3B sim: no scenario produces favorable wording or a public summary', as
 
 // ── 2. Uploader steering is a test-only fixture ──────────────────────────────────────────────
 
-test('OC-3B sim: metadata.mock_ai_scenario is ignored outside NODE_ENV=test (no uploader-chosen verdict)', async () => {
+test('OC-3B sim: metadata.mock_ai_scenario steers nothing outside NODE_ENV=test — since OC-5B the simulator does not run there at all', async () => {
   for (const env of ['production', 'development', undefined]) {
     await withNodeEnv(env, async () => {
-      // 'provider_error' would make the simulator throw — proof it was honoured.
-      const r = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: 'provider_error' });
-      assert.equal(r.provider, 'simulated');
-      const flagged = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: 'flagged_vin_mismatch' });
-      assert.notEqual(flagged.ai_status, 'ai_flagged', `NODE_ENV=${env}: scenario must not steer the result`);
-      assert.equal(flagged.visible_vin, null);
+      // OC-5B (stronger than "the scenario is ignored"): outside the fixture runtime the simulator
+      // refuses outright, so there is neither a scripted verdict nor a default simulated result.
+      for (const scenario of ['provider_error', 'flagged_vin_mismatch', undefined]) {
+        await assert.rejects(() => analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: scenario }),
+          (e) => e?.code === 'EVIDENCE_VISION_UNAVAILABLE', `NODE_ENV=${env}: the simulator must not run (${scenario})`);
+      }
       // OC-3B-R: outside the fixture runtime the mock provider does not run at all — a scenario
       // cannot steer it because there is no mock result to steer.
       await assert.rejects(() => mockAnalysisProvider.analyze('manipulation', { metadata: { mock_ai_scenario: 'manipulated' } }),
@@ -131,20 +132,19 @@ test('OC-3B sim: metadata.mock_ai_scenario is ignored outside NODE_ENV=test (no 
 
 // ── 3. Provenance: provider == executor, persisted that way ──────────────────────────────────
 
-test('OC-3B provenance: the "live" analysis provider that runs the simulator is labelled simulated, never gemini', async () => {
-  assert.notEqual(liveAnalysisProvider.id, 'gemini', 'the provider id names the executor');
-  for (const task of ['damage_detection', 'manipulation', 'vin_ocr', 'plate_ocr', 'odometer_ocr', 'document_extraction']) {
-    const out = await liveAnalysisProvider.analyze(task, { buffer: Buffer.from('x'), mimeType: 'image/png', evidenceType: 'damage_photo', metadata: { ...UPLOADER_METADATA } });
-    assert.equal(out.provider, 'simulated', `${task}: provider`);
-    assert.equal(out.execution, 'simulated', `${task}: execution`);
-    assert.doesNotMatch(String(out.model || ''), /gemini/i, `${task}: no Gemini model on a simulated run`);
-    assert.equal(out.safe_summary, null, `${task}: no public-safe summary from a simulation`);
+test('OC-3B provenance (OC-5B): there is no "live" seam left — outside the fixture runtime no task runs, and nothing claims an executor', async () => {
+  for (const env of ['production', 'development']) {
+    await withNodeEnv(env, async () => {
+      const provider = resolveAnalysisProvider();
+      assert.equal(provider.id, 'unavailable', `NODE_ENV=${env}: the provider id names the executor — there is none`);
+      for (const task of ['damage_detection', 'manipulation', 'vin_ocr', 'plate_ocr', 'odometer_ocr', 'document_extraction', 'viewpoint']) {
+        await assert.rejects(() => provider.analyze(task, { buffer: Buffer.from('x'), mimeType: 'image/png', evidenceType: 'damage_photo', metadata: { ...UPLOADER_METADATA } }),
+          (e) => e?.code === 'AI_ANALYSIS_UNAVAILABLE' && e?.retryable === false, `${task}: refused, terminally`);
+      }
+    });
   }
-  // A task with no simulated vision path falls back to the mock — labelled mock, not gemini. (In the
-  // fixture runtime only: anywhere else that fallback fails — oc3b-r-simulation-steering-guard.)
-  const fallback = await withFixtureRuntime(() => liveAnalysisProvider.analyze('viewpoint', { metadata: {} }));
-  assert.equal(fallback.provider, 'mock');
-  assert.equal(fallback.execution, 'mock');
+  const fixture = await withFixtureRuntime(() => resolveAnalysisProvider());
+  assert.equal(fixture.id, 'mock', 'the fixture runtime keeps its labelled mock');
 });
 
 test('OC-3B provenance: mock provider output is labelled mock', async () => {
@@ -153,7 +153,7 @@ test('OC-3B provenance: mock provider output is labelled mock', async () => {
   assert.equal(out.execution, 'mock');
 });
 
-test('OC-3B provenance: a job run through the live seam is PERSISTED as simulated, never gemini', async () => {
+test('OC-3B provenance (OC-5B): a job outside the fixture runtime is PERSISTED as failed by an unavailable provider — never simulated, never gemini', async () => {
   const writes = [];
   const sb = {
     from(table) {
@@ -167,15 +167,17 @@ test('OC-3B provenance: a job run through the live seam is PERSISTED as simulate
       return q;
     },
   };
-  const job = await runAnalysisJob(sb, { id: 'job-1', task_type: 'damage_detection', attempts: 0, evidence_id: 'ev-1' },
-    { buffer: Buffer.from('x'), mimeType: 'image/png', evidenceType: 'damage_photo', metadata: {} }, { provider: liveAnalysisProvider });
+  const job = await withNodeEnv('production', () => runAnalysisJob(sb, { id: 'job-1', task_type: 'damage_detection', attempts: 0, evidence_id: 'ev-1' },
+    { buffer: Buffer.from('x'), mimeType: 'image/png', evidenceType: 'damage_photo', metadata: {} }));
   const providerWrites = writes.filter((w) => w.table === 'ai_analysis_jobs' && 'provider' in w.payload);
-  assert.ok(providerWrites.length >= 2, 'processing + completion both record a provider');
-  for (const w of providerWrites) assert.equal(w.payload.provider, 'simulated', `persisted provider ${JSON.stringify(w.payload)}`);
-  const completion = providerWrites.at(-1).payload;
-  assert.doesNotMatch(String(completion.model || ''), /gemini/i);
-  assert.equal(completion.safe_summary, null);
-  assert.equal(job.provider, 'simulated');
+  assert.ok(providerWrites.length >= 1);
+  for (const w of providerWrites) {
+    assert.equal(w.payload.provider, 'unavailable', `persisted provider ${JSON.stringify(w.payload)}`);
+  }
+  assert.equal(job.status, 'failed_terminal', 'no provider can be created by a retry');
+  const failure = writes.filter((w) => w.table === 'ai_analysis_jobs').at(-1).payload;
+  assert.match(JSON.stringify(failure.validation_errors), /No AI analysis provider can run/);
+  assert.equal(writes.some((w) => w.table === 'ai_observations'), false, 'nothing observed, nothing persisted as an observation');
 });
 
 // ── 4. The public projection publishes no simulated summary ──────────────────────────────────

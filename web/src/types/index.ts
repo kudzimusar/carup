@@ -2061,12 +2061,14 @@ export interface EvidenceAiAnalysis {
   // 'simulated'), carry no score, and are advisory and non-verifying.
   provider?: 'simulated' | string;
   model?: string | null;
-  execution?: 'simulated' | 'mock' | 'provider_executed' | 'failed';
+  execution?: 'simulated' | 'mock' | 'provider_executed' | 'failed' | 'not_run';
   advisory?: boolean;
   verifying?: false;
   risk_score: number | null;
-  confidence: number;
-  ai_status: 'ai_pending' | 'ai_simulated' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required';
+  // null when nothing was measured (queued, or not run because no provider is configured).
+  confidence: number | null;
+  // 'ai_not_configured' (OC-5B): nothing examined the image — no evidence-vision provider is configured.
+  ai_status: 'ai_pending' | 'ai_simulated' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required' | 'ai_not_configured';
   reviewer_summary: string;
   recommended_action: 'approve' | 'reject' | 'inspect';
   visible_plate?: string | null;

@@ -203,13 +203,12 @@ for (const { label, env } of REFUSED) {
 
   test(`OC-3B-R refused (${label}): an uploader cannot script the evidence verdict or a provider error`, async () => {
     await withEnv(env, async () => {
-      const flagged = await analyzeEvidenceImage(IMAGE, 'image/jpeg', 'photo', { mock_ai_scenario: 'flagged_vin_mismatch' });
-      assert.equal(flagged.ai_status, 'ai_simulated', 'a scripted flag must not exist outside the fixture runtime');
-      assert.equal(flagged.visible_vin, null);
-      assert.equal(flagged.risk_score, null);
-      // 'provider_error' used to throw a simulated outage; refused, it is just an unknown key.
-      const err = await analyzeEvidenceImage(IMAGE, 'image/jpeg', 'photo', { mock_ai_scenario: 'provider_error' });
-      assert.equal(err.ai_status, 'ai_simulated');
+      // OC-5B (stronger): outside the fixture runtime the simulator does not run at all — there is no
+      // verdict to script, no simulated outage to trigger, and no default simulated result either.
+      for (const scenario of ['flagged_vin_mismatch', 'provider_error', undefined]) {
+        await assert.rejects(() => analyzeEvidenceImage(IMAGE, 'image/jpeg', 'photo', { mock_ai_scenario: scenario }),
+          (e) => e?.code === 'EVIDENCE_VISION_UNAVAILABLE' && e?.retryable === false, `scenario ${scenario}: the simulator must not run`);
+      }
     });
   });
 
@@ -248,14 +247,16 @@ for (const { label, env } of REFUSED) {
   });
 }
 
-// A production runtime WITH a Gemini key routes analysis to the "live" seam, whose non-OCR tasks
-// fall back to the mock: that fallback must not reappear as a fabricated "usable" image.
-test('OC-3B-R refused (production + GEMINI_API_KEY): the live seam\'s mock fallback fails, it does not fabricate', async () => {
+// A production runtime WITH a Gemini key used to route analysis to a "live" seam that ran the
+// simulator. OC-5B removed that seam: a key selects nothing, and every task is refused honestly.
+test('OC-3B-R refused (production + GEMINI_API_KEY): a key selects nothing — no simulator, no mock, every task refused', async () => {
   await withEnv({ NODE_ENV: 'production', ALLOW_OCR_MOCK: undefined, VERCEL_ENV: 'production', GEMINI_API_KEY: 'present' }, async () => {
     const provider = resolveAnalysisProvider();
-    assert.equal(provider.id, 'simulated');
-    await assert.rejects(() => provider.analyze('image_quality', { metadata: {} }), (e) => e?.code === 'AI_ANALYSIS_UNAVAILABLE');
-    await assert.rejects(() => provider.analyze('viewpoint', { metadata: { viewpoint: CALLER_VIN } }), (e) => e?.code === 'AI_ANALYSIS_UNAVAILABLE');
+    assert.equal(provider.id, 'unavailable');
+    for (const task of ['image_quality', 'viewpoint', 'damage_detection', 'manipulation', 'vin_ocr']) {
+      await assert.rejects(() => provider.analyze(task, { metadata: { viewpoint: CALLER_VIN, vin: CALLER_VIN } }), (e) => e?.code === 'AI_ANALYSIS_UNAVAILABLE');
+    }
+    await assert.rejects(() => analyzeEvidenceImage(IMAGE, 'image/jpeg', 'photo', {}), (e) => e?.code === 'EVIDENCE_VISION_UNAVAILABLE');
   });
 });
 

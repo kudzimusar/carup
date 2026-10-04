@@ -15,6 +15,10 @@
  * outcome ONLY in the test-fixture runtime (config/testFixtureGuard.js: NODE_ENV=test AND
  * ALLOW_OCR_MOCK=true AND no declared deployment — OC-3B-R; it used to need NODE_ENV=test alone).
  * Anywhere else an uploader could otherwise choose the verdict on their own evidence.
+ *
+ * OC-5B: the simulator itself now exists ONLY in the test-fixture runtime. It was selectable in
+ * production (by any GEMINI_API_KEY, and on every upload); outside the fixture runtime it refuses,
+ * and the one selector (evidenceVisionProvider.js) records "not configured" instead of running it.
  */
 import { isTestFixtureAllowed } from '../../config/testFixtureGuard.js';
 
@@ -31,7 +35,18 @@ export function honouredMockScenario(metadata) {
   return typeof scenario === 'string' && scenario ? scenario : null;
 }
 
+/** The simulator was asked to run outside the test-fixture runtime. Never retryable. */
+export class EvidenceVisionUnavailableError extends Error {
+  constructor() {
+    super('No evidence-image analysis provider is available in this runtime; the simulator is a test fixture.');
+    this.name = 'EvidenceVisionUnavailableError';
+    this.code = 'EVIDENCE_VISION_UNAVAILABLE';
+    this.retryable = false;
+  }
+}
+
 export async function analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, metadata = {}) {
+  if (!isTestFixtureAllowed()) throw new EvidenceVisionUnavailableError();
   const scenario = honouredMockScenario(metadata);
   if (scenario === 'provider_error') {
     throw new Error('AI Vision provider service timeout or connection refused (Simulated API error).');

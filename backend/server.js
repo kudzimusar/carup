@@ -85,6 +85,7 @@ import promotionsRouter from './routes/promotionsRoutes.js';
 import workOrdersRouter from './routes/workOrdersRoutes.js';
 import ledgerIntentRouter from './routes/ledgerIntentRoutes.js';
 import { countUnrecordedLedgerIntents } from './services/blockchain/ledgerIntentService.js';
+import { evidenceVisionHealth } from './services/ai/evidenceVisionProvider.js';
 import partsRouter from './routes/partsRoutes.js';
 import claimsRouter from './routes/claimsRoutes.js';
 
@@ -373,6 +374,10 @@ app.get('/api/health', async (req, res) => {
     },
     // Canonical current OCR runtime status (authoritative for "is OCR available").
     ocr,
+    // OC-5B: evidence-image analysis, stated as what it is. No adapter is certified, so outside the
+    // test runtime this reads not_configured / provider_not_certified — a credential's presence never
+    // turns it on, and the simulator is never an option here.
+    evidenceVision: evidenceVisionHealth(),
     ocrProviders: {
       // Truthful presence of the certified OCR provider's credentials. OC-4B removed the vendor
       // key-presence flags (gemini, groq, openrouter, moonshot): Moonshot and OpenRouter have no
