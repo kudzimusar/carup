@@ -305,6 +305,20 @@ export interface AssessmentSummary {
   selfie_check_status: string;
   allowed_actions: DecisionAction[];
   recommended_action: DecisionAction | null;
+  /** O2-X4 — provider biometric EVIDENCE (never a decision). Null until an assessment ran; no provider is selected yet. */
+  biometric?: BiometricEvidenceSummary | null;
+}
+
+/** O2-X4 — normalized biometric evidence for the reviewer surface (interface; provider NOT SELECTED). */
+export interface BiometricEvidenceSummary {
+  face_match_status: 'match' | 'mismatch' | 'indeterminate' | 'provider_failed' | 'not_run';
+  face_match_score: number | null;
+  liveness_status: 'passed' | 'failed' | 'indeterminate' | 'provider_failed' | 'not_run';
+  liveness_score: number | null;
+  provider: string | null;
+  provider_state: 'completed' | 'failed' | 'unavailable' | 'not_configured' | null;
+  threshold_policy_version: string | null;
+  assessed_at: string | null;
 }
 
 export interface ExtendedAdminVerificationSession extends AdminVerificationSession {

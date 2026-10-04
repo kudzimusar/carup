@@ -760,6 +760,8 @@ jobs:
           backend/tests/oc3b-ai-authority-invariants.test.js
       - name: OC-5C — X5A upload idempotency (actor-scoped, bound, PGlite race + candidate migration, shipped route)
         run: node --test backend/tests/oc5c-upload-idempotency.test.js backend/tests/upload-idempotency.test.js backend/tests/differentiator-journey.test.js
+      - name: OC-5C — X4 biometrics, interface only (provider NOT SELECTED; nothing calls a provider; candidates only)
+        run: node --test backend/tests/o2-x4-biometric-interface.test.js backend/tests/verification-decision-policy.test.js
       - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
         run: |
           node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js
