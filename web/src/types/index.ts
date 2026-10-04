@@ -2061,7 +2061,7 @@ export interface EvidenceAiAnalysis {
   // 'simulated'), carry no score, and are advisory and non-verifying.
   provider?: 'simulated' | string;
   model?: string | null;
-  execution?: 'simulated' | 'mock' | 'provider_executed';
+  execution?: 'simulated' | 'mock' | 'provider_executed' | 'failed';
   advisory?: boolean;
   verifying?: false;
   risk_score: number | null;

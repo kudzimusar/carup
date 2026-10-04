@@ -536,10 +536,14 @@ export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceTy
   } catch (err) {
     console.error(`[AI Analysis Error] Failed for evidence ${evidenceId}:`, err.message);
 
-    // Save provider_unavailable status
+    // Save provider_unavailable status. OC-3B: no risk figure — a failed analysis measured nothing,
+    // and the 0.1 it used to store read as "low risk". Inspection is the only recommendation.
     const failureResult = {
       ai_status: 'ai_provider_unavailable',
-      risk_score: 0.1,
+      execution: 'failed',
+      advisory: true,
+      verifying: false,
+      risk_score: null,
       confidence: 0.0,
       reviewer_summary: `AI provider analysis failed: ${err.message}`,
       recommended_action: 'inspect'
