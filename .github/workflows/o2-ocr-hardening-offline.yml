@@ -14,6 +14,7 @@ on:
       - fix/oc-3b-truthful-ai-ledger-containment
       - feat/oc-3c-shared-cloudflare-ai-runtime
       - feat/oc-3e-wave1-ai-consumer-convergence
+      - feat/oc-3d-ledger-hardening-offline
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -137,6 +138,29 @@ on:
       - 'web/src/components/marketplace/BuyerAssistantDrawer.tsx'
       - 'web/src/components/marketplace/BuyerAssistantDrawer.test.tsx'
       - 'docs/ai/CARUP_AI_CONSUMER_MATRIX.md'
+      # OC-3D hash-chained audit ledger + evidence provenance: the services, the canonical
+      # serialization, the migration CANDIDATES (never applied by any workflow), the real migration
+      # chain the PGlite harness applies, and the suites that pin all of it.
+      - 'backend/services/blockchain/**'
+      - 'backend/services/evidence/provenanceService.js'
+      - 'backend/services/diaspora/diasporaOwnershipHandoffService.js'
+      - 'database/migration-candidates/**'
+      - 'database/migrations/supabase_schema.sql'
+      - 'database/migrations/014_passport_evidence_architecture.sql'
+      - 'database/migrations/015_vehicle_evidence_timeline.sql'
+      - 'database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql'
+      - 'database/migrations/20260809100000_trust_side_tables.sql'
+      - 'database/migrations/20260810120000_trust_side_convergence.sql'
+      - 'database/migrations/20260814080000_issue101_staging_parity.sql'
+      - 'database/migrations/20260828210000_issue158_private_key_custody.sql'
+      - 'database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql'
+      - 'database/migrations/20260829020000_issue158_activation_boundary_hardening.sql'
+      - 'database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql'
+      - 'database/migrations/20260830060000_issue158_terminal_operation_identity.sql'
+      - 'backend/tests/helpers/pgliteLedgerHarness.js'
+      - 'backend/tests/oc3d-*.test.js'
+      - 'backend/tests/issue-158-private-key-custody.test.js'
+      - 'docs/ledger/**'
       - 'web/src/pages/dashboard/owner/PartSentry.tsx'
       - 'web/src/pages/dashboard/owner/PartSentry.test.tsx'
       - 'web/src/types/index.ts'
@@ -233,7 +257,8 @@ jobs:
             backend/tests/ai-temporal-disclosure.test.js \
             backend/tests/oc3c-cloudflare-ai-transport.test.js \
             backend/tests/ai01b-carup-ai-gateway.test.js \
-            backend/tests/oc3e-w1-ai-consumer-convergence.test.js
+            backend/tests/oc3e-w1-ai-consumer-convergence.test.js \
+            backend/tests/issue-158-private-key-custody.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
@@ -274,6 +299,40 @@ jobs:
         run: npm ci || npm install
       - name: Run PartSentry ledger suite (bounded)
         run: npm run test:unit --workspace=web -- src/pages/dashboard/owner/PartSentry.test.tsx
+
+  # ── OC-3D hash-chained audit ledger on real PostgreSQL (exact-head) ─────────
+  # The tamper reproductions, canonical hashing, the append-only/retention migration CANDIDATES
+  # (applied only to a disposable in-process database), evidence-provenance round trips and the single
+  # write boundary — against the repository's own migration SQL in PGlite. PGlite is a root workspace
+  # dependency (prisma → @prisma/dev), so this job installs the workspace. No network database, no
+  # credential, nothing deployed or applied anywhere.
+  oc3d-ledger-pglite:
+    name: OC-3D ledger hardening (PGlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      JWT_SECRET: test-jwt-secret
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run OC-3D ledger suites (real migration SQL in PGlite)
+        run: |
+          node --test \
+            backend/tests/oc3d-ledger-tamper-reproductions.test.js \
+            backend/tests/oc3d-ledger-canonical-hashing.test.js \
+            backend/tests/oc3d-ledger-append-only-candidates.test.js \
+            backend/tests/oc3d-evidence-provenance-canonical.test.js \
+            backend/tests/oc3d-ledger-write-boundary.test.js
 
   # ── OC-3E-W1 buyer assistant notice (exact-head, targeted) ──────────────────
   # A signed-out visitor gets safe guidance with no paid inference; the drawer must say why.
