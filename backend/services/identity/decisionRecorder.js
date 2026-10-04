@@ -21,6 +21,7 @@ import {
   LEGACY_REVIEWABLE_STATUSES,
 } from './caseWorkflow.js';
 import { getReasonConfig } from './reasonCodes.js';
+import { onVerificationApproved } from './identityLifecycleService.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 // Decisions that materially change the applicant's verification outcome and
@@ -291,6 +292,37 @@ export class VerificationDecisionRecorder {
       });
     }
 
+    // O2-X3 (ported by OC-5C): a durable APPROVE also advances the CURRENT identity lifecycle
+    // (verified, or recovered from compromised). The approval above is already immutable history, so
+    // the hook cannot fail the decision — but it is never silent (#208 used .catch(console.warn), an
+    // OC-4A violation on an identity-history write): a policy refusal (a revoked identity, or evidence
+    // that predates a restriction) is recorded as lifecycle_outcome 'refused'; any other failure is a
+    // logged error with lifecycle_recorded false, which the reviewer surface can see.
+    let lifecycleOutcome = 'not_applicable';
+    if (action === DECISION_ACTION.APPROVE) {
+      try {
+        const lifecycle = await onVerificationApproved(client, {
+          userId: session.user_id,
+          sessionId: session.id,
+          reviewerId,
+          reviewerRole,
+        }, { req });
+        lifecycleOutcome = lifecycle.noop ? 'unchanged' : 'recorded';
+      } catch (lifecycleError) {
+        if (lifecycleError instanceof ForbiddenError) {
+          lifecycleOutcome = 'refused';
+          logger.warn('IDENTITY', 'verification approval did not advance the identity lifecycle (policy refusal)', {
+            decision_id: decisionId, session_id: session.id, reason: lifecycleError.message,
+          });
+        } else {
+          lifecycleOutcome = 'failed';
+          logger.error('IDENTITY', 'identity lifecycle was NOT updated after a durable approval', {
+            decision_id: decisionId, session_id: session.id, error: lifecycleError.message,
+          });
+        }
+      }
+    }
+
     // Bridge the persisted decision into the communication engine (seam-E E5).
     // Best-effort: the decision is already durable, so an outbox write failure
     // must never fail the review action itself.
@@ -336,6 +368,8 @@ export class VerificationDecisionRecorder {
         created_at: timestamp,
         audit_event_type: eventType,
         audit_recorded: auditRecorded,
+        lifecycle_outcome: lifecycleOutcome,
+        lifecycle_recorded: lifecycleOutcome === 'recorded' || lifecycleOutcome === 'unchanged',
       },
       session: updatedSession,
       allowed_actions: newAssessment.allowed_actions,

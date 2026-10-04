@@ -84,6 +84,8 @@ import leadsRouter from './routes/leadsRoutes.js';
 import promotionsRouter from './routes/promotionsRoutes.js';
 import workOrdersRouter from './routes/workOrdersRoutes.js';
 import ledgerIntentRouter from './routes/ledgerIntentRoutes.js';
+import authSecurityRouter from './routes/authSecurityRoutes.js';
+import identityLifecycleAdminRouter from './routes/identityLifecycleAdminRoutes.js';
 import { countUnrecordedLedgerIntents } from './services/blockchain/ledgerIntentService.js';
 import { evidenceVisionHealth } from './services/ai/evidenceVisionProvider.js';
 import partsRouter from './routes/partsRoutes.js';
@@ -429,6 +431,9 @@ app.use(leadsRouter);
 app.use(promotionsRouter);
 app.use(workOrdersRouter);
 app.use(ledgerIntentRouter);
+// O2-X3 (OC-5C): step-up re-authentication and own-session security; governed identity lifecycle.
+app.use(authSecurityRouter);
+app.use(identityLifecycleAdminRouter);
 app.use(partsRouter);
 app.use(claimsRouter);
 

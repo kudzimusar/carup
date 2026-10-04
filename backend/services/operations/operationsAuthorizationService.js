@@ -37,6 +37,10 @@ export const OPERATIONS_CAPABILITIES = Object.freeze({
   PERSON_READ_PRIVATE: 'operations.person.read_private',
   IDENTITY_REVIEW: 'operations.identity.review',
   DEALER_COMPLIANCE_REVIEW: 'operations.dealer_compliance.review',
+  // O2-X3 (ported by OC-5C): governed identity-lifecycle transitions and account-security session
+  // revocation. PLATFORM ADMINISTRATION ONLY (see ROLE_CAPABILITY_MAP).
+  IDENTITY_LIFECYCLE: 'operations.identity.lifecycle',
+  ACCOUNT_SECURITY: 'operations.account.security',
 });
 
 const ALL_VEHICLE_OPERATIONS = Object.freeze([
@@ -54,11 +58,23 @@ const ALL_PEOPLE_OPERATIONS = Object.freeze([
 
 const ALL_OPERATIONS = Object.freeze([...ALL_VEHICLE_OPERATIONS, ...ALL_PEOPLE_OPERATIONS]);
 
+/**
+ * Account-level powers over a PERSON: suspending or revoking their identity, signing them out
+ * everywhere. #208 added them to the shared people set, which `government` holds in full — broader
+ * than X3's own header ("nothing broader"). Until the owner decides otherwise they belong to
+ * platform administration alone (OC-5C, recorded owner decision).
+ */
+const PLATFORM_ADMIN_PEOPLE_OPERATIONS = Object.freeze([
+  OPERATIONS_CAPABILITIES.IDENTITY_LIFECYCLE,
+  OPERATIONS_CAPABILITIES.ACCOUNT_SECURITY,
+]);
+const PLATFORM_ADMIN_OPERATIONS = Object.freeze([...ALL_OPERATIONS, ...PLATFORM_ADMIN_PEOPLE_OPERATIONS]);
+
 /** Compatibility mapping: server-derived platform/base role → capability set. */
 const ROLE_CAPABILITY_MAP = Object.freeze({
-  admin: ALL_OPERATIONS,
-  platform_admin: ALL_OPERATIONS,
-  super_admin: ALL_OPERATIONS,
+  admin: PLATFORM_ADMIN_OPERATIONS,
+  platform_admin: PLATFORM_ADMIN_OPERATIONS,
+  super_admin: PLATFORM_ADMIN_OPERATIONS,
   government: ALL_OPERATIONS,
 });
 
