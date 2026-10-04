@@ -18,6 +18,7 @@ on:
       - feat/oc4a-evidence-store-completion
       - feat/oc4b-ai-wave2-communications
       - feat/oc4c-native-garage-ocr-convergence
+      - integration/oc4d-domain-lineage-convergence
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -231,6 +232,49 @@ on:
       - 'mobile/tests/upload-queue-*.test.ts'
       - 'mobile/package.json'
       - 'docs/one-carup/OC4C_NATIVE_GARAGE_OCR.md'
+      # OC-4D domain lineage convergence: #208 People & Compliance (P2–P6) and governed Dealer
+      # authority (+ the two RC-only surfaces it found), #209 GMO-1 regression tests, #208 U1, and
+      # the earlier OC-4D absorptions (#218 release-only deployments, #211 Scenario Lab, #213 C/E).
+      - 'backend/services/dealer/**'
+      - 'backend/services/operations/**'
+      - 'backend/services/identity/caseWorkflow.js'
+      - 'backend/services/seller/sellerAuthorityService.js'
+      - 'backend/services/passport/passportOwnershipTransferService.js'
+      - 'backend/services/marketplace/marketplaceListingEligibility.js'
+      - 'backend/services/marketplace/marketplaceInquiryService.js'
+      - 'backend/services/storage/mediaRouter.js'
+      - 'backend/services/communication/communicationEventListeners.js'
+      - 'backend/services/communication/communicationNotificationService.js'
+      - 'backend/services/communication/communicationTemplateService.js'
+      - 'backend/routes/peopleOperationsRoutes.js'
+      - 'backend/routes/leadsRoutes.js'
+      - 'backend/routes/diasporaWorkbookRoutes.js'
+      - 'backend/services/diaspora/diasporaTradeScenarioService.js'
+      - 'backend/services/diaspora/diasporaWorkbookPersistenceService.js'
+      - 'backend/services/diaspora/diasporaWorkbookValidationService.js'
+      - 'backend/constants/diaspora/**'
+      - 'backend/fixtures/trade-os/**'
+      - 'backend/tests/o2-people-*.test.js'
+      - 'backend/tests/o2-responsibility-projection.test.js'
+      - 'backend/tests/oc4d-*.test.js'
+      - 'backend/tests/gmo-1-garage-application.test.js'
+      - 'backend/tests/communication-event-coverage.test.js'
+      - 'backend/tests/vehicle-create-eligibility.test.js'
+      - 'backend/tests/db-compat-legacy-scopes.test.js'
+      - 'backend/tests/issue164-d0-evidence-route-authorization.test.js'
+      - 'backend/tests/operations-seller-authority.test.js'
+      - 'backend/tests/issue164-phase4-seller-location.test.js'
+      - 'backend/tests/marketplace-v1-spine.test.js'
+      - 'backend/tests/diaspora-trade-scenarios.test.js'
+      - 'vercel.json'
+      - 'web/vercel.json'
+      - 'backend/vercel.json'
+      - 'web/src/lib/routeAccess.ts'
+      - 'web/src/lib/routeAccess*.test.ts'
+      - 'web/src/pages/dashboard/admin/PeopleComplianceReview*.tsx'
+      - 'web/src/pages/dashboard/admin/UserManagement.tsx'
+      - 'web/src/pages/dashboard/owner/Communications.tsx'
+      - 'web/src/pages/Landing.tsx'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -446,6 +490,59 @@ jobs:
             backend/tests/oc4a-truthful-audit-writes.test.js \
             backend/tests/oc4a-ai-fraud-scans-candidate.test.js \
             backend/tests/oc4a-migration-hygiene.test.js
+
+  # ── OC-4D domain lineage convergence (exact-head, targeted) ──────────────
+  # #208 People & Compliance: the who-must-act projections, the person review read model (fail-closed
+  # sections), the identity self-review guard, the dealer decision event (privacy-corrected) and its
+  # governed template. #208 Dealer authority: membership is not a dealership — candidate and resolver
+  # matrices on real PGlite rows, the real middleware, the surface register, and the BEHAVIOURAL
+  # matrix through the real routes. Plus the tests the port inverted, #209 GMO-1, #211 Scenario Lab
+  # and #218 release-only deployments; and the web halves (People & Compliance, U1 routing).
+  oc4d-domain-convergence:
+    name: OC-4D domain convergence
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: People & Compliance, Dealer authority and absorbed-PR suites
+        run: |
+          node --test \
+            backend/tests/o2-responsibility-projection.test.js \
+            backend/tests/o2-people-compliance-review.test.js \
+            backend/tests/o2-people-adversarial.test.js \
+            backend/tests/o2-people-review-fail-closed.test.js \
+            backend/tests/oc4d-dealer-decision-event-privacy.test.js \
+            backend/tests/communication-event-coverage.test.js \
+            backend/tests/oc4d-dealer-seller-authority.test.js \
+            backend/tests/vehicle-create-eligibility.test.js \
+            backend/tests/d0-evidence-private-data-exposure.test.js \
+            backend/tests/db-compat-legacy-scopes.test.js \
+            backend/tests/issue164-d0-evidence-route-authorization.test.js \
+            backend/tests/operations-seller-authority.test.js \
+            backend/tests/issue164-phase4-seller-location.test.js \
+            backend/tests/marketplace-v1-spine.test.js \
+            backend/tests/o2-ocr-adversarial-hardening.test.js \
+            backend/tests/gmo-1-garage-application.test.js \
+            backend/tests/diaspora-trade-scenarios.test.js \
+            backend/tests/oc4d-release-only-deployments.test.js \
+            backend/tests/migration-integrity.test.js
+      - name: Web halves (People & Compliance, U1 routing, owner surfaces)
+        run: npm run test:unit --workspace=web -- src/pages/dashboard/admin/PeopleComplianceReview src/lib/routeAccess src/pages/dashboard/owner src/config
 
   # ── OC-4C native garage odometer capture (exact-head, targeted) ───────────
   # The native side of the governed odometer path: capture-first durable queue, the upload body the
