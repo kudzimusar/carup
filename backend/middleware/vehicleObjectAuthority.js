@@ -26,10 +26,17 @@ import { supabase } from '../db/supabase.js';
 
 const PLATFORM_WIDE_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government']);
 
-/** Whether the caller's role carries platform-wide vehicle authority. */
+/**
+ * Whether the caller's PLATFORM role carries platform-wide vehicle authority.
+ *
+ * The platform role decides. The effective role is whatever the caller asked to act as, and OC-5A
+ * found it reachable from a tenant row: reading it here let any value a membership could lend become
+ * platform-wide authority over every vin. Only a context with no platformRole — one the auth
+ * middleware did not build, such as an internal service context — falls back to its single role.
+ */
 export function hasPlatformWideVehicleAuthority(userContext) {
-  return PLATFORM_WIDE_ROLES.has(userContext?.role)
-    || PLATFORM_WIDE_ROLES.has(userContext?.platformRole);
+  const platformRole = userContext?.platformRole;
+  return PLATFORM_WIDE_ROLES.has(platformRole ?? userContext?.role);
 }
 
 /**

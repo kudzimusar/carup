@@ -1,4 +1,5 @@
 import { supabase } from '../db/supabase.js';
+import { isLendableTenantRole } from '../services/auth/tenantRoleCatalogue.js';
 
 /**
  * The value `authenticationMethod` carries when an identity was ASSERTED by a header rather than
@@ -92,7 +93,10 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
     return requested;
   }
 
-  if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') {
+  // A verified membership may lend ONLY a governed domain role ('mechanic', 'dealer' — see
+  // tenantRoleCatalogue.js). Before OC-5A this refused 'admin' and admitted everything else, so a
+  // tenant row reading 'government', 'reviewer' or 'finance' became platform authority.
+  if (trustedTenantRole && requested === trustedTenantRole && isLendableTenantRole(requested)) {
     return requested;
   }
 
@@ -223,6 +227,27 @@ export function authorizeSessionRole(allowedRoles = []) {
 }
 
 /**
+ * The tenant an optional-auth caller named, IF their membership of it is verified. Never throws:
+ * optional authentication must not fail a public request, so any doubt resolves to "no tenant".
+ */
+async function verifiedTenantMembership(tenantIdHeader, userId) {
+  const none = { tenantId: null, tenantRole: null };
+  if (!tenantIdHeader || !userId) return none;
+  try {
+    const { data, error } = await supabase
+      .from('tenant_users')
+      .select('role')
+      .eq('tenant_id', tenantIdHeader)
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return none;
+    return { tenantId: String(tenantIdHeader), tenantRole: normalizeRole(data.role) };
+  } catch {
+    return none;
+  }
+}
+
+/**
  * Optional authentication. Resolves req.userContext when a valid session (or dev x-user-id fallback)
  * is present, otherwise continues as an anonymous guest WITHOUT failing the request. Use for public
  * endpoints that personalize when signed in (e.g. marketplace inquiry attribution, listing-view events).
@@ -256,12 +281,18 @@ export function optionalAuth() {
       if (activeUserId) {
         const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
         const platformRole = normalizeRole(user?.role) || 'member';
+        const tenant = await verifiedTenantMembership(req.headers['x-tenant-id'], activeUserId);
         req.userContext = {
           id: activeUserId,
           userId: activeUserId,
           role: platformRole,
           platformRole,
-          tenantId: req.headers['x-tenant-id'] || null,
+          // OC-5A: a tenant is context only when the caller's membership of it is VERIFIED — the
+          // question authorizeRole asks. The bare header used to become tenantId here, so every
+          // consumer had to remember not to trust it (the PartSentry read path documented exactly
+          // that). An unverified claim, or a failed lookup, yields no tenant — never the claimed one.
+          tenantId: tenant.tenantId,
+          tenantRole: tenant.tenantRole,
           isVerified: Boolean(user?.is_verified),
           authenticationMethod: fallbackDerived ? FALLBACK_AUTH_METHOD : 'session',
           // A single boolean a consumer can gate on WITHOUT re-spelling the marker. The passport

@@ -11,9 +11,10 @@
  *   - a stranger, an unknown evidence id, a malformed id, and evidence of ANOTHER VIN → one identical 403;
  *   - owner / current seller / organizational tenant / the evidence's uploader → the participant projection;
  *   - admin / government / reviewer → their own projection, chosen by PLATFORM role. (The repository's
- *     users_role_check admits no 'reviewer' platform role, so a reviewer is reachable today only as a
- *     TENANT-derived effective role — which must not unlock the platform projection; the reviewer
- *     projection itself is proven on the real stored rows.)
+ *     users_role_check admits no 'reviewer' platform role. RC1 still let a TENANT row lend 'reviewer'
+ *     as the effective role; OC-5A's tenant-role catalogue closed that — a membership lends only
+ *     'mechanic' or 'dealer' — so the tenant reviewer below is now refused at role resolution. The
+ *     reviewer projection itself is proven on the real stored rows.)
  *   - no audience ever receives an IP address or a route query string; only admins receive actor ids.
  */
 import test, { before, after } from 'node:test';
@@ -67,8 +68,10 @@ before(async () => {
     assert.equal(error, null, `session for ${who}`);
   }
   ({ rows: [{ id: TENANT }] } = await db.query(`INSERT INTO tenants (name, type) VALUES ('Dealership', 'dealership') RETURNING id`));
-  await db.query(`INSERT INTO tenant_users (tenant_id, user_id, role) VALUES ($1, 'staff-1', 'manager')`, [TENANT]);
+  await db.query(`INSERT INTO tenant_users (tenant_id, user_id, role) VALUES ($1, 'staff-1', 'member')`, [TENANT]);
   ({ rows: [{ id: REVIEW_TENANT }] } = await db.query(`INSERT INTO tenants (name, type) VALUES ('Review desk', 'government') RETURNING id`));
+  // A deliberately PRE-CATALOGUE hostile row: this harness builds tenant_users from 002 alone, without
+  // the OC-5A catalogue constraint, which is exactly the state a production row written before it is in.
   await db.query(`INSERT INTO tenant_users (tenant_id, user_id, role) VALUES ($1, 'rev-1', 'reviewer')`, [REVIEW_TENANT]);
   await db.query(`INSERT INTO vehicles (vin, make, model, year, mileage, price, owner_id, current_seller_id, tenant_id)
                   VALUES ('OC4AVINA000000001', 'Toyota', 'Hilux', 2020, 42000, 21000, 'owner-1', 'seller-1', $1),
@@ -188,10 +191,15 @@ test('OC-4A 1.2: government receives the custody projection — hashes to attest
   assertNoSecrets(res, 'government');
 });
 
-test('OC-4A 1.2: a TENANT-derived "reviewer" (x-stakeholder-role through a membership) gets no platform projection and no platform reach', async () => {
+test('OC-4A 1.2 (premise updated by OC-5A): a TENANT row reading "reviewer" lends nothing — refused at role resolution, before any evidence is read', async () => {
   const res = await provenance(VIN_A, EVIDENCE.ownerUpload, { who: 'tenantReviewer', headers: { 'x-tenant-id': REVIEW_TENANT, 'x-stakeholder-role': 'reviewer' } });
   assert.equal(res.status, 403, res.text);
-  assert.deepEqual(res.body, EVIDENCE_REFUSAL);
+  assert.match(res.body.error, /Requested role 'reviewer' is not verified for this user context/);
+  // Without the claimed role the same member is an ordinary stranger to this vehicle — the one
+  // identical evidence refusal, and still no platform projection or platform reach.
+  const plain = await provenance(VIN_A, EVIDENCE.ownerUpload, { who: 'tenantReviewer', headers: { 'x-tenant-id': REVIEW_TENANT } });
+  assert.equal(plain.status, 403, plain.text);
+  assert.deepEqual(plain.body, EVIDENCE_REFUSAL);
 });
 
 test('OC-4A 1.2: the reviewer projection, on the real stored rows — hashes and allow-listed custody details, no actor ids', async () => {
