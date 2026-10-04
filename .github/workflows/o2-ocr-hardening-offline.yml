@@ -15,6 +15,7 @@ on:
       - feat/oc-3c-shared-cloudflare-ai-runtime
       - feat/oc-3e-wave1-ai-consumer-convergence
       - feat/oc-3d-ledger-hardening-offline
+      - feat/oc4a-evidence-store-completion
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -175,6 +176,33 @@ on:
       - 'web/src/pages/dashboard/owner/PartSentry.tsx'
       - 'web/src/pages/dashboard/owner/PartSentry.test.tsx'
       - 'web/src/types/index.ts'
+      # OC-4A evidence-store completion: the history-protection and ai_fraud_scans CANDIDATES (under
+      # database/migration-candidates/**, never applied), provenance object authority, truthful audit
+      # writes, and migration hygiene — which scans the WHOLE migrations directory for SQLite-only SQL,
+      # so any migration change must run it. The root manifests pin PGlite.
+      - 'database/migrations/**'
+      - 'database/scripts/apply_migrations_staging.mjs'
+      - 'database/scripts/apply_migrations_production.mjs'
+      - 'backend/db/migrationParser.js'
+      - 'backend/db/migrate.js'
+      - 'backend/middleware/evidenceObjectAuthority.js'
+      - 'backend/services/auditLogger.js'
+      - 'backend/services/diaspora/diasporaServiceUtils.js'
+      - 'backend/services/diaspora/workbook/diasporaWorkbookDbExportService.js'
+      - 'backend/services/evidence/evidenceClassificationCorrectionService.js'
+      - 'backend/services/ingestion/ingestionService.js'
+      - 'backend/services/partsentry/partsentryService.js'
+      - 'backend/services/trustGovernance/partsentryReviewService.js'
+      - 'backend/services/auth/sessionRow.js'
+      - 'backend/tests/oc4a-*.test.js'
+      - 'backend/tests/audit-logger.test.js'
+      - 'backend/tests/verification-decision-policy.test.js'
+      - 'backend/tests/diaspora-workbook-db-export.test.js'
+      - 'backend/tests/evidence-catalog-routes.test.js'
+      - 'backend/tests/migration-integrity.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'docs/one-carup/OC4A_EVIDENCE_STORE_COMPLETION.md'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -270,7 +298,12 @@ jobs:
             backend/tests/ai01b-carup-ai-gateway.test.js \
             backend/tests/oc3e-w1-ai-consumer-convergence.test.js \
             backend/tests/issue-158-private-key-custody.test.js \
-            backend/tests/oc3-programme-authority.test.js
+            backend/tests/oc3-programme-authority.test.js \
+            backend/tests/audit-logger.test.js \
+            backend/tests/verification-decision-policy.test.js \
+            backend/tests/diaspora-workbook-db-export.test.js \
+            backend/tests/evidence-catalog-routes.test.js \
+            backend/tests/migration-integrity.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
@@ -345,6 +378,42 @@ jobs:
             backend/tests/oc3d-ledger-append-only-candidates.test.js \
             backend/tests/oc3d-evidence-provenance-canonical.test.js \
             backend/tests/oc3d-ledger-write-boundary.test.js
+
+  # ── OC-4A evidence-store completion on real PostgreSQL (exact-head) ─────────
+  # The partsentry_logs / ocr_documents / financial_ledger history-protection CANDIDATE and the
+  # ai_fraud_scans truthfulness CANDIDATE (applied only to disposable in-process databases), provenance
+  # object authority through the shipped app with real session rows, failure-injected audit writes, and
+  # migration hygiene (SQLite-era files refused for PostgreSQL; PGlite declared). Real migration SQL in
+  # PGlite; no network database, no credential, nothing deployed or applied anywhere.
+  oc4a-evidence-store-pglite:
+    name: OC-4A evidence store (PGlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Run OC-4A evidence-store suites (real migration SQL in PGlite)
+        run: |
+          node --test \
+            backend/tests/oc4a-evidence-history-protection.test.js \
+            backend/tests/oc4a-provenance-object-authority.test.js \
+            backend/tests/oc4a-truthful-audit-writes.test.js \
+            backend/tests/oc4a-ai-fraud-scans-candidate.test.js \
+            backend/tests/oc4a-migration-hygiene.test.js
 
   # ── OC-3E-W1 buyer assistant notice (exact-head, targeted) ──────────────────
   # A signed-out visitor gets safe guidance with no paid inference; the drawer must say why.
