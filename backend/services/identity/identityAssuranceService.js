@@ -35,6 +35,7 @@ import {
   getCurrentIdentityLifecycle,
   LIFECYCLE_STATES,
   LIFECYCLE_POLICY_VERSION,
+  toSubjectIdentityStatus,
 } from './identityLifecycleService.js';
 import {
   ACTION_CLASSES,
@@ -162,5 +163,34 @@ export async function getIdentityAssurance(client = supabase, userId) {
     reason_code: lifecycle.reason_code || null,
     applicant_guidance: lifecycle.applicant_guidance || null,
     pending_review: pendingReview,
+  };
+}
+
+/**
+ * The SUBJECT's own view of the projection (O2-X2, OC-5C). The full projection is for reviewers and
+ * domain consumers: it names the internal lifecycle state, the reason code and where the decision was
+ * recorded. A person reading their own standing gets the subject-safe status and the applicant guidance
+ * instead — never 'compromised', never a takeover hypothesis, never the decision's provenance.
+ */
+export function toSubjectIdentityAssurance(assurance) {
+  if (!assurance) return null;
+  const status = toSubjectIdentityStatus(assurance.identity_state);
+  return {
+    policy_version: assurance.policy_version,
+    evaluated_at: assurance.evaluated_at,
+    assurance_level: assurance.assurance_level,
+    status: status?.code ?? null,
+    status_label: status?.label ?? null,
+    historically_verified: assurance.historically_verified,
+    verified_at: assurance.verified_at,
+    freshness_state: assurance.freshness_state,
+    freshness_basis: assurance.freshness_basis,
+    document_expiry: assurance.document_expiry,
+    step_up: assurance.step_up,
+    reverification_required: assurance.reverification_required,
+    usable_for_identity_gated_actions: assurance.usable_for_identity_gated_actions,
+    who_must_act: assurance.who_must_act,
+    applicant_guidance: assurance.applicant_guidance,
+    pending_review: assurance.pending_review,
   };
 }

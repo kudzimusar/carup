@@ -90,6 +90,7 @@ import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
 import KYCVerification from './pages/auth/KYCVerification'
+import RegistrationJourney from './pages/onboarding/RegistrationJourney'
 
 // Owner Dashboard
 import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
@@ -313,6 +314,11 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+          {/* O2-X2 (ported by OC-5C) — the signed-in person's own onboarding journey. A product
+              surface, not an auth step: it renders inside the canonical shell (#208 88000de9 moved it
+              out of the chromeless auth group for exactly that reason). Unregistered, so routeAccess
+              renders it for any signed-in caller (U1) and the page + backend decide the rest. */}
+          <Route path="/onboarding" element={<RegistrationJourney />} />
         </Route>
 
         {/* Trade OS operational workspace (owner UAT #1): the client-demo journey — Container

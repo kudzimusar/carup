@@ -204,6 +204,27 @@ export const SUBJECT_STATUS_LABELS = Object.freeze({
   [LIFECYCLE_STATES.RECOVERED]: 'restored',
 });
 
+/**
+ * O2-X2 (OC-5C) — the subject-facing status CODE that pairs with SUBJECT_STATUS_LABELS, for surfaces
+ * that branch on a state (the applicant's own onboarding journey). The same rule: 'compromised' is never
+ * shown to the person, and neither is a reason code.
+ */
+export const SUBJECT_STATUS_CODES = Object.freeze({
+  [LIFECYCLE_STATES.VERIFIED]: 'verified',
+  [LIFECYCLE_STATES.REVERIFICATION_REQUIRED]: 'reverification_required',
+  [LIFECYCLE_STATES.SUSPENDED]: 'on_hold',
+  [LIFECYCLE_STATES.COMPROMISED]: 'security_review',
+  [LIFECYCLE_STATES.DISPUTED]: 'disputed',
+  [LIFECYCLE_STATES.REVOKED]: 'revoked',
+  [LIFECYCLE_STATES.RECOVERED]: 'restored',
+});
+
+/** { code, label } the person may see for a lifecycle state, or null for a state with no subject status. */
+export function toSubjectIdentityStatus(state) {
+  if (!state || !SUBJECT_STATUS_CODES[state]) return null;
+  return { code: SUBJECT_STATUS_CODES[state], label: SUBJECT_STATUS_LABELS[state] };
+}
+
 /** who_must_act projection for lifecycle states — ADR vocabulary, derived, never persisted. */
 export function lifecycleToResponsibilityProjection(state) {
   switch (state) {
@@ -594,6 +615,8 @@ export default {
   LIFECYCLE_TRIGGERS,
   LIFECYCLE_REASON_CODES,
   SUBJECT_STATUS_LABELS,
+  SUBJECT_STATUS_CODES,
+  toSubjectIdentityStatus,
   getLifecycleReasonConfig,
   isLifecycleTransitionAllowed,
   lifecycleToResponsibilityProjection,
