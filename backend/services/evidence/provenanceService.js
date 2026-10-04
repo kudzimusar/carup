@@ -1,15 +1,23 @@
 /**
  * Chain-of-custody / provenance service — Milestone 1 (master plan §5.4 / §5.5).
  *
- * Writes immutable, hash-chained provenance events for an evidence record. Each
- * event links to the previous event via `prev_hash`, making the chain tamper-evident:
- * altering any event breaks the recomputed chain. The DB also blocks UPDATE/DELETE on
- * `evidence_provenance_events` (migration 20260621120000), so this is defence in depth.
+ * Writes append-only, hash-chained provenance events for an evidence record. Each
+ * event links to the previous event via `prev_hash`, making the chain tamper-EVIDENT:
+ * altering any event breaks the recomputed chain. The DB blocks row UPDATE/DELETE on
+ * `evidence_provenance_events` for every role short of a trigger-bypassing owner
+ * (migration 20260621120000; TRUNCATE is closed by the OC-3D candidate), so this is
+ * defence in depth — not immutability.
  *
  * This service NEVER changes evidence verification state or trust scores — it only
  * records what happened (master plan §2.2 AI-advisory; §2.5 provenance).
  */
 import crypto from 'crypto';
+import {
+  canonicalDigest,
+  hashVersionOf,
+  LEDGER_HASH_VERSION_CANONICAL,
+  V2_HASH_PREFIX,
+} from '../blockchain/ledgerCanonicalSerialization.js';
 
 export const PROVENANCE_EVENT_TYPES = Object.freeze([
   'created', 'uploaded', 'imported', 'validated', 'transformed',
@@ -21,14 +29,10 @@ export const PROVENANCE_EVENT_TYPES = Object.freeze([
 
 const TABLE = 'evidence_provenance_events';
 
-/**
- * Deterministic canonical hash of an event's content. Excludes the DB-assigned
- * created_at so the hash is reproducible from stored fields during verification.
- */
-export function computeContentHash({
+function provenanceRecord({
   evidence_id, sequence, event_type, actor_user_id, actor_role, actor_type, details, prev_hash,
 }) {
-  const canonical = JSON.stringify({
+  return {
     evidence_id: evidence_id || null,
     sequence,
     event_type,
@@ -37,8 +41,25 @@ export function computeContentHash({
     actor_type: actor_type || 'user',
     details: details || {},
     prev_hash: prev_hash || null,
-  });
-  return crypto.createHash('sha256').update(canonical).digest('hex');
+  };
+}
+
+/**
+ * v1 — the historical content hash: JSON.stringify in JavaScript insertion order. `details` is stored
+ * as JSONB, which re-orders object keys, so a v1 hash can be impossible to reproduce from what the
+ * database returns even when nothing was altered (OC-3A/OC-3D 4I). Kept only to verify v1 rows.
+ */
+export function computeContentHashV1(fields) {
+  return crypto.createHash('sha256').update(JSON.stringify(provenanceRecord(fields))).digest('hex');
+}
+
+/**
+ * Content hash of an event — v2 (OC-3D): sha256 over the canonical serialization, stored with the
+ * `v2:` prefix. Key order, at any depth, cannot change it, so what the database returns verifies.
+ * Excludes the DB-assigned created_at so the hash is reproducible from stored fields.
+ */
+export function computeContentHash(fields) {
+  return V2_HASH_PREFIX + canonicalDigest('carup.provenance.event.v2', provenanceRecord(fields));
 }
 
 async function fetchLastEvent(supabase, evidenceId) {
@@ -109,15 +130,23 @@ export async function listProvenanceEvents(supabase, evidenceId) {
 }
 
 /**
- * Verify the hash chain for an evidence record.
- * @returns {{ valid: boolean, length: number, brokenAt: number|null, reason: string|null }}
+ * Verify the hash chain for an evidence record (OC-3D).
+ *
+ * Each event is checked with the scheme it was written with. A v2 event that does not recompute is
+ * a content_hash_mismatch: tamper evidence. A v1 event that does not recompute is
+ * `legacy_hash_unverifiable` — its insertion-order hash may simply be unreproducible after JSONB
+ * re-ordered `details`, so it is neither proven tampered nor accepted. Links are checked for every
+ * event, and a real break or mismatch anywhere outranks an unverifiable legacy row.
+ * @returns {{ valid: boolean, length: number, brokenAt: number|null, reason: string|null, legacyUnverifiable: number }}
  */
 export async function verifyProvenanceChain(supabase, evidenceId) {
   const events = await listProvenanceEvents(supabase, evidenceId);
   let prev = null;
+  let firstUnverifiable = null;
+  let legacyUnverifiable = 0;
   for (let i = 0; i < events.length; i += 1) {
     const e = events[i];
-    const expected = computeContentHash({
+    const fields = {
       evidence_id: e.evidence_id,
       sequence: Number(e.sequence),
       event_type: e.event_type,
@@ -126,17 +155,25 @@ export async function verifyProvenanceChain(supabase, evidenceId) {
       actor_type: e.actor_type,
       details: e.details,
       prev_hash: e.prev_hash,
-    });
-    if (expected !== e.content_hash) {
-      return { valid: false, length: events.length, brokenAt: Number(e.sequence), reason: 'content_hash_mismatch' };
-    }
+    };
     const expectedPrev = prev ? prev.content_hash : null;
     if ((e.prev_hash || null) !== expectedPrev) {
-      return { valid: false, length: events.length, brokenAt: Number(e.sequence), reason: 'prev_hash_break' };
+      return { valid: false, length: events.length, brokenAt: Number(e.sequence), reason: 'prev_hash_break', legacyUnverifiable };
+    }
+    if (hashVersionOf(e.content_hash) === LEDGER_HASH_VERSION_CANONICAL) {
+      if (computeContentHash(fields) !== e.content_hash) {
+        return { valid: false, length: events.length, brokenAt: Number(e.sequence), reason: 'content_hash_mismatch', legacyUnverifiable };
+      }
+    } else if (computeContentHashV1(fields) !== e.content_hash) {
+      legacyUnverifiable += 1;
+      if (firstUnverifiable === null) firstUnverifiable = Number(e.sequence);
     }
     prev = e;
   }
-  return { valid: true, length: events.length, brokenAt: null, reason: null };
+  if (legacyUnverifiable > 0) {
+    return { valid: false, length: events.length, brokenAt: firstUnverifiable, reason: 'legacy_hash_unverifiable', legacyUnverifiable };
+  }
+  return { valid: true, length: events.length, brokenAt: null, reason: null, legacyUnverifiable: 0 };
 }
 
 /** Public-safe provenance summary (master plan §5.6) — no IPs, no raw actor IDs. */
