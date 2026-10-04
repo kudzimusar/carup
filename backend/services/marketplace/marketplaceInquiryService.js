@@ -23,6 +23,7 @@ import {
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { emitInquiryCreated } from '../intelligence/marketplaceActivityEmitters.js';
+import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -291,14 +292,23 @@ const SAFE_OR_VALUE = /^[A-Za-z0-9_:@-]+$/;
 
 export async function listInquiriesForSeller(client, actor) {
   if (!actor?.id) throw new ForbiddenError('Authentication required.');
+  // OC-4D — a tenant's buyer inquiries carry the buyers' names, emails, phones and messages. A
+  // validated `x-tenant-id` proves MEMBERSHIP only (any role: a mechanic, a member); it is not the
+  // dealership's selling authority. The tenant leg therefore applies only when the canonical
+  // Dealer decision (#208 J-3/K-3/L-2, the same primitive listing and lifecycle use) says this
+  // actor acts for that dealership. The seller's own `seller_id` leg is unchanged.
+  const tenantId = actor.tenantId
+    && await hasGovernedDealerVehicleAuthority(client, actor, { tenant_id: actor.tenantId })
+    ? actor.tenantId
+    : null;
   const legs = [`seller_id.eq.${actor.id}`];
-  if (actor.tenantId) legs.push(`seller_tenant_id.eq.${actor.tenantId}`);
+  if (tenantId) legs.push(`seller_tenant_id.eq.${tenantId}`);
   const canPushDown = SAFE_OR_VALUE.test(String(actor.id))
-    && (!actor.tenantId || SAFE_OR_VALUE.test(String(actor.tenantId)));
+    && (!tenantId || SAFE_OR_VALUE.test(String(tenantId)));
   const rows = await fetchInquiries(client, canPushDown ? (query) => query.or(legs.join(',')) : undefined);
   const mine = rows.filter(
     (r) => (r.seller_id && r.seller_id === actor.id)
-      || (actor.tenantId && r.seller_tenant_id === actor.tenantId),
+      || (tenantId && r.seller_tenant_id === tenantId),
   );
   return mine.map(toSellerInquiry);
 }

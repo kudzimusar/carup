@@ -11,6 +11,7 @@ import {
 } from './evidenceTaxonomy.js';
 import { computePerceptualHash } from './perceptualHash.js';
 import { recordProvenanceEvent } from './provenanceService.js';
+import { logger } from '../../utils/logger.js';
 
 export const evidenceTypes = [
   'import_photo',
@@ -348,7 +349,12 @@ export async function recordEvidenceUploadProvenance(client, { evidence, req, ev
       },
     });
   } catch (err) {
-    console.warn('[Provenance] failed to record upload event:', err.message);
+    // OC-4A classification: BUSINESS HISTORY (chain of custody), non-blocking by this domain's decision
+    // (provenance never gates capture) — but a missing custody event is a gap no verifier can see later
+    // (the next event simply links to whatever is last), so it is an ERROR, not a warning.
+    logger.error('PROVENANCE', 'chain-of-custody event NOT recorded for an evidence upload', {
+      evidence_id: evidence?.id ?? null, event_type: eventType, error_message: err.message,
+    });
   }
 }
 
@@ -536,10 +542,14 @@ export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceTy
   } catch (err) {
     console.error(`[AI Analysis Error] Failed for evidence ${evidenceId}:`, err.message);
 
-    // Save provider_unavailable status
+    // Save provider_unavailable status. OC-3B: no risk figure — a failed analysis measured nothing,
+    // and the 0.1 it used to store read as "low risk". Inspection is the only recommendation.
     const failureResult = {
       ai_status: 'ai_provider_unavailable',
-      risk_score: 0.1,
+      execution: 'failed',
+      advisory: true,
+      verifying: false,
+      risk_score: null,
       confidence: 0.0,
       reviewer_summary: `AI provider analysis failed: ${err.message}`,
       recommended_action: 'inspect'

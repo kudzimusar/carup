@@ -23,6 +23,7 @@
 import { isValidClass, isValidSubtype } from './evidenceTaxonomy.js';
 import { recordProvenanceEvent } from './provenanceService.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { logger } from '../../utils/logger.js';
 
 export const EVIDENCE_CLASSIFICATION_CORRECTED_EVENT = 'EVIDENCE_CLASSIFICATION_CORRECTED';
 
@@ -215,7 +216,11 @@ export async function correctEvidenceClassification(client, {
       details: historyEntry,
     });
   } catch (err) {
-    console.warn('[Provenance] failed to record classification correction:', err.message);
+    // OC-4A: the correction itself is already audited (required trust_audit_events row above); the
+    // custody event is non-blocking but its absence is an ERROR, never a quiet warning.
+    logger.error('PROVENANCE', 'chain-of-custody event NOT recorded for a classification correction', {
+      evidence_id: evidenceId, error_message: err.message,
+    });
   }
 
   return { changed: true, ...updated };

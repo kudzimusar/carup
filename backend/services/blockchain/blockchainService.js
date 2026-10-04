@@ -1,5 +1,22 @@
+/**
+ * CarUp's hash-chained AUDIT LEDGER (`blockchain_events` — the table keeps its historical name).
+ *
+ * It is not a blockchain: there is no external party, consensus or replication, and the database
+ * owner can still rewrite rows. What it provides is TAMPER EVIDENCE: every event links to the hash of
+ * the one before it, events carry a system HMAC or a custodial stakeholder signature, and
+ * verifyChain recomputes the chain from genesis and checks each signature (OC-3D). Append-only
+ * enforcement at the database is a prepared migration candidate, not yet applied.
+ */
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
+import {
+  canonicalDigest,
+  canonicalSerialize,
+  hashVersionOf,
+  LEDGER_HASH_VERSION_CANONICAL,
+  LEDGER_HASH_VERSION_LEGACY,
+  V2_HASH_PREFIX,
+} from './ledgerCanonicalSerialization.js';
 import {
   deriveStakeholderKey,
   signLedgerHash,
@@ -85,16 +102,10 @@ export function normalizePersistedPayload(value) {
   return JSON.parse(serialized);
 }
 
-// Deterministic comparison AFTER persistence normalization. Object key order is
-// irrelevant; array order remains meaningful.
-function canonicalize(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
-  return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalize(value[k])}`).join(',')}}`;
-}
-
+// Deterministic comparison AFTER persistence normalization: the ONE canonical serialization
+// (ledgerCanonicalSerialization.js). Object key order is irrelevant; array order remains meaningful.
 function canonicalPersistedPayload(value) {
-  return canonicalize(normalizePersistedPayload(value));
+  return canonicalSerialize(value);
 }
 
 const MAX_LEDGER_OPERATION_ID_LENGTH = 200;
@@ -306,13 +317,51 @@ export async function getOrCreateKeypair(userId) {
   return activateCustodiedPublicKey(userId, derived);
 }
 
-// Re-calculate event block hash from the same JSON semantics storage receives.
+// v1 — the historical hash, kept exactly as written and used ONLY for rows written with it. It hashes
+// a bare concatenation (field boundaries can shift between vin / event type / timestamp) over
+// JavaScript insertion-order JSON. Never reinterpreted (OC-3D 4E).
 export function calculateHash(previousHash, vin, eventType, timestamp, payload) {
   const persistedPayload = normalizePersistedPayload(payload);
   const data = previousHash + vin + eventType + timestamp + JSON.stringify(persistedPayload);
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
+/**
+ * v2 (OC-3D): sha256 over a domain-separated canonical envelope — named fields, canonical key order
+ * at every depth — stored with the `v2:` prefix, so its version is part of the hash itself.
+ */
+export function calculateHashV2(previousHash, vin, eventType, timestamp, payload) {
+  return V2_HASH_PREFIX + canonicalDigest('carup.ledger.event.v2', {
+    previous_hash: previousHash,
+    vin,
+    event_type: eventType,
+    timestamp,
+    payload: normalizePersistedPayload(payload),
+  });
+}
+
+/**
+ * The scheme NEW events are written with. v2 is introduced by an explicit deployment switch
+ * (CARUP_LEDGER_HASH_VERSION=2) with the staged ledger migration — not silently by a code release.
+ * Verification handles both versions, row by row, whatever this says.
+ */
+export function ledgerWriteHashVersion(env = process.env) {
+  return String(env.CARUP_LEDGER_HASH_VERSION ?? '').trim() === '2' ? LEDGER_HASH_VERSION_CANONICAL : LEDGER_HASH_VERSION_LEGACY;
+}
+
+export function computeLedgerHash(version, previousHash, vin, eventType, timestamp, payload) {
+  return version === LEDGER_HASH_VERSION_CANONICAL
+    ? calculateHashV2(previousHash, vin, eventType, timestamp, payload)
+    : calculateHash(previousHash, vin, eventType, timestamp, payload);
+}
+
+/**
+ * THE write boundary of the ledger (OC-3D 4J). Domain code submits an event REQUEST — vin, event type,
+ * payload, and optionally `{ operationId, signerId, client }` — and this function alone produces the
+ * envelope: previous_hash, current_hash (versioned), signature. The ledger records decisions; it
+ * makes none. `options.client` lets a domain service write through its own (injected) client;
+ * `options.signerId` names the signer explicitly instead of inferring it from payload keys.
+ */
 export async function addEvent(
   vin,
   eventType,
@@ -320,7 +369,8 @@ export async function addEvent(
   signature = 'SYSTEM_SIGNATURE',
   options = {},
 ) {
-  const { data: lastEvents } = await supabase
+  const db = (options && typeof options === 'object' && options.client) || supabase;
+  const { data: lastEvents } = await db
     .from('blockchain_events')
     .select('current_hash,id')
     .eq('vin', vin)
@@ -333,7 +383,8 @@ export async function addEvent(
     : '0000000000000000000000000000000000000000000000000000000000000000';
 
   let signerId = 'system';
-  if (payload.mechanicId) signerId = payload.mechanicId;
+  if (options && typeof options === 'object' && options.signerId) signerId = String(options.signerId);
+  else if (payload.mechanicId) signerId = payload.mechanicId;
   else if (payload.buyerId) signerId = payload.buyerId;
   else if (payload.reportingOwnerId) signerId = payload.reportingOwnerId;
   else if (payload.insurerId) signerId = payload.insurerId;
@@ -362,7 +413,7 @@ export async function addEvent(
     throw new Error('terminal ledger event requires a durable operation id');
   }
 
-  const currentHash = calculateHash(previousHash, vin, eventType, timestamp, persistedPayload);
+  const currentHash = computeLedgerHash(ledgerWriteHashVersion(), previousHash, vin, eventType, timestamp, persistedPayload);
 
   let dynamicSignature = signature;
   if (signature === 'SYSTEM_SIGNATURE') {
@@ -380,7 +431,7 @@ export async function addEvent(
     }
   }
 
-  const { data: insertedRows, error: insertError } = await supabase
+  const { data: insertedRows, error: insertError } = await db
     .from('blockchain_events')
     .insert({
       previous_hash: previousHash,
@@ -434,19 +485,31 @@ export async function addEvent(
     };
   }
 
-  const { count: eventCount } = await supabase
+  const { count: eventCount } = await db
     .from('blockchain_events')
     .select('id', { count: 'exact', head: true })
     .eq('vin', vin);
 
+  // A checkpoint is a WITNESS that verification cross-checks, never a trust root it starts from (4C).
+  // OC-4A classification: INTEGRITY WITNESS — non-blocking (the event above is already committed and
+  // verification runs from genesis without it), but truthful. The upsert's result used to be ignored
+  // and "Created rolling integrity checkpoint" logged regardless, so a failed witness was reported as
+  // written. A failure is now an error log, and success is only claimed when it happened.
   if (eventCount && eventCount % 10 === 0) {
-    await supabase.from('rolling_integrity_checkpoints').upsert({
+    const { error: checkpointError } = await db.from('rolling_integrity_checkpoints').upsert({
       vin,
       last_verified_event_id: newEventId,
       rolling_hash: currentHash,
       verified_at: timestamp,
     }, { onConflict: 'vin' });
-    console.log(`    📊 Created rolling integrity checkpoint for vehicle ${vin} at Block #${newEventId}`);
+    if (checkpointError) {
+      console.error(JSON.stringify({
+        level: 'error', category: 'LEDGER', msg: 'rolling integrity checkpoint was NOT written (witness gap; the event is committed)',
+        vin, event_id: newEventId ?? null, code: checkpointError.code ?? null,
+      }));
+    } else {
+      console.log(`    📊 Created rolling integrity checkpoint for vehicle ${vin} at Block #${newEventId}`);
+    }
   }
 
   return {
@@ -505,112 +568,120 @@ async function publicKeysForSigner(signerId) {
   return legacy.data || [];
 }
 
+const GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
+
+/**
+ * What an event's `signature` field actually proves (OC-3D 4H):
+ *   verified          — a system HMAC (server secret) or a custodial stakeholder ECDSA signature that
+ *                       checked out against the event hash;
+ *   absent            — no signature;
+ *   legacy_unverified — a placeholder ('SYSTEM_SIGNATURE'), a token without signer:proof form, or a
+ *                       stakeholder signature whose public-key history cannot be found: NOT a signature;
+ *   invalid           — a signature that was checked and is wrong.
+ * Custodial stakeholder keys are derived server-side, so a stakeholder signature proves the CarUp
+ * server signed for that stakeholder — not that the stakeholder did.
+ */
+export const SIGNATURE_STATUS = Object.freeze({
+  VERIFIED: 'verified',
+  ABSENT: 'absent',
+  LEGACY_UNVERIFIED: 'legacy_unverified',
+  INVALID: 'invalid',
+});
+
+async function signatureStatusOf(event) {
+  const raw = event.signature;
+  if (raw === null || raw === undefined || String(raw).trim() === '') return { status: SIGNATURE_STATUS.ABSENT };
+  const signature = String(raw);
+  const separator = signature.indexOf(':');
+  if (signature === 'SYSTEM_SIGNATURE' || separator <= 0) {
+    return { status: SIGNATURE_STATUS.LEGACY_UNVERIFIED, kind: 'placeholder' };
+  }
+  const signerId = signature.slice(0, separator);
+  const proof = signature.slice(separator + 1);
+  if (signerId === 'system') {
+    return verifySystemLedgerHash(event.current_hash, proof)
+      ? { status: SIGNATURE_STATUS.VERIFIED, kind: 'system_hmac' }
+      : { status: SIGNATURE_STATUS.INVALID, kind: 'system_hmac', signerId };
+  }
+  const keys = await publicKeysForSigner(signerId);
+  const keyRecord = eventKeyForTimestamp(keys, event.timestamp);
+  if (keyRecord) {
+    return verifyLedgerHash(keyRecord.public_key_pem, event.current_hash, proof)
+      ? { status: SIGNATURE_STATUS.VERIFIED, kind: 'stakeholder_ecdsa' }
+      : { status: SIGNATURE_STATUS.INVALID, kind: 'stakeholder_ecdsa', signerId };
+  }
+  return {
+    status: SIGNATURE_STATUS.LEGACY_UNVERIFIED,
+    kind: 'stakeholder_ecdsa',
+    note: keys.length > 0 ? 'PUBLIC_KEY_RECORD_POSTDATES_OR_EXCLUDES_EVENT' : 'PUBLIC_KEY_HISTORY_UNAVAILABLE',
+  };
+}
+
+/**
+ * Verify a VIN's hash-chained audit ledger FROM GENESIS (OC-3D).
+ *
+ * The rolling checkpoint used to be a trust root: if the checkpoint row agreed with the event it
+ * named, every earlier event was skipped — so history before it could be rewritten, and an attacker
+ * who could write events could also write the (unauthenticated) checkpoint. Now the checkpoint is a
+ * WITNESS: the chain is recomputed from genesis every time, and a checkpoint that names an event
+ * missing from the recomputed chain, or a hash that disagrees with it, is itself evidence of
+ * tampering. Each event is recomputed with the hash scheme it was written with (v1 or v2) and its
+ * signature classified; an invalid signature, or a v2 event without a verified one, breaks the chain.
+ * v1 history with no verifiable signature stays readable but is reported as not authenticated.
+ */
 export async function verifyChain(vin) {
+  const { data: events, error: eventsError } = await supabase
+    .from('blockchain_events')
+    .select(EVENT_SELECT)
+    .eq('vin', vin)
+    .order('id', { ascending: true });
+
+  if (eventsError) throw new Error(`ledger event lookup failed: ${eventsError.message}`);
+
   const { data: checkpoint } = await supabase
     .from('rolling_integrity_checkpoints')
     .select('vin,last_verified_event_id,rolling_hash,verified_at')
     .eq('vin', vin)
     .single();
 
-  let startEventId = 0;
-  let expectedPrevHash = '0000000000000000000000000000000000000000000000000000000000000000';
+  const signatures = { verified: 0, absent: 0, legacy_unverified: 0, invalid: 0 };
+  const hashVersions = { v1: 0, v2: 0 };
   const checkedChain = [];
+  const failure = (reason, tamperIndex = checkedChain.length) => ({
+    verified: false,
+    tamperIndex,
+    reason,
+    chain: checkedChain,
+    signatures,
+    hash_versions: hashVersions,
+  });
 
-  if (checkpoint) {
-    const { data: checkpointEvent } = await supabase
-      .from('blockchain_events')
-      .select(EVENT_SELECT)
-      .eq('id', checkpoint.last_verified_event_id)
-      .single();
-
-    if (checkpointEvent && checkpointEvent.current_hash === checkpoint.rolling_hash) {
-      startEventId = checkpoint.last_verified_event_id;
-      expectedPrevHash = checkpoint.rolling_hash;
-      checkedChain.push({
-        id: checkpointEvent.id,
-        eventType: checkpointEvent.event_type,
-        timestamp: checkpointEvent.timestamp,
-        payload: typeof checkpointEvent.payload === 'string'
-          ? JSON.parse(checkpointEvent.payload)
-          : checkpointEvent.payload,
-        currentHash: checkpointEvent.current_hash,
-        signature: checkpointEvent.signature,
-      });
-    }
-  }
-
-  const { data: events, error: eventsError } = await supabase
-    .from('blockchain_events')
-    .select(EVENT_SELECT)
-    .eq('vin', vin)
-    .gt('id', startEventId)
-    .order('id', { ascending: true });
-
-  if (eventsError) throw new Error(`ledger event lookup failed: ${eventsError.message}`);
-
-  if ((events?.length === 0 || !events) && checkedChain.length === 0) {
-    return { verified: true, count: 0, chain: [] };
-  }
-
+  let expectedPrevHash = GENESIS_HASH;
   for (const e of (events || [])) {
     const payloadParsed = typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload;
 
     if (e.previous_hash !== expectedPrevHash) {
-      return {
-        verified: false,
-        tamperIndex: checkedChain.length,
-        reason: `Hash link discrepancy. Event ${e.id} expected '${expectedPrevHash}', got '${e.previous_hash}'.`,
-        chain: checkedChain,
-      };
+      return failure(`Hash link discrepancy. Event ${e.id} expected '${expectedPrevHash}', got '${e.previous_hash}'.`);
     }
 
-    const computedHash = calculateHash(e.previous_hash, e.vin, e.event_type, e.timestamp, payloadParsed);
+    const version = hashVersionOf(e.current_hash);
+    const computedHash = computeLedgerHash(version, e.previous_hash, e.vin, e.event_type, e.timestamp, payloadParsed);
     if (computedHash !== e.current_hash) {
-      return {
-        verified: false,
-        tamperIndex: checkedChain.length,
-        reason: `Corrupted block data. Event ${e.id} computed hash mismatch.`,
-        chain: checkedChain,
-      };
+      return failure(`Corrupted block data. Event ${e.id} computed hash mismatch.`);
     }
 
-    let signatureNote = null;
-    if (e.signature && e.signature !== 'SYSTEM_SIGNATURE' && e.signature.includes(':')) {
-      const separator = e.signature.indexOf(':');
-      const signerId = e.signature.slice(0, separator);
-      const hexSig = e.signature.slice(separator + 1);
-
-      if (signerId === 'system') {
-        if (!verifySystemLedgerHash(e.current_hash, hexSig)) {
-          return {
-            verified: false,
-            tamperIndex: checkedChain.length,
-            reason: `System HMAC signature mismatch. Event ${e.id} failed.`,
-            chain: checkedChain,
-          };
-        }
-      } else {
-        const keys = await publicKeysForSigner(signerId);
-        const keyRecord = eventKeyForTimestamp(keys, e.timestamp);
-
-        if (keyRecord) {
-          const signatureValid = verifyLedgerHash(keyRecord.public_key_pem, e.current_hash, hexSig);
-          if (!signatureValid) {
-            return {
-              verified: false,
-              tamperIndex: checkedChain.length,
-              reason: `Invalid signature. Event ${e.id} failed verification for actor '${signerId}'.`,
-              chain: checkedChain,
-            };
-          }
-        } else if (keys.length > 0) {
-          signatureNote = 'PUBLIC_KEY_RECORD_POSTDATES_OR_EXCLUDES_EVENT';
-        } else {
-          signatureNote = 'PUBLIC_KEY_HISTORY_UNAVAILABLE';
-        }
-      }
+    const signature = await signatureStatusOf(e);
+    if (signature.status === SIGNATURE_STATUS.INVALID) {
+      return failure(signature.kind === 'system_hmac'
+        ? `System HMAC signature mismatch. Event ${e.id} failed.`
+        : `Invalid signature. Event ${e.id} failed verification for actor '${signature.signerId}'.`);
+    }
+    if (version === LEDGER_HASH_VERSION_CANONICAL && signature.status !== SIGNATURE_STATUS.VERIFIED) {
+      return failure(`Unauthenticated v2 event. Event ${e.id} carries no verifiable signature.`);
     }
 
+    signatures[signature.status] += 1;
+    hashVersions[version === LEDGER_HASH_VERSION_CANONICAL ? 'v2' : 'v1'] += 1;
     expectedPrevHash = e.current_hash;
     checkedChain.push({
       id: e.id,
@@ -619,9 +690,32 @@ export async function verifyChain(vin) {
       payload: payloadParsed,
       currentHash: e.current_hash,
       signature: e.signature,
-      ...(signatureNote ? { note: signatureNote } : {}),
+      signature_status: signature.status,
+      hash_version: version,
+      ...(signature.note ? { note: signature.note } : {}),
     });
   }
 
-  return { verified: true, count: checkedChain.length, chain: checkedChain };
+  // The checkpoint witness (never a starting point).
+  let checkpointStatus = 'absent';
+  if (checkpoint && checkpoint.last_verified_event_id !== null && checkpoint.last_verified_event_id !== undefined) {
+    const index = checkedChain.findIndex((event) => String(event.id) === String(checkpoint.last_verified_event_id));
+    if (index < 0) {
+      return failure(`Checkpoint witness references event ${checkpoint.last_verified_event_id}, which is not in the verified chain.`);
+    }
+    if (checkedChain[index].currentHash !== checkpoint.rolling_hash) {
+      return failure(`Checkpoint witness disagrees with recomputed history at event ${checkpoint.last_verified_event_id}.`, index);
+    }
+    checkpointStatus = 'consistent';
+  }
+
+  return {
+    verified: true,
+    count: checkedChain.length,
+    chain: checkedChain,
+    signatures,
+    authenticated: checkedChain.length > 0 && signatures.verified === checkedChain.length,
+    hash_versions: hashVersions,
+    checkpoint: checkpointStatus,
+  };
 }

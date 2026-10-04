@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { createRateLimitStore, InMemoryRateLimitStore } from './rateLimitStore.js';
+import { isTestRuntime } from '../config/testFixtureGuard.js';
 
 // Pluggable rate-limiting stores. Default = in-memory (identical to prior
 // behavior). With REDIS_URL + an injected redis client they become Redis-backed
@@ -39,7 +40,72 @@ export function securityHeadersMiddleware(req, res, next) {
 }
 
 /**
+ * The global limiter's default: 100 requests per minute per client. Production always uses this.
+ */
+export const GLOBAL_RATE_LIMIT_DEFAULT_MAX = 100;
+/** Staging-only default when the backend is provably staging and no override is configured. */
+export const STAGING_GLOBAL_RATE_LIMIT_DEFAULT_MAX = 600;
+/** Bounds for the staging override, so a typo can neither disable the limiter nor undercut the default. */
+export const STAGING_GLOBAL_RATE_LIMIT_BOUNDS = Object.freeze({ min: GLOBAL_RATE_LIMIT_DEFAULT_MAX, max: 2000 });
+/** The carup-staging Supabase project. A backend is "staging" only if it is wired to this database. */
+export const STAGING_SUPABASE_PROJECT_REF = 'eoyenigwevnxwwhyhaer';
+
+/**
+ * True only when this backend is provably the staging deployment. Both conditions are required:
+ * no production signal, and the database is the staging project. A preview of the production
+ * project talks to the production database, so it never qualifies, whatever else is set.
+ */
+export function isStagingDeployment(env = process.env) {
+  if (env.CARUP_ENV === 'production' || env.VERCEL_ENV === 'production') return false;
+  let host = '';
+  try { host = new URL(String(env.SUPABASE_URL || '')).hostname; } catch { return false; }
+  return host === `${STAGING_SUPABASE_PROJECT_REF}.supabase.co`;
+}
+
+/**
+ * Resolve the GLOBAL limiter's per-minute capacity. Sensitive-route limiters never read this.
+ *
+ * - Anything that is not provably staging (production included): the default, always. An
+ *   override variable set on production is ignored, not honoured.
+ * - Staging: CARUP_STAGING_GLOBAL_RATE_LIMIT_MAX when it is an integer inside the bounds, otherwise
+ *   the staging default. The deployed certification suite drives every journey from one CI runner
+ *   IP, which the production default was never sized for.
+ */
+export function resolveGlobalRateLimitMax(env = process.env) {
+  if (!isStagingDeployment(env)) return { max: GLOBAL_RATE_LIMIT_DEFAULT_MAX, source: 'default' };
+  const raw = env.CARUP_STAGING_GLOBAL_RATE_LIMIT_MAX;
+  if (raw !== undefined && raw !== '') {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= STAGING_GLOBAL_RATE_LIMIT_BOUNDS.min && n <= STAGING_GLOBAL_RATE_LIMIT_BOUNDS.max) {
+      return { max: n, source: 'staging-override' };
+    }
+    return { max: STAGING_GLOBAL_RATE_LIMIT_DEFAULT_MAX, source: 'staging-default-invalid-override' };
+  }
+  return { max: STAGING_GLOBAL_RATE_LIMIT_DEFAULT_MAX, source: 'staging-default' };
+}
+
+/**
+ * Truthful rate-limit headers (IETF RateLimit fields, plus Retry-After on refusal). Values are
+ * derived from the same counter that decides the refusal, so a client is never told a different
+ * story than the one enforced.
+ */
+export function rateLimitHeaders({ max, windowMs, count, windowStart, now = Date.now() }) {
+  const resetMs = Math.max(0, (Number(windowStart) || now) + windowMs - now);
+  const resetSeconds = Math.max(1, Math.ceil(resetMs / 1000));
+  const headers = {
+    'RateLimit-Limit': String(max),
+    'RateLimit-Remaining': String(Math.max(0, max - count)),
+    'RateLimit-Reset': String(resetSeconds),
+  };
+  if (count > max) headers['Retry-After'] = String(resetSeconds);
+  return headers;
+}
+
+/**
  * Custom Rate Limiter Middleware
+ *
+ * Keys on req.carupClientIp, which edgeClientIpMiddleware must populate BEFORE any limiter is
+ * mounted. Without it, a Cloudflare-proxied host would put every visitor into the edge's bucket.
  */
 export function rateLimiter({ max, windowMs, isSensitive = false }) {
   const store = isSensitive ? sensitiveStore : globalStore;
@@ -47,8 +113,10 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
   // collide even if a future store backend is shared.
   const tier = isSensitive ? 'sensitive' : 'global';
   return (req, res, next) => {
-    // Bypass rate limiting in tests if requested
-    if (process.env.NODE_ENV === 'test' && req.headers['x-bypass-rate-limit'] === 'true') {
+    // Bypass rate limiting in tests if requested — in the test runtime ONLY. A runtime that declares a
+    // deployment never honours the header, even if NODE_ENV=test leaks into it (OC-3E-W1: the AI
+    // limiter is the cost control on authenticated paid inference).
+    if (isTestRuntime() && req.headers['x-bypass-rate-limit'] === 'true') {
       return next();
     }
 
@@ -63,6 +131,14 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
     const key = `${tier}:${ip}`;
 
     Promise.resolve(store.hit(key, windowMs)).then((rateData) => {
+      const headers = rateLimitHeaders({ max, windowMs, count: rateData.count, windowStart: rateData.windowStart });
+      // Several limiters can apply to one request (global, then a route's). Report the most
+      // restrictive one: a later, tighter limiter overwrites; a looser one never hides it.
+      const prevRemaining = Number(res.getHeader?.('RateLimit-Remaining'));
+      if (!Number.isFinite(prevRemaining) || Number(headers['RateLimit-Remaining']) <= prevRemaining || headers['Retry-After']) {
+        for (const [k, v] of Object.entries(headers)) res.setHeader?.(k, v);
+      }
+
       if (rateData.count > max) {
         console.warn(`⚠️ [Security] Rate limit exceeded for IP ${ip} on route ${req.originalUrl || req.url}`);
 
@@ -83,7 +159,7 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
           }).catch(() => {});
         }).catch(() => {});
 
-        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+        return res.status(429).json({ error: 'Too many requests. Please try again later.', retryAfterSeconds: Number(headers['Retry-After']) });
       }
       next();
     }).catch((err) => {

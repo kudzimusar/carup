@@ -17,6 +17,7 @@ import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createRequire } from 'module';
+import { assertNotSqliteDialect } from '../../backend/db/migrationParser.js';
 const require = createRequire(import.meta.url);
 const dotenv = require('dotenv');
 const pg = require('pg');
@@ -87,6 +88,7 @@ const MIGRATIONS = [
 ];
 
 function extractUpSection(filepath) {
+  assertNotSqliteDialect(filepath); // OC-4A: SQLite-era files are never executed against PostgreSQL
   const raw = readFileSync(filepath, 'utf-8');
   const downIdx = raw.indexOf('-- +migrate Down');
   const up = (downIdx >= 0 ? raw.slice(0, downIdx) : raw)

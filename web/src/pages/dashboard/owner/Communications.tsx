@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { threadLabel } from './threadLabel'
 import {
   useCommunicationProductApi,
   type CommunicationAiDerivation,
@@ -24,6 +25,8 @@ type AccountActivitySummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>[
 type CommunicationPreferences = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationPreferences']>>['preferences']>
 
 type ConversationThread = ThreadSummary & {
+  subject_type?: string
+  subject_id?: string
   business_workflow?: string
   conversation_type?: string
   participant_role?: string
@@ -47,11 +50,6 @@ type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
 
 type ConversationFilter = 'all' | 'unread' | 'marketplace' | 'support' | 'other'
 type AiAction = 'suggest' | 'summary' | 'translate' | 'next'
-
-function threadLabel(thread: ConversationThread) {
-  if (thread.business_workflow === 'marketplace' || thread.thread_type === 'marketplace_inquiry') return 'Marketplace conversation'
-  return (thread.business_workflow || thread.conversation_type || thread.thread_type || 'Conversation').replaceAll('_', ' ')
-}
 
 function participantLabel(detail: ConversationDetail | null) {
   if (!detail?.participants?.length) return null
@@ -333,6 +331,7 @@ export default function Communications() {
                   onClick={() => selectThread(thread.id)}
                   className={`w-full rounded-xl border p-3 text-left transition ${selected ? 'border-orange-300 bg-orange-50' : 'hover:bg-gray-50'}`}
                   data-testid={`communication-thread-${thread.id}`}
+                  data-marketplace-listing-id={thread.marketplace_listing_id || undefined}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold capitalize">{threadLabel(thread)}</p>
@@ -355,7 +354,9 @@ export default function Communications() {
             {detail && (
               <div className="space-y-1 text-xs text-gray-500">
                 {participantLabel(detail) && <p>With {participantLabel(detail)}</p>}
-                {(detail.thread as ConversationThread).marketplace_listing_id && <p>Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>}
+                {(detail.thread as ConversationThread).marketplace_listing_id && (
+                  <p data-testid="communication-active-listing">Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>
+                )}
               </div>
             )}
           </CardHeader>
@@ -374,7 +375,7 @@ export default function Communications() {
                       {!self && item.author && (
                         <p className="mb-1 text-[11px] font-semibold opacity-70">{item.author.display_name || item.author.stakeholder_role || 'Participant'}</p>
                       )}
-                      {text && <p className="whitespace-pre-wrap text-sm">{text}</p>}
+                      {text && <p className="whitespace-pre-wrap text-sm" data-testid="communication-message-text">{text}</p>}
                       {(item.parts || []).map((part) => (
                         <CommunicationMessagePartView key={part.id} threadId={String(activeId)} part={part} onDerived={setAiResult} />
                       ))}
@@ -437,7 +438,7 @@ export default function Communications() {
                   </Button>
                 </div>
                 <p className="mt-2 text-xs text-gray-500">Attach images, documents, audio/video, a voice note or location without leaving the canonical CarUp conversation. AI suggestions and media interpretations never send or execute automatically.</p>
-                {status && <p className="mt-2 text-xs text-gray-500">{status}</p>}
+                {status && <p data-testid="communication-status" className="mt-2 text-xs text-gray-500">{status}</p>}
               </div>
             )}
           </CardContent>

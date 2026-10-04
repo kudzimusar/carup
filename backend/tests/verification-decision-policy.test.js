@@ -606,3 +606,45 @@ class MockQuery {
     return { data: rows, error: null };
   }
 }
+
+// ---------------------------------------------------------------------------
+// OC-4A 1.3 — a decision whose audit row cannot be written is durable, LOUD and FLAGGED.
+// The verification_decisions row is the domain record and is written first; failing the request
+// afterwards would misreport a decision that happened. It used to be a console.warn and nothing else.
+// ---------------------------------------------------------------------------
+test('OC-4A: a failed decision audit is an error log and audit_recorded: false — the decision itself stands', async () => {
+  const decisions = [];
+  const auditEvents = [];
+  const sessions = [{
+    id: 'vs-oc4a', version: 1, user_id: 'owner-1', status: 'pending_manual_review',
+    workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED, document_type: 'national_id',
+    created_at: '2026-06-01T00:00:00.000Z', updated_at: '2026-06-01T00:00:00.000Z',
+  }];
+  const base = makeMockClient({ decisions, auditEvents, sessions });
+  const client = {
+    ...base,
+    from(table) {
+      if (table === 'trust_audit_events' || table === 'organization_users') {
+        // The authoritative sink fails, and no legacy identity exists to mirror into.
+        return { insert: () => Promise.resolve({ data: null, error: { message: 'trust_audit_events unavailable' } }),
+          select() { return this; }, eq() { return this; }, limit() { return this; }, maybeSingle: async () => ({ data: null, error: null }) };
+      }
+      return base.from.call(base, table);
+    },
+  };
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...args) => errors.push(args.map(String).join(' '));
+  let result;
+  try {
+    result = await VerificationDecisionRecorder.recordDecision(client, {
+      session: sessions[0], action: DECISION_ACTION.ADD_INTERNAL_NOTE, reasonCode: null, internalNote: 'Second look requested',
+      applicantMessage: null, reviewerId: 'admin-1', reviewerRole: 'admin', currentWorkflowPhase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED, req: null,
+    });
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(decisions.length, 1, 'the decision is durable');
+  assert.equal(result.decision.audit_recorded, false, 'the response says the audit row is missing');
+  assert.ok(errors.some((line) => line.includes('verification decision audit was NOT recorded') && line.includes(result.decision.id)), errors.join('\n'));
+});

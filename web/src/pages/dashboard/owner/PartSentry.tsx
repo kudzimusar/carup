@@ -35,7 +35,9 @@ export default function PartSentry() {
   // has to set state synchronously inside the effect.
   const [loadedHistoryVin, setLoadedHistoryVin] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
-  const [ledgerVerified, setLedgerVerified] = useState<boolean | null>(null)
+  // 'verified' = intact chain AND every signature verified; 'unauthenticated' = intact hash links but at
+  // least one event has no verifiable signature (OC-3D); 'broken' = tamper evidence; null = no badge.
+  const [ledgerState, setLedgerState] = useState<'verified' | 'unauthenticated' | 'broken' | null>(null)
   const [ledgerError, setLedgerError] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -81,12 +83,17 @@ export default function PartSentry() {
     loadHistory(selectedVehicle)
     verifyLedger(selectedVehicle)
       .then(data => {
-        setLedgerVerified(data?.integrity === 'verified' || data?.verified === true)
+        // Not two states: a vehicle with no ledger events is neither "verified" nor "tampered", so it
+        // shows no integrity badge at all; and intact hash links are only "Ledger Verified" when every
+        // event's signature verified too.
+        setLedgerState(data?.integrity === 'verified'
+          ? (data?.authenticated === true ? 'verified' : 'unauthenticated')
+          : data?.integrity === 'broken' ? 'broken' : null)
         setLedgerError(null)
       })
       .catch((err: unknown) => {
         // A failed verification is an error, never a fake "verified".
-        setLedgerVerified(null)
+        setLedgerState(null)
         setLedgerError(err instanceof Error ? err.message : 'Ledger verification unavailable')
       })
   }, [selectedVehicle, verifyLedger, loadHistory])
@@ -169,10 +176,14 @@ export default function PartSentry() {
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-2xl font-bold">PartSentry</h1>
             <Badge className="bg-purple-500 text-white text-[10px]">BETA</Badge>
-            {ledgerVerified !== null && (
-              <Badge className={`text-[10px] ${ledgerVerified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {ledgerVerified ? '🔒 Ledger Verified' : '⚠️ Tampered'}
-              </Badge>
+            {ledgerState === 'verified' && (
+              <Badge className="text-[10px] bg-green-100 text-green-700" data-testid="parts-ledger-state">🔒 Ledger Verified</Badge>
+            )}
+            {ledgerState === 'unauthenticated' && (
+              <Badge className="text-[10px] bg-amber-100 text-amber-800" data-testid="parts-ledger-state">Hash chain intact — signatures unverified</Badge>
+            )}
+            {ledgerState === 'broken' && (
+              <Badge className="text-[10px] bg-red-100 text-red-700" data-testid="parts-ledger-state">⚠️ Tampered</Badge>
             )}
             {ledgerError && (
               <Badge className="text-[10px] bg-gray-100 text-gray-600">Verification unavailable</Badge>

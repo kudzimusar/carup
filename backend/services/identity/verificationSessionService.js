@@ -143,9 +143,15 @@ const MIN_VERIFIED_CONFIDENCE = 0.75;
 /**
  * Quality gate for the verified status: OCR completing is not enough.
  * A session may only become 'verified' when the provider succeeded,
- * confidence clears MIN_VERIFIED_CONFIDENCE, and identity fields were
- * actually extracted (an ID number, or a first+last name). Blank or
- * unreadable images therefore land in pending_manual_review.
+ * the provider itself reported a confidence clearing MIN_VERIFIED_CONFIDENCE,
+ * and identity fields were actually extracted (an ID number, or a first+last
+ * name). Blank or unreadable images therefore land in pending_manual_review.
+ *
+ * O2 OCR convergence: there is no stand-in for a confidence the provider did not
+ * report. This gate previously fell back to the image-quality blur score, which was
+ * itself derived from a hash of the payload — an unreported confidence could clear the
+ * threshold on a number nothing had measured. CarUp does not measure image quality, so
+ * a null confidence is null, never a substituted score.
  */
 export function evaluateOcrEvidence(result = {}) {
   if (!result.success) {
@@ -156,9 +162,14 @@ export function evaluateOcrEvidence(result = {}) {
   }
 
   const extracted = result.extractedData || {};
-  const confidence = Number(
-    extracted.confidenceScore ?? result.qualityMetrics?.blurScore ?? 0
-  );
+  const reported = extracted.confidenceScore;
+  if (reported === null || reported === undefined) {
+    return {
+      sufficient: false,
+      reason: 'The OCR provider did not report a confidence score, so the extraction cannot clear the verification threshold on its own.',
+    };
+  }
+  const confidence = Number(reported);
   if (!Number.isFinite(confidence) || confidence < MIN_VERIFIED_CONFIDENCE) {
     return {
       sufficient: false,
@@ -495,7 +506,9 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // -------------------------------------------------------
     const frontDataUri = `data:${session.front_mime_type || frontDocument.mimeType || 'image/jpeg'};base64,${frontDocument.buffer.toString('base64')}`;
     const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id);
-    const confidence = result.extractedData?.confidenceScore ?? result.qualityMetrics?.blurScore ?? null;
+    // O2 OCR convergence: null means the provider reported no confidence. It is never backfilled
+    // from an image-quality number, which CarUp does not measure.
+    const confidence = result.extractedData?.confidenceScore ?? null;
     const sanitizedResult = sanitizeOcrResult(result.extractedData || {});
 
     // Determine extraction trust status
@@ -887,6 +900,15 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
   const applicantMessage = payload.applicantMessage || payload.applicant_message || payload.retryReason || payload.retry_reason || '';
 
   const session = await fetchSessionForReview(client, sessionId);
+
+  // O2/P6 — the actor may not decide on their own submission. The governed-decision law every
+  // other reviewer surface already enforces (CLASSIFICATION_CORRECTION_SELF on evidence,
+  // SELLER_AUTHORITY_SELF_REVIEW on authority) was missing here: an admin whose OWN identity
+  // session was under review could approve their own identity. Role alone is not independence.
+  if (session.user_id && String(session.user_id) === String(reviewerId)) {
+    throw new ForbiddenError('A reviewer cannot decide their own identity verification session.');
+  }
+
   const currentWorkflowPhase = session.workflow_phase || legacyStatusToPhase(session.status);
 
   return VerificationDecisionRecorder.recordDecision(client, {

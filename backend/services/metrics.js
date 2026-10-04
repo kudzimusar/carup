@@ -21,12 +21,10 @@ class OperationsMetricsHub {
       poorQualityCount: 0,
       tamperingDetectedCount: 0,
       providerFailureCount: 0,
-      providersActive: {
-        gemini: false,
-        groq: false,
-        openrouter: false,
-        moonshot: false,
-      }
+      // OC-4B: no `providersActive` map. It reported Gemini/Groq/OpenRouter/Moonshot KEY PRESENCE as
+      // if those were the OCR providers (two have no client at all). The provider that actually ran
+      // is the one recorded below.
+      lastProvider: null,
     };
     this.webhooks = {
       totalDispatched: 0,
@@ -83,11 +81,7 @@ class OperationsMetricsHub {
     this.ocr.totalRequests += 1;
     this.ocr.totalLatencyMs += latencyMs;
     
-    // Update active providers mapping from env availability checks
-    this.ocr.providersActive.gemini = !!process.env.GEMINI_API_KEY;
-    this.ocr.providersActive.groq = !!process.env.CARUP_KIMI_GROQ_API_KEY;
-    this.ocr.providersActive.openrouter = !!process.env.OPENROUTER_API_KEY;
-    this.ocr.providersActive.moonshot = !!process.env.MOONSHOT_API_KEY;
+    this.ocr.lastProvider = provider || null;
 
     if (!success) {
       this.ocr.providerFailureCount += 1;

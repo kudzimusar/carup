@@ -54,6 +54,8 @@ router.get('/api/leads', authorizeRole(['dealer', 'admin']), asyncHandler(async 
   try {
     inquiries = await listInquiriesForSeller(supabase, {
       id: req.userContext.id,
+      // The role travels with the tenant: the tenant leg is a governed Dealer decision (OC-4D).
+      role: req.userContext.role,
       tenantId: req.userContext.tenantId || null,
     });
   } catch (error) {

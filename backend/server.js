@@ -29,9 +29,10 @@ import {
   toPublicTrust,
 } from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
+import { toLedgerIntegrityReport } from './services/blockchain/ledgerIntegrityProjection.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
-import { runFraudAnalysis, runOcrParsing, runRiskScoring } from './services/ai/aiServiceBus.js';
+import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvisoryError } from './services/ai/aiServiceBus.js';
 
 // Import Group B & C Services
 import { submitFinancingApplication } from './services/finance/financeService.js';
@@ -49,7 +50,6 @@ import paymentRouter from './services/payment/paymentRouter.js';
 
 // ✅ Phase 7: Object Storage & Media Router Imports
 import mediaRouter from './services/storage/mediaRouter.js';
-import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
 import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
 import { logAuditEvent } from './services/auditLogger.js';
 
@@ -62,6 +62,7 @@ import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors
 import {
   securityHeadersMiddleware,
   rateLimiter,
+  resolveGlobalRateLimitMax,
   csrfMiddleware,
   generateCsrfToken,
   parseCookies
@@ -92,6 +93,7 @@ import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.
 import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
+import peopleOperationsRouter from './routes/peopleOperationsRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
 import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
@@ -121,6 +123,7 @@ import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
+import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
@@ -154,12 +157,15 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { resolveDealerListingSubject, hasGovernedDealerVehicleAuthority } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
 import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
+import { strictOcrStartupError } from './config/ocrStartupGuard.js';
+import { inspectAdvisoryRuntime } from './services/ai/domainAdvisoryAdapter.js';
 
 dotenv.config();
 
@@ -170,14 +176,11 @@ if (!process.env.SUPABASE_URL) {
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('FATAL: SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.');
 }
-if (
-  process.env.OCR_MODE === 'strict' &&
-  !process.env.GEMINI_API_KEY &&
-  !process.env.GROQ_API_KEY
-) {
-  throw new Error(
-    'FATAL: STRICT OCR MODE REQUIRES AT LEAST ONE REAL OCR PROVIDER (GEMINI_API_KEY or GROQ_API_KEY)'
-  );
+// Strict OCR mode requires the SELECTED OCR provider to be configured (OC-4B: it used to demand a
+// Gemini or Groq key, neither of which is the OCR authority — see config/ocrStartupGuard.js).
+const strictOcrError = strictOcrStartupError();
+if (strictOcrError) {
+  throw new Error(strictOcrError);
 }
 
 // Secrets whose absence is INVISIBLE until a user hits the affected path.
@@ -236,14 +239,25 @@ app.use(cors(corsOptions));
 app.use(correlationMiddleware);
 app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
-app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
-
-// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
-// Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
+// Resolve the real client IP BEFORE any rate limiter, so every limiter keys on the client and not
+// on a Cloudflare edge address. (This used to run after the global limiter, which therefore keyed
+// on req.ip and could put every visitor behind one edge into a single bucket.)
 app.use(edgeClientIpMiddleware());
+
+// Global throttle. Production is always 100/min per client; only a backend provably wired to the
+// staging database may run a larger, bounded capacity (see resolveGlobalRateLimitMax).
+const GLOBAL_RATE_LIMIT = resolveGlobalRateLimitMax(process.env);
+if (GLOBAL_RATE_LIMIT.source !== 'default') {
+  console.log(`[Security] Global rate limit: ${GLOBAL_RATE_LIMIT.max}/min (${GLOBAL_RATE_LIMIT.source})`);
+}
+app.use(rateLimiter({ max: GLOBAL_RATE_LIMIT.max, windowMs: 60 * 1000, isSensitive: false }));
+
+// Sensitive Route Throttling (auth, uploads, safepay creation) — unchanged by the staging
+// capacity above. There is deliberately NO /api/verification prefix limiter (OC-2A): it existed
+// for the retired document-intelligence router and was throttling the Trust Fact and PartSentry
+// review routes that now own that prefix. See the retirement note at the former mount below.
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
-app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
@@ -280,6 +294,18 @@ app.get('/api/security/csrf-token', (req, res) => {
 });
 
 // Expose operational health and metrics endpoint
+// The general AI runtime, as the CarUp AI gateway would run it (OC-4B health truth). Names and a
+// boolean only — never a credential, and never the list of which variables are missing.
+function generalAiHealth() {
+  try {
+    const inspection = inspectAdvisoryRuntime();
+    const runtime = inspection?.ok ? inspection.runtime : null;
+    return { provider: runtime?.provider ?? null, model: runtime?.model ?? null, configured: runtime?.configured === true, authority: 'advisory' };
+  } catch {
+    return { provider: null, model: null, configured: false, authority: 'advisory' };
+  }
+}
+
 app.get('/api/health', async (req, res) => {
   let supabaseHealth = 'healthy';
   let outboxBacklog = 0;
@@ -300,6 +326,29 @@ app.get('/api/health', async (req, res) => {
   const snapshot = metricsHub.getSnapshot();
   const communicationConfiguration = validateCommunicationConfiguration();
 
+  // Canonical OCR runtime projection — the AUTHORITATIVE, non-secret description of the CURRENT
+  // Document Intelligence OCR boundary. Derived from the same resolveVisionProvider() /
+  // provider.isConfigured() / isOcrMockAllowed() the runtime uses, so it never drifts from what
+  // an OCR request would actually do. No secret VALUES.
+  let ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false };
+  let cloudflareConfigured = false;
+  try {
+    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { isCloudflareVisionConfigured } = await import('./services/ai/CloudflareVisionClient.js');
+    const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
+    const provider = resolveVisionProvider();
+    let model = null; try { model = provider.model; } catch { model = null; }
+    ocr = {
+      selectedProvider: provider.id,
+      selectedModel: model,
+      configured: (() => { try { return provider.isConfigured() === true; } catch { return false; } })(),
+      mockRuntimeAllowed: DocumentIntelligenceService.isOcrMockAllowed() === true,
+    };
+    cloudflareConfigured = (() => { try { return isCloudflareVisionConfigured() === true; } catch { return false; } })();
+  } catch (e) {
+    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, error: e.message };
+  }
+
   res.json({
     status: 'UP',
     timestamp: new Date().toISOString(),
@@ -313,12 +362,16 @@ app.get('/api/health', async (req, res) => {
     sentry: {
       enabled: !!process.env.SENTRY_DSN
     },
+    // Canonical current OCR runtime status (authoritative for "is OCR available").
+    ocr,
     ocrProviders: {
-      gemini: !!process.env.GEMINI_API_KEY,
-      groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
-      openrouter: !!process.env.OPENROUTER_API_KEY,
-      moonshot: !!process.env.MOONSHOT_API_KEY
+      // Truthful presence of the certified OCR provider's credentials. OC-4B removed the vendor
+      // key-presence flags (gemini, groq, openrouter, moonshot): Moonshot and OpenRouter have no
+      // client at all, and a Gemini/Groq key says nothing about what OCR or general AI runs on.
+      cloudflare: cloudflareConfigured
     },
+    // The general (advisory) AI runtime every domain adapter uses: provider, model, configured.
+    ai: generalAiHealth(),
     communications: {
       status: communicationConfiguration.status,
       ready: communicationConfiguration.ready,
@@ -341,19 +394,21 @@ app.use('/api/payments', paymentRouter);
 // Mount media upload unified routes
 app.use('/api/media', mediaRouter);
 
-// Mount Trust & Identity verification routes.
+// RETIRED (OC-2A, converging on O2-X1): the legacy document-intelligence router that mounted at
+// /api/verification was a SECOND authority over vehicle trust, registry records and person
+// verification level. The V16 convergence gated it (proving WHO could call it); O2-X1 and OC-2A
+// removed what there was to call: its five OCR, approval, fraud, user-trust and trust-level endpoints
+// are gone, and document intelligence is an internal EXTRACTION service whose candidates reach
+// canonical state only through the governed deciders (identity review, garage/vehicle evidence
+// review, diaspora document review, canonical Trust).
 //
-// FAIL CLOSED. This router was mounted bare, with no auth middleware on the mount and none
-// on any of its five routes, which made it a SECOND authority over vehicle trust, registry
-// records (cvr_ownership_records / zimra_declarations) and user verification level —
-// reachable by an unauthenticated caller. CSRF was not a barrier: the token endpoint issues
-// a guest-bound token to anyone.
-//
-// It is gated at the mount rather than per-route so a future route added to this router is
-// closed by default instead of inheriting the old omission. `authorizeSessionRole` is used
-// deliberately in preference to `authorizeRole`: it disables the x-user-id fallback, so a
-// registry/trust decision always requires a PROVEN session, never an asserted header.
-app.use('/api/verification', authorizeSessionRole(['admin', 'government']), documentIntelligenceRouter);
+// Do NOT mount anything at the /api/verification PREFIX — no gate, no limiter, no router. The
+// gated prefix mount ran before the routers below and shadowed them: it refused owners, dealers
+// and mechanics on the Trust Fact (trustFactRoutes.js) and PartSentry review
+// (partsentryReviewRoutes.js) routes that their own route-level authorizeRole(...) admits, and its
+// 5/min limiter throttled every review call. Those two routers own their route-level
+// authorization. Pinned by backend/tests/oc2a-verification-route-convergence.test.js (real mount
+// order) and backend/tests/o2-x1-document-intelligence-authority.test.js.
 
 // Mount centralized routes (Batch 1)
 app.use(leadsRouter);
@@ -371,6 +426,7 @@ app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehicleOperationsRouter);
+app.use(peopleOperationsRouter);
 app.use(vehiclesRouter);
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);
@@ -396,6 +452,7 @@ app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
 app.use(identityVerificationRouter);
+app.use(garageOnboardingRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
 app.use(intelligenceActivityRouter);
@@ -416,11 +473,27 @@ if (connectionError) {
   console.error('Please apply the schema at: database/migrations/supabase_schema.sql');
 } else {
   console.log('✅ CarUp OS connected to Supabase');
-  console.log(`✅ OCR provider initialized: ${process.env.OCR_PRIMARY_PROVIDER === 'gemini' ? 'Gemini' : 'None'}`);
-  console.log(`✅ OCR fallback provider initialized: ${process.env.OCR_FALLBACK_PROVIDER === 'groq' ? 'Groq' : 'None'}`);
-  console.log(`${process.env.OCR_MODE === 'strict' ? '✅ Strict OCR mode enabled' : '⚠️ Loose OCR mode enabled'}`);
-  console.log(`${process.env.ALLOW_OCR_MOCK === 'false' ? '❌ Mock OCR disabled' : '⚠️ Mock OCR enabled'}`);
-  
+  // OCR startup diagnostic — describes the ACTUAL current Document Intelligence provider boundary
+  // (CARUP_OCR_PROVIDER / CARUP_OCR_MODEL, resolveVisionProvider(), isOcrMockAllowed()), NOT the
+  // retired OCR_PRIMARY_PROVIDER/OCR_FALLBACK_PROVIDER/OCR_MODE conventions. Secret VALUES are never
+  // printed — only selected provider, selected model, configured (yes/no), and whether a mock
+  // execution is genuinely reachable at runtime. Guarded so a diagnostic can never fail the boot.
+  try {
+    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
+    const provider = resolveVisionProvider();
+    let model = 'unresolved';
+    try { model = provider.model; } catch (e) { model = `unresolved (${e.message})`; }
+    const configured = (() => { try { return provider.isConfigured() === true; } catch { return false; } })();
+    const mockAllowed = DocumentIntelligenceService.isOcrMockAllowed() === true;
+    console.log(`✅ OCR provider selected: ${provider.id}`);
+    console.log(`✅ OCR model selected: ${model}`);
+    console.log(`${configured ? '✅' : '⚠️'} OCR provider configured: ${configured}`);
+    console.log(`${mockAllowed ? '⚠️' : '❌'} OCR mock runtime allowed: ${mockAllowed}`);
+  } catch (e) {
+    console.log(`⚠️ OCR provider diagnostic unavailable: ${e.message}`);
+  }
+
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
   registerCommunicationListeners(eventWorker);
@@ -1689,13 +1762,26 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
 });
 
 // --- PILLAR 18: BLOCKCHAIN INTEGRITY SCANNER ---
-app.get('/api/vehicles/:vin/verify-ledger', async (req, res) => {
+//
+// OC-3B. This route was anonymous and returned `verifyChain(vin)` verbatim — `chain[]` with every
+// event's parsed payload (owner names, national ids, stakeholder ids), hash and signature, plus a
+// failure `reason` naming events and actors. The passport already withholds `chain[]` from
+// unauthorised callers; this was a second, unauthenticated door to the same private data.
+//
+// Now: a SESSION is required (an x-user-id assertion is refused, as for every private-data
+// capability), the caller must hold object authority over THIS vin (owner, current seller,
+// organisational tenant, or platform-wide admin/government — the one canonical rule in
+// vehicleObjectAuthority.js), and even then only the allow-listed integrity projection leaves.
+// Nobody, owner included, needs the raw chain to learn whether the ledger is intact.
+app.get('/api/vehicles/:vin/verify-ledger', authorizeSessionRole(), requireVehicleObjectAuthority(), async (req, res) => {
   const { vin } = req.params;
   try {
     const report = await verifyChain(vin);
-    res.json(report);
+    res.json(toLedgerIntegrityReport(vin, report));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // The error text of a failed ledger read is not part of the contract either.
+    console.error('[verify-ledger] integrity check failed:', error.message);
+    res.status(500).json({ error: 'Ledger integrity could not be checked.', integrity: 'unavailable' });
   }
 });
 
@@ -1919,33 +2005,37 @@ app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
 });
 
 // --- PILLAR 5: OCR DOCUMENT EXTRACTION ---
-app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
-  const { docType, base64Data } = req.body;
-  try {
-    const parsedData = await runOcrParsing(docType, base64Data);
-    res.json({ success: true, extractedData: parsedData });
-  } catch (error) {
-    next(error);
-  }
-});
+// OC-4C: the legacy POST /api/ai/ocr handler that lived here is REMOVED. It was unreachable (the 410 in
+// routes/ocrConvergenceRoutes.js is mounted first) and its last product caller, the native garage
+// odometer scan, now uses POST /api/vehicles/:vin/evidence/upload + .../evidence/:evidenceId/run-ocr.
+// The 410 stays for app builds still in the field.
 
 // --- PILLAR 4: AI FRAUD & RISK SCANNERS ---
+//
+// OC-3B. A provider failure (or an unusable model reply) is answered 503 with
+// `outcome: 'unavailable'`, `verdict: 'unknown'`, `manual_review_required: true`, and nothing is
+// persisted. It used to be a 200 carrying `riskRating: 'Low'` and a persisted unflagged scan.
+// OC-3E-W1: both routes reach the model through the canonical CarUp AI gateway (Gemma, advisory);
+// any gateway failure is an AiAdvisoryError and keeps exactly that answer.
 app.post('/api/ai/fraud-scan', authorizeRole(), async (req, res, next) => {
   const { vin, price, listingTitle } = req.body;
   try {
     const fraudScore = await runFraudAnalysis(vin, price, listingTitle);
     res.json(fraudScore);
   } catch (error) {
+    if (error instanceof AiAdvisoryError) return res.status(503).json(aiProviderUnavailableResponse(error, 'fraud_scan'));
     next(error);
   }
 });
 
+// Advisory risk index only: no premium is produced or passed on (see runRiskScoring).
 app.post('/api/ai/risk-assessment', authorizeRole(), async (req, res, next) => {
   const { vin, mileage, basePrice } = req.body;
   try {
     const riskReport = await runRiskScoring(vin, mileage, basePrice);
     res.json(riskReport);
   } catch (error) {
+    if (error instanceof AiAdvisoryError) return res.status(503).json(aiProviderUnavailableResponse(error, 'risk_assessment'));
     next(error);
   }
 });
@@ -2375,11 +2465,34 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    res.json({ user, token });
+    // Trade OS D2 — surface the caller's governed tenant membership so the client can send
+    // x-tenant-id from first login (previously only /switch-role returned it, so a tenant operator
+    // had NO tenant context until a role switch). Additive and advisory only: the auth middleware
+    // still re-verifies every x-tenant-id against tenant_users on every request. A user with
+    // multiple memberships gets no automatic tenant; they choose through the existing switch path.
+    const tenantContext = await resolveSoleTenantMembership(user.id);
+
+    res.json({ user: { ...user, ...tenantContext }, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Resolve a user's sole governed tenant membership (advisory client hint — never an authority).
+// Returns {} when the user has zero or multiple memberships, or when the read fails.
+async function resolveSoleTenantMembership(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('tenant_users')
+      .select('tenant_id, role')
+      .eq('user_id', userId)
+      .limit(2);
+    if (error || !Array.isArray(data) || data.length !== 1) return {};
+    return { active_tenant_id: data[0].tenant_id, tenant_role: data[0].role || null };
+  } catch {
+    return {};
+  }
+}
 
 // --- AUTH: Validate current session ---
 // authorizeRole() (no required roles) validates the x-session-token against user_sessions and
@@ -2395,7 +2508,12 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized. User record not found.' });
     }
-    res.json({ user });
+    // D2: prefer the session's verified tenant (set by switch-role); otherwise the sole membership.
+    const sessionTenantId = req.userContext.tenantId || null;
+    const tenantContext = sessionTenantId
+      ? { active_tenant_id: sessionTenantId, tenant_role: req.userContext.tenantRole || null }
+      : await resolveSoleTenantMembership(user.id);
+    res.json({ user: { ...user, ...tenantContext } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2739,7 +2857,15 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   // Real-listing eligibility is evaluated against the canonicalized candidate actually stored.
-  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext });
+  // J-3 / K-3 (OC-4D port of #208) — the dealer listing subject is a GOVERNED lookup, not a header.
+  // `x-tenant-id` proves membership only; a dealership is dealer role + a membership that acts for
+  // the business + an active tenant whose canonical type is a dealership (+ no suspended profile).
+  const dealerListingSubject = await resolveDealerListingSubject(supabase, {
+    role: req.userContext?.role ?? req.userContext?.effectiveRole,
+    userId: req.userContext?.id ?? req.userContext?.userId,
+    tenantId: req.userContext?.tenantId ?? null,
+  });
+  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext, dealerListingSubject });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
@@ -3026,12 +3152,18 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // The denial also strips the derived relationship clauses: a stale `current_seller_id` or a
     // previous tenant that outlived the transfer must not authorize either (fail closed on stale
     // secondary state, which is exactly what a failed supersession leaves behind).
-    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied && (
+    // L-2 — the tenant clause is a GOVERNED dealership question, not raw membership. Evaluated
+    // only when the direct clauses have not already answered, so the seller's own path is unchanged.
+    const existingDirectSeller = Boolean(existing && (
       existing.owner_id === req.userContext.id
       || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
-      || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
       || governedSellerEvidence
     ));
+    const existingDealerTenant = Boolean(existing) && !existingDirectSeller
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing)
+      : false;
+    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied
+      && (existingDirectSeller || existingDealerTenant));
 
     // Identity completion is evaluated only AFTER governed Seller scope is established. This
     // prevents an unrelated authenticated account from probing which canonical identity fields
@@ -3417,11 +3549,10 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
     const isAdmin = req.userContext.role === 'admin';
     const isActorSeller = existing.owner_id === req.userContext.id
       || existing.current_seller_id === req.userContext.id;
-    const isActorTenant = Boolean(
-      existing.tenant_id
-      && req.userContext.tenantId
-      && existing.tenant_id === req.userContext.tenantId
-    );
+    // L-2 — a seller draft is a SELLER mutation; belonging to the organisation is not enough.
+    const isActorTenant = isActorSeller
+      ? false
+      : await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing);
     if (!isAdmin && !isActorSeller && !isActorTenant) {
       return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
     }
@@ -3629,7 +3760,12 @@ app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'ad
       if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
       const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      // M4 — this read exposes identity-document and readiness state and mirrors loadScopedVehicle,
+      // so raw membership must not grant it. A Service Network mechanic's service authority is
+      // deliberately NOT routed here — servicing a car is not Seller scope over its completeness.
+      const sameTenant = (!ownsVehicle && !isCurrentSeller)
+        ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow)
+        : false;
       if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         return res.status(403).json({ error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.' });
       }

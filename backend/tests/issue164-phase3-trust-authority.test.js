@@ -58,6 +58,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -1134,26 +1135,18 @@ test('a legacy unversioned score is withheld from BOTH partner trust endpoints, 
 });
 
 // ===========================================================================================
-// 11. THE FOREIGN WRITERS OF vehicles.trust_score MUST NOT INHERIT THE STAMP.
+// 11. TRUST WRITER CONVERGENCE.
 //
-// `refreshCanonicalTrust` is the only writer permitted to STAMP a score. Three other functions
-// still write `trust_score`:
+// `refreshCanonicalTrust` is the only canonical writer. OCR 1.0-C1 first stripped
+// documentIntelligenceService.approveDocumentVerification of its Vehicle Trust/status writes; OC-2A
+// (converging on O2-X1) then RETIRED the approval outright, together with the /api/verification
+// document-intelligence router that exposed it — stronger than unstamping or delegating: there is
+// nothing left to call. The two legacy TrustEnforcementEngine writers are preserved for later
+// convergence and must still clear the canonical stamp while they exist.
 //
-//   documentIntelligenceService.approveDocumentVerification   (+20 on OCR approval)
-//   trustEnforcementEngine.verifyDocumentDataMatch            (OCR mismatch penalty)
-//   trustEnforcementEngine.propagateStakeholderRisk           (seller-reputation propagation)
-//
-// A write that touches ONLY the number does not produce a refusable row: after a legitimate
-// refresh the six stamp columns are already populated, so the foreign score inherits that
-// calculation_version and classifies `fresh` — published as `evaluated`, described by a band,
-// confidence and evidence basis belonging to the score it REPLACED. The fix is that each of the
-// three nulls all six stamp columns in the SAME update (their frozen UNSTAMPED_TRUST_CACHE).
-//
-// These are BEHAVIOURAL: the real, shipped service function runs against the in-memory store above,
-// and the assertion is made on the row it actually left behind, then on what the canonical read
-// path makes of that row. Each test also asserts the COUNTERFACTUAL — the row the same write would
-// have left had it kept the stamp — so "the stamp is cleared" is never a vacuous claim about a
-// column that was empty anyway.
+// These tests are BEHAVIOURAL where a writer still exists: the real service functions run against
+// the in-memory store, and the legacy-writer tests keep their anti-inherited-stamp controls until
+// those writers are separately retired.
 // ===========================================================================================
 
 /** The six stamp columns, DERIVED from the shipped cache-column list rather than retyped. */
@@ -1197,35 +1190,39 @@ function assertInheritedStampWouldPublish(stampedRowBefore, foreignScore, label)
   assert.equal(shape.calculation_version, CALCULATION_VERSION, label);
 }
 
-test('approving an OCR document writes a trust score that CANNOT publish as canonical — the six stamp columns are nulled in the same update', async () => {
-  const vin = 'JTDBR32E870JJ00011';
-  // A vehicle whose cache was legitimately refreshed: score 60, band moderate, fully stamped.
+test('the OCR-approval trust writer is RETIRED (O2-X1/OC-2A) — the function is gone and document intelligence cannot touch vehicles at all', () => {
+  // Stronger than unstamping: there is nothing left to call. An approval can no longer reach
+  // vehicles.trust_score, vehicles.status or any registry table by ANY code path, stamped or not.
+  assert.equal(typeof DocumentIntelligenceService.approveDocumentVerification, 'undefined');
+
+  const source = readFileSync(new URL('../services/document-intelligence/documentIntelligenceService.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /from\(['"]vehicles['"]\)/, 'document intelligence must not read or write vehicles');
+  assert.doesNotMatch(source, /trust_score/, 'document intelligence must not touch trust');
+  assert.doesNotMatch(source, /cvr_ownership_records|zimra_declarations|administrative_overrides/,
+    'the registry/override writes of the retired approval must not return');
+});
+
+test('the read-only document/vehicle assessment the retired approval used still mutates nothing on a mismatch', async () => {
+  // assessDocumentDataMatch survives in TrustEnforcementEngine (verifyDocumentDataMatch composes
+  // it). Its read-only contract is what the C1 approval relied on; it is held here directly now
+  // that the approval is gone: a mismatch is REPORTED, never enforced, by the assessment itself.
+  const vin = 'JTDBR32E870JJ00016';
   const vehicle = freshCacheRow({
-    vin, trust_score: 60, trust_band: 'moderate', trust_confidence: 'medium',
-    status: 'Pending_Review', owner_id: null, make: 'Toyota', model: 'Corolla', year: 2018,
+    vin, trust_score: 76, trust_band: 'moderate', trust_confidence: 'medium',
+    status: 'Available', owner_id: null, make: 'Toyota', model: 'Corolla', year: 2018,
   });
-  const stampedBefore = { ...vehicle };
-  seedDb({
-    vehicles: [vehicle],
-    ocr_documents: [{
-      id: 'ocr-doc-1',
-      document_type: 'national_id',
-      file_path: 'inline_b64',
-      confidence_score: 0.95,
-      extracted_json: JSON.stringify({ first_name: 'Tinashe', last_name: 'Moyo', additional_fields: {} }),
-      status: 'Pending_Verification',
-    }],
+  const vehicleBefore = structuredClone(vehicle);
+  seedDb({ vehicles: [vehicle], trust_score_history: [], security_events: [] });
+
+  const assessment = await TrustEnforcementEngine.assessDocumentDataMatch(vin, 'registration_book', {
+    vin: 'JTDBR32E870JJ99999', owner_name: 'SPECIMEN OWNER',
   });
 
-  const result = await DocumentIntelligenceService.approveDocumentVerification('ocr-doc-1', 'admin-1', vin);
-
-  // The write really happened and really moved the number (60 + 20), so the guard below is not
-  // passing on a write that never ran.
-  assert.equal(result.success, true);
-  assert.equal(result.newTrustScore, 80);
-  assert.equal(memoryDb.vehicles[0].status, 'Available', 'the approval write landed');
-  assertForeignWriteIsUnstamped(memoryDb.vehicles[0], 80, 'approveDocumentVerification');
-  assertInheritedStampWouldPublish(stampedBefore, 80, 'approveDocumentVerification');
+  assert.equal(assessment.match, false);
+  assert.deepEqual(assessment.penalties.map((p) => p.field), ['VIN_MISMATCH']);
+  assert.deepEqual(memoryDb.vehicles[0], vehicleBefore, 'a read-only assessment must not mutate Vehicle authority');
+  assert.equal(memoryDb.trust_score_history.length, 0, 'a read-only assessment writes no Trust history');
+  assert.equal(memoryDb.security_events.length, 0, 'a read-only assessment creates no mismatch enforcement events');
 });
 
 test('an OCR-mismatch penalty writes a trust score that CANNOT publish as canonical — the penalised number never inherits the previous stamp', async () => {

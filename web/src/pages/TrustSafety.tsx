@@ -262,7 +262,7 @@ export default function TrustSafety() {
             {
               icon: ShieldCheck,
               title: 'A signed internal record',
-              desc: 'Changes CarUp records against a vehicle are written to its own signed, append-only log, so an entry cannot be quietly altered later. It is an internal ledger — not a blockchain, and it carries no tax or ownership status from any authority.',
+              desc: 'Changes CarUp records against a vehicle are written to its own hash-chained audit ledger: each entry is linked to the one before it and signed by CarUp, so an alteration shows up when the ledger is verified. It is an internal ledger — not a blockchain — and it carries no tax or ownership status from any authority.',
               color: 'from-orange-500/20 to-amber-500/20',
               badge: 'Internal log'
             },

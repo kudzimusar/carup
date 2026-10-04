@@ -845,6 +845,14 @@ test('seller inquiry read pushes the ownership predicate into the query (other s
       { id: 'inq-tenant', listing_id: DEALER_VIN, seller_id: 'someone-else', seller_tenant_id: 'tenant-9', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'tenant@example.com', created_at: NOW },
       { id: 'inq-other', listing_id: DEALER_VIN, seller_id: 'seller-2', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'other@example.com', created_at: NOW },
     ],
+    // OC-4D — the tenant leg is a GOVERNED Dealer decision, so the fixture models the dealership
+    // the tenant-scoped seller acts for: an active dealership-typed tenant and a membership that
+    // acts for the business. `seller-3` belongs to the same tenant only as a mechanic.
+    tenants: [{ id: 'tenant-9', type: 'dealership', status: 'active' }],
+    tenant_users: [
+      { tenant_id: 'tenant-9', user_id: 'seller-1', role: 'admin' },
+      { tenant_id: 'tenant-9', user_id: 'seller-3', role: 'mechanic' },
+    ],
   };
   const orCalls = [];
   const spyClient = (base) => ({
@@ -856,10 +864,17 @@ test('seller inquiry read pushes the ownership predicate into the query (other s
     },
   });
 
-  // Tenant-scoped seller: both legs pushed down; own + tenant inquiries visible.
-  const tenantView = await listInquiriesForSeller(spyClient(buildMockSupabase(store)), { id: 'seller-1', tenantId: 'tenant-9' });
+  // Tenant-scoped seller acting for the dealership: both legs pushed down; own + tenant inquiries visible.
+  const tenantView = await listInquiriesForSeller(spyClient(buildMockSupabase(store)), { id: 'seller-1', role: 'dealer', tenantId: 'tenant-9' });
   assert.deepEqual(tenantView.map((v) => v.id).sort(), ['inq-owned', 'inq-tenant']);
   assert.deepEqual(orCalls, ['seller_id.eq.seller-1,seller_tenant_id.eq.tenant-9']);
+
+  // OC-4D — a validated membership is not the dealership's selling authority: a mechanic in the
+  // same tenant reads no other party's buyer contacts, and the tenant leg never reaches the query.
+  orCalls.length = 0;
+  const memberView = await listInquiriesForSeller(spyClient(buildMockSupabase(store)), { id: 'seller-3', role: 'dealer', tenantId: 'tenant-9' });
+  assert.deepEqual(memberView.map((v) => v.id), []);
+  assert.deepEqual(orCalls, ['seller_id.eq.seller-3']);
 
   // Tenant-less seller: the tenant leg must be omitted from the predicate.
   orCalls.length = 0;

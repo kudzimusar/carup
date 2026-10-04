@@ -133,6 +133,56 @@ export function isRetiredMigration(file) {
   return Object.prototype.hasOwnProperty.call(RETIRED_UNAPPLIABLE, file);
 }
 
+/**
+ * SQLITE DIALECT ONLY (OC-4A) — files in database/migrations written for the LEGACY LOCAL SQLite
+ * development database (backend/db/carup.db, driven by backend/db/migrate.js), not for PostgreSQL.
+ *
+ * They share the directory with the PostgreSQL migrations, so any PostgreSQL runner or harness that
+ * globbed it would execute SQLite SQL against PostgreSQL: `INTEGER PRIMARY KEY AUTOINCREMENT` and
+ * `CREATE TRIGGER IF NOT EXISTS … RAISE(ABORT, …)` do not even parse there — which is also why 004's
+ * "tamper-proofing" never protected Supabase (OC-3D, OC-4A 1.1).
+ *
+ * They are NOT edited, moved or renamed: documents and production audits cite them by path and
+ * content. Instead each is enumerated here and PINNED by sha256, so it cannot drift silently, and
+ * the parser REFUSES it for any target but SQLite. The PostgreSQL runners and the PGlite harness
+ * assert the same refusal before they execute a file (assertNotSqliteDialect).
+ */
+export const SQLITE_DIALECT_ONLY = Object.freeze({
+  '003_add_user_sessions.sql': {
+    sha256: 'e147ef575554a39d83a280fc23be3adbf6afea0fa8579517fd231126e0dddbc2',
+    reason: 'SQLite schema for the local dev database (`INTEGER PRIMARY KEY AUTOINCREMENT`). PostgreSQL ' +
+      'sessions follow supabase_schema.sql + 20260613000000 + 20260617120000_user_sessions_auth_contract_align.sql.',
+  },
+  '004_add_tamper_proofing.sql': {
+    sha256: 'c1c43dcee98a598a5492630bfdab4f35c7c965e6abd50c5fd1a64faf96e73251',
+    reason: 'SQLite schema + triggers for the local dev database (`AUTOINCREMENT`, `CREATE TRIGGER IF NOT ' +
+      'EXISTS … RAISE(ABORT, …)`). Its triggers never parsed on PostgreSQL; PostgreSQL history protection ' +
+      'is database/migration-candidates/oc3d + oc4a.',
+  },
+});
+
+export const MIGRATION_DIALECTS = Object.freeze(['postgres', 'sqlite']);
+
+export function isSqliteDialectOnly(file) {
+  return Object.prototype.hasOwnProperty.call(SQLITE_DIALECT_ONLY, file);
+}
+
+/**
+ * For every PostgreSQL runner and harness, called with the bare filename BEFORE it executes a file.
+ * Throws for an enumerated SQLite-only file; returns the filename otherwise.
+ */
+export function assertNotSqliteDialect(file) {
+  const name = String(file).split(/[\\/]/).pop();
+  if (isSqliteDialectOnly(name)) {
+    throw new MigrationIntegrityError(
+      'SQLITE_DIALECT_ONLY',
+      name,
+      `${SQLITE_DIALECT_ONLY[name].reason} It is SQLite SQL and is refused for a PostgreSQL target.`,
+    );
+  }
+  return file;
+}
+
 function sha256Of(text) {
   return createHash('sha256').update(text).digest('hex');
 }
@@ -163,9 +213,26 @@ export function isNonMigrationFile(file) {
  *   EMPTY_UP_SECTION       marker present but the extracted Up body is blank
  *   NON_MIGRATION_FILE     caller tried to execute an enumerated non-migration
  */
-export function parseMigrationSource(sql, file = '<unknown>') {
+export function parseMigrationSource(sql, file = '<unknown>', { dialect = 'postgres' } = {}) {
   if (typeof sql !== 'string') {
     throw new MigrationIntegrityError('INVALID_SOURCE', file, 'migration source is not a string');
+  }
+  if (!MIGRATION_DIALECTS.includes(dialect)) {
+    throw new MigrationIntegrityError('UNKNOWN_DIALECT', file, `unknown target dialect '${dialect}'.`);
+  }
+  // OC-4A: a SQLite-only file is verified against its pin on EVERY parse (a drifted file fails even for
+  // the SQLite runner), and refused for any target but SQLite. PostgreSQL is the default target.
+  if (isSqliteDialectOnly(file)) {
+    const actual = sha256Of(sql);
+    if (actual !== SQLITE_DIALECT_ONLY[file].sha256) {
+      throw new MigrationIntegrityError(
+        'SQLITE_DIALECT_PIN_BROKEN',
+        file,
+        `bytes changed: sha256 ${actual} != pinned ${SQLITE_DIALECT_ONLY[file].sha256}. This SQLite-era file is ` +
+          'cited by documents and audits as it is; do not edit it — write a PostgreSQL migration instead.',
+      );
+    }
+    if (dialect !== 'sqlite') assertNotSqliteDialect(file);
   }
   if (isNonMigrationFile(file)) {
     throw new MigrationIntegrityError(

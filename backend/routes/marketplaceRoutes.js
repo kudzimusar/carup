@@ -22,12 +22,7 @@ import {
   emitSearchPerformed,
   emitListingOpened,
 } from '../services/intelligence/marketplaceActivityEmitters.js';
-import {
-  listingDraft,
-  buyerAssistant,
-  priceEstimate,
-  shareCopy,
-} from '../services/marketplace/marketplaceAiAssistantService.js';
+import { listingDraft, buyerAssistant, priceEstimate, shareCopy, NO_PAID_INFERENCE } from '../services/marketplace/marketplaceAiAssistantService.js';
 
 const router = express.Router();
 
@@ -200,21 +195,32 @@ async function resolveSummaryForAi(body) {
   return body || {};
 }
 
-router.post('/api/marketplace/ai/listing-draft', aiLimiter, asyncHandler(async (req, res) => {
-  res.json(await listingDraft(req.body || {}));
+/**
+ * Paid inference needs a PROVEN caller (OC-3E-W1). These four routes are public — the buyer
+ * assistant sits on the Landing page — so an anonymous request, or one whose identity is only
+ * asserted (the dev/test x-user-id fallback), gets the deterministic answer each route already gives
+ * when AI is unavailable, marked ai_reason='sign_in_required', and spends no provider capacity.
+ * A session-proven caller gets advisory AI through the canonical gateway, still rate limited.
+ */
+function inferenceDepsFor(req) {
+  return req.userContext?.authenticationMethod === 'session' ? {} : NO_PAID_INFERENCE;
+}
+
+router.post('/api/marketplace/ai/listing-draft', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+  res.json(await listingDraft(req.body || {}, inferenceDepsFor(req)));
 }));
 
-router.post('/api/marketplace/ai/buyer-assistant', aiLimiter, asyncHandler(async (req, res) => {
-  res.json(await buyerAssistant(req.body || {}));
+router.post('/api/marketplace/ai/buyer-assistant', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+  res.json(await buyerAssistant(req.body || {}, inferenceDepsFor(req)));
 }));
 
-router.post('/api/marketplace/ai/price-estimate', aiLimiter, asyncHandler(async (req, res) => {
+router.post('/api/marketplace/ai/price-estimate', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
   const listingSummary = await resolveSummaryForAi(req.body);
-  res.json(await priceEstimate({ listingSummary, listingType: req.body?.listingType || 'vehicle' }));
+  res.json(await priceEstimate({ listingSummary, listingType: req.body?.listingType || 'vehicle' }, inferenceDepsFor(req)));
 }));
 
-router.post('/api/marketplace/ai/share-copy', aiLimiter, asyncHandler(async (req, res) => {
-  res.json(await shareCopy(req.body || {}));
+router.post('/api/marketplace/ai/share-copy', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
+  res.json(await shareCopy(req.body || {}, inferenceDepsFor(req)));
 }));
 
 export default router;

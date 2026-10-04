@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase.js';
+import { isGenuineRegistryRecord } from '../evidence/vehicleFactResolver.js';
 import { verifyChain } from '../blockchain/blockchainService.js';
 
 // AGENT A3 — Rolling checkpoint-accelerated timeline fetcher
@@ -310,23 +311,6 @@ export async function runOdometerAudit(vin) {
 }
 
 // AGENT E2 — Trust mutation historian
-async function recordTrustScoreHistory(entityType, entityId, previousScore, newScore, triggerEvent) {
-  // trust_score_history table — insert if table exists, graceful fallback
-  try {
-    await supabase.from('trust_score_history').insert({
-      entity_type: entityType,
-      entity_id: entityId,
-      previous_score: previousScore,
-      new_score: newScore,
-      trigger_event: triggerEvent,
-      timestamp: new Date().toISOString()
-    });
-  } catch (e) {
-    // Table may not exist yet — log but don't break
-    console.warn('trust_score_history insert skipped:', e.message);
-  }
-}
-
 async function computeVehicleTrustScoreContext(vin) {
   const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
   
@@ -336,8 +320,14 @@ async function computeVehicleTrustScoreContext(vin) {
   let baseScore = 70.0; // Baseline starting score
 
   // 1. ZIMRA Customs Ingestion Check
-  const { data: zimra } = await supabase.from('zimra_declarations').select('id').eq('vin', vin).single();
-  const dutyPaidReal = !!zimra || !!vehicle.duty_paid;
+  //
+  // T12.1 — the EXISTENCE of a row is not the same as an authority having done something. This
+  // scored +10 for any row at all, including the ones `documentIntelligenceService` used to
+  // synthesise on OCR approval, with a random `CUS_` reference, a defaulted duty of 50000 and an
+  // officer signature derived from our own document id. The fact resolver already refused those;
+  // this reader did not, so a forged declaration was worth +10 here and nothing there.
+  const { data: zimra } = await supabase.from('zimra_declarations').select('*').eq('vin', vin).single();
+  const dutyPaidReal = isGenuineRegistryRecord('zimra_declarations', zimra) || !!vehicle.duty_paid;
   if (dutyPaidReal) baseScore += 10.0;
 
   // 2. CID Police Clearance Check
@@ -349,9 +339,9 @@ async function computeVehicleTrustScoreContext(vin) {
   const policeVerifiedReal = (cid && cid.stolen_check_status === 'Cleared') || !!vehicle.police_verified;
   if (policeVerifiedReal) baseScore += 10.0;
 
-  // 3. CVR Ownership Registry Sync Check
-  const { data: cvr } = await supabase.from('cvr_ownership_records').select('id').eq('vin', vin).single();
-  const cvrSyncedReal = !!cvr;
+  // 3. CVR Ownership Registry Sync Check — same rule, same reason.
+  const { data: cvr } = await supabase.from('cvr_ownership_records').select('*').eq('vin', vin).single();
+  const cvrSyncedReal = isGenuineRegistryRecord('cvr_ownership_records', cvr);
   if (cvrSyncedReal) baseScore += 5.0;
 
   // 4. VID Inspection Mechanical Health Check
@@ -464,17 +454,8 @@ export async function computeVehicleTrustScore(vin) {
   return context?.report || 0;
 }
 
-export async function calculateVehicleTrustScore(vin) {
-  const context = await computeVehicleTrustScoreContext(vin);
-  if (!context) return 0;
-
-  const { report, previousScore, triggerEvents } = context;
-
-  await supabase.from('vehicles').update({ trust_score: report.trustScore }).eq('vin', vin);
-
-  if (Math.abs(report.trustScore - previousScore) > 0.01) {
-    await recordTrustScoreHistory('VEHICLE', vin, previousScore, report.trustScore, triggerEvents.join('|'));
-  }
-
-  return report;
-}
+// OC-4A: `calculateVehicleTrustScore` — the deprecated 70-baseline writer that stamped
+// vehicles.trust_score outside canonical Trust and recorded trust_score_history through a helper that
+// swallowed every failure — is RETIRED. It had no runtime caller (pinned since OC-3); canonical Trust
+// (trustDecision/canonicalTrustService.refreshCanonicalTrust) is the one writer of a vehicle score.
+// computeVehicleTrustScore above is the read-only form and writes nothing.

@@ -86,6 +86,38 @@ async function main() {
     assert.ok(String(calls[0].url).includes('/api/vehicles/VINH/evidence/upload'));
   });
 
+  // OC-4C: the BODY is the contract the server actually reads. The uploader used to send the bytes as
+  // `base64Data` (never read) and `evidence_type: 'odometer_reading'` (never accepted): every queued
+  // capture failed for ever while the header test above stayed green.
+  await test('makeHttpUploader sends the canonical body the server reads (shared contract)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const contractPath = fileURLToPath(new URL('../../shared/contracts/native-odometer-capture.contract.json', import.meta.url).href);
+    const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+    const bodies: any[] = [];
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ id: 'ev-100' }) };
+    };
+    const uploader = makeHttpUploader('https://staging.example', 'tok');
+    const item = { vin: 'VINB', idempotencyKey: 'idem-b', evidenceType: contract.nativeEvidenceType, pageOrder: 0 } as UploadQueueItem;
+    await uploader(item, 'data:image/jpeg;base64,/9j/AAAA');
+    const body = bodies[0];
+    for (const [key, value] of Object.entries(contract.upload.body)) assert.equal(body[key], value, key);
+    assert.equal(body[contract.upload.fileField], 'data:image/jpeg;base64,/9j/AAAA', 'the bytes travel in `file`');
+    assert.equal(body.idempotency_key, 'idem-b');
+    assert.equal('base64Data' in body, false);
+    assert.equal('evidence_type' in body, false, 'no non-canonical evidence_type is asserted by the client');
+  });
+
+  await test('an unknown native evidence type is refused, not guessed', async () => {
+    let called = false;
+    (globalThis as any).fetch = async () => { called = true; return { ok: true, json: async () => ({}) }; };
+    const uploader = makeHttpUploader('https://staging.example', 'tok');
+    await assert.rejects(() => uploader({ vin: 'V', idempotencyKey: 'k', evidenceType: 'mystery_scan', pageOrder: 0 } as UploadQueueItem, 'data:x'), /unsupported_native_evidence_type/);
+    assert.equal(called, false);
+  });
+
   console.log('\nALL WORKSTREAM G DRAIN TESTS PASSED');
 }
 main().catch((e) => { console.error(e); process.exit(1); });
