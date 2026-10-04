@@ -323,6 +323,7 @@ on:
       # OC-5C: #208 People/Identity completion — X3 lifecycle + step-up (core, web, gates).
       - 'backend/tests/o2-x3-*.test.js'
       - 'backend/tests/o2-owner-uat-closure.test.js'
+      - 'backend/tests/oc5c-*.test.js'
       - 'backend/middleware/stepUpMiddleware.js'
       - 'backend/services/auth/**'
       - 'backend/services/identity/**'
@@ -727,7 +728,7 @@ jobs:
           src/pages/dashboard/mechanic/ServiceLogs.test.tsx
       - name: OC-5C — X3 identity lifecycle (PGlite) + authentication assurance, gates and the step-up UI
         run: |
-          node --test backend/tests/o2-x3-*.test.js backend/tests/o2-owner-uat-closure.test.js backend/tests/dealer-routes.test.js backend/tests/verification-admin-review.test.js backend/tests/oc4e-product-journeys.test.js
+          node --test backend/tests/o2-x3-*.test.js backend/tests/oc5c-*.test.js backend/tests/o2-owner-uat-closure.test.js backend/tests/dealer-routes.test.js backend/tests/verification-admin-review.test.js backend/tests/oc4e-product-journeys.test.js
           npm run test:unit --workspace=web -- src/hooks/useStepUpGuard.test.tsx src/lib/apiClient.stepUpCode.test.ts src/components/security/StepUpDialog.test.tsx src/pages/dashboard/admin/PeopleComplianceReview.postready.test.tsx src/pages/dashboard/admin/PeopleComplianceReview.test.tsx
       - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
         run: |

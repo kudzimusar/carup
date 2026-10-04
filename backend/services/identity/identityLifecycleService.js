@@ -467,6 +467,14 @@ export async function onVerificationApproved(client = supabase, {
     ? LIFECYCLE_STATES.RECOVERED
     : LIFECYCLE_STATES.VERIFIED;
 
+  // Nothing to append when the identity already bears capability. Checked FIRST (OC-5C): the decision
+  // recorder marks the session verified before it calls this hook, so a first approval already derives
+  // 'verified' from that history — #208 checked the verified → verified transition before this rule
+  // and so reported every first approval as a refusal.
+  if (CAPABILITY_BEARING_STATES.includes(current.state) && !current.derived_reason_code) {
+    return { event: null, state: current.state, noop: true };
+  }
+
   // OC-5C: a restriction is lifted only by evidence submitted AFTER it was imposed. Otherwise
   // approving any pending session — one filed before a suspension, a dispute or a compromise —
   // silently undid that restriction.
@@ -493,10 +501,6 @@ export async function onVerificationApproved(client = supabase, {
       `IDENTITY_LIFECYCLE_APPROVAL_REFUSED: a verification approval cannot move ${current.state} → ${nextState}; `
       + 'a revoked identity re-enters only through the governed reverification_required step.',
     );
-  }
-  // A no-op re-approval on an already capability-bearing state appends nothing.
-  if (CAPABILITY_BEARING_STATES.includes(current.state) && !current.derived_reason_code) {
-    return { event: null, state: current.state, noop: true };
   }
 
   const reasonCode = current.state === LIFECYCLE_STATES.NOT_ESTABLISHED

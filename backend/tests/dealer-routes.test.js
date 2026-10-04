@@ -43,6 +43,12 @@ function resetDb() {
         expires_at: '2099-01-01T00:00:00.000Z', created_at: new Date().toISOString(),
         auth_method: 'password', step_up_at: new Date().toISOString(), step_up_method: 'password_reauth',
       },
+      // OC-5C: the same admin on a session with NO re-proof — the decision must be refused.
+      {
+        id: 'sess-admin-1b', token: 'admin-session-unproven', user_id: 'admin-1', is_valid: true,
+        expires_at: '2099-01-01T00:00:00.000Z', created_at: new Date().toISOString(),
+        auth_method: 'password', step_up_at: null, step_up_method: null,
+      },
     ],
   };
 }
@@ -199,6 +205,16 @@ test('admin records a governance decision (suspend) and it appears in the ledger
   assert.equal(res.body.decision.decision, 'suspend');
   assert.equal(res.body.profile.suspension_state, 'suspended');
   assert.equal(db.dealer_compliance_decisions.length, 1);
+});
+
+test('OC-5C: an admin decision on a session with no fresh step-up is refused STEP_UP_REQUIRED, and nothing is recorded', async () => {
+  resetDb();
+  await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
+  const dealerId = createdDealerId();
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1', 'admin-session-unproven');
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'STEP_UP_REQUIRED');
+  assert.equal(db.dealer_compliance_decisions.length, 0, 'the guard runs before the decision is recorded');
 });
 
 test('admin decision with an invalid decision -> 400', async () => {

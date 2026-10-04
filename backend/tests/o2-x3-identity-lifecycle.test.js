@@ -419,4 +419,3 @@ test('OC-5C migrations: append-only ledger whose user cannot be deleted (RESTRIC
   assert.equal(gone[0].n, 0);
   await db.close();
 });
-

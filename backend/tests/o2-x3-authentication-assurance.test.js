@@ -443,4 +443,3 @@ test('OC-5C: government holds no identity-lifecycle or account-security power (p
   assert.match(JSON.stringify(revoke.body), /operations\.account\.security/);
   assert.equal(db.identity_lifecycle_events.length, 0);
 });
-
