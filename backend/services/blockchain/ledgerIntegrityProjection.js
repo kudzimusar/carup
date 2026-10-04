@@ -33,6 +33,10 @@ export function toLedgerIntegrityReport(vin, report, verifiedAt = new Date()) {
     // exactly zero events, whatever malformed count the report carried.
     count: integrity === 'verified' ? Number(report.count) : integrity === 'empty' ? 0 : null,
     integrity,
+    // OC-3D: an intact hash chain is not the same as authenticated history. True only when the chain
+    // verified AND every event carried a signature that checked out (no placeholder, no unverifiable
+    // signer). Never a signature, payload or signer id — only the verdict.
+    authenticated: integrity === 'verified' && report?.authenticated === true,
     verified_at: (verifiedAt instanceof Date ? verifiedAt : new Date(verifiedAt)).toISOString(),
   };
   if (integrity === 'broken' && Number.isInteger(report?.tamperIndex)) {

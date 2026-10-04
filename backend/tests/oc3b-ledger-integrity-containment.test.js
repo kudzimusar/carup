@@ -33,6 +33,7 @@ delete process.env.CARUP_ALLOW_X_USER_ID_FALLBACK;
 const { app } = await import('../server.js');
 const { supabase } = await import('../db/supabase.js');
 const { calculateHash } = await import('../services/blockchain/blockchainService.js');
+const { signSystemLedgerHash } = await import('../services/blockchain/blockchainKeyCustodyService.js');
 
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
@@ -90,14 +91,16 @@ const SECRET_NATIONAL_ID = '63-OC3B-1234567-X-42';
 const SECRET_OPERATION_ID = 'op-oc3b-never-exported';
 const SECRET_SIGNER = 'stakeholder-oc3b-signer-77';
 
-function buildChain(vin, events) {
+function buildChain(vin, events, { signed = false } = {}) {
   let prev = '0'.repeat(64);
   return events.map((e, i) => {
     const timestamp = `2026-0${i + 1}-01T00:00:00.000Z`;
     const current = calculateHash(prev, vin, e.event_type, timestamp, e.payload);
+    // OC-3D: 'SYSTEM_SIGNATURE' is the writer's placeholder, not a signature; `signed` seeds a real
+    // system HMAC (the in-process server verifies it with the same test secret).
     const row = {
       id: i + 1, vin, event_type: e.event_type, payload: JSON.stringify(e.payload), timestamp,
-      previous_hash: prev, current_hash: current, signature: 'SYSTEM_SIGNATURE', operation_id: SECRET_OPERATION_ID,
+      previous_hash: prev, current_hash: current, signature: signed ? `system:${signSystemLedgerHash(current)}` : 'SYSTEM_SIGNATURE', operation_id: SECRET_OPERATION_ID,
     };
     prev = current;
     return row;
@@ -122,9 +125,11 @@ function resetDb() {
         { vin: 'VIN1', owner_id: 'owner-1', current_seller_id: 'seller-1', tenant_id: null },
         { vin: 'VIN_EMPTY', owner_id: 'owner-1', current_seller_id: null, tenant_id: null },
         { vin: 'VIN_BROKEN', owner_id: 'owner-1', current_seller_id: null, tenant_id: null },
+        { vin: 'VIN_SIGNED', owner_id: 'owner-1', current_seller_id: null, tenant_id: null },
       ],
       blockchain_events: [
         ...chain,
+        ...buildChain('VIN_SIGNED', LEDGER_EVENTS, { signed: true }).map((row, i) => ({ ...row, id: 200 + i })),
         // A tampered chain: the second event's hash no longer matches its content.
         ...buildChain('VIN_BROKEN', LEDGER_EVENTS).map((row, i) => (i === 1
           ? { ...row, id: 100 + i, payload: JSON.stringify({ ...LEDGER_EVENTS[1].payload, note: `${SECRET_OWNER_NAME} TAMPERED` }) }
@@ -159,7 +164,7 @@ async function getLedger(vin, { who = null, headers = {} } = {}) {
   return { status: res.status, body, text };
 }
 
-const SAFE_KEYS = new Set(['vin', 'verified', 'count', 'integrity', 'failed_at_index', 'verified_at']);
+const SAFE_KEYS = new Set(['vin', 'verified', 'count', 'integrity', 'authenticated', 'failed_at_index', 'verified_at']);
 const FORBIDDEN_KEYS = ['chain', 'payload', 'signature', 'reason', 'tamperIndex', 'currentHash', 'current_hash', 'operation_id', 'note'];
 
 /** Every key at every depth of a JSON value. */
@@ -210,6 +215,8 @@ for (const who of ['owner', 'seller', 'admin', 'government']) {
     assert.equal(res.body.vin, 'VIN1');
     assert.equal(res.body.verified, true);
     assert.equal(res.body.integrity, 'verified');
+    // OC-3D: intact links, but every event carries the 'SYSTEM_SIGNATURE' placeholder — not authenticated.
+    assert.equal(res.body.authenticated, false);
     assert.equal(res.body.count, LEDGER_EVENTS.length);
     assert.equal(typeof res.body.verified_at, 'string');
     assert.ok(!Number.isNaN(Date.parse(res.body.verified_at)));
@@ -238,7 +245,16 @@ test('OC-3B ledger: a vehicle with no ledger events reports integrity "empty", n
   // boolean (it is the obvious field to read) was told the vehicle's ledger is verified.
   assert.equal(res.body.verified, false, `an empty ledger must not report verified:true — ${res.text}`);
   const { verified_at: _at, ...shape } = res.body;
-  assert.deepEqual(shape, { vin: 'VIN_EMPTY', verified: false, count: 0, integrity: 'empty' });
+  assert.deepEqual(shape, { vin: 'VIN_EMPTY', verified: false, count: 0, integrity: 'empty', authenticated: false });
+});
+
+test('OC-3D ledger: a chain whose every event carries a verified system signature is authenticated (positive control)', async () => {
+  const res = await getLedger('VIN_SIGNED', { who: 'owner' });
+  assert.equal(res.status, 200, res.text);
+  assertSafeProjection(res, 'signed');
+  assert.equal(res.body.integrity, 'verified');
+  assert.equal(res.body.authenticated, true);
+  assert.equal(res.body.count, LEDGER_EVENTS.length);
 });
 
 test('OC-3B-R ledger: `verified` is true ONLY when integrity is "verified" — for every report shape', async () => {
