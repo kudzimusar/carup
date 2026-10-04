@@ -163,6 +163,7 @@ on:
       - 'docs/ledger/**'
       # OC-3 programme authority guards (AI cannot exercise an authority; the ledger records only).
       - 'backend/tests/oc3-programme-authority.test.js'
+      - 'docs/one-carup/OC3_REMAINING_DEBT_INVENTORY.md'
       - 'backend/services/identity/decisionRecorder.js'
       - 'backend/services/trustDecision/canonicalTrustService.js'
       - 'backend/services/trustGraph/trustGraphService.js'
