@@ -3022,7 +3022,17 @@ export function useCarUpApi() {
   const addDealerOnboardingBranch = useCallback((payload: { name: string; address: string }): Promise<DealerOnboardingPayload> =>
     request<DealerOnboardingPayload>('/dealer-onboarding/branches', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
+  const inspectDealerWorkbook = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmDealerWorkbookMapping = useCallback((payload: { template_type: string; sheet_name: string; workbook_checksum: string; mappings: Array<{ source: string; target: string }> }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; templateType: string; sheetName: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
   return {
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
     fetchDealerOnboardingOverview,
     saveDealerOnboardingProfile,
     uploadDealerEvidence,

@@ -7,14 +7,16 @@
  * who-must-act, and the honest workspace dependency (an applicant is not an active Dealer).
  *
  * OC-5C: company documents are not read automatically on this lineage — the person types their details,
- * and the page says so instead of offering a button that cannot work.
+ * and the page says so instead of offering a button that cannot work. The workbook migration lane is
+ * inspect → human-editable mapping (deterministic and AI suggestions, each labelled with its source) →
+ * confirm the exact checksum-bound mapping → the EXISTING engine's dry run; nothing is imported here.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Lock, Upload } from 'lucide-react'
+import { CheckCircle, FileSpreadsheet, Lock, Upload } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
@@ -57,6 +59,12 @@ interface Overview {
   document_types: string[]
 }
 
+interface MappingRow { source: string; proposed_target: string | null; confidence: number | null; provider: string; model?: string; reason?: string }
+interface InspectResult {
+  checksum: string; template_type: string; sheet_name: string; row_count: number
+  proposals: MappingRow[]; canonical_columns: string[]; ai: { state: string; code?: string; model?: string }
+}
+
 const DIMENSIONS = ['identity_status', 'business_evidence_status', 'compliance_review_state', 'active_state', 'restriction_state', 'suspension_state', 'investigation_state', 'expiry_state'] as const
 
 function readFileAsDataUri(file: File): Promise<string> {
@@ -78,6 +86,9 @@ export default function DealerOnboarding() {
     saveDealerOnboardingProfile,
     uploadDealerEvidence,
     addDealerOnboardingBranch,
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
   } = useCarUpApi()
 
   const [overview, setOverview] = useState<Overview | null>(null)
@@ -89,6 +100,14 @@ export default function DealerOnboarding() {
   const [uploading, setUploading] = useState(false)
   const [branchName, setBranchName] = useState('')
   const [branchAddress, setBranchAddress] = useState('')
+  // Workbook lane
+  const [workbookFile, setWorkbookFile] = useState<{ name: string; dataUri: string } | null>(null)
+  const [inspecting, setInspecting] = useState(false)
+  const [inspection, setInspection] = useState<InspectResult | null>(null)
+  const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({})
+  const [mappingConfirmed, setMappingConfirmed] = useState(false)
+  const [dryRun, setDryRun] = useState<Record<string, unknown> | null>(null)
+  const [runningDryRun, setRunningDryRun] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -153,6 +172,68 @@ export default function DealerOnboarding() {
       toast.error(error instanceof Error ? error.message : 'Could not add the branch.')
     }
   }
+
+  const pickWorkbook = async (file: File | undefined) => {
+    if (!file) return
+    const dataUri = await readFileAsDataUri(file)
+    setWorkbookFile({ name: file.name, dataUri })
+    setInspection(null); setDryRun(null); setMappingConfirmed(false)
+  }
+
+  const inspectWorkbook = async () => {
+    if (!workbookFile) return
+    setInspecting(true)
+    try {
+      const result = await inspectDealerWorkbook({ fileBase64: workbookFile.dataUri, filename: workbookFile.name }) as unknown as InspectResult
+      setInspection(result)
+      setMappingTargets(Object.fromEntries(result.proposals.map((p) => [p.source, p.proposed_target || 'ignore'])))
+      setMappingConfirmed(false)
+      setDryRun(null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not inspect the workbook.')
+    } finally {
+      setInspecting(false)
+    }
+  }
+
+  const confirmMapping = async () => {
+    if (!inspection) return
+    try {
+      await confirmDealerWorkbookMapping({
+        template_type: inspection.template_type,
+        sheet_name: inspection.sheet_name,
+        workbook_checksum: inspection.checksum,
+        mappings: inspection.proposals.map((row) => ({ source: row.source, target: mappingTargets[row.source] || 'ignore' })),
+      })
+      setMappingConfirmed(true)
+      toast.success('Mapping confirmed for this exact file.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Mapping confirmation failed.')
+    }
+  }
+
+  const runWorkbookDryRun = async () => {
+    if (!workbookFile || !inspection) return
+    setRunningDryRun(true)
+    try {
+      const result = await runDealerWorkbookDryRun({
+        fileBase64: workbookFile.dataUri,
+        filename: workbookFile.name,
+        templateType: inspection.template_type,
+        sheetName: inspection.sheet_name,
+      }) as unknown as { data: Record<string, unknown> }
+      setDryRun(result.data)
+      toast.success('Dry run complete — review before any import is confirmed.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Dry run failed.')
+    } finally {
+      setRunningDryRun(false)
+    }
+  }
+
+  const sourceLabel = (row: MappingRow) => (row.provider === 'ai'
+    ? `AI suggestion${row.model ? ` (${row.model})` : ''}${row.confidence !== null ? ` · ${Math.round(row.confidence * 100)}%` : ''}`
+    : row.provider === 'deterministic' ? 'Matched by name' : 'Not mapped')
 
   if (loading) return <div className="min-h-[45vh] bg-background px-4 py-6 text-base text-muted-foreground" data-testid="dealer-onboarding-loading">Loading your dealer application…</div>
   if (accessDenied) {
@@ -270,6 +351,71 @@ export default function DealerOnboarding() {
                 <input className={fieldClass} placeholder="Address" value={branchAddress} onChange={(e) => setBranchAddress(e.target.value)} data-testid="branch-address" />
                 <Button size="sm" variant="outline" data-testid="add-branch" onClick={addBranch}>Add branch</Button>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Workbook migration — a mapping front-end to the existing import engine */}
+          <Card className="bg-card border-border">
+            <CardContent className="space-y-3 p-4 sm:p-5" data-testid="workbook-lane">
+              <h2 className="flex items-center gap-2 font-medium"><FileSpreadsheet className="h-4 w-4" aria-hidden />Migrate existing records (workbook)</h2>
+              <p className="text-xs text-muted-foreground">
+                CarUp suggests how your columns map; you decide. Nothing is imported here — the import engine runs a dry run you review first.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm">
+                  <Upload className="h-4 w-4" aria-hidden />{workbookFile ? workbookFile.name : 'Choose .xlsx file'}
+                  <input type="file" accept=".xlsx" className="hidden" onChange={(e) => pickWorkbook(e.target.files?.[0])} data-testid="workbook-file" />
+                </label>
+                <Button size="sm" onClick={inspectWorkbook} disabled={!workbookFile || inspecting} data-testid="inspect-workbook">
+                  {inspecting ? 'Inspecting…' : 'Inspect & suggest mapping'}
+                </Button>
+              </div>
+
+              {inspection && (
+                <div className="space-y-2" data-testid="mapping-table">
+                  <p className="text-xs text-muted-foreground">
+                    {inspection.row_count} rows · review every column. Suggestions are advisory — changing the file means confirming again.
+                  </p>
+                  {inspection.ai.state === 'unavailable' && (
+                    <p className="text-xs text-amber-700" data-testid="ai-unavailable">AI suggestions are unavailable right now — map the remaining columns yourself.</p>
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-left text-muted-foreground"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Suggested by</th></tr></thead>
+                      <tbody>
+                        {inspection.proposals.map((row) => (
+                          <tr key={row.source} className="border-t border-border">
+                            <td className="p-1">{row.source}</td>
+                            <td className="p-1">
+                              <select className={fieldClass} value={mappingTargets[row.source] || 'ignore'} data-testid={`target-${row.source}`}
+                                onChange={(e) => { setMappingTargets({ ...mappingTargets, [row.source]: e.target.value }); setMappingConfirmed(false) }}>
+                                <option value="ignore">— ignore —</option>
+                                {inspection.canonical_columns.map((c) => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </td>
+                            <td className="p-1 text-muted-foreground" data-testid={`source-${row.source}`}>{sourceLabel(row)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={confirmMapping} disabled={mappingConfirmed} data-testid="confirm-mapping">
+                      {mappingConfirmed ? <><CheckCircle className="mr-1 h-3 w-3" aria-hidden />Mapping confirmed</> : 'Confirm mapping'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={runWorkbookDryRun} disabled={!mappingConfirmed || runningDryRun} data-testid="run-dry-run">
+                      {runningDryRun ? 'Running…' : 'Run dry run'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {dryRun !== null && (
+                <div className="rounded-lg border border-border p-2 text-xs" data-testid="dry-run-result">
+                  <p className="text-muted-foreground">Dry run recorded by the import engine — review it; confirmation and execution follow the engine's own governed steps. Nothing has been imported yet.</p>
+                  <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap text-muted-foreground">{JSON.stringify(dryRun, null, 2).slice(0, 4000)}</pre>
+                </div>
+              )}
             </CardContent>
           </Card>
 

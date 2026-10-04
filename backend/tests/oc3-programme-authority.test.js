@@ -56,6 +56,8 @@ const AI_MODULES_ELSEWHERE = [
   'services/communication/communicationGroqProvider.js',
   'services/communication/communicationAiProviderFactory.js',
   'services/communication/communicationAiRuntimeService.js',
+  // OC-5C (O2-X5): dealer workbook header mapping — advisory proposals through domainAdvisoryAdapter.
+  'services/dealer/workbookSemanticMappingService.js',
 ];
 
 /** Each authority: the write pattern, and the real module that owns it (positive control). */

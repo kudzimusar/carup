@@ -16,6 +16,9 @@ const fetchDealerOnboardingOverview = vi.fn()
 const saveDealerOnboardingProfile = vi.fn()
 const uploadDealerEvidence = vi.fn()
 const addDealerOnboardingBranch = vi.fn()
+const inspectDealerWorkbook = vi.fn()
+const confirmDealerWorkbookMapping = vi.fn()
+const runDealerWorkbookDryRun = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
@@ -23,6 +26,9 @@ vi.mock('@/hooks/useCarUpApi', () => ({
     saveDealerOnboardingProfile,
     uploadDealerEvidence,
     addDealerOnboardingBranch,
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
   }),
 }))
 vi.mock('@/context/AuthContext', () => ({
@@ -124,6 +130,73 @@ describe('DealerOnboarding', () => {
     fireEvent.change(screen.getByTestId('branch-address'), { target: { value: '4 Main St' } })
     fireEvent.click(screen.getByTestId('add-branch'))
     await waitFor(() => expect(addDealerOnboardingBranch).toHaveBeenCalledWith({ name: 'Bulawayo', address: '4 Main St' }))
+  })
+
+  it('workbook lane: inspect suggests (each source labelled), the human edits and confirms the exact checksum-bound mapping, dry run only after confirmation', async () => {
+    inspectDealerWorkbook.mockResolvedValue({
+      checksum: 'c'.repeat(64), template_type: 'buyer', sheet_name: 'DIASPORA_IMPORT_ORDERS', row_count: 12,
+      canonical_columns: ['VIN', 'CHASSIS_NUMBER', 'NOTES'],
+      ai: { state: 'provider_executed', model: '@cf/google/gemma-4-26b-a4b-it' },
+      proposals: [
+        { source: 'Reg_No', proposed_target: 'VIN', confidence: 1, provider: 'deterministic' },
+        { source: 'Stock ref', proposed_target: 'NOTES', confidence: 0.7, provider: 'ai', model: '@cf/google/gemma-4-26b-a4b-it' },
+        { source: 'Odd', proposed_target: null, confidence: null, provider: 'unmapped' },
+      ],
+    })
+    confirmDealerWorkbookMapping.mockResolvedValue({ success: true })
+    runDealerWorkbookDryRun.mockResolvedValue({ success: true, data: { summary: { accepted: 10, blocked: 2 } } })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('workbook-lane')).toBeTruthy())
+    const file = new File(['fake'], 'stock.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    fireEvent.change(screen.getByTestId('workbook-file'), { target: { files: [file] } })
+    await waitFor(() => expect((screen.getByTestId('inspect-workbook') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('inspect-workbook'))
+    await waitFor(() => expect(screen.getByTestId('mapping-table')).toBeTruthy())
+
+    expect(screen.getByTestId('source-Reg_No').textContent).toBe('Matched by name')
+    expect(screen.getByTestId('source-Stock ref').textContent).toMatch(/AI suggestion \(@cf\/google\/gemma-4-26b-a4b-it\) · 70%/)
+    expect(screen.getByTestId('source-Odd').textContent).toBe('Not mapped')
+    expect((screen.getByTestId('run-dry-run') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.change(screen.getByTestId('target-Odd'), { target: { value: 'CHASSIS_NUMBER' } })
+    fireEvent.click(screen.getByTestId('confirm-mapping'))
+    await waitFor(() => expect(confirmDealerWorkbookMapping).toHaveBeenCalledTimes(1))
+    expect(confirmDealerWorkbookMapping.mock.calls[0][0]).toEqual({
+      template_type: 'buyer',
+      sheet_name: 'DIASPORA_IMPORT_ORDERS',
+      workbook_checksum: 'c'.repeat(64),
+      mappings: [
+        { source: 'Reg_No', target: 'VIN' },
+        { source: 'Stock ref', target: 'NOTES' },
+        { source: 'Odd', target: 'CHASSIS_NUMBER' },
+      ],
+    })
+
+    await waitFor(() => expect((screen.getByTestId('run-dry-run') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('run-dry-run'))
+    await waitFor(() => expect(runDealerWorkbookDryRun).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('dry-run-result').textContent).toMatch(/Nothing has been imported yet/))
+  })
+
+  it('workbook lane: when AI is unavailable the page says so, and editing after a confirmation requires confirming again', async () => {
+    inspectDealerWorkbook.mockResolvedValue({
+      checksum: 'd'.repeat(64), template_type: 'buyer', sheet_name: 'DIASPORA_IMPORT_ORDERS', row_count: 1,
+      canonical_columns: ['VIN', 'NOTES'], ai: { state: 'unavailable', code: 'AI_PROVIDER_TIMEOUT' },
+      proposals: [{ source: 'X', proposed_target: null, confidence: null, provider: 'unmapped', reason: 'ai_unavailable:AI_PROVIDER_TIMEOUT' }],
+    })
+    confirmDealerWorkbookMapping.mockResolvedValue({ success: true })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('workbook-lane')).toBeTruthy())
+    fireEvent.change(screen.getByTestId('workbook-file'), { target: { files: [new File(['x'], 'a.xlsx')] } })
+    await waitFor(() => expect((screen.getByTestId('inspect-workbook') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('inspect-workbook'))
+    await waitFor(() => expect(screen.getByTestId('ai-unavailable')).toBeTruthy())
+    fireEvent.change(screen.getByTestId('target-X'), { target: { value: 'NOTES' } })
+    fireEvent.click(screen.getByTestId('confirm-mapping'))
+    await waitFor(() => expect((screen.getByTestId('run-dry-run') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.change(screen.getByTestId('target-X'), { target: { value: 'VIN' } })
+    expect((screen.getByTestId('run-dry-run') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('a caller without a dealer registration is sent back to registration, not shown an empty application', async () => {
