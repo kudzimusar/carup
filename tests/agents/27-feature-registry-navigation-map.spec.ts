@@ -155,7 +155,13 @@ test.describe('Feature Registry & Navigation Map', () => {
       // workspace registers with placements: [] on purpose (a parameterized
       // /admin/vehicles/:vin/review route cannot be a sidebar link) so it does
       // not move this count. No other role moves.
-      expect(result.roleItemCounts['owner']).toBe(21);
+      // Recomputed 2026-10-04 (One CarUp RC1, OC-4F): `owner.garage-setup` — the Garage application
+      // entry point — joined the owner sidebar in OCR C3 (96151142, 2026-10-03, "make the Garage
+      // setup page reachable"), so owner rises 21 -> 22 and NO other role moves. That lane never
+      // triggered this PR-only gate, so the pin went stale before OC-4. Verified against the live
+      // registry, not hand-added: it is the only owner entry added versus main bb9d9900, and every
+      // other role's count below already matches the registry.
+      expect(result.roleItemCounts['owner']).toBe(22);
       // Recomputed 2026-09-05 (Trade OS T2): `diaspora.buyer-requests` — the supplier's opportunity
       // marketplace — is a NEW sidebar destination registered with roles ['dealer', 'admin'], so it
       // moves BOTH of those counts (dealer 16 -> 17, admin 32 -> 33) and no others. The relabelled

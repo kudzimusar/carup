@@ -1,8 +1,8 @@
 # CarUp Diaspora Trade OS System Plan
 
-> **Status:** CANONICAL REVIEW DRAFT — 2026-09-13  
-> **Phase ledger:** this document defines no phases. The only Trade OS phase ledger is `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25 (T0–T18). Template ingestion and Golden Scenarios are the **Scenario Lab**, a cross-cutting track with no T-number (master plan §46, owner ruling 2026-09-26). Earlier drafts of this section called it "T5", but T5 is the Container Marketplace & Multi-Corridor phase, frozen at `5079b0b3`.  
-> **Implementation authorization:** This document is a planning contract. No new product code, migration, staging mutation, production activation, live-money behavior, or external integration is authorized until owner review and explicit approval.  
+> **Status:** CANONICAL REVIEW DRAFT — 2026-09-13\
+> **Phase ledger:** this document defines no phases. The only Trade OS phase ledger is `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25 (T0–T18). Template ingestion and Golden Scenarios are the **Scenario Lab**, a cross-cutting track with no T-number (master plan §46, owner ruling 2026-09-26). Earlier drafts of this section called it "T5", but T5 is the Container Marketplace & Multi-Corridor phase, frozen at `5079b0b3`.\
+> **Implementation authorization:** This document is a planning contract. No new product code, migration, staging mutation, production activation, live-money behavior, or external integration is authorized until owner review and explicit approval.\
 > **Detailed companion plan:** [`CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md`](./CARUP_TRADE_OS_TEMPLATE_INGESTION_AND_SCENARIO_TESTING_PLAN.md)
 
 ---
@@ -537,7 +537,7 @@ Three FX concepts must remain separate:
 
 Historical confirmed monetary records are immutable snapshots.
 
-**Scenario Lab requirement:** preserve original money and schema compatibility.  
+**Scenario Lab requirement:** preserve original money and schema compatibility.\
 **T6 responsibility (frozen at `2d0a0bc0`):** governed official/reference FX integration and conversion behavior. Scenarios consume it and never re-implement it.
 
 ---

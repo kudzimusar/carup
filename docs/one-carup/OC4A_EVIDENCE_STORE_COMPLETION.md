@@ -86,7 +86,7 @@ Candidate `20261004140100` does the following:
 - It adds `analysis_status`, `execution`, `provider` and `model` as **generated** columns. Each row is classified from what its writer recorded:
   - legacy rows → `legacy_unverified` / `unknown`;
   - OC-3E-W1 rows → `completed` / `provider_executed`.
-  
+
   Generated columns refuse writes, so no caller can forge them.
 - `advisory` is constrained to `true` by a CHECK.
 - `risk_score` and `confidence` no longer require a filler value.
@@ -97,7 +97,7 @@ Candidate `20261004140100` does the following:
   - the canonical parser (PostgreSQL is the default target);
   - both PostgreSQL runners;
   - the PGlite harness.
-  
+
   A scan of the whole directory fails on any new SQLite-only file that is not enumerated.
 - **PGlite** is now a root devDependency pinned to 0.4.1, the version the lockfile already resolved.
 

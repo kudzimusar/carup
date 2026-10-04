@@ -54,7 +54,8 @@
 - **#211** — The PR's own net diff was ported in `c7d08100`.
   - The port also fixes the PR's own failing test: `scenarioRunId` was never read from the scenario run.
   - The PR is stacked on #207's docs branch. Its other differing files are RC1's later evolution of #207 content, not missing #211 content.
-- **#184** — Its documents landed verbatim in `4cd8cecc`; RC1's receipts already linked to them. Its files are identical to the PR head.
+  - Its documents carry the same trailing-whitespace normalisation as #184's.
+- **#184** — Its documents landed verbatim in `4cd8cecc`; RC1's receipts already linked to them. RC1 later normalised their trailing-space Markdown line breaks to `\` breaks: `git diff --check` in two PR gates flags trailing spaces, and the change does not alter the rendering. Apart from that, the files are identical to the PR head.
 - **#217** — The runtime was converged in OC-3C, not merged:
   - one shared Cloudflare transport (`cloudflareAiTransport.js`) for the Qwen OCR policy and the Gemma gateway;
   - requests are byte-identical to the pre-convergence ones;

@@ -75,7 +75,7 @@ Nothing in the runtime reads a Moonshot or OpenRouter key; a test pins this.
   - vendor retirement;
   - the strict-OCR guard;
   - `/api/health` through the shipped app.
-  
+
   8 of 8 mutations were killed.
 - **Updated deliberately:**
   - `communications-2-ai-provider-neutrality` (selection);

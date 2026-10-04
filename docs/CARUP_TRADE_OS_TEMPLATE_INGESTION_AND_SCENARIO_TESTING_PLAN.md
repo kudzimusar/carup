@@ -1,10 +1,10 @@
 # CarUp Trade OS — Template Ingestion & Scenario Testing Architecture
 
-> **Status:** REVIEW DRAFT — planning and documentation only  
-> **Date:** 2026-09-13  
-> **Program:** CarUp Diaspora Trade OS  
-> **Track:** **Scenario Lab** — a cross-cutting track, not a T-phase (owner ruling 2026-09-26; living master plan §46). Earlier drafts called this work "T5"; in the master plan T5 is the Container Marketplace & Multi-Corridor phase, frozen at `5079b0b3`.  
-> **Programme position when renamed:** T5–T12 OWNER ACCEPTED / FROZEN; T13 SafeTrade in progress. The phase ledger is `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25, and this document does not define phases.  
+> **Status:** REVIEW DRAFT — planning and documentation only\
+> **Date:** 2026-09-13\
+> **Program:** CarUp Diaspora Trade OS\
+> **Track:** **Scenario Lab** — a cross-cutting track, not a T-phase (owner ruling 2026-09-26; living master plan §46). Earlier drafts called this work "T5"; in the master plan T5 is the Container Marketplace & Multi-Corridor phase, frozen at `5079b0b3`.\
+> **Programme position when renamed:** T5–T12 OWNER ACCEPTED / FROZEN; T13 SafeTrade in progress. The phase ledger is `docs/TRADE_OS_CONTAINER_COLOADING_LIVING_MASTER_PLAN.md` §25, and this document does not define phases.\
 > **Implementation authorization:** **NOT GRANTED** by this document. Product code, migrations, staging data writes, and production behavior remain unchanged until owner review and approval.
 
 ---

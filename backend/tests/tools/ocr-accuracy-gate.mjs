@@ -218,4 +218,3 @@ for (const f of summary.inconclusiveFixtures) console.log(`  INCONCLUSIVE ${f.id
 console.log(`  written to ${path.relative(root, outDir)}/OCR_ACCURACY_RESULTS.md`);
 
 process.exit(summary.verdict === 'PASS' ? 0 : 1);
-

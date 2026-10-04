@@ -1,9 +1,9 @@
 # CarUp Trade OS — Template Ingestion & Scenario Testing Implementation Status
 
-> **Status:** IMPLEMENTED — awaiting alignment review and hardening  
-> **Date:** 2026-09-13  
-> **Branch:** `feat/trade-os-template-ingestion-scenarios`  
-> **Draft PR:** #211  
+> **Status:** IMPLEMENTED — awaiting alignment review and hardening\
+> **Date:** 2026-09-13\
+> **Branch:** `feat/trade-os-template-ingestion-scenarios`\
+> **Draft PR:** #211\
 > **Parent planning lane:** `docs/trade-os-template-ingestion-scenario-testing` / PR #210
 
 ## 1. Purpose

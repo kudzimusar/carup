@@ -1,11 +1,11 @@
 # CarUp Intelligence 1.0 — Data, Analytics, AI & Stakeholder Intelligence Canonical Plan
 
-**Status:** Canonical product and engineering plan candidate  
-**Programme:** Post-Reunification Product Advancement  
-**Repository:** kudzimusar/carup  
-**Source anchor:** main@ba208963d863654157335189c60f587cbe330041  
-**Document branch:** docs/carup-intelligence-data-analytics-canonical-plan  
-**Runtime authorization:** NONE — this document does not authorize a third source-write lane, production changes, partner activation, government integrations, data migration, or external data sharing by itself.  
+**Status:** Canonical product and engineering plan candidate\
+**Programme:** Post-Reunification Product Advancement\
+**Repository:** kudzimusar/carup\
+**Source anchor:** main@ba208963d863654157335189c60f587cbe330041\
+**Document branch:** docs/carup-intelligence-data-analytics-canonical-plan\
+**Runtime authorization:** NONE — this document does not authorize a third source-write lane, production changes, partner activation, government integrations, data migration, or external data sharing by itself.\
 **Primary purpose:** Give CarUp builders, agents, operators, executives and future stakeholder users one durable source of truth for how CarUp will collect, govern, interpret, visualize and apply automotive data, analytics and AI.
 
 ---
@@ -160,12 +160,12 @@ That role list is useful for access control, but it is not broad enough to defin
 
 Stakeholders are grouped below as:
 
-A. CarUp internal stakeholders  
-B. Consumers and vehicle owners  
-C. Automotive merchants and professionals  
-D. Financial and risk partners  
-E. Trade, logistics and diaspora participants  
-F. Government and institutional stakeholders  
+A. CarUp internal stakeholders\
+B. Consumers and vehicle owners\
+C. Automotive merchants and professionals\
+D. Financial and risk partners\
+E. Trade, logistics and diaspora participants\
+F. Government and institutional stakeholders\
 G. Growth, marketing and ecosystem partners
 
 ---
@@ -986,17 +986,17 @@ The score must be explainable: every point must map to a defined field/group.
 
 ## 33. Twelve listing-quality groups
 
-1. vehicle identity completeness  
-2. seller profile completeness  
-3. pricing completeness  
-4. specification completeness  
-5. selling location  
-6. useful description  
-7. exterior media coverage  
-8. interior media coverage  
-9. evidence coverage  
-10. service/history coverage  
-11. Trust/evaluation state — displayed separately from completeness  
+1. vehicle identity completeness\
+2. seller profile completeness\
+3. pricing completeness\
+4. specification completeness\
+5. selling location\
+6. useful description\
+7. exterior media coverage\
+8. interior media coverage\
+9. evidence coverage\
+10. service/history coverage\
+11. Trust/evaluation state — displayed separately from completeness\
 12. transaction readiness
 
 The UX must distinguish:
