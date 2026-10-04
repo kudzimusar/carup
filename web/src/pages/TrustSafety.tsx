@@ -530,7 +530,7 @@ export default function TrustSafety() {
                           <label className="text-xs font-semibold text-gray-300">Your Email Address *</label>
                           <Input
                             type="email"
-                            placeholder="tendai@email.co.zw"
+                            placeholder="you@example.co.zw"
                             className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                             value={reporterEmail}
                             onChange={(e) => setReporterEmail(e.target.value)}

@@ -64,3 +64,4 @@ backend/services/blockchain/__mutant__*.js
 .scratch-probe-*.mjs
 # Ad-hoc UAT screenshots dropped at the repo root by browser automation.
 /*.png
+.ci-dist-prod/
