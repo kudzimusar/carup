@@ -275,6 +275,7 @@ on:
       - 'web/src/pages/dashboard/admin/UserManagement.tsx'
       - 'web/src/pages/dashboard/owner/Communications.tsx'
       - 'web/src/pages/Landing.tsx'
+      - 'docs/one-carup/OC4D_DOMAIN_LINEAGE_CONVERGENCE.md'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
