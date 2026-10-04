@@ -750,6 +750,14 @@ jobs:
         run: |
           node --test backend/tests/o2-x5-*.test.js backend/tests/dealer-compliance.test.js backend/tests/dealer-routes.test.js
           npm run test:unit --workspace=web -- src/pages/dealer/DealerOnboarding.test.tsx src/pages/onboarding/RegistrationJourney.test.tsx
+      - name: OC-5C — U2 passport latency (one wave, one ledger verdict, same answer) and the pins it moves
+        run: >-
+          node --test
+          backend/tests/o2-u2-passport-latency-architecture.test.js
+          backend/tests/issue164-phase5-listing-publication-gate.test.js
+          backend/tests/issue164-phase0-public-projection.test.js
+          backend/tests/trade-os-t12-registry-authority.test.js
+          backend/tests/oc3b-ai-authority-invariants.test.js
       - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
         run: |
           node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js

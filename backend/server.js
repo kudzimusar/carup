@@ -1110,15 +1110,75 @@ async function buildVehiclePassport(
     || actor.id === vehicle.owner_id
   );
 
-  // Fetch timeline, visual evidence, trust score report, and ledger verification
-  const timeline = await getVehicleTimeline(vin);
-  const { data: verifiedEvidence, error: evidenceError } = await supabase
+  // ── ONE WAVE (O2 · U2, re-authored by OC-5C from #208 bbfce741) ───────────────────────────────
+  // The passport made thirteen round trips one after another (and the trust signals eleven more):
+  // 9s warm / 15.6s cold on staging, while one row read takes 0.28s. Every INDEPENDENT read now STARTS
+  // here, before any is awaited, and each is still consumed (`await settled(...)`) at the position it
+  // always was — so an error surfaces exactly where it did, the guards stay guards (a guarded read is
+  // only started when its guard holds), and the body says what it said. `start` runs a read and
+  // settles it into an outcome at once, so a source the request never reaches can never become an
+  // unhandled rejection; `settled` re-throws a failure at its original position. Both are arrows on
+  // purpose: the ledger read below must stay lexically inside buildVehiclePassport for the OC-3B
+  // verifyChain exit scanner, and the collaborator set stays closed (no new free names).
+  //
+  // The ledger is verified ONCE per render and the one verdict is shared with the trust signals, so
+  // `trust_signals.blockchain_audit_valid` can never disagree with `chainVerification` (it used to run
+  // verifyChain twice and could).
+  const start = (read) => {
+    let pending;
+    try { pending = Promise.resolve(read()); } catch (error) { pending = Promise.reject(error); }
+    return pending.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
+  };
+  const settled = async (outcome) => {
+    const result = await outcome;
+    if (!result.ok) throw result.error;
+    return result.value;
+  };
+  const timelineRead = start(() => getVehicleTimeline(vin));
+  const evidenceRead = start(() => supabase
     .from('vehicle_evidence')
     .select('*')
     .eq('vin', vin)
     .eq('visibility_level', 'public_safe')
     .eq('verification_status', 'verified')
-    .order('captured_at', { ascending: true });
+    .order('captured_at', { ascending: true }));
+  const galleryRead = typeof mediaContract === 'function'
+    ? start(() => supabase
+      .from('listing_images')
+      .select('id, image_url, is_primary, display_order, photo_label')
+      .eq('vin', vin)
+      .order('display_order', { ascending: true }))
+    : null;
+  const lifecycleRead = typeof lifecycleBuilder === 'function'
+    ? start(() => lifecycleBuilder(supabase, vin, { audience: 'public', vehicle }))
+    : null;
+  const financeRead = typeof financeObligationContract === 'function'
+    ? start(() => financeObligationContract(supabase, vin))
+    : null;
+  const ledgerRead = start(async () => await verifyChain(vin));
+  const sharedLedgerVerdict = settled(ledgerRead);
+  sharedLedgerVerdict.catch(() => {}); // observed where it is consumed; never an unhandled rejection
+  const trustSignalsRead = start(() => computeVehicleTrustScore(vin, { vehicleRow: vehicle, ledgerVerdict: sharedLedgerVerdict }));
+  const plateHistoryRead = start(() => supabase
+    .from('vehicle_plate_history')
+    .select('*')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false }));
+  const ownershipHistoryRead = start(() => supabase
+    .from('vehicle_ownership_history')
+    .select('*')
+    .eq('vin', vin));
+  const sellerRead = vehicle.current_seller_id
+    ? start(() => supabase
+      .from('users')
+      .select('name')
+      .eq('id', vehicle.current_seller_id)
+      .single())
+    : null;
+
+  // Fetch timeline, visual evidence, trust score report, and ledger verification
+  const timeline = await settled(timelineRead);
+  const { data: verifiedEvidence, error: evidenceError } = await settled(evidenceRead);
 
   if (evidenceError) throw evidenceError;
 
@@ -1170,11 +1230,7 @@ async function buildVehiclePassport(
     // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
     // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
     // status, which is precisely why nothing in this block may make a trust claim.
-    const wideListingImages = await supabase
-      .from('listing_images')
-      .select('id, image_url, is_primary, display_order, photo_label')
-      .eq('vin', vin)
-      .order('display_order', { ascending: true });
+    const wideListingImages = await settled(galleryRead);
 
     if (!wideListingImages.error) {
       listingImageRows = wideListingImages.data || [];
@@ -1277,9 +1333,7 @@ async function buildVehiclePassport(
   //
   // Deliberately public even for an owner render. Private evidence remains in evidenceVault below;
   // lifecycle is the shared buyer-safe story, which is exactly what must not fork by surface.
-  const lifecycle = typeof lifecycleBuilder === 'function'
-    ? await lifecycleBuilder(supabase, vin, { audience: 'public', vehicle })
-    : null;
+  const lifecycle = lifecycleRead ? await settled(lifecycleRead) : null;
 
   // The Seller's history/obligations statements, projected by the injected contract. Same
   // closed-collaborator discipline as `lifecycleBuilder` above; the projection re-validates the
@@ -1293,9 +1347,7 @@ async function buildVehiclePassport(
   // render (contract not injected, or the read failed) publishes NO key at all, exactly like
   // `historyDisclosures` — see the parameter-header comment for why a governed zero must never be
   // manufactured from a read that never happened.
-  const financeObligation = typeof financeObligationContract === 'function'
-    ? await financeObligationContract(supabase, vin)
-    : null;
+  const financeObligation = financeRead ? await settled(financeRead) : null;
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
   //
@@ -1311,7 +1363,7 @@ async function buildVehiclePassport(
   // records). They are FACTS COLLECTED, not a score: the deprecated engine's own `trustScore` is
   // discarded here rather than republished under a new name, and `evidence_trust_impact` — a raw
   // scoring component — is dropped with it, so the passport body carries exactly one trust number.
-  const legacySignalReport = await computeVehicleTrustScore(vin);
+  const legacySignalReport = await settled(trustSignalsRead);
   const legacyMetrics = legacySignalReport && typeof legacySignalReport === 'object'
     ? legacySignalReport.metrics
     : null;
@@ -1332,22 +1384,15 @@ async function buildVehiclePassport(
     }
     : null;
 
-  const chainVerification = await verifyChain(vin);
+  const chainVerification = await sharedLedgerVerdict;
 
   // Collection reads carry explicit availability. A database/read failure must never collapse
   // into []/0: that would turn "CarUp could not read this source" into a factual clean-history claim.
-  const { data: plateHistoryData, error: plateHistoryError } = await supabase
-    .from('vehicle_plate_history')
-    .select('*')
-    .eq('vin', vin)
-    .order('created_at', { ascending: false });
+  const { data: plateHistoryData, error: plateHistoryError } = await settled(plateHistoryRead);
   const plateHistory = plateHistoryError ? [] : (plateHistoryData || []);
   const plateHistoryState = plateHistoryError ? 'unavailable' : 'available';
 
-  const { data: ownershipHistoryData, error: ownershipHistoryError } = await supabase
-    .from('vehicle_ownership_history')
-    .select('*')
-    .eq('vin', vin);
+  const { data: ownershipHistoryData, error: ownershipHistoryError } = await settled(ownershipHistoryRead);
   const ownershipHistory = ownershipHistoryError ? [] : (ownershipHistoryData || []);
   const previousOwnerCount = ownershipHistoryError ? null : ownershipHistory.length;
   const previousOwnerCountState = ownershipHistoryError ? 'unavailable' : 'available';
@@ -1358,11 +1403,7 @@ async function buildVehiclePassport(
   const currentSellerRecorded = Boolean(vehicle.current_seller_id);
   let currentSellerDisplayName = null;
   if (currentSellerRecorded) {
-    const { data: sellerUser } = await supabase
-      .from('users')
-      .select('name')
-      .eq('id', vehicle.current_seller_id)
-      .single();
+    const { data: sellerUser } = await settled(sellerRead);
     if (sellerUser?.name) {
       currentSellerDisplayName = sellerUser.name;
     }
