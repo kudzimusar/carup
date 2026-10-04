@@ -233,6 +233,36 @@ test('OC-3B ledger: a vehicle with no ledger events reports integrity "empty", n
   assertSafeProjection(res, 'empty');
   assert.equal(res.body.integrity, 'empty');
   assert.equal(res.body.count, 0);
+  // OC-3B-R: an empty ledger verified NOTHING. `verified: true` here was the production
+  // `{"verified":true,"count":0,"chain":[]}` claim in a safer envelope — a client reading the
+  // boolean (it is the obvious field to read) was told the vehicle's ledger is verified.
+  assert.equal(res.body.verified, false, `an empty ledger must not report verified:true — ${res.text}`);
+  const { verified_at: _at, ...shape } = res.body;
+  assert.deepEqual(shape, { vin: 'VIN_EMPTY', verified: false, count: 0, integrity: 'empty' });
+});
+
+test('OC-3B-R ledger: `verified` is true ONLY when integrity is "verified" — for every report shape', async () => {
+  const { toLedgerIntegrityReport } = await import('../services/blockchain/ledgerIntegrityProjection.js');
+  const at = new Date('2026-10-04T00:00:00.000Z');
+  // verifyChain's real outputs, and the malformed ones a refactor could produce.
+  const cases = [
+    [null, 'broken'], [undefined, 'broken'], [{}, 'broken'],
+    [{ verified: false }, 'broken'], [{ verified: false, tamperIndex: 2 }, 'broken'],
+    [{ verified: 'true', count: 3 }, 'broken'], [{ verified: 1, count: 3 }, 'broken'],
+    [{ verified: true }, 'empty'], [{ verified: true, count: 0 }, 'empty'], [{ verified: true, count: '0' }, 'empty'],
+    [{ verified: true, count: -1 }, 'empty'], [{ verified: true, count: Number.NaN }, 'empty'],
+    [{ verified: true, count: 0, chain: [] }, 'empty'],
+    [{ verified: true, count: 3 }, 'verified'], [{ verified: true, count: '3' }, 'verified'],
+  ];
+  for (const [report, integrity] of cases) {
+    const out = toLedgerIntegrityReport('VINX', report, at);
+    const label = JSON.stringify(report);
+    assert.equal(out.integrity, integrity, `${label}: integrity`);
+    assert.equal(out.verified, integrity === 'verified', `${label}: verified must equal (integrity === 'verified')`);
+    if (integrity === 'empty') assert.equal(out.count, 0, `${label}: an empty ledger has exactly 0 events`);
+    if (integrity === 'broken') assert.equal(out.count, null, `${label}: a broken chain has no trustworthy count`);
+    if (integrity === 'verified') assert.ok(out.count > 0, `${label}: a verified chain has events`);
+  }
 });
 
 test('OC-3B ledger: the route reads nothing it does not need and writes nothing', async () => {

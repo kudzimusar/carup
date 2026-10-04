@@ -3339,6 +3339,10 @@ export interface WorkbookInterruptedBatch {
  */
 export interface LedgerIntegrityReport {
   vin: string;
+  /**
+   * True ONLY when `integrity === 'verified'` (OC-3B-R). False means "not verified" — broken OR
+   * empty — so a UI must branch on `integrity`, never on this boolean, to tell the two apart.
+   */
   verified: boolean;
   count: number | null;
   integrity: 'verified' | 'broken' | 'empty';

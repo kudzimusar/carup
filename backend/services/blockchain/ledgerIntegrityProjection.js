@@ -17,14 +17,21 @@ export function ledgerIntegrityState(report) {
   return Number(report.count) > 0 ? 'verified' : 'empty';
 }
 
+/**
+ * `verified` is true ONLY when `integrity === 'verified'` (OC-3B-R). An empty ledger verified nothing:
+ * reporting it `verified: true` repeated production's `{"verified":true,"count":0,"chain":[]}` for an
+ * unknown VIN inside the safe envelope, and `verified` is the field a client reads first. So
+ * `verified: false` means "not verified" — broken OR empty — and `integrity` says which.
+ */
 export function toLedgerIntegrityReport(vin, report, verifiedAt = new Date()) {
   const integrity = ledgerIntegrityState(report);
   const projected = {
     vin: String(vin),
-    verified: integrity !== 'broken',
+    verified: integrity === 'verified',
     // A broken chain's verifyChain report carries no `count`; the number of events that checked out
-    // before the break is the failure index, which is reported separately below.
-    count: integrity === 'broken' ? null : Number(report.count) || 0,
+    // before the break is the failure index, which is reported separately below. An empty ledger has
+    // exactly zero events, whatever malformed count the report carried.
+    count: integrity === 'verified' ? Number(report.count) : integrity === 'empty' ? 0 : null,
     integrity,
     verified_at: (verifiedAt instanceof Date ? verifiedAt : new Date(verifiedAt)).toISOString(),
   };

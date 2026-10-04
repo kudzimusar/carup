@@ -117,13 +117,22 @@ describe('PartSentry owner page truthfulness', () => {
   it('OC-3B: an EMPTY ledger shows neither "Ledger Verified" nor "Tampered"', async () => {
     fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
     fetchRepairHistory.mockResolvedValue([])
-    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: true, count: 0, integrity: 'empty', verified_at: '2026-10-04T00:00:00.000Z' })
+    // OC-3B-R: the route's real empty-ledger answer — `verified` is false because nothing was verified.
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: false, count: 0, integrity: 'empty', verified_at: '2026-10-04T00:00:00.000Z' })
 
     render(<PartSentry />)
     await waitFor(() => expect(verifyLedger).toHaveBeenCalled())
     expect(await screen.findByTestId('parts-ledger-empty')).toBeInTheDocument()
     expect(screen.queryByText(/Ledger Verified/)).not.toBeInTheDocument()
+    // `verified: false` on an EMPTY ledger is not a tamper finding: the page must not read the boolean.
     expect(screen.queryByText(/Tampered/)).not.toBeInTheDocument()
+  })
+
+  it('OC-3B-R source: the integrity badge is derived from `integrity`, never from the `verified` boolean', () => {
+    // verified:false means "broken" OR "empty"; a page that reads it shows an empty ledger as tampered.
+    expect(SRC).toMatch(/data\?\.integrity === 'verified'/)
+    expect(SRC).toMatch(/data\?\.integrity === 'broken'/)
+    expect(SRC).not.toMatch(/data\??\.verified\b/)
   })
 
   it('OC-3B: a BROKEN ledger shows "Tampered", and a verified one shows "Ledger Verified"', async () => {
