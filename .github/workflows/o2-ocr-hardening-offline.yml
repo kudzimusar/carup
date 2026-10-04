@@ -19,6 +19,7 @@ on:
       - feat/oc4b-ai-wave2-communications
       - feat/oc4c-native-garage-ocr-convergence
       - integration/oc4d-domain-lineage-convergence
+      - feat/oc4e-local-product-journeys
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -276,6 +277,15 @@ on:
       - 'web/src/pages/dashboard/owner/Communications.tsx'
       - 'web/src/pages/Landing.tsx'
       - 'docs/one-carup/OC4D_DOMAIN_LINEAGE_CONVERGENCE.md'
+      # OC-4E local product-journey proof: the shipped app over an in-memory world, and the browser
+      # spec on a strict localhost port.
+      - 'backend/tests/oc4e-product-journeys.test.js'
+      - 'backend/tests/helpers/inMemorySupabaseWorld.js'
+      - 'playwright.oc4e-local.config.ts'
+      - 'tests/agents/50-oc4e-converged-journeys.spec.ts'
+      - 'backend/services/partsentry/partsentryService.js'
+      - 'web/src/components/marketplace/BuyerAssistantDrawer.tsx'
+      - 'docs/one-carup/OC4E_LOCAL_PRODUCT_JOURNEYS.md'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -544,6 +554,41 @@ jobs:
             backend/tests/migration-integrity.test.js
       - name: Web halves (People & Compliance, U1 routing, owner surfaces)
         run: npm run test:unit --workspace=web -- src/pages/dashboard/admin/PeopleComplianceReview src/lib/routeAccess src/pages/dashboard/owner src/config
+
+  # ── OC-4E local product journeys (exact-head, targeted) ───────────────────
+  # Eleven journeys through the SHIPPED app (real routes, real session auth, real services) over an
+  # in-memory world, with Cloudflare intercepted at fetch (Qwen OCR / Gemma advisory) — then the
+  # browser proof on a strict localhost port with the API mocked at the boundary (real CSRF flow).
+  # No live provider, no deployed backend, no database.
+  oc4e-local-product-journeys:
+    name: OC-4E local product journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'false'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: Backend journeys through the shipped app
+        run: node --test backend/tests/oc4e-product-journeys.test.js
+      - name: Install Chromium for the localhost browser proof
+        run: npx playwright install --with-deps chromium
+      - name: Browser journeys on localhost (strict port, this tree's dev server)
+        env:
+          NODE_ENV: development
+        run: npx playwright test -c playwright.oc4e-local.config.ts --reporter=line
 
   # ── OC-4C native garage odometer capture (exact-head, targeted) ───────────
   # The native side of the governed odometer path: capture-first durable queue, the upload body the
