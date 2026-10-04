@@ -1,0 +1,209 @@
+{
+  "schema": "carup.evidence_certification.v1",
+  "programme": "One CarUp",
+  "levels": [
+    "SOURCE-CERTIFIED",
+    "DATABASE-CERTIFIED",
+    "LIVE-PROVIDER-CERTIFIED",
+    "DEPLOYED-CERTIFIED",
+    "OWNER-UAT-CERTIFIED"
+  ],
+  "receipts": [],
+  "capabilities": {
+    "programme.evidence_certification_guard": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "N/A",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "A repository CI guard; it has no deployed or owner surface."
+    },
+    "ai.general.gemma_gateway": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it. No live Gemma run is recorded on any lineage of this programme."
+    },
+    "ocr.qwen_boundary": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. Prior live Qwen evidence exists on OTHER lineages only (GMO-8 receipt on PR #209 @ce45e16f; O2 live OCR accuracy runs) \u2014 it does not certify this lineage."
+    },
+    "identity.lifecycle": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "identity.assurance_projection": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "identity.self_review_guard": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "people.compliance_review": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "auth.tenant_role_catalogue": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "dealer.governed_authority": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "dealer.onboarding": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "partsentry.service_authority": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "partsentry.atomic_ledger_intent": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "evidence.provenance_object_authority": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "evidence.image_analysis_disposition": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "No evidence-image provider is selected; production inference must report unavailable."
+    },
+    "ledger.integrity_projection": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "service_network.foundation": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "service_network.active_tenant_context": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "garage.application_review_activation": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "garage.membership_invitations": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "seller.listing_authority": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "seller.rollups": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "buyer.public_vehicle_privacy": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "marketplace.ai_advisory": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "Advisory Gemma consumers (buyer assistant, listing draft, fraud scan)."
+    },
+    "communications.governed_templates": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "diaspora.scenario_lab_dry_run": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "passport.read_latency": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING"
+    },
+    "garage.native_odometer_candidate": {
+      "SOURCE-CERTIFIED": "PENDING",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "Native capture \u2192 private evidence \u2192 Qwen candidate. Device/Expo runtime not exercised."
+    }
+  }
+}

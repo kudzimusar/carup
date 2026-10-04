@@ -21,6 +21,10 @@ on:
       - integration/oc4d-domain-lineage-convergence
       - feat/oc4e-local-product-journeys
       - integration/one-carup-source-rc1
+      # OC-5: every phase branch, and the RC2 assembly.
+      - 'fix/oc5*'
+      - 'feat/oc5*'
+      - integration/one-carup-source-rc2
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -287,6 +291,9 @@ on:
       - 'backend/services/partsentry/partsentryService.js'
       - 'web/src/components/marketplace/BuyerAssistantDrawer.tsx'
       - 'docs/one-carup/OC4E_LOCAL_PRODUCT_JOURNEYS.md'
+      # OC-5 Phase 0: the evidence certification ladder, its guard and its manifest.
+      - 'scripts/ci/evidence-certification-guard.mjs'
+      - 'backend/tests/oc5-*.test.js'
       # OC-4F source RC1: the residual-scan guards (committed credentials; retired routes in the web
       # client), the residual scan and the open-PR disposition, and every doc the RC carries.
       - 'backend/tests/oc4f-*.test.js'
@@ -597,6 +604,30 @@ jobs:
         env:
           NODE_ENV: development
         run: npx playwright test -c playwright.oc4e-local.config.ts --reporter=line
+
+  # ── OC-5 evidence certification ladder (exact-head) ───────────────────────
+  # No mocked/intercepted provider may be presented as live-provider, deployed or owner evidence;
+  # no localhost run as a deployment; no ladder PASS without a receipt of that exact level. Full
+  # history so every receipt's SHA is proven an ancestor of this head.
+  oc5-evidence-certification:
+    name: OC-5 evidence certification ladder
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact candidate (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Guard rejects every impossible promotion (positive and negative cases)
+        run: node --test backend/tests/oc5-evidence-certification-guard.test.js
+      - name: The programme's certification manifest
+        run: node scripts/ci/evidence-certification-guard.mjs
 
   # ── OC-4F source RC1 residual guards (exact-head, targeted) ────────────────
   # The credential tripwire walks the WHOLE tree, so any document change re-runs it (hence the
