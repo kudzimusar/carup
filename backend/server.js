@@ -7,7 +7,9 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
+import { requireVehicleObjectAuthority } from './middleware/vehicleObjectAuthority.js';
+import { toLedgerIntegrityReport } from './services/blockchain/ledgerIntegrityProjection.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -1497,14 +1499,21 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
   }
 });
 
-// --- PILLAR 18: BLOCKCHAIN INTEGRITY SCANNER ---
-app.get('/api/vehicles/:vin/verify-ledger', async (req, res) => {
+// --- PILLAR 18: LEDGER INTEGRITY ---
+// OC-P0L hotfix. This route was anonymous and returned verifyChain(vin) verbatim — chain[] with every
+// ledger event's parsed payload (owner names, national ids), hashes and signer-prefixed signatures.
+// Now: a validated session (an x-user-id assertion is not one), object authority over the VIN
+// (owner, current seller, organizational tenant; admin/government platform-wide; an unknown VIN gets
+// the same 403 as an unrelated one), and an allow-listed integrity projection — never the chain.
+app.get('/api/vehicles/:vin/verify-ledger', authorizeSessionRole(), requireVehicleObjectAuthority(), async (req, res) => {
   const { vin } = req.params;
   try {
     const report = await verifyChain(vin);
-    res.json(report);
+    res.json(toLedgerIntegrityReport(vin, report));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // The verifier's error text can name events and actors; it stays in the server log.
+    console.error('[verify-ledger] integrity check failed:', error.message);
+    res.status(500).json({ error: 'Ledger integrity could not be checked.', integrity: 'unavailable' });
   }
 });
 
