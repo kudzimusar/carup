@@ -77,6 +77,7 @@ import {
   TenantContextUnavailableError,
 } from './services/auth/activeTenantContext.js';
 import { isLendableTenantRole } from './services/auth/tenantRoleCatalogue.js';
+import { listOwnerServiceHistory, ServiceHistoryUnavailableError } from './services/serviceNetwork/ownerServiceHistoryService.js';
 import { createAuthEmailService } from './services/auth/authEmailService.js';
 import { normalizeRegistrationProfile } from './services/auth/registrationProfileService.js';
 import {
@@ -4240,30 +4241,19 @@ app.delete('/api/vehicles/saved/:vin', authorizeRole(['owner', 'dealer', 'admin'
   }
 })
 
-// GET /api/service-history/me - Get service history for owned vehicles
+// GET /api/service-history/me - Get service history for owned vehicles.
+// OC-5D (P6): held to shared/contracts/owner-service-history.v1.contract.json — an allow-listed
+// projection (never the raw row: after a sale the row names the PREVIOUS owner), and a failed read is a
+// 503, never an empty history.
 app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
-    // 1. Get user's vehicles
-    const { data: vehicles } = await supabase
-      .from('vehicles')
-      .select('vin')
-      .eq('owner_id', req.userContext.id)
-    
-    if (!vehicles || vehicles.length === 0) return res.json([])
-    
-    const vins = vehicles.map(v => v.vin)
-
-    // 2. Get work orders for these vehicles
-    const { data, error } = await supabase
-      .from('mechanic_work_orders')
-      .select('*')
-      .in('vin', vins)
-
-    if (error) throw error
-    res.json(data || [])
+    res.json(await listOwnerServiceHistory(supabase, req.userContext.id))
   } catch (error) {
+    if (error instanceof ServiceHistoryUnavailableError) {
+      return res.status(503).json({ error: error.message, code: error.code })
+    }
     console.error('Error fetching service history:', error)
-    res.status(500).json({ error: error.message })
+    res.status(500).json({ error: 'Your service history could not be read right now.' })
   }
 })
 

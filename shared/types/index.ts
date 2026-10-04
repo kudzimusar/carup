@@ -26,6 +26,41 @@ export interface AuthUser {
 
 export type TenantContextState = 'selected' | 'revoked' | 'none' | 'asserted';
 
+/**
+ * OC-5D (P6) — one entry of GET /api/service-history/me, held to
+ * shared/contracts/owner-service-history.v1.contract.json. Money is shown with its currency or not at
+ * all; every field the schema may lack is nullable and must be rendered with a guard.
+ */
+export interface ServiceMoney {
+  recorded: boolean;
+  amount: number | null;
+  currency: string | null;
+}
+
+export type WorkOrderOwnerAuthorization = 'pending' | 'authorized' | 'declined' | 'revoked';
+
+export interface OwnerServiceHistoryEntry {
+  id: string;
+  vin: string;
+  status: string | null;
+  description: string | null;
+  issue_description: string | null;
+  total_cost: number | null;
+  labor_cost: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  owner_authorization: WorkOrderOwnerAuthorization | null;
+  money: ServiceMoney;
+  // Service Network enrichment (optional in v1)
+  service_case_id?: string | null;
+  service_category?: string | null;
+  work_performed?: string | null;
+  provenance?: string;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  performed_at?: string | null;
+}
+
 export interface ActiveTenant {
   id: string;
   name: string | null;

@@ -337,11 +337,20 @@ test('stakeholder: unauthorised — extraction refuses to run without a proven c
 // 7. DEFERRED — Garage and Mechanic business identity (Service Network, PR #197)
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
-test('stakeholder: garage/mechanic — business identity OCR is DEFERRED because Service Network is absent on this branch', async () => {
-  const { existsSync } = await import('node:fs');
-  const dir = new URL('../services/serviceNetwork', import.meta.url);
-  assert.equal(existsSync(dir), false,
-    'Service Network is absent on this branch — garage/mechanic business onboarding OCR cannot exist yet');
+test('stakeholder: garage/mechanic — business identity OCR is DEFERRED; the Service Network (OC-5D) carries no OCR path', async () => {
+  // OC-5D moved this premise: the Service Network is being ported (PR #197, re-authored), so its
+  // directory now exists. What this pin protects is unchanged — garage/mechanic BUSINESS identity OCR
+  // is still deferred to the governed OCR programme — so it now asserts that no Service Network module
+  // reaches Document Intelligence, OCR or a vision provider, instead of asserting the directory's absence.
+  const { existsSync, readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../services/serviceNetwork/', import.meta.url);
+  if (existsSync(dir)) {
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+      const source = readFileSync(new URL(file, dir), 'utf8');
+      assert.doesNotMatch(source, /document-intelligence|documentIntelligence|ocrVisionProvider|\/ai\/ocr|extractDocumentData/,
+        `serviceNetwork/${file} reaches OCR — garage/mechanic business identity OCR is deferred`);
+    }
+  }
 
   // No garage/mechanic-specific document class is invented in the meantime.
   const schemas = read('../services/document-intelligence/documentSchemas.js');

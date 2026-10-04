@@ -8,6 +8,8 @@ import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { useUploadQueueStore } from '../../store/uploadQueueStore';
 import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
+import type { OwnerServiceHistoryEntry } from '@shared/types';
+import { toServiceLogView } from '../../utils/serviceHistoryView';
 import {
   ODOMETER_NATIVE_EVIDENCE_TYPE,
   odometerOutcomeMessage,
@@ -30,18 +32,8 @@ interface Vehicle {
   currency: string;
 }
 
-interface ServiceLog {
-  id: string;
-  vin: string;
-  description: string;
-  cost: number;
-  mileage: number;
-  status: string;
-  created_at: string;
-  mechanic_id: string;
-  work_type?: string;
-  parts_replaced?: string;
-}
+// OC-5D (P6): GET /api/service-history/me, held to shared/contracts/owner-service-history.v1.contract.json.
+type ServiceLog = OwnerServiceHistoryEntry;
 
 function GarageScreenInner() {
   const router = useRouter();
@@ -258,30 +250,40 @@ function GarageScreenInner() {
   };
 
   const renderServiceLog = ({ item }: { item: ServiceLog }) => {
+    // Everything shown comes from the contract through one null-safe view (F1: `item.cost` never existed).
+    const view = toServiceLogView(item);
     return (
       <View className="bg-white border border-slate-100 rounded-2xl p-5 mb-4 shadow-sm">
         <View className="flex-row justify-between items-start">
           <View className="flex-1 pr-4">
-            <Text className="text-slate-400 text-xxs font-bold uppercase">VIN: {item.vin.slice(0, 8)}</Text>
-            <Text className="text-slate-900 text-base font-bold mt-0.5">{item.description}</Text>
-            <Text className="text-slate-400 text-xxs mt-0.5">{new Date(item.created_at).toLocaleDateString()}</Text>
+            <Text className="text-slate-400 text-xxs font-bold uppercase">{view.vinLabel}</Text>
+            <Text className="text-slate-900 text-base font-bold mt-0.5">{view.title}</Text>
+            <Text className="text-slate-400 text-xxs mt-0.5">{view.dateLabel}</Text>
           </View>
-          <View className="bg-slate-900 px-3 py-1 rounded-full">
-            <Text className="text-white text-xxs font-bold">${item.cost.toLocaleString()}</Text>
+          <View className={view.costRecorded ? 'bg-slate-900 px-3 py-1 rounded-full' : 'bg-slate-100 px-3 py-1 rounded-full'}>
+            <Text className={view.costRecorded ? 'text-white text-xxs font-bold' : 'text-slate-500 text-xxs font-semibold'}>{view.costLabel}</Text>
           </View>
         </View>
 
         <View className="h-px bg-slate-100 my-3" />
 
         <View className="space-y-1.5 bg-slate-50 p-3 rounded-xl">
-          <View className="flex-row justify-between">
-            <Text className="text-slate-400 text-xxs font-semibold">Replaced Parts</Text>
-            <Text className="text-slate-700 text-xs font-medium">{item.parts_replaced || 'General Maintenance'}</Text>
-          </View>
+          {view.detail ? (
+            <View className="flex-row justify-between">
+              <Text className="text-slate-400 text-xxs font-semibold">{view.detail.label}</Text>
+              <Text className="text-slate-700 text-xs font-medium">{view.detail.value}</Text>
+            </View>
+          ) : null}
           <View className="flex-row justify-between mt-1">
-            <Text className="text-slate-400 text-xxs font-semibold">Log State</Text>
-            <Text className="text-emerald-600 text-xs font-bold uppercase tracking-wider">{item.status || 'Verified'}</Text>
+            <Text className="text-slate-400 text-xxs font-semibold">Status</Text>
+            <Text className="text-slate-700 text-xs font-bold uppercase tracking-wider">{view.statusLabel}</Text>
           </View>
+          {view.authorizationLabel ? (
+            <View className="flex-row justify-between mt-1">
+              <Text className="text-slate-400 text-xxs font-semibold">Authorization</Text>
+              <Text className="text-slate-700 text-xs font-medium">{view.authorizationLabel}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     );

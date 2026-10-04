@@ -762,11 +762,11 @@ jobs:
         run: node --test backend/tests/oc5c-upload-idempotency.test.js backend/tests/upload-idempotency.test.js backend/tests/differentiator-journey.test.js
       - name: OC-5C — X4 biometrics, interface only (provider NOT SELECTED; nothing calls a provider; candidates only)
         run: node --test backend/tests/o2-x4-biometric-interface.test.js backend/tests/verification-decision-policy.test.js
-      - name: OC-5D — P1 a verified, EXPLICIT active-tenant context (never guessed; re-verified every request; a failed read is 503) + web and native clients
+      - name: OC-5D — P1 a verified, EXPLICIT active-tenant context (never guessed; re-verified every request; a failed read is 503) + web and native clients; P6 the owner service-history v1 contract (route + native renderer)
         run: |
           node --test backend/tests/oc5d-*.test.js backend/tests/oc5a-tenant-role-catalogue.test.js backend/tests/referral-uat-auth-guard.test.js backend/tests/feature-governance.test.js backend/tests/audit-logger.test.js backend/tests/auth-register-privilege.test.js backend/tests/auth-middleware.test.js backend/tests/diaspora-subscription-authz.test.js backend/tests/diaspora-subscription-routes.test.js backend/tests/referral-owner-dispute-visibility.test.js backend/tests/oc4d-dealer-seller-authority.test.js
           npm run test:unit --workspace=web -- src/components/layout/OrganisationSwitcher.test.tsx src/lib/activeTenantClient.test.ts src/lib/authSession.test.ts src/lib/apiClient.stepUpCode.test.ts
-          cd mobile && npx tsc --noEmit && npx vitest run --config vitest.config.ts tests/oc5d-active-tenant.test.ts tests/gate2-session-validation.test.ts
+          cd mobile && npx tsc --noEmit && npx vitest run --config vitest.config.ts tests/oc5d-active-tenant.test.ts tests/gate2-session-validation.test.ts tests/garage-service-history-contract.test.ts
       - name: OC-5D — R14 a PRODUCTION web bundle carries no demo identity or password (real build, then scan)
         run: |
           npm run test:unit --workspace=web -- src/pages/auth/demoIdentityGuard.test.tsx
