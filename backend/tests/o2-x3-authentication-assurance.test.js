@@ -338,6 +338,36 @@ test('X3: governed admin revocation requires reason + step-up, and audits sessio
   assert.doesNotMatch(JSON.stringify(audit), /subject-token/, 'no token material in audit');
 });
 
+test('X3: the transfer transition route is CRITICAL class — stale sensitive-grade step-up is refused; fresh step-up reaches the domain', async () => {
+  // No step-up at all → the guard refuses before the domain sees anything.
+  const bare = await call('PATCH', '/api/ownership-transfers/tr-1', {
+    token: 'admin-token', body: { state: 'complete' },
+  });
+  assert.equal(bare.status, 403);
+  assert.equal(bare.body.code, 'STEP_UP_REQUIRED');
+  assert.equal(bare.body.action_class, 'critical_authority_action');
+
+  // A step-up fresh for SENSITIVE but stale for CRITICAL (older than 5 minutes) still refuses.
+  db.user_sessions.find((s) => s.id === 's-admin').step_up_at = new Date(Date.now() - 8 * 60 * 1000).toISOString();
+  db.user_sessions.find((s) => s.id === 's-admin').step_up_method = 'password_reauth';
+  const stale = await call('PATCH', '/api/ownership-transfers/tr-1', {
+    token: 'admin-token', body: { state: 'complete' },
+  });
+  assert.equal(stale.status, 403);
+  assert.equal(stale.body.code, 'STEP_UP_REQUIRED');
+
+  // Fresh step-up clears the guard; the request reaches the DOMAIN, whose own governance rules
+  // next — here the transfer service's completion contract refuses for want of a registry
+  // authority. Step-up granted nothing by itself.
+  await stepUp('admin-token');
+  const through = await call('PATCH', '/api/ownership-transfers/tr-1', {
+    token: 'admin-token', body: { state: 'complete' },
+  });
+  assert.notEqual(through.body?.error?.code ?? through.body?.code, 'STEP_UP_REQUIRED');
+  assert.match(JSON.stringify(through.body), /registryAuthority and completionReference/,
+    'the domain service is the next and final word');
+});
+
 // ---------------------------------------------------------------------------------------
 // Recovery classification
 // ---------------------------------------------------------------------------------------

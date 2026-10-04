@@ -53,6 +53,13 @@ const ACCOUNTS = {
   unassignedMechanic: { id: 'mech-2', role: 'mechanic', name: 'Unassigned Mechanic' },
 };
 const DEALERSHIP = 'tenant-oc4e-dealership';
+const ADMIN_PASSWORD = 'oc4e-admin-correct-horse';
+const ADMIN_PASSWORD_HASH = await (await import('../utils/passwordAuth.js')).hashPassword(ADMIN_PASSWORD);
+/** The reviewer re-proves their password on THIS session before a step-up-gated decision (O2-X3). */
+async function stepUpAdmin() {
+  const res = await call('/api/auth/step-up', { who: 'admin', method: 'POST', body: { password: ADMIN_PASSWORD } });
+  assert.equal(res.status, 200, `step-up: ${res.text.slice(0, 200)}`);
+}
 const GARAGE = 'tenant-oc4e-garage';
 const DEALER_VIN = 'JTMHY7AJ2K4012399';
 
@@ -88,7 +95,10 @@ function cloudflareAnswer(model, body) {
 let server; let baseUrl; let world; let restoreWorld;
 before(async () => {
   world = createSupabaseWorld({
-    users: Object.values(ACCOUNTS).map((u) => ({ id: u.id, role: u.role, name: u.name, email: `${u.id}@example.invalid`, is_verified: false })),
+    // OC-5C: the admin has a real password — the identity decision is step-up gated (O2-X3), and a
+    // step-up re-proves exactly that credential through the one endpoint that may record it.
+    users: Object.values(ACCOUNTS).map((u) => ({ id: u.id, role: u.role, name: u.name, email: `${u.id}@example.invalid`, is_verified: false,
+      ...(u.id === ACCOUNTS.admin.id ? { password_hash: ADMIN_PASSWORD_HASH } : {}) })),
     user_sessions: Object.keys(ACCOUNTS).map((who) => ({ token: `oc4e-${who}`, user_id: ACCOUNTS[who].id, is_valid: true, expires_at: FUTURE })),
     vehicles: [{ vin: VIN, owner_id: 'owner-1', current_seller_id: 'seller-1', tenant_id: null, make: 'Toyota', model: 'Hilux', year: 2020, mileage: 60000, price: 21000, status: 'Available', publication_status: 'published' }],
     // The seller's dealership, and two memberships of it: one that acts for the business, one that is employment.
@@ -156,6 +166,11 @@ test('JOURNEY Identity: capture → Qwen classifies and reads (candidate) → a 
   assert.ok(ocrCalls.length >= 1 && ocrCalls.every((c) => c.model === QWEN), `OCR ran on Qwen only: ${JSON.stringify(ocrCalls)}`);
   assert.equal(world.rows('users').find((u) => u.id === 'owner-1').is_verified, false, 'OCR alone verifies no one');
 
+  // The decision is step-up gated: without a fresh re-proof it is refused before anything is read.
+  const unproven = await call(`/api/admin/identity/verification-sessions/${sessionId}/review`, { who: 'admin', method: 'POST', body: { action: 'approve' } });
+  assert.equal(unproven.status, 403, unproven.text.slice(0, 200));
+  assert.equal(unproven.body.code, 'STEP_UP_REQUIRED');
+  await stepUpAdmin();
   const reviewed = await call(`/api/admin/identity/verification-sessions/${sessionId}/review`, { who: 'admin', method: 'POST', body: { action: 'approve', internal_note: 'Passport matches the account holder.' } });
   assert.equal(reviewed.status, 200, reviewed.text.slice(0, 400));
   assert.equal(reviewed.body.decision.action, 'approve');
@@ -180,6 +195,7 @@ test('JOURNEY People & Compliance: a reviewer reads the person as separate facts
   const stranger = await call('/api/admin/people/owner-1/review', { who: 'stranger' });
   assert.equal(stranger.status, 403, 'an owner account reads no one\'s private compliance state');
 
+  await stepUpAdmin(); // even a freshly re-proven reviewer may not decide their own identity
   const own = await call('/api/admin/identity/verification-sessions/9f1d2c3b-4a5e-4f60-8a7b-1c2d3e4f5a6b/review', { who: 'admin', method: 'POST', body: { action: 'approve' } });
   assert.equal(own.status, 403, own.text.slice(0, 300));
   assert.match(own.text, /cannot decide their own identity verification session/);
