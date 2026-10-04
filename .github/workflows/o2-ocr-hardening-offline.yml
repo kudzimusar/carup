@@ -611,6 +611,8 @@ jobs:
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
@@ -622,6 +624,12 @@ jobs:
         run: node --test backend/tests/oc4f-no-committed-credentials.test.js
       - name: Provider smoke harness is safe by construction (plan default, production refused)
         run: node --test backend/tests/oc4f-provider-smoke-harness.test.js
+      - name: RC1's new template migration on real PostgreSQL (Up, re-run, Down, Up)
+        run: node --test backend/tests/oc4f-dealer-template-migration.test.js
+      - name: Diff hygiene over the whole RC (the PR gates' own check)
+        # fetch-depth: 0 above already brought origin/main; a shallow re-fetch here would truncate
+        # the history the merge base needs.
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
       - name: The web client calls no retired route
         run: npm run test:unit --workspace=web -- src/lib/retiredRoutes.test.ts
 
