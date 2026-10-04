@@ -187,6 +187,27 @@ function isSessionFailure(status: number, message?: string): boolean {
 // can clear its stored auth and redirect to login. Module-level so the framework-agnostic core can
 // signal React without importing it.
 let unauthorizedHandler: (() => void) | null = null
+
+/**
+ * OC-5D — the server re-verifies the session's selected organisation on every request. When it no
+ * longer holds (the membership was revoked, the organisation deactivated) or the client asserted a
+ * different one, the request is refused with one of these codes. The client's copy of its organisation
+ * is then stale, so AuthContext re-reads the session (`/auth/me`) — the next request stops asserting an
+ * organisation the person no longer acts for, and the person is asked to choose again.
+ */
+export const TENANT_CONTEXT_CODES: ReadonlySet<string> = new Set(['TENANT_CONTEXT_MISMATCH', 'TENANT_CONTEXT_REVOKED'])
+let tenantContextHandler: ((code: string) => void) | null = null
+
+export function setTenantContextHandler(handler: ((code: string) => void) | null): void {
+  tenantContextHandler = handler
+}
+
+function signalTenantContext(failure: ApiFailure): ApiFailure {
+  if (failure.code && TENANT_CONTEXT_CODES.has(failure.code) && tenantContextHandler) {
+    try { tenantContextHandler(failure.code) } catch { /* never mask the original failure */ }
+  }
+  return failure
+}
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler
 }
@@ -378,11 +399,11 @@ export async function apiRequest<T = any>({
       const retryErrorData = await retryResponse.json().catch(() => ({} as Record<string, unknown>))
       // Every unsafe 403 lands here (a 403 is presumed to be a stale CSRF token and retried once),
       // so this is also where a genuine STEP_UP_REQUIRED arrives. It goes through the ONE builder.
-      throw buildApiFailure(
+      throw signalTenantContext(buildApiFailure(
         extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`,
         retryResponse.status,
         retryErrorData,
-      )
+      ))
     }
 
     if (isSessionFailure(response.status, message)) {
@@ -394,7 +415,7 @@ export async function apiRequest<T = any>({
       throw new SessionExpiredError(message || SESSION_INVALID_MESSAGE)
     }
 
-    throw buildApiFailure(message || `HTTP error! status: ${response.status}`, response.status, errorData)
+    throw signalTenantContext(buildApiFailure(message || `HTTP error! status: ${response.status}`, response.status, errorData))
   }
 
   return (await response.json()) as T

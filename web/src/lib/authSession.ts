@@ -81,4 +81,7 @@ export async function validateStoredSession({
   return data.user
 }
 
+// OC-5D — the server's view of the session's organisation replaces the client's (shared with native).
+export { withServerTenantContext } from '@shared/auth/sessionTenant'
+
 export { SessionExpiredError }

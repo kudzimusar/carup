@@ -6,6 +6,7 @@ import { canRoleAccessRoute } from '@/config/featureRegistry'
 import type { UserRole } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
+import { ActiveOrganisationPrompt } from '@/components/layout/OrganisationSwitcher'
 import type { DiasporaTradeContext } from '@/types'
 import TradeShippingWorkspace from '@/pages/diaspora/TradeShippingWorkspace'
 
@@ -157,6 +158,7 @@ export default function TradeOSWorkspaceLayout() {
           </div>
         </div>
       </header>
+      <ActiveOrganisationPrompt />
       <main className="min-w-0 flex-1">
         {/*
           * enforceAuth is ON. It was previously false, which meant the registry's ROLE decision was

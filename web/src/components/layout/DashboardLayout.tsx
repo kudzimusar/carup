@@ -33,6 +33,7 @@ import {
 } from '@/components/routing/RegistryRouteBoundary'
 import { FeaturePlannedPage, FeatureDisabledPage } from '@/components/routing/FeatureStatePages'
 import { OwnerNotificationBell } from '@/components/owner/OwnerNotificationBell'
+import { ActiveOrganisationPrompt, OrganisationBadge } from '@/components/layout/OrganisationSwitcher'
 import type { UserRole } from '@shared/types'
 
 /** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
@@ -322,6 +323,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 </Link>
               </Button>
             )}
+            <OrganisationBadge />
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="gap-1">
                 <Store className="w-4 h-4" />
@@ -330,6 +332,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             </Button>
           </div>
         </header>
+        <ActiveOrganisationPrompt />
 
         {/* Page Content — boundary shows a beta notice above beta features */}
         <main className="p-4 lg:p-6">
