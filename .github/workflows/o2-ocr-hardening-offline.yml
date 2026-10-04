@@ -12,6 +12,7 @@ on:
       - feat/ocr10-c3-garage-evidence-consumer-convergence
       - fix/oc-2a-verification-authority-convergence
       - fix/oc-3b-truthful-ai-ledger-containment
+      - feat/oc-3c-shared-cloudflare-ai-runtime
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -121,6 +122,11 @@ on:
       - 'backend/config/testFixtureGuard.js'
       - 'backend/tests/oc3b-r-simulation-steering-guard.test.js'
       - 'backend/tests/ai-temporal-disclosure.test.js'
+      # OC-3C: the ONE Workers AI transport, the general gateway policy converged from PR #217, the
+      # OCR policy's env template, and the suites that pin both policies to the transport.
+      - 'backend/env.example'
+      - 'backend/tests/oc3c-cloudflare-ai-transport.test.js'
+      - 'backend/tests/ai01b-carup-ai-gateway.test.js'
       - 'web/src/pages/dashboard/owner/PartSentry.tsx'
       - 'web/src/pages/dashboard/owner/PartSentry.test.tsx'
       - 'web/src/types/index.ts'
@@ -214,7 +220,9 @@ jobs:
             backend/tests/d0-evidence-private-data-exposure.test.js \
             backend/tests/ocr-mock-guard.test.js \
             backend/tests/oc3b-r-simulation-steering-guard.test.js \
-            backend/tests/ai-temporal-disclosure.test.js
+            backend/tests/ai-temporal-disclosure.test.js \
+            backend/tests/oc3c-cloudflare-ai-transport.test.js \
+            backend/tests/ai01b-carup-ai-gateway.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
