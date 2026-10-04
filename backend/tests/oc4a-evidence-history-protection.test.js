@@ -40,13 +40,17 @@ const {
 } = harness;
 const { supabase } = await import('../db/supabase.js');
 const review = await import('../services/trustGovernance/partsentryReviewService.js');
+const { createOc5aDatabase } = await import('./helpers/oc5aPartSentryWorld.js');
+const OC5A_RECORD_SQL = path.join(REPO, 'database/migrations/20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql');
 
 const VIN = 'OC4AFAKEVIN000001';
 const realFrom = supabase.from;
 const opened = [];
 
-async function freshDatabase({ candidates = false } = {}) {
-  const db = await createEvidenceHistoryDatabase();
+async function freshDatabase({ candidates = false, oc5a = false } = {}) {
+  // OC-5A: the PartSentry writer is now a SQL function whose preconditions (work orders, owner
+  // authorization) live in the OC-5A world — the same evidence-history schema plus those migrations.
+  const db = oc5a ? await createOc5aDatabase() : await createEvidenceHistoryDatabase();
   opened.push(db);
   // Supabase's platform default: the backend's service_role holds every table privilege.
   await db.exec('GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;');
@@ -134,26 +138,40 @@ test('OC-4A 1.1 positive control — WITHOUT the candidate, the backend role rew
 
 // ── partsentry_logs: DOMAIN HISTORY WITH GOVERNED CORRECTION ─────────────────────────────────────────
 
+/** The insert column set of the ONE runtime writer — since OC-5A, the SQL function partsentry_record_service. */
 function partsentryInsertColumns() {
-  const source = readFileSync(path.join(BACKEND, 'services/partsentry/partsentryService.js'), 'utf8');
-  const at = source.indexOf(".from('partsentry_logs').insert({");
-  const body = source.slice(at, source.indexOf('})', at));
-  return body.slice(body.indexOf('{') + 1).split(',').map((property) => property.split(':')[0].trim()).filter(Boolean);
+  const sql = readFileSync(OC5A_RECORD_SQL, 'utf8');
+  const at = sql.indexOf('INSERT INTO public.partsentry_logs');
+  const list = sql.slice(sql.indexOf('(', at) + 1, sql.indexOf(')', at));
+  return list.split(',').map((column) => column.trim()).filter(Boolean);
 }
 
-test('OC-4A 1.1 partsentry_logs — the writers still work under the candidate: partsentryService\'s insert, then the REAL review workflow (request, admin approval, flag, clear)', async () => {
-  const { db, client } = await freshDatabase({ candidates: true });
+test('OC-4A 1.1 partsentry_logs — the writers still work under the candidate: the OC-5A record function, then the REAL review workflow (request, admin approval, flag, clear)', async () => {
+  const { db, client } = await freshDatabase({ candidates: true, oc5a: true });
   const columns = partsentryInsertColumns();
-  assert.deepEqual(columns, ['vin', 'mechanic_id', 'part_name', 'part_oem', 'action_type', 'description', 'mileage', 'signature', 'timestamp', 'tenant_id']);
+  // OC-5A's four new columns are repair FACTS: outside the candidate's six governed fields, so the
+  // guard keeps them immutable once written — which is why ledger state lives in ledger_event_intents.
+  assert.deepEqual(columns, ['vin', 'mechanic_id', 'part_name', 'part_oem', 'action_type', 'description', 'mileage', 'signature', 'timestamp', 'tenant_id',
+    'attestation', 'work_order_id', 'odometer_applied', 'idempotency_key']);
   const { rows: insertTriggers } = await db.query(`SELECT tgname FROM pg_trigger WHERE tgrelid = 'partsentry_logs'::regclass AND NOT tgisinternal AND (tgtype & 4) <> 0`);
   assert.deepEqual(insertTriggers, [], 'the candidate puts nothing on INSERT');
+  // A governed mechanic service: mech-1 under an authorized work order of a garage.
+  const { rows: [{ id: garage }] } = await db.query(`INSERT INTO tenants (name, type) VALUES ('Garage', 'garage') RETURNING id`);
+  const { rows: [{ id: workOrder }] } = await db.query(
+    `INSERT INTO mechanic_work_orders (tenant_id, vin, mechanic_id, status, owner_authorization, owner_authorized_by, owner_authorized_at)
+     VALUES ($1, $2, 'mech-1', 'In Progress', 'authorized', 'admin-1', now()) RETURNING id`, [garage, VIN]);
   await db.exec('SET ROLE service_role');
   try {
-    const values = { vin: VIN, mechanic_id: 'mech-1', part_name: 'Brake pads', part_oem: 'OEM-1', action_type: 'Replaced', description: 'Front axle',
-      mileage: 43000, signature: 'SIG0000000000001', timestamp: new Date().toISOString(), tenant_id: null };
-    const { data: inserted, error } = await client.from('partsentry_logs').insert(Object.fromEntries(columns.map((c) => [c, values[c]]))).select('id');
-    assert.equal(error, null, 'the backend role still records a repair');
-    const recorded = { id: inserted[0].id };
+    const { data: outcome, error } = await client.rpc('partsentry_record_service', {
+      p_vin: VIN, p_actor_id: 'mech-1', p_attestation: 'mechanic_service', p_work_order_id: workOrder, p_tenant_id: garage,
+      p_part_name: 'Brake pads', p_part_oem: 'OEM-1', p_action_type: 'Replaced', p_description: 'Front axle', p_mileage: 43000,
+      p_signature: 'SIG0000000000001', p_timestamp: new Date().toISOString(), p_idempotency_key: null,
+      p_ledger_event_type: 'Mechanic Inspection', p_ledger_payload: { attestation: 'mechanic_service', mechanicId: 'mech-1' },
+    });
+    assert.equal(error, null, `the backend role still records a repair: ${error?.message}`);
+    const recorded = { id: outcome.log.id };
+    const attestationEdit = await attempt(db, `UPDATE partsentry_logs SET attestation = 'owner_stated', odometer_applied = false WHERE id = $1`, [recorded.id]);
+    assert.ok(governedRefusal(attestationEdit), 'an attestation is a repair fact: never rewritten after the fact');
 
     const request = await review.createPartSentryReviewRequest(client, { id: 'mech-1', role: 'mechanic' }, recorded.id,
       { request_type: 'public_card_eligible', requested_value: { public_card_eligible: true }, reason: 'Ready for the public card' });
@@ -360,10 +378,15 @@ function writesTo(table) {
 }
 
 test('OC-4A 1.1 pin — the measured writers the classification rests on (a new writer must revisit the candidate)', () => {
+  // OC-5A moved the one INSERT into the database, in the same transaction as the odometer and the
+  // ledger intent (partsentry_record_service). The candidate was revisited for it: it puts nothing on
+  // INSERT, and the function's new columns are facts the guard keeps immutable (test above).
   assert.deepEqual(writesTo('partsentry_logs'), [
-    ['services/partsentry/partsentryService.js', 'insert'],
     ['services/trustGovernance/partsentryReviewService.js', 'update'],
   ]);
+  const recordSql = readFileSync(OC5A_RECORD_SQL, 'utf8').split(/^-- \+migrate Down/m)[0];
+  assert.equal((recordSql.match(/INSERT INTO public\.partsentry_logs/g) || []).length, 1, 'exactly one SQL writer');
+  assert.doesNotMatch(recordSql, /UPDATE public\.partsentry_logs|DELETE FROM public\.partsentry_logs/, 'the record function never rewrites history');
   assert.deepEqual(writesTo('ocr_documents'), [
     ['services/document-intelligence/documentIntelligenceService.js', 'insert'],
     ['services/document-intelligence/documentIntelligenceService.js', 'insert'],

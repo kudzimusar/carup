@@ -466,24 +466,42 @@ test('P1: a mechanic must hold a relationship to the vehicle before writing its 
   assert.doesNotMatch(src, /role !== 'mechanic'/,
     'the mechanic role must not be exempted from the vehicle relationship check');
 
-  // Only platform-wide roles bypass, and that decision comes from the ONE definition of it.
-  assert.match(src, /if \(!hasPlatformWideVehicleAuthority\(req\.userContext\)\)/);
-  // A mechanic is admitted by a real relationship, not by their role.
-  assert.match(src, /req\.userContext\.role === 'mechanic'\s*\n?\s*\?\s*await mechanicIsAssignedToVehicle\(/);
+  // OC-5A: ONE authority decides, before anything is recorded; the route itself grants nothing.
+  const authorityAt = src.indexOf('resolvePartSentryWriteAuthority(');
+  assert.ok(authorityAt > 0 && src.indexOf('recordPartSentryEntry(') > authorityAt);
+  const authority = readFileSync(new URL('../services/partsentry/partsentryServiceAuthority.js', import.meta.url), 'utf8');
+  assert.match(authority, /if \(effectiveRole === 'mechanic'\) \{\s*const relationship = await resolveMechanicServiceRelationship\(/,
+    'a mechanic is admitted by a real relationship, not by their role');
+  // Only the platform role carries platform-wide reach (never the lent or requested effective role).
+  assert.match(authority, /PLATFORM_ADMIN_ROLES\.has\(norm\(userContext\.platformRole\)\)/);
 });
 
-test('P1: the mechanic relationship is a tenant link or an assigned work order, and fails closed', () => {
-  const fn = SERVER.slice(SERVER.indexOf('async function mechanicIsAssignedToVehicle'));
-  const body = fn.slice(0, fn.indexOf('\n}\n') + 2);
+test('P1 (OC-5A): the mechanic relationship is an OWNER-AUTHORIZED, open work order of a service organisation the mechanic verifiably belongs to — and it fails closed', () => {
+  const authority = readFileSync(new URL('../services/partsentry/partsentryServiceAuthority.js', import.meta.url), 'utf8');
+  const start = authority.indexOf('export async function resolveMechanicServiceRelationship');
+  const body = authority.slice(start, authority.indexOf('\n}\n', start) + 2);
 
-  assert.match(body, /vehicleRow\.tenant_id === userContext\.tenantId/,
-    'the vehicle must belong to the mechanic’s organisation');
   assert.match(body, /\.from\('mechanic_work_orders'\)/);
   assert.match(body, /\.eq\('vin', vin\)/, 'the work order must be for THIS vin');
-  assert.match(body, /\.eq\('mechanic_id', userContext\.id\)/, 'and assigned to THIS mechanic');
+  assert.match(body, /\.eq\('mechanic_id', mechanicId\)/, 'and assigned to THIS mechanic');
+  assert.match(body, /order\.owner_authorization === 'authorized'/, 'a self-issued work order is a request, not a relationship');
+  assert.match(body, /OPEN_WORK_ORDER_STATUSES\.includes\(order\.status\)/, 'and the work is open');
+  // The organisation is the WORK ORDER's, re-verified by the ONE membership check (shared with
+  // full-record reading) — never the caller's header.
+  assert.match(body, /verifyServiceOrganisationMembership\(client, \{ tenantId: order\.tenant_id, mechanicId \}\)/);
+  const hStart = authority.indexOf('export async function verifyServiceOrganisationMembership');
+  const helper = authority.slice(hStart, authority.indexOf('\n}\n', hStart) + 2);
+  assert.match(helper, /\.from\('tenant_users'\)\.select\('role'\)\.eq\('tenant_id', tenantId\)\.eq\('user_id', mechanicId\)/);
+  assert.match(helper, /SERVICE_MEMBERSHIP_ROLES\.includes\(norm\(membership\.role\)\)/);
+  assert.match(helper, /SERVICE_ORGANISATION_TYPES\.includes\(norm\(tenant\.type\)\)/);
+  assert.match(helper, /norm\(tenant\.status\) !== 'active'/);
+  // RC1's raw tenant link — "the vehicle belongs to the mechanic's organisation" — is gone.
+  assert.doesNotMatch(authority, /vehicleRow\.tenant_id === userContext\.tenantId/);
+  assert.doesNotMatch(body, /userContext/, 'the relationship reads no request context at all');
+  assert.doesNotMatch(helper, /userContext/, 'nor does the membership check');
   // A failed lookup must refuse, not admit.
-  assert.match(body, /if \(error\) return false;/);
-  assert.doesNotMatch(body, /if \(error\) return true;/);
+  assert.match(body, /if \(error\) return \{ ok: false, status: 503/);
+  assert.match(helper, /if \(membershipError \|\| tenantError\) \{\s*return \{ ok: false, status: 503/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════

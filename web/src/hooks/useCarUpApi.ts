@@ -7,6 +7,7 @@ import type { DocumentWorkspace } from '@/pages/diaspora/TradeDocumentsWorkspace
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
+import type { PartSentryRecordResult, VehicleWorkOrder, WorkOrderDecision } from '@/lib/partsentry'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
@@ -1026,10 +1027,31 @@ export function useCarUpApi() {
   }, [request])
 
   // The mechanic identity is derived server-side from req.userContext.id — never client-supplied.
-  const addRepairLog = useCallback(async (vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number): Promise<any> => {
-    return request('/partsentry/add', {
+  // OC-5A: the same Idempotency-Key on every retry of ONE submit makes the server return the original
+  // record (a lost response is never a second entry, and never a refusal). Who stands behind the entry
+  // (its attestation) is decided by the server, never by the client.
+  const addRepairLog = useCallback(async (
+    vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number,
+    options?: { idempotencyKey?: string; workOrderId?: string | null },
+  ): Promise<PartSentryRecordResult> => {
+    return request<PartSentryRecordResult>('/partsentry/add', {
       method: 'POST',
-      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage })
+      ...(options?.idempotencyKey ? { headers: { 'Idempotency-Key': options.idempotencyKey } } : {}),
+      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage, ...(options?.workOrderId ? { workOrderId: options.workOrderId } : {}) })
+    })
+  }, [request])
+
+  // OC-5A: the vehicle's custodian (its owner; for owner-less dealership stock, its governed dealer)
+  // sees the work orders mechanics have opened on it and decides on each. A work order grants a
+  // mechanic nothing until it is authorized here.
+  const fetchVehicleWorkOrders = useCallback(async (vin: string): Promise<VehicleWorkOrder[]> => {
+    return request<VehicleWorkOrder[]>(`/vehicles/${encodeURIComponent(vin)}/work-orders`)
+  }, [request])
+
+  const decideWorkOrderAuthorization = useCallback(async (vin: string, workOrderId: string, decision: WorkOrderDecision, reason?: string): Promise<{ success: boolean; workOrder: VehicleWorkOrder }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/work-orders/${encodeURIComponent(workOrderId)}/authorization`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, ...(reason ? { reason } : {}) })
     })
   }, [request])
 
@@ -3118,6 +3140,8 @@ export function useCarUpApi() {
     fetchSafePayEscrows,
     updateSafePayEscrow,
     addRepairLog,
+    fetchVehicleWorkOrders,
+    decideWorkOrderAuthorization,
     fetchRepairHistory,
     runFraudScan,
     runRiskAssessment,

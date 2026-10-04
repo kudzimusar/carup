@@ -53,6 +53,7 @@ const ACCOUNTS = {
   unassignedMechanic: { id: 'mech-2', role: 'mechanic', name: 'Unassigned Mechanic' },
 };
 const DEALERSHIP = 'tenant-oc4e-dealership';
+const GARAGE = 'tenant-oc4e-garage';
 const DEALER_VIN = 'JTMHY7AJ2K4012399';
 
 let seq = 0;
@@ -91,15 +92,21 @@ before(async () => {
     user_sessions: Object.keys(ACCOUNTS).map((who) => ({ token: `oc4e-${who}`, user_id: ACCOUNTS[who].id, is_valid: true, expires_at: FUTURE })),
     vehicles: [{ vin: VIN, owner_id: 'owner-1', current_seller_id: 'seller-1', tenant_id: null, make: 'Toyota', model: 'Hilux', year: 2020, mileage: 60000, price: 21000, status: 'Available', publication_status: 'published' }],
     // The seller's dealership, and two memberships of it: one that acts for the business, one that is employment.
-    tenants: [{ id: DEALERSHIP, name: 'Harare Motors', type: 'dealership', status: 'active' }],
+    tenants: [
+      { id: DEALERSHIP, name: 'Harare Motors', type: 'dealership', status: 'active' },
+      { id: GARAGE, name: 'Avondale Garage', type: 'garage', status: 'active' },
+    ],
     tenant_users: [
       { tenant_id: DEALERSHIP, user_id: 'seller-1', role: 'admin' },
       { tenant_id: DEALERSHIP, user_id: 'dealermech-1', role: 'mechanic' },
+      { tenant_id: GARAGE, user_id: 'mech-1', role: 'mechanic' },
     ],
     // The admin's OWN identity session, awaiting review — the self-review law's subject.
     verification_sessions: [{ id: '9f1d2c3b-4a5e-4f60-8a7b-1c2d3e4f5a6b', user_id: 'admin-1', status: 'pending_review', workflow_phase: 'reviewer_action_required', document_type: 'passport', version: 1, created_at: '2026-10-04T00:00:00.000Z' }],
-    // A governed service relationship: mech-1 holds a work order for this exact vin; mech-2 holds none.
-    mechanic_work_orders: [{ id: 'wo-1', vin: VIN, mechanic_id: 'mech-1', status: 'in_progress' }],
+    // A governed service relationship (OC-5A): mech-1 holds an OPEN work order for this exact vin, of a
+    // garage mech-1 verifiably belongs to, which the vehicle's OWNER authorized; mech-2 holds none.
+    mechanic_work_orders: [{ id: 'wo-1', vin: VIN, tenant_id: GARAGE, mechanic_id: 'mech-1', status: 'In Progress',
+      owner_authorization: 'authorized', owner_authorized_by: 'owner-1', owner_authorized_at: '2026-10-04T00:00:00.000Z' }],
   }, { serialTables: ['blockchain_events'] }); // BIGSERIAL in the schema; the verifier walks it by id
   restoreWorld = installSupabaseWorld(supabase, world);
   globalThis.fetch = async (url, init) => {
@@ -316,9 +323,37 @@ test('JOURNEY Mechanic: a governed service relationship decides; PartSentry reco
     return { data: { ...row, event_timestamp: new Date().toISOString() }, error: null };
   });
 
+  // The OC-5A record function and intent claim, modelled for this in-memory world. The REAL SQL
+  // functions — one transaction for the record, the odometer and the intent; exclusive claims — are
+  // proven on PostgreSQL in oc5a-partsentry-atomic-ledger-intent.test.js.
+  world.rpcs.set('partsentry_record_service', async (p, { rowsOf }) => {
+    const vehicle = rowsOf('vehicles').find((v) => v.vin === p.p_vin);
+    if (!vehicle) return { data: null, error: { code: 'P0002', message: 'Vehicle not found.' } };
+    if (vehicle.mileage != null && p.p_mileage < vehicle.mileage) return { data: null, error: { code: '22023', message: 'Mileage verification failure.' } };
+    const logs = rowsOf('partsentry_logs');
+    const log = { id: logs.length + 1, vin: p.p_vin, mechanic_id: p.p_actor_id, part_name: p.p_part_name, part_oem: p.p_part_oem, action_type: p.p_action_type,
+      description: p.p_description, mileage: p.p_mileage, signature: p.p_signature, timestamp: p.p_timestamp, tenant_id: p.p_tenant_id,
+      attestation: p.p_attestation, work_order_id: p.p_work_order_id, odometer_applied: p.p_attestation === 'mechanic_service', idempotency_key: p.p_idempotency_key };
+    logs.push(log);
+    if (log.odometer_applied) vehicle.mileage = p.p_mileage;
+    const id = `intent-${log.id}`;
+    const intent = { id, source: 'partsentry_logs', source_id: String(log.id), vin: p.p_vin, event_type: p.p_ledger_event_type,
+      payload: { ...p.p_ledger_payload, logId: log.id, ledgerIntentId: id }, signer_id: p.p_actor_id, operation_id: `partsentry_log:${log.id}`,
+      status: 'pending', attempts: 0, claim_token: null, ledger_event_id: null };
+    rowsOf('ledger_event_intents').push(intent);
+    return { data: { replayed: false, log, intent: { ...intent } }, error: null };
+  });
+  world.rpcs.set('ledger_event_intents_claim', async (p, { rowsOf }) => {
+    const claimed = rowsOf('ledger_event_intents').filter((i) => i.status === 'pending' && (!p.p_intent_id || i.id === p.p_intent_id)).slice(0, p.p_limit || 10);
+    for (const intent of claimed) Object.assign(intent, { status: 'recording', claim_token: p.p_claim_token, claimed_at: new Date().toISOString(), attempts: intent.attempts + 1 });
+    return { data: claimed.map((i) => ({ ...i })), error: null };
+  });
+
   const ledgerBefore = (await call(`/api/vehicles/${VIN}/verify-ledger`)).body.count;
   const logged = await call('/api/partsentry/add', { who: 'mechanic', method: 'POST', body: part });
-  assert.equal(logged.status, 200, logged.text.slice(0, 300));
+  assert.equal(logged.status, 201, logged.text.slice(0, 300));
+  assert.equal(logged.body.attestation, 'mechanic_service', 'a governed mechanic service — the only class that moves the odometer');
+  assert.equal(logged.body.ledger.status, 'recorded', JSON.stringify(logged.body.ledger));
   assert.equal(world.rows('partsentry_logs').length, 1, 'PartSentry recorded the service');
   assert.equal(world.rows('vehicles').find((v) => v.vin === VIN).mileage, 60500, 'the canonical odometer follows the governed log');
   const after = await call(`/api/vehicles/${VIN}/verify-ledger`);

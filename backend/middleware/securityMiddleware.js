@@ -260,6 +260,9 @@ export function csrfMiddleware(req, res, next) {
                     /^\/api\/communications\/unsubscribe(?:$|[/?#])/.test(url) ||
                     // Serverless outbox drain (worker-secret guarded in-route)
                     /^\/api\/internal\/events\/process(?:$|[/?#])/.test(url) ||
+                    // OC-5A ledger-intent drain: machine-to-machine, secret-guarded in-route
+                    // (ledgerIntentRoutes.js refuses everything when no secret is configured).
+                    /^\/api\/internal\/ledger-intents\/process(?:$|[/?#])/.test(url) ||
                     // Full Activation signed provider webhooks (HMAC + timestamp + idempotency verified in-service)
                     url.startsWith('/api/insurer/webhook') ||
                     url.startsWith('/api/finance/lender/webhook') ||

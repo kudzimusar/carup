@@ -83,8 +83,9 @@ describe('ServiceLogs mechanic page truthfulness', () => {
     await waitFor(() => expect(addRepairLog).toHaveBeenCalled())
     expect(toastSuccess).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalled()
-    // The new signature never carries a client-chosen mechanic id.
-    expect(addRepairLog).toHaveBeenCalledWith('VIN0000000000001', 'Brake Pads', 'BP-01', 'Replaced', 'Front pads', 0)
+    // The new signature never carries a client-chosen mechanic id — only the entry and, since OC-5A,
+    // an idempotency key so a retried submit can never record the service twice.
+    expect(addRepairLog).toHaveBeenCalledWith('VIN0000000000001', 'Brake Pads', 'BP-01', 'Replaced', 'Front pads', 0, { idempotencyKey: expect.any(String) })
   })
 
   it('source: no mockLogs seed and no hardcoded mechanic id', () => {

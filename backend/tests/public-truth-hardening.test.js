@@ -318,7 +318,9 @@ test('the repair service refuses an unusable odometer and stores absent fields a
   const code = svc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   // `NaN < x` is false, so an absent mileage previously sailed past the odometer
   // guard, was persisted, and was stamped onto the vehicle.
-  assert.ok(/Number\.isFinite\(odometer\)/.test(code), 'the service must validate the odometer itself');
+  // OC-5A: Number.isInteger — finite AND whole, since the reading may become the canonical odometer
+  // (an INTEGER column) inside the one record transaction. Strictly stronger than isFinite.
+  assert.ok(/Number\.isInteger\(odometer\)/.test(code), 'the service must validate the odometer itself');
   assert.ok(/A valid odometer reading is required/.test(code));
   assert.ok(/cleanDescription/.test(code) && /cleanPartOem/.test(code),
     'absent description and OEM must be stored as null, never as a placeholder');

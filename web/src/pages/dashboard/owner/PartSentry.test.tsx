@@ -15,6 +15,9 @@ const addRepairLog = vi.fn()
 const verifyLedger = vi.fn()
 const fetchOwnedVehicles = vi.fn()
 const fetchRepairHistory = vi.fn()
+// OC-5A: the page also shows the vehicle's service requests (work orders awaiting the owner).
+const fetchVehicleWorkOrders = vi.fn()
+const decideWorkOrderAuthorization = vi.fn()
 
 const toastSuccess = vi.fn()
 const toastError = vi.fn()
@@ -23,7 +26,7 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory }),
+  useCarUpApi: () => ({ addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory, fetchVehicleWorkOrders, decideWorkOrderAuthorization }),
 }))
 
 const PartSentry = (await import('./PartSentry')).default
@@ -34,6 +37,7 @@ const FORBIDDEN_STATIC_PARTS = ['Engine Oil & Filter', 'Brake Pads (Front)', 'Ai
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fetchVehicleWorkOrders.mockResolvedValue([])
 })
 
 describe('PartSentry owner page truthfulness', () => {
@@ -168,5 +172,37 @@ describe('PartSentry owner page truthfulness', () => {
     expect(SRC).toMatch(/const ACTION_TYPES = \['Replaced', 'Repaired', 'Inspected', 'Diagnosed'\] as const/)
     expect(SRC).not.toContain("'Upgraded'")
     expect(SRC).not.toContain("'Removed'")
+  })
+
+  // ── OC-5A ──────────────────────────────────────────────────────────────────────────────────────
+  it('OC-5A: every row says who stands behind it — an owner statement is labelled as one', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([
+      { id: 1, vin: 'VIN0000000000001', part_name: 'Pads', action_type: 'Replaced', mileage: 50000, timestamp: '2026-10-01T00:00:00Z', attestation: 'mechanic_service' },
+      { id: 2, vin: 'VIN0000000000001', part_name: 'Wipers', action_type: 'Replaced', mileage: 50100, timestamp: '2026-10-02T00:00:00Z', attestation: 'owner_stated' },
+      { id: 3, vin: 'VIN0000000000001', part_name: 'Belt', action_type: 'Replaced', mileage: 49000, timestamp: '2026-09-01T00:00:00Z' },
+    ])
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
+    render(<PartSentry />)
+    expect((await screen.findByTestId('part-attestation-1')).textContent).toBe('Mechanic service')
+    expect(screen.getByTestId('part-attestation-2').textContent).toBe('Owner statement')
+    expect(screen.getByTestId('part-attestation-3').textContent).toBe('Not attested')
+  })
+
+  it('OC-5A: the service requests panel is shown for the selected vehicle', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
+    render(<PartSentry />)
+    expect(await screen.findByTestId('work-order-requests')).toBeInTheDocument()
+    await waitFor(() => expect(fetchVehicleWorkOrders).toHaveBeenCalledWith('VIN0000000000001'))
+  })
+
+  it('OC-5A source: one idempotency key per entry, reused on retry, discarded on any edit; outcome wording comes from the server\'s answer', () => {
+    expect(SRC).toMatch(/submitKey\.current = submitKey\.current \?\? newIdempotencyKey\(\)/)
+    expect(SRC).toMatch(/\{ idempotencyKey: submitKey\.current \}/)
+    expect(SRC).toMatch(/useEffect\(\(\) => \{ submitKey\.current = null \}, \[repairForm\]\)/)
+    expect(SRC).toMatch(/toast\.success\(recordOutcomeMessage\(result\)/)
+    expect(SRC).not.toMatch(/recorded on the PartSentry ledger\$\{/)
   })
 })

@@ -362,8 +362,11 @@ const SELLER_SURFACES = [
 
 /** Surfaces that legitimately keep their OWN tenant scope — a different authority entirely. */
 const NOT_SELLER_AUTHORITY = [
-  ['../server.js', 'async function mechanicIsAssignedToVehicle', 'Service Network assignment'],
-  ['../server.js', "app.post('/api/partsentry/add'", 'PartSentry service authority'],
+  // OC-5A replaced server.js's mechanicIsAssignedToVehicle (raw tenant equality OR any self-issued work
+  // order) with ONE governed relationship: an owner-authorized work order whose ORGANISATION the
+  // mechanic verifiably belongs to. It keeps its own scope — the work order's tenant — and is still not
+  // seller authority: servicing a car is not selling it.
+  ['../services/partsentry/partsentryServiceAuthority.js', 'export async function resolveMechanicServiceRelationship', 'PartSentry mechanic service relationship'],
   ['../middleware/vehicleObjectAuthority.js', 'export async function resolveVehicleObjectAuthority', 'lender/insurer object authority'],
 ];
 
@@ -395,6 +398,18 @@ test('register: Service Network, PartSentry and object authority keep their OWN 
     assert.equal(/hasGovernedDealerVehicleAuthority/.test(body), false, `${label}: servicing a car is not selling it`);
     assert.match(body, /tenant_id/, `${label} must still have its own tenant scope`);
   }
+});
+
+test('register (OC-5A): a DEALER writing PartSentry reaches the governed Dealer decision; the route grants on no raw tenant', () => {
+  // RC1 residual finding A: the route's non-mechanic branch granted on `vehicle.tenant_id ===
+  // userContext.tenantId`, so a dealership member with no Dealer authority wrote the dealership's
+  // stock and moved its odometer. A dealer now needs the governed decision; raw membership is not it.
+  const authority = surfaceBody('../services/partsentry/partsentryServiceAuthority.js', 'export async function resolvePartSentryWriteAuthority');
+  assert.match(authority, /hasGovernedDealerVehicleAuthority\(client, userContext, vehicle\)/);
+  assert.equal(TENANT_GRANT.test(authority), false, 'no raw tenant equality in the write authority');
+  const route = surfaceBody('../server.js', "app.post('/api/partsentry/add'");
+  assert.match(route, /resolvePartSentryWriteAuthority\(/);
+  assert.equal(TENANT_GRANT.test(route), false, 'the route grants on no raw tenant');
 });
 
 /* ══ 6. BEHAVIOUR through the real routes — status and row count, never spelling (P4/F3) ═══════ */

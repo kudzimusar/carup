@@ -8,7 +8,7 @@ import { supabase } from './db/supabase.js';
 
 // Import Middleware
 import { authorizeRole, authorizeSessionRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
-import { requireVehicleObjectAuthority, hasPlatformWideVehicleAuthority } from './middleware/vehicleObjectAuthority.js';
+import { requireVehicleObjectAuthority } from './middleware/vehicleObjectAuthority.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -31,7 +31,8 @@ import {
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
 import { toLedgerIntegrityReport } from './services/blockchain/ledgerIntegrityProjection.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
-import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
+import { recordPartSentryEntry, getRepairHistory, PartSentryRecordError } from './services/partsentry/partsentryService.js';
+import { resolvePartSentryWriteAuthority, resolvePartSentryReadScope } from './services/partsentry/partsentryServiceAuthority.js';
 import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvisoryError } from './services/ai/aiServiceBus.js';
 
 // Import Group B & C Services
@@ -82,6 +83,8 @@ import { hasVerifiedOwnershipAuthorityEvidence, isSellerAuthorityEffectivelyDeni
 import leadsRouter from './routes/leadsRoutes.js';
 import promotionsRouter from './routes/promotionsRoutes.js';
 import workOrdersRouter from './routes/workOrdersRoutes.js';
+import ledgerIntentRouter from './routes/ledgerIntentRoutes.js';
+import { countUnrecordedLedgerIntents } from './services/blockchain/ledgerIntentService.js';
 import partsRouter from './routes/partsRoutes.js';
 import claimsRouter from './routes/claimsRoutes.js';
 
@@ -323,6 +326,11 @@ app.get('/api/health', async (req, res) => {
     supabaseHealth = 'unhealthy';
   }
 
+  // OC-5A: committed domain records whose ledger event is not recorded yet. A count, never content;
+  // null when unreadable (for example before 20261004160200 is applied) — it never marks the database
+  // unhealthy, because the domain write it measures did not fail.
+  const ledgerIntentBacklog = await countUnrecordedLedgerIntents();
+
   const snapshot = metricsHub.getSnapshot();
   const communicationConfiguration = validateCommunicationConfiguration();
 
@@ -357,7 +365,8 @@ app.get('/api/health', async (req, res) => {
     build: resolveBuildProvenance(),
     supabase: {
       status: supabaseHealth,
-      outboxBacklog
+      outboxBacklog,
+      ledgerIntentBacklog
     },
     sentry: {
       enabled: !!process.env.SENTRY_DSN
@@ -414,6 +423,7 @@ app.use('/api/media', mediaRouter);
 app.use(leadsRouter);
 app.use(promotionsRouter);
 app.use(workOrdersRouter);
+app.use(ledgerIntentRouter);
 app.use(partsRouter);
 app.use(claimsRouter);
 
@@ -1901,103 +1911,52 @@ app.post('/api/safepay/webhook', async (req, res) => {
 });
 
 // --- PILLAR 3: PARTSENTRY REPAIR LEDGER ---
-// Mechanics log freely; an owner/dealer/admin may only log against a vehicle
-// they own or that belongs to their tenant (the owner PartSentry page was
-// 403-dead against the mechanic-only guard while faking success client-side).
 /**
- * A mechanic's relationship to ONE vehicle.
+ * OC-5A (RC1 residual findings A and D). WHO may write is decided by ONE authority,
+ * resolvePartSentryWriteAuthority: a mechanic needs an owner-authorized work order of a service
+ * organisation they verifiably belong to; a dealer needs governed Dealer authority over the vehicle;
+ * an owner or seller records their OWN statement, which never moves the canonical odometer and is
+ * never ledgered as a mechanic inspection. Raw tenant equality and "a work order I opened myself" no
+ * longer confer anything.
  *
- * The role was previously exempted from the ownership check wholesale, and `req.userContext.role`
- * is the EFFECTIVE role: membership as 'mechanic' in any single tenant, asserted through
- * x-stakeholder-role plus that tenant's x-tenant-id, therefore conferred write authority over
- * EVERY vin on the platform. That write lands on `vehicles.mileage` through addRepairLog, is
- * guarded only monotonically, and has no correction path — so a single inflated reading is
- * permanent and blocks every later genuine log for that vehicle.
- *
- * Two relationships count, and both are server-verified:
- *   · the vehicle belongs to the mechanic's organisation (authorizeRole has already proven the
- *     caller's membership of the tenant it names, unlike optionalAuth's unverified header), or
- *   · the mechanic is assigned to a work order for this exact vin.
- *
- * Fails closed: a lookup error is refused, never treated as an absent restriction.
+ * HOW it is written is ONE commit boundary, recordPartSentryEntry → partsentry_record_service: the
+ * record, the odometer (governed mechanic service only) and the ledger intent commit together. The
+ * ledger event follows from the intent; if it cannot be written now the response says
+ * `ledger.status: 'pending'` — the caller is never told "failed" for a record that was kept. A retry
+ * with the same Idempotency-Key returns the original record (200, replayed) and re-attempts its ledger
+ * event; a new record is 201.
  */
-async function mechanicIsAssignedToVehicle(vin, userContext, vehicleRow) {
-  if (vehicleRow?.tenant_id && vehicleRow.tenant_id === userContext.tenantId) return true;
-  const { data, error } = await supabase
-    .from('mechanic_work_orders')
-    .select('id')
-    .eq('vin', vin)
-    .eq('mechanic_id', userContext.id)
-    .limit(1);
-  if (error) return false;
-  return Array.isArray(data) && data.length > 0;
-}
-
 app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'admin']), async (req, res) => {
-  const { vin, partName, partOem, actionType, description, mileage } = req.body;
-  const actorId = req.userContext.id;
+  const { vin, partName, partOem, actionType, description, mileage, workOrderId } = req.body || {};
+  const idempotencyKey = req.get('Idempotency-Key') ?? req.body?.idempotencyKey ?? null;
   try {
-    // Platform admins keep platform-wide authority. EVERY other role -- mechanic included -- must
-    // hold a relationship to this specific vehicle before it may write to its repair ledger and
-    // its canonical odometer.
-    if (!hasPlatformWideVehicleAuthority(req.userContext)) {
-      const { data: vehicleRow, error: vehicleErr } = await supabase
-        .from('vehicles')
-        .select('owner_id, current_seller_id, tenant_id')
-        .eq('vin', vin)
-        .maybeSingle();
-      if (vehicleErr) throw new Error('Vehicle ownership lookup failed.');
-      if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
-
-      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
-      const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
-
-      const permitted = req.userContext.role === 'mechanic'
-        ? await mechanicIsAssignedToVehicle(vin, req.userContext, vehicleRow)
-        : (ownsVehicle || isCurrentSeller || sameTenant);
-
-      if (!permitted) {
-        return res.status(403).json({
-          error: req.userContext.role === 'mechanic'
-            ? 'You may only log parts against a vehicle in your organisation or one you are assigned to by a work order.'
-            : 'You may only log parts against your own vehicle.',
-        });
-      }
+    const authority = await resolvePartSentryWriteAuthority({ vin, userContext: req.userContext, workOrderId: workOrderId || null });
+    if (!authority.allowed) {
+      return res.status(authority.status).json({ error: authority.message, reason: authority.reason });
     }
-    const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage, req.userContext.tenantId ?? null);
-    res.json(log);
+    const record = await recordPartSentryEntry({
+      vin, actorId: req.userContext.id, authority, partName, partOem, actionType, description, mileage, idempotencyKey,
+    });
+    return res.status(record.replayed ? 200 : 201).json(record);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    if (error instanceof PartSentryRecordError) {
+      return res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    }
+    // Unexpected, so whether anything committed is not known here. Saying so is the truth, and the
+    // retry it suggests is safe: the same Idempotency-Key returns the original record, never a second.
+    return res.status(503).json({ error: 'The service record could not be confirmed. Retry the same request — it is never recorded twice.' });
   }
 });
 
-// Public callers see the governed public ledger only; the vehicle's verified
-// owner, a mechanic or an admin see the full history — otherwise a mechanic's
-// or owner's fresh write is invisible on re-read until public-card review.
+// Public callers see the governed public ledger only. The FULL history (unreviewed entries, suspicion
+// state, actor ids) is for the same relationships that may write — a platform administrator, the
+// registered owner, or a mechanic under an owner-authorized work order for this vin — never for a
+// role on its own (OC-5A: any platform mechanic used to read any vehicle's unreviewed record).
 app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    let publicOnly = true;
-    const ctx = req.userContext;
-    if (ctx?.id) {
-      if (ctx.role === 'mechanic' || ctx.role === 'admin') {
-        publicOnly = false;
-      } else {
-        // optionalAuth() takes tenantId from the UNVERIFIED x-tenant-id header
-        // claim — it never checks tenant membership (authMiddleware is
-        // PR-#137-owned, so the consumer must not trust it). Full-history
-        // widening is therefore granted on the verified owner_id match only;
-        // a forged tenant header must not expose the unreviewed repair ledger.
-        const { data: vehicleRow } = await supabase
-          .from('vehicles')
-          .select('owner_id')
-          .eq('vin', vin)
-          .maybeSingle();
-        publicOnly = !(vehicleRow?.owner_id && vehicleRow.owner_id === ctx.id);
-      }
-    }
-    const history = await getRepairHistory(vin, { publicOnly });
+    const scope = await resolvePartSentryReadScope({ vin, userContext: req.userContext });
+    const history = await getRepairHistory(vin, { publicOnly: scope !== 'full' });
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -224,6 +224,33 @@ export function supabaseOver(db) {
   const toError = (error) => ({ message: error.message, code: error.code || null, details: error.detail || null });
 
   return {
+    /**
+     * PostgREST-shaped RPC over the REAL SQL function (named arguments). A function returning one
+     * scalar (for example jsonb) yields that value; a set-returning function yields its rows.
+     * Objects and arrays are sent as JSON text and cast by the parameter's declared type.
+     */
+    async rpc(name, args = {}) {
+      const keys = Object.keys(args);
+      const call = keys.map((key, i) => `${quote(key)} => $${i + 1}`).join(', ');
+      const params = keys.map((key) => {
+        const value = args[key];
+        return value !== null && typeof value === 'object' ? JSON.stringify(value) : (value === undefined ? null : value);
+      });
+      try {
+        const { rows: [shape] } = await db.query(
+          `SELECT p.proretset, t.typtype FROM pg_proc p JOIN pg_type t ON t.oid = p.prorettype
+            WHERE p.proname = $1 AND p.pronamespace = 'public'::regnamespace LIMIT 1`, [name]);
+        if (!shape) return { data: null, error: { message: `function public.${name} not found`, code: 'PGRST202' } };
+        if (!shape.proretset && shape.typtype !== 'c') {
+          const { rows } = await db.query(`SELECT public.${quote(name)}(${call}) AS result`, params);
+          return { data: rows[0]?.result ?? null, error: null };
+        }
+        const { rows } = await db.query(`SELECT * FROM public.${quote(name)}(${call})`, params);
+        return { data: rows, error: null };
+      } catch (error) {
+        return { data: null, error: toError(error) };
+      }
+    },
     from(table) {
       const state = { op: 'select', columns: '*', filters: [], orders: [], limit: null, single: null, payload: null, onConflict: null, count: null, head: false, returning: null };
       const builder = {
