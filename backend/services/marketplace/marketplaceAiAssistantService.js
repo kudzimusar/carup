@@ -6,32 +6,43 @@
  * risk/fraud reasoning. Backend governance rules remain the source of truth — AI cannot approve
  * listings, set verification, or override suppression.
  *
- * Provider: backend/services/ai/GeminiClient.js (askGemini). On missing key / error / timeout we fall
- * back to deterministic templates and surface ai_status='ai_unavailable'.
+ * Provider: backend/services/ai/GeminiClient.js (askGeminiWithProvenance). On missing key / provider
+ * error / timeout / simulated reply we fall back to deterministic templates and surface
+ * ai_status='ai_unavailable'.
  */
 
-import { askGemini } from '../ai/GeminiClient.js';
+import { askGeminiWithProvenance } from '../ai/GeminiClient.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
 
 const AI_TIMEOUT_MS = 12000;
 
 function withTimeout(promise, ms) {
+  // The timer is cleared once the race settles; a dangling 12s timer per call kept the event loop
+  // (and every test process that touched this path) alive long after the answer arrived.
+  let timer;
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('ai_timeout')), ms)),
-  ]);
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('ai_timeout')), ms); }),
+  ]).finally(() => clearTimeout(timer));
 }
 
-/** Try the provider in JSON mode; returns parsed object or null (never throws). */
+/**
+ * Try the provider in JSON mode; returns parsed object or null (never throws).
+ *
+ * OC-3B: askGemini THROWS AiProviderError on provider failure (it used to return an
+ * `{error:true}` envelope, sniffed below until then). A SIMULATED reply — the NODE_ENV=test mock —
+ * is not AI assistance either, so it is also `null` → `ai_status: 'ai_unavailable'`, never
+ * `ai_assisted`.
+ */
 async function tryAi(systemPrompt, userPrompt) {
   try {
-    const raw = await withTimeout(Promise.resolve(askGemini(systemPrompt, userPrompt, true)), AI_TIMEOUT_MS);
-    if (!raw) return null;
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    // GeminiClient returns an {error:true,...} envelope on provider failure — treat as unavailable.
-    if (parsed && parsed.error === true) return null;
+    const reply = await withTimeout(Promise.resolve(askGeminiWithProvenance(systemPrompt, userPrompt, true)), AI_TIMEOUT_MS);
+    if (!reply || reply.execution !== 'provider_executed' || !reply.text) return null;
+    const parsed = JSON.parse(reply.text);
+    if (!parsed || typeof parsed !== 'object' || parsed.error === true) return null;
     return parsed;
   } catch {
+    // AiProviderError (failure), timeout, or unparseable reply: the deterministic result stands.
     return null;
   }
 }
