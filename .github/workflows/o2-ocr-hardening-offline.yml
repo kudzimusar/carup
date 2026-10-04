@@ -20,6 +20,7 @@ on:
       - feat/oc4c-native-garage-ocr-convergence
       - integration/oc4d-domain-lineage-convergence
       - feat/oc4e-local-product-journeys
+      - integration/one-carup-source-rc1
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -286,6 +287,12 @@ on:
       - 'backend/services/partsentry/partsentryService.js'
       - 'web/src/components/marketplace/BuyerAssistantDrawer.tsx'
       - 'docs/one-carup/OC4E_LOCAL_PRODUCT_JOURNEYS.md'
+      # OC-4F source RC1: the residual-scan guards (committed credentials; retired routes in the web
+      # client), the residual scan and the open-PR disposition, and every doc the RC carries.
+      - 'backend/tests/oc4f-*.test.js'
+      - 'web/src/lib/retiredRoutes.test.ts'
+      - 'docs/one-carup/**'
+      - '**/*.md'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -589,6 +596,31 @@ jobs:
         env:
           NODE_ENV: development
         run: npx playwright test -c playwright.oc4e-local.config.ts --reporter=line
+
+  # ── OC-4F source RC1 residual guards (exact-head, targeted) ────────────────
+  # The credential tripwire walks the WHOLE tree, so any document change re-runs it (hence the
+  # '**/*.md' path above); the retired-route pin keeps the web client off /api/ai/ocr and the retired
+  # /api/verification router.
+  oc4f-rc1-residual-guards:
+    name: OC-4F RC1 residual guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: No credential committed anywhere in the tree
+        run: node --test backend/tests/oc4f-no-committed-credentials.test.js
+      - name: The web client calls no retired route
+        run: npm run test:unit --workspace=web -- src/lib/retiredRoutes.test.ts
 
   # ── OC-4C native garage odometer capture (exact-head, targeted) ───────────
   # The native side of the governed odometer path: capture-first durable queue, the upload body the
