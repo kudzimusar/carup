@@ -1,12 +1,11 @@
 /**
- * O2 — post-Ready automated review closure (web halves of C2–C3), ported by OC-4D from #208.
+ * O2 — post-Ready automated review closure (web halves of C1–C3), ported from #208 (C2–C3 by OC-4D,
+ * C1 — the step-up retry — by OC-5C with the X3 gate it satisfies), plus OC-4D's two refusal pins:
+ * a refusal that is NOT a step-up reaches the reviewer by name and is never retried.
  *
+ * C1  a step-up-gated action must be completable through the product, not only refused by it.
  * C2  identity decisions must send the fields the decision recorder actually reads.
  * C3  dealer decisions must use the governed vocabulary, which has never held `pass_review`.
- *
- * C1 (the step-up retry runner) is not ported: it satisfies the O2-X3 authentication-assurance
- * gate, which this lineage does not have yet. It arrives with that slice. What this lineage pins
- * instead is the property C1 was built to protect — a refusal reaches the reviewer by name.
  */
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -16,17 +15,21 @@ import PeopleComplianceReview from './PeopleComplianceReview'
 const fetchPersonComplianceReview = vi.fn()
 const reviewIdentitySession = vi.fn()
 const recordDealerComplianceDecision = vi.fn()
+const stepUpSession = vi.fn()
 const toastError = vi.fn()
-
-vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({
-    fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision,
-  }),
-}))
-
 vi.mock('sonner', () => ({
   toast: { error: (...args: unknown[]) => toastError(...args), success: () => undefined },
 }))
+
+vi.mock('@/hooks/useCarUpApi', () => ({
+  useCarUpApi: () => ({
+    fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision, stepUpSession,
+  }),
+}))
+
+const stepUpRefusal = () => Object.assign(new Error('Recent re-authentication is required for this action.'), {
+  code: 'STEP_UP_REQUIRED', status: 403,
+})
 
 const REVIEW = {
   person: {
@@ -71,6 +74,7 @@ describe('O2 post-Ready closure — People & Compliance decisions', () => {
     fetchPersonComplianceReview.mockResolvedValue({ success: true, review: REVIEW })
     reviewIdentitySession.mockResolvedValue({ success: true })
     recordDealerComplianceDecision.mockResolvedValue({ success: true })
+    stepUpSession.mockResolvedValue({ success: true, step_up_at: 'now', method: 'password_reauth' })
   })
 
   /* ── C2 ─────────────────────────────────────────────────────────────────────────── */
@@ -146,7 +150,8 @@ describe('O2 post-Ready closure — People & Compliance decisions', () => {
     // and every verb that IS sent belongs to the governed vocabulary.
     const GOVERNED = ['approve_requirement', 'reject_requirement', 'request_more_info', 'restrict', 'suspend', 'reinstate', 'set_expiry']
     for (const decision of sent) expect(GOVERNED).toContain(decision)
-  })
+  // Walks EVERY dealer control in sequence: under a loaded runner it outlasts the 5 s default.
+  }, 20000)
 
   it('C3: the positive dealer action approves a NAMED requirement, with its key', async () => {
     renderPage()
@@ -171,6 +176,93 @@ describe('O2 post-Ready closure — People & Compliance decisions', () => {
     const [, payload] = recordDealerComplianceDecision.mock.calls[0]
     expect(payload.decision).toBe('suspend')
     expect(payload).not.toHaveProperty('requirement_key')
+  })
+
+  /* ── C1 ─────────────────────────────────────────────────────────────────────────── */
+  it('C1: STEP_UP_REQUIRED opens the step-up prompt instead of dead-ending the reviewer', async () => {
+    reviewIdentitySession.mockRejectedValueOnce(stepUpRefusal())
+    renderPage()
+    await screen.findByTestId('people-compliance-review')
+    fireEvent.click(screen.getByTestId('identity-approve'))
+    await screen.findByTestId('step-up-dialog')
+    expect(stepUpSession).not.toHaveBeenCalled()
+  })
+
+  it('C1: a successful step-up retries the SAME action, unchanged — no escalation', async () => {
+    reviewIdentitySession.mockRejectedValueOnce(stepUpRefusal())
+    renderPage()
+    await screen.findByTestId('people-compliance-review')
+    setValue('identity-decision-note', 'Documents match the account.')
+    fireEvent.click(screen.getByTestId('identity-approve'))
+    await screen.findByTestId('step-up-dialog')
+
+    setValue('step-up-password', 'the-reviewer-password')
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+
+    await waitFor(() => expect(reviewIdentitySession).toHaveBeenCalledTimes(2))
+    expect(stepUpSession).toHaveBeenCalledWith('the-reviewer-password')
+    const [firstSession, firstPayload] = reviewIdentitySession.mock.calls[0]
+    const [retrySession, retryPayload] = reviewIdentitySession.mock.calls[1]
+    expect(retrySession).toBe(firstSession)
+    expect(retryPayload).toEqual(firstPayload)
+    // The retry carries no role, tenant or capability the first attempt did not.
+    expect(Object.keys(retryPayload).sort()).toEqual(['action', 'applicantMessage', 'internalNote', 'reasonCode'])
+    await waitFor(() => expect(screen.queryByTestId('step-up-dialog')).toBeNull())
+  })
+
+  it('C1: a dealer decision refused for step-up is recoverable the same way', async () => {
+    recordDealerComplianceDecision.mockRejectedValueOnce(stepUpRefusal())
+    renderPage()
+    await screen.findByTestId('people-compliance-review')
+    setValue('dealer-decision-reason', 'Licence verified.')
+    fireEvent.click(screen.getByTestId('dealer-approve_requirement-business_licence'))
+    await screen.findByTestId('step-up-dialog')
+
+    setValue('step-up-password', 'pw')
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(recordDealerComplianceDecision).toHaveBeenCalledTimes(2))
+    expect(recordDealerComplianceDecision.mock.calls[1][1]).toEqual(recordDealerComplianceDecision.mock.calls[0][1])
+  })
+
+  it('C1: a failed step-up neither retries the action nor closes the prompt', async () => {
+    reviewIdentitySession.mockRejectedValueOnce(stepUpRefusal())
+    stepUpSession.mockRejectedValueOnce(new Error('Password verification failed.'))
+    renderPage()
+    await screen.findByTestId('people-compliance-review')
+    fireEvent.click(screen.getByTestId('identity-approve'))
+    await screen.findByTestId('step-up-dialog')
+
+    setValue('step-up-password', 'wrong')
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await screen.findByTestId('step-up-error')
+    expect(reviewIdentitySession).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('step-up-dialog')).toBeTruthy()
+  })
+
+  it('C1: cancelling leaves the action undone — the guard still decides, not the dialog', async () => {
+    reviewIdentitySession.mockRejectedValueOnce(stepUpRefusal())
+    renderPage()
+    await screen.findByTestId('people-compliance-review')
+    fireEvent.click(screen.getByTestId('identity-approve'))
+    await screen.findByTestId('step-up-dialog')
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    await waitFor(() => expect(screen.queryByTestId('step-up-dialog')).toBeNull())
+    expect(reviewIdentitySession).toHaveBeenCalledTimes(1)
+    expect(stepUpSession).not.toHaveBeenCalled()
+  })
+
+  it('C1: a second STEP_UP_REQUIRED after stepping up is surfaced, not looped or hidden', async () => {
+    reviewIdentitySession.mockRejectedValueOnce(stepUpRefusal()).mockRejectedValueOnce(stepUpRefusal())
+    renderPage()
+    await screen.findByTestId('people-compliance-review')
+    fireEvent.click(screen.getByTestId('identity-approve'))
+    await screen.findByTestId('step-up-dialog')
+    setValue('step-up-password', 'pw')
+    fireEvent.click(screen.getByTestId('step-up-confirm'))
+    await waitFor(() => expect(reviewIdentitySession).toHaveBeenCalledTimes(2))
+    // The prompt returns rather than the refusal being swallowed.
+    await screen.findByTestId('step-up-dialog')
+    expect(stepUpSession).toHaveBeenCalledTimes(1)
   })
 
   /* ── Refusals ────────────────────────────────────────────────────────────────────── */

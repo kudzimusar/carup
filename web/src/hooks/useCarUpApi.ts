@@ -952,6 +952,16 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  // O2 post-Ready review C1 (ported by OC-5C from PR #208) — re-prove the account credential on
+  // THIS session so a step-up-gated action becomes reachable. The server is the only writer of
+  // step-up state; this carries the password to the one endpoint that verifies it against the stored
+  // hash. It grants no role and no capability — only recency of authentication.
+  const stepUpSession = useCallback(async (password: string): Promise<{
+    success: boolean; step_up_at: string; method: string
+  }> => {
+    return request('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
+  }, [request])
+
   // O2/P4 — dealer compliance decision through the OWNING dealer service route.
   const recordDealerComplianceDecision = useCallback(async (
     dealerId: string,
@@ -3129,6 +3139,7 @@ export function useCarUpApi() {
     fetchVehicleOperationsReview,
     fetchPersonComplianceReview,
     reviewIdentitySession,
+    stepUpSession,
     recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,

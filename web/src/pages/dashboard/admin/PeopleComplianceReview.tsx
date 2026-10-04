@@ -17,6 +17,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { CheckCircle, XCircle, RotateCcw, ArrowUpRight, ShieldQuestion } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useStepUpGuard } from '@/hooks/useStepUpGuard'
 import { REASON_CODE_LABELS } from '@shared/types'
 import { toast } from 'sonner'
 
@@ -125,6 +126,8 @@ const DEALER_PROFILE_DECISIONS = [
 export default function PeopleComplianceReview() {
   const { userId = '' } = useParams()
   const { fetchPersonComplianceReview, reviewIdentitySession, recordDealerComplianceDecision } = useCarUpApi()
+  // The shared recovery (OC-5C, from PR #208), so this screen and the identity console cannot drift apart.
+  const { runGuarded: runStepUpGuarded, stepUpDialog } = useStepUpGuard()
 
   const [review, setReview] = useState<PersonReview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -160,16 +163,16 @@ export default function PeopleComplianceReview() {
   const can = new Set(review?.allowed_actions ?? [])
 
   /**
-   * Run one governed decision through its owning domain route. A refusal is what the reviewer
-   * sees, named — never swallowed. (OC-4D: #208's step-up retry runner (C1) arrives with the O2-X3
-   * authentication-assurance slice; this lineage has no step-up gate for it to satisfy.)
+   * Run one governed decision through its owning domain route, through the shared step-up guard: it
+   * recovers from STEP_UP_REQUIRED by re-proving the password and retrying the SAME call, and any other
+   * refusal is what the reviewer sees, named — never swallowed. `busy` is managed here so the controls
+   * stay disabled for the whole attempt, prompt included. (OC-4D stripped this until the X3 gate
+   * existed; OC-5C restores it with that gate.)
    */
-  const runDecision = async (label: string, action: () => Promise<void>) => {
+  const runGuarded = async (label: string, action: () => Promise<void>) => {
     setBusy(true)
     try {
-      await action()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : `${label} failed`)
+      await runStepUpGuarded(label, action)
     } finally {
       setBusy(false)
     }
@@ -188,7 +191,7 @@ export default function PeopleComplianceReview() {
       toast.error('An applicant message is required when requesting resubmission.')
       return
     }
-    await runDecision(requirements.label, async () => {
+    await runGuarded(requirements.label, async () => {
       await reviewIdentitySession(session.id, {
         action,
         reasonCode: identityReasonCode || null,
@@ -211,7 +214,7 @@ export default function PeopleComplianceReview() {
       return
     }
     const label = requirementKey ? `${decision.replace(/_/g, ' ')} · ${requirementKey}` : decision.replace(/_/g, ' ')
-    await runDecision(label, async () => {
+    await runGuarded(label, async () => {
       await recordDealerComplianceDecision(profile.id, {
         decision,
         // The requirement-level verbs are refused without their subject; the profile-level
@@ -242,6 +245,7 @@ export default function PeopleComplianceReview() {
 
   return (
     <div className="p-4 sm:p-6 space-y-6" data-testid="people-compliance-review">
+      {stepUpDialog}
       {/* ── Person (account facts — email verification is an ACCOUNT fact, nothing more) ── */}
       <Card>
         <CardContent className="pt-6">
