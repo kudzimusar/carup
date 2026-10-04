@@ -72,10 +72,12 @@ export function requireVehicleObjectAuthority({ param = 'vin' } = {}) {
       const { allowed, reason } = await resolveVehicleObjectAuthority(req.params?.[param], req.userContext);
       if (allowed) return next();
       // 'not_found' is answered with the same 403 as 'not_scoped' on purpose: a caller with no
-      // relationship to a VIN must not learn from the status code whether that VIN exists.
+      // relationship to a VIN must not learn from the status code whether that VIN exists — nor from
+      // the body, which therefore reports 'not_found' as 'not_scoped' (OC-4A: the body used to carry
+      // the distinction the status code was kept from carrying).
       return res.status(403).json({
         error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.',
-        reason,
+        reason: reason === 'not_found' ? 'not_scoped' : reason,
       });
     } catch (err) {
       return res.status(403).json({ error: 'Forbidden. Vehicle authority could not be established.', reason: 'lookup_failed' });

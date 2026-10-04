@@ -98,11 +98,13 @@ export async function revertLedgerCandidates(db) {
 
 // ── OC-4A: the evidence histories that sit beside the ledger ─────────────────────────────────────
 // partsentry_logs in its governed shape, ocr_documents, and trust_audit_events (the record every
-// governed PartSentry change must write), each from its own migration. The stated deviations are
+// governed PartSentry change must write), each from its own migration — and the session-token contract
+// (20260617120000), so HTTP tests authenticate against real session rows instead of a hand-written double. The stated deviations are
 // verbatim blocks, because the files as a whole rebuild unrelated domains:
 //   @vehicles_owner     010_phase5_schema.sql's `owner_id` DO block (vehicle object authority reads it)
 //   @vehicles_seller    013's `ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS current_seller_id` line
 //   @tenants            the `CREATE TABLE IF NOT EXISTS tenants` block of 002_multi_tenant_and_auth_schema.sql
+//   @tenant_users       002's `tenant_users` block (x-tenant-id membership, read by authorizeRole)
 //   @vehicles_tenant    002's `ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS tenant_id …` line (tenant scope
 //                       is read by the review workflow and by vehicle object authority)
 //   @partsentry_tenant  002's `ALTER TABLE partsentry_logs ADD COLUMN IF NOT EXISTS tenant_id …` line
@@ -112,6 +114,8 @@ export const OC4A_CANDIDATES_DIR = path.resolve(here, '../../../database/migrati
 
 export const EVIDENCE_HISTORY_MIGRATIONS = Object.freeze([
   '@tenants',
+  '@tenant_users',
+  '20260617120000_user_sessions_auth_contract_align.sql',
   '@vehicles_owner',
   '@vehicles_seller',
   '@vehicles_tenant',
@@ -135,6 +139,7 @@ function verbatimBlock(file, startMarker, endMarker) {
 
 function evidenceHistorySql(item) {
   if (item === '@tenants') return verbatimBlock('002_multi_tenant_and_auth_schema.sql', 'CREATE TABLE IF NOT EXISTS tenants (', ');');
+  if (item === '@tenant_users') return verbatimBlock('002_multi_tenant_and_auth_schema.sql', 'CREATE TABLE IF NOT EXISTS tenant_users (', ');');
   if (item === '@vehicles_owner') {
     return verbatimBlock('010_phase5_schema.sql', 'DO $$ \nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name=\'vehicles\' AND column_name=\'owner_id\')', 'END $$;');
   }

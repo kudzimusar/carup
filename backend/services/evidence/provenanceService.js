@@ -187,6 +187,64 @@ export function toPublicProvenanceSummary(events) {
   }));
 }
 
+/**
+ * Role-specific provenance projections (OC-4A). Built by ALLOW-LIST per audience, never by deleting
+ * keys from a row: a column the table grows tomorrow must not reach any caller by default.
+ *
+ *   participant  owner / current seller / organizational tenant / the evidence's uploader:
+ *                what happened, by which kind of actor, when — the public summary.
+ *   government   + the custody hashes, so the chain can be attested independently.
+ *   reviewer     + the hashes and the custody details a review needs (allow-listed keys; no actor ids).
+ *   admin        + actor_user_id, request_id and the route path: attribution for platform governance.
+ *
+ * Never projected, for ANY audience: ip_address (provenance review does not need it; a security
+ * investigation is a separate, audited surface), the query string of a source route, raw `details`.
+ */
+const DETAIL_KEYS_FOR_REVIEW = Object.freeze([
+  'evidence_class', 'evidence_subtype', 'source_id', 'checksum', 'adapter',
+  'previous_evidence_class', 'previous_evidence_subtype', 'corrected_evidence_class', 'corrected_evidence_subtype',
+  'corrected_by_role', 'corrected_at', 'previous_visibility_level', 'corrected_visibility_level', 'reason',
+]);
+const DETAIL_KEYS_FOR_ADMIN = Object.freeze([...DETAIL_KEYS_FOR_REVIEW, 'corrected_by', 'source_record_id', 'request_id']);
+
+function pickDetails(details, keys) {
+  const source = details && typeof details === 'object' && !Array.isArray(details) ? details : {};
+  const picked = {};
+  for (const key of keys) if (source[key] !== undefined) picked[key] = source[key];
+  return picked;
+}
+
+const routePath = (route) => (route ? String(route).split('?')[0] : null);
+
+export function toProvenanceProjection(audience, events, chain) {
+  const custody = audience === 'government' || audience === 'reviewer' || audience === 'admin';
+  const projected = toPublicProvenanceSummary(events).map((summary, i) => {
+    const e = events[i];
+    if (!custody) return summary;
+    const row = { ...summary, content_hash: e.content_hash || null, prev_hash: e.prev_hash || null, hash_version: hashVersionOf(e.content_hash) };
+    if (audience === 'reviewer') row.details = pickDetails(e.details, DETAIL_KEYS_FOR_REVIEW);
+    if (audience === 'admin') {
+      row.details = pickDetails(e.details, DETAIL_KEYS_FOR_ADMIN);
+      row.actor_user_id = e.actor_user_id || null;
+      row.request_id = e.request_id || null;
+      row.source_route = routePath(e.source_route);
+    }
+    return row;
+  });
+  return {
+    audience,
+    chain_valid: chain?.valid === true,
+    chain: {
+      valid: chain?.valid === true,
+      length: Number(chain?.length) || 0,
+      reason: chain?.reason || null,
+      broken_at: chain?.brokenAt ?? null,
+      legacy_unverifiable: Number(chain?.legacyUnverifiable) || 0,
+    },
+    events: projected,
+  };
+}
+
 export default {
   PROVENANCE_EVENT_TYPES,
   computeContentHash,
@@ -194,4 +252,5 @@ export default {
   listProvenanceEvents,
   verifyProvenanceChain,
   toPublicProvenanceSummary,
+  toProvenanceProjection,
 };
