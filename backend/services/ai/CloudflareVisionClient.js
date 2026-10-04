@@ -20,10 +20,21 @@
  * the picture correctly. A naive port would have produced an "extraction" that never saw the
  * document, which is exactly the text-only failure this lane exists to eliminate. TRANSPORTS
  * therefore binds each model to the form proven to deliver its pixels.
+ *
+ * OC-3C: this file is the certified OCR POLICY — model, request body, answer envelope, execution
+ * evidence and its established failure wording. The HTTP machinery (credentials, URL, the POST,
+ * the timeout, error classification, secret redaction) is the shared cloudflareAiTransport.js, the
+ * same transport the general Gemma gateway uses. The request a model was certified on is unchanged.
  */
+import {
+  CloudflareAiTransportError,
+  invokeCloudflareModel,
+  isCloudflareConfigured,
+} from './cloudflareAiTransport.js';
 
 export const CLOUDFLARE_VISION_MODEL = '@cf/qwen/qwen3.8-27b';
-const CLOUDFLARE_AI_BASE = 'https://api.cloudflare.com/client/v4/accounts';
+/** The OCR policy's bound: a hung provider must not hold a user's upload open indefinitely. */
+export const CLOUDFLARE_VISION_TIMEOUT_MS = 90_000;
 
 /**
  * How each model actually accepts an image and returns an answer.
@@ -62,7 +73,7 @@ export function transportFor(model) {
 }
 
 export function isCloudflareVisionConfigured(env = process.env) {
-  return Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
+  return isCloudflareConfigured(env);
 }
 
 /** Builds the request body for a model using the transport proven to deliver its pixels. */
@@ -109,6 +120,37 @@ export function readCloudflareContent(model, result) {
 }
 
 /**
+ * The OCR policy's established failure wording, carried on the shared transport's typed failure
+ * (code / status / retryable / providerErrors), so OCR callers and suites read exactly what they
+ * always read while the failure now also says what kind it was.
+ */
+function ocrPolicyFailure(error, timeoutMs) {
+  if (!(error instanceof CloudflareAiTransportError)) return error;
+  let message;
+  if (error.code === 'AI_TIMEOUT') {
+    message = `Cloudflare Workers AI request timed out after ${timeoutMs}ms`;
+  } else if (error.status !== null && error.status !== undefined) {
+    // Cloudflare answered and refused. Name its own error list, or the status when it gave none.
+    const errors = error.providerErrors?.length ? error.providerErrors.join('; ') : `HTTP ${error.status}`;
+    message = `Cloudflare Workers AI refused the request — ${errors}`;
+  } else if (error.missingEnv?.length) {
+    message = 'Cloudflare Workers AI unavailable: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are both required.';
+  } else {
+    message = `Cloudflare Workers AI request failed: ${error.detail || error.message}`;
+  }
+  return new CloudflareAiTransportError(message, {
+    code: error.code,
+    status: error.status,
+    retryable: error.retryable,
+    model: error.model,
+    providerErrors: error.providerErrors,
+    detail: error.detail,
+    timeoutMs: error.timeoutMs,
+    missingEnv: error.missingEnv,
+  });
+}
+
+/**
  * `images` is an array of `{ mimeType, base64 }`; these models accept a single image, so a second
  * is refused rather than silently dropped.
  *
@@ -116,10 +158,11 @@ export function readCloudflareContent(model, result) {
  * Workers AI parsed it, otherwise the raw string) and `usage` is the provider's own accounting.
  */
 export async function askCloudflareVision(systemPrompt, textPrompt, images = [], jsonSchema = null, options = {}) {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-  if (!accountId || !apiToken) {
-    throw new Error('Cloudflare Workers AI unavailable: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are both required.');
+  if (!isCloudflareVisionConfigured()) {
+    throw new CloudflareAiTransportError(
+      'Cloudflare Workers AI unavailable: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are both required.',
+      { code: 'AI_PROVIDER_UNAVAILABLE' },
+    );
   }
 
   const model = options.model || CLOUDFLARE_VISION_MODEL;
@@ -135,33 +178,13 @@ export async function askCloudflareVision(systemPrompt, textPrompt, images = [],
     model, systemPrompt, textPrompt, image: usable[0], jsonSchema, maxTokens: options.maxTokens,
   });
 
-  // A hung provider must not hold a user's upload open indefinitely.
-  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 90_000;
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : CLOUDFLARE_VISION_TIMEOUT_MS;
 
-  let response;
+  let payload;
   try {
-    response = await fetch(`${CLOUDFLARE_AI_BASE}/${encodeURIComponent(accountId)}/ai/run/${model}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    ({ payload } = await invokeCloudflareModel({ model, body, timeoutMs }));
   } catch (error) {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-      throw new Error(`Cloudflare Workers AI request timed out after ${timeoutMs}ms`);
-    }
-    throw new Error(`Cloudflare Workers AI request failed: ${error.message}`);
-  }
-
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok || payload?.success === false) {
-    // Say WHY. Cloudflare returns a structured error list; a bare status hides an expired token,
-    // a missing Workers AI permission and a rate limit behind one indistinguishable message.
-    const errors = Array.isArray(payload?.errors) && payload.errors.length
-      ? payload.errors.map((e) => `${e.code}: ${e.message}`).join('; ')
-      : `HTTP ${response.status}`;
-    throw new Error(`Cloudflare Workers AI refused the request — ${errors}`);
+    throw ocrPolicyFailure(error, timeoutMs);
   }
 
   const content = readCloudflareContent(model, payload?.result);

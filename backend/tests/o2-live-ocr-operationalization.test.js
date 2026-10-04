@@ -510,7 +510,10 @@ test('live-ocr: the provider is told WHY it returned no text, and a hung call is
   assert.match(client, /blockReason/, 'a safety block is surfaced');
   assert.match(client, /AbortSignal\.timeout/, 'a hung provider call is bounded');
   assert.match(PROVIDER_BOUNDARY, /thinkingBudget: 0/, 'transcription does not spend its output budget on thinking');
-  assert.match(CLOUDFLARE, /AbortSignal\.timeout/, 'a hung Cloudflare call is bounded too');
+  // OC-3C: the bound is the OCR policy's (90s) and the shared transport enforces it — proven
+  // behaviourally in oc3c-cloudflare-ai-transport.test.js (a hung provider → AI_TIMEOUT, aborted).
+  assert.match(CLOUDFLARE, /CLOUDFLARE_VISION_TIMEOUT_MS = 90_000/, 'a hung Cloudflare call is bounded too');
+  assert.match(CLOUDFLARE, /invokeCloudflareModel\(\{ model, body, timeoutMs \}\)/, 'the bound reaches the transport');
   assert.match(CLOUDFLARE, /refused the request/, 'Cloudflare refusals name the provider error');
 });
 

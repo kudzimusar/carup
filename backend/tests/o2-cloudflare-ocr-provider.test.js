@@ -405,9 +405,16 @@ test('cloudflare: missing still stays missing, and nothing is invented for the n
 });
 
 test('cloudflare: no credential is written into the repository, and none is logged', () => {
+  // OC-3C: the HTTP call — and with it the credential read — moved to the shared transport, so
+  // both files are held to the rule, and the token's source is pinned where it is now read.
   const client = read('../services/ai/CloudflareVisionClient.js');
-  assert.doesNotMatch(client, /Bearer\s+[A-Za-z0-9_-]{20,}/, 'no token literal');
-  assert.match(client, /process\.env\.CLOUDFLARE_API_TOKEN/, 'the token comes from the environment');
-  assert.doesNotMatch(client, /console\.(log|warn|error)/, 'the client logs nothing at all');
-  assert.doesNotMatch(client, /logger\.[a-z]+\([^)]*apiToken/, 'the token never reaches a log');
+  const transport = read('../services/ai/cloudflareAiTransport.js');
+  for (const [name, source] of [['client', client], ['transport', transport]]) {
+    assert.doesNotMatch(source, /Bearer\s+[A-Za-z0-9_-]{20,}/, `${name}: no token literal`);
+    assert.doesNotMatch(source, /console\.(log|warn|error)/, `${name}: logs nothing at all`);
+    assert.doesNotMatch(source, /logger\.[a-z]+\([^)]*apiToken/, `${name}: the token never reaches a log`);
+  }
+  assert.match(transport, /resolveCloudflareCredentials\(env = process\.env\)/, 'the token comes from the environment');
+  assert.match(transport, /normalized\(env\.CLOUDFLARE_API_TOKEN\)/, 'the token comes from the environment');
+  assert.match(client, /invokeCloudflareModel\(/, 'the OCR client calls through the shared transport');
 });
