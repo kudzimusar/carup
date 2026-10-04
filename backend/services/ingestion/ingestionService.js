@@ -12,6 +12,7 @@
 import crypto from 'crypto';
 import { computePerceptualHash } from '../evidence/perceptualHash.js';
 import { recordProvenanceEvent } from '../evidence/provenanceService.js';
+import { logger } from '../../utils/logger.js';
 import { resolveIdentity } from './identityResolution.js';
 import { createListingSnapshot } from './listingSnapshotService.js';
 
@@ -108,8 +109,12 @@ async function importAssetAsEvidence(supabase, { provider, vin, sourceId, source
       actorRole: 'source_partner',
       details: { adapter: provider.id, source_id: sourceId, source_record_id: sourceRecordId, checksum },
     });
-  } catch {
-    /* provenance is recorded best-effort; never gate the import */
+  } catch (err) {
+    // Provenance is non-blocking here (it never gates the import) — but it was `catch {}`: a partner
+    // import's custody event could vanish without a single log line. OC-4A: loud, structured, no PII.
+    logger.error('PROVENANCE', 'chain-of-custody event NOT recorded for a partner import', {
+      evidence_id: evidence?.id ?? null, adapter: provider?.id ?? null, error_message: err.message,
+    });
   }
   return evidence;
 }

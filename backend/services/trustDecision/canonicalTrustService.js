@@ -92,11 +92,9 @@
  *
  * THE OTHER WRITERS OF vehicles.trust_score, for the surfaces converging onto this contract.
  * They are NOT removed here (this phase adds the read path; it does not re-point the writers):
- *   trustGraphService.js:435            calculateVehicleTrustScore — the deprecated 70-baseline
- *                                       engine. No production caller remains (server.js does not
- *                                       import it and the evidence-review routes now call
- *                                       refreshCanonicalTrust); backend/tests/run-tests.js still
- *                                       invokes it, and it still writes an UNCLEARED stamp.
+ *   trustGraphService.js                calculateVehicleTrustScore — the deprecated 70-baseline
+ *                                       engine. RETIRED by OC-4A (it had no runtime caller; its
+ *                                       trust_score_history helper swallowed every failure).
  *   documentIntelligenceService.js      RETIRED as a Trust writer by OCR 1.0-C1; governed document
  *                                       review now delegates derived Trust refresh here
  *   trustEnforcementEngine.js           legacy penalty writes over an assumed 80.0 baseline

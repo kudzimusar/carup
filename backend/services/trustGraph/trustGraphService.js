@@ -311,23 +311,6 @@ export async function runOdometerAudit(vin) {
 }
 
 // AGENT E2 — Trust mutation historian
-async function recordTrustScoreHistory(entityType, entityId, previousScore, newScore, triggerEvent) {
-  // trust_score_history table — insert if table exists, graceful fallback
-  try {
-    await supabase.from('trust_score_history').insert({
-      entity_type: entityType,
-      entity_id: entityId,
-      previous_score: previousScore,
-      new_score: newScore,
-      trigger_event: triggerEvent,
-      timestamp: new Date().toISOString()
-    });
-  } catch (e) {
-    // Table may not exist yet — log but don't break
-    console.warn('trust_score_history insert skipped:', e.message);
-  }
-}
-
 async function computeVehicleTrustScoreContext(vin) {
   const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
   
@@ -471,17 +454,8 @@ export async function computeVehicleTrustScore(vin) {
   return context?.report || 0;
 }
 
-export async function calculateVehicleTrustScore(vin) {
-  const context = await computeVehicleTrustScoreContext(vin);
-  if (!context) return 0;
-
-  const { report, previousScore, triggerEvents } = context;
-
-  await supabase.from('vehicles').update({ trust_score: report.trustScore }).eq('vin', vin);
-
-  if (Math.abs(report.trustScore - previousScore) > 0.01) {
-    await recordTrustScoreHistory('VEHICLE', vin, previousScore, report.trustScore, triggerEvents.join('|'));
-  }
-
-  return report;
-}
+// OC-4A: `calculateVehicleTrustScore` — the deprecated 70-baseline writer that stamped
+// vehicles.trust_score outside canonical Trust and recorded trust_score_history through a helper that
+// swallowed every failure — is RETIRED. It had no runtime caller (pinned since OC-3); canonical Trust
+// (trustDecision/canonicalTrustService.refreshCanonicalTrust) is the one writer of a vehicle score.
+// computeVehicleTrustScore above is the read-only form and writes nothing.

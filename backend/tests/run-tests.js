@@ -1,7 +1,7 @@
 process.env.NODE_ENV = 'test';
 import { supabase } from '../db/supabase.js';
 import { addEvent, verifyChain } from '../services/blockchain/blockchainService.js';
-import { getVehicleTimeline, runOdometerAudit, calculateVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
+import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
 import { createEscrow, updateEscrowStatus } from '../services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from '../services/partsentry/partsentryService.js';
 import { runFraudAnalysis, runOcrParsing, runRiskScoring } from '../services/ai/aiServiceBus.js';
@@ -114,7 +114,8 @@ async function runTests() {
 
     // 4. Dynamic Automotive Trust Score
     console.log('\n🧪 Test 4: Dynamic Trust Score Calculation...');
-    const trustReport = await calculateVehicleTrustScore(vin);
+    // Read-only: the persisting writer was retired (OC-4A); canonical Trust owns vehicle scores.
+    const trustReport = await computeVehicleTrustScore(vin);
     console.log(`Calculated Trust Index: ${trustReport.trustScore}%`);
     console.log('✅ Dynamic Trust Index computed successfully.');
 

@@ -491,14 +491,25 @@ export async function addEvent(
     .eq('vin', vin);
 
   // A checkpoint is a WITNESS that verification cross-checks, never a trust root it starts from (4C).
+  // OC-4A classification: INTEGRITY WITNESS — non-blocking (the event above is already committed and
+  // verification runs from genesis without it), but truthful. The upsert's result used to be ignored
+  // and "Created rolling integrity checkpoint" logged regardless, so a failed witness was reported as
+  // written. A failure is now an error log, and success is only claimed when it happened.
   if (eventCount && eventCount % 10 === 0) {
-    await db.from('rolling_integrity_checkpoints').upsert({
+    const { error: checkpointError } = await db.from('rolling_integrity_checkpoints').upsert({
       vin,
       last_verified_event_id: newEventId,
       rolling_hash: currentHash,
       verified_at: timestamp,
     }, { onConflict: 'vin' });
-    console.log(`    📊 Created rolling integrity checkpoint for vehicle ${vin} at Block #${newEventId}`);
+    if (checkpointError) {
+      console.error(JSON.stringify({
+        level: 'error', category: 'LEDGER', msg: 'rolling integrity checkpoint was NOT written (witness gap; the event is committed)',
+        vin, event_id: newEventId ?? null, code: checkpointError.code ?? null,
+      }));
+    } else {
+      console.log(`    📊 Created rolling integrity checkpoint for vehicle ${vin} at Block #${newEventId}`);
+    }
   }
 
   return {

@@ -2162,7 +2162,7 @@ export interface VehicleEvidenceSummary {
   file_url?: string | null;
 }
 
-// 23. TrustMetrics — exact keys from calculateVehicleTrustScore()
+// 23. TrustMetrics — exact keys from computeVehicleTrustScore() (the read-only trustGraph report)
 export interface TrustMetrics {
   cvr_synced: boolean;
   zimra_duty: boolean;
@@ -2176,7 +2176,7 @@ export interface TrustMetrics {
   rejected_evidence_count?: number;
 }
 
-// 24. TrustReport — from calculateVehicleTrustScore()
+// 24. TrustReport — from computeVehicleTrustScore() (the read-only trustGraph report)
 export interface TrustReport {
   vin: string;
   trustScore: number;

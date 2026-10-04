@@ -1,4 +1,5 @@
 import { supabase } from '../db/supabase.js';
+import { logger } from '../utils/logger.js';
 
 const SENSITIVE_KEYS = ['password', 'token', 'api_key', 'secret', 'key', 'credential', 'auth', 'signature'];
 
@@ -98,20 +99,25 @@ function normalizeTrustAuditEvent(event) {
 // producing recurring `organization_audit_logs_user_id_fkey` 409s in production.
 const LEGACY_SKIP_WARN_WINDOW_MS = 5 * 60 * 1000;
 const _legacySkipWarnAt = new Map();
-function warnLegacySkipBounded(reason) {
+function warnBounded(msg, reason) {
   try {
     const now = Date.now();
-    const last = _legacySkipWarnAt.get(reason) || 0;
+    const key = `${msg}:${reason}`;
+    const last = _legacySkipWarnAt.get(key) || 0;
     if (now - last >= LEGACY_SKIP_WARN_WINDOW_MS) {
-      _legacySkipWarnAt.set(reason, now);
+      _legacySkipWarnAt.set(key, now);
       // Structured, bounded, no PII / tokens / credentials.
-      console.warn(JSON.stringify({
-        level: 'warn',
-        msg: 'legacy organization_audit_logs write skipped (no FK-backed identity)',
-        reason,
-      }));
+      console.warn(JSON.stringify({ level: 'warn', msg, reason }));
     }
   } catch { /* logging must never throw into an audit path */ }
+}
+function warnLegacySkipBounded(reason) {
+  warnBounded('legacy organization_audit_logs write skipped (no FK-backed identity)', reason);
+}
+// OC-4A: the mirror is OBSERVABILITY (best effort) — non-blocking, but a failed mirror is reported,
+// not swallowed. It used to be `.catch(() => {})` around a call whose { error } was never read.
+function warnLegacyMirrorFailedBounded(reason) {
+  warnBounded('legacy organization_audit_logs mirror write failed', reason);
 }
 
 /**
@@ -240,13 +246,21 @@ export async function logAuditEvent(clientOrEvent, maybeEvent) {
     if (!error) {
       // Authoritative write succeeded. The legacy mirror is best-effort and now
       // FK-SAFE: it writes only with a real actor + member org, else skips cleanly
-      // (no fabricated identity, no recurring 409). Fire-and-forget, non-blocking.
-      writeLegacyOrganizationAudit(client, event, trustEvent).catch(() => {});
+      // (no fabricated identity, no recurring 409). Fire-and-forget, non-blocking —
+      // and no longer silent when it fails (OC-4A).
+      writeLegacyOrganizationAudit(client, event, trustEvent)
+        .then((mirror) => { if (mirror && !mirror.skipped && mirror.error) warnLegacyMirrorFailedBounded('mirror_insert_failed'); })
+        .catch(() => warnLegacyMirrorFailedBounded('mirror_write_threw'));
       return { success: true, event: trustEvent };
     }
 
-    // Primary (authoritative) trust_audit_events write failed — try the optional
-    // legacy mirror as a fallback.
+    // The AUTHORITATIVE trust_audit_events write failed. Every required-audit caller reads `success`
+    // as "the audit trail now holds this event", and those trails are read from trust_audit_events.
+    // The legacy organization_audit_logs mirror does not put it there, so it can never turn this into
+    // a success (OC-4A: it used to return success: true with a warning, which let a governed change
+    // proceed with no record in the trail its own reader consults). The mirror is still attempted, so
+    // the event is not lost outright, and the result says so.
+    logger.error('AUDIT', 'authoritative trust_audit_events write failed', { event_type: trustEvent.event_type, code: error.code || null });
     const legacyResult = await writeLegacyOrganizationAudit(client, event, trustEvent);
     if (legacyResult.skipped) {
       // No FK-backed legacy identity to fall back to, and the authoritative write
@@ -254,7 +268,7 @@ export async function logAuditEvent(clientOrEvent, maybeEvent) {
       return { success: false, error: error.message, legacySkipped: true, legacySkipReason: legacyResult.reason, event: trustEvent };
     }
     if (!legacyResult.error) {
-      return { success: true, warning: error.message, event: trustEvent };
+      return { success: false, error: error.message, mirrored: true, event: trustEvent };
     }
 
     return { success: false, error: error.message, fallbackError: legacyResult.error.message, event: trustEvent };

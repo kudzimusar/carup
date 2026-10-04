@@ -334,7 +334,7 @@ function runtimeSources() {
   const out = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
-      if (['node_modules', 'tests', 'scripts'].includes(name)) continue;
+      if (['node_modules', 'tests', 'scripts'].includes(name) || name.startsWith('__mutant__')) continue;
       const full = path.join(dir, name);
       if (statSync(full).isDirectory()) walk(full);
       else if (name.endsWith('.js')) out.push(full);

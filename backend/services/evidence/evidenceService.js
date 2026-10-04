@@ -11,6 +11,7 @@ import {
 } from './evidenceTaxonomy.js';
 import { computePerceptualHash } from './perceptualHash.js';
 import { recordProvenanceEvent } from './provenanceService.js';
+import { logger } from '../../utils/logger.js';
 
 export const evidenceTypes = [
   'import_photo',
@@ -348,7 +349,12 @@ export async function recordEvidenceUploadProvenance(client, { evidence, req, ev
       },
     });
   } catch (err) {
-    console.warn('[Provenance] failed to record upload event:', err.message);
+    // OC-4A classification: BUSINESS HISTORY (chain of custody), non-blocking by this domain's decision
+    // (provenance never gates capture) — but a missing custody event is a gap no verifier can see later
+    // (the next event simply links to whatever is last), so it is an ERROR, not a warning.
+    logger.error('PROVENANCE', 'chain-of-custody event NOT recorded for an evidence upload', {
+      evidence_id: evidence?.id ?? null, event_type: eventType, error_message: err.message,
+    });
   }
 }
 

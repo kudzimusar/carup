@@ -34,6 +34,9 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
+    // issue-158-terminal-operation-identity writes transient `__mutant__N.blockchainService.js` copies
+    // next to the real module while it runs; in a parallel full-suite run they are not runtime code.
+    if (entry.startsWith('__mutant__')) continue;
     const full = path.join(dir, entry);
     if (statSync(full).isDirectory()) walk(full, out);
     else if (full.endsWith('.js')) out.push(path.relative(backend, full).split(path.sep).join('/'));
@@ -128,10 +131,13 @@ test('OC-3 authority PART 2 — who READS a ledger verdict is pinned: reports, a
     'a new consumer of the ledger verdict must be reviewed: the ledger records, it does not authorise');
   const provenanceReaders = runtime.filter((rel) => /\bverifyProvenanceChain\(/.test(stripComments(read(rel))) && rel !== 'services/evidence/provenanceService.js');
   assert.deepEqual(provenanceReaders, ['routes/evidenceCatalogRoutes.js']);
-  // trustGraphService weighs the verdict only in a read-only signal; its persisting writer is dead.
-  const writerCallers = runtime.filter((rel) => /\bcalculateVehicleTrustScore\(/.test(stripComments(read(rel)).replace(/export async function calculateVehicleTrustScore\(/, '')));
-  assert.deepEqual(writerCallers, [], 'the deprecated trust writer must stay uncalled (canonical Trust has one writer)');
-  assert.match(read('services/trustGraph/trustGraphService.js'), /export async function calculateVehicleTrustScore\(/, 'positive control: the dead writer still exists to be guarded');
+  // trustGraphService weighs the verdict only in a read-only signal; its persisting writer was dead
+  // (pinned uncalled in OC-3) and is RETIRED in OC-4A — together with the history helper that
+  // swallowed every failure.
+  const writerCallers = runtime.filter((rel) => /\bcalculateVehicleTrustScore\(/.test(stripComments(read(rel))));
+  assert.deepEqual(writerCallers, [], 'the deprecated trust writer must not come back (canonical Trust has one writer)');
+  assert.doesNotMatch(stripComments(read('services/trustGraph/trustGraphService.js')), /calculateVehicleTrustScore|recordTrustScoreHistory|trust_score_history/);
+  assert.match(read('services/trustGraph/trustGraphService.js'), /export async function computeVehicleTrustScore\(/, 'positive control: the read-only form remains');
 });
 
 // ── PART 3 ─────────────────────────────────────────────────────────────────────────────────────
