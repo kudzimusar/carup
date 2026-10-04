@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
+import { assertNotSqliteDialect } from '../../db/migrationParser.js';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 
@@ -48,6 +49,12 @@ export const LEDGER_CANDIDATES = Object.freeze([
 ]);
 
 const upSection = (sql) => sql.split(/^-- \+migrate Down/m)[0];
+
+/** The Up SQL of a migration file — refused for an enumerated SQLite-only file (OC-4A 1.5). */
+export function migrationUpSql(file) {
+  assertNotSqliteDialect(file);
+  return upSection(readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
+}
 const downSection = (sql) => (sql.split(/^-- \+migrate Down/m)[1] || '');
 
 function publicKeysDdl() {
@@ -73,7 +80,7 @@ export async function createLedgerDatabase({ candidates = false } = {}) {
     CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
   `);
   for (const file of LEDGER_MIGRATION_CHAIN) {
-    const sql = file === '@public_keys' ? publicKeysDdl() : upSection(readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
+    const sql = file === '@public_keys' ? publicKeysDdl() : migrationUpSql(file);
     try {
       await db.exec(sql);
     } catch (error) {
@@ -130,6 +137,7 @@ export const EVIDENCE_HISTORY_CANDIDATES = Object.freeze([
 ]);
 
 function verbatimBlock(file, startMarker, endMarker) {
+  assertNotSqliteDialect(file);
   const sql = readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
   const start = sql.indexOf(startMarker);
   const end = sql.indexOf(endMarker, start);
@@ -156,7 +164,7 @@ function evidenceHistorySql(item) {
     return verbatimBlock('20260613000000_phase7b_supabase_auth_and_identity.sql', 'CREATE TABLE IF NOT EXISTS ocr_documents (',
       'GRANT ALL ON TABLE ocr_documents TO service_role;');
   }
-  return upSection(readFileSync(path.join(MIGRATIONS_DIR, item), 'utf8'));
+  return migrationUpSql(item);
 }
 
 /** The ledger schema plus the OC-4A evidence histories. `candidates: true` also applies the OC-4A candidate. */
