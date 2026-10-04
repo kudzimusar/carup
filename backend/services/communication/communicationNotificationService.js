@@ -383,6 +383,43 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  // O2-X6 (ported by OC-5C) — the person's identity status changed (a governed lifecycle transition).
+  // The payload carries a subject-safe status label and the reason's applicant guidance only.
+  'identity.lifecycle.changed': {
+    notificationType: 'identity_lifecycle',
+    threadType: 'account',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'identity_lifecycle_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 §15 — ONE batched "we still need" message instead of drip-fed refusals.
+  'dealer.compliance.evidence_required': {
+    notificationType: 'dealer_evidence_required',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_evidence_required_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // O2-X6 — a completed ownership transfer ended this person's seller authority.
+  'seller.authority.superseded': {
+    notificationType: 'seller_authority',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'seller_authority_superseded_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
 
   // R4 — SafeTrade / marketplace transaction stages.
   //

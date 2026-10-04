@@ -25,6 +25,7 @@ import { toResponsibilityProjection as authorityResponsibility } from '../seller
 import { toResponsibilityProjection as dealerResponsibility, deriveExpiryState, isRequirementBlocking } from '../dealer/dealerComplianceService.js';
 import { toResponsibilityProjection as transferResponsibility } from '../passport/passportOwnershipTransferService.js';
 import { allowedPeopleOperationsActions } from './operationsAuthorizationService.js';
+import { getIdentityAssurance } from '../identity/identityAssuranceService.js';
 
 const SESSION_LIMIT = 10;
 const AUTHORITY_LIMIT = 25;
@@ -213,6 +214,21 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
     };
   }
 
+  // ── Identity assurance (O2-X6, ported by OC-5C) — the derived identity_assurance.v1 projection.
+  // Fails CLOSED like every section here: "we could not read this person's identity standing" must
+  // never render as "not established". It grants nothing and carries no evidence.
+  let identityAssurance;
+  try {
+    identityAssurance = await getIdentityAssurance(client, id);
+  } catch (cause) {
+    const err = new Error('People & Compliance review is unavailable: the identity assurance record could not be read.');
+    err.status = 503;
+    err.code = 'PEOPLE_REVIEW_SECTION_UNAVAILABLE';
+    err.section = 'identity_assurance';
+    err.cause = cause;
+    throw err;
+  }
+
   // ── Audit (decision facts only — no ip/user_agent, no reviewer user ids) ───────────────
   const authorityAudit = await client
     .from('trust_audit_events')
@@ -247,6 +263,7 @@ export async function buildPersonComplianceReview(client, { userId, userContext 
       sessions,
       who_must_act: latestSession ? latestSession.who_must_act : 'none',
     },
+    identity_assurance: identityAssurance,
     seller_authority: {
       total: authority.length,
       records: authority,

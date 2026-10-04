@@ -54,6 +54,20 @@ for (const [table, section] of [
   });
 }
 
+// OC-5C (O2-X6): the identity-assurance section fails closed under its OWN name — "we could not read
+// this person's identity standing" must never render as "not established".
+test('C8: an identity_lifecycle_events failure makes the identity_assurance section unavailable, by name', async () => {
+  await assert.rejects(
+    () => buildPersonComplianceReview(reviewClient('identity_lifecycle_events'), { userId: 'u1', userContext: { id: 'admin', role: 'admin' } }),
+    (error) => {
+      assert.equal(error.code, 'PEOPLE_REVIEW_SECTION_UNAVAILABLE');
+      assert.equal(error.status, 503);
+      assert.equal(error.section, 'identity_assurance');
+      return true;
+    },
+  );
+});
+
 test('C8: with every query healthy the review still builds — the guard is not a blanket refusal', async () => {
   const review = await buildPersonComplianceReview(reviewClient(null), {
     userId: 'u1', userContext: { id: 'admin', role: 'admin' },
@@ -61,4 +75,12 @@ test('C8: with every query healthy the review still builds — the guard is not 
   assert.equal(review.person.id, 'u1');
   assert.equal(review.seller_authority.total, 0);
   assert.equal(review.dealer_compliance.is_dealer, false);
+  // O2-X6: the derived identity_assurance.v1 projection rides the review — honestly "not established"
+  // for a person with no history, granting nothing, and never a step-up.
+  assert.equal(review.identity_assurance.policy_version, 'identity_assurance.v1');
+  assert.equal(review.identity_assurance.subject_user_id, 'u1');
+  assert.equal(review.identity_assurance.assurance_level, 'not_established');
+  assert.equal(review.identity_assurance.basis, 'none');
+  assert.equal(review.identity_assurance.usable_for_identity_gated_actions, false);
+  assert.equal(review.identity_assurance.step_up.satisfied_by_identity_assurance, false);
 });

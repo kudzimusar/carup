@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { logAuditEvent } from '../auditLogger.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -187,6 +188,21 @@ export function isLifecycleTransitionAllowed(fromState, nextState) {
   const allowed = TRANSITIONS[fromState];
   return Boolean(allowed && allowed.has(nextState));
 }
+
+/**
+ * O2-X6 (OC-5C) — what the PERSON is told their identity status is. Subject-safe on purpose: the
+ * internal state 'compromised' and reason codes such as SUSPECTED_ACCOUNT_TAKEOVER never reach them
+ * (they would aid abuse, and they are CarUp's working hypotheses, not findings).
+ */
+export const SUBJECT_STATUS_LABELS = Object.freeze({
+  [LIFECYCLE_STATES.VERIFIED]: 'verified',
+  [LIFECYCLE_STATES.REVERIFICATION_REQUIRED]: 'needs re-verification',
+  [LIFECYCLE_STATES.SUSPENDED]: 'on hold',
+  [LIFECYCLE_STATES.COMPROMISED]: 'under security review',
+  [LIFECYCLE_STATES.DISPUTED]: 'under review',
+  [LIFECYCLE_STATES.REVOKED]: 'no longer verified',
+  [LIFECYCLE_STATES.RECOVERED]: 'restored',
+});
 
 /** who_must_act projection for lifecycle states — ADR vocabulary, derived, never persisted. */
 export function lifecycleToResponsibilityProjection(state) {
@@ -441,6 +457,23 @@ export async function transitionIdentityLifecycle(client = supabase, actor = {},
     reason: reasonCode,
   });
 
+  // O2-X6 (ported by OC-5C) — the person is told, through Communications (which owns delivery).
+  // Best-effort after the durable ledger row and its audit; a SAFE payload: a subject-facing status
+  // label and the reason's applicant guidance. The internal state, the reason code and the
+  // reviewer's note stay in the ledger.
+  const reasonConfig = getLifecycleReasonConfig(reasonCode);
+  await emitDomainEvent(null, 'identity.lifecycle.changed', {
+    userId,
+    recipientUserId: userId,
+    status: SUBJECT_STATUS_LABELS[nextState] || 'updated',
+    summary: reasonConfig?.applicantGuidance || '',
+    whoMustAct: lifecycleToResponsibilityProjection(nextState),
+    occurredAt: inserted?.created_at || new Date().toISOString(),
+    schemaVersion: 'o2_event.v1',
+  }, null).catch((err) => {
+    console.warn('identity.lifecycle.changed outbox emit failed:', err.message);
+  });
+
   return { event: inserted, revoked_sessions: revokedSessions };
 }
 
@@ -560,6 +593,7 @@ export default {
   CAPABILITY_BEARING_STATES,
   LIFECYCLE_TRIGGERS,
   LIFECYCLE_REASON_CODES,
+  SUBJECT_STATUS_LABELS,
   getLifecycleReasonConfig,
   isLifecycleTransitionAllowed,
   lifecycleToResponsibilityProjection,

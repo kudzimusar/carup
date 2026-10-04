@@ -264,18 +264,72 @@ export async function recordDecision(dealerId, { decision, requirement_key, reas
   // O2-X6 §14 (carried with the port): the reviewer's free-text reason stays in the governed
   // LEDGER — the event payload carries only safe structured facts. #208 first shipped this event
   // with `reason` in it; that is the version NOT ported.
+  // who_must_act is the CANONICAL dealer projection over the post-decision facts — the same answer the
+  // reviewer's People read model gives. #208 derived a second answer from the decision verb alone
+  // ('none' unless request_more_info), which told a dealer whose document was just rejected, or who
+  // was just suspended, that nobody had to act.
+  const recipientUserId = updatedProfile?.user_id || profile?.user_id || null;
+  let actionSummary = null;
+  try {
+    actionSummary = await buildDealerActionSummary(dealerId, { profile: updatedProfile });
+  } catch (err) {
+    console.warn('dealer action summary unavailable for the decision event:', err.message);
+  }
   await emitDomainEvent(null, 'dealer.compliance.decided', {
     dealerId,
-    recipientUserId: updatedProfile?.user_id || profile?.user_id || null,
+    recipientUserId,
     decision,
     requirementKey: requirement_key || null,
+    whoMustAct: actionSummary?.who_must_act ?? 'carup_review',
     occurredAt: new Date().toISOString(),
     schemaVersion: 'o2_event.v1',
   }, updatedProfile?.tenant_id || null).catch((err) => {
     console.warn('dealer.compliance.decided outbox emit failed:', err.message);
   });
 
+  // O2-X6 §15 (ported by OC-5C) — a request for more information announces the WHOLE outstanding set
+  // once ("we still need A · B · C") instead of drip-feeding refusals. Safe requirement labels only.
+  // Nothing outstanding → nothing to announce (never "CarUp still needs: .").
+  if (decision === 'request_more_info' && actionSummary?.missing.length) {
+    try {
+      await emitDomainEvent(null, 'dealer.compliance.evidence_required', {
+        dealerId,
+        recipientUserId,
+        missingRequirements: actionSummary.missing,
+        summary: actionSummary.missing.map((item) => item.label).join(' · '),
+        whoMustAct: actionSummary.who_must_act,
+        occurredAt: new Date().toISOString(),
+        schemaVersion: 'o2_event.v1',
+      }, updatedProfile?.tenant_id || null);
+    } catch (err) {
+      console.warn('dealer.compliance.evidence_required outbox emit failed:', err.message);
+    }
+  }
+
   return { decision: ledger, profile: updatedProfile };
+}
+
+/**
+ * O2-X6 §15 — the batched missing-requirements ACTION SUMMARY (domain-owned facts; Communications
+ * only renders it). Safe codes and human labels, never free text.
+ *
+ *   missing          blocking requirements the DEALER must still provide ("we still need …")
+ *   awaiting_review  blocking requirements already submitted — CarUp's move, never "needed" from them
+ *   who_must_act     the canonical projection (toResponsibilityProjection), never a second derivation
+ */
+export async function buildDealerActionSummary(dealerId, { profile } = {}) {
+  const requirements = await listRequirements(dealerId);
+  const blocking = (requirements || []).filter(isRequirementBlocking);
+  const item = (row) => ({ code: row.requirement_key, label: String(row.requirement_key || '').replace(/_/g, ' ') });
+  const missing = blocking.filter((row) => !REQUIREMENT_AWAITING_DECISION.includes(row.status)).map(item);
+  const currentProfile = profile === undefined ? await getProfileById(dealerId) : profile;
+  return {
+    dealer_id: dealerId,
+    missing,
+    awaiting_review: blocking.filter((row) => REQUIREMENT_AWAITING_DECISION.includes(row.status)).map(item),
+    count: missing.length,
+    who_must_act: toResponsibilityProjection({ profile: currentProfile || {}, blockingRequirements: requirements || [] }),
+  };
 }
 
 /** Full, immutable decision history for a dealer (admin/owner surface). */
@@ -315,6 +369,9 @@ export function deriveExpiryState(profile = {}, now = new Date()) {
   if (!profile || !profile.expiry_date) return 'none';
   return new Date(profile.expiry_date).getTime() < now.getTime() ? 'expired' : 'valid';
 }
+
+/** A blocking requirement in one of these statuses was submitted and awaits CarUp's decision. */
+export const REQUIREMENT_AWAITING_DECISION = Object.freeze(['submitted', 'pending_review', 'in_review']);
 
 /** PURE: a requirement still blocks if it is blocking and not yet verified/not_applicable. */
 export function isRequirementBlocking(req) {
@@ -444,7 +501,7 @@ export function toResponsibilityProjection({ profile = {}, blockingRequirements 
   }
   const stillBlocking = (Array.isArray(blockingRequirements) ? blockingRequirements : []).filter(isRequirementBlocking);
   if (stillBlocking.length > 0) {
-    const awaitingDecision = stillBlocking.some((req) => ['submitted', 'pending_review', 'in_review'].includes(req.status));
+    const awaitingDecision = stillBlocking.some((req) => REQUIREMENT_AWAITING_DECISION.includes(req.status));
     return awaitingDecision ? 'carup_review' : 'subject_action';
   }
   if (profile?.identity_status && profile.identity_status !== 'verified') {

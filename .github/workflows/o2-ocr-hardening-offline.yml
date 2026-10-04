@@ -730,6 +730,14 @@ jobs:
         run: |
           node --test backend/tests/o2-x3-*.test.js backend/tests/oc5c-*.test.js backend/tests/o2-owner-uat-closure.test.js backend/tests/dealer-routes.test.js backend/tests/verification-admin-review.test.js backend/tests/oc4e-product-journeys.test.js
           npm run test:unit --workspace=web -- src/hooks/useStepUpGuard.test.tsx src/lib/apiClient.stepUpCode.test.ts src/components/security/StepUpDialog.test.tsx src/pages/dashboard/admin/PeopleComplianceReview.postready.test.tsx src/pages/dashboard/admin/PeopleComplianceReview.test.tsx
+      - name: OC-5C — X6 identity_assurance.v1 and the semantic People events (emit-only, registered, subject-safe)
+        run: >-
+          node --test
+          backend/tests/o2-x6-*.test.js
+          backend/tests/oc4d-dealer-decision-event-privacy.test.js
+          backend/tests/o2-people-review-fail-closed.test.js
+          backend/tests/o2-people-compliance-review.test.js
+          backend/tests/communication-event-coverage.test.js
       - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
         run: |
           node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js

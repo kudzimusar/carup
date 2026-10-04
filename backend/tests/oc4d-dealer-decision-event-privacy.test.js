@@ -85,9 +85,13 @@ test('the dealer decision event carries safe structured facts only — the revie
   const { payload } = events[0];
   assert.deepEqual(
     Object.keys(payload).sort(),
-    ['dealerId', 'decision', 'occurredAt', 'recipientUserId', 'requirementKey', 'schemaVersion'],
+    // OC-5C (O2-X6): whoMustAct joins the allow-list — a derived duty code, never free text.
+    ['dealerId', 'decision', 'occurredAt', 'recipientUserId', 'requirementKey', 'schemaVersion', 'whoMustAct'],
     'the payload is an allow-list of structured facts',
   );
+  // The canonical dealer projection over the post-decision facts: a rejected BLOCKING requirement is
+  // the dealer's to replace. (#208 derived 'none' from the verb — telling them nobody had to act.)
+  assert.equal(payload.whoMustAct, 'subject_action', 'a rejected blocking requirement is the dealer\u2019s move');
   assert.equal(payload.recipientUserId, 'dealer-user-1', 'the dealer is the recipient');
   assert.equal(payload.decision, 'reject_requirement');
   assert.equal(payload.requirementKey, 'business_licence');

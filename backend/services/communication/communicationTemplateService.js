@@ -65,6 +65,23 @@ const TEMPLATES = Object.freeze({
     subject: 'Dealer compliance decision',
     body: 'Your dealer application received a CarUp decision: {{decision}}.',
   },
+  // O2-X6 (ported by OC-5C) — in-code mirrors of the governed registry rows (20261004172000). They
+  // render governed structured facts only: no free text, no reviewer notes, no evidence links.
+  identity_lifecycle_v1: {
+    transactional: true,
+    subject: 'Your CarUp identity status changed',
+    body: 'Your identity status is now: {{status}}. {{summary}}',
+  },
+  dealer_evidence_required_v1: {
+    transactional: true,
+    subject: 'Your dealer application still needs items',
+    body: 'To continue your dealer application, CarUp still needs: {{summary}}.',
+  },
+  seller_authority_superseded_v1: {
+    transactional: true,
+    subject: 'Seller authority ended',
+    body: 'Your seller authority for vehicle {{listing_id}} ended because ownership transferred. No action is needed.',
+  },
   // Trade OS D7 — in-code mirror of the governed `container_booking_update` template
   // (registered + approved in 20260811131700_communications_2_workflow_template_foundations.sql).
   // Used only pre-registry (dev/tests); the governed registry wins wherever it is deployed.
