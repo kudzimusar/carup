@@ -738,6 +738,10 @@ jobs:
           backend/tests/o2-people-review-fail-closed.test.js
           backend/tests/o2-people-compliance-review.test.js
           backend/tests/communication-event-coverage.test.js
+      - name: OC-5C — the applicant's own verification session never carries the reviewer's internal note (backend + mobile)
+        run: |
+          node --test backend/tests/verification-session-workflow.test.js backend/tests/verification-admin-review.test.js
+          cd mobile && npx tsc --noEmit && npx tsx tests/verification-api.test.ts && npx vitest run --config vitest.config.ts tests/verification-store-truthful-state.test.ts
       - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
         run: |
           node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js

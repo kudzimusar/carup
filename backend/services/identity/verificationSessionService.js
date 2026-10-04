@@ -212,6 +212,13 @@ function sanitizeOcrResult(extractedData = {}) {
   return result;
 }
 
+/**
+ * The APPLICANT's projection of their own session (every applicant route, and the base the reviewer
+ * projection builds on). OC-5C: it never carries `review_notes` or `reviewer_identity`. The decision
+ * recorder stores the reviewer's INTERNAL note in `review_notes`; this projection returned it, and the
+ * mobile app showed it to the applicant as their status message. What a reviewer says TO the applicant
+ * lives in `retry_reason` (resubmission) and `failure_reason` (rejection), and those stay.
+ */
 function sanitizeSession(session) {
   if (!session) return null;
   return {
@@ -237,8 +244,6 @@ function sanitizeSession(session) {
       ? null
       : Number(session.confidence_score),
     failure_reason: session.failure_reason || null,
-    review_notes: session.review_notes || null,
-    reviewer_identity: session.reviewer_identity || null,
     review_decision: session.review_decision || null,
     retry_reason: session.retry_reason || null,
     created_at: session.created_at,
@@ -753,6 +758,9 @@ function sanitizeReviewSession(session, identity = null) {
   if (!base) return null;
   return {
     ...base,
+    // Reviewer-only: the internal note and the reviewing identity (never in the applicant projection).
+    review_notes: session.review_notes || null,
+    reviewer_identity: session.reviewer_identity || null,
     reviewed_by: session.reviewed_by || null,
     reviewed_at: session.reviewed_at || null,
     review_decision: session.review_decision || null,

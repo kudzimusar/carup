@@ -13,7 +13,6 @@ function session(status: VerificationSession['status'], overrides: Partial<Verif
     ocr_result: null,
     confidence_score: null,
     failure_reason: null,
-    review_notes: null,
     retry_reason: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -167,12 +166,10 @@ describe('mapSessionToVerificationOutcome — truthful backend mapping', () => {
   })
 
   it('maps pending_manual_review to needs_review without claiming verified', () => {
-    const outcome = mapSessionToVerificationOutcome(session('pending_manual_review', {
-      review_notes: 'Reviewer must inspect.',
-    }))
+    const outcome = mapSessionToVerificationOutcome(session('pending_manual_review'))
     expect(outcome.status).toBe('needs_review')
     expect(outcome.status).not.toBe('verified')
-    expect(outcome.processingError).toContain('Reviewer')
+    expect(outcome.processingError).toContain('manual review')
   })
 
   it('maps ocr_failed with failure reason', () => {
@@ -183,13 +180,20 @@ describe('mapSessionToVerificationOutcome — truthful backend mapping', () => {
     expect(outcome.sessionStatus).toBe('ocr_failed')
   })
 
-  it('maps rejected with reviewer notes', () => {
+  it('maps rejected with the reviewer\'s message to the applicant (failure_reason)', () => {
     const outcome = mapSessionToVerificationOutcome(session('rejected', {
-      review_notes: 'Document is illegible.',
+      failure_reason: 'Document is illegible.',
     }))
     expect(outcome.status).toBe('rejected')
     expect(outcome.sessionStatus).toBe('rejected')
     expect(outcome.processingError).toContain('illegible')
+  })
+
+  it('OC-5C: never shows a reviewer INTERNAL note, even if a session still carries one', () => {
+    const internal = { review_notes: 'INTERNAL: suspected repeat fraud' } as unknown as Partial<VerificationSession>
+    for (const status of ['pending_manual_review', 'retry_requested', 'rejected'] as const) {
+      expect(mapSessionToVerificationOutcome(session(status, internal)).processingError).not.toMatch(/INTERNAL|fraud/)
+    }
   })
 
   it('maps retry_requested with retry reason', () => {

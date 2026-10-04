@@ -177,6 +177,21 @@ test('JOURNEY Identity: capture → Qwen classifies and reads (candidate) → a 
   assert.equal(reviewed.body.decision.audit_recorded, true, 'the human decision is in the audit trail');
   assert.ok(world.rows('verification_decisions').some((d) => d.session_id === sessionId && d.decision === 'approve'));
   assert.ok(world.rows('trust_audit_events').some((e) => e.event_type === 'VERIFICATION_REVIEW_APPROVED'));
+
+  // OC-5C: the reviewer's INTERNAL note belongs to the reviewer. The applicant's own session — the
+  // latest-session preflight and the by-id read — never carries it, nor who reviewed; the reviewer's
+  // projection still does.
+  for (const path of ['/api/identity/verification-sessions/latest', `/api/identity/verification-sessions/${sessionId}`]) {
+    const mine = await call(path);
+    assert.equal(mine.status, 200, mine.text.slice(0, 200));
+    assert.equal(mine.body.session.id, sessionId);
+    assert.equal('review_notes' in mine.body.session, false, `${path}: no internal note field`);
+    assert.equal('reviewer_identity' in mine.body.session, false, `${path}: no reviewer identity`);
+    assert.ok(!mine.text.includes('Passport matches the account holder.'), `${path} never carries the internal note`);
+  }
+  const reviewerView = await call(`/api/admin/identity/verification-sessions/${sessionId}`, { who: 'admin' });
+  assert.equal(reviewerView.status, 200, reviewerView.text.slice(0, 200));
+  assert.equal(reviewerView.body.session.review_notes, 'Passport matches the account holder.', 'the reviewer still reads it');
 });
 
 // ── PEOPLE & COMPLIANCE (OC-4D: #208 P3–P6) ─────────────────────────────────────────────────────
