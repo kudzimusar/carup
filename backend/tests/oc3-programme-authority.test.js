@@ -50,7 +50,9 @@ const AI_MODULES_ELSEWHERE = [
   'services/marketplace/marketplaceAiAssistantService.js',
   'services/document-intelligence/documentIntelligenceService.js',
   'services/identity/documentClassifier.js',
-  'services/communication/communicationGeminiProvider.js',
+  // OC-4B: communicationGeminiProvider.js is retired; general text converged on the gateway through
+  // communicationAiAssistProvider.js, and Groq remains the MEDIA provider only.
+  'services/communication/communicationAiAssistProvider.js',
   'services/communication/communicationGroqProvider.js',
   'services/communication/communicationAiProviderFactory.js',
   'services/communication/communicationAiRuntimeService.js',

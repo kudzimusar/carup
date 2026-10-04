@@ -16,6 +16,7 @@ on:
       - feat/oc-3e-wave1-ai-consumer-convergence
       - feat/oc-3d-ledger-hardening-offline
       - feat/oc4a-evidence-store-completion
+      - feat/oc4b-ai-wave2-communications
     paths:
       - '.github/workflows/o2-ocr-hardening-offline.yml'
       - 'backend/services/ai/aiServiceBus.js'
@@ -203,6 +204,18 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'docs/one-carup/OC4A_EVIDENCE_STORE_COMPLETION.md'
+      # OC-4B AI wave 2: Communications general text on the gateway (media MULTIMODAL DEFERRED), the
+      # retired Gemini comms provider and GeminiClient text path, the strict-OCR startup guard, and
+      # health truth (no vendor key-presence flags).
+      - 'backend/services/communication/communicationAiAssistProvider.js'
+      - 'backend/services/communication/communicationGroqProvider.js'
+      - 'backend/config/ocrStartupGuard.js'
+      - 'backend/services/metrics.js'
+      - '.env.example'
+      - 'backend/tests/oc4b-*.test.js'
+      - 'backend/tests/communications-2-ai-provider-neutrality.test.js'
+      - 'backend/tests/communications-2-product-capabilities.test.js'
+      - 'docs/one-carup/OC4B_AI_WAVE2_COMMUNICATIONS.md'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -303,7 +316,10 @@ jobs:
             backend/tests/verification-decision-policy.test.js \
             backend/tests/diaspora-workbook-db-export.test.js \
             backend/tests/evidence-catalog-routes.test.js \
-            backend/tests/migration-integrity.test.js
+            backend/tests/migration-integrity.test.js \
+            backend/tests/oc4b-communications-ai-convergence.test.js \
+            backend/tests/communications-2-ai-provider-neutrality.test.js \
+            backend/tests/communications-2-product-capabilities.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is

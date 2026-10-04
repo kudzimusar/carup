@@ -1,7 +1,7 @@
 # CarUp AI consumer matrix
 
-**Programme:** One CarUp, OC-3 foundation convergence
-**State as of:** OC-3E wave 1, on branch `feat/oc-3e-wave1-ai-consumer-convergence`
+**Programme:** One CarUp, OC-3 foundation convergence, then OC-4 source convergence
+**State as of:** OC-4B (AI wave 2), on branch `feat/oc4b-ai-wave2-communications`
 **Supersedes:** the AI-01-B matrix in PR #217 (head `6c8ff6f7`). That matrix was written against `main` bb9d9900, and several of its rows are no longer true on this lineage.
 
 > **Governing law.** Document Intelligence observes; domain authorities decide. OCR output is candidate evidence. General AI output is advisory machine output. No model answer sets Trust, verifies ownership or identity, approves a listing, publishes, or moves money.
@@ -29,19 +29,34 @@ General AI       domain adapter → carUpAiGateway → Gemma provider ─┘
 | Identity document classifier | `documentClassifier` → `ocrVisionProvider` (Layer 2) | On the certified OCR policy (C2). |
 | Document Intelligence extraction | `documentIntelligenceService` → `ocrVisionProvider` | On the certified OCR policy (OCR 1.0). |
 | Evidence-image analysis | `aiVisionProvider` / `analysisProvider` | **Simulator**, labelled `simulated` (OC-3B). Scripted scenarios and the mock analysis exist only in the test-fixture runtime (OC-3B-R). No model is called. |
-| Communications AI | `communicationAiProviderFactory` → Gemini / Groq providers | **Remaining direct consumer.** Has its own explicit provider boundary with no silent fallback. A later wave. |
+| Communications AI — general text (summary, suggested reply, translation, intent, entities, next-best action) | `communicationAiAssistProvider` → `domainAdvisoryAdapter.requestAdvisoryText` → gateway | **Converged (wave 2, OC-4B).** The runtime's guardrail, derivation types, preserved originals, human-approved send and high-risk routing are unchanged. A gateway failure is a governed 503/502 with no vendor fallback and no derivation. |
+| Communications AI — media (audio transcription; image where the account has vision) | `communicationAiAssistProvider` → the media provider selected by `COMMUNICATION_AI_PROVIDER` (`groq`) | **GENERAL TEXT CONVERGED / MULTIMODAL DEFERRED.** Stays on the provider Communications 2.0 certified (Whisper). It is consulted only for a request that carries media; it is never a text fallback. |
+| Communications Gemini provider | — | **Retired (OC-4B).** Communications 2.0 shipped with "Gemini = NOT REQUIRED", and it had no remaining role. `COMMUNICATION_AI_PROVIDER=gemini` is refused with a reason. |
 | Gemini OCR provider | `ocrVisionProvider` → `GeminiClient.askGeminiVision` | **Remaining direct, not default.** Selectable only by `CARUP_OCR_PROVIDER=gemini`. |
-| Legacy client | `GeminiClient.js` | No wave-1 consumer is left. Still used by the non-default Gemini OCR provider. |
+| Legacy client | `GeminiClient.js` | **Vision only (OC-4B).** The text path (`askGemini`, `askGeminiWithProvenance`) and its scripted reply are retired; the sole consumer is the non-default Gemini OCR provider. Vision failures are typed (`AiProviderError`). |
 | Generic OCR parser | `aiServiceBus.runOcrParsing` / `/api/ai/ocr` | **Retired** (410). |
 
 ### Remaining direct model-vendor modules
 
 `backend/tests/oc3e-w1-ai-consumer-convergence.test.js` pins this list exactly, so it can only shrink:
 
-1. `GeminiClient.js`
-2. `ocrVisionProvider.js`
-3. `communicationGeminiProvider.js`
-4. `communicationGroqProvider.js`
+1. `GeminiClient.js` (vision only)
+2. `ocrVisionProvider.js` (the non-default Gemini OCR provider)
+3. `communicationGroqProvider.js` (Communications media only)
+
+`communicationGeminiProvider.js` left the list in OC-4B.
+
+### Health truth (OC-4B)
+
+`/api/health` reports what runs, not which vendor keys exist:
+
+- `ai: { provider, model, configured, authority: 'advisory' }` is the general gateway runtime.
+- `ocr` is the canonical OCR projection.
+- `ocrProviders` now holds only the certified provider's flag (`cloudflare`).
+
+The Gemini, Groq, OpenRouter and Moonshot key-presence flags are gone from health and from the metrics snapshot. OpenRouter and Moonshot keys had no client at all.
+
+Strict OCR mode used to require a Gemini or Groq key. It now requires the **selected** OCR provider to be configured.
 
 ## Paid inference needs a proven caller: route decisions
 

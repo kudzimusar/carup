@@ -162,6 +162,8 @@ import { registerCommunicationListeners } from './services/communication/communi
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
 import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
+import { strictOcrStartupError } from './config/ocrStartupGuard.js';
+import { inspectAdvisoryRuntime } from './services/ai/domainAdvisoryAdapter.js';
 
 dotenv.config();
 
@@ -172,14 +174,11 @@ if (!process.env.SUPABASE_URL) {
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('FATAL: SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.');
 }
-if (
-  process.env.OCR_MODE === 'strict' &&
-  !process.env.GEMINI_API_KEY &&
-  !process.env.GROQ_API_KEY
-) {
-  throw new Error(
-    'FATAL: STRICT OCR MODE REQUIRES AT LEAST ONE REAL OCR PROVIDER (GEMINI_API_KEY or GROQ_API_KEY)'
-  );
+// Strict OCR mode requires the SELECTED OCR provider to be configured (OC-4B: it used to demand a
+// Gemini or Groq key, neither of which is the OCR authority — see config/ocrStartupGuard.js).
+const strictOcrError = strictOcrStartupError();
+if (strictOcrError) {
+  throw new Error(strictOcrError);
 }
 
 // Secrets whose absence is INVISIBLE until a user hits the affected path.
@@ -293,6 +292,18 @@ app.get('/api/security/csrf-token', (req, res) => {
 });
 
 // Expose operational health and metrics endpoint
+// The general AI runtime, as the CarUp AI gateway would run it (OC-4B health truth). Names and a
+// boolean only — never a credential, and never the list of which variables are missing.
+function generalAiHealth() {
+  try {
+    const inspection = inspectAdvisoryRuntime();
+    const runtime = inspection?.ok ? inspection.runtime : null;
+    return { provider: runtime?.provider ?? null, model: runtime?.model ?? null, configured: runtime?.configured === true, authority: 'advisory' };
+  } catch {
+    return { provider: null, model: null, configured: false, authority: 'advisory' };
+  }
+}
+
 app.get('/api/health', async (req, res) => {
   let supabaseHealth = 'healthy';
   let outboxBacklog = 0;
@@ -316,8 +327,7 @@ app.get('/api/health', async (req, res) => {
   // Canonical OCR runtime projection — the AUTHORITATIVE, non-secret description of the CURRENT
   // Document Intelligence OCR boundary. Derived from the same resolveVisionProvider() /
   // provider.isConfigured() / isOcrMockAllowed() the runtime uses, so it never drifts from what
-  // an OCR request would actually do. The legacy `ocrProviders` map (below) describes unrelated
-  // AI credentials and must NOT be read as "the OCR provider is available". No secret VALUES.
+  // an OCR request would actually do. No secret VALUES.
   let ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false };
   let cloudflareConfigured = false;
   try {
@@ -353,13 +363,13 @@ app.get('/api/health', async (req, res) => {
     // Canonical current OCR runtime status (authoritative for "is OCR available").
     ocr,
     ocrProviders: {
-      // Truthful presence of the SELECTED OCR provider's credentials alongside the legacy map.
-      cloudflare: cloudflareConfigured,
-      gemini: !!process.env.GEMINI_API_KEY,
-      groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
-      openrouter: !!process.env.OPENROUTER_API_KEY,
-      moonshot: !!process.env.MOONSHOT_API_KEY
+      // Truthful presence of the certified OCR provider's credentials. OC-4B removed the vendor
+      // key-presence flags (gemini, groq, openrouter, moonshot): Moonshot and OpenRouter have no
+      // client at all, and a Gemini/Groq key says nothing about what OCR or general AI runs on.
+      cloudflare: cloudflareConfigured
     },
+    // The general (advisory) AI runtime every domain adapter uses: provider, model, configured.
+    ai: generalAiHealth(),
     communications: {
       status: communicationConfiguration.status,
       ready: communicationConfiguration.ready,

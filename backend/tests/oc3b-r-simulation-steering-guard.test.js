@@ -41,7 +41,8 @@ const ROOT = new URL('../', import.meta.url);
 const GUARD_PATH = new URL('config/testFixtureGuard.js', ROOT);
 
 const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
-const { askGeminiWithProvenance, askGeminiVision, isGeminiTestMockAllowed } = await import('../services/ai/GeminiClient.js');
+// OC-4B: GeminiClient is vision-only — its text path and scripted text reply are retired.
+const { askGeminiVision, isGeminiTestMockAllowed } = await import('../services/ai/GeminiClient.js');
 const { honouredMockScenario, analyzeEvidenceImage } = await import('../services/ai/aiVisionProvider.js');
 const { mockAnalysisProvider, resolveAnalysisProvider } = await import('../services/ai/analysisProvider.js');
 const { runAnalysisJob } = await import('../services/ai/analysisJobService.js');
@@ -193,12 +194,10 @@ for (const { label, env } of REFUSED) {
     });
   });
 
-  test(`OC-3B-R refused (${label}): Gemini text + vision fail closed — no scripted "Low" verdict`, async () => {
+  test(`OC-3B-R refused (${label}): Gemini vision fails closed — and the scripted text "Low" verdict no longer exists`, async () => {
     await withEnv(env, async () => {
-      await assert.rejects(() => askGeminiWithProvenance('system', 'fraud scan for listing title', true),
-        (err) => err?.code === 'AI_PROVIDER_UNCONFIGURED', 'text path must throw AI_PROVIDER_UNCONFIGURED');
-      await assert.rejects(() => askGeminiVision('system', 'classify', [], true), /unavailable/i,
-        'vision path must throw');
+      await assert.rejects(() => askGeminiVision('system', 'classify', [], true),
+        (err) => err?.code === 'AI_PROVIDER_UNCONFIGURED' && /unavailable/i.test(err.message), 'vision path must throw AI_PROVIDER_UNCONFIGURED');
     });
   });
 
@@ -273,8 +272,8 @@ for (const { label, env } of ALLOWED) {
       const flagged = await analyzeEvidenceImage(IMAGE, 'image/jpeg', 'photo', { mock_ai_scenario: 'flagged_vin_mismatch' });
       assert.equal(flagged.ai_status, 'ai_flagged');
       await assert.rejects(() => analyzeEvidenceImage(IMAGE, 'image/jpeg', 'photo', { mock_ai_scenario: 'provider_error' }), /Simulated API error/);
-      const reply = await askGeminiWithProvenance('system', 'fraud scan', true);
-      assert.equal(reply.execution, 'simulated');
+      const reply = JSON.parse(await askGeminiVision('system', 'classify', [], true));
+      assert.equal(reply.simulated, true, 'the vision fixture labels itself simulated');
       const ocr = await mockAnalysisProvider.analyze('vin_ocr', { metadata: { vin: CALLER_VIN } });
       assert.equal(ocr.provider, 'mock');
       const classified = await DocumentClassifier.classify({ front: jpegFixture(), selfie: jpegFixture() }, 'passport');
@@ -291,7 +290,7 @@ for (const { label, env } of ALLOWED) {
 // ---------------------------------------------------------------------------------------------
 
 const SCOPED_FILES = [
-  ['services/ai/GeminiClient.js', /export async function askGeminiWithProvenance/],
+  ['services/ai/GeminiClient.js', /export async function askGeminiVision/],
   ['services/ai/aiVisionProvider.js', /export async function analyzeEvidenceImage/],
   ['services/ai/analysisProvider.js', /export const mockAnalysisProvider/],
   ['services/identity/documentClassifier.js', /static async classify\(/],

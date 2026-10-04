@@ -10,7 +10,8 @@ process.env.SUPABASE_URL ||= 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-key';
 
 const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
-const { askGemini } = await import('../services/ai/GeminiClient.js');
+// OC-4B: GeminiClient is vision-only (its text path was retired); the guard is proven on what remains.
+const { askGeminiVision } = await import('../services/ai/GeminiClient.js');
 
 function withEnv(overrides, fn) {
   const keys = Object.keys(overrides);
@@ -51,9 +52,9 @@ test('mock OCR allowed ONLY with NODE_ENV=test AND explicit ALLOW_OCR_MOCK=true'
   });
 });
 
-test('askGemini fails closed (throws) when no API key and not in test-mock mode', async () => {
+test('askGeminiVision fails closed (throws) when no API key and not in test-mock mode', async () => {
   await withEnv({ GEMINI_API_KEY: undefined, NODE_ENV: 'production', ALLOW_OCR_MOCK: 'true' }, async () => {
-    await assert.rejects(() => askGemini('system', 'extract ocr', true), /OCR provider unavailable/);
+    await assert.rejects(() => askGeminiVision('system', 'extract ocr', [], true), /Vision provider unavailable/);
   });
 });
 
@@ -69,10 +70,10 @@ test('OC-3B-R: mock OCR is refused in a declared deployment even with NODE_ENV=t
   }
 });
 
-test('OC-3B-R: askGemini fails closed in a declared deployment even with NODE_ENV=test + ALLOW_OCR_MOCK=true', async () => {
+test('OC-3B-R: askGeminiVision fails closed in a declared deployment even with NODE_ENV=test + ALLOW_OCR_MOCK=true', async () => {
   for (const marker of DEPLOYED_MARKERS) {
     await withEnv({ GEMINI_API_KEY: undefined, NODE_ENV: 'test', ALLOW_OCR_MOCK: 'true', VERCEL_ENV: undefined, CARUP_ENV: undefined, ...marker }, async () => {
-      await assert.rejects(() => askGemini('system', 'extract ocr', true), /OCR provider unavailable/, JSON.stringify(marker));
+      await assert.rejects(() => askGeminiVision('system', 'extract ocr', [], true), /Vision provider unavailable/, JSON.stringify(marker));
     });
   }
 });

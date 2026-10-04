@@ -23,9 +23,12 @@
  * OC-3E-W1. Fraud, risk and the marketplace assistant no longer call Gemini: they reach the model
  * through the canonical CarUp AI gateway (domainAdvisoryAdapter → Gemma on Cloudflare Workers AI).
  * Their cases below therefore intercept CLOUDFLARE and expect the gateway's provenance and typed
- * AiAdvisoryError; the contract each case asserts is unchanged. The askGemini cases stay on Gemini —
- * GeminiClient still has consumers. The former "simulated fraud verdict" case is replaced by a
- * stronger one: on the gateway path a simulated verdict does not exist at all.
+ * AiAdvisoryError; the contract each case asserts is unchanged. The former "simulated fraud verdict"
+ * case is replaced by a stronger one: on the gateway path a simulated verdict does not exist at all.
+ *
+ * OC-4B. GeminiClient's TEXT path (askGemini / askGeminiWithProvenance and its scripted reply) is
+ * retired — it had no runtime caller left. The typed-failure contract it carried is now proven on the
+ * path that remains, askGeminiVision (the non-default Gemini OCR provider's client).
  */
 import test, { before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -149,45 +152,47 @@ function assertProviderError(err, label) {
   return true;
 }
 
-// ── askGemini ─────────────────────────────────────────────────────────────────────────────────
+// ── GeminiClient: vision only (OC-4B) ──────────────────────────────────────────────────────────
+
+test('OC-4B GeminiClient: the text path and its scripted reply are retired — nothing can call them', async () => {
+  assert.equal('askGemini' in gemini, false);
+  assert.equal('askGeminiWithProvenance' in gemini, false);
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../services/ai/GeminiClient.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /function simulatedReply|Tendai Moyo|Owner verified through OTP|riskRating: 'Low'/, 'the canned verdict generator is gone');
+});
 
 for (const [label, behaviour] of Object.entries(FAILURES)) {
-  test(`OC-3B askGemini: ${label} THROWS a typed AiProviderError instead of returning an {error:true} envelope`, async () => {
+  test(`OC-3B askGeminiVision: ${label} THROWS a typed AiProviderError instead of returning an {error:true} envelope`, async () => {
     providerBehaviour = behaviour;
-    await assert.rejects(() => gemini.askGemini('system', 'fraud listing', true), (err) => assertProviderError(err, label));
+    await assert.rejects(() => gemini.askGeminiVision('system', 'read the document', [], true), (err) => assertProviderError(err, label));
   });
 }
 
-test('OC-3B askGemini: retryability and HTTP status are carried on the error', async () => {
+test('OC-3B askGeminiVision: retryability and HTTP status are carried on the error', async () => {
   providerBehaviour = FAILURES['HTTP 429'];
-  await assert.rejects(() => gemini.askGemini('s', 'u', true), (err) => err.status === 429 && err.retryable === true);
+  await assert.rejects(() => gemini.askGeminiVision('s', 'u', [], true), (err) => err.status === 429 && err.retryable === true);
   providerBehaviour = FAILURES['transport error'];
-  await assert.rejects(() => gemini.askGemini('s', 'u', true), (err) => err.status === null && err.retryable === true);
+  await assert.rejects(() => gemini.askGeminiVision('s', 'u', [], true), (err) => err.status === null && err.retryable === true);
 });
 
-test('OC-3B askGemini: a real reply is labelled with the model the request actually used', async () => {
+test('OC-3B askGeminiVision: the request goes to the model the client names', async () => {
   providerBehaviour = modelSays({ ok: 1 });
-  const out = await gemini.askGeminiWithProvenance('s', 'u', true);
-  assert.deepEqual(JSON.parse(out.text), { ok: 1 });
-  assert.equal(out.provider, 'gemini');
-  assert.equal(out.execution, 'provider_executed');
-  assert.equal(out.model, 'gemini-2.5-flash');
-  assert.ok(providerCalls[0].includes(`/models/${out.model}:generateContent`), 'label == the model in the request URL');
+  const text = await gemini.askGeminiVision('s', 'u', [], true);
+  assert.deepEqual(JSON.parse(text), { ok: 1 });
+  assert.ok(providerCalls[0].includes(`/models/${gemini.GEMINI_VISION_MODEL}:generateContent`), 'label == the model in the request URL');
 });
 
-test('OC-3B askGemini: the test mock is reachable ONLY under NODE_ENV=test + ALLOW_OCR_MOCK=true, and is labelled simulated', async () => {
+test('OC-3B askGeminiVision: the test mock is reachable ONLY under NODE_ENV=test + ALLOW_OCR_MOCK=true, and is labelled simulated', async () => {
   delete process.env.GEMINI_API_KEY;
   process.env.ALLOW_OCR_MOCK = 'true';
-  const out = await gemini.askGeminiWithProvenance('s', 'fraud listing title', true);
-  assert.equal(out.provider, 'simulated');
-  assert.equal(out.execution, 'simulated');
-  assert.doesNotMatch(out.model, /^gemini-2/);
-  assert.equal(JSON.parse(out.text).simulated, true, 'the mock payload itself says it is simulated');
+  const out = JSON.parse(await gemini.askGeminiVision('s', 'classify', [], true));
+  assert.equal(out.simulated, true, 'the mock payload itself says it is simulated');
   assert.equal(providerCalls.length, 0);
   for (const [env, allow] of [['production', 'true'], ['development', 'true'], ['test', 'false'], ['test', undefined]]) {
     process.env.NODE_ENV = env;
     if (allow === undefined) delete process.env.ALLOW_OCR_MOCK; else process.env.ALLOW_OCR_MOCK = allow;
-    await assert.rejects(() => gemini.askGemini('s', 'fraud listing', true), (err) => err instanceof gemini.AiProviderError && err.retryable === false,
+    await assert.rejects(() => gemini.askGeminiVision('s', 'classify', [], true), (err) => err instanceof gemini.AiProviderError && err.retryable === false,
       `NODE_ENV=${env} ALLOW_OCR_MOCK=${allow}: no key must fail closed`);
   }
 });

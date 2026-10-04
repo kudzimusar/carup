@@ -332,8 +332,9 @@ test('OC-3E-W1 ledger: the remaining DIRECT model-vendor modules are exactly the
   // go through carUpAiGateway (via a domain adapter); this list only shrinks. Recorded owners:
   //   GeminiClient.js                — the legacy client itself (no wave-1 consumer left)
   //   ocrVisionProvider.js           — the selectable, NON-default Gemini OCR provider (OCR authority: Qwen)
-  //   communicationGeminiProvider.js — Communications AI (its own provider-factory boundary; later wave)
-  //   communicationGroqProvider.js   — Communications AI (same boundary; later wave)
+  //   communicationGroqProvider.js   — Communications MEDIA only (MULTIMODAL DEFERRED). OC-4B converged
+  //                                    Communications general text on the gateway and RETIRED
+  //                                    communicationGeminiProvider.js — the list shrank, as it only may.
   const files = runtimeFiles();
   assert.ok(files.length > 150, `anti-vacuity: scanned ${files.length} runtime files`);
   const direct = files
@@ -343,7 +344,6 @@ test('OC-3E-W1 ledger: the remaining DIRECT model-vendor modules are exactly the
   assert.deepEqual(direct, [
     'services/ai/GeminiClient.js',
     'services/ai/ocrVisionProvider.js',
-    'services/communication/communicationGeminiProvider.js',
     'services/communication/communicationGroqProvider.js',
   ]);
 });
