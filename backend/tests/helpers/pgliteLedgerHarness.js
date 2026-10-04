@@ -96,6 +96,90 @@ export async function revertLedgerCandidates(db) {
   }
 }
 
+// ── OC-4A: the evidence histories that sit beside the ledger ─────────────────────────────────────
+// partsentry_logs in its governed shape, ocr_documents, and trust_audit_events (the record every
+// governed PartSentry change must write), each from its own migration. The stated deviations are
+// verbatim blocks, because the files as a whole rebuild unrelated domains:
+//   @vehicles_owner     010_phase5_schema.sql's `owner_id` DO block (vehicle object authority reads it)
+//   @vehicles_seller    013's `ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS current_seller_id` line
+//   @tenants            the `CREATE TABLE IF NOT EXISTS tenants` block of 002_multi_tenant_and_auth_schema.sql
+//   @vehicles_tenant    002's `ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS tenant_id …` line (tenant scope
+//                       is read by the review workflow and by vehicle object authority)
+//   @partsentry_tenant  002's `ALTER TABLE partsentry_logs ADD COLUMN IF NOT EXISTS tenant_id …` line
+//                       (the real writer stamps tenant_id; the FK is ON DELETE CASCADE from tenants)
+//   @ocr_documents      the ocr_documents block of 20260613000000 (table, index, RLS, grants)
+export const OC4A_CANDIDATES_DIR = path.resolve(here, '../../../database/migration-candidates/oc4a');
+
+export const EVIDENCE_HISTORY_MIGRATIONS = Object.freeze([
+  '@tenants',
+  '@vehicles_owner',
+  '@vehicles_seller',
+  '@vehicles_tenant',
+  '@partsentry_tenant',
+  '20260603233640_governance_foundation_trust_audit_events.sql',
+  '20260710130000_partsentry_review_requests.sql',
+  '@ocr_documents',
+]);
+
+export const EVIDENCE_HISTORY_CANDIDATES = Object.freeze([
+  '20261004140000_oc4a_evidence_history_protection.sql',
+]);
+
+function verbatimBlock(file, startMarker, endMarker) {
+  const sql = readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+  const start = sql.indexOf(startMarker);
+  const end = sql.indexOf(endMarker, start);
+  if (start < 0 || end < 0) throw new Error(`evidence harness: block "${startMarker}" not found in ${file}`);
+  return sql.slice(start, end + endMarker.length);
+}
+
+function evidenceHistorySql(item) {
+  if (item === '@tenants') return verbatimBlock('002_multi_tenant_and_auth_schema.sql', 'CREATE TABLE IF NOT EXISTS tenants (', ');');
+  if (item === '@vehicles_owner') {
+    return verbatimBlock('010_phase5_schema.sql', 'DO $$ \nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name=\'vehicles\' AND column_name=\'owner_id\')', 'END $$;');
+  }
+  if (item === '@vehicles_seller') {
+    return verbatimBlock('013_zimbabwe_plate_and_owner_privacy.sql', 'ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS current_seller_id', ';');
+  }
+  if (item === '@vehicles_tenant') {
+    return verbatimBlock('002_multi_tenant_and_auth_schema.sql', 'ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS tenant_id', ';');
+  }
+  if (item === '@partsentry_tenant') {
+    return verbatimBlock('002_multi_tenant_and_auth_schema.sql', 'ALTER TABLE partsentry_logs ADD COLUMN IF NOT EXISTS tenant_id', ';');
+  }
+  if (item === '@ocr_documents') {
+    return verbatimBlock('20260613000000_phase7b_supabase_auth_and_identity.sql', 'CREATE TABLE IF NOT EXISTS ocr_documents (',
+      'GRANT ALL ON TABLE ocr_documents TO service_role;');
+  }
+  return upSection(readFileSync(path.join(MIGRATIONS_DIR, item), 'utf8'));
+}
+
+/** The ledger schema plus the OC-4A evidence histories. `candidates: true` also applies the OC-4A candidate. */
+export async function createEvidenceHistoryDatabase({ candidates = false } = {}) {
+  const db = await createLedgerDatabase();
+  for (const item of EVIDENCE_HISTORY_MIGRATIONS) {
+    try {
+      await db.exec(evidenceHistorySql(item));
+    } catch (error) {
+      throw new Error(`evidence harness: ${item} did not apply: ${error.message}`);
+    }
+  }
+  if (candidates) await applyEvidenceHistoryCandidates(db);
+  return db;
+}
+
+export async function applyEvidenceHistoryCandidates(db) {
+  for (const file of EVIDENCE_HISTORY_CANDIDATES) {
+    await db.exec(upSection(readFileSync(path.join(OC4A_CANDIDATES_DIR, file), 'utf8')));
+  }
+}
+
+export async function revertEvidenceHistoryCandidates(db) {
+  for (const file of [...EVIDENCE_HISTORY_CANDIDATES].reverse()) {
+    await db.exec(downSection(readFileSync(path.join(OC4A_CANDIDATES_DIR, file), 'utf8')));
+  }
+}
+
 export async function seedVehicle(db, vin) {
   await db.query('INSERT INTO vehicles (vin, make, model, year, mileage, price) VALUES ($1, $2, $3, $4, $5, $6)', [vin, 'Toyota', 'Hilux', 2020, 42000, 21000]);
 }
@@ -143,6 +227,9 @@ export function supabaseOver(db) {
         delete() { state.op = 'delete'; return builder; },
         eq(column, value) { state.filters.push([column, '=', value]); return builder; },
         gt(column, value) { state.filters.push([column, '>', value]); return builder; },
+        lte(column, value) { state.filters.push([column, '<=', value]); return builder; },
+        neq(column, value) { state.filters.push([column, '<>', value]); return builder; },
+        in(column, values) { state.filters.push([column, 'IN', values]); return builder; },
         order(column, { ascending = true } = {}) { state.orders.push(`${quote(column)} ${ascending ? 'ASC' : 'DESC'}`); return builder; },
         limit(n) { state.limit = Number(n); return builder; },
         single() { state.single = 'single'; return run(); },
@@ -163,7 +250,15 @@ export function supabaseOver(db) {
       }
       function where(params) {
         if (!state.filters.length) return '';
-        return ` WHERE ${state.filters.map(([column, operator, value]) => { params.push(value); return `${quote(column)} ${operator} $${params.length}`; }).join(' AND ')}`;
+        return ` WHERE ${state.filters.map(([column, operator, value]) => {
+          if (operator === 'IN') {
+            const list = Array.isArray(value) ? value : [value];
+            if (!list.length) return 'FALSE';
+            return `${quote(column)} IN (${list.map((item) => { params.push(item); return `$${params.length}`; }).join(', ')})`;
+          }
+          params.push(value);
+          return `${quote(column)} ${operator} $${params.length}`;
+        }).join(' AND ')}`;
       }
       const projection = (columns) => (columns === '*' ? '*' : String(columns).split(',').map((c) => quote(c.trim())).join(', '));
 
@@ -226,9 +321,14 @@ export function supabaseOver(db) {
 export default {
   LEDGER_MIGRATION_CHAIN,
   LEDGER_CANDIDATES,
+  EVIDENCE_HISTORY_MIGRATIONS,
+  EVIDENCE_HISTORY_CANDIDATES,
   createLedgerDatabase,
+  createEvidenceHistoryDatabase,
   applyLedgerCandidates,
   revertLedgerCandidates,
+  applyEvidenceHistoryCandidates,
+  revertEvidenceHistoryCandidates,
   seedVehicle,
   seedEvidence,
   supabaseOver,
