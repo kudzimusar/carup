@@ -25,6 +25,7 @@ import { readFile } from 'node:fs/promises';
 import { isGenuineRegistryRecord, NON_SUBSTANTIATING_MODES } from '../services/evidence/vehicleFactResolver.js';
 
 const DOC_INTEL = 'backend/services/document-intelligence/documentIntelligenceService.js';
+const FIXTURE_GUARD = 'backend/config/testFixtureGuard.js';
 const DOC_SCHEMAS = 'backend/services/document-intelligence/documentSchemas.js';
 const TRUST_GRAPH = 'backend/services/trustGraph/trustGraphService.js';
 
@@ -99,7 +100,14 @@ test('T12: the sample-document parser stays gated to the test suite', async () =
   // It is the reason the ban above is scoped, so its gate is part of this phase's evidence.
   const source = await readFile(DOC_INTEL, 'utf8');
   const code = source.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
-  assert.match(code, /NODE_ENV === 'test' && process\.env\.ALLOW_OCR_MOCK === 'true'/);
+  // OC-3B-R extracted that gate to config/testFixtureGuard.js — one rule for every fixture, which now
+  // also refuses a runtime that declares itself deployed — and isOcrMockAllowed delegates to it. The
+  // pin follows the gate to where it lives, and pins the delegation that keeps this parser behind it.
+  assert.match(code, /static isOcrMockAllowed\(\) \{\s*return isTestFixtureAllowed\(process\.env\);\s*\}/,
+    'the sample parser gate no longer delegates to the shared test-fixture guard');
+  const guard = (await readFile(FIXTURE_GUARD, 'utf8')).replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  assert.match(guard, /env\.NODE_ENV === 'test' && env\.ALLOW_OCR_MOCK === 'true' && !isDeployedRuntime\(env\)/,
+    'the shared test-fixture guard lost its rule');
   // OCR 1.0-A/B moved the sample reader to the provider boundary: it runs only when no provider is
   // configured AND the test-suite gate allows it, and it is the ONLY caller of the sample documents.
   assert.match(code, /const simulate = !configuredProvider\.isConfigured\(\) && DocumentIntelligenceService\.isOcrMockAllowed\(\);/,

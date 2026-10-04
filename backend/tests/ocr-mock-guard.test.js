@@ -40,7 +40,7 @@ test('mock OCR is refused outside NODE_ENV=test even if ALLOW_OCR_MOCK=true', ()
 });
 
 test('mock OCR allowed ONLY with NODE_ENV=test AND explicit ALLOW_OCR_MOCK=true', () => {
-  withEnv({ NODE_ENV: 'test', ALLOW_OCR_MOCK: 'true' }, () => {
+  withEnv({ NODE_ENV: 'test', ALLOW_OCR_MOCK: 'true', VERCEL_ENV: undefined, CARUP_ENV: undefined }, () => {
     assert.equal(DocumentIntelligenceService.isOcrMockAllowed(), true);
   });
   withEnv({ NODE_ENV: 'test', ALLOW_OCR_MOCK: 'false' }, () => {
@@ -55,4 +55,24 @@ test('askGemini fails closed (throws) when no API key and not in test-mock mode'
   await withEnv({ GEMINI_API_KEY: undefined, NODE_ENV: 'production', ALLOW_OCR_MOCK: 'true' }, async () => {
     await assert.rejects(() => askGemini('system', 'extract ocr', true), /OCR provider unavailable/);
   });
+});
+
+// OC-3B-R: CarUp has run NODE_ENV=test inside a Vercel production environment. A runtime that
+// DECLARES a deployment refuses the mock whatever NODE_ENV and the flag say.
+const DEPLOYED_MARKERS = [{ VERCEL_ENV: 'production' }, { VERCEL_ENV: 'preview' }, { CARUP_ENV: 'production' }, { CARUP_ENV: 'staging' }];
+
+test('OC-3B-R: mock OCR is refused in a declared deployment even with NODE_ENV=test + ALLOW_OCR_MOCK=true', () => {
+  for (const marker of DEPLOYED_MARKERS) {
+    withEnv({ NODE_ENV: 'test', ALLOW_OCR_MOCK: 'true', VERCEL_ENV: undefined, CARUP_ENV: undefined, ...marker }, () => {
+      assert.equal(DocumentIntelligenceService.isOcrMockAllowed(), false, JSON.stringify(marker));
+    });
+  }
+});
+
+test('OC-3B-R: askGemini fails closed in a declared deployment even with NODE_ENV=test + ALLOW_OCR_MOCK=true', async () => {
+  for (const marker of DEPLOYED_MARKERS) {
+    await withEnv({ GEMINI_API_KEY: undefined, NODE_ENV: 'test', ALLOW_OCR_MOCK: 'true', VERCEL_ENV: undefined, CARUP_ENV: undefined, ...marker }, async () => {
+      await assert.rejects(() => askGemini('system', 'extract ocr', true), /OCR provider unavailable/, JSON.stringify(marker));
+    });
+  }
 });

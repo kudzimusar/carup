@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { isTestFixtureAllowed } from '../../config/testFixtureGuard.js';
 dotenv.config();
 
 /**
@@ -29,9 +30,12 @@ export class AiProviderError extends Error {
   }
 }
 
-/** The scripted test reply exists ONLY under NODE_ENV=test with the explicit ALLOW_OCR_MOCK flag. */
+/**
+ * The scripted test reply exists ONLY in the test-fixture runtime (NODE_ENV=test + ALLOW_OCR_MOCK, and
+ * no declared deployment — OC-3B-R): its canned "Low" fraud verdict must never answer a real caller.
+ */
 export function isGeminiTestMockAllowed(env = process.env) {
-  return env.NODE_ENV === 'test' && env.ALLOW_OCR_MOCK === 'true';
+  return isTestFixtureAllowed(env);
 }
 
 /** Provenance of the scripted test reply: never a real provider or model name. */
@@ -175,8 +179,7 @@ export async function askGeminiVision(systemPrompt, textPrompt, images = [], jso
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
-    if (!mockAllowed) {
+    if (!isGeminiTestMockAllowed()) {
       throw new Error('Vision provider unavailable: Gemini API key missing and mock is only permitted under NODE_ENV=test with ALLOW_OCR_MOCK=true.');
     }
     if (jsonMode) {

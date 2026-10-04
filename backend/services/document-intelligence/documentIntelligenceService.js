@@ -6,6 +6,7 @@ import { logger } from '../../utils/logger.js';
 import { metricsHub } from '../metrics.js';
 import { resolveSchema, OCR_SCHEMA_VERSION, normalizeVin, FIELD_ALIASES, printedLabelsFor } from './documentSchemas.js';
 import { decodeDocumentPayload, describeMediaQuality } from './documentMedia.js';
+import { isTestFixtureAllowed, isTestRuntime } from '../../config/testFixtureGuard.js';
 
 /**
  * DOCUMENT INTELLIGENCE BOUNDARY: Document Intelligence OBSERVES; domain authorities DECIDE.
@@ -124,9 +125,13 @@ export class DocumentIntelligenceService {
    * only with an explicit flag. It must never be reachable in production or
    * development runtime, where it previously let seeded identities (and failed
    * extractions of non-documents) become "verified".
+   *
+   * OC-3B-R: this was the canonical rule, so it is now THE rule — extracted to
+   * config/testFixtureGuard.js, shared by every simulated-AI path, and refusing a
+   * runtime that declares itself deployed even if NODE_ENV=test leaks into it.
    */
   static isOcrMockAllowed() {
-    return process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
+    return isTestFixtureAllowed(process.env);
   }
 
   /**
@@ -152,8 +157,9 @@ export class DocumentIntelligenceService {
   static async extractDocumentData(docType, base64Data, userId, options = {}) {
     if (!userId) {
       // Evidence rows are attribution: outside the test suite a caller must say WHO the
-      // extraction belongs to, or the candidate row would be pinned on a phantom user.
-      if (process.env.NODE_ENV !== 'test') {
+      // extraction belongs to, or the candidate row would be pinned on a phantom user. A runtime
+      // that declares a deployment is never the test suite, even if NODE_ENV=test leaks in (OC-3B-R).
+      if (!isTestRuntime()) {
         throw new Error('OCR extraction requires the authenticated user id it is being run for.');
       }
       userId = 'u1';

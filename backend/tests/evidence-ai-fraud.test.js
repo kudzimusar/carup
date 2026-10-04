@@ -207,13 +207,26 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/**
+ * OC-3B-R: a scripted AI scenario (`metadata.mock_ai_scenario`) exists only in the test-fixture
+ * runtime — NODE_ENV=test AND ALLOW_OCR_MOCK=true (config/testFixtureGuard.js). The cases that
+ * drive one opt in explicitly, so they still exercise it when the offline gate runs this suite
+ * with ALLOW_OCR_MOCK=false; the opt-in is restored when the case ends.
+ */
+function useFixtureRuntime(t) {
+  const saved = process.env.ALLOW_OCR_MOCK;
+  process.env.ALLOW_OCR_MOCK = 'true';
+  t.after(() => { if (saved === undefined) delete process.env.ALLOW_OCR_MOCK; else process.env.ALLOW_OCR_MOCK = saved; });
+}
+
 // Helper base64 data to upload
 const pngPayload = `data:image/png;base64,${Buffer.from('test-image-bytes').toString('base64')}`;
 
 // --- Tests ------------------------------------------------------------------
 
-test('AI Unavailable fails safely without blocking evidence upload flow', async () => {
-  // Scenario: simulated provider_error
+test('AI Unavailable fails safely without blocking evidence upload flow', async (t) => {
+  // Scenario: simulated provider_error (a test fixture — OC-3B-R)
+  useFixtureRuntime(t);
   const res = await fetch(`${baseUrl}/api/vehicles/VIN123/evidence/upload`, {
     method: 'POST',
     headers: {
@@ -241,8 +254,9 @@ test('AI Unavailable fails safely without blocking evidence upload flow', async 
   assert.equal(ev.metadata.ai_analysis.recommended_action, 'inspect');
 });
 
-test('AI flagged evidence sets ai_flagged but verification_status remains pending', async () => {
-  // Scenario: flagged manipulation
+test('AI flagged evidence sets ai_flagged but verification_status remains pending', async (t) => {
+  // Scenario: flagged manipulation (a test fixture — OC-3B-R)
+  useFixtureRuntime(t);
   const res = await fetch(`${baseUrl}/api/vehicles/VIN123/evidence/upload`, {
     method: 'POST',
     headers: {

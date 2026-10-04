@@ -52,6 +52,22 @@ async function withNodeEnv(env, fn) {
   try { return await fn(); } finally { process.env.NODE_ENV = previous; }
 }
 
+/**
+ * The test-fixture runtime (OC-3B-R: config/testFixtureGuard.js) — NODE_ENV=test AND the explicit
+ * ALLOW_OCR_MOCK opt-in. Scripted scenarios and the mock analysis provider exist ONLY here, so the
+ * cases that exercise them say so, and still exercise them when the offline gate runs this suite
+ * with ALLOW_OCR_MOCK=false (otherwise every scenario would silently fall back to the default
+ * result and the scenario sweep below would pass while testing nothing).
+ */
+async function withFixtureRuntime(fn) {
+  const saved = { NODE_ENV: process.env.NODE_ENV, ALLOW_OCR_MOCK: process.env.ALLOW_OCR_MOCK };
+  process.env.NODE_ENV = 'test';
+  process.env.ALLOW_OCR_MOCK = 'true';
+  try { return await fn(); } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
 // ── 1. The simulator labels itself and claims nothing ─────────────────────────────────────────
 
 test('OC-3B sim: the default simulated analysis is labelled simulated, advisory and non-verifying', async () => {
@@ -78,14 +94,18 @@ test('OC-3B sim: the simulator does not present the uploader\'s own metadata as 
 });
 
 test('OC-3B sim: no scenario produces favorable wording or a public summary', async () => {
-  for (const scenario of SCENARIOS) {
-    const r = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: scenario });
-    assert.equal(r.provider, 'simulated', `${scenario}: labelled simulated`);
-    assert.equal(r.public_safe_summary, null, `${scenario}: no public summary`);
-    for (const s of strings({ ...r, provider: undefined, execution: undefined })) {
-      assert.doesNotMatch(s, FAVORABLE_WORDING, `${scenario}: favorable wording "${s}"`);
+  await withFixtureRuntime(async () => {
+    for (const scenario of SCENARIOS) {
+      const r = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: scenario });
+      assert.equal(r.provider, 'simulated', `${scenario}: labelled simulated`);
+      assert.equal(r.public_safe_summary, null, `${scenario}: no public summary`);
+      // Anti-vacuity: each scripted scenario really ran (a refused scenario is just the default result).
+      if (scenario) assert.notEqual(r.ai_status, 'ai_simulated', `${scenario}: the scripted scenario did not run`);
+      for (const s of strings({ ...r, provider: undefined, execution: undefined })) {
+        assert.doesNotMatch(s, FAVORABLE_WORDING, `${scenario}: favorable wording "${s}"`);
+      }
     }
-  }
+  });
 });
 
 // ── 2. Uploader steering is a test-only fixture ──────────────────────────────────────────────
@@ -99,12 +119,14 @@ test('OC-3B sim: metadata.mock_ai_scenario is ignored outside NODE_ENV=test (no 
       const flagged = await analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: 'flagged_vin_mismatch' });
       assert.notEqual(flagged.ai_status, 'ai_flagged', `NODE_ENV=${env}: scenario must not steer the result`);
       assert.equal(flagged.visible_vin, null);
-      const mock = await mockAnalysisProvider.analyze('manipulation', { metadata: { mock_ai_scenario: 'manipulated' } });
-      assert.equal(mock.result.manipulated, false, `NODE_ENV=${env}: mock provider scenario must not steer the result`);
+      // OC-3B-R: outside the fixture runtime the mock provider does not run at all — a scenario
+      // cannot steer it because there is no mock result to steer.
+      await assert.rejects(() => mockAnalysisProvider.analyze('manipulation', { metadata: { mock_ai_scenario: 'manipulated' } }),
+        (e) => e?.code === 'AI_ANALYSIS_UNAVAILABLE', `NODE_ENV=${env}: the mock provider must not answer`);
     });
   }
-  // ...and IS honoured under NODE_ENV=test, so the suites that rely on it keep their fixture.
-  await assert.rejects(() => analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: 'provider_error' }));
+  // ...and IS honoured in the test-fixture runtime, so the suites that rely on it keep their fixture.
+  await withFixtureRuntime(() => assert.rejects(() => analyzeEvidenceImage(Buffer.from('x'), 'image/png', 'damage_photo', { mock_ai_scenario: 'provider_error' })));
 });
 
 // ── 3. Provenance: provider == executor, persisted that way ──────────────────────────────────
@@ -118,14 +140,15 @@ test('OC-3B provenance: the "live" analysis provider that runs the simulator is 
     assert.doesNotMatch(String(out.model || ''), /gemini/i, `${task}: no Gemini model on a simulated run`);
     assert.equal(out.safe_summary, null, `${task}: no public-safe summary from a simulation`);
   }
-  // A task with no simulated vision path falls back to the mock — labelled mock, not gemini.
-  const fallback = await liveAnalysisProvider.analyze('viewpoint', { metadata: {} });
+  // A task with no simulated vision path falls back to the mock — labelled mock, not gemini. (In the
+  // fixture runtime only: anywhere else that fallback fails — oc3b-r-simulation-steering-guard.)
+  const fallback = await withFixtureRuntime(() => liveAnalysisProvider.analyze('viewpoint', { metadata: {} }));
   assert.equal(fallback.provider, 'mock');
   assert.equal(fallback.execution, 'mock');
 });
 
 test('OC-3B provenance: mock provider output is labelled mock', async () => {
-  const out = await mockAnalysisProvider.analyze('image_quality', { metadata: {} });
+  const out = await withFixtureRuntime(() => mockAnalysisProvider.analyze('image_quality', { metadata: {} }));
   assert.equal(out.provider, 'mock');
   assert.equal(out.execution, 'mock');
 });

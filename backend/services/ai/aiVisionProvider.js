@@ -12,9 +12,11 @@
  *   public_safe_summary null · never ai_passed / approve.
  *
  * `metadata.mock_ai_scenario` (reachable from `req.body.metadata` on upload) selects a scripted
- * outcome ONLY under NODE_ENV=test, where suites use it as a fixture. Anywhere else an uploader
- * could otherwise choose the verdict on their own evidence.
+ * outcome ONLY in the test-fixture runtime (config/testFixtureGuard.js: NODE_ENV=test AND
+ * ALLOW_OCR_MOCK=true AND no declared deployment — OC-3B-R; it used to need NODE_ENV=test alone).
+ * Anywhere else an uploader could otherwise choose the verdict on their own evidence.
  */
+import { isTestFixtureAllowed } from '../../config/testFixtureGuard.js';
 
 export const SIMULATED_VISION = Object.freeze({
   provider: 'simulated',
@@ -22,9 +24,9 @@ export const SIMULATED_VISION = Object.freeze({
   execution: 'simulated',
 });
 
-/** The scripted-scenario key is a test fixture; outside NODE_ENV=test it does not exist. */
+/** The scripted-scenario key is a test fixture; outside the test-fixture runtime it does not exist. */
 export function honouredMockScenario(metadata) {
-  if (process.env.NODE_ENV !== 'test') return null;
+  if (!isTestFixtureAllowed()) return null;
   const scenario = metadata?.mock_ai_scenario;
   return typeof scenario === 'string' && scenario ? scenario : null;
 }

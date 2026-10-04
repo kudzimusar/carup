@@ -140,8 +140,12 @@ test('X1/OC-2A: the service has no authority writer left — and extraction was 
   assert.equal(typeof DocumentIntelligenceService.extractDocumentData, 'function');
   assert.match(service, /ocr_documents/);
   assert.match(service, /analyzeImageQuality/);
-  // The sample-document fallback stays strictly test-gated.
-  assert.match(service, /NODE_ENV === 'test' && process\.env\.ALLOW_OCR_MOCK === 'true'/);
+  // The sample-document fallback stays strictly test-gated. OC-3B-R moved the rule into the one
+  // test-fixture guard (which also refuses a declared deployment); the pin follows it there and pins
+  // the delegation that keeps the fallback behind it.
+  assert.match(service, /static isOcrMockAllowed\(\) \{\s*return isTestFixtureAllowed\(process\.env\);\s*\}/);
+  assert.match(read('../config/testFixtureGuard.js'),
+    /env\.NODE_ENV === 'test' && env\.ALLOW_OCR_MOCK === 'true' && !isDeployedRuntime\(env\)/);
 
   // The legitimate internal consumers are intact (behaviour covered by their own suites).
   assert.match(read('../routes/diasporaRoutes.js'), /DocumentIntelligenceService\.extractDocumentData/);

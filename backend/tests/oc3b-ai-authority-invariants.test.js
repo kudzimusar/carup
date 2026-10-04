@@ -205,7 +205,20 @@ test('OC-3B invariants [aiServiceBus, GeminiClient, evidenceService#runAiAnalysi
   assert.doesNotMatch(failure, /'approve'|'ai_passed'|public_safe_summary:\s*'/, 'the failure result recommends nothing favorable');
 });
 
-test('OC-3B invariants [evidenceService#runAiAnalysis, behavioural]: a provider failure is stored with no risk figure and an inspection recommendation', async () => {
+/**
+ * OC-3B-R: a scripted AI scenario (`metadata.mock_ai_scenario`) exists only in the test-fixture
+ * runtime — NODE_ENV=test AND ALLOW_OCR_MOCK=true (config/testFixtureGuard.js). The cases that
+ * drive one opt in explicitly, so they still exercise it when the offline gate runs this suite
+ * with ALLOW_OCR_MOCK=false; the opt-in is restored when the case ends.
+ */
+function useFixtureRuntime(t) {
+  const saved = process.env.ALLOW_OCR_MOCK;
+  process.env.ALLOW_OCR_MOCK = 'true';
+  t.after(() => { if (saved === undefined) delete process.env.ALLOW_OCR_MOCK; else process.env.ALLOW_OCR_MOCK = saved; });
+}
+
+test('OC-3B invariants [evidenceService#runAiAnalysis, behavioural]: a provider failure is stored with no risk figure and an inspection recommendation', async (t) => {
+  useFixtureRuntime(t); // the failure is forced with the 'provider_error' fixture
   const { supabase } = await import('../db/supabase.js');
   const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
   const row = { id: 'ev-fail', vin: 'VIN1', checksum: null, metadata: {} };

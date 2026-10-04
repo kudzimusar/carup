@@ -15,6 +15,7 @@
 import crypto from 'crypto';
 import { validateEvidenceImages } from './evidenceValidation.js';
 import { resolveVisionProvider } from '../ai/ocrVisionProvider.js';
+import { isTestFixtureAllowed } from '../../config/testFixtureGuard.js';
 import { supabase } from '../../db/supabase.js';
 
 /** Detect the image MIME type from magic bytes; defaults to JPEG. */
@@ -278,9 +279,9 @@ OUTPUT FORMAT — ABSOLUTE. Reply with a single JSON object and nothing else. No
       };
     }
 
-    // In test mock mode, skip Layer 2 and allow extraction
-    const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
-    if (mockAllowed) {
+    // In the test-fixture runtime only (OC-3B-R guard), skip Layer 2 and allow extraction. This branch
+    // answers VALID_IDENTITY_DOCUMENT without looking: a deployed runtime must never reach it.
+    if (isTestFixtureAllowed()) {
       return {
         classification: EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT,
         classificationConfidence: 1.0,

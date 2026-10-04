@@ -2,13 +2,16 @@
  * Typed analysis provider abstraction — Milestone 3A (master plan §7.2, §7.3).
  *
  * One contract for many separate, typed tasks (no single opaque prompt). A deterministic
- * mock provider is always available for tests/fallback; the "live" seam is selected when a
+ * mock provider exists for the test suite ONLY (OC-3B-R): it reads nothing — it echoes the
+ * caller's own metadata and calls every image usable — so outside the test-fixture runtime it
+ * throws AnalysisUnavailableError and the job fails instead of persisting an echo. The "live" seam is selected when a
  * Gemini key is configured, but it still runs the aiVisionProvider SIMULATOR for every task —
  * no Gemini call exists on this path — and is labelled `simulated` accordingly (OC-3B). The
  * abstraction keeps AI strictly advisory — it returns observations + confidence, never
  * verification or trust decisions (§2.2).
  */
 import { analyzeEvidenceImage, honouredMockScenario } from './aiVisionProvider.js';
+import { isTestFixtureAllowed } from '../../config/testFixtureGuard.js';
 
 export const TASK_TYPES = Object.freeze([
   'image_quality', 'viewpoint', 'identity_cues', 'plate_ocr', 'vin_ocr', 'odometer_ocr',
@@ -23,15 +26,30 @@ export function isLiveConfigured() {
 }
 
 /**
- * Deterministic mock provider. Produces stable, typed results for each task so tests and
- * the evaluation harness are reproducible. Confidence is conservative; nothing here
- * auto-publishes or auto-approves.
+ * No analysis provider can run this task in this runtime (OC-3B-R). Not retryable: a retry cannot
+ * create a provider, so a job that meets it fails terminally rather than queueing for ever.
+ */
+export class AnalysisUnavailableError extends Error {
+  constructor(task) {
+    super(`No AI analysis provider can run '${task}' in this runtime: the deterministic mock is a test fixture.`);
+    this.name = 'AnalysisUnavailableError';
+    this.code = 'AI_ANALYSIS_UNAVAILABLE';
+    this.retryable = false;
+  }
+}
+
+/**
+ * Deterministic mock provider — a TEST FIXTURE. Produces stable, typed results for each task so
+ * tests and the evaluation harness are reproducible; it examines no image (its OCR "readings" are
+ * the caller's own metadata), so it exists only in the test-fixture runtime (OC-3B-R). Nothing
+ * here auto-publishes or auto-approves.
  */
 export const mockAnalysisProvider = {
   id: 'mock',
   mode: 'mock',
   async analyze(task, { metadata = {} } = {}) {
     if (!TASK_TYPES.includes(task)) throw new Error(`unknown task '${task}'`);
+    if (!isTestFixtureAllowed()) throw new AnalysisUnavailableError(task);
     // Scripted scenarios are a NODE_ENV=test fixture only (OC-3B) — never a caller-chosen result.
     const scenario = honouredMockScenario(metadata);
     const base = { task, provider: 'mock', model: 'mock-v1', execution: 'mock', advisory: true, confidence: 0.9, observations: [], safe_summary: null };
@@ -96,7 +114,8 @@ export const liveAnalysisProvider = {
         observations: [],
       };
     }
-    // No live model wired for this task yet — fall back to the deterministic mock result.
+    // No live model wired for this task yet. The deterministic mock answers only in the test-fixture
+    // runtime; anywhere else it throws AnalysisUnavailableError and the job fails honestly (OC-3B-R).
     return mockAnalysisProvider.analyze(task, ctx);
   },
 };
@@ -107,4 +126,4 @@ export function resolveAnalysisProvider({ forceMock = false } = {}) {
   return liveAnalysisProvider;
 }
 
-export default { TASK_TYPES, isLiveConfigured, mockAnalysisProvider, liveAnalysisProvider, resolveAnalysisProvider };
+export default { TASK_TYPES, isLiveConfigured, AnalysisUnavailableError, mockAnalysisProvider, liveAnalysisProvider, resolveAnalysisProvider };
