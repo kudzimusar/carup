@@ -1,6 +1,45 @@
-import { askGeminiWithProvenance, AiProviderError, GEMINI_TEXT_MODEL } from './GeminiClient.js';
+/**
+ * Fraud and risk advisories (OC-3B semantics), reached through the canonical CarUp AI gateway
+ * (OC-3E wave 1): domainAdvisoryAdapter → carUpAiGateway → Gemma on Cloudflare Workers AI. This
+ * module calls no model vendor directly; it owns the prompts, the validation of what came back, and
+ * what a missing or unusable answer means here — "unknown, a human must look", never a verdict.
+ */
+import { AiAdvisoryError, requestAdvisoryJson } from './domainAdvisoryAdapter.js';
+import { CARUP_AI_MODEL, CARUP_AI_PROVIDER } from './aiRuntimeConfig.js';
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
+
+/** The routes map this failure to their 503 (see aiProviderUnavailableResponse). */
+export { AiAdvisoryError };
+
+// A synchronous HTTP route waits on these, so they keep the 30s bound the Gemini path had.
+const ADVISORY_TIMEOUT_MS = 30_000;
+
+/**
+ * Paid inference takes bounded, well-formed input (OC-3E-W1). An oversized or malformed request is
+ * refused 400 BEFORE any provider call — it is the caller's error, not an unavailable provider.
+ */
+export const ADVISORY_INPUT_LIMITS = Object.freeze({ vin: 64, listingTitle: 300 });
+
+function rejectInput(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = 'AI_INPUT_REJECTED';
+  return error;
+}
+
+function assertText(value, field) {
+  const max = ADVISORY_INPUT_LIMITS[field];
+  if (typeof value !== 'string' || !value.trim()) throw rejectInput(`${field} is required.`);
+  if (value.length > max) throw rejectInput(`${field} exceeds ${max} characters.`);
+}
+
+function assertAmount(value, field) {
+  const amount = Number(value);
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean' || !Number.isFinite(amount) || amount < 0 || amount > 1e12) {
+    throw rejectInput(`${field} must be a non-negative number.`);
+  }
+}
 
 function generateId(prefix) {
   return prefix + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10);
@@ -36,48 +75,43 @@ export function aiProviderUnavailableResponse(error, kind) {
     outcome: 'unavailable',
     verdict: 'unknown',
     manual_review_required: true,
-    provider: error?.provider || 'gemini',
-    model: error?.model || GEMINI_TEXT_MODEL,
+    provider: error?.provider || CARUP_AI_PROVIDER,
+    model: error?.model || CARUP_AI_MODEL,
     retryable: Boolean(error?.retryable),
     persisted: false,
   };
 }
 
-function parseModelJson(reply, what) {
-  try {
-    return JSON.parse(reply.text);
-  } catch (cause) {
-    throw new AiProviderError(`${what}: the model reply was not valid JSON`, {
-      code: 'AI_PROVIDER_INVALID_OUTPUT', provider: reply.provider, model: reply.model, retryable: false, cause,
-    });
-  }
-}
-
-export async function runFraudAnalysis(vin, price, listingTitle) {
+export async function runFraudAnalysis(vin, price, listingTitle, deps = {}) {
+  assertText(vin, 'vin');
+  assertAmount(price, 'price');
+  assertText(listingTitle, 'listingTitle');
   const systemPrompt = `You are the CarUp OS Fraud Detection Agent. 
   Analyse the listing detail to check for potential cloned registrations, odometer manipulation risk, pricing standard compliance, or duplicate image risk. 
-  Output a JSON object with: { isFraudulent: boolean, riskRating: string, reasons: string[], confidence: number }`;
+  Output a JSON object with: { isFraudulent: boolean, riskRating: string, riskScore: number (0-100, an advisory index), reasons: string[], confidence: number }`;
   
   const userPrompt = `Vehicle VIN: ${vin}
   Price: $${price} USD
   Listing Title: ${listingTitle}`;
   
   const startTime = Date.now();
-  // Throws AiProviderError on any provider failure — there is no envelope to misread any more.
-  const reply = await askGeminiWithProvenance(systemPrompt, userPrompt, true);
-  await logInference(reply.model, userPrompt, reply.text, startTime);
+  // Throws AiAdvisoryError on any gateway failure (provider error, timeout, malformed JSON, missing
+  // credentials) — there is no envelope to misread, and no simulated verdict on this path.
+  const reply = await requestAdvisoryJson({ systemPrompt, userPrompt, timeoutMs: ADVISORY_TIMEOUT_MS, purpose: 'fraud analysis' }, deps);
+  await logInference(reply.model, userPrompt, JSON.stringify(reply.value), startTime);
 
-  const result = parseModelJson(reply, 'fraud analysis');
+  const result = reply.value;
   // A reply without a recognised rating AND an explicit boolean is not a verdict. It used to default
   // to 'Low' / not flagged — the most favorable answer, reached by absence.
-  if (!result || Array.isArray(result) || !FRAUD_RATINGS.includes(result.riskRating) || typeof result.isFraudulent !== 'boolean') {
-    throw new AiProviderError('fraud analysis: the model reply carried no recognised verdict', {
+  if (!result || Array.isArray(result) || typeof result !== 'object' || !FRAUD_RATINGS.includes(result.riskRating) || typeof result.isFraudulent !== 'boolean') {
+    throw new AiAdvisoryError('fraud analysis: the model reply carried no recognised verdict', {
       code: 'AI_PROVIDER_INVALID_OUTPUT', provider: reply.provider, model: reply.model, retryable: false,
     });
   }
 
   const answer = {
-    outcome: reply.execution === 'provider_executed' ? 'completed' : 'simulated',
+    // The adapter returns only an answer the provider executed (never a simulation).
+    outcome: 'completed',
     isFraudulent: result.isFraudulent,
     riskRating: result.riskRating,
     reasons: Array.isArray(result.reasons) ? result.reasons.map(String) : [],
@@ -91,13 +125,28 @@ export async function runFraudAnalysis(vin, price, listingTitle) {
     persisted: false,
   };
 
-  // A simulation is not a fraud scan and is never recorded as one.
-  if (reply.execution !== 'provider_executed') return answer;
+  // Persisted only as what it is: advisory machine analysis (OC-3E-W1). The row's risk_score is the
+  // MODEL's own stated index or nothing is written — it used to be 0 ("no risk") on every row,
+  // because the model was never asked for one. The advisory envelope travels in reasons_json.
+  const riskIndex = Number(result.riskScore);
+  const hasRiskIndex = result.riskScore !== null && result.riskScore !== undefined && typeof result.riskScore !== 'boolean'
+    && Number.isFinite(riskIndex) && riskIndex >= 0 && riskIndex <= 100;
+  if (!hasRiskIndex) return answer;
+  answer.riskScore = riskIndex;
 
   try {
     const id = generateId('fraud');
     await supabase.from('ai_fraud_scans').insert({
-      id, vin, model_version: reply.model, risk_score: typeof result.riskScore === 'number' ? result.riskScore : 0, risk_rating: result.riskRating, reasons_json: JSON.stringify(answer.reasons), confidence: answer.confidence ?? 0, is_flagged: result.isFraudulent === true, moderation_status: 'None', created_at: new Date().toISOString()
+      id,
+      vin,
+      model_version: reply.model,
+      risk_score: riskIndex,
+      risk_rating: result.riskRating,
+      reasons_json: JSON.stringify({ advisory: true, machine_output: true, binding: false, source: 'generic_llm', reasons: answer.reasons }),
+      confidence: answer.confidence ?? 0,
+      is_flagged: result.isFraudulent === true,
+      moderation_status: 'None',
+      created_at: new Date().toISOString(),
     });
     answer.persisted = true;
   } catch (err) {
@@ -137,7 +186,10 @@ export async function runOcrParsing() {
  * so the figure is REMOVED rather than relabelled — it is not asked for and, if a model volunteers
  * one, it is not passed on. What remains is labelled for what it is.
  */
-export async function runRiskScoring(vin, mileage, basePrice) {
+export async function runRiskScoring(vin, mileage, basePrice, deps = {}) {
+  assertText(vin, 'vin');
+  assertAmount(mileage, 'mileage');
+  assertAmount(basePrice, 'basePrice');
   const systemPrompt = `You are the CarUp OS Risk Analyst Agent.
   Estimate an advisory automotive risk index (0-100) from the vehicle parameters and list the factors behind it.
   Do not quote, estimate or recommend any insurance premium or price.
@@ -148,20 +200,20 @@ export async function runRiskScoring(vin, mileage, basePrice) {
   Base Price: $${basePrice} USD`;
   
   const startTime = Date.now();
-  const reply = await askGeminiWithProvenance(systemPrompt, userPrompt, true);
-  await logInference(reply.model, userPrompt, reply.text, startTime);
+  const reply = await requestAdvisoryJson({ systemPrompt, userPrompt, timeoutMs: ADVISORY_TIMEOUT_MS, purpose: 'risk assessment' }, deps);
+  await logInference(reply.model, userPrompt, JSON.stringify(reply.value), startTime);
 
-  const result = parseModelJson(reply, 'risk assessment');
+  const result = reply.value;
   const riskScore = Number(result?.riskScore);
-  if (!result || Array.isArray(result) || result.riskScore === null || result.riskScore === undefined || !Number.isFinite(riskScore)) {
-    throw new AiProviderError('risk assessment: the model reply carried no numeric risk index', {
+  if (!result || Array.isArray(result) || typeof result !== 'object' || result.riskScore === null || result.riskScore === undefined || !Number.isFinite(riskScore)) {
+    throw new AiAdvisoryError('risk assessment: the model reply carried no numeric risk index', {
       code: 'AI_PROVIDER_INVALID_OUTPUT', provider: reply.provider, model: reply.model, retryable: false,
     });
   }
 
   // Allow-listed: whatever else the model returned (a premium, a currency, a "discount") stays here.
   return {
-    outcome: reply.execution === 'provider_executed' ? 'completed' : 'simulated',
+    outcome: 'completed',
     riskScore,
     factors: Array.isArray(result.factors)
       ? result.factors.filter((f) => f && typeof f === 'object').map((f) => ({ name: String(f.name ?? ''), impact: String(f.impact ?? '') }))

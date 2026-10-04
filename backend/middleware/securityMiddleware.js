@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { createRateLimitStore, InMemoryRateLimitStore } from './rateLimitStore.js';
+import { isTestRuntime } from '../config/testFixtureGuard.js';
 
 // Pluggable rate-limiting stores. Default = in-memory (identical to prior
 // behavior). With REDIS_URL + an injected redis client they become Redis-backed
@@ -112,8 +113,10 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
   // collide even if a future store backend is shared.
   const tier = isSensitive ? 'sensitive' : 'global';
   return (req, res, next) => {
-    // Bypass rate limiting in tests if requested
-    if (process.env.NODE_ENV === 'test' && req.headers['x-bypass-rate-limit'] === 'true') {
+    // Bypass rate limiting in tests if requested — in the test runtime ONLY. A runtime that declares a
+    // deployment never honours the header, even if NODE_ENV=test leaks into it (OC-3E-W1: the AI
+    // limiter is the cost control on authenticated paid inference).
+    if (isTestRuntime() && req.headers['x-bypass-rate-limit'] === 'true') {
       return next();
     }
 

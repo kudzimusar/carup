@@ -6,45 +6,73 @@
  * risk/fraud reasoning. Backend governance rules remain the source of truth — AI cannot approve
  * listings, set verification, or override suppression.
  *
- * Provider: backend/services/ai/GeminiClient.js (askGeminiWithProvenance). On missing key / provider
- * error / timeout / simulated reply we fall back to deterministic templates and surface
+ * Provider (OC-3E wave 1): the canonical CarUp AI gateway, through the domain advisory adapter —
+ * Gemma on Cloudflare Workers AI, advisory machine output only. On missing credentials / provider
+ * error / timeout / malformed reply we fall back to deterministic templates and surface
  * ai_status='ai_unavailable'.
+ *
+ * Paid inference needs a PROVEN caller: the public routes pass NO_PAID_INFERENCE for an anonymous
+ * (or merely asserted) identity, which returns the same deterministic answer with
+ * ai_reason='sign_in_required' and spends no provider capacity.
  */
 
-import { askGeminiWithProvenance } from '../ai/GeminiClient.js';
+import { requestAdvisoryJson } from '../ai/domainAdvisoryAdapter.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
 
+// Bounded by the shared transport (the request is aborted, not merely abandoned).
 const AI_TIMEOUT_MS = 12000;
 
-function withTimeout(promise, ms) {
-  // The timer is cleared once the race settles; a dangling 12s timer per call kept the event loop
-  // (and every test process that touched this path) alive long after the answer arrived.
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('ai_timeout')), ms); }),
-  ]).finally(() => clearTimeout(timer));
-}
-
 /**
- * Try the provider in JSON mode; returns parsed object or null (never throws).
+ * Try the gateway in JSON mode; returns the parsed object or null (never throws).
  *
- * OC-3B: askGemini THROWS AiProviderError on provider failure (it used to return an
- * `{error:true}` envelope, sniffed below until then). A SIMULATED reply — the NODE_ENV=test mock —
- * is not AI assistance either, so it is also `null` → `ai_status: 'ai_unavailable'`, never
- * `ai_assisted`.
+ * Only an answer the gateway marked executed and advisory reaches here (the adapter refuses the
+ * rest), so a failure, a timeout or malformed JSON is `null` → `ai_status: 'ai_unavailable'`,
+ * never `ai_assisted`.
  */
 async function tryAi(systemPrompt, userPrompt) {
   try {
-    const reply = await withTimeout(Promise.resolve(askGeminiWithProvenance(systemPrompt, userPrompt, true)), AI_TIMEOUT_MS);
-    if (!reply || reply.execution !== 'provider_executed' || !reply.text) return null;
-    const parsed = JSON.parse(reply.text);
-    if (!parsed || typeof parsed !== 'object' || parsed.error === true) return null;
+    const reply = await requestAdvisoryJson({ systemPrompt, userPrompt, timeoutMs: AI_TIMEOUT_MS, purpose: 'marketplace assistant' });
+    const parsed = reply.value;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.error === true) return null;
     return parsed;
   } catch {
-    // AiProviderError (failure), timeout, or unparseable reply: the deterministic result stands.
+    // AiAdvisoryError (failure, timeout, malformed JSON, no credentials): the deterministic result stands.
     return null;
   }
+}
+
+/**
+ * The inference policy for a caller who has not PROVEN who they are (OC-3E-W1): no provider call at
+ * all — the deterministic answer, and the reason the caller can act on.
+ */
+export const NO_PAID_INFERENCE = Object.freeze({
+  aiCall: async () => null,
+  aiReason: 'sign_in_required',
+});
+
+/**
+ * Paid inference takes bounded input (OC-3E-W1): a request whose AI input serialises beyond this is
+ * answered deterministically, ai_reason 'input_too_large', with no provider call.
+ */
+export const MAX_AI_INPUT_CHARS = 4000;
+
+/** The inference policy for one request: anonymous → none; oversized → none; otherwise the caller's. */
+function inferencePolicy(aiInput, deps = {}) {
+  if (deps.aiReason) return deps;
+  let size;
+  try { size = JSON.stringify(aiInput ?? {}).length; } catch { size = Infinity; }
+  if (size > MAX_AI_INPUT_CHARS) return { aiCall: async () => null, aiReason: 'input_too_large' };
+  return deps;
+}
+
+/** The answer every function gives when no AI result is used. */
+function withoutAi(deterministic, deps = {}) {
+  return {
+    ...deterministic,
+    ai_status: 'ai_unavailable',
+    ai_available: false,
+    ...(deps.aiReason ? { ai_reason: deps.aiReason } : {}),
+  };
 }
 
 function titleCase(value) {
@@ -86,14 +114,15 @@ export function deterministicListingDraft(input = {}) {
   };
 }
 
-export async function listingDraft(input = {}, deps = {}) {
+export async function listingDraft(input = {}, requested = {}) {
+  const deps = inferencePolicy(input, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicListingDraft(input);
   const ai = await callAi(
     'You are CarUp listing assistant. Return strict JSON {title, short_description, detailed_description, recommended_tags[]}. Do not claim verification/PartSentry/passport status.',
     `Draft a marketplace listing for: ${JSON.stringify(input)}`
   );
-  if (!ai) return { ...deterministic, ai_status: 'ai_unavailable', ai_available: false };
+  if (!ai) return withoutAi(deterministic, deps);
   return {
     title: ai.title || deterministic.title,
     short_description: ai.short_description || deterministic.short_description,
@@ -125,20 +154,22 @@ export function deterministicBuyerRecommendation(input = {}) {
   };
 }
 
-export async function buyerAssistant(input = {}, deps = {}) {
+export async function buyerAssistant(input = {}, requested = {}) {
+  const deps = inferencePolicy(input, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicBuyerRecommendation(input);
   const ai = await callAi(
     'You are CarUp buyer assistant. Return strict JSON {guidance: string[]}. Be safety-first; never invent trust/verification facts; never expose internal risk data.',
     `Buyer query: ${JSON.stringify(input)}`
   );
-  if (!ai || !Array.isArray(ai.guidance)) return { ...deterministic, ai_status: 'ai_unavailable', ai_available: false };
+  if (!ai || !Array.isArray(ai.guidance)) return withoutAi(deterministic, deps);
   return { ...deterministic, guidance: ai.guidance, ai_status: 'ai_assisted', ai_available: true };
 }
 
 // ---- AI Price Intelligence (anchored to deterministic bands) ---------------
 
-export async function priceEstimate({ listingSummary = {}, listingType = 'vehicle' } = {}, deps = {}) {
+export async function priceEstimate({ listingSummary = {}, listingType = 'vehicle' } = {}, requested = {}) {
+  const deps = inferencePolicy({ make: listingSummary.make, model: listingSummary.model, year: listingSummary.year, mileage: listingSummary.mileage, price: listingSummary.price }, requested);
   const callAi = deps.aiCall || tryAi;
   // Deterministic all-in cost is authoritative; AI may only annotate confidence/notes.
   const pricing = buildPricingSummary({ listingSummary, listingType });
@@ -146,7 +177,7 @@ export async function priceEstimate({ listingSummary = {}, listingType = 'vehicl
     'You are CarUp price intelligence. Return strict JSON {price_confidence: "low"|"medium"|"high", notes: string[]}. Be conservative; this is advisory only.',
     `Vehicle: ${JSON.stringify({ make: listingSummary.make, model: listingSummary.model, year: listingSummary.year, mileage: listingSummary.mileage, price: listingSummary.price })}`
   );
-  if (!ai) return { ...pricing, ai_status: 'ai_unavailable', ai_available: false };
+  if (!ai) return withoutAi(pricing, deps);
   return {
     ...pricing,
     price_confidence: ['low', 'medium', 'high'].includes(ai.price_confidence) ? ai.price_confidence : pricing.price_confidence,
@@ -171,14 +202,15 @@ export function deterministicShareCopy(input = {}) {
   };
 }
 
-export async function shareCopy(input = {}, deps = {}) {
+export async function shareCopy(input = {}, requested = {}) {
+  const deps = inferencePolicy(input, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicShareCopy(input);
   const ai = await callAi(
     'You are CarUp social copy assistant. Return strict JSON {whatsapp, telegram, facebook, short}. Keep it honest; no fabricated trust claims.',
     `Listing: ${JSON.stringify(input)}`
   );
-  if (!ai) return { ...deterministic, ai_status: 'ai_unavailable', ai_available: false };
+  if (!ai) return withoutAi(deterministic, deps);
   return {
     whatsapp: ai.whatsapp || deterministic.whatsapp,
     telegram: ai.telegram || deterministic.telegram,
@@ -203,14 +235,15 @@ export function deterministicModerationSummary({ listingSummary = {}, trustSumma
   };
 }
 
-export async function moderationSummary({ listingSummary = {}, trustSummary = {} } = {}, deps = {}) {
+export async function moderationSummary({ listingSummary = {}, trustSummary = {} } = {}, requested = {}) {
+  const deps = inferencePolicy({ vin: listingSummary.vin, risk: trustSummary.risk_status, partsentry: trustSummary.partsentry_public_status, evidence: trustSummary.evidence_status }, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicModerationSummary({ listingSummary, trustSummary });
   const ai = await callAi(
     'You are CarUp moderation copilot. Return strict JSON {summary, suggested_action}. Advisory only — you cannot approve or change status. Do not expose private data.',
     `Listing trust state: ${JSON.stringify({ vin: listingSummary.vin, risk: trustSummary.risk_status, partsentry: trustSummary.partsentry_public_status, evidence: trustSummary.evidence_status })}`
   );
-  if (!ai) return { ...deterministic, ai_status: 'ai_unavailable', ai_available: false };
+  if (!ai) return withoutAi(deterministic, deps);
   return {
     summary: ai.summary || deterministic.summary,
     suggested_action: ['review', 'monitor', 'approve', 'suppress'].includes(ai.suggested_action) ? ai.suggested_action : deterministic.suggested_action,

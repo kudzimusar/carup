@@ -32,8 +32,7 @@ import { verifyChain, addEvent } from './services/blockchain/blockchainService.j
 import { toLedgerIntegrityReport } from './services/blockchain/ledgerIntegrityProjection.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
-import { runFraudAnalysis, runOcrParsing, runRiskScoring, aiProviderUnavailableResponse } from './services/ai/aiServiceBus.js';
-import { AiProviderError } from './services/ai/GeminiClient.js';
+import { runFraudAnalysis, runOcrParsing, runRiskScoring, aiProviderUnavailableResponse, AiAdvisoryError } from './services/ai/aiServiceBus.js';
 
 // Import Group B & C Services
 import { submitFinancingApplication } from './services/finance/financeService.js';
@@ -2008,13 +2007,15 @@ app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
 // OC-3B. A provider failure (or an unusable model reply) is answered 503 with
 // `outcome: 'unavailable'`, `verdict: 'unknown'`, `manual_review_required: true`, and nothing is
 // persisted. It used to be a 200 carrying `riskRating: 'Low'` and a persisted unflagged scan.
+// OC-3E-W1: both routes reach the model through the canonical CarUp AI gateway (Gemma, advisory);
+// any gateway failure is an AiAdvisoryError and keeps exactly that answer.
 app.post('/api/ai/fraud-scan', authorizeRole(), async (req, res, next) => {
   const { vin, price, listingTitle } = req.body;
   try {
     const fraudScore = await runFraudAnalysis(vin, price, listingTitle);
     res.json(fraudScore);
   } catch (error) {
-    if (error instanceof AiProviderError) return res.status(503).json(aiProviderUnavailableResponse(error, 'fraud_scan'));
+    if (error instanceof AiAdvisoryError) return res.status(503).json(aiProviderUnavailableResponse(error, 'fraud_scan'));
     next(error);
   }
 });
@@ -2026,7 +2027,7 @@ app.post('/api/ai/risk-assessment', authorizeRole(), async (req, res, next) => {
     const riskReport = await runRiskScoring(vin, mileage, basePrice);
     res.json(riskReport);
   } catch (error) {
-    if (error instanceof AiProviderError) return res.status(503).json(aiProviderUnavailableResponse(error, 'risk_assessment'));
+    if (error instanceof AiAdvisoryError) return res.status(503).json(aiProviderUnavailableResponse(error, 'risk_assessment'));
     next(error);
   }
 });
