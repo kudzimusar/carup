@@ -1037,13 +1037,6 @@ export function useCarUpApi() {
     return request<any[]>(`/partsentry/${vin}`)
   }, [request])
 
-  const runOcrParsing = useCallback(async (docType: string, base64Data: string): Promise<any> => {
-    return request('/ai/ocr', {
-      method: 'POST',
-      body: JSON.stringify({ docType, base64Data })
-    })
-  }, [request])
-
   const runFraudScan = useCallback(async (vin: string, price: number, listingTitle: string): Promise<any> => {
     return request('/ai/fraud-scan', {
       method: 'POST',
@@ -3126,7 +3119,6 @@ export function useCarUpApi() {
     updateSafePayEscrow,
     addRepairLog,
     fetchRepairHistory,
-    runOcrParsing,
     runFraudScan,
     runRiskAssessment,
     submitFinancing,
