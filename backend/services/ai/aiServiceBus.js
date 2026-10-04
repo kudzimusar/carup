@@ -8,6 +8,7 @@ import { AiAdvisoryError, requestAdvisoryJson } from './domainAdvisoryAdapter.js
 import { CARUP_AI_MODEL, CARUP_AI_PROVIDER } from './aiRuntimeConfig.js';
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
+import { logger } from '../../utils/logger.js';
 
 /** The routes map this failure to their 503 (see aiProviderUnavailableResponse). */
 export { AiAdvisoryError };
@@ -49,9 +50,12 @@ async function logInference(modelName, prompt, output, startTime) {
   try {
     const latencyMs = Date.now() - startTime;
     const id = generateId('inf');
-    await supabase.from('ai_inference_logs').insert({
+    const { error } = await supabase.from('ai_inference_logs').insert({
       id, model_name: modelName, prompt_tokens: Math.floor(prompt.length / 4), completion_tokens: Math.floor(output.length / 4), latency_ms: latencyMs, prompt, output, hallucination_flag: false, timestamp: new Date().toISOString()
     });
+    // OC-4A: OBSERVABILITY, best effort — but a returned { error } is a failure too (supabase-js does
+    // not throw on one, so the catch below never saw it).
+    if (error) throw new Error(error.message);
   } catch (err) {
     console.warn('⚠️ AI telemetry logging failed (non-fatal):', err.message);
   }
@@ -136,21 +140,35 @@ export async function runFraudAnalysis(vin, price, listingTitle, deps = {}) {
 
   try {
     const id = generateId('fraud');
-    await supabase.from('ai_fraud_scans').insert({
+    const { error: persistError } = await supabase.from('ai_fraud_scans').insert({
       id,
       vin,
       model_version: reply.model,
       risk_score: riskIndex,
       risk_rating: result.riskRating,
-      reasons_json: JSON.stringify({ advisory: true, machine_output: true, binding: false, source: 'generic_llm', reasons: answer.reasons }),
+      // The envelope's leading keys are a CONTRACT: the OC-4A ai_fraud_scans candidate derives
+      // analysis_status / provider / execution from this exact prefix (generated columns), so a row is
+      // classified by what its writer recorded, never by a default. provider and execution precede
+      // `reasons`, so text inside a reason can never be read as them.
+      reasons_json: JSON.stringify({
+        advisory: true, machine_output: true, binding: false, source: 'generic_llm',
+        provider: reply.provider, model: reply.model, execution: reply.execution,
+        // `confidence` below is NOT NULL in every known schema of this table; 0 there with
+        // confidence_reported: false means "the model stated none", not "zero confidence".
+        confidence_reported: answer.confidence !== null,
+        reasons: answer.reasons,
+      }),
       confidence: answer.confidence ?? 0,
       is_flagged: result.isFraudulent === true,
       moderation_status: 'None',
       created_at: new Date().toISOString(),
     });
+    // OC-4A: `persisted` was set true whenever the call returned — but supabase-js reports a failed
+    // insert as { error }, it does not throw, so a scan that was never stored claimed it had been.
+    if (persistError) throw new Error(persistError.message);
     answer.persisted = true;
   } catch (err) {
-    console.warn('⚠️ Fraud scan persistence failed (non-fatal):', err.message);
+    logger.warn('AI', 'advisory fraud scan was NOT persisted (non-fatal; the advice is still returned)', { error_message: err.message });
   }
   
   return answer;

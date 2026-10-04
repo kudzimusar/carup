@@ -235,7 +235,11 @@ test('OC-3B fraud: a real verdict is persisted and logged under the model that p
   assert.equal(row.payload.risk_score, 82, 'the model\'s own index — never a filler');
   assert.equal(row.payload.is_flagged, true);
   // OC-3E-W1: persisted as what it is — advisory machine analysis.
-  assert.deepEqual(JSON.parse(row.payload.reasons_json), { advisory: true, machine_output: true, binding: false, source: 'generic_llm', reasons: ['price far below market'] });
+  // OC-4A: the envelope also records who executed it, and whether the model stated a confidence.
+  assert.deepEqual(JSON.parse(row.payload.reasons_json), {
+    advisory: true, machine_output: true, binding: false, source: 'generic_llm',
+    provider: 'cloudflare', model: GEMMA, execution: 'provider_executed', confidence_reported: true, reasons: ['price far below market'],
+  });
   const log = db.writes.find((w) => w.table === 'ai_inference_logs');
   assert.equal(log.payload.model_name, GEMMA, 'logged under the model the request actually used');
 });
