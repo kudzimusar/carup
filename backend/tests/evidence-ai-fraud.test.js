@@ -33,6 +33,7 @@ const { supabase } = await import('../db/supabase.js');
 // triggers a Node 20 test-runner IPC "Unable to deserialize cloned data" crash
 // (worker-thread structured clone races with the module's top-level side effects).
 const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
+const { isTestFixtureAllowed } = await import('../config/testFixtureGuard.js');
 
 let db;
 function resetDb() {
@@ -301,11 +302,18 @@ test('Public endpoint sanitizes and does not expose raw AI analysis metadata', a
   
   await sleep(100);
 
-  // OC-3B: what was stored is labelled for what it is — a simulation. Read before the GETs below,
-  // which sanitize the shared in-memory row in place.
-  assert.equal(db.evidence[data.id].metadata.ai_analysis.provider, 'simulated');
-  assert.equal(db.evidence[data.id].metadata.ai_analysis.execution, 'simulated');
-  assert.equal(db.evidence[data.id].metadata.ai_analysis.public_safe_summary, null);
+  // OC-3B / OC-5B: what was stored is labelled for what it is. Read before the GETs below, which
+  // sanitize the shared in-memory row in place. In the test-fixture runtime the labelled simulator
+  // ran; anywhere else (the offline gate runs this suite with ALLOW_OCR_MOCK=false) NOTHING ran, and
+  // the row says so — no executor, no score, no confidence.
+  const stored = db.evidence[data.id].metadata.ai_analysis;
+  if (isTestFixtureAllowed()) {
+    assert.equal(stored.provider, 'simulated');
+    assert.equal(stored.execution, 'simulated');
+  } else {
+    assert.deepEqual([stored.ai_status, stored.execution, stored.provider, stored.confidence], ['ai_not_configured', 'not_run', null, null]);
+  }
+  assert.equal(stored.public_safe_summary, null);
 
   // Mark as verified by admin (this makes it visible to public)
   db.evidence[data.id].verification_status = 'verified';
@@ -395,7 +403,10 @@ test('Duplicate photo checksum check flags duplicates automatically', async () =
   await runAiAnalysis(data.id, Buffer.from('test-image-bytes'), 'image/png', 'odometer_photo');
 
   const ev = db.evidence[data.id];
-  assert.equal(ev.metadata.ai_analysis.ai_status, 'ai_flagged');
+  // The duplicate check is a deterministic checksum comparison: it flags the duplicate in EVERY runtime.
+  // OC-5B: only where an analyser ran does the analysis status say "flagged"; with no provider the
+  // status stays truthful ('ai_not_configured') and the duplicate is carried by the finding itself.
+  assert.equal(ev.metadata.ai_analysis.ai_status, isTestFixtureAllowed() ? 'ai_flagged' : 'ai_not_configured');
   assert.equal(ev.metadata.ai_analysis.recommended_action, 'reject');
   assert.equal(ev.metadata.ai_analysis.duplicate_match.is_duplicate, true);
   assert.equal(ev.metadata.ai_analysis.duplicate_match.original_evidence_id, 'ev-existing-duplicate');
