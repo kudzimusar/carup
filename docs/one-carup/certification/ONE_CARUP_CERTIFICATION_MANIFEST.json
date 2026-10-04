@@ -8,7 +8,728 @@
     "DEPLOYED-CERTIFIED",
     "OWNER-UAT-CERTIFIED"
   ],
-  "receipts": [],
+  "receipts": [
+    {
+      "id": "OC5A-P1B-SOURCE",
+      "phase": "OC-5A",
+      "capability": "auth.tenant_role_catalogue",
+      "sha": "7750fb50e72acbae8d9a9bc6ae6b50f890b566d1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test (OC-5 source closure job) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "a tenant membership row never lends a protected platform role"
+      ],
+      "evidence": {
+        "ci_run": "37205318936",
+        "suites": [
+          "oc5a-tenant-role-catalogue",
+          "auth-middleware"
+        ],
+        "mutants": "8/8 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5A-P1B-DATABASE",
+      "phase": "OC-5A",
+      "capability": "auth.tenant_role_catalogue",
+      "sha": "7750fb50e72acbae8d9a9bc6ae6b50f890b566d1",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: the catalogue CHECK (NOT VALID) refuses new rows outside the catalogue, keeps a pre-catalogue row, is idempotent and reversible",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20261004160000_oc5a_tenant_users_role_catalogue.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "new tenant_users rows outside the catalogue are refused by the database"
+      ],
+      "evidence": {
+        "ci_run": "37205318936",
+        "suites": [
+          "oc5a-tenant-role-catalogue"
+        ],
+        "mutants": "8/8 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5A-P1A-SOURCE",
+      "phase": "OC-5A",
+      "capability": "partsentry.service_authority",
+      "sha": "7750fb50e72acbae8d9a9bc6ae6b50f890b566d1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + PGlite world + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "a PartSentry write needs a governed service relationship or governed Dealer authority",
+        "an owner declaration never presents as a mechanic record"
+      ],
+      "evidence": {
+        "ci_run": "37205318936",
+        "suites": [
+          "oc5a-partsentry-service-authority",
+          "oc4e-product-journeys"
+        ],
+        "mutants": "17/17 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5A-P1A-DATABASE",
+      "phase": "OC-5A",
+      "capability": "partsentry.service_authority",
+      "sha": "7750fb50e72acbae8d9a9bc6ae6b50f890b566d1",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: owner authorization of work orders (provenance + no-self CHECKs) and the attested-record RPC on real PostgreSQL",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20261004160100_oc5a_work_order_owner_authorization.sql",
+          "database/migrations/20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "work-order owner authorization is enforced by CHECK constraints and the decision RPC"
+      ],
+      "evidence": {
+        "ci_run": "37205318936",
+        "suites": [
+          "oc5a-partsentry-service-authority"
+        ],
+        "mutants": "17/17 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5A-P1C-SOURCE",
+      "phase": "OC-5A",
+      "capability": "partsentry.atomic_ledger_intent",
+      "sha": "7750fb50e72acbae8d9a9bc6ae6b50f890b566d1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + PGlite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "a PartSentry record and its ledger intent commit at one boundary",
+        "a mutated record is never reported as failed"
+      ],
+      "evidence": {
+        "ci_run": "37205318936",
+        "suites": [
+          "oc5a-partsentry-atomic-ledger-intent"
+        ],
+        "mutants": "14/14 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5A-P1C-DATABASE",
+      "phase": "OC-5A",
+      "capability": "partsentry.atomic_ledger_intent",
+      "sha": "7750fb50e72acbae8d9a9bc6ae6b50f890b566d1",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: one transaction for record + intent; claim/complete/release on the intent table; crash-and-drain exactly-once",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the ledger intent survives a crash and is drained exactly once"
+      ],
+      "evidence": {
+        "ci_run": "37205318936",
+        "suites": [
+          "oc5a-partsentry-atomic-ledger-intent"
+        ],
+        "mutants": "14/14 killed (lock contention pinned by source: PGlite is single-connection)"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5B-SOURCE",
+      "phase": "OC-5B",
+      "capability": "evidence.image_analysis_disposition",
+      "sha": "a1b3bfe2bb8389af35682c5c4b3b622a7bbb8e60",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test in both fixture modes (ALLOW_OCR_MOCK true and false) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "outside the test-fixture runtime evidence-image analysis reports not_configured or provider_not_certified and runs nothing"
+      ],
+      "evidence": {
+        "ci_run": "37206644330",
+        "suites": [
+          "oc5b-evidence-vision-disposition",
+          "oc3b-truthful-ai-simulation",
+          "evidence-ai-fraud",
+          "EvidenceReview.analysis"
+        ],
+        "mutants": "8/8 backend + 2/2 web killed"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X3-LIFECYCLE-SOURCE",
+      "phase": "OC-5C",
+      "capability": "identity.lifecycle",
+      "sha": "ad52e7a80896ec2c236b66949421890c051ff198",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + PGlite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "identity is a lifecycle over immutable history; an OCR-read expiry is an observation only"
+      ],
+      "evidence": {
+        "ci_run": "37208871915",
+        "suites": [
+          "o2-x3-identity-lifecycle",
+          "oc5c-decision-recorder-lifecycle-hook",
+          "o2-owner-uat-closure"
+        ],
+        "mutants": "14/14 backend + 4/4 web killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X3-LIFECYCLE-DATABASE",
+      "phase": "OC-5C",
+      "capability": "identity.lifecycle",
+      "sha": "ad52e7a80896ec2c236b66949421890c051ff198",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: the lifecycle ledger is append-only in the database; the user FK is RESTRICT",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20261004170000_o2_x3_identity_lifecycle_events.sql",
+          "database/migrations/20261004170100_o2_x3_user_sessions_authentication_assurance.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "identity lifecycle history cannot be updated or deleted in the database"
+      ],
+      "evidence": {
+        "ci_run": "37208871915",
+        "suites": [
+          "o2-x3-identity-lifecycle"
+        ],
+        "mutants": "14/14 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X3-STEPUP-SOURCE",
+      "phase": "OC-5C",
+      "capability": "auth.step_up_assurance",
+      "sha": "ad52e7a80896ec2c236b66949421890c051ff198",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app + web suites + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "a step-up needs a password re-proof on the presenting session; an unaudited step-up is withdrawn"
+      ],
+      "evidence": {
+        "ci_run": "37208871915",
+        "suites": [
+          "o2-x3-authentication-assurance",
+          "dealer-routes",
+          "verification-admin-review",
+          "useStepUpGuard",
+          "StepUpDialog",
+          "PeopleComplianceReview"
+        ],
+        "mutants": "14/14 backend + 4/4 web killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X6-ASSURANCE-SOURCE",
+      "phase": "OC-5C",
+      "capability": "identity.assurance_projection",
+      "sha": "a34c8c9c45dce6762323089c992f84f843746943",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "identity_assurance.v1 grants nothing and carries no private evidence; the subject view never names an internal state"
+      ],
+      "evidence": {
+        "ci_run": "37210340063",
+        "suites": [
+          "o2-x6-identity-assurance",
+          "o2-x6-events",
+          "o2-people-review-fail-closed"
+        ],
+        "mutants": "24/24 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X6-TEMPLATES-SOURCE",
+      "phase": "OC-5C",
+      "capability": "communications.governed_templates",
+      "sha": "a34c8c9c45dce6762323089c992f84f843746943",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every X6 policy binds a registered, approved, transactional template fed by its emitter"
+      ],
+      "evidence": {
+        "ci_run": "37210340063",
+        "suites": [
+          "o2-x6-events",
+          "communication-event-coverage",
+          "oc4d-dealer-decision-event-privacy"
+        ],
+        "mutants": "24/24 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X6-TEMPLATES-DATABASE",
+      "phase": "OC-5C",
+      "capability": "communications.governed_templates",
+      "sha": "a34c8c9c45dce6762323089c992f84f843746943",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: the registry DDL extracted from its own migration, then the X6 registration Up / re-run / Down / Up and other-lane safety",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20260811131500_communications_2_conversation_core.sql",
+          "database/migrations/20261004172000_o2_x6_semantic_event_templates.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the three X6 templates register idempotently and Down removes only what Up wrote"
+      ],
+      "evidence": {
+        "ci_run": "37210340063",
+        "suites": [
+          "oc5c-x6-template-migration"
+        ],
+        "mutants": "24/24 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X6-PEOPLE-SOURCE",
+      "phase": "OC-5C",
+      "capability": "people.compliance_review",
+      "sha": "a34c8c9c45dce6762323089c992f84f843746943",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the People review carries identity_assurance.v1 and fails closed by section name"
+      ],
+      "evidence": {
+        "ci_run": "37210340063",
+        "suites": [
+          "o2-people-review-fail-closed",
+          "o2-people-compliance-review",
+          "o2-people-adversarial"
+        ],
+        "mutants": "24/24 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-NOTES-SOURCE",
+      "phase": "OC-5C",
+      "capability": "identity.applicant_session_privacy",
+      "sha": "fcb1a90834a4b79a8283097b7bea9670a2b03f6a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app + mobile suites + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "the applicant session projection never carries the reviewer internal note or reviewer identity"
+      ],
+      "evidence": {
+        "ci_run": "37210998758",
+        "suites": [
+          "oc4e-product-journeys",
+          "verification-session-workflow",
+          "mobile verification-api",
+          "mobile verification-store-truthful-state"
+        ],
+        "mutants": "5/5 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X2-SOURCE",
+      "phase": "OC-5C",
+      "capability": "identity.registration_journey",
+      "sha": "747fd19bf059e401e9f315494f220c1ba0b5c837",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app + web suite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "the journey shows a subject-safe identity standing and refuses a business-identity switch"
+      ],
+      "evidence": {
+        "ci_run": "37212257514",
+        "suites": [
+          "o2-x2-registration-journey",
+          "o2-x2-registration-routes",
+          "RegistrationJourney"
+        ],
+        "mutants": "16/16 backend + 6/6 web killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X5-SOURCE",
+      "phase": "OC-5C",
+      "capability": "dealer.onboarding",
+      "sha": "3df411ca67b2ee836298146dfbf6a9e7814873f1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app + web suite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "dealer onboarding grants no Dealer authority; previews sign only the dealer's own evidence prefix; tenant_id is not self-assignable"
+      ],
+      "evidence": {
+        "ci_run": "37213448004",
+        "suites": [
+          "o2-x5-dealer-onboarding",
+          "dealer-compliance",
+          "dealer-routes",
+          "DealerOnboarding"
+        ],
+        "mutants": "17/17 backend + 6/6 web killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X5-DATABASE",
+      "phase": "OC-5C",
+      "capability": "dealer.onboarding",
+      "sha": "c5a97909422a353a911e131358915fb6b3e3119e",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: the workbook mapping confirmations table — RLS forced, checksum CHECK, RESTRICT references, Up/re-run/Down/Up",
+      "provider": {
+        "name": "cloudflare",
+        "model": "@cf/google/gemma-4-26b-a4b-it",
+        "mocked": true
+      },
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20260626150000_dealer_compliance.sql",
+          "database/migrations/20261004173000_o2_x5_dealer_workbook_mapping_confirmations.sql"
+        ]
+      },
+      "mocked_provider": true,
+      "mocked_components": [
+        "CarUp AI gateway double (header mapping is MOCKED; no live provider call)"
+      ],
+      "claims": [
+        "a mapping confirmation is bound to a sha-256 checksum and survives deletion of its subject"
+      ],
+      "evidence": {
+        "ci_run": "37214395216",
+        "suites": [
+          "o2-x5-workbook-mapping"
+        ],
+        "mutants": "14/14 backend + 4/4 web killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-U2-SOURCE",
+      "phase": "OC-5C",
+      "capability": "passport.read_latency",
+      "sha": "f5803a1efa7d9d730647b2002b42bf064f5c082a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test architecture proof (concurrency measured on a never-settling double, anti-vacuity serialized control) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "Supabase query-builder double (pending reads)"
+      ],
+      "claims": [
+        "the passport starts its independent reads in one wave and verifies the ledger once per render; scores are unchanged"
+      ],
+      "evidence": {
+        "ci_run": "37215112057",
+        "suites": [
+          "o2-u2-passport-latency-architecture",
+          "issue164-phase5-listing-publication-gate",
+          "issue164-phase0-public-projection",
+          "trade-os-t12-registry-authority",
+          "oc3b-ai-authority-invariants"
+        ],
+        "mutants": "11/11 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X5A-SOURCE",
+      "phase": "OC-5C",
+      "capability": "evidence.upload_idempotency",
+      "sha": "1d0d7003fd74d3d2fc1ef7f55e413f4a79e671cf",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped upload route + PGlite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "another actor's identical key never returns the first actor's evidence",
+        "a key reused for another vehicle or operation is a 409"
+      ],
+      "evidence": {
+        "ci_run": "37216436947",
+        "suites": [
+          "oc5c-upload-idempotency",
+          "upload-idempotency",
+          "differentiator-journey"
+        ],
+        "mutants": "16/16 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X5A-DATABASE",
+      "phase": "OC-5C",
+      "capability": "evidence.upload_idempotency",
+      "sha": "1d0d7003fd74d3d2fc1ef7f55e413f4a79e671cf",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite: with and without the CANDIDATE unique index; a real race resolves to one row with the winner read back; unrelated unique violations propagate",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migration-candidates/oc5c/20261004174000_o2_vehicle_evidence_upload_idempotency.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "on PostgreSQL with the candidate index, concurrent first uploads by one actor produce one row"
+      ],
+      "evidence": {
+        "ci_run": "37216436947",
+        "suites": [
+          "oc5c-upload-idempotency"
+        ],
+        "mutants": "16/16 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5C-X4-SOURCE",
+      "phase": "OC-5C",
+      "capability": "identity.biometrics_interface",
+      "sha": "74cb8c5b6e502d9dbdda5bfddb76fd611b20877d",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + PGlite (candidates) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "nothing on this lineage calls a biometric provider; the approval gate can only block"
+      ],
+      "evidence": {
+        "ci_run": "37216931771",
+        "suites": [
+          "o2-x4-biometric-interface",
+          "verification-decision-policy"
+        ],
+        "mutants": "7/7 killed"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T01:30:00Z"
+    }
+  ],
   "capabilities": {
     "programme.evidence_certification_guard": {
       "SOURCE-CERTIFIED": "PENDING",
@@ -32,17 +753,17 @@
       "LIVE-PROVIDER-CERTIFIED": "PENDING",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. Prior live Qwen evidence exists on OTHER lineages only (GMO-8 receipt on PR #209 @ce45e16f; O2 live OCR accuracy runs) \u2014 it does not certify this lineage."
+      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. Prior live Qwen evidence exists on OTHER lineages only (GMO-8 receipt on PR #209 @ce45e16f; O2 live OCR accuracy runs) — it does not certify this lineage."
     },
     "identity.lifecycle": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "identity.assurance_projection": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "PENDING",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
@@ -56,15 +777,15 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "people.compliance_review": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "auth.tenant_role_catalogue": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
@@ -77,22 +798,22 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "dealer.onboarding": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "partsentry.service_authority": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "partsentry.atomic_ledger_intent": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
@@ -105,7 +826,7 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "evidence.image_analysis_disposition": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "PENDING",
       "DEPLOYED-CERTIFIED": "PENDING",
@@ -177,8 +898,8 @@
       "notes": "Advisory Gemma consumers (buyer assistant, listing draft, fraud scan)."
     },
     "communications.governed_templates": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
@@ -191,7 +912,7 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "passport.read_latency": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
@@ -203,7 +924,47 @@
       "LIVE-PROVIDER-CERTIFIED": "PENDING",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Native capture \u2192 private evidence \u2192 Qwen candidate. Device/Expo runtime not exercised."
+      "notes": "Native capture → private evidence → Qwen candidate. Device/Expo runtime not exercised."
+    },
+    "auth.step_up_assurance": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "O2-X3 (OC-5C): consequential reviewer actions require a fresh password re-proof on the presenting session."
+    },
+    "identity.applicant_session_privacy": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5C: the applicant session projection never carries the reviewer internal note or identity (web + mobile)."
+    },
+    "identity.registration_journey": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "O2-X2 (OC-5C): subject-safe standing; business identity fixed once registered."
+    },
+    "evidence.upload_idempotency": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "O2-X5A (OC-5C): actor-scoped, resource- and operation-bound. The unique index is a CANDIDATE migration; concurrent dedupe is not in force on any deployment until it is promoted and applied."
+    },
+    "identity.biometrics_interface": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "O2-X4 (OC-5C): interface only, provider NOT SELECTED; nothing calls a provider."
     }
   }
 }
