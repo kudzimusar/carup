@@ -58,7 +58,14 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import {
+  withUploadIdempotency,
+  normalizeIdempotencyKey,
+  assertLocatorConsistency,
+  deriveRemoteReference,
+  insertEvidenceWithKey,
+  CHECKSUM_SOURCES,
+} from '../services/evidence/uploadIdempotency.js';
 import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
@@ -698,6 +705,10 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   let checksum = req.body.checksum || req.body.image_hash || req.body.imageHash || null;
   let bucketName = req.body.storage_bucket || req.body.storageBucket || null;
 
+  // O2-X5A (OC-5C): a remote submission naming two locators that disagree is refused — the server
+  // cannot answer truthfully which object it is (and identity below would silently pick one).
+  if (!req.body.file) assertLocatorConsistency({ file_url: fileUrl, file_path: filePath });
+
   if (req.body.file) {
     let parsed;
     try {
@@ -794,11 +805,15 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   });
 
   // WS-G: stamp the client idempotency key so a retried offline upload (same key) is
-  // deduped after an app restart via the Supabase-metadata fallback. Accept it from the
-  // standard header conventions OR the body, so any client convention dedupes correctly.
-  const clientIdempotencyKey =
-    req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
-    req.body.idempotency_key || req.body.idempotencyKey || null;
+  // deduped after an app restart. Accept it from the standard header conventions OR the body.
+  // O2-X5A (OC-5C): the key is validated (an opaque printable token) and the metadata mirror is
+  // SERVER-OWNED — a client-supplied `metadata.idempotency_key` is always replaced or removed, so no
+  // row can carry a key its uploader did not send through this channel.
+  const clientIdempotencyKey = normalizeIdempotencyKey(
+    req.headers['idempotency-key'] || req.headers['x-idempotency-key']
+    || req.body.idempotency_key || req.body.idempotencyKey || null,
+  );
+  delete metadata.idempotency_key;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
 
   // A clamped publication request is recorded, never silently dropped: review needs to see that an
@@ -863,18 +878,27 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     metadata
   };
 
-  // WS-G: server-side upload idempotency. The same idempotency key never creates a
-  // duplicate evidence row or provenance event; a retry returns the original.
+  // WS-G: server-side upload idempotency. The same idempotency key never creates a duplicate evidence
+  // row or provenance event; a retry returns the original.
+  //
+  // O2-X5A (OC-5C): the key is scoped to the ACTOR and bound to the vehicle and the operation (RC1
+  // handed a second user who reused a key the FIRST user's evidence row). The operation identity is
+  // the canonical columns this route writes; whether its checksum is server-computed is decided from
+  // THIS request (inline bytes) and never read back from a stored row.
+  const operation = {
+    evidence_class: insertData.evidence_class ?? null,
+    evidence_subtype: insertData.evidence_subtype ?? null,
+    evidence_type: insertData.evidence_type ?? null,
+    checksum: checksum ?? null,
+    checksum_source: fileBuffer ? CHECKSUM_SOURCES.SERVER_INLINE : CHECKSUM_SOURCES.CLIENT_ASSERTED,
+    remote_ref: deriveRemoteReference({ storage_bucket: insertData.storage_bucket, file_path: insertData.file_path, file_url: insertData.file_url }),
+  };
   const { evidenceId, deduped } = await withUploadIdempotency(
     clientIdempotencyKey,
     vin,
     async () => {
-      const { data: inserted, error: insertError } = await supabase
-        .from('vehicle_evidence')
-        .insert(insertData)
-        .select('*')
-        .single();
-      if (insertError) throw new DatabaseError(insertError.message);
+      // The canonical key column where it exists, the pre-migration row otherwise; native error kept.
+      const inserted = await insertEvidenceWithKey(supabase, insertData, clientIdempotencyKey);
 
       // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).
       await recordEvidenceUploadProvenance(supabase, { evidence: inserted, req, eventType: 'uploaded' });
@@ -885,10 +909,11 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
       });
       return inserted;
     },
-    { supabase },
+    { supabase, actorId: activeUserId, operation },
   );
 
-  const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).single();
+  // Read back THIS actor's row only (defence in depth: the scoped lookup already guarantees it).
+  const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).eq('uploaded_by', activeUserId).single();
   return normalizeEvidenceRecord(record || { id: evidenceId, vin, _deduped: deduped });
 }
 

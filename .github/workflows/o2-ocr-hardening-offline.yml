@@ -758,6 +758,8 @@ jobs:
           backend/tests/issue164-phase0-public-projection.test.js
           backend/tests/trade-os-t12-registry-authority.test.js
           backend/tests/oc3b-ai-authority-invariants.test.js
+      - name: OC-5C — X5A upload idempotency (actor-scoped, bound, PGlite race + candidate migration, shipped route)
+        run: node --test backend/tests/oc5c-upload-idempotency.test.js backend/tests/upload-idempotency.test.js backend/tests/differentiator-journey.test.js
       - name: OC-5B — no production-selectable simulator (both fixture modes), and the reviewer's view of it
         run: |
           node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js

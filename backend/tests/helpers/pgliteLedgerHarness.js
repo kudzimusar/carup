@@ -221,7 +221,8 @@ export function supabaseOver(db) {
     }
     return columnTypes.get(table);
   }
-  const toError = (error) => ({ message: error.message, code: error.code || null, details: error.detail || null });
+  // `constraint` is kept (OC-5C): a unique violation is only meaningful together with WHICH index it hit.
+  const toError = (error) => ({ message: error.message, code: error.code || null, details: error.detail || null, constraint: error.constraint || null });
 
   return {
     /**
@@ -288,16 +289,21 @@ export function supabaseOver(db) {
       function cast(types, column, index) {
         return types[column] === 'jsonb' || types[column] === 'json' ? `$${index}::${types[column]}` : `$${index}`;
       }
+      // A PostgREST JSON path (`metadata->>key`) filters on the text value at that key (OC-5C).
+      const columnExpression = (column) => {
+        const [base, key] = String(column).split('->>');
+        return key === undefined ? quote(column) : `${quote(base)}->>'${key.replace(/'/g, "''")}'`;
+      };
       function where(params) {
         if (!state.filters.length) return '';
         return ` WHERE ${state.filters.map(([column, operator, value]) => {
           if (operator === 'IN') {
             const list = Array.isArray(value) ? value : [value];
             if (!list.length) return 'FALSE';
-            return `${quote(column)} IN (${list.map((item) => { params.push(item); return `$${params.length}`; }).join(', ')})`;
+            return `${columnExpression(column)} IN (${list.map((item) => { params.push(item); return `$${params.length}`; }).join(', ')})`;
           }
           params.push(value);
-          return `${quote(column)} ${operator} $${params.length}`;
+          return `${columnExpression(column)} ${operator} $${params.length}`;
         }).join(' AND ')}`;
       }
       const projection = (columns) => (columns === '*' ? '*' : String(columns).split(',').map((c) => quote(c.trim())).join(', '));
