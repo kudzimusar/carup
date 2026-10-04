@@ -774,6 +774,37 @@ export async function supersedeSellerAuthorityOnOwnershipTransfer(client, {
   return { changed: true, superseded: 1, previous_status: row.status, record: updated };
 }
 
+/**
+ * O2/P2 — normalized responsibility projection (M8 ADR §10.1). Derived, never stored; the status
+ * vocabulary above stays canonical inside this domain.
+ *
+ * `not_assessed`/`recognized` (the derived no-row states from getSellerAuthorityState) ask nothing
+ * of anyone by themselves; only in a LISTING context does the absence of authority become the
+ * seller's next action. `revoked` asks nothing — a superseded authority is history, and a NEW
+ * claim starts a new lifecycle.
+ */
+const AUTHORITY_STATUS_TO_RESPONSIBILITY = Object.freeze({
+  evidence_submitted: 'carup_review',
+  under_review: 'carup_review',
+  confirmed: 'none',
+  insufficient: 'subject_action',
+  disputed: 'escalated',
+  revoked: 'none',
+  recognized: 'none',
+  not_assessed: 'none',
+});
+
+export function toResponsibilityProjection(status, { listingContext = false } = {}) {
+  if ((status === 'not_assessed' || status === 'recognized') && listingContext) {
+    return 'subject_action';
+  }
+  const mapped = AUTHORITY_STATUS_TO_RESPONSIBILITY[status];
+  if (!mapped) {
+    throw new SellerAuthorityError(`Seller authority status '${status}' has no responsibility mapping`, 'SELLER_AUTHORITY_PROJECTION_UNMAPPED', 500);
+  }
+  return mapped;
+}
+
 export default {
   SELLER_AUTHORITY_POLICY_VERSION,
   SELLER_AUTHORITY_CLAIM_EVENT,
@@ -789,6 +820,7 @@ export default {
   hasConflictingSellerRelationship,
   getSellerAuthorityState,
   supersedeSellerAuthorityOnOwnershipTransfer,
+  toResponsibilityProjection,
   isSellerAuthoritySatisfied,
   toPublicSellerAuthorityStatement,
   submitSellerClaim,
