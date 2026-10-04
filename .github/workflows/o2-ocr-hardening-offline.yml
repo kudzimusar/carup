@@ -294,6 +294,25 @@ on:
       # OC-5 Phase 0: the evidence certification ladder, its guard and its manifest.
       - 'scripts/ci/evidence-certification-guard.mjs'
       - 'backend/tests/oc5-*.test.js'
+      # OC-5A: the three RC1 source P1s — tenant-role catalogue, PartSentry service authority, and the
+      # one-commit PartSentry record with its durable ledger intent.
+      - 'backend/tests/oc5a-*.test.js'
+      - 'backend/tests/helpers/oc5aPartSentryWorld.js'
+      - 'backend/tests/helpers/pgliteLedgerHarness.js'
+      - 'backend/middleware/authMiddleware.js'
+      - 'backend/middleware/vehicleObjectAuthority.js'
+      - 'backend/middleware/securityMiddleware.js'
+      - 'backend/services/auth/tenantRoleCatalogue.js'
+      - 'backend/services/partsentry/**'
+      - 'backend/services/blockchain/ledgerIntentService.js'
+      - 'backend/routes/workOrdersRoutes.js'
+      - 'backend/routes/ledgerIntentRoutes.js'
+      - 'backend/server.js'
+      - 'database/migrations/2026100416*.sql'
+      - 'web/src/lib/partsentry*.ts'
+      - 'web/src/components/owner/WorkOrderRequests*.tsx'
+      - 'web/src/pages/dashboard/owner/PartSentry*.tsx'
+      - 'web/src/pages/dashboard/mechanic/ServiceLogs*.tsx'
       # OC-4F source RC1: the residual-scan guards (committed credentials; retired routes in the web
       # client), the residual scan and the open-PR disposition, and every doc the RC carries.
       - 'backend/tests/oc4f-*.test.js'
@@ -628,6 +647,56 @@ jobs:
         run: node --test backend/tests/oc5-evidence-certification-guard.test.js
       - name: The programme's certification manifest
         run: node scripts/ci/evidence-certification-guard.mjs
+
+  # ── OC-5A RC1 source P1 closure (exact-head) ──────────────────────────────
+  # P1-B: a tenant row is never platform authority (catalogue, cross-product, HTTP, PGlite migration).
+  # P1-A: PartSentry service authority through the shipped app on PGlite with the REAL ledger writer.
+  # P1-C: one commit boundary + durable ledger intent (ledger unavailable, retry, crash, concurrency).
+  # Plus every pre-existing suite whose premise OC-5A moved, and the web surfaces that show it.
+  oc5a-p1-closure:
+    name: OC-5A RC1 source P1 closure
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: P1-B tenant-role catalogue · P1-A service authority · P1-C atomic record + ledger intent
+        run: node --test backend/tests/oc5a-*.test.js
+      - name: Suites whose premise OC-5A moved (re-pinned, never loosened)
+        run: >-
+          node --test
+          backend/tests/oc4a-provenance-object-authority.test.js
+          backend/tests/oc4a-evidence-history-protection.test.js
+          backend/tests/oc4d-dealer-seller-authority.test.js
+          backend/tests/oc4e-product-journeys.test.js
+          backend/tests/partsentry-write-truth.test.js
+          backend/tests/public-truth-hardening.test.js
+          backend/tests/v16-authority-hardening.test.js
+          backend/tests/issue-158-terminal-operation-identity.test.js
+          backend/tests/issue164-phase1-read-contract.test.js
+          backend/tests/diaspora-workflow.test.js
+          backend/tests/auth-middleware.test.js
+      - name: Web — the PartSentry contract, the custodian panel, owner and mechanic pages
+        run: >-
+          npm run test:unit --workspace=web --
+          src/lib/partsentry.test.ts
+          src/components/owner/WorkOrderRequests.test.tsx
+          src/pages/dashboard/owner/PartSentry.test.tsx
+          src/pages/dashboard/mechanic/ServiceLogs.test.tsx
 
   # ── OC-4F source RC1 residual guards (exact-head, targeted) ────────────────
   # The credential tripwire walks the WHOLE tree, so any document change re-runs it (hence the
