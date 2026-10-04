@@ -3346,6 +3346,12 @@ export interface LedgerIntegrityReport {
   verified: boolean;
   count: number | null;
   integrity: 'verified' | 'broken' | 'empty';
+  /**
+   * OC-3D: true only when the chain verified AND every event's signature was cryptographically
+   * verified. An intact chain whose events carry placeholders or unverifiable signatures is
+   * `integrity: 'verified'` with `authenticated: false` — tamper-evident links, unauthenticated authorship.
+   */
+  authenticated: boolean;
   failed_at_index?: number;
   verified_at: string;
 }
