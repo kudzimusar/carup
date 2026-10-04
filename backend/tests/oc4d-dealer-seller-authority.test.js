@@ -287,7 +287,8 @@ function middlewareStore() {
         if (table === 'users') return users[val('id')] ? { data: users[val('id')], error: null } : { data: null, error: { message: 'not found' } };
         if (table === 'tenant_users') {
           const m = memberships.find((x) => x.tenant_id === val('tenant_id') && x.user_id === val('user_id'));
-          return m ? { data: { role: m.role }, error: null } : { data: null, error: { message: 'no membership' } };
+          // PostgREST's real zero-row .single() answer. OC-5D: a code-less error is a FAILED read (503).
+          return m ? { data: { role: m.role }, error: null } : { data: null, error: { code: 'PGRST116', message: 'no membership' } };
         }
         return { data: null, error: null };
       },

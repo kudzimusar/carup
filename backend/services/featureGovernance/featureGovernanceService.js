@@ -16,6 +16,8 @@ import { fileURLToPath } from 'url';
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { isUserIdFallbackAllowed } from '../../middleware/authMiddleware.js';
+import { resolveVerifiedActiveTenant } from '../auth/activeTenantContext.js';
+import { isLendableTenantRole } from '../auth/tenantRoleCatalogue.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST_PATH = path.resolve(__dirname, '../../../shared/navigation/feature-manifest.json');
@@ -29,11 +31,18 @@ function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
 }
 
-/** Verify a user's membership of an organization; returns the tenant_users row or null. */
+/**
+ * The session's organisation through the ONE verifier (OC-5D): a membership of a tenant whose status
+ * is active, or null. This resolver never throws — any doubt is least privilege.
+ */
 async function verifyTenantMembership(client, userId, organizationId) {
   if (!organizationId) return null;
-  const { data } = await client.from('tenant_users').select('role').eq('tenant_id', organizationId).eq('user_id', userId);
-  return (data || [])[0] || null;
+  try {
+    const tenant = await resolveVerifiedActiveTenant(client, userId, organizationId);
+    return tenant && tenant.usable ? tenant : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -49,8 +58,9 @@ async function verifyTenantMembership(client, userId, organizationId) {
  *      • no active_role            → base platform role (`users.role`), no tenant;
  *      • active_role == base role  → base role; tenant only if active_org membership verifies;
  *      • active_role != base role  → requires active_organization_id AND a
- *        `tenant_users` membership whose role matches active_role (and is not
- *        admin); otherwise fall back to LEAST PRIVILEGE (base role, no tenant).
+ *        `tenant_users` membership of an ACTIVE tenant whose role matches
+ *        active_role AND is lendable (tenantRoleCatalogue — 'mechanic'/'dealer');
+ *        otherwise fall back to LEAST PRIVILEGE (base role, no tenant).
  *  - Anonymous requests are fully supported. Never throws; any failure degrades
  *    to anonymous / least privilege.
  */
@@ -98,10 +108,11 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
       return { role: baseRole, tenantId: membership ? activeOrg : null, userId, cohortId };
     }
 
-    // Switched (tenant) role: must be backed by a verified, matching, non-admin
-    // tenant_users membership — mirrors switch-role's canAssumeRequestedRole.
+    // Switched (tenant) role: must be backed by a verified, matching membership in a LENDABLE role —
+    // mirrors switch-role's canAssumeRequestedRole. ("Not admin" used to be the rule, so a legacy tenant
+    // row reading 'government' surfaced government navigation.)
     const membership = await verifyTenantMembership(client, userId, activeOrg);
-    if (activeOrg && membership && normalizeRole(membership.role) === activeRole && activeRole !== 'admin') {
+    if (activeOrg && membership && normalizeRole(membership.role) === activeRole && isLendableTenantRole(activeRole)) {
       return { role: activeRole, tenantId: activeOrg, userId, cohortId };
     }
     // Stale / unverifiable switched context → least privilege.

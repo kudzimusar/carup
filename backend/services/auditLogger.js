@@ -60,7 +60,9 @@ function normalizeTrustAuditEvent(event) {
   const request = requestContext(req);
   const actorUserId = event.actor_user_id || event.actorUserId || event.actorId || req?.userContext?.id || req?.userContext?.userId || null;
   const actorRole = event.actor_role || event.actorRole || req?.userContext?.effectiveRole || req?.userContext?.role || null;
-  const actorTenantId = event.actor_tenant_id || event.actorTenantId || req?.userContext?.tenantId || requestHeader(req, 'x-tenant-id') || null;
+  // A tenant is attributed only when it was VERIFIED for this request (OC-5D). A raw x-tenant-id is an
+  // assertion; on an optional-auth route it may name an organisation the caller does not belong to.
+  const actorTenantId = event.actor_tenant_id || event.actorTenantId || req?.userContext?.tenantId || null;
   const actorType = event.actor_type || event.actorType || (actorRole === 'system' ? 'system' : 'user');
   const metadata = event.metadata || {};
   const targetType = event.targetType || event.target_type || null;

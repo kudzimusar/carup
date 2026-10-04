@@ -70,6 +70,13 @@ import {
 } from './middleware/securityMiddleware.js';
 import { corsOptions } from './config/corsOptions.js';
 import { buildSessionRow } from './services/auth/sessionRow.js';
+import {
+  resolveVerifiedActiveTenant,
+  listVerifiedMemberships,
+  toActiveTenantView,
+  TenantContextUnavailableError,
+} from './services/auth/activeTenantContext.js';
+import { isLendableTenantRole } from './services/auth/tenantRoleCatalogue.js';
 import { createAuthEmailService } from './services/auth/authEmailService.js';
 import { normalizeRegistrationProfile } from './services/auth/registrationProfileService.js';
 import {
@@ -265,6 +272,7 @@ app.use(rateLimiter({ max: GLOBAL_RATE_LIMIT.max, windowMs: 60 * 1000, isSensiti
 // for the retired document-intelligence router and was throttling the Trust Fact and PartSentry
 // review routes that now own that prefix. See the retirement note at the former mount below.
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/auth/active-tenant', rateLimiter({ max: 20, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
@@ -524,6 +532,10 @@ if (connectionError) {
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 
+// The user columns a session endpoint may return to the person — never the password hash or any
+// other column a `select('*')` would add as the table grows.
+const SESSION_USER_COLUMNS = 'id, name, email, phone, role, is_verified';
+
 // --- PILLAR 20: AUTH & STAKEHOLDER PORTAL SWITCHING ---
 app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
   const { userId, role, tenantId } = req.body;
@@ -560,33 +572,36 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       throw new ForbiddenError(`Forbidden. Role '${role}' is not in the approved role catalog.`);
     }
 
+    // OC-5D: an allow-listed projection. This used to be `select('*')` spread into the response, which
+    // handed the caller their own password hash (and every other column) on every role switch.
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('*')
+      .select(SESSION_USER_COLUMNS)
       .eq('id', userId)
       .single();
       
     if (userError || !user) throw new NotFoundError('User record not found');
     
-    // Fetch organization/tenant context if tenantId provided
-    let verifiedTenantId = null;
-    let verifiedTenantRole = null;
+    // The organisation, through the ONE verifier: a membership of an ACTIVE tenant. A read failure is
+    // a 503 (thrown), never "you do not belong".
+    let verifiedTenant = null;
     if (tenantId) {
-      const { data: tenantUser } = await supabase
-        .from('tenant_users')
-        .select('tenant_id, role')
-        .eq('user_id', userId)
-        .eq('tenant_id', tenantId)
-        .single();
-        
-      if (!tenantUser) {
+      verifiedTenant = await resolveVerifiedActiveTenant(supabase, userId, tenantId);
+      if (!verifiedTenant) {
         throw new ForbiddenError('Forbidden. You do not belong to this organization.');
       }
-      verifiedTenantId = tenantUser.tenant_id;
-      verifiedTenantRole = tenantUser.role;
+      if (!verifiedTenant.usable) {
+        throw new ForbiddenError('Forbidden. This organisation is not active.');
+      }
     }
+    const verifiedTenantId = verifiedTenant ? verifiedTenant.id : null;
+    const verifiedTenantRole = verifiedTenant ? verifiedTenant.role : null;
 
-    const canAssumeRequestedRole = role === user.role || (verifiedTenantRole && role === verifiedTenantRole && role !== 'admin');
+    // A tenant membership lends ONLY a governed domain role (tenantRoleCatalogue). This used to refuse
+    // 'admin' and accept everything else, so a tenant row reading 'government' minted a session whose
+    // active_role was 'government' — the escalation OC-5A closed in resolveEffectiveRole, still open here.
+    const canAssumeRequestedRole = role === user.role
+      || (verifiedTenantRole && role === verifiedTenantRole && isLendableTenantRole(role));
     if (!canAssumeRequestedRole) {
       throw new ForbiddenError(`Forbidden. Role '${role}' is not verified for this user context.`);
     }
@@ -615,7 +630,13 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       success: true,
       message: `Role switched to ${role} successfully (session established).`,
       token,
-      user: { ...user, role, active_tenant_id: verifiedTenantId }
+      user: {
+        ...user,
+        role,
+        active_tenant_id: verifiedTenantId,
+        tenant_role: verifiedTenantRole,
+        active_tenant: toActiveTenantView(verifiedTenant),
+      }
     });
   } catch (error) {
     await logAuditEvent(supabase, {
@@ -2479,32 +2500,30 @@ app.post('/api/auth/login', async (req, res) => {
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
-    // Trade OS D2 — surface the caller's governed tenant membership so the client can send
-    // x-tenant-id from first login (previously only /switch-role returned it, so a tenant operator
-    // had NO tenant context until a role switch). Additive and advisory only: the auth middleware
-    // still re-verifies every x-tenant-id against tenant_users on every request. A user with
-    // multiple memberships gets no automatic tenant; they choose through the existing switch path.
-    const tenantContext = await resolveSoleTenantMembership(user.id);
+    // OC-5D — the server never picks the organisation. Trade OS D2 handed back the caller's SOLE
+    // membership as a hint the client then sent as x-tenant-id; #197 extended the guess to "the oldest".
+    // A new session starts with NO organisation and lists the ones the person may choose from; the
+    // choice is made explicitly (PUT /api/auth/active-tenant), one tap when there is only one. The list
+    // is best-effort: a failed read never fails a login, it is reported so the client can retry.
+    const membershipContext = await readMembershipsForClient(user.id);
 
-    res.json({ user: { ...user, ...tenantContext }, token });
+    res.json({
+      user: { ...user, active_tenant_id: null, tenant_role: null, active_tenant: null, ...membershipContext },
+      token,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Resolve a user's sole governed tenant membership (advisory client hint — never an authority).
-// Returns {} when the user has zero or multiple memberships, or when the read fails.
-async function resolveSoleTenantMembership(userId) {
+// The organisations a person may act for — each with its type, status and the person's role, and
+// whether it can be selected. Best-effort for the session endpoints: a failed read is REPORTED
+// (memberships_unavailable), never turned into "you belong nowhere" and never a failed login.
+async function readMembershipsForClient(userId) {
   try {
-    const { data, error } = await supabase
-      .from('tenant_users')
-      .select('tenant_id, role')
-      .eq('user_id', userId)
-      .limit(2);
-    if (error || !Array.isArray(data) || data.length !== 1) return {};
-    return { active_tenant_id: data[0].tenant_id, tenant_role: data[0].role || null };
+    return { memberships: await listVerifiedMemberships(supabase, userId) };
   } catch {
-    return {};
+    return { memberships: [], memberships_unavailable: true };
   }
 }
 
@@ -2512,7 +2531,7 @@ async function resolveSoleTenantMembership(userId) {
 // authorizeRole() (no required roles) validates the x-session-token against user_sessions and
 // returns the authoritative user. The frontend calls this on boot to detect stale/expired tokens;
 // an invalid/expired token yields 401 "Unauthorized. Session is invalid or expired." (unchanged auth).
-app.get('/api/auth/me', authorizeRole(), async (req, res) => {
+app.get('/api/auth/me', authorizeRole([], { ignoreTenantHeader: true }), async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from('users')
@@ -2522,14 +2541,118 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized. User record not found.' });
     }
-    // D2: prefer the session's verified tenant (set by switch-role); otherwise the sole membership.
-    const sessionTenantId = req.userContext.tenantId || null;
-    const tenantContext = sessionTenantId
-      ? { active_tenant_id: sessionTenantId, tenant_role: req.userContext.tenantRole || null }
-      : await resolveSoleTenantMembership(user.id);
-    res.json({ user: { ...user, ...tenantContext } });
+    // OC-5D: the session's SELECTED organisation, re-verified by the middleware on this request — or
+    // none. `tenant_context` says which: 'selected', 'revoked' (the selection no longer holds; the
+    // client must ask the person again) or 'none'. Never a guess.
+    const activeTenant = req.userContext.activeTenant || null;
+    const membershipContext = await readMembershipsForClient(user.id);
+    res.json({
+      user: {
+        ...user,
+        active_tenant_id: activeTenant ? activeTenant.id : null,
+        tenant_role: activeTenant ? activeTenant.role : null,
+        active_tenant: toActiveTenantView(activeTenant),
+        tenant_context: req.userContext.tenantContext || 'none',
+        ...membershipContext,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// --- AUTH: Select the organisation this session acts for (OC-5D) ---
+// The only way a session gains an organisation. The person names one of their memberships (or null to
+// act for themselves); the server verifies it — a membership of a tenant whose status is active — and
+// records it on THIS session. Every later request re-verifies it, so revoking the membership or
+// deactivating the tenant ends its authority at once. The selection is audited; if the audit cannot be
+// written the selection is withdrawn (a change of acting authority with no record is not made).
+app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: false, ignoreTenantHeader: true }), async (req, res, next) => {
+  const raw = req.body?.tenantId !== undefined ? req.body.tenantId : req.body?.tenant_id;
+  if (raw !== undefined && raw !== null && (typeof raw !== 'string' || raw.length > 128)) {
+    return res.status(400).json({ error: 'tenantId must be an organisation id or null.', code: 'INVALID_TENANT_ID' });
+  }
+  if (raw === undefined) {
+    return res.status(400).json({ error: 'tenantId is required (an organisation id, or null to clear the selection).', code: 'INVALID_TENANT_ID' });
+  }
+  const tenantId = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const userId = req.userContext.id;
+  try {
+    let tenant = null;
+    if (tenantId) {
+      tenant = await resolveVerifiedActiveTenant(supabase, userId, tenantId);
+      if (!tenant) {
+        return res.status(403).json({ error: 'You are not a member of this organisation.', code: 'TENANT_NOT_MEMBER' });
+      }
+      if (tenant.metadataUnavailable) {
+        return res.status(503).json({ error: 'Your organisation could not be read right now. Please try again shortly.', code: 'TENANT_CONTEXT_UNAVAILABLE' });
+      }
+      if (!tenant.usable) {
+        return res.status(403).json({ error: 'This organisation is not active.', code: 'TENANT_INACTIVE' });
+      }
+    }
+
+    const { data: sessionRows, error: readError } = await supabase
+      .from('user_sessions')
+      .select('active_organization_id')
+      .eq('token', token)
+      .eq('user_id', userId);
+    if (readError) {
+      return res.status(503).json({ error: 'Your session could not be read right now. Please try again shortly.', code: 'SESSION_UNAVAILABLE' });
+    }
+    const sessionRow = (Array.isArray(sessionRows) ? sessionRows : sessionRows ? [sessionRows] : [])[0];
+    if (!sessionRow) return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
+    const previousTenantId = sessionRow.active_organization_id || null;
+
+    const { error: writeError } = await supabase
+      .from('user_sessions')
+      .update({ active_organization_id: tenantId })
+      .eq('token', token)
+      .eq('user_id', userId);
+    if (writeError) {
+      return res.status(503).json({ error: 'Your organisation could not be selected right now. Please try again shortly.', code: 'ACTIVE_TENANT_NOT_SAVED' });
+    }
+
+    const audit = await logAuditEvent(supabase, {
+      req,
+      event_type: tenantId ? 'ACTIVE_TENANT_SELECTED' : 'ACTIVE_TENANT_CLEARED',
+      source_route: '/api/auth/active-tenant',
+      actor_user_id: userId,
+      actor_role: req.userContext.platformRole,
+      actor_tenant_id: tenantId,
+      previous_value: { tenantId: previousTenantId },
+      new_value: { tenantId, tenantRole: tenant ? tenant.role : null, tenantType: tenant ? tenant.type : null },
+    });
+    if (!audit?.success) {
+      const { error: revertError } = await supabase
+        .from('user_sessions')
+        .update({ active_organization_id: previousTenantId })
+        .eq('token', token)
+        .eq('user_id', userId);
+      if (revertError) {
+        // The selection stands with no audit record and could not be withdrawn: invalidate the session
+        // rather than leave unaudited authority in place. The person signs in again.
+        console.error('[active-tenant] audit failed and the selection could not be withdrawn; invalidating the session');
+        await supabase.from('user_sessions').update({ is_valid: false }).eq('token', token).eq('user_id', userId);
+      }
+      return res.status(503).json({ error: 'Your organisation could not be selected right now. Please try again shortly.', code: 'ACTIVE_TENANT_AUDIT_UNAVAILABLE' });
+    }
+
+    res.json({
+      active_tenant: toActiveTenantView(tenant),
+      user: {
+        active_tenant_id: tenant ? tenant.id : null,
+        tenant_role: tenant ? tenant.role : null,
+        active_tenant: toActiveTenantView(tenant),
+        tenant_context: tenant ? 'selected' : 'none',
+      },
+    });
+  } catch (error) {
+    if (error instanceof TenantContextUnavailableError) {
+      return res.status(503).json({ error: error.message, code: error.code });
+    }
+    next(error);
   }
 });
 
