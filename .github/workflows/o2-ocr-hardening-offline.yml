@@ -665,8 +665,10 @@ jobs:
       JWT_SECRET: test-jwt-secret
       ALLOW_OCR_MOCK: 'true'
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact candidate (full history — v16's trust-writer guard diffs historical commits)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
