@@ -82,6 +82,13 @@ const TEMPLATES = Object.freeze({
     subject: 'Seller authority ended',
     body: 'Your seller authority for vehicle {{listing_id}} ended because ownership transferred. No action is needed.',
   },
+  // OC-5D (F3) — in-code mirror of the governed registry row (20261004180800). The vehicle and the
+  // case's recorded status only: never private notes, the request summary, a price or a promise.
+  service_case_status_v1: {
+    transactional: true,
+    subject: 'Your service request was updated',
+    body: 'Your service request for vehicle {{listing_id}} is now: {{status}}.',
+  },
   // Trade OS D7 — in-code mirror of the governed `container_booking_update` template
   // (registered + approved in 20260811131700_communications_2_workflow_template_foundations.sql).
   // Used only pre-registry (dev/tests); the governed registry wins wherever it is deployed.

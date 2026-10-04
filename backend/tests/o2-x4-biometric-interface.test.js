@@ -170,9 +170,20 @@ test('X4: no biometric fingerprint store and no template/embedding store anywher
     walk(path.join(repo, dir));
   }
   assert.ok(sqlFiles.some((f) => f.includes('20261004175000')), 'the biometric candidates are part of the scan');
+  // "Fingerprint" has one NON-biometric meaning in CarUp SQL: the Trust presentation fingerprint, a hash
+  // of an audience-safe projection that the domain-event dedupe trigger keys on (20260826120000). OC-5D's
+  // O4 reproduces that trigger branch byte for byte in a newer file, so the blanket newer-file rule reads
+  // CODE with comments stripped and exactly that identifier (and its holding variable) removed. Every
+  // other mention still fails, and the two biometric patterns below still run on the raw text.
+  const withoutTrustFingerprint = (sql) => sql
+    .replace(/--[^\n]*/g, '')
+    .replace(/\bpresentation_fingerprint\b/g, '')
+    .replace(/\bv_fingerprint\b/g, '');
+  assert.match(withoutTrustFingerprint('CREATE TABLE identity_biometrics (fingerprint BYTEA);'), /fingerprint/i,
+    'the refinement must still catch a fingerprint column');
   for (const file of sqlFiles) {
     const sql = readFileSync(file, 'utf8');
-    if (path.basename(file) >= '20260829') assert.doesNotMatch(sql, /fingerprint/i, `${path.basename(file)} must not define fingerprint storage`);
+    if (path.basename(file) >= '20260829') assert.doesNotMatch(withoutTrustFingerprint(sql), /fingerprint/i, `${path.basename(file)} must not define fingerprint storage`);
     assert.doesNotMatch(sql, biometricFingerprint, `${path.basename(file)} must not define biometric fingerprint storage`);
     assert.doesNotMatch(sql, templateStore, `${path.basename(file)} must not define a biometric template/embedding store`);
   }
