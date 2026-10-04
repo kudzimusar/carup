@@ -110,12 +110,17 @@ test('hardening: the OCR approval authority chain is gone from document intellig
 test('hardening: the diaspora handoff ledger writer signs with the canonical system signer', () => {
   const src = read('../services/diaspora/diasporaOwnershipHandoffService.js');
 
-  assert.match(
-    src, /import \{ signSystemLedgerHash \} from '\.\.\/blockchain\/blockchainKeyCustodyService\.js';/,
-    'the handoff writer must import the canonical system signer',
-  );
-  assert.match(src, /const systemSignature = signSystemLedgerHash\(currentHash\);/);
-  assert.match(src, /signature: `system:\$\{systemSignature\}`/);
+  // OC-3D 4J: the handoff no longer builds its own ledger envelope. It submits the event to the
+  // ledger's single write boundary with the signer named explicitly, and that boundary signs system
+  // events with the canonical system signer — so the pin follows the signing to where it happens.
+  assert.match(src, /import \{ addEvent \} from '\.\.\/blockchain\/blockchainService\.js';/,
+    'the handoff writer must submit through the canonical ledger writer');
+  assert.match(src, /addEvent\(vin, HANDOFF_EVENT_TYPE, payload, 'SYSTEM_SIGNATURE', \{ client, signerId: 'system' \}\)/);
+  assert.doesNotMatch(src, /signature:\s*`/, 'the handoff writer no longer hand-builds a signature');
+  assert.doesNotMatch(src, /calculateHash|signSystemLedgerHash/, 'nor a hash or signature of its own');
+  const ledger = read('../services/blockchain/blockchainService.js');
+  assert.match(ledger, /dynamicSignature = `system:\$\{signSystemLedgerHash\(currentHash\)\}`/,
+    'the canonical writer signs system events with the canonical system signer');
 
   // The local HMAC over a hardcoded literal must be gone entirely.
   assert.doesNotMatch(
