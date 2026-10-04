@@ -27,6 +27,8 @@
 | 14 | Partial writes before a refusable step | Read-through of PartSentry, found by an OC-4E journey | `addRepairLog` persists the log and the canonical odometer before a ledger write that can refuse. | **Recorded** (finding D) |
 | 15 | Native static guards | `mobile/tests/tab-stability-guard.test.ts` | The escrow screen sends the ngrok header on 1 of 2 fetches. Pre-existing: `escrow.tsx` is unchanged since `main`, and the file is not in CI's native set. | **Recorded** |
 | 16 | Stale proof | The older local Playwright agent specs | They fail identically on `main` and RC1 (11 failed / 3 passed / 2 skipped). | **Recorded**. OC-4E's spec replaces them as proof. |
+| 17 | Tests that age out | Literal 2026-10…12 dates in test fixtures (55), checked against wall-clock comparisons in the code they exercise | One live time bomb: **SAILING MATCH**. Its fixture's booking deadline was 2026-10-01, and matching (correctly) drops a sailing once its deadline is past, so it had failed since that date with no code change. Trade-graph fixtures run on an injected fixed clock; no other dated fixture is compared with the wall clock. | **Fixed** — `0b7d648a`. Relative dates, plus a past-deadline sailing that must not match. |
+| 18 | Gates this lineage never triggered | The PR-only workflows that Draft PR #220 started | See *PR gate baseline* below. | **Fixed** where the cause was in the RC; otherwise **Recorded** as environmental |
 
 ## Findings for the owner
 
@@ -72,3 +74,18 @@ This predates OC-4. Make the ledger write part of the same unit of work, or reco
 | `outboxBacklog` | 312 |
 
 Production Communications is inactive, so domain events accumulate. Staging `/api/health` returns 500 (`FUNCTION_INVOCATION_FAILED`).
+
+## PR gate baseline (Draft PR #220)
+
+Opening #220 started PR-only workflows that no OC branch had ever triggered. Each red result was traced to its cause before anything was attributed to OC-4.
+
+| Workflow | Result at `dd9f4e5d` | Cause | Disposition |
+|---|---|---|---|
+| CI — `validate` | Backend step: 7,267 tests / 1 failed | The SAILING MATCH time bomb. It stopped the job, and 24 later steps never ran. | **Fixed** (`0b7d648a`). All 24 steps were run locally on RC1 and pass. |
+| Vehicle Passport Foundation CI | `git diff --check` failed | Trailing-space Markdown breaks in the absorbed #211 and #184 documents, three whitespace-only lines in the OC-4A/4B records, and a blank line at EOF in a C2-era script | **Fixed** (`205040f6`). The OC-4F job now runs the same check on every push. |
+| Navigation Intelligence CI | 37 passed / 1 failed | Spec 27 pinned the owner sidebar at 21. C3's `owner.garage-setup` (2026-10-03, before OC-4) made it 22, and that lane never triggered this gate. | **Fixed** (`205040f6`). 38/38 locally. |
+| Diaspora Phases 3–7 Validation | Focused tests: 1,472 / 1 failed; staging integration failed | SAILING MATCH (fixed). Staging integration: `ENOTFOUND … eoyenigwevnxwwhyhaer` — canonical staging is down. | **Fixed** / **Environmental** |
+| Marketplace Reference Regression | "Resolve exact-head preview pair" failed | No deployed preview pair exists: releases are CLI-only and staging is down | **Environmental** — runbook steps 9–12 |
+| Diaspora Deployed Staging UAT | Bootstrap / pairing failed | Same: it needs a deployed staging pair | **Environmental** |
+| Operations Serena Staging UAT | Cancelled, no jobs | A staging-only workflow | **Environmental** |
+| Communication Command Center CI, Referral Engine CI, Vehicle Finance Obligation Authority CI, O2 OCR Offline Hardening | Success | — | — |
