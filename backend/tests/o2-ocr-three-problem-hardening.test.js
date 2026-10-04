@@ -15,7 +15,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 process.env.SUPABASE_ANON_KEY ||= 'test-anon-key';
 process.env.JWT_SECRET ||= 'test-jwt-secret';
 
-const { runOcrParsing } = await import('../services/ai/aiServiceBus.js');
+const aiServiceBus = await import('../services/ai/aiServiceBus.js');
 const { recordDocumentExtraction } = await import('../services/diaspora/diasporaDocumentService.js');
 const { runVehicleEvidenceOcr } = await import('../services/evidence/vehicleDocumentOcrService.js');
 
@@ -42,15 +42,14 @@ function makeVehicleOnlyClient(vehicle) {
 }
 
 test('problem 1: legacy runOcrParsing is permanently retired at the service boundary', async () => {
-  await assert.rejects(
-    runOcrParsing('registration_book', 'data:image/png;base64,AAAA', 'user-1'),
-    (error) => error?.statusCode === 410 && error?.code === 'LEGACY_OCR_PATH_RETIRED',
-  );
+  // OC-4C: the compatibility symbol itself is gone — its last importer (the dead server.js handler) and
+  // its last product caller (the native garage odometer scan) were both migrated. Nothing can call it.
+  assert.equal('runOcrParsing' in aiServiceBus, false);
 
   const source = read('../services/ai/aiServiceBus.js');
   assert.doesNotMatch(source, /base64Data\.slice\(0,\s*100\)/);
   assert.doesNotMatch(source, /Image Payload Base64/);
-  assert.match(source, /LEGACY_OCR_PATH_RETIRED/);
+  assert.doesNotMatch(source, /export async function runOcrParsing/);
 });
 
 test('problem 2: client-authored Diaspora extraction is refused before any database read', async () => {

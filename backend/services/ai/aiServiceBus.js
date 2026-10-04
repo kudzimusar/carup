@@ -174,26 +174,10 @@ export async function runFraudAnalysis(vin, price, listingTitle, deps = {}) {
   return answer;
 }
 
-/**
- * RETIRED OCR COMPATIBILITY SYMBOL.
- *
- * The historical implementation behind this export sent only a truncated Base64 prefix to a
- * text-only Gemini request and substituted confidence. Keeping that implementation anywhere in
- * the runtime means a future route-order or import regression can silently re-open a second OCR
- * truth path. The symbol remains exported only so older imports fail closed with an explicit 410
- * instead of crashing the process at module load.
- *
- * All document OCR must go through DocumentIntelligenceService and its governed provider boundary.
- */
-export async function runOcrParsing() {
-  const error = new Error(
-    'The legacy generic OCR parser is retired. Use the governed identity, dealer, diaspora run-ocr, or vehicle-evidence OCR workflow.'
-  );
-  error.name = 'LegacyOcrPathRetiredError';
-  error.statusCode = 410;
-  error.code = 'LEGACY_OCR_PATH_RETIRED';
-  throw error;
-}
+// OC-4C: the retired `runOcrParsing` compatibility symbol is GONE. Its last importer was the dead
+// legacy POST /api/ai/ocr handler in server.js (shadowed by the 410 in ocrConvergenceRoutes), and its
+// last product caller — the native garage odometer scan — now uploads vehicle evidence and runs the
+// governed vehicle-evidence OCR workflow. All document OCR goes through DocumentIntelligenceService.
 
 /**
  * Advisory risk index from a generic language model (OC-3B).

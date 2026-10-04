@@ -16,11 +16,18 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 // to a text-only Gemini call and could substitute a confidence. There is no safe compatibility
 // behavior for that contract, so it is retired rather than silently redirected without vehicle or
 // evidence context.
+// OC-4C: the native garage odometer scan was the last product caller; it now uploads vehicle evidence and
+// runs the vehicle-evidence OCR workflow below. The 410 stays for app builds still in the field, and
+// names where they must go.
 router.post('/api/ai/ocr', authorizeRole(), (_req, res) => {
   res.status(410).json({
     success: false,
     code: 'LEGACY_OCR_PATH_RETIRED',
     error: 'The generic OCR endpoint has been retired. Use the governed identity, dealer, diaspora reviewer, or vehicle-evidence OCR workflow for the document you are processing.',
+    replacement: {
+      upload: 'POST /api/vehicles/:vin/evidence/upload',
+      ocr: 'POST /api/vehicles/:vin/evidence/:evidenceId/run-ocr',
+    },
   });
 });
 

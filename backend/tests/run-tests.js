@@ -4,7 +4,8 @@ import { addEvent, verifyChain } from '../services/blockchain/blockchainService.
 import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
 import { createEscrow, updateEscrowStatus } from '../services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from '../services/partsentry/partsentryService.js';
-import { runFraudAnalysis, runOcrParsing, runRiskScoring } from '../services/ai/aiServiceBus.js';
+import * as aiServiceBus from '../services/ai/aiServiceBus.js';
+const { runFraudAnalysis, runRiskScoring } = aiServiceBus;
 
 // Import newly created services
 import { submitFinancingApplication } from '../services/finance/financeService.js';
@@ -196,16 +197,11 @@ async function runTests() {
     // substituted confidence) is RETIRED and fails closed with 410. Genuine document OCR now flows
     // through the governed DocumentIntelligenceService provider boundary (identity/dealer/diaspora
     // run-ocr and the vehicle-evidence run-ocr route). Assert the retirement rather than call it.
-    let legacyOcrRetired = false;
-    try {
-      await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_IMAGE_DATA');
-    } catch (err) {
-      legacyOcrRetired = err?.statusCode === 410 && err?.code === 'LEGACY_OCR_PATH_RETIRED';
+    // OC-4C: the compatibility symbol itself is gone (no importer, no product caller remains).
+    if ('runOcrParsing' in aiServiceBus) {
+      throw new Error('Security Failure: the legacy runOcrParsing symbol must stay retired (OC-4C).');
     }
-    if (!legacyOcrRetired) {
-      throw new Error('Security Failure: the legacy runOcrParsing path must be retired (410 LEGACY_OCR_PATH_RETIRED).');
-    }
-    console.log('  ✅ Verified: legacy generic OCR path is retired (410 LEGACY_OCR_PATH_RETIRED).');
+    console.log('  ✅ Verified: legacy generic OCR parser symbol is retired; the route answers 410.');
 
     const riskScan = await runRiskScoring(vin, 48500, 42000.0);
     console.log('Insurance risk tier factors:', riskScan.factors);

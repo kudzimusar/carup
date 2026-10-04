@@ -418,6 +418,7 @@ test('adversarial: a provider claiming decisions and a failing audit still yield
     vehicle_registered: false,
     vehicle_trusted: false,
     listing_published: false,
+    mileage_recorded: false, // OC-4C: OCR never records a mileage
   });
   assert.equal(
     client.writes.some((w) => ['vehicles', 'vehicle_evidence', 'vehicle_seller_authority'].includes(w.table)),

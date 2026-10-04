@@ -3,11 +3,17 @@ import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl, Scr
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
-import { captureOdometerPhoto, formatFileSize } from '../../utils/camera';
-import { apiUrl } from '../../utils/apiBase';
+import { captureOdometerPhoto } from '../../utils/camera';
+import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { useUploadQueueStore } from '../../store/uploadQueueStore';
 import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
+import {
+  ODOMETER_NATIVE_EVIDENCE_TYPE,
+  odometerOutcomeMessage,
+  requestOdometerReading,
+  type OdometerReadingOutcome,
+} from '../../utils/odometerCapture';
 
 interface Vehicle {
   vin: string;
@@ -46,18 +52,21 @@ function GarageScreenInner() {
   const [activeTab, setActiveTab] = useState<'vehicles' | 'history'>('vehicles');
   const [scanningVin, setScanningVin] = useState<string | null>(null);
 
-  // Restore any durable offline queue on mount, then attempt to drain it (best-effort).
+  // Restore any durable offline queue on mount, then attempt to drain it (best-effort). A queued
+  // odometer capture that uploads now also gets its governed OCR read (OC-4C).
   useEffect(() => {
     let cancelled = false;
     (async () => {
       await hydrateQueue();
       if (cancelled || !user?.id) return;
       try {
-        const { resolveApiBaseUrl } = await import('../../utils/apiBase');
         const base = resolveApiBaseUrl();
         await drainUploadQueue({
           resolvePayload: async (item) => item.localFileRef || null,
           uploadOne: makeHttpUploader(base, token),
+          onUploaded: async (item, evidenceId) => {
+            if (item.evidenceType === ODOMETER_NATIVE_EVIDENCE_TYPE) await requestOdometerReading(base, token, item.vin, evidenceId);
+          },
         });
       } catch { /* offline / unconfigured — items remain queued for the next attempt */ }
     })();
@@ -110,6 +119,10 @@ function GarageScreenInner() {
     }
   };
 
+  // OC-4C: capture → durable queue FIRST → idempotent evidence upload → governed vehicle-evidence OCR
+  // (Document Intelligence → Qwen) → a candidate reading pending review. It used to POST the photo to the
+  // retired /api/ai/ocr (a 410) and then tell the owner the image had been "saved for manual review",
+  // which it had not. The reading never changes the vehicle's mileage; the app never calls a model.
   const handleOdometerScan = useCallback(async (vin: string) => {
     if (scanningVin) return; // Prevent double-tap
 
@@ -125,73 +138,50 @@ function GarageScreenInner() {
         return;
       }
 
-      // Submit captured odometer image to the backend OCR service
-      try {
-        const response = await fetch(apiUrl('/api/ai/ocr'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
-            ...(token ? { 'x-session-token': token } : {}),
-          },
-          body: JSON.stringify({
-            docType: 'odometer_reading',
-            base64Data: asset.dataUri,
-          }),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          const extractedMileage = result.extractedData?.mileage || 'N/A';
-
-          Alert.alert(
-            'Odometer Scan Complete',
-            `VIN: ${vin}\nExtracted Mileage: ${extractedMileage}\nImage Size: ${formatFileSize(asset.fileSizeBytes)}`,
-            [
-              {
-                text: 'View Trust Passport',
-                onPress: () => router.push(`/vehicle/${vin}`),
-              },
-              { text: 'Done', style: 'cancel' },
-            ]
-          );
-        } else {
-          // Backend error — show manual entry fallback
-          Alert.alert(
-            'OCR Processing Error',
-            'The odometer reading could not be extracted automatically. The image has been saved for manual review.',
-            [{ text: 'OK' }]
-          );
-        }
-      } catch (networkErr) {
-        // Network failure — persist the capture to the durable offline queue so it survives
-        // app restart and is uploaded once (server-side idempotent) when connectivity returns.
-        let queuedNote = '';
-        if (user?.id) {
-          const checksum = `${asset.fileSizeBytes}:${(asset.dataUri || '').slice(-32)}`;
-          enqueueUpload({
-            userId: user.id,
-            tenantId: (user as { tenantId?: string }).tenantId || 'default',
-            vin,
-            evidenceType: 'odometer_reading',
-            localFileRef: asset.dataUri,
-            checksum,
-          });
-          queuedNote = ' It is saved to your device and will upload once, automatically, when you are back online.';
-        }
-        Alert.alert(
-          'Offline Mode',
-          `Odometer image captured (${formatFileSize(asset.fileSizeBytes)}) and queued for upload.${queuedNote}`,
-          [{ text: 'OK' }]
-        );
+      if (!user?.id) {
+        Alert.alert('Sign in required', 'Sign in to save an odometer photo to your vehicle.', [{ text: 'OK' }]);
+        return;
       }
+
+      // Capture-first: the photo is queued durably BEFORE any network call, so it survives a failed
+      // request, an app restart or no signal at all. The queue dedupes the same capture.
+      const queued = enqueueUpload({
+        userId: user.id,
+        tenantId: (user as { tenantId?: string }).tenantId || 'default',
+        vin,
+        evidenceType: ODOMETER_NATIVE_EVIDENCE_TYPE,
+        localFileRef: asset.dataUri,
+        checksum: `${asset.fileSizeBytes}:${(asset.dataUri || '').slice(-32)}`,
+      });
+
+      let outcome: OdometerReadingOutcome = { kind: 'queued' };
+      try {
+        const base = resolveApiBaseUrl();
+        await drainUploadQueue({
+          resolvePayload: async (item) => item.localFileRef || null,
+          uploadOne: makeHttpUploader(base, token),
+          onUploaded: async (item, evidenceId) => {
+            if (item.evidenceType !== ODOMETER_NATIVE_EVIDENCE_TYPE) return;
+            const read = await requestOdometerReading(base, token, item.vin, evidenceId);
+            if (item.localId === queued.localId) outcome = read;
+          },
+        });
+      } catch {
+        // Offline or unconfigured: the capture stays queued and uploads on the next drain.
+      }
+
+      const message = odometerOutcomeMessage(outcome);
+      Alert.alert(message.title, `VIN: ${vin}\n${message.body}`, [
+        { text: 'View Trust Passport', onPress: () => router.push(`/vehicle/${vin}`) },
+        { text: 'Done', style: 'cancel' },
+      ]);
     } catch (err) {
       console.error('[Garage] Odometer scan error:', err);
       Alert.alert('Camera Error', 'Could not launch camera. Please try again.', [{ text: 'OK' }]);
     } finally {
       setScanningVin(null);
     }
-  }, [scanningVin, token, router]);
+  }, [scanningVin, token, router, user, enqueueUpload]);
 
   const handleKycScan = () => {
     // Navigate to introductory KYC flow

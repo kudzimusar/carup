@@ -129,6 +129,38 @@ export function normalizeAmount(value) {
   return { value: Number(cleaned) };
 }
 
+/**
+ * An odometer TOTAL is a whole number of distance units (OC-4C). Thousands separators are accepted
+ * only in their grouping form (84 213 / 84,213); a decimal (a trip meter, a misread) is not an odometer
+ * total and is reported as unnormalized rather than rounded into one.
+ */
+const ODOMETER_CEILING = 2_000_000;
+export function normalizeOdometerReading(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 0 && value <= ODOMETER_CEILING
+      ? { value } : { value: undefined, unnormalized: String(value), reason: 'not_an_odometer_total' };
+  }
+  const text = normalizeText(value);
+  if (!text) return { value: undefined };
+  const compact = text.replace(/\s*(km|kms|mi|miles?)$/i, '');
+  if (!/^\d{1,3}([ ,]\d{3})*$|^\d{1,7}$/.test(compact)) {
+    return { value: undefined, unnormalized: text, reason: 'not_an_odometer_total' };
+  }
+  const reading = Number(compact.replace(/[ ,]/g, ''));
+  if (!Number.isInteger(reading) || reading > ODOMETER_CEILING) {
+    return { value: undefined, unnormalized: text, reason: 'odometer_out_of_range' };
+  }
+  return { value: reading };
+}
+
+const ODOMETER_UNITS = { km: 'km', kms: 'km', kilometres: 'km', kilometers: 'km', mi: 'mi', mile: 'mi', miles: 'mi' };
+export function normalizeOdometerUnit(value) {
+  const text = normalizeText(value);
+  if (!text) return { value: undefined };
+  const unit = ODOMETER_UNITS[text.toLowerCase()];
+  return unit ? { value: unit } : { value: undefined, unnormalized: text, reason: 'unrecognized_unit' };
+}
+
 function text(target) { return { target, normalize: (v) => ({ value: normalizeText(v) }) }; }
 function date(target) { return { target, normalize: normalizeDate }; }
 
@@ -194,6 +226,12 @@ const CUSTOMS_DECLARATION_FIELDS = {
   importer_name: text('additional'),
   stamp_date: date('additional'),
   entry_point: text('additional'),
+};
+
+// OC-4C: the odometer TOTAL shown on an instrument cluster, and its unit only if displayed.
+const ODOMETER_FIELDS = {
+  odometer_reading: { target: 'additional', normalize: normalizeOdometerReading },
+  odometer_unit: { target: 'additional', normalize: normalizeOdometerUnit },
 };
 
 const BUSINESS_DOCUMENT_FIELDS = {
@@ -319,6 +357,22 @@ export const DOCUMENT_SCHEMAS = {
     coreFields: ['vin', 'bill_entry_number'],
     structured: CUSTOMS_DECLARATION_STRUCTURED,
   },
+  // OC-4C: a photograph of an instrument cluster is not a document, but reading the odometer off it is
+  // the same governed act — Document Intelligence observes, a candidate is recorded, a human decides.
+  // Before this schema an `odometer_reading` request silently resolved to the BUSINESS document schema.
+  odometer_reading: {
+    documentClass: 'odometer_display',
+    label: 'photograph of a vehicle instrument cluster showing the odometer',
+    guidance: [
+      'Read ONLY the odometer total (ODO / total distance). Never report the trip meter (TRIP A/B), the speedometer, the clock, the outside temperature or the range.',
+      'Report the digits exactly as displayed, as one whole number without separators. If a decimal digit is shown it belongs to a trip meter, not the odometer.',
+      'Report odometer_unit only when km or mi is displayed beside the reading.',
+      'If the odometer is not visible, not legible, or more than one reading is plausible, omit odometer_reading.',
+    ],
+    fields: ODOMETER_FIELDS,
+    coreFields: ['odometer_reading'],
+    structured: null,
+  },
 };
 
 const BUSINESS_SCHEMA = {
@@ -346,6 +400,8 @@ const ALIASES = {
   vehicle_registration: 'registration_book',
   customs: 'customs_declaration',
   bill_of_entry: 'customs_declaration',
+  odometer: 'odometer_reading',
+  odometer_photo: 'odometer_reading',
 };
 
 /**
@@ -416,6 +472,8 @@ const PRINTED_LABELS = {
   bill_entry_number: 'Bill of entry number',
   duty_value_zig: 'Assessed duty (amount only, without the currency)',
   licence_classes: 'Classes',
+  odometer_reading: 'ODO / total distance (not TRIP)',
+  odometer_unit: 'km or mi, only if displayed',
 };
 
 export function printedLabelsFor(field) {

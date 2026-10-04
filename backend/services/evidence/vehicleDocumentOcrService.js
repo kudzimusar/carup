@@ -27,6 +27,7 @@ const VEHICLE_OCR_ROLES = new Set(['owner', 'dealer', 'admin', 'platform_admin',
 
 const DOCUMENT_CONTRACTS = Object.freeze({
   'registration:registration_book': Object.freeze({
+    kind: 'document',
     documentType: 'registration_book',
     fields: Object.freeze([
       ['vin', 'vin'],
@@ -43,6 +44,7 @@ const DOCUMENT_CONTRACTS = Object.freeze({
     ]),
   }),
   'import:customs_entry': Object.freeze({
+    kind: 'document',
     documentType: 'customs_declaration',
     fields: Object.freeze([
       ['vin', 'vin'],
@@ -57,6 +59,23 @@ const DOCUMENT_CONTRACTS = Object.freeze({
   }),
 });
 
+// OC-4C: mileage-bearing PHOTOS (an instrument cluster). Read through the SAME Document Intelligence
+// boundary (Qwen), as a candidate only — the reading is never compared to, nor written into,
+// vehicles.mileage here. A recorded mileage is a lifecycle consequence that only a domain authority
+// (a reviewed service record, a governed decision) may produce.
+const ODOMETER_CONTRACT = Object.freeze({
+  kind: 'odometer',
+  documentType: 'odometer_reading',
+  fields: Object.freeze([
+    ['odometer_reading', null],
+    ['odometer_unit', null],
+  ]),
+});
+const MILEAGE_PHOTO_CONTRACTS = Object.freeze({
+  'current_condition:odometer': ODOMETER_CONTRACT,
+  'inspection:odometer_reading': ODOMETER_CONTRACT,
+});
+
 function actorId(actor = {}) {
   return actor.id || actor.userId || null;
 }
@@ -68,7 +87,8 @@ function normalizeVin(vin) {
 export function resolveVehicleOcrDocumentContract(evidence = {}) {
   const semantic = resolveSemanticClassification(evidence);
   if (semantic.semantic_source !== 'canonical') return null;
-  return DOCUMENT_CONTRACTS[`${semantic.evidence_class}:${semantic.evidence_subtype}`] || null;
+  const key = `${semantic.evidence_class}:${semantic.evidence_subtype}`;
+  return DOCUMENT_CONTRACTS[key] || MILEAGE_PHOTO_CONTRACTS[key] || null;
 }
 
 function observedValue(extracted = {}, field) {
@@ -170,8 +190,12 @@ async function loadEvidenceForOcr(client, vin, evidenceId) {
     .maybeSingle();
   if (error) throw new Error(`Vehicle evidence read failed: ${error.message}`);
   if (!evidence) throw new NotFoundError('Vehicle evidence item not found.');
-  if (!isDocumentArtifactRow(evidence)) {
-    throw new ValidationError('Only a canonical vehicle document artifact can be sent to OCR.');
+  // A canonical document artifact, or (OC-4C) a canonical mileage-bearing odometer photo. Either way
+  // it must live in the PRIVATE bucket: an instrument-cluster photo is private evidence until a
+  // governed publication decision says otherwise.
+  const isOdometerPhoto = resolveVehicleOcrDocumentContract(evidence)?.kind === 'odometer';
+  if (!isOdometerPhoto && !isDocumentArtifactRow(evidence)) {
+    throw new ValidationError('Only a canonical vehicle document artifact or odometer photo can be sent to OCR.');
   }
   if (evidence.storage_bucket !== 'ocr-documents') {
     throw new ValidationError('Vehicle OCR requires an artifact stored in the private document bucket.');
@@ -208,7 +232,7 @@ export async function runVehicleEvidenceOcr(
     const semantic = resolveSemanticClassification(evidence);
     throw new ValidationError(
       `OCR is not enabled for vehicle document ${semantic.evidence_class || 'unclassified'}/${semantic.evidence_subtype || 'unclassified'}. `
-      + 'Supported canonical vehicle documents are registration/registration_book and import/customs_entry.',
+      + 'Supported: registration/registration_book and import/customs_entry documents, and current_condition/odometer or inspection/odometer_reading photos.',
     );
   }
 
@@ -262,11 +286,25 @@ export async function runVehicleEvidenceOcr(
     console.warn('[vehicle-document-ocr] audit write failed:', error?.message || error);
   }
 
+  // OC-4C: an odometer read returns its CANDIDATE to the caller — the uploader's own capture — labelled
+  // for what it is. It is review-pending evidence, not the vehicle's mileage.
+  let reading;
+  if (contract.kind === 'odometer') {
+    const extracted = ocrResult.extractedData || {};
+    const value = observedValue(extracted, 'odometer_reading');
+    reading = {
+      odometer_reading: value ?? null,
+      odometer_unit: observedValue(extracted, 'odometer_unit') ?? null,
+      status: ocrResult.success && value !== undefined ? 'candidate_pending_review' : 'not_read',
+    };
+  }
+
   return {
     success: Boolean(ocrResult.success),
     vin,
     evidence_id: evidence.id,
     document_type: contract.documentType,
+    ...(reading ? { reading } : {}),
     provider: ocrResult.provider || null,
     model: ocrResult.model || null,
     execution_status: ocrResult.executionStatus || null,
@@ -283,6 +321,7 @@ export async function runVehicleEvidenceOcr(
       vehicle_registered: false,
       vehicle_trusted: false,
       listing_published: false,
+      mileage_recorded: false,
     },
   };
 }

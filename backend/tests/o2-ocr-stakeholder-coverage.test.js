@@ -387,29 +387,17 @@ test('stakeholder: the legacy /api/ai/ocr bypass is CLOSED — the pin is flippe
   const server = read('../server.js');
   const convergence = read('../routes/ocrConvergenceRoutes.js');
 
-  const fn = bus.slice(bus.indexOf('export async function runOcrParsing'));
-  const body = fn.slice(0, fn.indexOf('\nexport '));
-
-  // Each of the four original fabrications is physically absent.
-  assert.doesNotMatch(body, /askGemini\(/, 'the text client must not be reachable from an OCR path');
-  assert.doesNotMatch(body, /base64Data\.slice\(0,\s*100\)/, 'the truncated-image read must stay gone');
-  assert.doesNotMatch(body, /confidenceScore \|\| 0\.5/, 'the invented 0.5 confidence default must stay gone');
-  assert.doesNotMatch(body, /from\('ocr_documents'\)/, 'the retired parser may no longer write evidence rows');
-  assert.match(body, /LEGACY_OCR_PATH_RETIRED/, 'the symbol must fail closed if a future caller imports it');
-
-  // Executing it is a 410, not a degraded extraction.
+  // OC-4C: the parser symbol and the historical handler are physically gone — the four original
+  // fabrications (text client, truncated-image read, invented 0.5 confidence, evidence-row write)
+  // have nowhere left to live.
+  assert.doesNotMatch(bus, /export async function runOcrParsing/, 'the retired parser symbol must stay gone');
+  assert.doesNotMatch(bus, /base64Data\.slice\(0,\s*100\)/, 'the truncated-image read must stay gone');
+  assert.doesNotMatch(bus, /confidenceScore \|\| 0\.5/, 'the invented 0.5 confidence default must stay gone');
   const { runOcrParsing } = await import('../services/ai/aiServiceBus.js');
-  await assert.rejects(
-    runOcrParsing('national_id', 'data:image/png;base64,AAAA', 'user-1'),
-    (error) => error?.statusCode === 410 && error?.code === 'LEGACY_OCR_PATH_RETIRED',
-  );
+  assert.equal(runOcrParsing, undefined, 'nothing can import it');
 
-  // The historical handler still exists in server.js, so the retirement depends on the convergence
-  // router being mounted ahead of it. Prove the ordering rather than assuming it.
-  assert.match(server, /app\.post\('\/api\/ai\/ocr'/, 'the historical handler is still present in server.js');
+  // The ONLY answer on the route is the governed 410 — no handler remains behind it in server.js.
+  assert.equal(server.indexOf("app.post('/api/ai/ocr'"), -1, 'the historical handler must stay removed from server.js');
   assert.match(convergence, /router\.post\('\/api\/ai\/ocr'/);
-  assert.ok(
-    server.indexOf('app.use(identityVerificationRouter)') < server.indexOf("app.post('/api/ai/ocr'"),
-    'the 410 must be registered before the historical handler or the bypass returns',
-  );
+  assert.match(convergence, /LEGACY_OCR_PATH_RETIRED/);
 });

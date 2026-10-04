@@ -34,7 +34,7 @@ General AI       domain adapter → carUpAiGateway → Gemma provider ─┘
 | Communications Gemini provider | — | **Retired (OC-4B).** Communications 2.0 shipped with "Gemini = NOT REQUIRED", and it had no remaining role. `COMMUNICATION_AI_PROVIDER=gemini` is refused with a reason. |
 | Gemini OCR provider | `ocrVisionProvider` → `GeminiClient.askGeminiVision` | **Remaining direct, not default.** Selectable only by `CARUP_OCR_PROVIDER=gemini`. |
 | Legacy client | `GeminiClient.js` | **Vision only (OC-4B).** The text path (`askGemini`, `askGeminiWithProvenance`) and its scripted reply are retired; the sole consumer is the non-default Gemini OCR provider. Vision failures are typed (`AiProviderError`). |
-| Generic OCR parser | `aiServiceBus.runOcrParsing` / `/api/ai/ocr` | **Retired** (410). |
+| Generic OCR parser | `/api/ai/ocr` | **Retired** (410 with the replacement routes). The `runOcrParsing` symbol and the dead `server.js` handler are removed (OC-4C). |
 
 ### Remaining direct model-vendor modules
 
@@ -75,7 +75,7 @@ Guests get deterministic, non-provider content until a guest-AI commercial polic
 | `POST /api/admin/marketplace/ai/moderation-summary` | `MarketplaceModeration` (admin) | Admin/government session. | **Authenticated provider call.** Advisory; a human decides. |
 | `POST /api/ai/fraud-scan` | None (hook `runFraudScan` only). | Any authenticated user. | **Authenticated provider call.** Input bounded (`vin` ≤ 64, `listingTitle` ≤ 300, numeric `price`), otherwise 400 `AI_INPUT_REJECTED` before inference. |
 | `POST /api/ai/risk-assessment` | None (hook `runRiskAssessment` only). | Any authenticated user. | **Authenticated provider call.** Input bounded (`vin`, numeric `mileage` and `basePrice`). |
-| `POST /api/ai/ocr` | Mobile `garage.tsx` still calls it. | Retired. | **Historical/dead (410).** The mobile caller is recorded as debt. |
+| `POST /api/ai/ocr` | None since OC-4C: the mobile garage odometer scan now uploads vehicle evidence and runs the governed vehicle-evidence OCR (`docs/one-carup/OC4C_NATIVE_GARAGE_OCR.md`). | Retired. | **410, kept for app builds in the field; it names the replacement routes.** The dead `server.js` handler and the `runOcrParsing` symbol are removed. |
 
 Supporting rules:
 

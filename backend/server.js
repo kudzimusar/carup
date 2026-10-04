@@ -32,7 +32,7 @@ import { verifyChain, addEvent } from './services/blockchain/blockchainService.j
 import { toLedgerIntegrityReport } from './services/blockchain/ledgerIntegrityProjection.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
-import { runFraudAnalysis, runOcrParsing, runRiskScoring, aiProviderUnavailableResponse, AiAdvisoryError } from './services/ai/aiServiceBus.js';
+import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvisoryError } from './services/ai/aiServiceBus.js';
 
 // Import Group B & C Services
 import { submitFinancingApplication } from './services/finance/financeService.js';
@@ -2002,15 +2002,10 @@ app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
 });
 
 // --- PILLAR 5: OCR DOCUMENT EXTRACTION ---
-app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
-  const { docType, base64Data } = req.body;
-  try {
-    const parsedData = await runOcrParsing(docType, base64Data);
-    res.json({ success: true, extractedData: parsedData });
-  } catch (error) {
-    next(error);
-  }
-});
+// OC-4C: the legacy POST /api/ai/ocr handler that lived here is REMOVED. It was unreachable (the 410 in
+// routes/ocrConvergenceRoutes.js is mounted first) and its last product caller, the native garage
+// odometer scan, now uses POST /api/vehicles/:vin/evidence/upload + .../evidence/:evidenceId/run-ocr.
+// The 410 stays for app builds still in the field.
 
 // --- PILLAR 4: AI FRAUD & RISK SCANNERS ---
 //

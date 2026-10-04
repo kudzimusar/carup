@@ -95,7 +95,7 @@ test('convergence: legacy generic OCR is retired at both route and service bound
   assert.match(CONVERGENCE_ROUTER, /router\.post\('\/api\/ai\/ocr'/);
   assert.match(CONVERGENCE_ROUTER, /LEGACY_OCR_PATH_RETIRED/);
   assert.match(CONVERGENCE_ROUTER, /res\.status\(410\)/);
-  assert.match(LEGACY_AI, /LEGACY_OCR_PATH_RETIRED/, 'the compatibility symbol must fail closed if imported directly');
+  assert.doesNotMatch(LEGACY_AI, /export async function runOcrParsing/, 'OC-4C: the compatibility symbol is gone, not merely failing closed');
   assert.doesNotMatch(LEGACY_AI, /base64Data\.slice\(0,\s*100\)/, 'the hazardous truncated-base64 parser must be physically gone');
   assert.doesNotMatch(LEGACY_AI, /Image Payload Base64/, 'the old text-prompt OCR payload must not return');
   assert.match(IDENTITY_ROUTER, /ocrConvergenceRouter/);
@@ -103,10 +103,8 @@ test('convergence: legacy generic OCR is retired at both route and service bound
     SERVER.indexOf('app.use(identityVerificationRouter)') < SERVER.indexOf("app.use('/api/diaspora', diasporaRouter)"),
     'convergence router must be mounted before Diaspora routes',
   );
-  assert.ok(
-    SERVER.indexOf('app.use(identityVerificationRouter)') < SERVER.indexOf("app.post('/api/ai/ocr'"),
-    'convergence router must be mounted before the historical generic OCR handler',
-  );
+  // OC-4C: the historical generic OCR handler is removed from server.js; the 410 is the only answer.
+  assert.equal(SERVER.indexOf("app.post('/api/ai/ocr'"), -1, 'the historical generic OCR handler must stay removed');
 });
 
 test('convergence: client-authored Diaspora OCR evidence is shadow-retired, genuine run-ocr remains distinct', () => {
@@ -209,6 +207,7 @@ test('convergence: owner registration-book OCR sends real stored bytes and persi
     vehicle_registered: false,
     vehicle_trusted: false,
     listing_published: false,
+    mileage_recorded: false, // OC-4C: OCR never records a mileage
   });
   assert.equal(client.writes.some((w) => ['vehicles', 'vehicle_evidence'].includes(w.table)), false,
     'OCR may not mutate vehicle truth or evidence verification status');

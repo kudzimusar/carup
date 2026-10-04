@@ -10,18 +10,36 @@
  * module stays testable without React Native (in tests we pass an in-memory resolver).
  */
 import { useUploadQueueStore, type UploadQueueItem } from '../store/uploadQueueStore';
+import { ODOMETER_NATIVE_EVIDENCE_TYPE, ODOMETER_UPLOAD_CONTRACT } from './odometerCapture';
+
+/**
+ * Native capture types → canonical evidence semantics (OC-4C). A queued type that is not listed is
+ * refused rather than guessed. The uploader used to send `evidence_type: 'odometer_reading'` (not an
+ * evidence type the server accepts) and the bytes as `base64Data` (a field the server never reads), so
+ * every queued capture failed and retried for ever.
+ */
+export const NATIVE_EVIDENCE_CONTRACTS: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
+  [ODOMETER_NATIVE_EVIDENCE_TYPE]: ODOMETER_UPLOAD_CONTRACT,
+});
 
 export interface DrainDeps {
   /** Resolve a queued item's stored payload (e.g. a base64 data URI) for upload. */
   resolvePayload: (item: UploadQueueItem) => Promise<string | null>;
   /** POST one item; returns the created/looked-up backend evidence id, or throws. */
   uploadOne: (item: UploadQueueItem, payload: string) => Promise<string>;
+  /**
+   * Optional follow-up once an item is stored server-side (e.g. request the governed OCR read). Its
+   * failure never un-uploads the item: the evidence exists, and stays reviewable by hand.
+   */
+  onUploaded?: (item: UploadQueueItem, evidenceId: string) => Promise<void>;
   now?: () => number;
 }
 
 /** Build an uploader bound to a base URL + auth token, sending the idempotency header. */
 export function makeHttpUploader(baseUrl: string, token: string | null) {
   return async (item: UploadQueueItem, payload: string): Promise<string> => {
+    const contract = NATIVE_EVIDENCE_CONTRACTS[item.evidenceType];
+    if (!contract) throw new Error(`unsupported_native_evidence_type:${item.evidenceType}`);
     const res = await fetch(`${baseUrl}/api/vehicles/${encodeURIComponent(item.vin)}/evidence/upload`, {
       method: 'POST',
       headers: {
@@ -31,9 +49,9 @@ export function makeHttpUploader(baseUrl: string, token: string | null) {
         ...(token ? { 'x-session-token': token } : {}),
       },
       body: JSON.stringify({
-        evidence_type: item.evidenceType,
-        evidenceType: item.evidenceType,
-        base64Data: payload,
+        ...contract,
+        // The server reads the captured bytes (a data URI) from `file`.
+        file: payload,
         idempotency_key: item.idempotencyKey,
         page_order: item.pageOrder ?? 0,
       }),
@@ -60,6 +78,9 @@ export async function drainUploadQueue(deps: DrainDeps): Promise<{ uploaded: num
       const evidenceId = await deps.uploadOne(item, payload);
       store.markUploaded(item.localId, evidenceId);
       uploaded++;
+      if (deps.onUploaded) {
+        try { await deps.onUploaded(item, evidenceId); } catch { /* the evidence is stored; the follow-up is best effort */ }
+      }
     } catch (err: any) {
       store.markFailed(item.localId, err?.message || 'upload_error');
       failed++;
