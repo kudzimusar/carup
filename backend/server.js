@@ -157,6 +157,7 @@ import {
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { resolveDealerListingSubject, hasGovernedDealerVehicleAuthority } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
@@ -2856,7 +2857,15 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
   };
 
   // Real-listing eligibility is evaluated against the canonicalized candidate actually stored.
-  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext });
+  // J-3 / K-3 (OC-4D port of #208) — the dealer listing subject is a GOVERNED lookup, not a header.
+  // `x-tenant-id` proves membership only; a dealership is dealer role + a membership that acts for
+  // the business + an active tenant whose canonical type is a dealership (+ no suspended profile).
+  const dealerListingSubject = await resolveDealerListingSubject(supabase, {
+    role: req.userContext?.role ?? req.userContext?.effectiveRole,
+    userId: req.userContext?.id ?? req.userContext?.userId,
+    tenantId: req.userContext?.tenantId ?? null,
+  });
+  const candidate = buildVehicleListingCandidate({ body: canonicalBody, userContext: req.userContext, dealerListingSubject });
   const eligibility = getListingEligibility(candidate);
   if (!eligibility.eligible) {
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
@@ -3143,12 +3152,18 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     // The denial also strips the derived relationship clauses: a stale `current_seller_id` or a
     // previous tenant that outlived the transfer must not authorize either (fail closed on stale
     // secondary state, which is exactly what a failed supersession leaves behind).
-    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied && (
+    // L-2 — the tenant clause is a GOVERNED dealership question, not raw membership. Evaluated
+    // only when the direct clauses have not already answered, so the seller's own path is unchanged.
+    const existingDirectSeller = Boolean(existing && (
       existing.owner_id === req.userContext.id
       || (existing.current_seller_id && existing.current_seller_id === req.userContext.id)
-      || (existing.tenant_id && req.userContext.tenantId && existing.tenant_id === req.userContext.tenantId)
       || governedSellerEvidence
     ));
+    const existingDealerTenant = Boolean(existing) && !existingDirectSeller
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing)
+      : false;
+    const existingSellerRelationship = Boolean(existing && !effectiveDenial.denied
+      && (existingDirectSeller || existingDealerTenant));
 
     // Identity completion is evaluated only AFTER governed Seller scope is established. This
     // prevents an unrelated authenticated account from probing which canonical identity fields
@@ -3534,11 +3549,10 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
     const isAdmin = req.userContext.role === 'admin';
     const isActorSeller = existing.owner_id === req.userContext.id
       || existing.current_seller_id === req.userContext.id;
-    const isActorTenant = Boolean(
-      existing.tenant_id
-      && req.userContext.tenantId
-      && existing.tenant_id === req.userContext.tenantId
-    );
+    // L-2 — a seller draft is a SELLER mutation; belonging to the organisation is not enough.
+    const isActorTenant = isActorSeller
+      ? false
+      : await hasGovernedDealerVehicleAuthority(supabase, req.userContext, existing);
     if (!isAdmin && !isActorSeller && !isActorTenant) {
       return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
     }
@@ -3746,7 +3760,12 @@ app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'ad
       if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
       const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      // M4 — this read exposes identity-document and readiness state and mirrors loadScopedVehicle,
+      // so raw membership must not grant it. A Service Network mechanic's service authority is
+      // deliberately NOT routed here — servicing a car is not Seller scope over its completeness.
+      const sameTenant = (!ownsVehicle && !isCurrentSeller)
+        ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow)
+        : false;
       if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         return res.status(403).json({ error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.' });
       }

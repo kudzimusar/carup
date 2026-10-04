@@ -195,7 +195,12 @@ const baseEvidence = Object.freeze({
   uploaded_by: 'owner-1',
 });
 
-function makeClient({ vehicle = baseVehicle, evidence = null, authority = null, transfers = [] } = {}) {
+/**
+ * OC-4D — `organisation` models the three server-controlled tables the canonical Dealer decision
+ * reads (tenants / tenant_users / dealer_profiles). Absent, every tenant lookup answers "nothing",
+ * which is the fail-closed direction.
+ */
+function makeClient({ vehicle = baseVehicle, evidence = null, authority = null, transfers = [], organisation = null } = {}) {
   const writes = [];
   const from = (table) => {
     const filters = {};
@@ -218,6 +223,9 @@ function makeClient({ vehicle = baseVehicle, evidence = null, authority = null, 
       }
       if (table === 'vehicle_ownership_transfers') return { data: transfers, error: null };
       if (table === 'vehicle_seller_authority') return { data: authority, error: null };
+      if (table === 'tenants') return { data: organisation?.tenants?.[filters.id] ?? null, error: null };
+      if (table === 'tenant_users') return { data: organisation?.memberships?.[`${filters.tenant_id}|${filters.user_id}`] ?? null, error: null };
+      if (table === 'dealer_profiles') return { data: null, error: null };
       return { data: null, error: null };
     };
     return chain;
@@ -297,9 +305,15 @@ test('adversarial: a legacy compatibility label alone cannot select an OCR schem
 
 test('adversarial: the governed dealer branch is live — matching tenant proceeds, foreign tenant is refused', async () => {
   const dealerVehicle = { ...baseVehicle, owner_id: 'someone-else', current_seller_id: null, tenant_id: 'tenant-1' };
+  // OC-4D — "governed" now means the canonical Dealer decision: an active dealership-typed tenant
+  // and a membership that acts for the business (#208 K-3/L-2), not platform role + raw equality.
+  const organisation = {
+    tenants: { 'tenant-1': { id: 'tenant-1', type: 'dealership', status: 'active' } },
+    memberships: { 'tenant-1|dealer-user': { role: 'admin' }, 'tenant-1|dealer-mechanic': { role: 'mechanic' } },
+  };
 
   // Positive: without this the dealer branch could be dead code and every negative test would still pass.
-  const okClient = makeClient({ vehicle: dealerVehicle, evidence: baseEvidence });
+  const okClient = makeClient({ vehicle: dealerVehicle, evidence: baseEvidence, organisation });
   const ok = tripwires();
   const result = await runVehicleEvidenceOcr(
     okClient,
@@ -312,8 +326,18 @@ test('adversarial: the governed dealer branch is live — matching tenant procee
   assert.equal(result.vin, VIN);
   assert.equal(Object.values(result.authority_effects).every((v) => v === false), true);
 
+  // Negative (OC-4D): a platform dealer who is only a MECHANIC in this vehicle's dealership. The
+  // raw `vehicle.tenant_id === actor.tenantId` this branch used to be satisfied this actor.
+  const mechanicClient = makeClient({ vehicle: dealerVehicle, evidence: baseEvidence, organisation });
+  const mechanic = tripwires();
+  await assert.rejects(
+    runVehicleEvidenceOcr(mechanicClient, { id: 'dealer-mechanic', role: 'dealer', tenantId: 'tenant-1' }, VIN, baseEvidence.id, mechanic.options),
+    /governed dealer scope/,
+  );
+  assert.equal(mechanic.touched.storage + mechanic.touched.ocr, 0, 'employment is not agency: no private bytes, no provider call');
+
   // Negative: a dealer whose verified tenant is not this vehicle's tenant.
-  const foreignClient = makeClient({ vehicle: dealerVehicle, evidence: baseEvidence });
+  const foreignClient = makeClient({ vehicle: dealerVehicle, evidence: baseEvidence, organisation });
   const foreign = tripwires();
   await assert.rejects(
     runVehicleEvidenceOcr(foreignClient, { id: 'dealer-user', role: 'dealer', tenantId: 'tenant-2' }, VIN, baseEvidence.id, foreign.options),

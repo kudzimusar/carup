@@ -57,6 +57,7 @@ import {
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -130,7 +131,11 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    // L-2 (OC-4D port of #208) — raw tenant equality is NOT selling authority. Consulted only after
+    // owner and current-seller have failed, so the seller's own hot path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
@@ -198,7 +203,11 @@ async function loadScopedVehicle(req, vin) {
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    // L-2 (OC-4D port of #208) — raw tenant equality is NOT selling authority. Consulted only after
+    // owner and current-seller have failed, so the seller's own hot path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
@@ -463,10 +472,16 @@ router.get('/api/vehicles/:vin/seller-authority', authorizeRole(), asyncHandler(
   }
 
   try {
+    // L-2 — whether the actor's TENANT counts as their seller relationship is a governed
+    // dealership question, resolved here and passed down rather than re-derived from raw equality.
+    const dealerTenantAuthorized = sellerUserId === req.userContext.id
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, { tenant_id: req.userContext.tenantId })
+      : false;
     const state = await getSellerAuthorityState(supabase, {
       vin,
       sellerUserId,
       sellerTenantId: sellerUserId === req.userContext.id ? (req.userContext.tenantId || null) : null,
+      dealerTenantAuthorized,
     });
     return res.json({
       success: true,
@@ -567,13 +582,17 @@ async function loadVehicleForEvidence(vin) {
   return vehicle;
 }
 
-function assertEvidenceOwnershipScope(vehicle, userContext) {
+async function assertEvidenceOwnershipScope(vehicle, userContext) {
   const activeRole = userContext.role;
   if (activeRole === 'admin' || activeRole === 'government') return;
 
   const isOwner = vehicle.owner_id === userContext.id;
   const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === userContext.id;
-  const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === userContext.tenantId;
+  // L-2 — evidence ownership scope is a SELLER-owner question, so tenant membership alone does not
+  // answer it. The canonical uploader-role policy still applies on top: this composes with it.
+  const isDealerTenant = (!isOwner && !isCurrentSeller)
+    ? await hasGovernedDealerVehicleAuthority(supabase, userContext, vehicle)
+    : false;
   if (!isOwner && !isCurrentSeller && !isDealerTenant) {
     throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
   }
@@ -609,7 +628,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   }
 
   try {
-    assertEvidenceOwnershipScope(vehicle, req.userContext);
+    await assertEvidenceOwnershipScope(vehicle, req.userContext);
   } catch (scopeError) {
     // A claimant may contribute ONLY documents that can prove seller authority:
     // ownership/registration documents or the permanent-import purchase chain
@@ -974,7 +993,10 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     (activeUserId && activeUserId === vehicle.owner_id) ||
     // `Boolean(vehicle.tenant_id && ...)` so a NULL-tenant vehicle cannot be unlocked by a caller
     // who also has no tenant: `null === null` would otherwise authorize everyone.
-    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id));
+    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id)
+      // L-2 — a membership in the vehicle's organisation is not seller authority over its PRIVATE
+      // evidence; only a governed dealership relationship is.
+      && await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle));
 
   let query = supabase
     .from('vehicle_evidence')
@@ -1426,7 +1448,11 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event', authorizeRole
   if (activeRole !== 'admin' && activeRole !== 'government') {
     const isOwner = vehicle.owner_id === activeUserId;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === activeUserId;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === activeTenantId;
+    // M3 — the L-2 defect in another spelling: the tenant arrived through a local alias, so raw
+    // membership still linked evidence. Same governed primitive, same ordering.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope to link evidence.');
     }

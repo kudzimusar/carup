@@ -4,6 +4,7 @@ import { downloadFromStorage } from '../storage/storageService.js';
 import { persistExtractions } from './extractionService.js';
 import { isDocumentArtifactRow, resolveSemanticClassification } from './evidenceTaxonomy.js';
 import { isSellerAuthorityEffectivelyDenied } from '../seller/sellerAuthorityService.js';
+import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
@@ -160,10 +161,13 @@ async function requireVehicleScope(client, actor, vin) {
   // Tenant membership alone is not enough to read/process a private vehicle document. Only the
   // governed dealer context may use the organizational relationship; an owner/member who merely
   // belongs to the same tenant must not inherit dealer evidence authority by supplying tenantId.
-  const isDealerTenant = role === 'dealer'
-    && vehicle.tenant_id
-    && actor.tenantId
-    && vehicle.tenant_id === actor.tenantId;
+  // OC-4D: "governed" was previously spelled as platform role `dealer` + raw tenant equality, which
+  // a dealer who is only a MECHANIC (or a garage admin) in that tenant satisfied — the #208 L-2
+  // defect in code #208 never saw. It is now the canonical Dealer decision, consulted only after
+  // the owner and current-seller clauses have failed.
+  const isDealerTenant = (!ownsVehicle && !isCurrentSeller)
+    ? await hasGovernedDealerVehicleAuthority(client, { id: userId, role, tenantId: actor.tenantId ?? null }, vehicle)
+    : false;
   if (!ownsVehicle && !isCurrentSeller && !isDealerTenant) {
     throw new ForbiddenError('You do not have owner, current-seller, or governed dealer scope over this vehicle.');
   }

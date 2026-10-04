@@ -257,10 +257,11 @@ export function assertMarketplaceEligible(vehicle = {}, opts = {}) {
  * status is always 'Available' (creation lists as available) — written by the application on every
  * insert rather than substituted for something a client tried and failed to say.
  */
-export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {}) {
+export function buildVehicleListingCandidate({ body = {}, userContext = {}, dealerListingSubject = null } = {}) {
   const role = norm(userContext.role ?? userContext.effectiveRole);
   const userId = userContext.id ?? userContext.userId ?? null;
-  const ctxTenant = userContext.tenantId ?? null;
+  // The raw `userContext.tenantId` is deliberately NOT read here any more: it is membership, not
+  // selling authority. The dealer branch consumes the resolved subject instead (J-3).
 
   let owner_id = null;
   let tenant_id = null;
@@ -271,13 +272,58 @@ export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {
     tenant_id = null;
     current_seller_type = 'Private Owner';
   } else if (role === 'dealer') {
+    // J-3 — A DEALER ROLE IS NOT A DEALERSHIP, AND MEMBERSHIP IS NOT A DEALERSHIP EITHER.
+    //
+    // This branch used `ctxTenant` directly. `authorizeRole` sets that from `x-tenant-id` on the
+    // existence of ANY `tenant_users` row, and with no `x-stakeholder-role` the effective role is
+    // the platform role — so a platform `dealer` who is a MECHANIC in a Garage was handed
+    // `current_seller_type: 'Dealer'` for that Garage. Measured, not theorised.
+    //
+    // The tenant subject now comes only from `resolveDealerListingSubject`. (HISTORICAL: the
+    // J-round made `dealer_profiles(user_id, tenant_id)` the SOLE requirement — that model was
+    // superseded by K-3, because no product path writes that column and requiring it disabled
+    // every real Dealer. The authority is now a composition of governed, server-controlled facts:
+    // dealer role + validated membership + a membership role that acts for the business +
+    // `tenants.type` in CarUp's dealer vocabulary + an active tenant. The profile binding remains
+    // an additional grant.) The I-2 note below closed the same hole one branch down; this is the
+    // branch that actually carried it.
+    //
+    // A caller that does not resolve gets `null` — no subject — rather than an open default.
+    // Publication remains a separate question (`deriveCanPublish`); this decides only WHOSE
+    // private draft it is.
     owner_id = null;
-    tenant_id = ctxTenant;
-    current_seller_type = 'Dealer';
+    tenant_id = dealerListingSubject && dealerListingSubject.granted === true
+      ? (dealerListingSubject.tenantId ?? null)
+      : null;
+    current_seller_type = tenant_id ? 'Dealer' : null;
   } else {
-    owner_id = body.owner_id ?? null;
-    tenant_id = body.tenant_id ?? ctxTenant ?? null;
-    current_seller_type = body.current_seller_type ?? (owner_id ? 'Private Owner' : (tenant_id ? 'Dealer' : null));
+    // I-2 — MEMBERSHIP IS NOT COMMERCE AUTHORITY, AND A CLIENT BODY MINTS NOTHING.
+    //
+    // Two separate corrections live here.
+    //
+    // (G-2, H-round) This branch once read `body.owner_id` and `body.tenant_id`, so for an admin
+    // or government account the REQUEST BODY outranked the validated context and any user id or
+    // tenant could be asserted as the seller. The body is now ignored entirely.
+    //
+    // (I-2, this round) The H-round then kept `tenant_id = ctxTenant` here, which turned a
+    // validated tenant CONTEXT into Dealer SELLING authority. But `authorizeRole` sets
+    // `userContext.tenantId` on the existence of ANY `tenant_users` row, and that table's role is
+    // generic organisational membership — its own DDL comments it as "'admin', 'manager',
+    // 'member'", and a garage mechanic is a member too. Membership says a person belongs to an
+    // organisation; it does not say they may sell vehicles on its behalf. O2's own boundary is
+    // explicit that Dealer activation (approved applicant → active Dealer) has NO governed path
+    // yet, so there is no capability to consult and none may be invented here.
+    //
+    // Therefore: role alone grants no listing subject, and neither does bare membership. A
+    // genuine `dealer` EFFECTIVE role — which is a governed platform role, resolved by
+    // `authorizeRole`, not a spreadsheet or a body field — still lists through its validated
+    // tenant in the branch above. Everyone else gets a null subject, which
+    // `sellerIdentityReasons` refuses as `missing_owner_for_private_listing |
+    // unknown_seller_type`. Failing closed is the correct answer while the governed path is
+    // genuinely absent.
+    owner_id = null;
+    tenant_id = null;
+    current_seller_type = null;
   }
 
   const hasText = (v) => v != null && String(v).trim() !== '';

@@ -32,6 +32,7 @@ import {
   isSellerAuthorityCandidateRow,
   resolveSemanticClassification,
 } from '../evidence/evidenceTaxonomy.js';
+import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
 
 // LAZY on purpose: auditLogger top-level-imports backend/db/supabase.js, and
 // this service sits on the completeness → trustDecision import chain that must
@@ -79,13 +80,23 @@ function normalizeVin(vin) {
   return String(vin || '').trim().toUpperCase();
 }
 
-/** The vehicle's canonical relationship recognition — unchanged from the historical flow. */
-export function hasExistingSellerRelationship(vehicle, userContext) {
+/**
+ * The vehicle's canonical relationship recognition.
+ *
+ * L-2 — the tenant clause used to be raw equality, so anyone who merely BELONGED to the
+ * organisation was recognised as its seller. It is now a decision the caller must have taken with
+ * the governed authority (`hasGovernedDealerVehicleAuthority`) and pass in explicitly.
+ *
+ * The default is FALSE, which is the safe direction on both sides of this function's use: a caller
+ * that forgets it recognises less authority, and `hasConflictingSellerRelationship` — which treats
+ * "no relationship of my own" as evidence OF a conflict — becomes stricter rather than looser.
+ */
+export function hasExistingSellerRelationship(vehicle, userContext, { dealerTenantAuthorized = false } = {}) {
   if (!vehicle || !userContext) return false;
   return Boolean(
     vehicle.owner_id === userContext.id
     || (vehicle.current_seller_id && vehicle.current_seller_id === userContext.id)
-    || (vehicle.tenant_id && userContext.tenantId && vehicle.tenant_id === userContext.tenantId)
+    || (dealerTenantAuthorized === true && vehicle.tenant_id && userContext.tenantId && vehicle.tenant_id === userContext.tenantId)
   );
 }
 
@@ -258,7 +269,7 @@ export function hasConflictingSellerRelationship(vehicle, sellerUserId, sellerTe
  *  2. An existing canonical relationship → 'recognized' (existing_relationship).
  *  3. Otherwise 'not_assessed'.
  */
-export async function getSellerAuthorityState(client, { vin, sellerUserId, sellerTenantId = null, vehicle = null }) {
+export async function getSellerAuthorityState(client, { vin, sellerUserId, sellerTenantId = null, vehicle = null, dealerTenantAuthorized = false }) {
   const normalizedVin = normalizeVin(vin);
   const { data: row, error } = await client
     .from('vehicle_seller_authority')
@@ -311,7 +322,7 @@ export async function getSellerAuthorityState(client, { vin, sellerUserId, selle
     };
   }
 
-  const relationship = hasExistingSellerRelationship(vehicleRow, { id: sellerUserId, tenantId: sellerTenantId });
+  const relationship = hasExistingSellerRelationship(vehicleRow, { id: sellerUserId, tenantId: sellerTenantId }, { dealerTenantAuthorized });
 
   if (row) {
     return {
@@ -436,7 +447,8 @@ export async function submitSellerClaim(client, { vin, claimType, userContext, r
     );
   }
 
-  if (hasExistingSellerRelationship(vehicle, userContext)) {
+  const dealerTenantAuthorized = await hasGovernedDealerVehicleAuthority(client, userContext, vehicle);
+  if (hasExistingSellerRelationship(vehicle, userContext, { dealerTenantAuthorized })) {
     return { status: 'recognized', recognition_basis: 'existing_relationship', vin: normalizedVin, claim_type: claimType };
   }
   if (await hasVerifiedOwnershipAuthorityEvidence(client, normalizedVin, userContext.id)) {
@@ -520,6 +532,7 @@ export async function reviewSellerAuthority(client, {
   reason,
   actor,
   requestContext = {},
+  dealerTenantAuthorized = false,
 }) {
   const normalizedVin = normalizeVin(vin);
   if (!SELLER_AUTHORITY_STATUSES.includes(decision) || decision === 'evidence_submitted') {
@@ -547,7 +560,7 @@ export async function reviewSellerAuthority(client, {
     throw new SellerAuthorityError('Vehicle Passport not found.', 'SELLER_AUTHORITY_VEHICLE_NOT_FOUND', 404);
   }
 
-  const relationship = hasExistingSellerRelationship(vehicle, { id: sellerUserId, tenantId: sellerTenantId });
+  const relationship = hasExistingSellerRelationship(vehicle, { id: sellerUserId, tenantId: sellerTenantId }, { dealerTenantAuthorized });
 
   // A reviewer may not CONFIRM authority for someone whose ownership has already been transferred
   // away. Confirming here would re-fabricate exactly the stale `confirmed` row this correction
