@@ -59,6 +59,12 @@ const TEMPLATES = Object.freeze({
     subject: 'Seller authority decision',
     body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
   },
+  // O2/P5 — renders governed structured facts only; no free text, no reviewer notes.
+  dealer_compliance_decision_v1: {
+    transactional: true,
+    subject: 'Dealer compliance decision',
+    body: 'Your dealer application received a CarUp decision: {{decision}}.',
+  },
   // Trade OS D7 — in-code mirror of the governed `container_booking_update` template
   // (registered + approved in 20260811131700_communications_2_workflow_template_foundations.sql).
   // Used only pre-registry (dev/tests); the governed registry wins wherever it is deployed.

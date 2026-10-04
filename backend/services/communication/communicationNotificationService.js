@@ -370,6 +370,19 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  // O2/P5 — Dealer Compliance decisions reach the dealer (OC-4D port of #208; policy and template
+  // as O2-X6 wired them). The emitter carries safe structured facts only — no reviewer free text.
+  'dealer.compliance.decided': {
+    notificationType: 'dealer_compliance',
+    threadType: 'trust_safety',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'dealer_compliance_decision_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
 
   // R4 — SafeTrade / marketplace transaction stages.
   //

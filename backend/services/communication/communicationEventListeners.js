@@ -21,6 +21,9 @@ export const COMMUNICATION_EVENT_TYPES = [
   'evidence.review.decided',
   // Operations M2 — governed Seller Authority decisions reach the seller.
   'seller.authority.decided',
+  // O2/P5 — governed Dealer Compliance decisions reach the dealer (ported by OC-4D from #208; the
+  // payload is the privacy-corrected O2-X6 shape — no reviewer free text).
+  'dealer.compliance.decided',
   // R4 — the marketplace transaction stages. Emitted by `issue164_transition_session_atomic` into
   // `domain_events` since Issue #164 Phase 6, and never subscribed until now: the transitions
   // happened and the customer was never told. These are the CURRENT canonical authority's events,

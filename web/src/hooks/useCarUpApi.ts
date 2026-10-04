@@ -925,6 +925,43 @@ export function useCarUpApi() {
     return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
   }, [request])
 
+  // O2/P3 — People & Compliance reviewer aggregate (read-only).
+  const fetchPersonComplianceReview = useCallback(async (userId: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/people/${userId}/review`)
+  }, [request])
+
+  // O2/P4 — identity session decision through the OWNING identity service route.
+  // O2 post-Ready review C2 — the governed decision shape, not a free-text `notes` field.
+  // `reviewVerificationSession` reads reasonCode / internalNote / applicantMessage and reads
+  // NOTHING called `notes`; a rejection without a reason code, or a resubmission request
+  // without an applicant message, is refused by the decision recorder. The type now says so,
+  // so a caller cannot send the shape that always failed.
+  const reviewIdentitySession = useCallback(async (
+    sessionId: string,
+    payload: {
+      action: 'approve' | 'reject' | 'request_resubmission' | 'escalate' | 'add_internal_note'
+      reasonCode?: string | null
+      internalNote?: string | null
+      applicantMessage?: string | null
+    },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/identity/verification-sessions/${sessionId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // O2/P4 — dealer compliance decision through the OWNING dealer service route.
+  const recordDealerComplianceDecision = useCallback(async (
+    dealerId: string,
+    payload: { decision: string; requirement_key?: string; reason?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/dealers/${dealerId}/decision`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   // Operations M1 — governed classification correction (reason mandatory).
   const correctEvidenceClassification = useCallback(async (
     vin: string,
@@ -3075,6 +3112,9 @@ export function useCarUpApi() {
     approveEvidence,
     rejectEvidence,
     fetchVehicleOperationsReview,
+    fetchPersonComplianceReview,
+    reviewIdentitySession,
+    recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,
     lookupVehiclePassport,
