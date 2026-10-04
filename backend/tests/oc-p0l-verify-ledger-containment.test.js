@@ -210,6 +210,9 @@ test('OC-P0L: an authenticated caller unrelated to the vehicle is refused 403', 
 test('OC-P0L: an unknown VIN answers the same 403 as an unrelated one (existence not disclosed)', async () => {
   const res = await getLedger('VIN_DOES_NOT_EXIST', { who: 'stranger' });
   assert.equal(res.status, 403);
+  // Not by the body either: it used to say reason 'not_found' here and 'not_scoped' for a stranger.
+  const known = await getLedger('VIN1', { who: 'stranger' });
+  assert.deepEqual(res.body, known.body);
 });
 
 for (const who of ['owner', 'seller', 'admin', 'government']) {
