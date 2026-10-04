@@ -100,7 +100,7 @@ before(async () => {
     verification_sessions: [{ id: '9f1d2c3b-4a5e-4f60-8a7b-1c2d3e4f5a6b', user_id: 'admin-1', status: 'pending_review', workflow_phase: 'reviewer_action_required', document_type: 'passport', version: 1, created_at: '2026-10-04T00:00:00.000Z' }],
     // A governed service relationship: mech-1 holds a work order for this exact vin; mech-2 holds none.
     mechanic_work_orders: [{ id: 'wo-1', vin: VIN, mechanic_id: 'mech-1', status: 'in_progress' }],
-  });
+  }, { serialTables: ['blockchain_events'] }); // BIGSERIAL in the schema; the verifier walks it by id
   restoreWorld = installSupabaseWorld(supabase, world);
   globalThis.fetch = async (url, init) => {
     const href = String(url);

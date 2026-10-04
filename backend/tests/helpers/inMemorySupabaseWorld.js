@@ -9,6 +9,11 @@
  * Not a database: no FKs, RLS, triggers or CHECKs — those are proven on real PostgreSQL (PGlite) in the
  * OC-3D/OC-4A suites. What this proves is the WIRING: real routes, real services, real auth, real
  * provider boundaries, against state a test can inspect.
+ *
+ * Ids: a row inserted without one gets a random UUID — EXCEPT in a table declared `serialTables`, which
+ * gets the next integer, as a BIGSERIAL column would. That matters wherever code ORDERS by id: the
+ * ledger verifier walks `blockchain_events` by id, so random ids made a two-event chain read as broken
+ * about half the time (found by OC-4E's first CI run, not by the local runs).
  */
 import { randomUUID } from 'node:crypto';
 
@@ -53,8 +58,14 @@ function readField(row, key) {
   return row[key];
 }
 
-export function createSupabaseWorld(seed = {}) {
+export function createSupabaseWorld(seed = {}, { serialTables = [] } = {}) {
   const tables = Object.fromEntries(Object.entries(seed).map(([name, rows]) => [name, clone(rows)]));
+  const serial = new Set(serialTables);
+  const nextId = (table) => {
+    if (!serial.has(table)) return randomUUID();
+    const max = (tables[table] || []).reduce((m, r) => (Number.isFinite(Number(r.id)) ? Math.max(m, Number(r.id)) : m), 0);
+    return max + 1;
+  };
   const objects = new Map();
   const rpcs = new Map();
   const writes = [];
@@ -107,9 +118,10 @@ export function createSupabaseWorld(seed = {}) {
     async function run(mode) {
       let out;
       if (st.op === 'insert' || st.op === 'upsert') {
-        const incoming = (Array.isArray(st.payload) ? st.payload : [st.payload]).map((row) => ({ id: row.id ?? randomUUID(), created_at: new Date().toISOString(), ...clone(row) }));
+        const incoming = (Array.isArray(st.payload) ? st.payload : [st.payload]).map((row) => ({ created_at: new Date().toISOString(), ...clone(row) }));
         out = [];
         for (const row of incoming) {
+          if (row.id === undefined || row.id === null) row.id = nextId(table);
           if (st.op === 'upsert' && st.onConflict) {
             const keys = st.onConflict.split(',').map((k) => k.trim());
             const existing = rowsOf(table).find((r) => keys.every((k) => r[k] === row[k]));
