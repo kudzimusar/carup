@@ -1,11 +1,36 @@
 /**
- * AI Vision Provider Abstraction.
- * Supports a customizable mock analyzer and safeguards against network errors or provider downtime.
+ * Evidence-image analysis — a SIMULATOR, and labelled as one (OC-3B).
+ *
+ * No AI provider is called here: this module has never been wired to a live vision model. Before
+ * OC-3B it nevertheless answered `ai_passed` / `approve`, echoed the uploader's own metadata back
+ * as the VIN, plate and odometer it had "seen", invented a dent on every damage photo, and produced
+ * the public string "AI analysis: image verified clean." — republished on every human-verified
+ * evidence row. A simulation that cannot see the image may not say what is in it.
+ *
+ * Contract of every result:
+ *   provider 'simulated' · execution 'simulated' · advisory true · verifying false ·
+ *   public_safe_summary null · never ai_passed / approve.
+ *
+ * `metadata.mock_ai_scenario` (reachable from `req.body.metadata` on upload) selects a scripted
+ * outcome ONLY under NODE_ENV=test, where suites use it as a fixture. Anywhere else an uploader
+ * could otherwise choose the verdict on their own evidence.
  */
 
+export const SIMULATED_VISION = Object.freeze({
+  provider: 'simulated',
+  model: 'carup-evidence-vision-simulator-v1',
+  execution: 'simulated',
+});
+
+/** The scripted-scenario key is a test fixture; outside NODE_ENV=test it does not exist. */
+export function honouredMockScenario(metadata) {
+  if (process.env.NODE_ENV !== 'test') return null;
+  const scenario = metadata?.mock_ai_scenario;
+  return typeof scenario === 'string' && scenario ? scenario : null;
+}
+
 export async function analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, metadata = {}) {
-  // Check if simulated provider error is requested
-  const scenario = metadata.mock_ai_scenario || null;
+  const scenario = honouredMockScenario(metadata);
   if (scenario === 'provider_error') {
     throw new Error('AI Vision provider service timeout or connection refused (Simulated API error).');
   }
@@ -17,14 +42,16 @@ export async function analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, m
   const analysisPromise = new Promise((resolve) => {
     // Simulate minor network processing latency
     setTimeout(() => {
-      let riskScore = 0.05;
-      let confidence = 0.95;
-      let aiStatus = 'ai_passed';
-      let recommendedAction = 'approve';
-      let reviewerSummary = 'No risks detected. The evidence elements are consistent.';
-      let visiblePlate = metadata.plate_number || null;
-      let visibleVin = metadata.vin || null;
-      let visibleOdometer = metadata.odometer_reading || null;
+      // The simulator examined nothing, so by default it reports nothing: no score, no confidence,
+      // nothing "visible", and a human inspection as the only recommendation it can honestly make.
+      let riskScore = null;
+      let confidence = 0;
+      let aiStatus = 'ai_simulated';
+      let recommendedAction = 'inspect';
+      let reviewerSummary = 'Simulated analysis only: no AI provider examined this image. A human reviewer must inspect it.';
+      let visiblePlate = null;
+      let visibleVin = null;
+      let visibleOdometer = null;
       let damageIndicators = [];
       let manipulationIndicators = [];
       let detectedObjects = [];
@@ -77,20 +104,15 @@ export async function analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, m
           break;
 
         default:
-          // Default clean pass behavior
-          if (evidenceType === 'odometer_photo') {
-            detectedObjects = ['odometer_display'];
-            visibleOdometer = visibleOdometer || 120000;
-          } else if (evidenceType === 'damage_photo') {
-            detectedObjects = ['scratch', 'bumper'];
-            damageIndicators = [{ type: 'dent', severity: 'medium', location: 'front_bumper' }];
-          } else {
-            detectedObjects = ['vehicle_exterior'];
-          }
+          // No scripted scenario: the honest simulated result above stands. (This branch used to
+          // invent an odometer of 120,000 km, a front-bumper dent and "detected" objects.)
           break;
       }
 
       resolve({
+        ...SIMULATED_VISION,
+        advisory: true,
+        verifying: false,
         risk_score: riskScore,
         confidence,
         ai_status: aiStatus,
@@ -102,7 +124,8 @@ export async function analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, m
         damage_indicators: damageIndicators,
         manipulation_indicators: manipulationIndicators,
         detected_objects: detectedObjects,
-        public_safe_summary: recommendedAction === 'approve' ? 'AI analysis: image verified clean.' : null
+        // A simulation has nothing to tell the public. Never a "verified"/"clean" claim.
+        public_safe_summary: null
       });
     }, 50);
   });

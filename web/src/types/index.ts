@@ -2057,9 +2057,16 @@ export interface VehicleEvidence {
 }
 
 export interface EvidenceAiAnalysis {
-  risk_score: number;
+  // OC-3B: the evidence analyzer is a simulator. Its results say so (provider/execution
+  // 'simulated'), carry no score, and are advisory and non-verifying.
+  provider?: 'simulated' | string;
+  model?: string | null;
+  execution?: 'simulated' | 'mock' | 'provider_executed';
+  advisory?: boolean;
+  verifying?: false;
+  risk_score: number | null;
   confidence: number;
-  ai_status: 'ai_pending' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required';
+  ai_status: 'ai_pending' | 'ai_simulated' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required';
   reviewer_summary: string;
   recommended_action: 'approve' | 'reject' | 'inspect';
   visible_plate?: string | null;

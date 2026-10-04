@@ -1032,8 +1032,12 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     // Sanitize AI analysis for non-admin roles
     if (!hasAdminAccess) {
       if (enriched.metadata && enriched.metadata.ai_analysis) {
-        if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
-          enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
+        // OC-3B: the same validated source as the public projection — never the raw analysis
+        // field, which a simulator used to fill with "AI analysis: image verified clean."
+        if (enriched.verification_status === 'verified' && aiSummary) {
+          enriched.metadata.ai_public_summary = aiSummary;
+        } else {
+          delete enriched.metadata.ai_public_summary;
         }
         delete enriched.metadata.ai_analysis;
       }

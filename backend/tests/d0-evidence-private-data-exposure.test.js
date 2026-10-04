@@ -189,7 +189,9 @@ test('a public-bucket artifact still publishes its URL', async () => {
 
 test('publicAiSummary refuses a non-string, caller-supplied value', async () => {
   const { publicAiSummary } = await import('../utils/publicVehicleProjection.js');
-  assert.equal(publicAiSummary({ metadata: { ai_analysis: { public_safe_summary: 'ok' } } }), 'ok');
+  // OC-3B: an unattributed summary (the simulator's legacy rows) is no longer publishable at all —
+  // see oc3b-truthful-ai-simulation.test.js for the provider-executed allow-list rule.
+  assert.equal(publicAiSummary({ metadata: { ai_analysis: { public_safe_summary: 'ok' } } }), null);
   assert.equal(publicAiSummary({ metadata: { ai_analysis: { public_safe_summary: { evil: 1 } } } }), null);
   assert.equal(publicAiSummary({ metadata: { ai_public_summary: 'caller supplied' } }), null,
     'the caller-writable key is not a source');

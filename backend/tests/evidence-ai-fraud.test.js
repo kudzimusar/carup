@@ -287,6 +287,12 @@ test('Public endpoint sanitizes and does not expose raw AI analysis metadata', a
   
   await sleep(100);
 
+  // OC-3B: what was stored is labelled for what it is — a simulation. Read before the GETs below,
+  // which sanitize the shared in-memory row in place.
+  assert.equal(db.evidence[data.id].metadata.ai_analysis.provider, 'simulated');
+  assert.equal(db.evidence[data.id].metadata.ai_analysis.execution, 'simulated');
+  assert.equal(db.evidence[data.id].metadata.ai_analysis.public_safe_summary, null);
+
   // Mark as verified by admin (this makes it visible to public)
   db.evidence[data.id].verification_status = 'verified';
 
@@ -304,10 +310,26 @@ test('Public endpoint sanitizes and does not expose raw AI analysis metadata', a
   // Verify that raw ai_analysis object is NOT present in the metadata
   const item = list.find(e => e.id === data.id);
   assert.ok(item);
-  assert.equal(item.metadata.ai_analysis, undefined);
-  
-  // Exposes public summary
-  assert.equal(item.metadata.ai_public_summary, 'AI analysis: image verified clean.');
+  assert.equal(item.metadata?.ai_analysis, undefined);
+
+  // OC-3B: this used to assert the public saw "AI analysis: image verified clean." — produced by a
+  // SIMULATOR that examined nothing. The analysis is stored, labelled simulated, and the public
+  // sees no AI summary at all.
+  assert.equal(item.metadata?.ai_public_summary, undefined);
+  assert.doesNotMatch(JSON.stringify(list), /verified clean/i);
+
+  // The vehicle owner's (authorized, non-admin) view takes the same validated source.
+  const ownerRes = await fetch(`${baseUrl}/api/vehicles/VIN123/evidence`, {
+    method: 'GET',
+    headers: { 'x-user-id': 'owner-1', 'x-stakeholder-role': 'owner' }
+  });
+  assert.equal(ownerRes.status, 200);
+  const ownerList = await ownerRes.json();
+  const ownerItem = ownerList.find(e => e.id === data.id);
+  assert.ok(ownerItem);
+  assert.equal(ownerItem.metadata?.ai_analysis, undefined);
+  assert.equal(ownerItem.metadata?.ai_public_summary, undefined);
+  assert.doesNotMatch(JSON.stringify(ownerList), /verified clean/i);
 });
 
 test('Trust score remains unchanged until admin review approval', async () => {
