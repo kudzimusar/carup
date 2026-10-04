@@ -3011,7 +3011,22 @@ export function useCarUpApi() {
   const submitIdentitySession = useCallback((sessionId: string): Promise<IdentitySessionEnvelope> =>
     request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/submit`, { method: 'POST', body: JSON.stringify({}) }), [request])
 
+  // O2-X5 (ported by OC-5C) — the dealer APPLICANT's own onboarding (self-scoped; grants no Dealer authority).
+  type DealerOnboardingPayload = Record<string, unknown> & { success: boolean }
+  const fetchDealerOnboardingOverview = useCallback((): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/overview'), [request])
+  const saveDealerOnboardingProfile = useCallback((payload: { profile: Record<string, unknown> }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const uploadDealerEvidence = useCallback((payload: { doc_type: string; file: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/documents', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const addDealerOnboardingBranch = useCallback((payload: { name: string; address: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/branches', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
   return {
+    fetchDealerOnboardingOverview,
+    saveDealerOnboardingProfile,
+    uploadDealerEvidence,
+    addDealerOnboardingBranch,
     fetchRegistrationJourney,
     fetchRegistrationCandidates,
     saveRegistrationProfile,

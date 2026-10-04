@@ -396,6 +396,11 @@ export default function RegistrationJourney() {
               </li>
             ))}
           </ol>
+          {journey.journey.capability_ladder.some((s) => s.stage === 'contact_context_established' && s.reached && s.unlocks.includes('prepare_dealer_onboarding')) && (
+            <Button size="sm" variant="outline" onClick={() => navigate('/dealer/onboarding')} data-testid="start-dealer-onboarding">
+              Start Dealer onboarding
+            </Button>
+          )}
           <div className="border-t border-border pt-3 space-y-1">
             {journey.journey.locked_capabilities.map((lock) => (
               <div key={lock.capability} className="flex items-start gap-2 text-xs text-muted-foreground" data-testid={`locked-${lock.capability}`}>

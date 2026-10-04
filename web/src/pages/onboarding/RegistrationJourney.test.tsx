@@ -284,6 +284,18 @@ describe('RegistrationJourney', () => {
     expect([profile.account_kind, profile.business_type, profile.city]).toEqual(['business', 'garage', 'Bulawayo'])
   })
 
+  it('a registered dealer business is offered Dealer onboarding (the server unlocks it); others are not', async () => {
+    const ladder = (unlocks: string[]) => LADDER.map((s) => (s.stage === 'contact_context_established' ? { ...s, reached: true, unlocks } : s))
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({ journey: { ...journeyFixture().journey, capability_ladder: ladder(['continue_draft_workflows', 'prepare_dealer_onboarding']) } }))
+    const { unmount } = renderPage()
+    await waitFor(() => expect(screen.getByTestId('start-dealer-onboarding')).toBeTruthy())
+    unmount()
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({ journey: { ...journeyFixture().journey, capability_ladder: ladder(['continue_draft_workflows']) } }))
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('who-must-act')).toBeTruthy())
+    expect(screen.queryByTestId('start-dealer-onboarding')).toBeNull()
+  })
+
   it('the identity wizard drives the applicant routes: start, per-side upload with visible state, submit', async () => {
     fetchRegistrationJourney
       .mockResolvedValueOnce(journeyFixture())

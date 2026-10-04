@@ -282,7 +282,9 @@ export function deriveOnboardingJourney({ user = {}, profile = null, latestSessi
       unlocks: [
         'continue_draft_workflows',
         'prepare_seller_onboarding',
-        ...(profile?.account_kind === 'business' ? ['prepare_dealer_onboarding'] : []),
+        // Only a registered DEALER business has a dealer onboarding to prepare (X5's own access rule) —
+        // offering it to every business sent garages and freight forwarders to a refusal.
+        ...(profile?.account_kind === 'business' && profile?.business_type === 'dealer' ? ['prepare_dealer_onboarding'] : []),
       ],
     },
     {

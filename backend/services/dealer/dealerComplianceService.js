@@ -24,9 +24,13 @@ const DOCUMENTS = 'dealer_compliance_documents';
 const REQUIREMENTS = 'dealer_compliance_requirements';
 const DECISIONS = 'dealer_compliance_decisions';
 
+// O2-X5 (ported by OC-5C): tenant_id is DELIBERATELY absent. A dealer must never create or move
+// themselves into an organization by sending {"tenant_id": ...} — on RC1 POST /api/dealer/profile did
+// exactly that, which also placed them in that tenant's admin listing. Tenant binding is a server-side
+// fact from a governed organization relationship, or stays null until one exists.
 const PROFILE_FIELDS = [
   'legal_name', 'trading_name', 'registration_number', 'tax_id',
-  'physical_address', 'responsible_person', 'operating_country', 'tenant_id',
+  'physical_address', 'responsible_person', 'operating_country',
 ];
 
 const DECISIONS_ALLOWED = [
@@ -79,11 +83,25 @@ async function getProfileById(dealerId) {
 /**
  * Resolve a profile by its id (the profile UUID) or by the owning user_id. Tries id first,
  * then falls back to user_id, so it works whether the caller holds a dealer id or a user id.
+ *
+ * `dealer_profiles.id` is a uuid column while `user_id` is TEXT, so on real PostgreSQL the id probe
+ * raises 22P02 `invalid input syntax for type uuid` for a text user id. That is the type system saying
+ * "not a profile id", so it falls through to the user lookup instead of 500ing the request; every
+ * OTHER database error still propagates. (#208 73344d6a, found by its P7 run on real staging; ported
+ * by OC-5C.)
  */
+function isUuidCastRefusal(error) {
+  return /invalid input syntax for type uuid/i.test(String(error?.message || error || ''));
+}
+
 export async function getProfile(dealerOrUserId) {
   if (!dealerOrUserId) throw new Error('getProfile requires a dealerId or userId');
-  const byId = await getProfileById(dealerOrUserId);
-  if (byId) return byId;
+  try {
+    const byId = await getProfileById(dealerOrUserId);
+    if (byId) return byId;
+  } catch (error) {
+    if (!isUuidCastRefusal(error)) throw error;
+  }
   return getProfileByUser(dealerOrUserId);
 }
 

@@ -20,9 +20,11 @@
  * by the caller's userId, so a dealer can never read or mutate another dealer's full profile.
  */
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
 import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
+import { requireOperationsCapability, OPERATIONS_CAPABILITIES } from '../services/operations/operationsAuthorizationService.js';
+import { listDealerDocumentsForReview, getDealerEvidencePreviewForReview } from '../services/dealer/dealerOnboardingService.js';
 import {
   createOrUpdateProfile,
   getProfile,
@@ -97,7 +99,10 @@ router.post('/api/dealer/documents', authorizeRole(DEALER_ROLES), async (req, re
   try {
     const profile = await ownProfileOr404(req, res);
     if (!profile) return;
-    const document = await uploadDocument(profile.id, req.body || {});
+    // Metadata only (OC-5C): a dealer may say WHAT a document is, never its review status nor where its
+    // file lives. RC1 passed the whole body through — a client-chosen status ('verified') and a
+    // client-chosen file_ref (any private object path) were both accepted.
+    const document = await uploadDocument(profile.id, { doc_type: req.body?.doc_type, expiry_date: req.body?.expiry_date });
     res.status(201).json({ document });
   } catch (err) {
     if (/requires a doc_type/.test(err.message)) return res.status(400).json({ error: err.message });
@@ -127,6 +132,35 @@ router.get('/api/admin/dealers/:id', authorizeRole(ADMIN_ROLES), async (req, res
     next(err);
   }
 });
+
+// O2-X5 (ported by OC-5C) — a reviewer reads a dealer's evidence as SANITIZED metadata (no storage path)…
+router.get('/api/admin/dealers/:id/documents', authorizeRole(ADMIN_ROLES), async (req, res, next) => {
+  try {
+    const profile = await getProfile(req.params.id);
+    if (!profile) return res.status(404).json({ error: `Dealer not found: ${req.params.id}` });
+    res.json({ documents: await listDealerDocumentsForReview(profile.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// …and opens raw evidence only through a short-lived signed link: a real session, the Dealer Compliance
+// review capability, and a fresh step-up — audited before the link is handed over.
+router.get('/api/admin/dealers/:id/documents/:docId/preview',
+  authorizeSessionRole(ADMIN_ROLES),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.DEALER_COMPLIANCE_REVIEW),
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
+  async (req, res, next) => {
+    try {
+      const profile = await getProfile(req.params.id);
+      if (!profile) return res.status(404).json({ error: `Dealer not found: ${req.params.id}` });
+      const preview = await getDealerEvidencePreviewForReview(undefined, req.userContext, profile.id, req.params.docId, { req });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ preview });
+    } catch (err) {
+      next(err);
+    }
+  });
 
 router.patch('/api/admin/dealers/:id/decision', authorizeRole(ADMIN_ROLES), requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE), async (req, res, next) => {
   try {

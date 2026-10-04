@@ -91,6 +91,7 @@ import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
 import KYCVerification from './pages/auth/KYCVerification'
 import RegistrationJourney from './pages/onboarding/RegistrationJourney'
+import DealerOnboarding from './pages/dealer/DealerOnboarding'
 
 // Owner Dashboard
 import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
@@ -319,6 +320,9 @@ export default function App() {
               out of the chromeless auth group for exactly that reason). Unregistered, so routeAccess
               renders it for any signed-in caller (U1) and the page + backend decide the rest. */}
           <Route path="/onboarding" element={<RegistrationJourney />} />
+          {/* O2-X5 (ported by OC-5C) — a dealer APPLICANT's own application. Deliberately outside the
+              Dealer workspace routes: an applicant is not an active Dealer (onboarding ≠ authority). */}
+          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
         </Route>
 
         {/* Trade OS operational workspace (owner UAT #1): the client-demo journey — Container
