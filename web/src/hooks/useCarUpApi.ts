@@ -24,6 +24,7 @@ import type {
 } from '@shared/types'
 import type { 
   User, 
+  LedgerIntegrityReport,
   Vehicle, 
   WorkOrder, 
   Part, 
@@ -953,8 +954,10 @@ export function useCarUpApi() {
     return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
 
-  const verifyLedger = useCallback(async (vin: string): Promise<{ integrity: string; verified: boolean }> => {
-    return request<{ integrity: string; verified: boolean }>(`/vehicles/${vin}/verify-ledger`)
+  // OC-3B: the route answers an allow-listed integrity projection only — never the chain, its
+  // payloads or its signatures — and only to a session holding authority over this vin.
+  const verifyLedger = useCallback(async (vin: string): Promise<LedgerIntegrityReport> => {
+    return request<LedgerIntegrityReport>(`/vehicles/${vin}/verify-ledger`)
   }, [request])
 
   const fetchVehicle = useCallback(async (vin: string): Promise<Vehicle> => {

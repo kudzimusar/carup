@@ -29,6 +29,7 @@ import {
   toPublicTrust,
 } from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
+import { toLedgerIntegrityReport } from './services/blockchain/ledgerIntegrityProjection.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
 import { runFraudAnalysis, runOcrParsing, runRiskScoring } from './services/ai/aiServiceBus.js';
@@ -1748,13 +1749,26 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
 });
 
 // --- PILLAR 18: BLOCKCHAIN INTEGRITY SCANNER ---
-app.get('/api/vehicles/:vin/verify-ledger', async (req, res) => {
+//
+// OC-3B. This route was anonymous and returned `verifyChain(vin)` verbatim — `chain[]` with every
+// event's parsed payload (owner names, national ids, stakeholder ids), hash and signature, plus a
+// failure `reason` naming events and actors. The passport already withholds `chain[]` from
+// unauthorised callers; this was a second, unauthenticated door to the same private data.
+//
+// Now: a SESSION is required (an x-user-id assertion is refused, as for every private-data
+// capability), the caller must hold object authority over THIS vin (owner, current seller,
+// organisational tenant, or platform-wide admin/government — the one canonical rule in
+// vehicleObjectAuthority.js), and even then only the allow-listed integrity projection leaves.
+// Nobody, owner included, needs the raw chain to learn whether the ledger is intact.
+app.get('/api/vehicles/:vin/verify-ledger', authorizeSessionRole(), requireVehicleObjectAuthority(), async (req, res) => {
   const { vin } = req.params;
   try {
     const report = await verifyChain(vin);
-    res.json(report);
+    res.json(toLedgerIntegrityReport(vin, report));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // The error text of a failed ledger read is not part of the contract either.
+    console.error('[verify-ledger] integrity check failed:', error.message);
+    res.status(500).json({ error: 'Ledger integrity could not be checked.', integrity: 'unavailable' });
   }
 });
 

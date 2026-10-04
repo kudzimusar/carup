@@ -3324,3 +3324,17 @@ export interface WorkbookInterruptedBatch {
   /** True for NEEDS_OPERATOR: partly applied and not fully reversible. Never offer a retry. */
   needsHuman: boolean;
 }
+
+/**
+ * OC-3B — the ONLY shape GET /api/vehicles/:vin/verify-ledger returns: an allow-listed integrity
+ * verdict. The chain, its payloads, hashes and signatures never leave the server.
+ * `empty` means the vehicle has no ledger events: nothing was found broken, and nothing was verified.
+ */
+export interface LedgerIntegrityReport {
+  vin: string;
+  verified: boolean;
+  count: number | null;
+  integrity: 'verified' | 'broken' | 'empty';
+  failed_at_index?: number;
+  verified_at: string;
+}

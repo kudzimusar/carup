@@ -81,7 +81,9 @@ export default function PartSentry() {
     loadHistory(selectedVehicle)
     verifyLedger(selectedVehicle)
       .then(data => {
-        setLedgerVerified(data?.integrity === 'verified' || data?.verified === true)
+        // Three states, not two: a vehicle with no ledger events is neither "verified" nor
+        // "tampered", so it shows no integrity badge at all.
+        setLedgerVerified(data?.integrity === 'verified' ? true : data?.integrity === 'broken' ? false : null)
         setLedgerError(null)
       })
       .catch((err: unknown) => {

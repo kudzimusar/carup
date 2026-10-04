@@ -111,6 +111,34 @@ describe('PartSentry owner page truthfulness', () => {
     expect(SRC).not.toMatch(/setLedgerVerified\(true\)/)
   })
 
+  // OC-3B: the route now answers { vin, verified, count, integrity, verified_at } only. A vehicle
+  // with no ledger events is `integrity: 'empty'` — the old page read `verified === true` and so
+  // showed "Ledger Verified" for a ledger that verified nothing.
+  it('OC-3B: an EMPTY ledger shows neither "Ledger Verified" nor "Tampered"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: true, count: 0, integrity: 'empty', verified_at: '2026-10-04T00:00:00.000Z' })
+
+    render(<PartSentry />)
+    await waitFor(() => expect(verifyLedger).toHaveBeenCalled())
+    expect(await screen.findByTestId('parts-ledger-empty')).toBeInTheDocument()
+    expect(screen.queryByText(/Ledger Verified/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Tampered/)).not.toBeInTheDocument()
+  })
+
+  it('OC-3B: a BROKEN ledger shows "Tampered", and a verified one shows "Ledger Verified"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: false, count: null, integrity: 'broken', failed_at_index: 1, verified_at: '2026-10-04T00:00:00.000Z' })
+    const first = render(<PartSentry />)
+    expect(await screen.findByText(/Tampered/)).toBeInTheDocument()
+    first.unmount()
+
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: true, count: 3, integrity: 'verified', verified_at: '2026-10-04T00:00:00.000Z' })
+    render(<PartSentry />)
+    expect(await screen.findByText(/Ledger Verified/)).toBeInTheDocument()
+  })
+
   it('source: action options are exactly the DB CHECK enum', () => {
     expect(SRC).toMatch(/const ACTION_TYPES = \['Replaced', 'Repaired', 'Inspected', 'Diagnosed'\] as const/)
     expect(SRC).not.toContain("'Upgraded'")
