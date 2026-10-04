@@ -290,6 +290,7 @@ on:
       # OC-4F source RC1: the residual-scan guards (committed credentials; retired routes in the web
       # client), the residual scan and the open-PR disposition, and every doc the RC carries.
       - 'backend/tests/oc4f-*.test.js'
+      - 'backend/scripts/one-carup-provider-smoke.mjs'
       - 'web/src/lib/retiredRoutes.test.ts'
       - 'docs/one-carup/**'
       - '**/*.md'
@@ -619,6 +620,8 @@ jobs:
         run: npm ci || npm install
       - name: No credential committed anywhere in the tree
         run: node --test backend/tests/oc4f-no-committed-credentials.test.js
+      - name: Provider smoke harness is safe by construction (plan default, production refused)
+        run: node --test backend/tests/oc4f-provider-smoke-harness.test.js
       - name: The web client calls no retired route
         run: npm run test:unit --workspace=web -- src/lib/retiredRoutes.test.ts
 
