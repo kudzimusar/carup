@@ -116,6 +116,11 @@ on:
       - 'backend/tests/evidence-ai-fraud.test.js'
       - 'backend/tests/d0-evidence-private-data-exposure.test.js'
       - 'backend/tests/ocr-mock-guard.test.js'
+      # OC-3B-R: the ONE test-fixture guard every simulated-AI / OCR fixture path shares, its suite,
+      # and the mock-analysis consumer suite that ci.yml alone (main only) used to run.
+      - 'backend/config/testFixtureGuard.js'
+      - 'backend/tests/oc3b-r-simulation-steering-guard.test.js'
+      - 'backend/tests/ai-temporal-disclosure.test.js'
       - 'web/src/pages/dashboard/owner/PartSentry.tsx'
       - 'web/src/pages/dashboard/owner/PartSentry.test.tsx'
       - 'web/src/types/index.ts'
@@ -207,7 +212,9 @@ jobs:
             backend/tests/oc3b-ai-authority-invariants.test.js \
             backend/tests/evidence-ai-fraud.test.js \
             backend/tests/d0-evidence-private-data-exposure.test.js \
-            backend/tests/ocr-mock-guard.test.js
+            backend/tests/ocr-mock-guard.test.js \
+            backend/tests/oc3b-r-simulation-steering-guard.test.js \
+            backend/tests/ai-temporal-disclosure.test.js
 
   # ── Seller OCR capability-truth UI gate (exact-head, targeted) ──────────────
   # Runs the bounded Seller autofill capability vitest suite so "OCR provider available" truth is
