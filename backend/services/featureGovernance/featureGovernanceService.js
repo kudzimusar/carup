@@ -100,12 +100,20 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
     const activeOrg = session?.active_organization_id || null;
 
     // No switched context recorded → base role.
-    if (!activeRole) return { role: baseRole, tenantId: null, userId, cohortId };
+    if (!activeRole) return { role: baseRole, tenantId: null, tenantRole: null, tenantType: null, userId, cohortId };
 
-    // Acting as the base role: tenant applies only if the org membership verifies.
+    // Acting as the base role: tenant applies only if the org membership verifies (OC-5D: the session's
+    // explicit selection — and its type and the role inside it, for tenant-scoped features).
     if (activeRole === baseRole) {
       const membership = await verifyTenantMembership(client, userId, activeOrg);
-      return { role: baseRole, tenantId: membership ? activeOrg : null, userId, cohortId };
+      return {
+        role: baseRole,
+        tenantId: membership ? activeOrg : null,
+        tenantRole: membership ? membership.role : null,
+        tenantType: membership ? membership.type : null,
+        userId,
+        cohortId,
+      };
     }
 
     // Switched (tenant) role: must be backed by a verified, matching membership in a LENDABLE role —
@@ -113,10 +121,10 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
     // row reading 'government' surfaced government navigation.)
     const membership = await verifyTenantMembership(client, userId, activeOrg);
     if (activeOrg && membership && normalizeRole(membership.role) === activeRole && isLendableTenantRole(activeRole)) {
-      return { role: activeRole, tenantId: activeOrg, userId, cohortId };
+      return { role: activeRole, tenantId: activeOrg, tenantRole: membership.role, tenantType: membership.type, userId, cohortId };
     }
     // Stale / unverifiable switched context → least privilege.
-    return { role: baseRole, tenantId: null, userId, cohortId };
+    return { role: baseRole, tenantId: null, tenantRole: null, tenantType: null, userId, cohortId };
   } catch {
     return { role: null, tenantId: null, userId: null, cohortId: null }; // fail closed
   }
@@ -303,7 +311,18 @@ export function evaluateEffectiveState(entry, override, ctx = {}) {
   }
 
   const requiresAuth = entry.requiresAuth;
-  const roleEligible = !requiresAuth ? true : (ctx.role ? allowedRoles.includes(ctx.role) : false);
+  // OC-5D (F4) — TWO namespaces, never mixed. `defaultRoles`/`allowed_roles` are PLATFORM roles; a feature
+  // that belongs to an organisation declares `tenantTypes`/`tenantRoles`, which only the caller's VERIFIED
+  // active organisation can satisfy (its type and the caller's role inside it). #197 let a tenant role
+  // satisfy the platform list, so a garage's own admin was offered platform-admin navigation. An override
+  // can narrow the platform list but never touches the tenant scope, which is static manifest policy.
+  const platformEligible = ctx.role ? allowedRoles.includes(ctx.role) : false;
+  const tenantRoles = Array.isArray(entry.tenantRoles) ? entry.tenantRoles : [];
+  const tenantTypes = Array.isArray(entry.tenantTypes) ? entry.tenantTypes : [];
+  const tenantEligible = tenantRoles.length > 0
+    && Boolean(ctx.tenantRole) && tenantRoles.includes(ctx.tenantRole)
+    && (tenantTypes.length === 0 || tenantTypes.includes(ctx.tenantType));
+  const roleEligible = !requiresAuth ? true : (platformEligible || tenantEligible);
   const tenantOk = applies ? tenantAllowed(override, ctx.tenantId) : true;
 
   // Percentage gate — inserted AFTER role + tenant allow/deny, BEFORE the final

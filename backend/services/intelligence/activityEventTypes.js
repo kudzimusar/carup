@@ -73,6 +73,29 @@ export const RESERVED_EVENT_TYPES = Object.freeze([
   'marketplace_recommendation_clicked',
 ]);
 
+/**
+ * SERVICE NETWORK BOUNDARY (obligation O8) — deliberately N/A.
+ *
+ * Service Network does NOT write to this ledger, and adding it would be a mistake rather than an
+ * improvement. The two mechanisms answer different questions:
+ *
+ *   - this ledger records BEHAVIOUR on marketplace surfaces — impressions, searches, engagement.
+ *     Its rows are analytics observations, and `PRIVACY_CLASS` exists because they are about what
+ *     a person did while browsing.
+ *   - Service Network records AUTHORITATIVE STATE TRANSITIONS on a governed case, which travel
+ *     through the `domain_events` outbox with the durability, retry and deterministic-identity
+ *     guarantees an authority needs (see O4). A missed analytics event costs a data point; a
+ *     missed case transition costs a customer their notification.
+ *
+ * Putting case transitions here would give the same fact two homes with different reliability
+ * contracts, and would put governed service history behind an analytics privacy class. The
+ * vocabulary is therefore left unchanged, and no `service_*` type exists in EVENT_VERSIONS.
+ *
+ * This is enforced, not merely asserted: backend/tests/service-network-o1-o10-obligations.test.js
+ * fails if a Service Network service starts writing to the ledger, and fails if a `service_*` type
+ * appears in the vocabulary without the matching DB CHECK being updated in the same change.
+ */
+
 /** Privacy class per event type (contract §6). Stamped server-side. */
 export const PRIVACY_CLASS = Object.freeze({
   marketplace_search_performed: 'P1',

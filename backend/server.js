@@ -59,7 +59,7 @@ import errorHandler from './middleware/errorMiddleware.js';
 import correlationMiddleware from './middleware/correlationMiddleware.js';
 import telemetryMiddleware from './middleware/telemetryMiddleware.js';
 import { metricsHub } from './services/metrics.js';
-import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
+import { CarUpError, NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
 import {
   securityHeadersMiddleware,
   rateLimiter,
@@ -140,6 +140,14 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import registrationOnboardingRouter from './routes/registrationOnboardingRoutes.js';
 import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
+// OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
+// garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
+import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
+import serviceCaseRouter from './routes/serviceCaseRoutes.js';
+import serviceWorkOrderRouter from './routes/serviceWorkOrderRoutes.js';
+import serviceRecordRouter from './routes/serviceRecordRoutes.js';
+import serviceLinkRouter from './routes/serviceLinkRoutes.js';
+import garageQueueRouter from './routes/garageQueueRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import intelligenceActivityRouter from './routes/intelligenceActivityRoutes.js';
@@ -486,6 +494,12 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(registrationOnboardingRouter);
 app.use(garageOnboardingRouter);
+app.use(garageDirectoryRouter);
+app.use(serviceCaseRouter);
+app.use(serviceWorkOrderRouter);
+app.use(serviceRecordRouter);
+app.use(serviceLinkRouter);
+app.use(garageQueueRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
 app.use(intelligenceActivityRouter);
@@ -4247,10 +4261,10 @@ app.delete('/api/vehicles/saved/:vin', authorizeRole(['owner', 'dealer', 'admin'
 // 503, never an empty history.
 app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
-    res.json(await listOwnerServiceHistory(supabase, req.userContext.id))
+    res.json(await listOwnerServiceHistory(supabase, req.userContext?.id))
   } catch (error) {
-    if (error instanceof ServiceHistoryUnavailableError) {
-      return res.status(503).json({ error: error.message, code: error.code })
+    if (error instanceof ServiceHistoryUnavailableError || error instanceof CarUpError) {
+      return res.status(error.statusCode).json({ error: error.message, code: error.code })
     }
     console.error('Error fetching service history:', error)
     res.status(500).json({ error: 'Your service history could not be read right now.' })
