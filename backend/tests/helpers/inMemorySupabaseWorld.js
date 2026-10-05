@@ -3,7 +3,8 @@
  *
  * Table-agnostic: any table, any columns. It implements the supabase-js query-builder subset the routes
  * on the governed journeys use (select/insert/upsert/update/delete with eq/neq/in/is/gt/gte/lt/lte/
- * ilike/or-free filters, order, limit, range, single/maybeSingle, head counts, JSON-path `col->>key`
+ * ilike filters, a flat `or('a.eq.x,b.eq.y')` (OC-5H — Seller Intelligence resolves a seller's
+ * listings that way), order, limit, range, single/maybeSingle, head counts, JSON-path `col->>key`
  * equality), a Storage double that really stores bytes, and an RPC table a test can register handlers in.
  *
  * Not a database: no FKs, RLS, triggers or CHECKs — those are proven on real PostgreSQL (PGlite) in the
@@ -74,7 +75,9 @@ export function createSupabaseWorld(seed = {}, { serialTables = [] } = {}) {
 
   function from(table) {
     const st = { op: 'select', filters: [], order: [], limit: null, range: null, payload: null, returning: false, head: false, onConflict: null, columns: '*' };
-    const matches = (row) => st.filters.every(([key, op, value]) => {
+    const matches = (row) => st.filters.every(([key, op, value]) => holds(row, key, op, value));
+    const holds = (row, key, op, value) => {
+      if (op === 'or') return value.some(([k, o, v]) => holds(row, k, o, v));
       const actual = readField(row, key);
       switch (op) {
         case 'eq': return actual === value;
@@ -88,7 +91,7 @@ export function createSupabaseWorld(seed = {}, { serialTables = [] } = {}) {
         case 'ilike': return typeof actual === 'string' && new RegExp(`^${String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*')}$`, 'i').test(actual);
         default: return true;
       }
-    });
+    };
     const q = {
       select(columns = '*', options = {}) {
         st.columns = columns || '*';
@@ -108,6 +111,20 @@ export function createSupabaseWorld(seed = {}, { serialTables = [] } = {}) {
       lt(k, v) { st.filters.push([k, 'lt', v]); return q; },
       lte(k, v) { st.filters.push([k, 'lte', v]); return q; },
       ilike(k, v) { st.filters.push([k, 'ilike', v]); return q; },
+      // A flat PostgREST disjunction: `column.op.value` terms, comma-separated. Nested and()/or() and
+      // other operators are refused loudly — a silent mis-parse would make a filter match everything.
+      or(expression) {
+        const terms = String(expression).split(',').map((term) => {
+          const [column, op, ...rest] = term.trim().split('.');
+          if (!column || !['eq', 'neq', 'is', 'gt', 'gte', 'lt', 'lte'].includes(op) || /[()]/.test(term)) {
+            throw new Error(`in-memory world: unsupported or() term "${term}"`);
+          }
+          const raw = rest.join('.');
+          return [column, op, raw === 'null' ? null : raw];
+        });
+        st.filters.push([null, 'or', terms]);
+        return q;
+      },
       order(k, o = {}) { st.order.push([k, o.ascending !== false]); return q; },
       limit(n) { st.limit = n; return q; },
       range(a, b) { st.range = [a, b]; return q; },
