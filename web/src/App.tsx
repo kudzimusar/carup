@@ -29,6 +29,8 @@ import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
+import GarageDetail from './pages/GarageDetail'
+import ServiceLink from './pages/ServiceLink'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
@@ -100,6 +102,7 @@ import GarageSetup from './pages/dashboard/garage/GarageSetup'
 import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
 import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
 import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
+import ServiceRequests from './pages/dashboard/owner/ServiceRequests'
 import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
 import PartSentry from './pages/dashboard/owner/PartSentry'
 import MyListings from './pages/dashboard/owner/MyListings'
@@ -120,6 +123,12 @@ import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
 
 // Mechanic Dashboard
 import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
+// Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
+// that were certified in Foundation 1.0 and had no product surface at all.
+import GarageWorkspace from './pages/dashboard/garage/GarageWorkspace'
+import GarageCaseDetail from './pages/dashboard/garage/GarageCaseDetail'
+import GarageCustomers from './pages/dashboard/garage/GarageCustomers'
+import GarageProfileEditor from './pages/dashboard/garage/GarageProfileEditor'
 import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
 import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
 import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
@@ -276,6 +285,15 @@ export default function App() {
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
+          {/* Public garage profile. Lost when the post-#194 reconciliation took main's side of this
+              file wholesale, which left GarageDetail on disk with zero importers. Guarded by
+              web/src/__tests__/app-route-convergence.test.tsx. */}
+          <Route path="/garages/:slug" element={<GarageDetail />} />
+          {/* Where every CarUp QR code lands (R8). The backend resolved service links from the
+              start; this route did not exist, so every scan opened the 404 page. Public by
+              design: the resolver — not this route — decides what a scanner may see, and shows an
+              anonymous scanner only that the link is real. */}
+          <Route path="/s/:token" element={<ServiceLink />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
@@ -405,6 +423,9 @@ export default function App() {
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
+          {/* R3 — a successful service request must remain findable. This is a view of the
+              canonical Service Cases the owner already owns, not a second request ledger. */}
+          <Route path="/dashboard/service-requests" element={<ServiceRequests />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
@@ -433,6 +454,14 @@ export default function App() {
           <Route path="/mechanic/service-logs" element={<ServiceLogs />} />
           <Route path="/mechanic/parts" element={<PartsTracking />} />
           <Route path="/mechanic/customers" element={<CustomerRecords />} />
+          {/* The garage's own work, in the garage-side portal. OC-5D: no platform role admits these —
+              the registry's tenant scope does (the SELECTED, verified garage, in the roles the
+              backend's requireActiveTenant accepts), and this layout and the route boundary both
+              evaluate it, so the surface's answer to "who may act for a garage" is the API's. */}
+          <Route path="/garage" element={<GarageWorkspace />} />
+          <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
+          <Route path="/garage/customers" element={<GarageCustomers />} />
+          <Route path="/garage/profile" element={<GarageProfileEditor />} />
         </Route>
 
         {/* Insurance Dashboard */}

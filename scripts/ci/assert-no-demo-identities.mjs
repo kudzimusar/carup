@@ -17,6 +17,11 @@ export const FORBIDDEN_IN_PRODUCTION = Object.freeze([
   'Quick Demo Access',
   'dealer@crocomoto.co.zw',
   'simba@garage.co.zw',
+  // The owner demo identity. It could not be a needle while CustomerRecords hard-coded it as a
+  // "customer" (it shipped in every build); that page now reads the garage's real customers, so the
+  // only remaining copy is Login's, which a production build folds out. (Not the NAME: "Tendai
+  // Moyo" is also a form placeholder, which is not an identity.)
+  'tendai@email.co.zw',
 ]);
 
 export function scanDist(distDir) {

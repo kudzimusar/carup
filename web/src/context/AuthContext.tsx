@@ -109,7 +109,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // build may carry the organisation login used to guess; the server's answer replaces it.
         if (cancelled || !serverUser) return
         if (readStoredAuth(localStorage)?.token !== stored.token) return // a newer sign-in won
-        const next = withServerTenantContext(stored.user, serverUser)
+        // The server's answer wins for the whole identity (PR #197's adoption: a renamed account or a
+        // changed role must not outlive the session), and its organisation REPLACES the stored one.
+        const next = withServerTenantContext({ ...stored.user, ...serverUser }, serverUser)
         setUser(next)
         storeAuth(localStorage, next, stored.token)
       })
@@ -172,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const serverUser = await validateStoredSession({ baseUrl: API_BASE, token: currentToken, userId: currentUser.id })
         if (tokenRef.current !== currentToken || !userRef.current) return
-        const next = withServerTenantContext(userRef.current, serverUser)
+        const next = withServerTenantContext({ ...userRef.current, ...serverUser }, serverUser)
         setUser(next)
         storeAuth(localStorage, next, currentToken)
       } catch (e) {

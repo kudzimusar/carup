@@ -24,7 +24,9 @@ import {
   matchRoutePattern,
   getStaticLifecycle,
   getDashboardRoute,
+  isFeatureRoleEligible,
   normalizeFrontendRole,
+  type ActiveTenantScope,
   type FeatureRegistryItem,
   type EffectiveFeatureState,
   type FeatureLifecycleState,
@@ -110,6 +112,18 @@ export interface RouteAccessInput {
   isBootstrapping: boolean
   isAuthenticated: boolean
   role: UserRole | null
+  /**
+   * OC-5D — the person's VERIFIED, SELECTED organisation (AuthUser.active_tenant): its type and their
+   * role inside it.
+   *
+   * Round 2 owner UAT: a real garage tenant-member could not open the garage workspace — public
+   * registration only ever creates an `owner`, while their `tenant_users` record says `mechanic`.
+   * #197 answered by letting the TENANT role satisfy the PLATFORM role list (F4). The two are now
+   * separate questions with one shared rule (isFeatureRoleEligible): the platform role satisfies a
+   * feature's `roles`; this scope satisfies its `tenantTypes`/`tenantRoles`. It widens no authority —
+   * every API route re-verifies the selection (requireActiveTenant) and remains the authority.
+   */
+  activeTenant?: ActiveTenantScope | null
   /** Backend-derived effective states keyed by feature id (optional; static defaults otherwise). */
   effectiveStates?: Record<string, EffectiveFeatureState>
   /**
@@ -207,7 +221,10 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     if (!isAuthenticated || !role) {
       return { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
     }
-    if (!feature.roles.includes(role)) {
+    // ONE rule, two namespaces (OC-5D, F4): the platform role satisfies `roles`; the selected,
+    // verified organisation satisfies `tenantTypes`/`tenantRoles` — never across.
+    const satisfied = isFeatureRoleEligible(feature, { role, activeTenant: input.activeTenant })
+    if (!satisfied) {
       return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
     }
   }

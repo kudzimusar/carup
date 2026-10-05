@@ -347,6 +347,11 @@ on:
       - 'web/src/lib/retiredRoutes.test.ts'
       - 'docs/one-carup/**'
       - '**/*.md'
+      # OC-5D P7: the registry is read by every web surface, so any web or shared change re-runs the
+      # full web suite (job oc5d-web-surfaces), and the manifest generator is part of that gate.
+      - 'web/src/**'
+      - 'shared/**'
+      - 'scripts/generate-feature-manifest.mjs'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -789,6 +794,33 @@ jobs:
           node --test backend/tests/oc5b-*.test.js backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js backend/tests/oc3-programme-authority.test.js
           ALLOW_OCR_MOCK=false node --test backend/tests/oc3b-truthful-ai-simulation.test.js backend/tests/oc3b-r-simulation-steering-guard.test.js
           npm run test:unit --workspace=web -- src/pages/dashboard/admin/EvidenceReview.analysis.test.tsx
+
+  # ── OC-5D P7 — the web Service Network surfaces (exact-head, FULL web suite) ──
+  # A garage feature now declares a TENANT scope that only the session's selected, verified
+  # organisation satisfies; a platform role satisfies `roles` and nothing else. The route gate, the
+  # sidebar, the drawer, the compact bar and the operating home all read that one rule from the
+  # registry — and every other surface reads the same registry — so the whole web suite runs here,
+  # not a subset that happens to name the garage.
+  oc5d-web-surfaces:
+    name: OC-5D web surfaces (tenant scope; one rule for every gate; full web suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install workspace dependencies
+        run: npm ci || npm install
+      - name: The navigation manifest is the registry's (no drift)
+        run: node scripts/generate-feature-manifest.mjs --check
+      - name: The web app type-checks
+        run: npx tsc --noEmit -p web/tsconfig.app.json
+      - name: The full web suite
+        run: npm run test:unit --workspace=web
 
   # ── OC-4F source RC1 residual guards (exact-head, targeted) ────────────────
   # The credential tripwire walks the WHOLE tree, so any document change re-runs it (hence the
