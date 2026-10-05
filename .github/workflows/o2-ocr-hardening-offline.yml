@@ -375,6 +375,11 @@ on:
       - 'scripts/ci/golden-seller-identity.mjs'
       - 'backend/services/marketplace/listingSummaryService.js'
       - 'backend/services/marketplace/marketplaceClassificationRules.js'
+      # OC-5G: notifications — the live path's channel cap, the six policy templates, the coverage gate.
+      - 'backend/services/communication/**'
+      - 'backend/tests/oc5g-*.test.js'
+      - 'backend/tests/communication-event-coverage.test.js'
+      - 'database/migrations/2026100421*'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -817,6 +822,20 @@ jobs:
           backend/tests/migration-integrity.test.js
       - name: OC-5F — seller intelligence (#213 A/B) and spec 48's gate (F) — a refused rollup write fails the day; spec 48 stays out of the aggregate gates and its Communications test stays fixme
         run: node --test backend/tests/intelligence-*.test.js backend/tests/oc5f-*.test.js backend/tests/migration-integrity.test.js
+
+      - name: OC-5G — notifications — the live path honours policyChannelsOnly; the six policy templates are registered and render on the channels their policies allow
+        run: >-
+          node --test backend/tests/oc5g-*.test.js
+          backend/tests/communication-event-coverage.test.js
+          backend/tests/communications-2-canonical-service-hardening.test.js
+          backend/tests/communications-2-governed-template-runtime.test.js
+          backend/tests/trade-os-t7-channel-and-action-contract.test.js
+          backend/tests/service-network-o1-o10-obligations.test.js
+          backend/tests/o2-x6-events.test.js
+          backend/tests/passport-v16-runtime-convergence.test.js
+          backend/tests/email-reference-r4-safetrade-transaction.test.js
+          backend/tests/email-reference-r5-vehicle-trust-update.test.js
+          backend/tests/migration-integrity.test.js
       - name: OC-5D — R14 a PRODUCTION web bundle carries no demo identity or password (real build, then scan)
         run: |
           npm run test:unit --workspace=web -- src/pages/auth/demoIdentityGuard.test.tsx
