@@ -1700,6 +1700,69 @@
         "OWNER-UAT-CERTIFIED"
       ],
       "recorded_at": "2026-10-05T04:12:51Z"
+    },
+    {
+      "id": "OC5J-R1-SOURCE",
+      "phase": "OC-5J",
+      "capability": "web.api_aggregate_effect_stability",
+      "sha": "3b36b1b4b70d3272eec137895c6cbf20e2a200b2",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "vitest through the REAL useCarUpApi (only the network boundary and the signed-in person stood in, with 20 ms latency) + a source guard over every holder of the aggregate + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "apiRequest (network boundary) and useAuth stood in; jsdom"
+      ],
+      "claims": [
+        "the Diaspora AI Command Center loads its commands once per visit",
+        "no effect in any file that holds the useCarUpApi() aggregate depends on it, directly or through a callback or memo"
+      ],
+      "evidence": {
+        "ci_run": "37263979793",
+        "suites": [
+          "DiasporaAiCommandCenter.requestLoop",
+          "apiAggregateEffectDependency",
+          "full web suite"
+        ],
+        "mutants": "3/3 guard mutants killed; both tests fail on the original page (129 loads in 500 ms; the guard names the line)"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T04:40:04Z"
+    },
+    {
+      "id": "OC5J-R3-SOURCE",
+      "phase": "OC-5J",
+      "capability": "passport.ownership_transfer_refusals",
+      "sha": "3b36b1b4b70d3272eec137895c6cbf20e2a200b2",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test, behavioural on begin, transition and read + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "the transfer RPC / read client stood in to return each governed SQLSTATE"
+      ],
+      "claims": [
+        "a governed ownership-transfer refusal keeps its own words and status (403/404/409/409/400)",
+        "an unexpected fault is still a 500 DatabaseError"
+      ],
+      "evidence": {
+        "ci_run": "37263979793",
+        "suites": [
+          "oc5j-ownership-transfer-refusals"
+        ],
+        "mutants": "5/5 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T04:40:04Z"
     }
   ],
   "capabilities": {
@@ -1993,6 +2056,22 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
       "notes": "OC-5H: the RC2 product journeys (J1-J5) end to end through the shipped app, each AI-labelled (all five AI: NONE, asserted by a fetch guard). Deployed journeys are an RC2 runbook step."
+    },
+    "web.api_aggregate_effect_stability": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "OC-5J: no page effect depends on the useCarUpApi() aggregate (which changes on every request), directly or through a callback; the Diaspora AI Command Center request loop fixed."
+    },
+    "passport.ownership_transfer_refusals": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5J: a governed ownership-transfer refusal (42501/P0002/23505/23514/22023) is a 403/404/409/409/400 with its own words; an unexpected fault stays a 500 DatabaseError."
     }
   }
 }
