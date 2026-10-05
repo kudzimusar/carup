@@ -26,7 +26,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, unlinkSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -688,8 +691,17 @@ test('Issue #158: every terminal guard is load-bearing under mutation', async (t
       }
     });
 
-    const mutantUrl = new URL(`../services/blockchain/__mutant__${index}.blockchainService.js`, import.meta.url);
-    writeFileSync(mutantUrl, source.replace(mutant.find, mutant.replace), 'utf8');
+    // OC-5J: the copy is written OUTSIDE the repository. It used to sit beside the real module as
+    // `__mutant__N.blockchainService.js`, where every test that walks backend/services could list it
+    // and then find it gone (a full-suite ENOENT flake). Its relative imports are made absolute
+    // against the real module, so it loads the SAME modules (same URLs, same supabase singleton);
+    // `.mjs` because a temp directory has no package.json declaring ESM.
+    const mutantDir = mkdtempSync(join(tmpdir(), 'issue158-mutant-'));
+    const mutated = source.replace(mutant.find, mutant.replace)
+      .replace(/(\bfrom\s*)(['"])(\.{1,2}\/[^'"]+)\2/g, (_, from, quote, spec) => `${from}${quote}${new URL(spec, SERVICE_SOURCE_URL).href}${quote}`);
+    assert.doesNotMatch(mutated, /\bfrom\s*['"]\.{1,2}\//, 'every relative import of the copy resolves to the real tree');
+    const mutantUrl = pathToFileURL(join(mutantDir, `mutant-${index}.blockchainService.mjs`));
+    writeFileSync(mutantUrl, mutated, 'utf8');
     try {
       await t.test(`mutant fails: ${mutant.name}`, async (st) => {
         withKeyVersion(st, `mu${index}m`);
@@ -701,7 +713,7 @@ test('Issue #158: every terminal guard is load-bearing under mutation', async (t
           .finally(() => db.close());
       });
     } finally {
-      try { unlinkSync(mutantUrl); } catch { /* already removed */ }
+      rmSync(mutantDir, { recursive: true, force: true });
     }
   }
 });

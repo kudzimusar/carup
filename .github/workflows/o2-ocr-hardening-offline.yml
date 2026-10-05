@@ -384,6 +384,8 @@ on:
       - 'backend/tests/oc5h-*.test.js'
       - 'backend/tests/helpers/inMemorySupabaseWorld.js'
       - 'backend/tests/helpers/gmoGarageWorld.js'
+      # OC-5J: RC2 residuals — issue-158 now writes its mutant copies outside the repository.
+      - 'backend/tests/issue-158-terminal-operation-identity.test.js'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
