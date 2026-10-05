@@ -911,6 +911,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Review and resolve open fraud cases',
   },
   {
+    // GMO-3/4 (OC-5E): deciding garage applications and building the workspace of an approved one.
+    // The server's capability is platform administration only (OC-5E owner decision), so the
+    // registry offers it to the platform admin role and nobody else.
+    id: 'admin.garage-applications',
+    label: 'Garage Applications',
+    shortLabel: 'Garages',
+    route: '/admin/garage-applications',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    sidebarGroup: 'People',
+    description: 'Review garage applications and create the workspace of an approved one',
+  },
+  {
     id: 'admin.dealer-compliance',
     label: 'Dealer Compliance',
     route: '/admin/dealer-compliance',

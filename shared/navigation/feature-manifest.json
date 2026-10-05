@@ -98,6 +98,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.garage-applications",
+    "domain": "admin",
+    "route": "/admin/garage-applications",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.governance-review",
     "domain": "trust",
     "route": "/admin/governance-review",

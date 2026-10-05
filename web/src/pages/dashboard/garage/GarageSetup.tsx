@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import GarageEvidence from './GarageEvidence'
+import GarageWorkspaceReady from './GarageWorkspaceReady'
 import {
   APPLICANT_RELATIONSHIPS,
   statusPresentation,
@@ -195,6 +196,16 @@ export default function GarageSetup() {
       </header>
 
       {error && <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
+
+      {/* GMO-4 (OC-5E): what became of an approved application, said plainly either way. */}
+      {application.activated_tenant_id ? (
+        <GarageWorkspaceReady tenantId={application.activated_tenant_id} />
+      ) : application.status === 'approved' ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-testid="garage-workspace-pending">
+          Your application is approved. Your garage workspace has not been created yet — CarUp will
+          create it; you do not need to apply again.
+        </p>
+      ) : null}
 
       <section className="rounded-xl border border-gray-200 bg-white p-5 space-y-4" aria-labelledby="manual-fields">
         <div>

@@ -3240,6 +3240,30 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  // GMO-3/4 (ported by OC-5E from #209) — the CarUp reviewer's side of garage onboarding. The server
+  // decides every gate (session, review capability, X3 step-up); these only carry the request.
+  const garageReviewBase = (appId: string) => `/admin/garage-applications/${encodeURIComponent(appId)}`
+  const fetchGarageApplicationsForReview = useCallback(async (statuses?: string[]): Promise<GarageApiJson> => {
+    const q = statuses?.length ? `?status=${encodeURIComponent(statuses.join(','))}` : ''
+    return request<GarageApiJson>(`/admin/garage-applications${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageApplicationForReview = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageReviewBase(appId), { method: 'GET' })
+  }, [request])
+
+  const decideGarageApplication = useCallback(async (appId: string, body: { decision: string; reason?: string; reason_code?: string }): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/decision`, { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const activateGarageApplication = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/activate`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const previewGarageEvidenceForReview = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/evidence/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
   // O2-X2 (ported by OC-5C) — the registration onboarding journey (self-scoped; describes, never grants)
   // and the applicant's own 7C identity wizard. Server-owned payloads travel as structural records;
   // the consuming page narrows them.
@@ -3310,6 +3334,11 @@ export function useCarUpApi() {
     previewGarageEvidence,
     extractGarageEvidence,
     acknowledgeGarageEvidence,
+    fetchGarageApplicationsForReview,
+    fetchGarageApplicationForReview,
+    decideGarageApplication,
+    activateGarageApplication,
+    previewGarageEvidenceForReview,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,

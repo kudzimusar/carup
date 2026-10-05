@@ -161,7 +161,10 @@ test.describe('Feature Registry & Navigation Map', () => {
       // triggered this PR-only gate, so the pin went stale before OC-4. Verified against the live
       // registry, not hand-added: it is the only owner entry added versus main bb9d9900, and every
       // other role's count below already matches the registry.
-      expect(result.roleItemCounts['owner']).toBe(22);
+      // Recomputed 2026-10-05 (OC-5D P7, PR #197 port): `owner.service-requests` — the owner's view of the
+      // service cases they opened — is a NEW owner sidebar destination (22 -> 23). Counted from the live
+      // registry's getDashboardItems('owner'), not hand-added; this PR-only gate never ran on the OC-5 lanes.
+      expect(result.roleItemCounts['owner']).toBe(23);
       // Recomputed 2026-09-05 (Trade OS T2): `diaspora.buyer-requests` — the supplier's opportunity
       // marketplace — is a NEW sidebar destination registered with roles ['dealer', 'admin'], so it
       // moves BOTH of those counts (dealer 16 -> 17, admin 32 -> 33) and no others. The relabelled
@@ -200,7 +203,10 @@ test.describe('Feature Registry & Navigation Map', () => {
       // it moves the admin count alone (33 -> 34). Registering it at all is the point: an
       // unregistered path under /diaspora is PUBLIC by the isPublicRoute fallback, and this
       // surface must never be.
-      expect(result.roleItemCounts['admin']).toBe(38);
+      // Recomputed 2026-10-05 (OC-5E GMO-3/4, PR #209 port): `admin.garage-applications` — deciding garage
+      // applications and building an approved one's workspace — is a NEW platform-admin destination
+      // (38 -> 39). No other role moves: its server capability is platform administration only.
+      expect(result.roleItemCounts['admin']).toBe(39);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

@@ -53,6 +53,8 @@ const SERVICE_NETWORK_SURFACES = [
 const GARAGE_ONBOARDING_SURFACES = [
   '/src/pages/dashboard/garage/GarageSetup.tsx',
   '/src/pages/dashboard/garage/GarageEvidence.tsx',
+  // GMO-4 (OC-5E): the founder's way into the garage CarUp created for them.
+  '/src/pages/dashboard/garage/GarageWorkspaceReady.tsx',
 ]
 
 /** Every surface this gate governs. */
