@@ -1763,11 +1763,40 @@
         "OWNER-UAT-CERTIFIED"
       ],
       "recorded_at": "2026-10-05T04:40:04Z"
+    },
+    {
+      "id": "OC5J-CR1-SOURCE",
+      "phase": "OC-5J",
+      "capability": "programme.evidence_certification_guard",
+      "sha": "fdda1e016facb2479023418f353e6feb36495c4f",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test (OC-5 evidence certification ladder job) + the guard run over this manifest in CI + the blocking CR-1 credential scan (ci.yml) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the guard refuses the impossible promotions the policy names: mocked or intercepted output at LIVE-PROVIDER or above, local, CI or sandbox evidence at DEPLOYED or above, authority facts from evidence below LIVE-PROVIDER, a DATABASE receipt naming either real CarUp project, and a SHA that is not an ancestor of the head",
+        "the guard holds no real project ref of its own: it imports both from the reviewed deny-guard, and the CR-1 credential scan passes on it"
+      ],
+      "evidence": {
+        "ci_run": "37265490501",
+        "ci_yml_run": "37265494344",
+        "suites": [
+          "oc5-evidence-certification-guard",
+          "evidence-certification-guard over ONE_CARUP_CERTIFICATION_MANIFEST.json",
+          "cr1-secret-scan"
+        ],
+        "mutants": "11/11 killed (Phase 0 d87f335d: 9/9; the CR-1 fix: 2/2, each real ref dropped in turn)"
+      },
+      "remaining": [],
+      "recorded_at": "2026-10-05T05:02:09Z"
     }
   ],
   "capabilities": {
     "programme.evidence_certification_guard": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "N/A",

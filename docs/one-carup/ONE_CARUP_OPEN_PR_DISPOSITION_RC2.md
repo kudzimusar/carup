@@ -1,7 +1,8 @@
 # One CarUp — Open PR disposition at RC2
 
-**Source RC:** `integration/one-carup-source-rc2`. Its code head is `3b36b1b4` (the OC-5J residual
-fixes). This document and the RC2 records follow it as docs-only commits.
+**Source RC:** `integration/one-carup-source-rc2`. Its code head is `fdda1e01`: the OC-5J residual fixes
+(`3b36b1b4`), then the CR-1 fix that RC2's first `ci.yml` run asked for. This document and the RC2
+records follow it as docs-only commits.
 
 - It is RC1 (`75449a16`, Draft PR #220) plus OC-5A … OC-5J, linear, with no merges.
 - Every phase head is pushed and CI-proven.

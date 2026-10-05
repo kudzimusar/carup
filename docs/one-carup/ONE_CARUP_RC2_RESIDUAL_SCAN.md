@@ -1,6 +1,7 @@
 # One CarUp — RC2 residual scan
 
-**Branch:** `integration/one-carup-source-rc2`. Its code head is `3b36b1b4`; these records follow it as
+**Branch:** `integration/one-carup-source-rc2`. The scan was run at code head `3b36b1b4`. One later code
+commit, `fdda1e01`, fixes what RC2's first `ci.yml` run found (below). These records follow it as
 docs-only commits.
 
 **Method:**
@@ -42,7 +43,7 @@ owner decisions, runtime certification, or recorded P2/P3 work, listed at the en
 | 15 | Native static guards | `escrow.tsx` sends the ngrok header on 1 of 3 fetches. The header matters only behind a development ngrok tunnel; no production path depends on it. | INTENTIONALLY GOVERNED (development-only header) |
 | 16 | Stale proof | The older local Playwright agent specs fail identically on `main` | INTENTIONALLY GOVERNED — superseded as proof by OC-4E and OC-5H's journeys |
 | 17 | Tests that age out | One future-dated literal (`garageTeam.test.tsx`, `2026-10-12`). It is display-only: the page reads the server's `status` and compares no clock. | Clean |
-| 18 | Gates this lineage never triggered | The RC2 Draft PR's checks, compared against #220's baseline (see the RC2 PR) | RUNTIME-CERTIFICATION BLOCKER for every staging-pair gate |
+| 18 | Gates this lineage never triggered | `ci.yml` runs only on pull requests to `main`, so the RC2 Draft PR was its first run on any OC-5 branch. Its blocking CR-1 scan found a production project ref in the evidence guard (below); every other non-staging gate passed. Each staging-pair gate refuses this branch by name (`UNGOVERNED_BRANCH` / "preview pair is not governed") before any staging contact, and `staging-integration` cannot reach the staging tenant. | CR-1: **FIXED** (`fdda1e01`). Staging-pair gates: RUNTIME-CERTIFICATION BLOCKER |
 
 **RC1 findings A–D:**
 - **A** — PartSentry for non-mechanic roles: **FIXED** in OC-5A P1-A `6317d832`.
@@ -60,6 +61,8 @@ owner decisions, runtime certification, or recorded P2/P3 work, listed at the en
 | The Diaspora AI Command Center loaded its commands without end (330 loads in 1.5 s), found via #137 | P1 | **FIXED** — OC-5J `12f640d8`, plus a guard over every holder of the API aggregate (3/3 guard mutants) |
 | Ownership-transfer refusals answered 500 (found via #208, hit live in owner UAT) | P2 | **FIXED** — OC-5J `3b36b1b4` (5/5) |
 | A full-suite flake: issue-158 wrote mutant copies into the source tree | test infrastructure | **FIXED** — OC-5J `4dd9d302` (root cause), plus the `__mutant__` skip in two scanners (OC-5G) |
+| CR-1 (blocking) found the production project ref written as a literal in the evidence guard (Phase 0 `d87f335d`). The guard used it only to refuse receipts, but CR-1 allows that ref only in executables it has reviewed. | CI-blocking | **FIXED** — `fdda1e01`. The guard imports both refs from the reviewed deny-guard (`referral-uat-guard.mjs`); nothing was added to CR-1's allowlist (2/2 mutants) |
+| Operations Serena's `always()` step "Restore original Kingstone credential" fails with `ERR_MODULE_NOT_FOUND: pg` when the run stops before `npm ci`. It makes no staging contact, but it adds a second, misleading red step. | P3 | EXPLICIT OWNER BLOCKER — a certified gate (spec 43), so its lane changes it, not RC2 |
 | #209's invitation acceptance was two calls, any tenant admin could invite (F1), and a decision race was possible | P1 | **FIXED** — OC-5E `4068fe1f`, `b28cf5b2` |
 | The service-history response named other people; the native Garage crashed on `item.cost` | P1 | **FIXED** — OC-5D `6783ae3f` |
 | The applicant session leaked the reviewer's internal note; idempotency handed one user another's evidence | P1 | **FIXED** — OC-5C `fcb1a908`, `1d0d7003` |

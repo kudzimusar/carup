@@ -151,7 +151,11 @@ which stays as the RC1 record.
     - spec 42 (serialised with the others — it rotates shared passwords);
     - spec 43;
     - **spec 48**, through its own workflow and config. Phase Q stays `fixme` unless decision D
-      allows it.
+      allows it;
+    - the Marketplace Reference Regression (exact-head reference and staging certification). It
+      watches `backend/services/report/**`, and OC-5F changed that path. RC2's PR is the first time
+      it ran on this lineage rather than being cancelled by the shared lock, and it refused the
+      ungoverned pair.
   - Re-certify as sibling gates:
     - GMO-8 (golden journey, activation race, step-up);
     - #208's P7, X7 and mobile UAT, with #208's spec 45 renumbered (RC2's spec 45 is Trade OS).
