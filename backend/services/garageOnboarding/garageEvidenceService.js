@@ -140,6 +140,12 @@ export function sanitizeEvidence(row) {
   return { ...safe, has_file: Boolean(_fileRef) };
 }
 
+/**
+ * OC-5E: trust_audit_events has no target column — the normalizer keeps a target id only for
+ * vehicle, evidence and PartSentry targets — so every event here carries the ids of the document
+ * and application it is about in its values. Before this, an upload or a withdrawal named only the
+ * application and an extraction named neither: the row could not be tied to what it recorded.
+ */
 async function writeAudit(client, event) {
   const result = await logAuditEvent(client, event);
   if (!result.success) {
@@ -265,7 +271,7 @@ export async function uploadEvidence(client = defaultClient, actor = {}, applica
     source_route: '/api/garage-onboarding/application/:id/evidence',
     targetType: 'garage_application_document',
     targetId: data.id,
-    new_value: { application_id: applicationId, evidence_type: evidenceType, size_bytes: parsed.buffer.length, mime_type: parsed.mimeType },
+    new_value: { application_id: applicationId, document_id: data.id, evidence_type: evidenceType, size_bytes: parsed.buffer.length, mime_type: parsed.mimeType },
   });
 
   return { document: sanitizeEvidence(data) };
@@ -295,7 +301,7 @@ export async function removeEvidence(client = defaultClient, actor = {}, applica
     source_route: '/api/garage-onboarding/application/:id/evidence/:docId',
     targetType: 'garage_application_document',
     targetId: documentId,
-    new_value: { application_id: applicationId },
+    new_value: { application_id: applicationId, document_id: documentId },
   });
   return { document: sanitizeEvidence(data) };
 }
@@ -434,6 +440,8 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
       targetType: 'garage_application_document',
       targetId: documentId,
       new_value: {
+        application_id: applicationId,
+        document_id: documentId,
         extraction_state: EXTRACTION_STATE.FAILED,
         provider: provenance?.provider || null,
         model: provenance?.model || null,
@@ -530,7 +538,7 @@ export async function runEvidenceExtraction(client = defaultClient, actor = {}, 
     source_route: '/api/garage-onboarding/application/:id/evidence/:docId/extract',
     targetType: 'garage_application_document',
     targetId: documentId,
-    new_value: { extraction_state: state, provider: result.provider || null, model: result.model || null, extraction_confidence: confidence },
+    new_value: { application_id: applicationId, document_id: documentId, extraction_state: state, provider: result.provider || null, model: result.model || null, extraction_confidence: confidence },
   });
 
   return { document, candidates, extraction_state: state };
@@ -571,7 +579,7 @@ export async function acknowledgeExtraction(client = defaultClient, actor = {}, 
     source_route: '/api/garage-onboarding/application/:id/evidence/:docId/acknowledge',
     targetType: 'garage_application_document',
     targetId: documentId,
-    new_value: { from_state: doc.extraction_state },
+    new_value: { application_id: applicationId, document_id: documentId, from_state: doc.extraction_state },
   });
   return { document: sanitizeEvidence(data) };
 }

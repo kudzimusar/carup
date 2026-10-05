@@ -390,3 +390,53 @@ test('C3 source has one provider boundary and no direct Gemini/Garage-specific O
   assert.doesNotMatch(source, /GeminiClient|askGemini|GEMINI_API_KEY/);
   assert.doesNotMatch(source, /extractDocumentData\(`garage_/);
 });
+
+test('OC-5E: every evidence audit row names the document and the application it is about', async () => {
+  // trust_audit_events has no target column: the normalizer keeps a target id only for vehicle,
+  // evidence and PartSentry targets. An upload or withdrawal used to name only the application and an
+  // extraction named neither, so the row could not be tied to what it recorded.
+  const { uploadEvidence, removeEvidence } = await import('../services/garageOnboarding/garageEvidenceService.js');
+  const audited = (writes) => writes.filter((w) => w.table === 'trust_audit_events' && w.op === 'insert').map((w) => w.payload);
+  const subject = (row) => [row.event_type, row.new_value?.application_id, row.new_value?.document_id];
+
+  const runs = [];
+  {
+    const writes = [];
+    await runEvidenceExtraction(mockClient({}, writes), actor, APP, DOC, { ...READY, storage, ocr: { async extractDocumentData() { return successOcr(); } } });
+    runs.push(...audited(writes));
+  }
+  {
+    const writes = [];
+    await runEvidenceExtraction(mockClient({}, writes), actor, APP, DOC, { ...READY, storage, ocr: { async extractDocumentData() { throw new Error('provider transport unavailable'); } } });
+    runs.push(...audited(writes));
+  }
+  {
+    const writes = [];
+    const client = mockClient({
+      garage_application_documents: [{ ...documentRow, extraction_state: 'awaiting_confirmation', extraction_candidates: { trading_name: { state: 'machine_candidate', value: 'Specimen Motors' } } }],
+    }, writes);
+    await acknowledgeExtraction(client, actor, APP, DOC);
+    runs.push(...audited(writes));
+  }
+  {
+    const writes = [];
+    await removeEvidence(mockClient({}, writes), actor, APP, DOC);
+    runs.push(...audited(writes));
+  }
+  {
+    const writes = [];
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('garage-evidence-bytes')]);
+    await uploadEvidence(mockClient({}, writes), actor, APP, { evidence_type: 'utility_bill', mime_type: 'image/png', file_base64: png.toString('base64') }, {
+      storage: { ...storage, async uploadToStorage() { return { path: 'stored' }; } },
+    });
+    runs.push(...audited(writes));
+  }
+
+  assert.deepEqual(runs.map(subject), [
+    ['GARAGE_EVIDENCE_EXTRACTED', APP, DOC],
+    ['GARAGE_EVIDENCE_EXTRACTION_FAILED', APP, DOC],
+    ['GARAGE_EVIDENCE_EXTRACTION_ACKNOWLEDGED', APP, DOC],
+    ['GARAGE_EVIDENCE_WITHDRAWN', APP, DOC],
+    ['GARAGE_EVIDENCE_UPLOADED', APP, 'inserted-row'],
+  ]);
+});
