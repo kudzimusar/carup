@@ -54,10 +54,13 @@ const TEMPLATES = Object.freeze({
   // Operations M2 — governed Seller Authority decisions. Wording is bounded:
   // it reports the CarUp policy decision only, never a legal-title or
   // registration claim, and carries no security token or restricted document.
+  // OC-5G (registered by 20261004210000): `decision` is the public statement, and `under_review` is a
+  // valid decision, so "was reviewed by CarUp: Seller authority under CarUp review" contradicted
+  // itself. The body now states only that CarUp updated it, which is true of every statement.
   seller_authority_v1: {
     transactional: true,
     subject: 'Seller authority decision',
-    body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
+    body: 'CarUp updated the seller authority for vehicle {{listing_id}}: {{decision}}.',
   },
   // O2/P5 — renders governed structured facts only; no free text, no reviewer notes.
   dealer_compliance_decision_v1: {
@@ -81,6 +84,20 @@ const TEMPLATES = Object.freeze({
     transactional: true,
     subject: 'Seller authority ended',
     body: 'Your seller authority for vehicle {{listing_id}} ended because ownership transferred. No action is needed.',
+  },
+  // OC-5G — in-code mirrors of the governed registry rows (20261004210000). Without them these keys
+  // fell back to message_acknowledgement_v1, so a Vehicle Passport change or a SafeTrade stage read
+  // "CarUp received your message about MARKETPLACE_FUNDS_HELD". Governed facts only: the vehicle,
+  // and where to look. No stage, payment or score claim (R4/R5's rules); the subjects are R4/R5's.
+  vehicle_trust_update_v1: {
+    transactional: true,
+    subject: 'Your Vehicle Passport was updated',
+    body: 'The Vehicle Passport for vehicle {{listing_id}} was updated. Open your vehicle record on CarUp to see what changed.',
+  },
+  safetrade_transaction_v1: {
+    transactional: true,
+    subject: 'Your SafeTrade journey',
+    body: 'There is an update on your SafeTrade journey for vehicle {{listing_id}}. Open CarUp to see its current stage. Always confirm payment details on CarUp itself, and never send money to someone because a message asked you to.',
   },
   // OC-5D (F3) — in-code mirror of the governed registry row (20261004180800). The vehicle and the
   // case's recorded status only: never private notes, the request summary, a price or a promise.

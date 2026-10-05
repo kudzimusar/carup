@@ -57,6 +57,10 @@ function runtimeFiles() {
   while (roots.length) {
     const dir = roots.pop();
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      // issue-158-terminal-operation-identity writes transient `__mutant__N.blockchainService.js`
+      // copies next to the real module. They are test artefacts, not runtime code, and they can vanish
+      // between this listing and the read below (OC-5G saw exactly that ENOENT in a full-suite run).
+      if (entry.name.startsWith('__mutant__')) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) roots.push(full);
       else if (entry.name.endsWith('.js')) files.push(full);

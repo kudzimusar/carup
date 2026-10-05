@@ -386,37 +386,35 @@ test('C1 GATE: an event adapted by the SafeTrade adapter must actually BE subscr
  * three T2 and three T3 policies bound them, no migration inserted them, and staging accumulated
  * 60 undeliverable lifecycle events while every local suite stayed green.
  */
-test('every notification-policy templateKey is inserted into communication_templates by a migration', () => {
+/** Every key some migration inserts into the governed registry. Schema-qualified inserts count too:
+ *  SA1 registers the auth emails with `INSERT INTO public.communication_templates`, which the original
+ *  pattern could not see (OC-5G). */
+function registeredTemplateKeys() {
   const migrationsDir = fileURLToPath(new URL('../../database/migrations/', import.meta.url));
   const registered = new Set();
   for (const file of fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'))) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    if (!/INSERT\s+INTO\s+communication_templates/i.test(sql)) continue;
+    if (!/INSERT\s+INTO\s+(?:public\.)?communication_templates\b/i.test(sql)) continue;
     for (const m of sql.matchAll(/\(\s*'([a-z0-9_]+)'\s*,/gi)) registered.add(m[1]);
     for (const m of sql.matchAll(/template_key\s*=\s*'([a-z0-9_]+)'/gi)) registered.add(m[1]);
   }
+  return registered;
+}
+
+test('every notification-policy templateKey is inserted into communication_templates by a migration', () => {
+  const registered = registeredTemplateKeys();
 
   const policySource = fs.readFileSync(
     fileURLToPath(new URL('../services/communication/communicationNotificationService.js', import.meta.url)), 'utf8');
   const bound = new Set([...policySource.matchAll(/templateKey:\s*'([a-z0-9_]+)'/g)].map((m) => m[1]));
 
-  // KNOWN debt owned by OTHER slices, listed rather than silently skipped so it stays visible and
-  // countable. Each of these is bound by a live policy and exists only as an in-code mirror, so its
-  // notifications dead-letter wherever the governed registry is applied. Registering a governed
-  // template fixes its wording under governance, which belongs to the owning lane — authoring
-  // verification/moderation/trust/SafeTrade copy from the Trade OS slice would be a second
-  // authority. Remove an entry here in the commit that registers it.
-  const KNOWN_UNREGISTERED = new Set([
-    'evidence_review_v1',       // evidence review lane
-    'listing_moderation_v1',    // marketplace moderation lane
-    'safetrade_transaction_v1', // SafeTrade lane
-    'seller_authority_v1',      // Operations M2 lane
-    'vehicle_trust_update_v1',  // Trust presentation lane
-    'verification_decision_v1', // identity verification lane
-  ]);
-
+  // No exceptions. This test used to carry a KNOWN_UNREGISTERED list of six keys whose
+  // notifications dead-lettered wherever the registry is applied (identity decisions, listing
+  // moderation, evidence reviews, seller authority, Vehicle Passport trust, every SafeTrade stage).
+  // OC-5G registered all six (20261004210000), at the programme moderator's direction, from the lanes'
+  // own copy, and the list went with them. A new policy key ships with its registration, or this fails.
   const unregistered = [...bound]
-    .filter((key) => !registered.has(key) && !KNOWN_UNREGISTERED.has(key))
+    .filter((key) => !registered.has(key))
     .sort();
   assert.deepEqual(
     unregistered,
@@ -425,4 +423,100 @@ test('every notification-policy templateKey is inserted into communication_templ
     + 'communication_templates registry by any migration — they will fail closed and dead-letter '
     + 'wherever the registry exists:\n  ' + unregistered.join('\n  '),
   );
+});
+
+/**
+ * OC-5G — the gate above reads NOTIFICATION_POLICIES only. A key rendered through the governed path
+ * by any other call site — a producer, the auth emails, a route — never appears there, so it could be
+ * unregistered and every send could fail closed with this suite green. `leadership_welcome_v1` was
+ * exactly that: Email Experience R1's producer renders it on every verified address, and no
+ * migration registers it.
+ *
+ * The call sites that reach the governed renderer are `queueNotification(…)` (the canonical and
+ * product services render it), `queueAuthEmail(…)` (which passes its key straight into
+ * queueNotification), and a direct `templateService.render('<key>'…)`. `queueExistingMessage`
+ * renders nothing, so its keys are not counted.
+ */
+function objectLiteralAt(source, openIndex) {
+  // Balanced braces from `{`, skipping comments, quoted strings and template literals. Comments
+  // first: an apostrophe in `// the thread's own messages` is not a string.
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === '/' && source[i + 1] === '/') { i = source.indexOf('\n', i); if (i < 0) return ''; continue; }
+    if (ch === '/' && source[i + 1] === '*') { i = source.indexOf('*/', i + 2) + 1; if (i <= 0) return ''; continue; }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const quote = ch;
+      for (i += 1; i < source.length && source[i] !== quote; i += 1) if (source[i] === '\\') i += 1;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') { depth -= 1; if (depth === 0) return source.slice(openIndex, i + 1); }
+  }
+  return '';
+}
+
+function renderedTemplateKeys(emailRegistry) {
+  const roots = ['../services', '../routes'].map((dir) => fileURLToPath(new URL(`${dir}/`, import.meta.url)));
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      // Transient copies another test writes beside the real module (issue-158); never runtime code.
+      if (entry.name.startsWith('__mutant__')) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) files.push(full);
+    }
+  };
+  roots.forEach(walk);
+  const sites = new Map(); // key → [file, …]
+  const add = (key, file) => sites.set(key, [...(sites.get(key) || []), path.relative(fileURLToPath(new URL('../..', import.meta.url)), file)]);
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8');
+    // `const entry = referenceEntry('leadership_welcome')` → that reference's governed key.
+    const entries = new Map([...source.matchAll(/const\s+(\w+)\s*=\s*referenceEntry\('([a-z_]+)'\)/g)]
+      .map((m) => [m[1], emailRegistry[m[2]]?.templateKey]));
+    for (const call of source.matchAll(/\b(?:queueNotification|queueAuthEmail)\(\s*\{/g)) {
+      const literal = objectLiteralAt(source, call.index + call[0].length - 1);
+      const direct = /\btemplateKey:\s*'([a-z0-9_]+)'/.exec(literal);
+      if (direct) add(direct[1], file);
+      const viaEntry = /\btemplateKey:\s*(\w+)\.templateKey\b/.exec(literal);
+      if (viaEntry && entries.get(viaEntry[1])) add(entries.get(viaEntry[1]), file);
+    }
+    for (const render of source.matchAll(/templateService\.render\(\s*'([a-z0-9_]+)'/g)) add(render[1], file);
+  }
+  return sites;
+}
+
+/** Keys a governed render reaches that no migration registers, each a recorded owner decision. When
+ *  one is registered, the test below fails until its entry is removed here. */
+const RENDERED_UNREGISTERED_OWNER_DECISIONS = new Map([
+  ['leadership_welcome_v1', 'Email Experience R1 (leadership welcome, sent on email verification). Its governed '
+    + 'subject/body is the Email Experience lane\'s to author; until it is registered, every welcome fails closed '
+    + 'wherever the registry exists. Recorded by OC-5G for the owner; not authored here.'],
+]);
+
+test('every template key a governed render reaches outside the policy table is registered — or is a recorded owner decision', async () => {
+  const { EMAIL_TEMPLATE_REGISTRY } = await import('../services/communication/emailExperience/emailTemplateRegistry.js');
+  const registered = registeredTemplateKeys();
+  const sites = renderedTemplateKeys(EMAIL_TEMPLATE_REGISTRY);
+
+  // The scan finds the call sites it exists to see: not a vacuous pass.
+  for (const key of ['leadership_welcome_v1', 'auth_password_reset_v1', 'auth_email_verification_v1', 'auth_password_changed_v1',
+    'message_acknowledgement_v1', 'listing_shared_v1', 'conversation_reply_whatsapp_v1']) {
+    assert.ok(sites.has(key), `the scan no longer sees the governed render of ${key}`);
+  }
+  assert.ok(registered.has('auth_password_reset_v1'), 'a schema-qualified INSERT INTO public.communication_templates registers too');
+
+  const missing = [...sites.keys()]
+    .filter((key) => !registered.has(key) && !RENDERED_UNREGISTERED_OWNER_DECISIONS.has(key))
+    .map((key) => `${key}  (${sites.get(key).join(', ')})`)
+    .sort();
+  assert.deepEqual(missing, [], 'rendered through the governed path, registered by no migration — every send fails closed '
+    + 'wherever the registry exists:\n  ' + missing.join('\n  '));
+
+  for (const key of RENDERED_UNREGISTERED_OWNER_DECISIONS.keys()) {
+    assert.ok(sites.has(key), `${key} is listed but no longer rendered — remove its entry`);
+    assert.ok(!registered.has(key), `${key} is now registered — remove its owner-decision entry`);
+  }
 });
