@@ -38,7 +38,7 @@ assertions are unchanged.
 
 **The organisation a request acts for (P1, P2).**
 - It was a guess: login handed back the caller's sole membership (#197: "the oldest"), the client sent it as `x-tenant-id`, and the middleware checked membership only — never the tenant's type or status. A membership read that failed answered 403 "you do not belong".
-- Now `PUT /api/auth/active-tenant` is the only way a session gains an organisation (a membership of an ACTIVE tenant, recorded on this session, CSRF-protected, rate-limited, audited). Every request re-verifies it; `x-tenant-id` is an assertion (mismatch 403, revoked 403); a failed read is 503 `TENANT_CONTEXT_UNAVAILABLE`.
+- Now an existing session gains an organisation only through `PUT /api/auth/active-tenant` (a membership of an ACTIVE tenant, recorded on this session, CSRF-protected, rate-limited, audited). `switch-role` can instead mint a NEW session bound to a verified membership, also audited. Login never selects. (Corrected in OC-5E: this line first said the endpoint was the only way.) Every request re-verifies the selection; `x-tenant-id` is an assertion (mismatch 403, revoked 403); a failed read is 503 `TENANT_CONTEXT_UNAVAILABLE`.
 - The clients hold only what the server verified. A sole membership is offered as one tap, never selected for the person.
 - Closed on the way: `switch-role` returned the caller's own password hash; `switch-role` and feature governance lent any tenant role except `admin` as a platform role.
 

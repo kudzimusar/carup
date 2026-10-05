@@ -1101,6 +1101,293 @@
         "OWNER-UAT-CERTIFIED"
       ],
       "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5E-AUDIT-SOURCE",
+      "phase": "OC-5E",
+      "capability": "garage.onboarding_audit",
+      "sha": "b28cf5b269cc396c6e66c0246ffe32196224f3bd",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test (shipped services and app over PGlite) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "storage signed-URL generator substituted in the preview test (garageEvidenceStorage seam; no storage call)"
+      ],
+      "claims": [
+        "every garage evidence, decision and activation audit row names the application, document or tenant it records"
+      ],
+      "evidence": {
+        "ci_run": "37249756173",
+        "suites": [
+          "o2-ocr-c3-garage-consumer",
+          "oc5e-gmo3-garage-review",
+          "oc5e-gmo4-garage-activation"
+        ],
+        "mutants": "E1-15, E1-33, E1-35, E1-36 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO34-SOURCE",
+      "phase": "OC-5E",
+      "capability": "garage.application_review_activation",
+      "sha": "b28cf5b269cc396c6e66c0246ffe32196224f3bd",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app over PGlite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "storage signed-URL generator substituted in the preview test (garageEvidenceStorage seam; no storage call)"
+      ],
+      "claims": [
+        "a reviewer decision is one transaction: a refused or losing decision leaves no ledger row",
+        "a reviewer never sees an unsubmitted application; review is platform administration only",
+        "activation is atomic, idempotent, derived from the approved application, and re-checks the applicant identity"
+      ],
+      "evidence": {
+        "ci_run": "37249756173",
+        "suites": [
+          "oc5e-gmo3-garage-review",
+          "oc5e-gmo4-garage-activation",
+          "oc5e-gmo-migrations"
+        ],
+        "mutants": "36/36 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO34-DATABASE",
+      "phase": "OC-5E",
+      "capability": "garage.application_review_activation",
+      "sha": "b28cf5b269cc396c6e66c0246ffe32196224f3bd",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite over the real prerequisite migrations with Supabase default privileges: the decision and activation functions run, refuse, re-apply and round-trip; only service_role may execute them; SECURITY INVOKER with a pinned search_path",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "002_multi_tenant_and_auth_schema.sql (tenants, tenant_users blocks)",
+          "20260617120000_user_sessions_auth_contract_align.sql",
+          "20261004160000_oc5a_tenant_users_role_catalogue.sql",
+          "20260817120000_sa1_auth_action_tokens.sql (users.email_verified_at statement)",
+          "20260605042424_verification_sessions_phase7b.sql",
+          "20261004170000_o2_x3_identity_lifecycle_events.sql",
+          "20261004170100_o2_x3_user_sessions_authentication_assurance.sql",
+          "20260918090000_ocr_c3_garage_applications.sql",
+          "20260918100000_ocr_c3_garage_application_evidence.sql",
+          "20260918110000_ocr_c3_garage_onboarding_rls.sql",
+          "20261004190000_gmo3_garage_application_decision.sql",
+          "20261004190100_gmo4_garage_business_activation.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "record_garage_application_decision and activate_garage_application enforce their rules in the database"
+      ],
+      "evidence": {
+        "ci_run": "37249756173",
+        "suites": [
+          "oc5e-gmo3-garage-review",
+          "oc5e-gmo4-garage-activation"
+        ],
+        "mutants": "36/36 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO34-WEB-SOURCE",
+      "phase": "OC-5E",
+      "capability": "garage.application_review_activation",
+      "sha": "02020b8d414b695a923d685b4692e4797424edcc",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "web suites (full suite in CI) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "web unit tests in jsdom; the API client mocked at its boundary (no backend, no network)"
+      ],
+      "claims": [
+        "the reviewer surface is platform-admin only and recovers step-up through the shared guard; the founder opens the new garage by selecting it"
+      ],
+      "evidence": {
+        "ci_run": "37250510581",
+        "suites": [
+          "garageApplications",
+          "garageApplicationsAccess",
+          "garageWorkspaceReady",
+          "garageSetupWorkspace"
+        ],
+        "mutants": "11/11 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO67-SOURCE",
+      "phase": "OC-5E",
+      "capability": "garage.membership_invitations",
+      "sha": "4068fe1f7490499595d77615c4ec1622692b1431",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app over PGlite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "only an admin of the selected, verified, active garage manages invitations and members (F1)",
+        "acceptance is one transaction for the invited, verified address into an active garage only",
+        "a garage is never left without an administrator"
+      ],
+      "evidence": {
+        "ci_run": "37252471534",
+        "suites": [
+          "oc5e-gmo6-garage-invitations",
+          "oc5e-gmo7-garage-membership",
+          "oc5e-gmo-migrations"
+        ],
+        "mutants": "27/28 killed; 1 equivalent (token-keyed audit value is redacted by the audit logger)"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO67-DATABASE",
+      "phase": "OC-5E",
+      "capability": "garage.membership_invitations",
+      "sha": "4068fe1f7490499595d77615c4ec1622692b1431",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite over the real prerequisite migrations with Supabase default privileges: the invitations table is RLS-forced and closed to client roles; acceptance and the last-admin guard run, refuse, re-apply and round-trip",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "002_multi_tenant_and_auth_schema.sql (tenants, tenant_users blocks)",
+          "20260617120000_user_sessions_auth_contract_align.sql",
+          "20261004160000_oc5a_tenant_users_role_catalogue.sql",
+          "20260817120000_sa1_auth_action_tokens.sql (users.email_verified_at statement)",
+          "20260605042424_verification_sessions_phase7b.sql",
+          "20261004170000_o2_x3_identity_lifecycle_events.sql",
+          "20261004170100_o2_x3_user_sessions_authentication_assurance.sql",
+          "20260918090000_ocr_c3_garage_applications.sql",
+          "20260918100000_ocr_c3_garage_application_evidence.sql",
+          "20260918110000_ocr_c3_garage_onboarding_rls.sql",
+          "20261004190000_gmo3_garage_application_decision.sql",
+          "20261004190100_gmo4_garage_business_activation.sql",
+          "20261004190200_gmo6_garage_invitations.sql",
+          "20261004190300_gmo7_garage_membership_guard.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "accept_garage_invitation, remove_garage_member and change_garage_member_role enforce their rules in the database"
+      ],
+      "evidence": {
+        "ci_run": "37252471534",
+        "suites": [
+          "oc5e-gmo6-garage-invitations",
+          "oc5e-gmo7-garage-membership"
+        ],
+        "mutants": "27/28 killed; 1 equivalent"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO67-WEB-SOURCE",
+      "phase": "OC-5E",
+      "capability": "garage.membership_invitations",
+      "sha": "303713655492ff216797ca7eea25676fcb082d31",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "web suites (full suite in CI) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "web unit tests in jsdom; the API client mocked at its boundary (no backend, no network)"
+      ],
+      "claims": [
+        "signing in returns to the invitation (returnTo); joining selects the garage; the team page is the selected garage admin's"
+      ],
+      "evidence": {
+        "ci_run": "37252997449",
+        "suites": [
+          "garageTeam",
+          "joinGarage"
+        ],
+        "mutants": "12/12 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
+    },
+    {
+      "id": "OC5E-GMO0-SOURCE",
+      "phase": "OC-5E",
+      "capability": "garage.membership_invitations",
+      "sha": "a602575cda385f4cb1fdd0905bf7df0341c66532",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test source enumeration + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every write of tenant_users in backend code and the schema is one of the listed paths"
+      ],
+      "evidence": {
+        "ci_run": "37253509997",
+        "suites": [
+          "oc5e-gmo0-membership-writers",
+          "garageSetupAutosave"
+        ],
+        "mutants": "3/3 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T14:30:00Z"
     }
   ],
   "capabilities": {
@@ -1228,15 +1515,15 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "garage.application_review_activation": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "garage.membership_invitations": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
@@ -1362,6 +1649,14 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
       "notes": "OC-5D (F4 closed): a tenant role never satisfies a platform role list and a platform role never a tenant scope — backend feature governance (P4) and every web reader of the registry (P7)."
+    },
+    "garage.onboarding_audit": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "OC-5E: garage onboarding audit rows (C3 evidence, GMO decisions, activation, invitations, membership) name their subject in their values — trust_audit_events keeps no target for these types."
     }
   }
 }
