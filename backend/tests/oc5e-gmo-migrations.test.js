@@ -18,12 +18,17 @@ const ALL = readdirSync(MIGRATIONS).filter((f) => /^\d{14}_.+\.sql$/.test(f)).so
 const GMO = {
   gmo3: '20261004190000_gmo3_garage_application_decision.sql',
   gmo4: '20261004190100_gmo4_garage_business_activation.sql',
+  gmo6: '20261004190200_gmo6_garage_invitations.sql',
+  gmo7: '20261004190300_gmo7_garage_membership_guard.sql',
 };
 
 /** What each OC-5E migration references, and the migration that creates it. */
 const DEPENDS_ON = {
   gmo3: ['20260918090000_ocr_c3_garage_applications.sql'],
   gmo4: ['20260918090000_ocr_c3_garage_applications.sql', '20261004160000_oc5a_tenant_users_role_catalogue.sql', GMO.gmo3],
+  // users.email_verified_at (SA1) is read inside the acceptance; the membership it writes is catalogued (OC-5A).
+  gmo6: ['20260817120000_sa1_auth_action_tokens.sql', '20261004160000_oc5a_tenant_users_role_catalogue.sql', GMO.gmo4],
+  gmo7: ['20261004160000_oc5a_tenant_users_role_catalogue.sql', GMO.gmo6],
 };
 
 test('order: every OC-5E migration exists under its OC-5E name, and #209\'s 20260906* copies do not', () => {

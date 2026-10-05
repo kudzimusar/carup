@@ -143,6 +143,10 @@ import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
 // GMO-3 (OC-5E): the reviewer side of garage onboarding — a real session, the platform-admin
 // garage review capability, and X3 step-up on every consequential route.
 import garageReviewRouter from './routes/garageReviewRoutes.js';
+// GMO-6 (OC-5E): garage invitations — an active garage's admin invites; acceptance is one transaction.
+import garageInvitationRouter from './routes/garageInvitationRoutes.js';
+// GMO-7 (OC-5E): a garage's team — its admin removes and re-roles, never leaving it without one.
+import garageMembershipRouter from './routes/garageMembershipRoutes.js';
 // OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
 // garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
@@ -498,6 +502,8 @@ app.use(identityVerificationRouter);
 app.use(registrationOnboardingRouter);
 app.use(garageOnboardingRouter);
 app.use(garageReviewRouter);
+app.use(garageInvitationRouter);
+app.use(garageMembershipRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);

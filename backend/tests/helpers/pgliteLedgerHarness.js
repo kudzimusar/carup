@@ -270,6 +270,12 @@ export function supabaseOver(db) {
         gt(column, value) { state.filters.push([column, '>', value]); return builder; },
         lte(column, value) { state.filters.push([column, '<=', value]); return builder; },
         neq(column, value) { state.filters.push([column, '<>', value]); return builder; },
+        // PostgREST `is` (OC-5E): null / true / false only — anything else is refused, not guessed.
+        is(column, value) {
+          if (value !== null && value !== true && value !== false) throw new Error(`is(${column}) supports null, true or false`);
+          state.filters.push([column, 'IS', value]);
+          return builder;
+        },
         in(column, values) { state.filters.push([column, 'IN', values]); return builder; },
         order(column, { ascending = true } = {}) { state.orders.push(`${quote(column)} ${ascending ? 'ASC' : 'DESC'}`); return builder; },
         limit(n) { state.limit = Number(n); return builder; },
@@ -297,6 +303,7 @@ export function supabaseOver(db) {
       function where(params) {
         if (!state.filters.length) return '';
         return ` WHERE ${state.filters.map(([column, operator, value]) => {
+          if (operator === 'IS') return `${columnExpression(column)} IS ${value === null ? 'NULL' : value ? 'TRUE' : 'FALSE'}`;
           if (operator === 'IN') {
             const list = Array.isArray(value) ? value : [value];
             if (!list.length) return 'FALSE';
