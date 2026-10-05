@@ -386,6 +386,8 @@ on:
       - 'backend/tests/helpers/gmoGarageWorld.js'
       # OC-5J: RC2 residuals — issue-158 now writes its mutant copies outside the repository.
       - 'backend/tests/issue-158-terminal-operation-identity.test.js'
+      - 'backend/tests/oc5j-*.test.js'
+      - 'backend/services/passport/passportOwnershipTransferService.js'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -845,6 +847,9 @@ jobs:
 
       - name: OC-5H — RC2 product journeys through the shipped app (organisation choice, a car serviced, a garage born, a seller's numbers, a decision delivered) — AI NONE, asserted
         run: node --test backend/tests/oc5h-*.test.js backend/tests/oc4e-product-journeys.test.js
+
+      - name: OC-5J — RC2 residuals — a governed ownership-transfer refusal is not a server error
+        run: node --test backend/tests/oc5j-*.test.js
       - name: OC-5D — R14 a PRODUCTION web bundle carries no demo identity or password (real build, then scan)
         run: |
           npm run test:unit --workspace=web -- src/pages/auth/demoIdentityGuard.test.tsx
