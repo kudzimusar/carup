@@ -153,6 +153,18 @@ test('a listing with no activity produces genuine zeros, not invented ones', () 
 
 // ── Scope grain: uniques must not sum ───────────────────────────────────────
 
+test('seller-scope rollup preserves compare intent as its own stage', () => {
+  const events = [
+    ev('marketplace_listing_opened', { session: 'shopper' }),
+    ev('marketplace_listing_saved', { session: 'shopper', user: 'buyer-1' }),
+    ev('marketplace_compare_added', { session: 'shopper' }),
+  ];
+  const scope = computeScopeMetrics(events);
+  assert.equal(scope.views, 1);
+  assert.equal(scope.saves, 1);
+  assert.equal(scope.compare_adds, 1);
+});
+
 test('one shopper viewing three of a dealer\'s cars is ONE unique viewer', () => {
   const events = [
     ev('marketplace_listing_opened', { vin: 'VIN1', session: 'shopper' }),
@@ -208,15 +220,19 @@ test('a day is a UTC day, half-open so no event is counted twice', () => {
  * `failUpsert` (a table name), `failRunInsert` and `failCompletion` make the fake answer the way
  * supabase-js does when PostgREST refuses a write: an `{ error }`, never a throw (OC-5F).
  */
-function createRollupClient({ events = [], inquiries = [], reservations = [], saved = [], vehicles = [], failUpsert = null, failRunInsert = false, failCompletion = false } = {}) {
+function createRollupClient({ events = [], inquiries = [], reservations = [], saved = [], vehicles = [], failUpsert = null, failRunInsert = false, failCompletion = false, failVehicles = false } = {}) {
   const written = { listing: [], seller: [], tenant: [], platform: [], runs: [], runUpdates: [] };
   const refused = (code, message) => ({ data: null, error: { code, message } });
   const client = {
     written,
     from(table) {
+      // PostgREST returns ONLY the selected columns (OC-5F): a read that forgets a column must lose it
+      // here too, or the fake hides exactly the defect a narrowed select introduces.
+      let columns = null;
+      const project = (rows) => (columns ? rows.map((row) => Object.fromEntries(columns.filter((c) => c in row).map((c) => [c, row[c]]))) : rows);
       const api = {
         _table: table,
-        select() { return api },
+        select(cols) { if (typeof cols === 'string' && cols.trim() !== '*') columns = cols.split(',').map((c) => c.trim()); return api },
         gte() { return api },
         lt() { return api },
         in() { return api },
@@ -233,7 +249,7 @@ function createRollupClient({ events = [], inquiries = [], reservations = [], sa
             saved_vehicles: saved,
             vehicles,
           }[table] ?? [];
-          return Promise.resolve({ data: from === 0 ? rows : [], error: null });
+          return Promise.resolve({ data: from === 0 ? project(rows) : [], error: null });
         },
         insert(row) {
           if (table === 'intelligence_rollup_runs' && failRunInsert) return Promise.resolve(refused('42501', 'permission denied for table intelligence_rollup_runs'));
@@ -257,6 +273,7 @@ function createRollupClient({ events = [], inquiries = [], reservations = [], sa
           return Promise.resolve({ data: list, error: null });
         },
         then(resolve) {
+          if (table === 'vehicles' && failVehicles) return resolve({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } });
           const dataFor = {
             marketplace_activity_events: events,
             marketplace_inquiries: inquiries,
@@ -264,7 +281,7 @@ function createRollupClient({ events = [], inquiries = [], reservations = [], sa
             saved_vehicles: saved,
             vehicles,
           }[table] ?? [];
-          return resolve({ data: dataFor, error: null });
+          return resolve({ data: project(dataFor), error: null });
         },
       };
       return api;
@@ -280,6 +297,7 @@ test('a full rollup reconciles listing, seller, tenant and platform grains', asy
       ev('marketplace_listing_opened', { vin: 'VIN2', session: 'shopper' }),
       ev('marketplace_listing_opened', { vin: 'VIN1', session: 'other' }),
       ev('marketplace_listing_saved', { vin: 'VIN1', session: 'shopper', user: 'buyer-1' }),
+      ev('marketplace_compare_added', { vin: 'VIN1', session: 'shopper' }),
     ],
     inquiries: [
       { id: 'i1', listing_id: 'VIN1', seller_id: 'seller-1', seller_tenant_id: 'tenant-a', inquiry_type: 'vehicle_purchase_interest', status: 'new' },
@@ -296,7 +314,7 @@ test('a full rollup reconciles listing, seller, tenant and platform grains', asy
 
   const result = await rollupDay(DAY, { client });
   assert.equal(result.ok, true);
-  assert.equal(result.events_scanned, 4);
+  assert.equal(result.events_scanned, 5);
 
   const vin1 = client.written.listing.find((r) => r.listing_id === 'VIN1');
   assert.equal(vin1.views, 2);
@@ -312,6 +330,7 @@ test('a full rollup reconciles listing, seller, tenant and platform grains', asy
   assert.equal(seller.unique_viewers, 2, 'but the shopper who saw both cars is one person');
   assert.equal(seller.active_listings, 2);
   assert.equal(seller.inquiries, 2);
+  assert.equal(seller.compare_adds, 1, 'compare intent remains visible at Seller grain');
 
   const tenant = client.written.tenant.find((r) => r.tenant_id === 'tenant-a');
   assert.equal(tenant.unique_viewers, 2);
@@ -366,6 +385,42 @@ test('a failed rollup reports failure rather than writing a partial day', async 
   const result = await rollupDay(DAY, { client: exploding });
   assert.equal(result.ok, false);
   assert.match(result.error, /ledger unavailable/);
+});
+
+// ── rollup@2: reservations belong to the seller they were made WITH (OC-5F) ──
+
+const RESERVED_AT = `${DAY}T09:00:00.000Z`;
+
+test('a reservation is credited to the seller it was made with — not to whoever holds the car now', async () => {
+  // Made with seller-then; since then the listing changed seller AND ownership transferred to the buyer.
+  // #213 credited current_seller_id || owner_id at recompute time: the new seller, or the BUYER.
+  const client = createRollupClient({
+    events: [ev('marketplace_listing_opened', { vin: 'VIN1', session: 'shopper' })],
+    reservations: [{ id: 'r1', vin: 'VIN1', status: 'active', created_at: RESERVED_AT, seller_id: 'seller-then' }],
+    vehicles: [{ vin: 'VIN1', owner_id: 'buyer-now', current_seller_id: 'seller-now', tenant_id: null }],
+  });
+  const result = await rollupDay(DAY, { client });
+  assert.equal(result.ok, true, result.error);
+  const bySeller = Object.fromEntries(client.written.seller.map((r) => [r.seller_user_id, r.reservations]));
+  assert.equal(bySeller['seller-then'], 1, 'the seller the reservation was made with');
+  assert.equal(bySeller['seller-now'] ?? 0, 0, 'not the current seller');
+  assert.equal(bySeller['buyer-now'] ?? 0, 0, 'never the buyer');
+});
+
+test('a reservation counts for a seller with no other activity that day, and survives an owner lookup failure', async () => {
+  const client = createRollupClient({
+    reservations: [
+      { id: 'r1', vin: 'VIN9', status: 'active', created_at: RESERVED_AT, seller_id: 'quiet-seller' },
+      { id: 'r2', vin: 'VIN9', status: 'cancelled', created_at: RESERVED_AT, seller_id: 'quiet-seller' },
+    ],
+    failVehicles: true,
+  });
+  const result = await rollupDay(DAY, { client });
+  assert.equal(result.ok, true, result.error);
+  const quiet = client.written.seller.find((r) => r.seller_user_id === 'quiet-seller');
+  assert.ok(quiet, 'a seller row exists for the reservation alone');
+  assert.equal(quiet.reservations, 1, 'only ACTIVE reservations count (contract §7)');
+  assert.equal(client.written.platform[0].reservations, 1, 'the platform total agrees with the sellers');
 });
 
 // ── A refused write is a failed day (OC-5F) ─────────────────────────────────

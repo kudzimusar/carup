@@ -412,14 +412,14 @@ test('seller pulse exposes only computed daily points and never synthesizes miss
       {
         metric_date: '2026-08-28', seller_user_id: 'seller-1', active_listings: 1,
         impressions: 12, views: 7, unique_viewers: 5, saves: 2, unsaves: 0,
-        shares_confirmed: 1, inquiry_starts: 1, inquiries: 1, inspections: 0,
-        reservations: 0, calculation_version: ROLLUP_CALCULATION_VERSION,
+        compare_adds: 1, shares_confirmed: 1, inquiry_starts: 1, inquiries: 1, inspections: 0,
+        reservations: 1, calculation_version: ROLLUP_CALCULATION_VERSION,
       },
       {
         metric_date: '2026-08-26', seller_user_id: 'seller-1', active_listings: 2,
         impressions: 20, views: 10, unique_viewers: 8, saves: 3, unsaves: 0,
-        shares_confirmed: 1, inquiry_starts: 2, inquiries: 2, inspections: 1,
-        reservations: 0, calculation_version: ROLLUP_CALCULATION_VERSION,
+        compare_adds: 2, shares_confirmed: 1, inquiry_starts: 2, inquiries: 2, inspections: 1,
+        reservations: 1, calculation_version: ROLLUP_CALCULATION_VERSION,
       },
     ],
   });
@@ -427,6 +427,9 @@ test('seller pulse exposes only computed daily points and never synthesizes miss
   const result = await getSellerPulse(client, SELLER, { windowDays: 7 });
   assert.equal(result.availability, AVAILABILITY.VALUE);
   assert.equal(result.metrics.active_listings.value, 2);
+  // rollup@2 (#213 a1b75a32): the compare stage and the reservations made with this seller.
+  assert.equal(result.metrics.compare_adds.value, 3);
+  assert.equal(result.metrics.reservations.value, 2);
   assert.deepEqual(result.series.map((point) => point.date), ['2026-08-26', '2026-08-28']);
   assert.equal(result.series.length, 2, '2026-08-27 is missing coverage, not a fabricated zero day');
   assert.deepEqual(

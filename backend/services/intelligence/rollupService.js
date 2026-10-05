@@ -27,7 +27,9 @@ import { ROLLUP_EXCLUDED_FLAGS } from './activityEventTypes.js';
  * Bump when ANY number below changes meaning. Rollup rows are keyed by version,
  * so two versions coexist and a surface can never blend them silently.
  */
-export const ROLLUP_CALCULATION_VERSION = 'rollup@1';
+// rollup@2 (OC-5F, #213 slice A): seller rows carry `compare_adds` and a real `reservations` count,
+// credited to the reservation's own seller. rollup@1 rows are kept, and never blended.
+export const ROLLUP_CALCULATION_VERSION = 'rollup@2';
 
 const LEDGER = 'marketplace_activity_events';
 const RUNS = 'intelligence_rollup_runs';
@@ -151,6 +153,8 @@ export function computeScopeMetrics(events) {
     saves: business.filter(isType('marketplace_listing_saved')).length,
     unsaves: business.filter(isType('marketplace_listing_unsaved')).length,
     shares_confirmed: shares.filter((e) => e.metadata?.share_resolution === 'confirmed').length,
+    // rollup@2: the funnel's compare stage, summed across the scope's listings like every total.
+    compare_adds: business.filter(isType('marketplace_compare_added')).length,
     inquiry_starts: business.filter(isType('marketplace_inquiry_started')).length,
     source_event_count: events.length,
   };
@@ -211,7 +215,8 @@ export async function readReservationAuthority(client, metricDate) {
   const { start, end } = dayBounds(metricDate);
   const rows = await readAllPages(() => client
     .from('vehicle_reservations')
-    .select('id, vin, status, created_at')
+    // seller_id: the seller the reservation was made WITH (rollup@2 credits reservations to it).
+    .select('id, vin, status, created_at, seller_id')
     .gte('created_at', start)
     .lt('created_at', end));
   return rows.filter((row) => String(row.status || '') === 'active');
@@ -362,6 +367,19 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
       }
     }
 
+    // rollup@2 (OC-5F): a reservation is credited to the seller it was made WITH —
+    // `vehicle_reservations.seller_id`, NOT NULL, written from the transaction's seller under a locked
+    // check. #213 credited whoever was the listing's seller at RECOMPUTE time: after a completed
+    // transfer that is the BUYER, and a failed owner lookup dropped the reservation silently.
+    const reservationsBySeller = new Map();
+    for (const row of reservationRows) {
+      if (!row.seller_id) continue;
+      const sellerId = String(row.seller_id);
+      reservationsBySeller.set(sellerId, (reservationsBySeller.get(sellerId) || 0) + 1);
+      // A reservation can name a seller with no other activity that day; it still counts.
+      if (!bySeller.has(sellerId)) bySeller.set(sellerId, { events: [], tenantId: null, listings: new Set() });
+    }
+
     const inquiriesBySeller = new Map();
     const inspectionsBySeller = new Map();
     const inquiriesByTenant = new Map();
@@ -388,7 +406,7 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
         ...computeScopeMetrics(bucket.events),
         inquiries: inquiriesBySeller.get(sellerId) || 0,
         inspections: inspectionsBySeller.get(sellerId) || 0,
-        reservations: 0,
+        reservations: reservationsBySeller.get(sellerId) || 0,
         calculation_version: calculationVersion,
         computed_at: new Date().toISOString(),
       });
