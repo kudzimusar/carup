@@ -142,7 +142,15 @@ describe('O2 post-Ready closure — People & Compliance decisions', () => {
     for (let i = 0; i < controlIds.length; i += 1) {
       setValue('dealer-decision-reason', 'Licence checked against the registry.')
       fireEvent.click(screen.getByTestId(controlIds[i]))
-      await waitFor(() => expect(recordDealerComplianceDecision).toHaveBeenCalledTimes(i + 1))
+      await waitFor(() => expect(recordDealerComplianceDecision).toHaveBeenCalledTimes(i + 1), { timeout: 4000 })
+      // A decision SETTLES after the call returns: it clears the reason and re-reads the review.
+      // Typing the next reason before that lets the cleanup erase it, and the page then (rightly)
+      // refuses the click for want of a reason — a race that only a loaded runner loses. So the next
+      // control is exercised only once this decision has settled and the controls are back.
+      await waitFor(() => {
+        expect((screen.getByTestId('dealer-decision-reason') as HTMLTextAreaElement).value).toBe('')
+        if (i + 1 < controlIds.length) expect(screen.getByTestId(controlIds[i + 1])).not.toBeDisabled()
+      }, { timeout: 4000 })
     }
 
     const sent = recordDealerComplianceDecision.mock.calls.map(([, payload]) => payload.decision)
