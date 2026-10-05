@@ -20,6 +20,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PRODUCTION_SUPABASE_REF, STAGING_SUPABASE_REF } from '../../backend/scripts/uat/referral-uat-guard.mjs';
 
 export const LEVELS = Object.freeze([
   'SOURCE-CERTIFIED',
@@ -34,8 +35,13 @@ const RANK = Object.fromEntries(LEVELS.map((level, i) => [level, i]));
 /** Environments that can never host a deployment certification or an owner UAT. */
 const NON_DEPLOYED_ENVIRONMENTS = new Set(['localhost', 'local', 'ci', 'test', 'sandbox']);
 const ENVIRONMENTS = new Set(['localhost', 'local', 'ci', 'test', 'sandbox', 'staging', 'preview', 'production']);
-/** The real CarUp Supabase projects: a DATABASE receipt proves disposable-PostgreSQL semantics only. */
-const REAL_CARUP_DATABASES = /eoyenigwevnxwwhyhaer|vhmnajoeicasaigiophh/i;
+/**
+ * The real CarUp Supabase projects: a DATABASE receipt proves disposable-PostgreSQL semantics only.
+ * The refs come from the repository's reviewed deny-guard (referral-uat-guard.mjs, on the CR-1
+ * allowlist) rather than being written here: CR-1 forbids the production ref as a literal in any
+ * executable it has not reviewed, and a second copy would be a second thing to keep in step.
+ */
+const REAL_CARUP_DATABASES = new RegExp(`${STAGING_SUPABASE_REF}|${PRODUCTION_SUPABASE_REF}`, 'i');
 const DATABASE_ENGINES = new Set(['pglite', 'postgres-disposable']);
 
 /** Authority facts a mock can never establish (policy §0.6). */

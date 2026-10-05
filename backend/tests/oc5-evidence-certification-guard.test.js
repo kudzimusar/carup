@@ -12,6 +12,7 @@ import path from 'node:path';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { validateReceipt, validateManifest, scanDocumentsForUnsupportedClaims, LEVELS } = await import('../../scripts/ci/evidence-certification-guard.mjs');
+const { PRODUCTION_SUPABASE_REF } = await import('../scripts/uat/referral-uat-guard.mjs');
 
 const SHA = 'a'.repeat(40);
 const base = (overrides = {}) => ({
@@ -91,6 +92,8 @@ test('DATABASE means disposable PostgreSQL running repository migrations — nev
   reject(db({ engine: 'supabase', migrations: ['x.sql'] }), /engine pglite or postgres-disposable/);
   reject(db({ engine: 'pglite', migrations: [] }), /requires the repository migrations/);
   reject(db({ engine: 'pglite', migrations: ['x.sql'], note: 'checked against eoyenigwevnxwwhyhaer' }), /never the real CarUp Supabase/);
+  // …and production. The ref comes from the reviewed deny-guard, never a new literal (CR-1).
+  reject(db({ engine: 'pglite', migrations: ['x.sql'], note: `checked against ${PRODUCTION_SUPABASE_REF}` }), /never the real CarUp Supabase/);
 });
 
 test('authority facts are never established by mocked or below-live evidence', () => {
