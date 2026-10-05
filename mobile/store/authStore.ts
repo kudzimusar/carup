@@ -169,6 +169,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    // OC-EXPO-02 — release this device's push registration WHILE the session still exists: the
+    // next account to sign in here must not inherit the previous person's notifications, and must
+    // not be refused the device. Bounded and non-throwing, so sign-out always completes.
+    try {
+      const { releasePushRegistration } = await import('../utils/pushRegistration');
+      await releasePushRegistration();
+    } catch {
+      // never block sign-out on push cleanup
+    }
     try {
       await SecureStore.deleteItemAsync(SECURE_USER_KEY);
       await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);

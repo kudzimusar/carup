@@ -1878,8 +1878,14 @@ test('final thrown adapter failure records attempt, reaches dead letter, and cle
 
 test('provider delivery receipt updates attempt, notification, and message status', async () => {
   const adapter = new FakeCommunicationAdapter({ channel: 'push' });
-  const { repository, notificationService, deliveryWorker, threadService, webhookService } = createHarness({ adapter });
+  const { repository, notificationService, deliveryWorker, threadService, webhookService, identityService } = createHarness({ adapter });
   webhookService.env.CARUP_CHANNEL_WEBHOOK_SECRET = 'receipt-secret';
+  // OC-EXPO-02: push resolves only from the recipient's verified Expo registration, never from a
+  // token copied onto the payload — so the device is registered the way the product registers it.
+  await identityService.resolveOrCreateIdentity({
+    channel: 'push', provider: 'expo_push', external_id: 'ExponentPushToken[test]',
+    user_id: 'receipt-user', verified: true, authenticated: true, consent_status: 'opted_in',
+  });
   const thread = (await threadService.resolveOrCreateThread({ primary_user_id: 'receipt-user', thread_type: 'support' })).thread;
   const { notification } = await notificationService.queueNotification({
     recipientUserId: 'receipt-user',
@@ -1888,7 +1894,6 @@ test('provider delivery receipt updates attempt, notification, and message statu
     channel: 'push',
     templateKey: 'message_acknowledgement_v1',
     variables: { topic: 'receipt' },
-    payload: { expo_push_token: 'ExponentPushToken[test]' },
   });
   await deliveryWorker.deliverNotification(notification);
   const attempt = (await repository.list('message_delivery_attempts'))[0];

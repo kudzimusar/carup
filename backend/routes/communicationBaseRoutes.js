@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { reconcileCommunicationDurability } from '../services/communication/reconcileCommunicationDurability.js';
 import { CommunicationConversationService } from '../services/communication/communicationConversationService.js';
@@ -13,6 +13,7 @@ import {
   persistencePatchFromWebhookResult,
   recordMetaWhatsAppWebhookReceipt,
 } from '../services/communication/communicationWebhookDiagnostics.js';
+import { CommunicationPushDeviceService, PushDeviceRegistrationError } from '../services/communication/communicationPushDeviceService.js';
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -242,6 +243,36 @@ export function createCommunicationRouter({ services = createCommunicationServic
 
   router.patch('/api/communications/preferences', authorizeRole([]), asyncHandler(async (req, res) => {
     res.json({ preferences: await services.preferenceService.updatePreferences(req.userContext.id, req.body || {}, req.userContext.tenantId || null) });
+  }));
+
+  // OC-EXPO-02 — a native device's Expo push token, bound to the AUTHENTICATED account. The owner is
+  // req.userContext, never the body; an asserted (x-user-id) identity is refused, because this binds
+  // a routing credential as verified. The token is never echoed in a response.
+  const pushDevices = () => services.pushDeviceService || new CommunicationPushDeviceService({
+    repository: services.repository,
+    identityService: services.identityService,
+  });
+  const pushDeviceFailure = (res, error) => {
+    if (!(error instanceof PushDeviceRegistrationError)) throw error;
+    return res.status(error.statusCode).json({ error: error.message, code: error.code });
+  };
+
+  router.post('/api/communications/push/devices', authorizeRole([]), requireProvenIdentity(), asyncHandler(async (req, res) => {
+    try {
+      const result = await pushDevices().register({ userContext: req.userContext, body: req.body || {} });
+      res.status(result.created ? 201 : 200).json({ registered: true, created: result.created, identity: result.identity });
+    } catch (error) {
+      pushDeviceFailure(res, error);
+    }
+  }));
+
+  router.post('/api/communications/push/devices/revoke', authorizeRole([]), requireProvenIdentity(), asyncHandler(async (req, res) => {
+    try {
+      const result = await pushDevices().revoke({ userContext: req.userContext, body: req.body || {}, reason: req.body?.reason });
+      res.json({ revoked: result.revoked });
+    } catch (error) {
+      pushDeviceFailure(res, error);
+    }
   }));
 
   router.get('/api/communications/analytics', authorizeRole([]), asyncHandler(async (req, res) => {

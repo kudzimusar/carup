@@ -10,8 +10,23 @@ import {
   evaluateMarketingConsent,
 } from './marketingConsentState.js';
 
-/** Channels whose delivery requires an external address the platform must resolve. */
-const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp']);
+/**
+ * Channels whose delivery requires an external address the platform must resolve.
+ *
+ * OC-EXPO-02 added `push`. Without it a registered device was never resolved, so a push reached the
+ * provider only if some producer had copied a token into the queue row — and was otherwise refused by
+ * the Expo adapter as `recipient_missing`.
+ */
+const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp', 'push']);
+
+/** Payload keys that carry a push routing credential. None may travel to the device as data. */
+const PUSH_ROUTING_KEYS = ['expo_push_token', 'push_token', 'address', 'to', 'external_id'];
+
+function withoutPushRouting(payload = {}) {
+  const data = { ...payload };
+  for (const key of PUSH_ROUTING_KEYS) delete data[key];
+  return data;
+}
 
 export class CommunicationDeliveryWorker {
   constructor({
@@ -96,9 +111,9 @@ export class CommunicationDeliveryWorker {
     // Fails CLOSED: an unresolved recipient never reaches a provider, and is recorded with its own
     // error code so it stays distinguishable from a provider failure.
     //
-    // Scoped to channels that genuinely need an EXTERNAL address. `in_app` and `push` are delivered
-    // without one — guarding them would dead-letter working deliveries, which an over-broad first
-    // version of this check did.
+    // Scoped to channels that genuinely need an EXTERNAL address. `in_app` is delivered without one —
+    // guarding it would dead-letter working deliveries, which an over-broad first version of this
+    // check did. `push` needs one: the device's registered Expo token (OC-EXPO-02).
     const resolved = ADDRESS_REQUIRED_CHANNELS.has(channel)
       ? await resolveNotificationRecipient({ notification, repository: this.repository, channel })
       : { ok: true, address: null, identityId: null, userId: null, verified: false };
@@ -114,7 +129,15 @@ export class CommunicationDeliveryWorker {
         : this.markDeadLetter(notification, failure);
     }
     // Carry the resolved address on the payload the adapter reads, without mutating the stored row.
-    if (resolved.address) {
+    //
+    // Push is kept apart from the others. Its token is a live routing credential, so it goes ONLY into
+    // `pushDispatchPayload`, which exists for the provider call. `notification` — which may be handed
+    // to the fallback orchestrator below and copied into a new queue row — never carries it.
+    let pushDispatchPayload = null;
+    if (resolved.address && channel === 'push') {
+      pushDispatchPayload = withoutPushRouting(notification.payload || {});
+      pushDispatchPayload.expo_push_token = resolved.address;
+    } else if (resolved.address) {
     const resolvedPayload = { ...(notification.payload || {}) };
     if (channel === 'email') resolvedPayload.email = resolved.address;
     else if (channel === 'sms' || channel === 'whatsapp') resolvedPayload.phone_number = resolved.address;
@@ -122,6 +145,7 @@ export class CommunicationDeliveryWorker {
     resolvedPayload.address = resolvedPayload.address || resolved.address;
     notification = { ...notification, payload: resolvedPayload };
     }
+    const dispatchPayload = pushDispatchPayload || notification.payload || {};
 
     // Last line of defence before a marketing message reaches a provider.
     //
@@ -301,13 +325,15 @@ export class CommunicationDeliveryWorker {
         messageId: String(notification.message_id),
         recipient: {
           userId: notification.recipient_user_id || notification.recipient_id,
-          identityId: notification.recipient_identity_id,
-          address: notification.payload?.address || notification.payload?.to,
-          email: notification.payload?.email,
-          phoneNumber: notification.payload?.phone_number || notification.payload?.phone,
-          externalId: notification.payload?.external_id,
-          telegramChatId: notification.payload?.telegram_chat_id || notification.payload?.chat_id,
-          expoPushToken: notification.payload?.expo_push_token || notification.payload?.push_token,
+          identityId: pushDispatchPayload ? (resolved.identityId || notification.recipient_identity_id) : notification.recipient_identity_id,
+          address: dispatchPayload.address || dispatchPayload.to,
+          email: dispatchPayload.email,
+          phoneNumber: dispatchPayload.phone_number || dispatchPayload.phone,
+          externalId: dispatchPayload.external_id,
+          telegramChatId: dispatchPayload.telegram_chat_id || dispatchPayload.chat_id,
+          // For push this is ONLY ever the resolved registration: `withoutPushRouting` dropped any
+          // token a producer put on the stored payload.
+          expoPushToken: dispatchPayload.expo_push_token || dispatchPayload.push_token,
         },
         content: {
           subject: preparedSubject,
@@ -321,7 +347,9 @@ export class CommunicationDeliveryWorker {
           // Reply-To is a live routing credential, and the queue row, the canonical message and the
           // delivery attempt all keep only the hash or the record id.
           data: {
-            ...(notification.payload || {}),
+            // A push's data is delivered to the device and kept by Expo, so it never carries the
+            // routing credential — not the resolved token, and not one a producer stored.
+            ...(channel === 'push' ? withoutPushRouting(notification.payload || {}) : (notification.payload || {})),
             ...(renderProvenance ? { email_render_provenance: renderProvenance } : {}),
             // G5's authenticated conversation address wins where it applies; otherwise a
             // reference's declared human reply address is used.

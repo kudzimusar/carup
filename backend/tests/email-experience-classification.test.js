@@ -58,7 +58,9 @@ function countingWorker() {
   const updates = [];
   const worker = new CommunicationDeliveryWorker({
     repository: {
-      list: async () => [],
+      // OC-EXPO-02: push now resolves from a verified Expo registration and fails closed without
+      // one, so the push recipient below is given one. Every other lookup still finds nothing.
+      list: async (table, filters = {}) => (table === 'channel_identities' && filters.channel === 'push' ? [REGISTERED_PUSH] : []),
       findOne: async () => null,
       insert: async () => ({ id: 'a' }),
       updateById: async (_t, id, patch) => { updates.push(patch); return { id }; },
@@ -67,6 +69,11 @@ function countingWorker() {
   });
   return { worker, updates, providerCalls: () => providerCalls };
 }
+
+const REGISTERED_PUSH = Object.freeze({
+  id: 'push-identity', user_id: 'o8b-user', channel: 'push', provider: 'expo_push', verified: true,
+  consent_status: 'opted_in', normalized_address: 'ExponentPushToken[o8b-test]',
+});
 
 test('O6 a canonical Email with NO classification is refused, with zero provider calls', async () => {
   const { worker, updates, providerCalls } = countingWorker();
@@ -131,7 +138,7 @@ test('O6b the ROUTER refuses independently of the worker — defence in depth', 
 test('O8b a non-email channel is untouched by the Email classification contract', async () => {
   const { worker, providerCalls } = countingWorker();
   for (const channel of ['in_app', 'push']) {
-    await worker.deliverNotification({ id: `o8b-${channel}`, channel, title: 'x', message: 'y', payload: {} });
+    await worker.deliverNotification({ id: `o8b-${channel}`, channel, recipient_user_id: 'o8b-user', title: 'x', message: 'y', payload: {} });
   }
   assert.equal(providerCalls(), 2, 'in_app and push have no presentation to classify and must not regress');
 });

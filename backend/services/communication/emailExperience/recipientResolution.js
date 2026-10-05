@@ -49,6 +49,49 @@ function explicitAddress(payload, channel) {
   return payload.address || null;
 }
 
+/**
+ * OC-EXPO-02 — push resolves from ONE place: a verified `expo_push` channel identity owned by the
+ * recipient, registered by that account's own authenticated session.
+ *
+ * Deliberately narrower than the other channels:
+ *   - a token on the notification payload is NOT accepted. Anyone who can write a queue row could
+ *     otherwise route another person's notifications to their own device, and a token copied into a
+ *     row outlives the registration it came from;
+ *   - there is no profile fallback, because a CarUp account has no push address of its own;
+ *   - a revoked or opted-out registration routes nothing.
+ *
+ * Several registrations (several devices) resolve to the most recently seen one. Fan-out to every
+ * device is not part of this contract.
+ */
+const EXPO_PUSH_PROVIDER = 'expo_push';
+const RELEASED_CONSENT = new Set(['opted_out', 'revoked']);
+const EXPO_PUSH_TOKEN = /^Expo(?:nent)?PushToken\[[^\s[\]]{1,230}\]$/;
+
+async function resolvePushRecipient({ notification, repository }) {
+  const userId = clean(notification.recipient_user_id) || clean(notification.recipient_id);
+  if (!userId) return fail(RECIPIENT_RESOLUTION_REASONS.NO_RECIPIENT_REFERENCE);
+  let identities;
+  try {
+    identities = await repository.list('channel_identities', {
+      channel: 'push',
+      provider: EXPO_PUSH_PROVIDER,
+      user_id: userId,
+      verified: true,
+    }, { order: { column: 'last_seen_at', ascending: false }, limit: 20 });
+  } catch {
+    return fail(RECIPIENT_RESOLUTION_REASONS.LOOKUP_FAILED);
+  }
+  const identity = (identities || []).find((row) => (
+    row?.user_id === userId
+    && row.verified === true
+    && row.provider === EXPO_PUSH_PROVIDER
+    && !RELEASED_CONSENT.has(row.consent_status)
+    && EXPO_PUSH_TOKEN.test(clean(row.normalized_address) || '')
+  ));
+  if (!identity) return fail(RECIPIENT_RESOLUTION_REASONS.NO_VERIFIED_ADDRESS);
+  return ok({ address: clean(identity.normalized_address), identityId: identity.id || null, userId, verified: true });
+}
+
 const clean = (value) => {
   const s = String(value ?? '').trim();
   return s.length ? s : null;
@@ -76,6 +119,7 @@ function fail(reason) {
  */
 export async function resolveNotificationRecipient({ notification = {}, repository, channel = null } = {}) {
   const resolvedChannel = normalizeChannel(channel || notification.channel) || 'email';
+  if (resolvedChannel === 'push') return resolvePushRecipient({ notification, repository });
 
   const explicit = clean(explicitAddress(notification.payload, resolvedChannel));
   if (explicit) {

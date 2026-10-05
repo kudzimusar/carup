@@ -1,6 +1,32 @@
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
+/** consent states under which an identity no longer routes anything, so its owner has let it go. */
+export const RELEASED_CONSENT_STATES = Object.freeze(['opted_out', 'revoked']);
+
+/**
+ * Thrown when a caller asked for an identity that another account still holds.
+ *
+ * `identityPatch` re-binds `user_id` whenever the input is authenticated, which is right for a
+ * proven link and wrong for a device credential: a push token presented by a second account would
+ * silently move to it, and that account would start receiving the first person's notifications.
+ * A caller that must never move ownership passes `refuse_owner_transfer: true` and gets this
+ * instead.
+ */
+export class IdentityOwnershipConflictError extends Error {
+  constructor(message = 'This channel identity belongs to another account.') {
+    super(message);
+    this.name = 'IdentityOwnershipConflictError';
+    this.code = 'IDENTITY_OWNER_CONFLICT';
+  }
+}
+
+function heldByAnotherAccount(existing, input) {
+  if (!input.refuse_owner_transfer) return false;
+  if (!existing?.user_id || existing.user_id === input.user_id) return false;
+  return !RELEASED_CONSENT_STATES.includes(existing.consent_status);
+}
+
 export class CommunicationIdentityService {
   constructor({ repository }) {
     this.repository = repository;
@@ -86,6 +112,7 @@ export class CommunicationIdentityService {
     const existing = await this.findIdentityByUniqueKey(filters);
 
     if (existing) {
+      if (heldByAnotherAccount(existing, input)) throw new IdentityOwnershipConflictError();
       return this.updateExistingIdentity(existing, input);
     }
 
@@ -115,6 +142,7 @@ export class CommunicationIdentityService {
       if (error.code !== '23505') throw error;
       const racedIdentity = await this.findIdentityByUniqueKey(filters);
       if (!racedIdentity) throw error;
+      if (heldByAnotherAccount(racedIdentity, input)) throw new IdentityOwnershipConflictError();
       return this.updateExistingIdentity(racedIdentity, input);
     }
   }
