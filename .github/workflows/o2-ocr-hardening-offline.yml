@@ -360,6 +360,13 @@ on:
       - 'backend/tests/oc5e-*.test.js'
       - 'backend/tests/helpers/gmoGarageWorld.js'
       - 'database/migrations/2026100419*'
+      # OC-5F: seller intelligence (#213 A/B) — rollups, projections, KPI catalogue, the compare
+      # funnel migration. No OC-5 step ran an intelligence suite before this.
+      - 'backend/services/intelligence/**'
+      - 'backend/routes/intelligence*.js'
+      - 'backend/tests/intelligence-*.test.js'
+      - 'backend/tests/oc5f-*.test.js'
+      - 'database/migrations/2026100420*'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -800,6 +807,8 @@ jobs:
           backend/tests/o2-ocr-c3-garage-security.test.js
           backend/tests/gmo-1-garage-application.test.js
           backend/tests/migration-integrity.test.js
+      - name: OC-5F — seller intelligence (#213 A/B) — a refused rollup write fails the day; the Intelligence suites run on every OC-5 push
+        run: node --test backend/tests/intelligence-*.test.js backend/tests/migration-integrity.test.js
       - name: OC-5D — R14 a PRODUCTION web bundle carries no demo identity or password (real build, then scan)
         run: |
           npm run test:unit --workspace=web -- src/pages/auth/demoIdentityGuard.test.tsx

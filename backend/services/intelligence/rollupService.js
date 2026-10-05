@@ -256,7 +256,13 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
     started_at: runStartedAt,
     status: 'running',
   };
-  try { await client.from(RUNS).insert(run); } catch { /* the run ledger must never block the rollup */ }
+  // The run ledger must never BLOCK the rollup — but a run it did not record is not a day readers can
+  // see (freshness reads completed runs), so the outcome must not claim it is (OC-5F).
+  let runRecorded = false;
+  try {
+    const { error: runError } = await client.from(RUNS).insert(run);
+    runRecorded = !runError;
+  } catch { /* the run ledger must never block the rollup */ }
 
   try {
     const events = await readAllPages(() => client
@@ -420,22 +426,35 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
       computed_at: new Date().toISOString(),
     };
 
+    // Throws on a refused write (OC-5F): the catch below marks the run failed and answers ok:false.
     await writeRollups(client, { listingRows, sellerRows, tenantRows, platformRow });
 
-    try {
-      await client.from(RUNS)
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          events_scanned: events.length,
-          listings_written: listingRows.length,
-          sellers_written: sellerRows.length,
-          tenants_written: tenantRows.length,
-        })
-        .eq('metric_date', metricDate)
-        .eq('calculation_version', calculationVersion)
-        .eq('started_at', runStartedAt);
-    } catch { /* ignore */ }
+    // A day becomes readable only when its run says so. A refused completion is not a completed day:
+    // before OC-5F it was ignored and the call still answered ok:true.
+    const { error: completionError } = await client.from(RUNS)
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        events_scanned: events.length,
+        listings_written: listingRows.length,
+        sellers_written: sellerRows.length,
+        tenants_written: tenantRows.length,
+      })
+      .eq('metric_date', metricDate)
+      .eq('calculation_version', calculationVersion)
+      .eq('started_at', runStartedAt);
+    if (completionError) {
+      throw new Error(`the rollup was written but its run could not be marked completed (${completionError.code || 'no code'}): ${completionError.message}`);
+    }
+
+    if (!runRecorded) {
+      return {
+        ok: false,
+        metric_date: metricDate,
+        calculation_version: calculationVersion,
+        error: 'run ledger unavailable: the rows were written but no run was recorded, so readers treat this day as unavailable until it is re-run',
+      };
+    }
 
     return {
       ok: true,
@@ -488,23 +507,30 @@ async function readListingOwners(client, vins) {
   return owners;
 }
 
+/**
+ * A refused write is a failed day (OC-5F, #213 slice A's missing check). supabase-js RETURNS errors
+ * rather than throwing them, and these upserts never looked: a refused seller write (a column the
+ * database does not have yet, say) still left the run `completed` with nothing stored — readers then
+ * presented the empty day as measured zeros.
+ */
+async function upsertOrThrow(client, table, rows, onConflict) {
+  const { error } = await client.from(table).upsert(rows, { onConflict });
+  if (error) throw new Error(`rollup write refused: ${table} (${error.code || 'no code'}): ${error.message}`);
+}
+
 async function writeRollups(client, { listingRows, sellerRows, tenantRows, platformRow }) {
   // Upsert on the natural key so a recompute REPLACES the day rather than
   // appending a second version of it.
   if (listingRows.length) {
-    await client.from('listing_daily_metrics')
-      .upsert(listingRows, { onConflict: 'metric_date,listing_id,calculation_version' });
+    await upsertOrThrow(client, 'listing_daily_metrics', listingRows, 'metric_date,listing_id,calculation_version');
   }
   if (sellerRows.length) {
-    await client.from('seller_daily_metrics')
-      .upsert(sellerRows, { onConflict: 'metric_date,seller_user_id,calculation_version' });
+    await upsertOrThrow(client, 'seller_daily_metrics', sellerRows, 'metric_date,seller_user_id,calculation_version');
   }
   if (tenantRows.length) {
-    await client.from('tenant_daily_metrics')
-      .upsert(tenantRows, { onConflict: 'metric_date,tenant_id,calculation_version' });
+    await upsertOrThrow(client, 'tenant_daily_metrics', tenantRows, 'metric_date,tenant_id,calculation_version');
   }
-  await client.from('platform_daily_metrics')
-    .upsert([platformRow], { onConflict: 'metric_date,calculation_version' });
+  await upsertOrThrow(client, 'platform_daily_metrics', [platformRow], 'metric_date,calculation_version');
 }
 
 /**

@@ -204,8 +204,13 @@ test('a day is a UTC day, half-open so no event is counted twice', () => {
 
 // ── End-to-end rollup against a fake database ───────────────────────────────
 
-function createRollupClient({ events = [], inquiries = [], reservations = [], saved = [], vehicles = [] } = {}) {
-  const written = { listing: [], seller: [], tenant: [], platform: [], runs: [] };
+/**
+ * `failUpsert` (a table name), `failRunInsert` and `failCompletion` make the fake answer the way
+ * supabase-js does when PostgREST refuses a write: an `{ error }`, never a throw (OC-5F).
+ */
+function createRollupClient({ events = [], inquiries = [], reservations = [], saved = [], vehicles = [], failUpsert = null, failRunInsert = false, failCompletion = false } = {}) {
+  const written = { listing: [], seller: [], tenant: [], platform: [], runs: [], runUpdates: [] };
+  const refused = (code, message) => ({ data: null, error: { code, message } });
   const client = {
     written,
     from(table) {
@@ -230,9 +235,20 @@ function createRollupClient({ events = [], inquiries = [], reservations = [], sa
           }[table] ?? [];
           return Promise.resolve({ data: from === 0 ? rows : [], error: null });
         },
-        insert(row) { if (table === 'intelligence_rollup_runs') written.runs.push(row); return Promise.resolve({ data: row, error: null }) },
-        update() { return { eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }) } },
+        insert(row) {
+          if (table === 'intelligence_rollup_runs' && failRunInsert) return Promise.resolve(refused('42501', 'permission denied for table intelligence_rollup_runs'));
+          if (table === 'intelligence_rollup_runs') written.runs.push(row);
+          return Promise.resolve({ data: row, error: null });
+        },
+        update(payload) {
+          if (table === 'intelligence_rollup_runs') written.runUpdates.push(payload);
+          const outcome = failCompletion && payload?.status === 'completed'
+            ? refused('57014', 'canceling statement due to statement timeout')
+            : { data: null, error: null };
+          return { eq: () => ({ eq: () => ({ eq: () => Promise.resolve(outcome) }) }) };
+        },
         upsert(rows) {
+          if (table === failUpsert) return Promise.resolve(refused('PGRST204', "Could not find the 'compare_adds' column of 'seller_daily_metrics' in the schema cache"));
           const list = Array.isArray(rows) ? rows : [rows];
           if (table === 'listing_daily_metrics') written.listing.push(...list);
           if (table === 'seller_daily_metrics') written.seller.push(...list);
@@ -350,6 +366,39 @@ test('a failed rollup reports failure rather than writing a partial day', async 
   const result = await rollupDay(DAY, { client: exploding });
   assert.equal(result.ok, false);
   assert.match(result.error, /ledger unavailable/);
+});
+
+// ── A refused write is a failed day (OC-5F) ─────────────────────────────────
+
+const ACTIVE_DAY = () => ({
+  events: [ev('listing_viewed', { listing_id: 'L1', vehicle_reference: 'VIN1', pseudonymous_session_key: 's1' })],
+  vehicles: [{ vin: 'VIN1', owner_id: 'owner-1', current_seller_id: 'seller-1', tenant_id: 'tenant-1' }],
+});
+
+test('a refused rollup write fails the day: ok:false, the table and code named, the run marked failed', async () => {
+  const client = createRollupClient({ ...ACTIVE_DAY(), failUpsert: 'seller_daily_metrics' });
+  const result = await rollupDay(DAY, { client });
+  assert.equal(result.ok, false, 'a refused write must never be reported as a computed day');
+  assert.match(result.error, /seller_daily_metrics.*PGRST204/);
+  const statuses = client.written.runUpdates.map((u) => u.status);
+  assert.ok(!statuses.includes('completed'), 'the run is never marked completed');
+  assert.deepEqual(statuses, ['failed']);
+});
+
+test('a run that could not be marked completed is not a completed day', async () => {
+  const client = createRollupClient({ ...ACTIVE_DAY(), failCompletion: true });
+  const result = await rollupDay(DAY, { client });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /could not be marked completed.*57014/);
+  assert.deepEqual(client.written.runUpdates.map((u) => u.status), ['completed', 'failed']);
+});
+
+test('the run ledger never blocks the rollup — but a day it did not record is not reported as available', async () => {
+  const client = createRollupClient({ ...ACTIVE_DAY(), failRunInsert: true });
+  const result = await rollupDay(DAY, { client });
+  assert.ok(client.written.listing.length > 0, 'the rollup still ran');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /run ledger unavailable/);
 });
 
 // ── Freshness ───────────────────────────────────────────────────────────────
