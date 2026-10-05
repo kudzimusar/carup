@@ -1524,6 +1524,143 @@
         "OWNER-UAT-CERTIFIED"
       ],
       "recorded_at": "2026-10-05T02:49:11Z"
+    },
+    {
+      "id": "OC5G-G1-SOURCE",
+      "phase": "OC-5G",
+      "capability": "communications.policy_channel_routing",
+      "sha": "572a8927a799694cfd879c9945ba66bacc0c6f89",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through createCommunicationServices (the wiring, not the class) over every capped policy and every preferred external channel + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "the communications repository is the in-memory MemoryCommunicationRepository (no database); routing and rendering run through createCommunicationServices"
+      ],
+      "claims": [
+        "an in-app-only policy (policyChannelsOnly) routes only within its own channels, whatever the person prefers; nothing is queued when the person allows none of them",
+        "the default preferences no longer queue email and push as fallbacks of an in-app-only notice",
+        "an uncapped policy (SafeTrade) still follows the person's preference"
+      ],
+      "evidence": {
+        "ci_run": "37259048084",
+        "suites": [
+          "oc5g-policy-channel-cap"
+        ],
+        "mutants": "5/5 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T03:49:21Z"
+    },
+    {
+      "id": "OC5G-G2-SOURCE",
+      "phase": "OC-5G",
+      "capability": "communications.governed_templates",
+      "sha": "e49b17ce8b35760d8c911f3ac5b7b468258bc8cc",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test over the real emitters (source-pinned payloads; SafeTrade through the real adapter on SQL-read keys) and the live services + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "the communications repository is the in-memory MemoryCommunicationRepository (no database); routing and rendering run through createCommunicationServices"
+      ],
+      "claims": [
+        "all six policy-bound templates are registered; no policy template key is unregistered (KNOWN_UNREGISTERED removed)",
+        "every required variable is fed by the real emitter for all fifteen bound event types, and is never a placeholder default",
+        "the in-code mirrors are the registered copy; vehicle trust and SafeTrade no longer fall back to the acknowledgement template",
+        "the copy keeps R4/R5 rules: no payment, stage or score claim; never the moderator's free text"
+      ],
+      "evidence": {
+        "ci_run": "37260537175",
+        "suites": [
+          "oc5g-policy-template-registry",
+          "communication-event-coverage"
+        ],
+        "mutants": "17/17 killed (3 product mutations)"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T03:49:21Z"
+    },
+    {
+      "id": "OC5G-G2-DATABASE",
+      "phase": "OC-5G",
+      "capability": "communications.governed_templates",
+      "sha": "e49b17ce8b35760d8c911f3ac5b7b468258bc8cc",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite over Communications 2.0's own registry DDL: Up registers each key once, approved, on the channel its policy allows; Up is idempotent; Down removes only its own rows; a prior registration by another lane governs; coexists with every other template-only migration",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "20260811131500_communications_2_conversation_core.sql (registry DDL slice)",
+          "20260811132000_communications_2_template_runtime_registry.sql",
+          "20260828220000_passport_ownership_transfer_communications.sql",
+          "20260905160000_trade_os_sourcing_logistics_governed_templates.sql",
+          "20261004150000_o2_dealer_compliance_decision_template.sql",
+          "20261004172000_o2_x6_semantic_event_templates.sql",
+          "20261004180800_service_network_case_status_template.sql",
+          "20261004210000_oc5g_policy_notification_templates.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "20261004210000 registers the six templates with in_app versions for the capped in-app-only policies and default versions for trust and SafeTrade",
+        "an off-policy render of an in-app-only template fails closed (template_not_approved)"
+      ],
+      "evidence": {
+        "ci_run": "37260537175",
+        "suites": [
+          "oc5g-policy-template-registry"
+        ],
+        "mutants": "17/17 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T03:49:21Z"
+    },
+    {
+      "id": "OC5G-G3-SOURCE",
+      "phase": "OC-5G",
+      "capability": "communications.governed_templates",
+      "sha": "e49b17ce8b35760d8c911f3ac5b7b468258bc8cc",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test source scan of every governed-render call site (queueNotification / queueAuthEmail / templateService.render) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every template key a governed render reaches outside the policy table is registered, or is a recorded owner decision (leadership_welcome_v1)",
+        "schema-qualified registrations (INSERT INTO public.communication_templates) count"
+      ],
+      "evidence": {
+        "ci_run": "37260537175",
+        "suites": [
+          "communication-event-coverage"
+        ],
+        "mutants": "7/7 killed (2 product mutations)"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T03:49:21Z"
     }
   ],
   "capabilities": {
@@ -1801,6 +1938,14 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
       "notes": "OC-5F slice F: a published Seller listing on Home only inside its run scope, and the unpublish / republish / sold lifecycle on Marketplace and Home. Spec 48 (deployed staging) is authored and has never run: DEPLOYED waits on a governed RC2 preview pair. Its Communications phase is fixme until owner decision D."
+    },
+    "communications.policy_channel_routing": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "OC-5G G1: the live notification path (CommunicationProductNotificationService -> canonical queueFromDomainEvent) enforces policyChannelsOnly. A capped policy routes only within its channels; uncapped policies follow the preference unchanged."
     }
   }
 }
