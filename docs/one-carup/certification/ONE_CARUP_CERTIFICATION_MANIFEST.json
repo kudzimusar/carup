@@ -1661,6 +1661,45 @@
         "OWNER-UAT-CERTIFIED"
       ],
       "recorded_at": "2026-10-05T03:49:21Z"
+    },
+    {
+      "id": "OC5H-JOURNEYS-SOURCE",
+      "phase": "OC-5H",
+      "capability": "programme.rc2_product_journeys",
+      "sha": "95b331913ee061a10fb1202f2028d73dd128646a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test journeys through the shipped app (real routes, real session auth) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory Supabase world (not a database) for J1, J2, J4, J5",
+        "J2: a labelled double of mechanic_work_order_decide_authorization (the real function is proven on PostgreSQL in oc5a-partsentry-service-authority)",
+        "J3 runs on PGlite built from the repository's own migrations"
+      ],
+      "claims": [
+        "an organisation is chosen, never guessed, and only a selected garage acts as one",
+        "no service is recorded until the vehicle owner authorizes the work order; provenance is derived",
+        "a garage is born under a real step-up re-proof, built once, chosen by its founder, and hires only through its invitee's own verified address",
+        "rollup@2 credits a reservation to the seller it was made with after a transfer, and counts the compare stage",
+        "a governed decision reaches the person through the outbox and the registry, in-app only",
+        "no journey reached a provider or remote service (AI: NONE, asserted)"
+      ],
+      "evidence": {
+        "ci_run": "37262014096",
+        "suites": [
+          "oc5h-rc2-product-journeys",
+          "oc5h-rc2-garage-journey",
+          "oc4e-product-journeys"
+        ],
+        "mutants": "9/9 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T04:12:51Z"
     }
   ],
   "capabilities": {
@@ -1946,6 +1985,14 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "N/A",
       "notes": "OC-5G G1: the live notification path (CommunicationProductNotificationService -> canonical queueFromDomainEvent) enforces policyChannelsOnly. A capped policy routes only within its channels; uncapped policies follow the preference unchanged."
+    },
+    "programme.rc2_product_journeys": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5H: the RC2 product journeys (J1-J5) end to end through the shipped app, each AI-labelled (all five AI: NONE, asserted by a fetch guard). Deployed journeys are an RC2 runbook step."
     }
   }
 }
