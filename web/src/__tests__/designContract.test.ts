@@ -43,6 +43,8 @@ const SERVICE_NETWORK_SURFACES = [
   '/src/pages/dashboard/garage/GarageCaseDetail.tsx',
   '/src/pages/dashboard/garage/GarageCustomers.tsx',
   '/src/pages/dashboard/garage/GarageProfileEditor.tsx',
+  // GMO-6/7 (OC-5E): the garage's own people.
+  '/src/pages/dashboard/garage/GarageTeam.tsx',
 ]
 
 /**
@@ -66,6 +68,7 @@ const GARAGE_WORKFLOW = [
   '/src/pages/dashboard/garage/GarageCaseDetail.tsx',
   '/src/pages/dashboard/garage/GarageCustomers.tsx',
   '/src/pages/dashboard/garage/GarageProfileEditor.tsx',
+  '/src/pages/dashboard/garage/GarageTeam.tsx',
   '/src/pages/dashboard/owner/ServiceRequests.tsx',
 ]
 

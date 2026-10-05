@@ -176,6 +176,8 @@ import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceRevi
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import GarageApplications from './pages/dashboard/admin/GarageApplications'
+import GarageTeam from './pages/dashboard/garage/GarageTeam'
+import JoinGarage from './pages/JoinGarage'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
@@ -403,6 +405,8 @@ export default function App() {
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          {/* GMO-6 (OC-5E): an invitation must be readable before the person has an account. */}
+          <Route path="/join-garage" element={<JoinGarage />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so
@@ -463,6 +467,8 @@ export default function App() {
           <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
           <Route path="/garage/customers" element={<GarageCustomers />} />
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
+          <Route path="/garage/team" element={<GarageTeam />} />
         </Route>
 
         {/* Insurance Dashboard */}

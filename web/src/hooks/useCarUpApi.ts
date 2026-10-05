@@ -3264,6 +3264,40 @@ export function useCarUpApi() {
     return request<GarageApiJson>(`${garageReviewBase(appId)}/evidence/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
   }, [request])
 
+  // GMO-6/7 (ported by OC-5E from #209) — a garage's invitations and team. Managing them is the
+  // selected garage's ADMIN's act; the server decides that from the session's verified organisation.
+  const listGarageInvitations = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations', { method: 'GET' })
+  }, [request])
+
+  const createGarageInvitation = useCallback(async (body: { email: string; role: string; name?: string }): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const revokeGarageInvitation = useCallback(async (invitationId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/invitations/${encodeURIComponent(invitationId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const peekGarageInvitation = useCallback(async (token: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/invitations/peek/${encodeURIComponent(token)}`, { method: 'GET' })
+  }, [request])
+
+  const acceptGarageInvitation = useCallback(async (token: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
+  }, [request])
+
+  const listGarageMembers = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/members', { method: 'GET' })
+  }, [request])
+
+  const removeGarageMember = useCallback(async (userId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const changeGarageMemberRole = useCallback(async (userId: string, role: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+  }, [request])
+
   // O2-X2 (ported by OC-5C) — the registration onboarding journey (self-scoped; describes, never grants)
   // and the applicant's own 7C identity wizard. Server-owned payloads travel as structural records;
   // the consuming page narrows them.
@@ -3339,6 +3373,14 @@ export function useCarUpApi() {
     decideGarageApplication,
     activateGarageApplication,
     previewGarageEvidenceForReview,
+    listGarageInvitations,
+    createGarageInvitation,
+    revokeGarageInvitation,
+    peekGarageInvitation,
+    acceptGarageInvitation,
+    listGarageMembers,
+    removeGarageMember,
+    changeGarageMemberRole,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,

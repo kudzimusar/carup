@@ -1039,6 +1039,22 @@
     ]
   },
   {
+    "id": "garage.team",
+    "domain": "service",
+    "route": "/garage/team",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin"
+    ]
+  },
+  {
     "id": "garage.workshop",
     "domain": "service",
     "route": "/garage",

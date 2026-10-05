@@ -607,6 +607,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'People whose cars you have worked on through CarUp',
   },
   {
+    // GMO-6/7 (OC-5E): who works in the garage — invitations, roles, removal. The server's gate is
+    // requireActiveTenant({ types: ['garage'], roles: ['admin'] }); this scope says the same.
+    id: 'garage.team',
+    label: 'Your Team',
+    shortLabel: 'Team',
+    route: '/garage/team',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Invite the people who work with you, and manage what they can do',
+  },
+  {
     id: 'garage.profile',
     label: 'My Garage Page',
     route: '/garage/profile',
