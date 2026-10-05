@@ -29,10 +29,16 @@ export class TrustEnforcementEngine {
   /**
    * Compares extracted OCR fields against the primary registry record to detect spoofing
    */
-  static async verifyDocumentDataMatch(vin, docType, extractedPayload) {
-    logger.info('TRUST_ENGINE', `Verifying metadata match for VIN: ${vin}, DocType: ${docType}`, { vin, docType });
-    
-    // Fetch target vehicle
+  /**
+   * Read-only document/vehicle comparison used by governed reviewers.
+   *
+   * This method may READ canonical vehicle/user state and report mismatches. It MUST NOT mutate
+   * vehicle status, Trust, publication or any other authority. Callers that need a domain
+   * consequence must hand the durable fact to the owning Vehicle/Trust authority.
+   */
+  static async assessDocumentDataMatch(vin, docType, extractedPayload) {
+    logger.info('TRUST_ENGINE', `Assessing metadata match for VIN: ${vin}, DocType: ${docType}`, { vin, docType });
+
     const { data: vehicle, error: vehicleErr } = await supabase
       .from('vehicles')
       .select('vin, make, model, year, trust_score, owner_id, status')
@@ -41,19 +47,27 @@ export class TrustEnforcementEngine {
 
     if (vehicleErr || !vehicle) {
       logger.warn('TRUST_ENGINE', `Vehicle not found in registry: ${vin}`, { vin });
-      return { match: false, reason: 'VEHICLE_NOT_IN_REGISTRY' };
+      return {
+        match: false,
+        reason: 'VEHICLE_NOT_IN_REGISTRY',
+        penalties: [],
+        totalPenalty: 0,
+        vehicleTrustScore: null,
+        vehicleOwnerId: null,
+        vehicleStatus: null,
+      };
     }
 
     const penalties = [];
-    let mismatchDetected = false;
 
-    // 1. Validate VIN in OCR matches listed VIN (For registration books & customs declarations)
     if (extractedPayload.vin && extractedPayload.vin !== vin) {
-      mismatchDetected = true;
-      penalties.push({ field: 'VIN_MISMATCH', penalty: 50, details: `Extracted: '${extractedPayload.vin}' vs Listing: '${vin}'` });
+      penalties.push({
+        field: 'VIN_MISMATCH',
+        penalty: 50,
+        details: `Extracted: '${extractedPayload.vin}' vs Listing: '${vin}'`,
+      });
     }
 
-    // 2. Validate Owner Name matching User profile (For CVR/Registration Book owner names)
     if (vehicle.owner_id && extractedPayload.owner_name) {
       const { data: owner } = await supabase
         .from('users')
@@ -64,22 +78,47 @@ export class TrustEnforcementEngine {
       if (owner) {
         const dbName = owner.name.toLowerCase().trim();
         const docName = extractedPayload.owner_name.toLowerCase().trim();
-        
-        // Split names and verify that at least one key name segment matches
         const dbNameParts = dbName.split(/\s+/);
-        const hasNameMatch = dbNameParts.some(part => part.length > 2 && docName.includes(part));
-        
+        const hasNameMatch = dbNameParts.some((part) => part.length > 2 && docName.includes(part));
+
         if (!hasNameMatch) {
-          mismatchDetected = true;
-          penalties.push({ field: 'OWNER_NAME_MISMATCH', penalty: 30, details: `Extracted: '${extractedPayload.owner_name}' vs Registry: '${owner.name}'` });
+          penalties.push({
+            field: 'OWNER_NAME_MISMATCH',
+            penalty: 30,
+            details: `Extracted: '${extractedPayload.owner_name}' vs Registry: '${owner.name}'`,
+          });
         }
       }
     }
 
-    // If mismatch is detected, apply trust score degradation
-    if (mismatchDetected) {
-      const totalPenalty = penalties.reduce((sum, p) => sum + p.penalty, 0);
-      const originalScore = vehicle.trust_score || 80.0;
+    return {
+      match: penalties.length === 0,
+      penalties,
+      totalPenalty: penalties.reduce((sum, p) => sum + p.penalty, 0),
+      vehicleTrustScore: vehicle.trust_score,
+      vehicleOwnerId: vehicle.owner_id,
+      vehicleStatus: vehicle.status,
+    };
+  }
+
+  /**
+   * Legacy consequence-bearing wrapper retained for existing non-C1 callers.
+   *
+   * OCR 1.0-C1 no longer calls this from Document Intelligence review. The wrapper preserves its
+   * previous penalty/quarantine behavior for callers whose authority has not yet been converged.
+   */
+  static async verifyDocumentDataMatch(vin, docType, extractedPayload) {
+    logger.info('TRUST_ENGINE', `Verifying metadata match for VIN: ${vin}, DocType: ${docType}`, { vin, docType });
+
+    const assessment = await this.assessDocumentDataMatch(vin, docType, extractedPayload);
+    if (assessment.reason === 'VEHICLE_NOT_IN_REGISTRY') {
+      return { match: false, reason: assessment.reason };
+    }
+
+    if (!assessment.match) {
+      const penalties = assessment.penalties;
+      const totalPenalty = assessment.totalPenalty;
+      const originalScore = assessment.vehicleTrustScore || 80.0;
       const newScore = Math.max(0.0, originalScore - totalPenalty);
 
       logger.warn('TRUST_ENGINE', `Mismatch detected! Degrading vehicle trust: ${originalScore} -> ${newScore} (Penalty: -${totalPenalty})`, {
@@ -92,15 +131,11 @@ export class TrustEnforcementEngine {
       metricsHub.recordTrustMismatch();
       metricsHub.recordTrustRecalculation();
 
-      // Update vehicle trust score. Only refreshCanonicalTrust() may STAMP a score, so this write
-      // clears the stamp columns it does not own: a penalty that kept the previous refresh's
-      // calculation_version would be published as a canonical `evaluated` score.
       await supabase
         .from('vehicles')
         .update({ trust_score: newScore, ...UNSTAMPED_TRUST_CACHE })
         .eq('vin', vin);
 
-      // Write into trust history log
       try {
         await supabase.from('trust_score_history').insert({
           entity_type: 'VEHICLE',
@@ -114,27 +149,29 @@ export class TrustEnforcementEngine {
         logger.warn('TRUST_ENGINE', `Failed to record trust score history: ${e.message}`, { error: e });
       }
 
-      // Log high risk anomaly inside security_events
       const eventId = 'sec_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10);
       await supabase.from('security_events').insert({
         id: eventId,
-        user_id: vehicle.owner_id || 'system',
+        user_id: assessment.vehicleOwnerId || 'system',
         event_type: 'DOCUMENT_METADATA_MISMATCH',
         details: `OCR Document mismatch detected on ${docType}. Penalties: ${JSON.stringify(penalties)}`,
         severity: totalPenalty >= 50 ? 'CRITICAL' : 'HIGH',
         timestamp: new Date().toISOString()
       });
 
-      // Automatically trigger quarantine if trust score drops below safety margin
       await this.enforceMarketplaceQuarantine(vin);
 
       return { match: false, penalties, totalPenalty, newScore };
     }
 
     logger.info('TRUST_ENGINE', `OCR Metadata verified successfully for VIN: ${vin}`, { vin });
-    return { match: true, penalties: [], totalPenalty: 0, newScore: vehicle.trust_score };
+    return {
+      match: true,
+      penalties: [],
+      totalPenalty: 0,
+      newScore: assessment.vehicleTrustScore,
+    };
   }
-
   /**
    * Propagates risk from Dealer/Organization down to listed vehicles
    */

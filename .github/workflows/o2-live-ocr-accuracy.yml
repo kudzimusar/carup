@@ -1,0 +1,168 @@
+name: O2 Live OCR — Cloudflare Workers AI accuracy gate
+
+# Measures the SHIPPED extraction against the synthetic accuracy corpus using the REAL configured
+# vision provider — Cloudflare Workers AI — inside CI, where the credentials live. They are
+# repository secrets: injected as env vars, never printed, never written to an artifact, never
+# committed, and never placed in a frontend environment.
+#
+# A SIBLING gate. It does not touch, mutate or re-run any certified O2/P7/Seller workflow, it
+# writes nothing to staging, and it touches no database. Its only side effect is provider calls
+# against synthetic documents — up to 33 of them (11 fixtures x 3 attempts) plus one reachability
+# probe.
+#
+# MANUAL DISPATCH ONLY. This workflow previously also carried a `push:` trigger on the OCR branch.
+# That made it an UNINTENDED AUTOMATIC CONSUMER of the Cloudflare Workers AI daily allocation: run
+# 33935601087 fired from an ordinary push, ran the full 11-fixture corpus and spent ~2,503.6
+# neurons — roughly 42% of a day's free budget — with no owner dispatch and no approval. Live
+# external-AI certification costs real money and must be an explicit owner decision, so the push
+# trigger was removed. Do not reintroduce `push:`, `pull_request:` or `schedule:` here; a permanent
+# guard in backend/tests/o2-ocr-accuracy-corpus.test.js fails the suite if any of them returns.
+#
+# Triggering: workflow_dispatch and nothing else. There is no push, pull_request or schedule
+# trigger, on this branch or any other, so this gate runs only when an owner starts it by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: >-
+          Optional Workers AI model id to qualify (e.g. @cf/google/gemma-4-26b-a4b-it). Blank uses
+          the selected model. A model with no probed transport, or a REJECTED model, is refused.
+        required: false
+        default: ''
+      fixtures:
+        description: >-
+          Optional comma-separated fixture ids for a PARTIAL diagnostic run (e.g.
+          registration-book-clean). A partial run can never report PASS. Leave blank for the
+          full corpus, which is the only form that can pass the gate.
+        required: false
+        default: ''
+
+concurrency:
+  group: o2-live-ocr-accuracy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  accuracy:
+    name: Live OCR accuracy against the synthetic corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.sha }}
+      # MANDATORY: a measurement taken against the simulation would measure the simulation.
+      ALLOW_OCR_MOCK: 'false'
+      # Explicit provider selection. There is no fallback: if Cloudflare is unavailable the gate
+      # fails, it does not quietly measure a different model.
+      CARUP_OCR_PROVIDER: cloudflare
+      NODE_ENV: production
+      # Placeholders so modules that read env do not crash. The gate captures every database
+      # write instead of persisting it; these are NEVER real credentials.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: gate-local-service-role
+      SUPABASE_ANON_KEY: gate-local-anon
+      JWT_SECRET: gate-local-jwt
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD_SHA }}
+
+      - name: Assert exact candidate checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          echo "candidate SHA: $EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Require the Cloudflare credentials (fail closed, never echo them)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          missing=
+          [ -z "$CLOUDFLARE_ACCOUNT_ID" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && missing="$missing CLOUDFLARE_API_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured for this repository:$missing"
+            exit 1
+          fi
+          echo "Cloudflare credentials present (account ${#CLOUDFLARE_ACCOUNT_ID} chars, token ${#CLOUDFLARE_API_TOKEN} chars; values never printed)."
+
+      # One real Workers AI call on the real fixture, so "the provider is available" is proven by
+      # a request rather than inferred from a variable. Prints the provider's own error detail on
+      # refusal. Carries no credential into the output.
+      # One real Workers AI call through CarUp's OWN client, so the request uses the transport
+      # measured to deliver that model's pixels. Proves availability by a request, not a variable.
+      - name: Prove one real vision request
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CARUP_OCR_MODEL: ${{ github.event.inputs.model }}
+        run: |
+          node -e '
+            (async () => {
+              const fs = require("fs");
+              const { askCloudflareVision } = await import("./backend/services/ai/CloudflareVisionClient.js");
+              const { resolveCloudflareModel } = await import("./backend/services/ai/ocrVisionProvider.js");
+              const model = resolveCloudflareModel();
+              console.log("model under test:", model);
+              const base64 = fs.readFileSync("docs/features/o2/uat-assets/ocr-corpus/national-id-clean.png").toString("base64");
+              const out = await askCloudflareVision(
+                "You output only a raw JSON object and nothing else.",
+                "Reply with exactly {\"ok\":true}.",
+                [{ mimeType: "image/png", base64 }], null, { model },
+              );
+              console.log("PROOF: a real Workers AI vision request SUCCEEDED.");
+              console.log("content:", JSON.stringify(out.content).slice(0, 300));
+              console.log("usage:", JSON.stringify(out.usage));
+            })().catch((e) => { console.log("PROOF FAILED:", e.message); process.exitCode = 1; });
+          '
+
+      - name: Run the live accuracy gate
+        id: gate
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OCR_GATE_ONLY: ${{ github.event.inputs.fixtures }}
+          CARUP_OCR_MODEL: ${{ github.event.inputs.model }}
+        run: |
+          set -o pipefail
+          node backend/tests/tools/ocr-accuracy-gate.mjs --out "$GITHUB_WORKSPACE/ocr-accuracy" 2>&1 | tee ocr-gate-console.txt
+
+      - name: Publish measured results to the job summary
+        if: always()
+        run: |
+          {
+            echo "## Live OCR accuracy gate — candidate \`$EXPECTED_HEAD_SHA\`"
+            echo
+            if [ -f ocr-accuracy/OCR_ACCURACY_RESULTS.md ]; then
+              cat ocr-accuracy/OCR_ACCURACY_RESULTS.md
+            else
+              echo 'The gate produced no results file. Console output:'
+              echo
+              echo '```'
+              tail -40 ocr-gate-console.txt 2>/dev/null || echo '(no console output captured)'
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload measured results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-accuracy-results
+          path: |
+            ocr-accuracy/OCR_ACCURACY_RESULTS.md
+            ocr-accuracy/ocr-accuracy-results.json
+            ocr-gate-console.txt
+          retention-days: 30
+          if-no-files-found: warn

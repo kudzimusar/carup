@@ -54,10 +54,80 @@ const TEMPLATES = Object.freeze({
   // Operations M2 — governed Seller Authority decisions. Wording is bounded:
   // it reports the CarUp policy decision only, never a legal-title or
   // registration claim, and carries no security token or restricted document.
+  // OC-5G (registered by 20261004210000): `decision` is the public statement, and `under_review` is a
+  // valid decision, so "was reviewed by CarUp: Seller authority under CarUp review" contradicted
+  // itself. The body now states only that CarUp updated it, which is true of every statement.
   seller_authority_v1: {
     transactional: true,
     subject: 'Seller authority decision',
-    body: 'Your seller authority for vehicle {{listing_id}} was reviewed by CarUp: {{decision}}.',
+    body: 'CarUp updated the seller authority for vehicle {{listing_id}}: {{decision}}.',
+  },
+  // O2/P5 — renders governed structured facts only; no free text, no reviewer notes.
+  dealer_compliance_decision_v1: {
+    transactional: true,
+    subject: 'Dealer compliance decision',
+    body: 'Your dealer application received a CarUp decision: {{decision}}.',
+  },
+  // O2-X6 (ported by OC-5C) — in-code mirrors of the governed registry rows (20261004172000). They
+  // render governed structured facts only: no free text, no reviewer notes, no evidence links.
+  identity_lifecycle_v1: {
+    transactional: true,
+    subject: 'Your CarUp identity status changed',
+    body: 'Your identity status is now: {{status}}. {{summary}}',
+  },
+  dealer_evidence_required_v1: {
+    transactional: true,
+    subject: 'Your dealer application still needs items',
+    body: 'To continue your dealer application, CarUp still needs: {{summary}}.',
+  },
+  seller_authority_superseded_v1: {
+    transactional: true,
+    subject: 'Seller authority ended',
+    body: 'Your seller authority for vehicle {{listing_id}} ended because ownership transferred. No action is needed.',
+  },
+  // OC-5G — in-code mirrors of the governed registry rows (20261004210000). Without them these keys
+  // fell back to message_acknowledgement_v1, so a Vehicle Passport change or a SafeTrade stage read
+  // "CarUp received your message about MARKETPLACE_FUNDS_HELD". Governed facts only: the vehicle,
+  // and where to look. No stage, payment or score claim (R4/R5's rules); the subjects are R4/R5's.
+  vehicle_trust_update_v1: {
+    transactional: true,
+    subject: 'Your Vehicle Passport was updated',
+    body: 'The Vehicle Passport for vehicle {{listing_id}} was updated. Open your vehicle record on CarUp to see what changed.',
+  },
+  safetrade_transaction_v1: {
+    transactional: true,
+    subject: 'Your SafeTrade journey',
+    body: 'There is an update on your SafeTrade journey for vehicle {{listing_id}}. Open CarUp to see its current stage. Always confirm payment details on CarUp itself, and never send money to someone because a message asked you to.',
+  },
+  // OC-5D (F3) — in-code mirror of the governed registry row (20261004180800). The vehicle and the
+  // case's recorded status only: never private notes, the request summary, a price or a promise.
+  service_case_status_v1: {
+    transactional: true,
+    subject: 'Your service request was updated',
+    body: 'Your service request for vehicle {{listing_id}} is now: {{status}}.',
+  },
+  // Trade OS D7 — in-code mirror of the governed `container_booking_update` template
+  // (registered + approved in 20260811131700_communications_2_workflow_template_foundations.sql).
+  // Used only pre-registry (dev/tests); the governed registry wins wherever it is deployed.
+  container_booking_update: {
+    transactional: true,
+    subject: 'Container booking {{reference}}',
+    body: 'Container booking {{reference}} status: {{status}}. Route: {{route}}.',
+  },
+  // Trade OS T2 — sourcing lifecycle. Same required variables as the container template so a
+  // missing value can never render as a blank commercial claim.
+  rfq_update_v1: {
+    transactional: true,
+    subject: 'Sourcing request {{reference}}',
+    body: 'Sourcing request {{reference}} update: {{status}}. Route: {{route}}.',
+  },
+  // Trade OS T3 — shipping-request lifecycle. Same required variables as the container and
+  // sourcing templates. It reports the OFFER's state and nothing further: an accepted offer is
+  // not approved container space, carrier acceptance, customs clearance or payment.
+  logistics_update_v1: {
+    transactional: true,
+    subject: 'Shipping request {{reference}}',
+    body: 'Shipping request {{reference}} update: {{status}}. Route: {{route}}.',
   },
   support_resolved_v1: {
     transactional: true,

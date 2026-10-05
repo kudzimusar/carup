@@ -134,8 +134,11 @@ export default function PeriodicReport({ period = 'monthly' }: { period?: 'weekl
         </p>
       )}
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-left text-sm" data-testid="periodic-report-table">
+      {/* R11 — `min-w-0` stops the table's min-content width propagating out through flex/grid
+          ancestors and widening the document; the table then scrolls INSIDE this container at
+          phone widths instead of pushing the page sideways. No column or row is hidden. */}
+      <div className="mt-4 w-full min-w-0 max-w-full overflow-x-auto">
+        <table className="w-full min-w-[34rem] text-left text-sm" data-testid="periodic-report-table">
           <thead>
             <tr className="border-b text-xs uppercase tracking-wider text-gray-500">
               <th className="py-2 pr-4">Metric</th>

@@ -27,7 +27,9 @@ import { ROLLUP_EXCLUDED_FLAGS } from './activityEventTypes.js';
  * Bump when ANY number below changes meaning. Rollup rows are keyed by version,
  * so two versions coexist and a surface can never blend them silently.
  */
-export const ROLLUP_CALCULATION_VERSION = 'rollup@1';
+// rollup@2 (OC-5F, #213 slice A): seller rows carry `compare_adds` and a real `reservations` count,
+// credited to the reservation's own seller. rollup@1 rows are kept, and never blended.
+export const ROLLUP_CALCULATION_VERSION = 'rollup@2';
 
 const LEDGER = 'marketplace_activity_events';
 const RUNS = 'intelligence_rollup_runs';
@@ -151,6 +153,8 @@ export function computeScopeMetrics(events) {
     saves: business.filter(isType('marketplace_listing_saved')).length,
     unsaves: business.filter(isType('marketplace_listing_unsaved')).length,
     shares_confirmed: shares.filter((e) => e.metadata?.share_resolution === 'confirmed').length,
+    // rollup@2: the funnel's compare stage, summed across the scope's listings like every total.
+    compare_adds: business.filter(isType('marketplace_compare_added')).length,
     inquiry_starts: business.filter(isType('marketplace_inquiry_started')).length,
     source_event_count: events.length,
   };
@@ -211,7 +215,8 @@ export async function readReservationAuthority(client, metricDate) {
   const { start, end } = dayBounds(metricDate);
   const rows = await readAllPages(() => client
     .from('vehicle_reservations')
-    .select('id, vin, status, created_at')
+    // seller_id: the seller the reservation was made WITH (rollup@2 credits reservations to it).
+    .select('id, vin, status, created_at, seller_id')
     .gte('created_at', start)
     .lt('created_at', end));
   return rows.filter((row) => String(row.status || '') === 'active');
@@ -256,7 +261,13 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
     started_at: runStartedAt,
     status: 'running',
   };
-  try { await client.from(RUNS).insert(run); } catch { /* the run ledger must never block the rollup */ }
+  // The run ledger must never BLOCK the rollup — but a run it did not record is not a day readers can
+  // see (freshness reads completed runs), so the outcome must not claim it is (OC-5F).
+  let runRecorded = false;
+  try {
+    const { error: runError } = await client.from(RUNS).insert(run);
+    runRecorded = !runError;
+  } catch { /* the run ledger must never block the rollup */ }
 
   try {
     const events = await readAllPages(() => client
@@ -356,6 +367,19 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
       }
     }
 
+    // rollup@2 (OC-5F): a reservation is credited to the seller it was made WITH —
+    // `vehicle_reservations.seller_id`, NOT NULL, written from the transaction's seller under a locked
+    // check. #213 credited whoever was the listing's seller at RECOMPUTE time: after a completed
+    // transfer that is the BUYER, and a failed owner lookup dropped the reservation silently.
+    const reservationsBySeller = new Map();
+    for (const row of reservationRows) {
+      if (!row.seller_id) continue;
+      const sellerId = String(row.seller_id);
+      reservationsBySeller.set(sellerId, (reservationsBySeller.get(sellerId) || 0) + 1);
+      // A reservation can name a seller with no other activity that day; it still counts.
+      if (!bySeller.has(sellerId)) bySeller.set(sellerId, { events: [], tenantId: null, listings: new Set() });
+    }
+
     const inquiriesBySeller = new Map();
     const inspectionsBySeller = new Map();
     const inquiriesByTenant = new Map();
@@ -382,7 +406,7 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
         ...computeScopeMetrics(bucket.events),
         inquiries: inquiriesBySeller.get(sellerId) || 0,
         inspections: inspectionsBySeller.get(sellerId) || 0,
-        reservations: 0,
+        reservations: reservationsBySeller.get(sellerId) || 0,
         calculation_version: calculationVersion,
         computed_at: new Date().toISOString(),
       });
@@ -420,22 +444,35 @@ export async function rollupDay(metricDate, { client = defaultClient, calculatio
       computed_at: new Date().toISOString(),
     };
 
+    // Throws on a refused write (OC-5F): the catch below marks the run failed and answers ok:false.
     await writeRollups(client, { listingRows, sellerRows, tenantRows, platformRow });
 
-    try {
-      await client.from(RUNS)
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          events_scanned: events.length,
-          listings_written: listingRows.length,
-          sellers_written: sellerRows.length,
-          tenants_written: tenantRows.length,
-        })
-        .eq('metric_date', metricDate)
-        .eq('calculation_version', calculationVersion)
-        .eq('started_at', runStartedAt);
-    } catch { /* ignore */ }
+    // A day becomes readable only when its run says so. A refused completion is not a completed day:
+    // before OC-5F it was ignored and the call still answered ok:true.
+    const { error: completionError } = await client.from(RUNS)
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        events_scanned: events.length,
+        listings_written: listingRows.length,
+        sellers_written: sellerRows.length,
+        tenants_written: tenantRows.length,
+      })
+      .eq('metric_date', metricDate)
+      .eq('calculation_version', calculationVersion)
+      .eq('started_at', runStartedAt);
+    if (completionError) {
+      throw new Error(`the rollup was written but its run could not be marked completed (${completionError.code || 'no code'}): ${completionError.message}`);
+    }
+
+    if (!runRecorded) {
+      return {
+        ok: false,
+        metric_date: metricDate,
+        calculation_version: calculationVersion,
+        error: 'run ledger unavailable: the rows were written but no run was recorded, so readers treat this day as unavailable until it is re-run',
+      };
+    }
 
     return {
       ok: true,
@@ -488,23 +525,30 @@ async function readListingOwners(client, vins) {
   return owners;
 }
 
+/**
+ * A refused write is a failed day (OC-5F, #213 slice A's missing check). supabase-js RETURNS errors
+ * rather than throwing them, and these upserts never looked: a refused seller write (a column the
+ * database does not have yet, say) still left the run `completed` with nothing stored — readers then
+ * presented the empty day as measured zeros.
+ */
+async function upsertOrThrow(client, table, rows, onConflict) {
+  const { error } = await client.from(table).upsert(rows, { onConflict });
+  if (error) throw new Error(`rollup write refused: ${table} (${error.code || 'no code'}): ${error.message}`);
+}
+
 async function writeRollups(client, { listingRows, sellerRows, tenantRows, platformRow }) {
   // Upsert on the natural key so a recompute REPLACES the day rather than
   // appending a second version of it.
   if (listingRows.length) {
-    await client.from('listing_daily_metrics')
-      .upsert(listingRows, { onConflict: 'metric_date,listing_id,calculation_version' });
+    await upsertOrThrow(client, 'listing_daily_metrics', listingRows, 'metric_date,listing_id,calculation_version');
   }
   if (sellerRows.length) {
-    await client.from('seller_daily_metrics')
-      .upsert(sellerRows, { onConflict: 'metric_date,seller_user_id,calculation_version' });
+    await upsertOrThrow(client, 'seller_daily_metrics', sellerRows, 'metric_date,seller_user_id,calculation_version');
   }
   if (tenantRows.length) {
-    await client.from('tenant_daily_metrics')
-      .upsert(tenantRows, { onConflict: 'metric_date,tenant_id,calculation_version' });
+    await upsertOrThrow(client, 'tenant_daily_metrics', tenantRows, 'metric_date,tenant_id,calculation_version');
   }
-  await client.from('platform_daily_metrics')
-    .upsert([platformRow], { onConflict: 'metric_date,calculation_version' });
+  await upsertOrThrow(client, 'platform_daily_metrics', [platformRow], 'metric_date,calculation_version');
 }
 
 /**

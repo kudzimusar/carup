@@ -26,6 +26,38 @@
  * here are enforced, so existing tests are unaffected.
  */
 export const UNIQUE_INDEXES = Object.freeze({
+  // Service Network S8 — service_links: UNIQUE (public_token) and UNIQUE
+  // (resource_type, resource_id) so a resource has exactly one stable address;
+  // service_capability_grants: UNIQUE (token_hash).
+  service_links: [['public_token'], ['resource_type', 'resource_id']],
+  service_capability_grants: [['token_hash']],
+  // Service Network S5 — service_record_parts: UNIQUE (service_record_id, partsentry_log_id)
+  // and service_record_evidence: UNIQUE (service_record_id, evidence_id). Both make the
+  // attach paths retry-safe: a repeated attach must lose the race rather than record the
+  // same part or the same evidence twice against one service record.
+  service_record_parts: [['service_record_id', 'partsentry_log_id']],
+  service_record_evidence: [['service_record_id', 'evidence_id']],
+  // Service Network S4 — mechanic_work_orders: partial UNIQUE (service_case_id) WHERE NOT NULL
+  // (one work order per Service Case) and work_order_assignments: partial UNIQUE
+  // (work_order_id) WHERE unassigned_at IS NULL (at most one LIVE mechanic per work order —
+  // a second concurrent assign must lose the race, not produce two "current" mechanics).
+  mechanic_work_orders: [{ cols: ['service_case_id'], where: null, name: 'uq_mechanic_work_orders_service_case' }],
+  // Partial: UNIQUE (work_order_id) WHERE unassigned_at IS NULL — in this engine's { cols, where, name }
+  // form (OC-5D: #197 wrote { columns, where }, which the engine on this lineage does not read).
+  work_order_assignments: [
+    { cols: ['work_order_id'], where: (row) => row.unassigned_at === null || row.unassigned_at === undefined, name: 'uq_work_order_assignments_live' },
+  ],
+  // Service Network S2 — service_cases: partial UNIQUE (source_inquiry_id) WHERE NOT NULL.
+  // This index IS the idempotent marketplace bridge: a retry must lose the insert race
+  // rather than open a second Service Case for one inquiry.
+  // Partial: UNIQUE (source_inquiry_id) WHERE source_inquiry_id IS NOT NULL.
+  service_cases: [{ cols: ['source_inquiry_id'], where: null, name: 'uq_service_cases_source_inquiry' }],
+  // Service Network S1 — garage_public_profiles: PRIMARY KEY (tenant_id) and UNIQUE (slug).
+  // Both are load-bearing: one profile per garage tenant, and a globally unique public
+  // slug (the public identity, since internal tenant UUIDs are never published).
+  garage_public_profiles: [['tenant_id'], ['slug']],
+  // Service Network S1 — garage_branches: UNIQUE (tenant_id, name).
+  garage_branches: [['tenant_id', 'name']],
   // ledger #21 — diaspora_safetrade_provider_events: UNIQUE (provider, event_id)
   diaspora_safetrade_provider_events: [['provider', 'event_id']],
   // ledger #21 — diaspora_safetrade_operations: UNIQUE (tenant_id, idempotency_key)
@@ -49,6 +81,53 @@ export const UNIQUE_INDEXES = Object.freeze({
   // collides. A mock that accepted the insert would let the broken read-then-insert path pass its
   // tests forever while the capability was, in production, ungrantable for the rest of time.
   diaspora_user_entitlement_overrides: [['tenant_id', 'user_id', 'feature_key']],
+  // T4 — diaspora_logistics_requests: uq_diaspora_logistics_request_live_import_order.
+  //
+  // The continuation edge's idempotency IS this index: two concurrent "arrange shipping" clicks on
+  // one purchase must produce ONE shipping request, and the loser must be handed the winner rather
+  // than an error.
+  //
+  // The real index is PARTIAL (… WHERE deleted_at IS NULL AND import_order_id IS NOT NULL AND
+  // status NOT IN ('CANCELLED','CLOSED')). The mock cannot express a predicate, so this entry is
+  // STRICTER than Postgres in exactly one direction: after a continuation is cancelled or closed,
+  // the real database frees the slot and the mock does not. That divergence is safe for the
+  // concurrency path it exists to test, but it means a "re-arrange shipping after cancelling"
+  // test must NOT be written against the mock — the partial predicate is proven against real
+  // Postgres in database/test/trade_os_t4_continuation_check.mjs instead.
+  //
+  // NULL import_order_id never collides (Postgres NULLS DISTINCT), so logistics-origin requests —
+  // the common case — are entirely unaffected.
+  diaspora_logistics_requests: [['import_order_id']],
+  // T12 — diaspora_customs_cases: uq_customs_case_live_subject.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL AND status <> 'ABANDONED'. Two live customs cases for one
+  // consignment is two answers to "where is my cargo", and the participant surface reads whichever
+  // it finds first.
+  diaspora_customs_cases: [{
+    name: 'uq_customs_case_live_subject',
+    cols: ['subject_type', 'subject_id'],
+    where: (row) => !row.deleted_at && row.status !== 'ABANDONED',
+  }],
+  // T12 — diaspora_customs_agent_appointments: uq_customs_case_one_active_agent.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL AND status = 'ACTIVE'. Two live agents on one case is two
+  // people each believing they are clearing it — and, because authority is derived from the
+  // appointment, two people who can both record customs claims on somebody's goods.
+  diaspora_customs_agent_appointments: [{
+    name: 'uq_customs_case_one_active_agent',
+    cols: ['case_id'],
+    where: (row) => !row.deleted_at && row.status === 'ACTIVE',
+  }],
+  // T9 — diaspora_warehouse_intakes: uq_warehouse_intake_subject.
+  //
+  // One live intake per cargo. This IS the idempotency of physical receipt: two operators clicking
+  // "book in" for the same booking must produce ONE intake, and a retried receive must find that one
+  // rather than manufacture a second arrival for goods that only turned up once.
+  //
+  // The real index is PARTIAL (… WHERE deleted_at IS NULL). The mock cannot express a predicate, so
+  // a soft-deleted intake keeps its slot here and does not in Postgres. The partial behaviour is
+  // proven against real Postgres in database/test/trade_os_t9_warehouse_check.mjs.
+  diaspora_warehouse_intakes: [['subject_type', 'subject_id']],
 });
 
 export function createMockSupabase(seed = {}, options = {}) {
@@ -71,13 +150,46 @@ export function createMockSupabase(seed = {}, options = {}) {
     return tables[table];
   }
 
+  /**
+   * Postgres-like comparison. Dates and ISO date strings compare chronologically;
+   * numbers numerically; everything else lexicographically. A NULL never satisfies a
+   * comparison, matching SQL three-valued logic.
+   */
+  function compareValues(op, left, right) {
+    if (left === null || left === undefined) return false;
+    let a = left;
+    let b = right;
+    const asTime = (v) => (v instanceof Date ? v.getTime() : Date.parse(v));
+    if (!Number.isNaN(asTime(a)) && !Number.isNaN(asTime(b))
+        && typeof a !== 'number' && typeof b !== 'number') {
+      a = asTime(a); b = asTime(b);
+    } else if (!Number.isNaN(Number(a)) && !Number.isNaN(Number(b))) {
+      a = Number(a); b = Number(b);
+    } else {
+      a = String(a); b = String(b);
+    }
+    switch (op) {
+      case 'gt': return a > b;
+      case 'gte': return a >= b;
+      case 'lt': return a < b;
+      case 'lte': return a <= b;
+      default: return true;
+    }
+  }
+
   function builder(table) {
     const rows = ensure(table);
     const state = {
       op: 'select',
       payload: null,
+      count: null,
+      head: false,
       filtersEq: [],
       filtersNeq: [],
+      // Comparison filters. These were previously no-ops that returned the chain
+      // untouched, so every `.gt()/.lt()/.gte()/.lte()`-filtered query silently
+      // returned the WHOLE table — which made expiry and window checks vacuous.
+      filtersCmp: [],
       // .in() previously returned the chain untouched, so every `.in()`-filtered query returned the
       // WHOLE table and any test of such a query passed vacuously.
       filtersIn: [],
@@ -94,7 +206,8 @@ export function createMockSupabase(seed = {}, options = {}) {
       state.filtersNeq.every(([k, v]) => String(row[k]) !== String(v)) &&
       state.filtersIn.every(([k, vs]) => vs.map(String).includes(String(row[k]))) &&
       state.isNull.every((c) => row[c] === null || row[c] === undefined) &&
-      state.notNull.every((c) => row[c] !== null && row[c] !== undefined);
+      state.notNull.every((c) => row[c] !== null && row[c] !== undefined) &&
+      state.filtersCmp.every(([op, k, v]) => compareValues(op, row[k], v));
 
     function exec() {
       if (state.op === 'insert') {
@@ -104,14 +217,27 @@ export function createMockSupabase(seed = {}, options = {}) {
         const uniques = UNIQUE_INDEXES[table];
         if (uniques) {
           for (const p of items) {
-            for (const cols of uniques) {
+            for (const entry of uniques) {
+              // An entry is either a bare column list (a TOTAL unique index) or
+              // `{ cols, where }` for a PARTIAL one. Partial indexes are everywhere in this schema —
+              // "one LIVE case per subject", "one ACTIVE appointment per case" — and registering
+              // them as total makes the fake STRICTER than the database, which fails legitimate
+              // flows (ending an appointment and making another) while looking like a real
+              // constraint. The predicate runs over both the candidate row and the existing ones,
+              // exactly as Postgres evaluates a partial index.
+              const cols = Array.isArray(entry) ? entry : entry.cols;
+              const where = Array.isArray(entry) ? null : entry.where;
+              const name = Array.isArray(entry) ? null : entry.name;
               if (cols.some((c) => p[c] === undefined || p[c] === null)) continue; // NULLs never collide
-              if (rows.some((existing) => cols.every((c) => existing[c] === p[c]))) {
+              if (where && !where(p)) continue;
+              if (rows.some((existing) => (!where || where(existing)) && cols.every((c) => existing[c] === p[c]))) {
                 return {
                   data: null,
                   error: {
                     code: '23505',
-                    message: `duplicate key value violates unique constraint on ${table} (${cols.join(', ')})`,
+                    // Postgres names the constraint, and services branch on that name. A message
+                    // without it makes a friendly-refusal path untestable.
+                    message: `duplicate key value violates unique constraint ${name ? `"${name}"` : `on ${table}`} (${cols.join(', ')})`,
                   },
                 };
               }
@@ -144,6 +270,28 @@ export function createMockSupabase(seed = {}, options = {}) {
         return { data: copies, error: null };
       }
 
+      // DELETE actually deletes.
+      //
+      // It used to be accepted and silently ignored, which meant every "this service never deletes
+      // X" test was unfalsifiable: mutating a service to wipe a table left the suite green. Found by
+      // mutation-testing T10's seal history — the mutation deleted every prior seal record and no
+      // gate noticed. A mock that quietly drops a destructive operation is worse than one that
+      // refuses it, because the tests keep reporting success.
+      if (state.op === 'delete') {
+        const matched = rows.filter(matches);
+        const removed = matched.map((r) => ({ ...r }));
+        for (const row of matched) {
+          const index = rows.indexOf(row);
+          if (index >= 0) rows.splice(index, 1);
+        }
+        if (state.single) {
+          if (!removed.length) return { data: null, error: { message: 'no rows', code: 'PGRST116' } };
+          return { data: removed[0], error: null };
+        }
+        if (state.maybeSingle) return { data: removed[0] || null, error: null };
+        return { data: removed, error: null };
+      }
+
       // select
       let data = rows.filter(matches).map((r) => ({ ...r }));
       if (state.orderBy) {
@@ -156,14 +304,25 @@ export function createMockSupabase(seed = {}, options = {}) {
       if (state.range) data = data.slice(state.range[0], state.range[1] + 1);
       if (state.single) {
         if (!data.length) return { data: null, error: { message: 'no rows', code: 'PGRST116' } };
-        return { data: data[0], error: null };
+        return { data: data[0], error: null, count: state.count ? data.length : null };
       }
-      if (state.maybeSingle) return { data: data[0] || null, error: null };
+      if (state.maybeSingle) return { data: data[0] || null, error: null, count: state.count ? data.length : null };
+      if (state.count) {
+        return { data: state.head ? null : data, error: null, count: data.length };
+      }
       return { data, error: null };
     }
 
     const chain = {
-      select() { return chain; },
+      select(_cols, opts) {
+        // supabase-js: .select(cols, { count: 'exact', head: true }) returns a row COUNT.
+        // Without this the mock silently answers `count: undefined`, which a service reading
+        // `count ?? 0` turns into a fabricated zero — exactly the "unknown is not zero"
+        // failure the real client would never produce.
+        if (opts && opts.count) state.count = opts.count;
+        if (opts && opts.head) state.head = true;
+        return chain;
+      },
       insert(p) { state.op = 'insert'; state.payload = p; return chain; },
       update(p) { state.op = 'update'; state.payload = p; return chain; },
       delete() { state.op = 'delete'; return chain; },
@@ -172,10 +331,10 @@ export function createMockSupabase(seed = {}, options = {}) {
       neq(k, v) { state.filtersNeq.push([k, v]); return chain; },
       in(k, vals) { state.filtersIn.push([k, Array.isArray(vals) ? vals : [vals]]); return chain; },
       or() { return chain; },
-      gte() { return chain; },
-      lte() { return chain; },
-      gt() { return chain; },
-      lt() { return chain; },
+      gte(k, v) { state.filtersCmp.push(['gte', k, v]); return chain; },
+      lte(k, v) { state.filtersCmp.push(['lte', k, v]); return chain; },
+      gt(k, v) { state.filtersCmp.push(['gt', k, v]); return chain; },
+      lt(k, v) { state.filtersCmp.push(['lt', k, v]); return chain; },
       is(col, val) { if (val === null) state.isNull.push(col); return chain; },
       not(col, op, val) { if (op === 'is' && val === null) state.notNull.push(col); return chain; },
       order(col, opts) { state.orderBy = [col, opts && opts.ascending === false ? -1 : 1]; return chain; },

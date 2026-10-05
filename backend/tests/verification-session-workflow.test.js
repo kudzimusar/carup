@@ -429,9 +429,14 @@ test('F: account/document identity MISMATCH is surfaced (and never auto-verifies
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
   assert.match(result.failure_reason, /Identity mismatch/i);
-  assert.match(result.review_notes, /MISMATCH/);
-  assert.match(result.review_notes, /Phase7B Tester/);
-  assert.match(result.review_notes, /Tafadzwa Moyo/);
+  // The named comparison is for the REVIEWER: it is on the stored session, never in what the
+  // applicant receives (OC-5C — the applicant projection carries no review_notes).
+  const stored = client.data.verification_sessions.find((row) => row.id === session.id);
+  assert.match(stored.review_notes, /MISMATCH/);
+  assert.match(stored.review_notes, /Phase7B Tester/);
+  assert.match(stored.review_notes, /Tafadzwa Moyo/);
+  assert.equal('review_notes' in result, false, 'the applicant never receives the reviewer note');
+  assert.ok(!JSON.stringify(result).includes(stored.review_notes), 'the reviewer note text is nowhere in the applicant response');
   const ocrEvent = client.data.trust_audit_events.find(e => e.event_type === 'VERIFICATION_OCR_COMPLETED');
   assert.equal(ocrEvent.new_value.identity_binding, 'mismatch');
 });
@@ -454,7 +459,9 @@ test('F: matching account/document identity is NOT flagged as a mismatch', async
 
   assert.equal(result.status, 'pending_manual_review');
   assert.doesNotMatch(result.failure_reason, /Identity mismatch/i);
-  assert.doesNotMatch(result.review_notes, /MISMATCH/);
+  const stored = client.data.verification_sessions.find((row) => row.id === session.id);
+  assert.doesNotMatch(stored.review_notes, /MISMATCH/);
+  assert.equal('review_notes' in result, false, 'the applicant never receives the reviewer note');
 });
 
 test('evaluateOcrEvidence unit cases', async () => {

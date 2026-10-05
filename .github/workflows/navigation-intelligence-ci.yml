@@ -96,6 +96,7 @@ jobs:
           npx tsx tests/native-dashboard-bootstrap.test.ts
           npx tsx tests/upload-queue-store.test.ts
           npx tsx tests/upload-queue-drain.test.ts
+          npx tsx tests/garage-odometer-ocr.test.ts
 
   # ── Navigation E2E (desktop/mobile/footer/role/route-boundary/console) ───────
   navigation-e2e:

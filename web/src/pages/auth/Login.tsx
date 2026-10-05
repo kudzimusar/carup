@@ -12,11 +12,26 @@ import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { LoginErrorAlert } from './LoginErrorAlert'
 import { classifyLoginStatus, loginError, type LoginErrorState } from './loginError'
 
-const DEMO_USERS = {
-  owner: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', role: 'owner' as const },
-  dealer: { id: 'u3', name: 'Croco Motors', email: 'dealer@crocomoto.co.zw', phone: '+263 772 100 200', role: 'dealer' as const },
-  mechanic: { id: 'u2', name: 'Simba Mechanic', email: 'simba@garage.co.zw', phone: '+263 775 200 300', role: 'mechanic' as const },
-}
+/**
+ * R14 (#197, ported by OC-5D) — demo identities must not exist in a production build.
+ *
+ * This shipped three named accounts and a hard-coded password, rendered unconditionally, on every
+ * build including production. `vite.config.ts` sets the flag ONLY for a Vercel environment that
+ * positively identifies itself as non-production. The identities and the password are DEFINED behind
+ * the flag (not merely hidden behind it), so a production build folds them out of the bundle entirely —
+ * hiding the buttons alone would still have shipped the password in the JavaScript.
+ */
+const DEMO_LOGINS_ALLOWED = import.meta.env?.VITE_ALLOW_DEMO_LOGINS === 'true'
+
+type DemoKey = 'owner' | 'dealer' | 'mechanic'
+const DEMO_USERS: Record<DemoKey, { email: string; name: string }> | null = DEMO_LOGINS_ALLOWED
+  ? {
+    owner: { name: 'Tendai Moyo', email: 'tendai@email.co.zw' },
+    dealer: { name: 'Croco Motors', email: 'dealer@crocomoto.co.zw' },
+    mechanic: { name: 'Simba Mechanic', email: 'simba@garage.co.zw' },
+  }
+  : null
+const DEMO_PASSWORD = DEMO_LOGINS_ALLOWED ? 'password123' : ''
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -89,8 +104,9 @@ export default function Login() {
     }
   }
 
-  const handleDemoLogin = async (userKey: keyof typeof DEMO_USERS) => {
-    const demoUser = DEMO_USERS[userKey]
+  const handleDemoLogin = async (userKey: DemoKey) => {
+    const demoUser = DEMO_USERS?.[userKey]
+    if (!demoUser) return
     setFormError(null)
     setLoading(true)
     try {
@@ -108,7 +124,7 @@ export default function Login() {
           'x-csrf-token': csrfToken
         },
         credentials: 'include',
-        body: JSON.stringify({ email: demoUser.email, password: 'password123' }),
+        body: JSON.stringify({ email: demoUser.email, password: DEMO_PASSWORD }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -150,7 +166,7 @@ export default function Login() {
                 <Input
                   value={form.email}
                   onChange={e => setForm({ ...form, email: e.target.value })}
-                  placeholder="tendai@email.co.zw or +263..."
+                  placeholder="you@example.co.zw or +263..."
                   className={errors.email ? 'border-red-400' : ''}
                   data-testid="email-input"
                   aria-label="Email or Phone"
@@ -201,22 +217,25 @@ export default function Login() {
               </Button>
             </form>
 
-            <Separator className="my-6" />
-
-            <p className="text-xs text-gray-400 text-center mb-3 font-medium uppercase tracking-wider">Quick Demo Access</p>
-            <div className="space-y-2">
-              <Button variant="outline" className="w-full justify-start gap-2 text-sm" onClick={() => handleDemoLogin('owner')}>
-                <Car className="w-4 h-4 text-orange-500" /> Browse as Buyer (Tendai Moyo)
-              </Button>
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => handleDemoLogin('dealer')}>
-                  Demo: Dealer
-                </Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => handleDemoLogin('mechanic')}>
-                  Demo: Mechanic
-                </Button>
+            {DEMO_LOGINS_ALLOWED && DEMO_USERS && (
+              <div data-testid="demo-access">
+                <Separator className="my-6" />
+                <p className="text-xs text-gray-400 text-center mb-3 font-medium uppercase tracking-wider">Quick Demo Access</p>
+                <div className="space-y-2">
+                  <Button variant="outline" className="w-full justify-start gap-2 text-sm" onClick={() => handleDemoLogin('owner')}>
+                    <Car className="w-4 h-4 text-orange-500" /> Browse as Buyer ({DEMO_USERS.owner.name})
+                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" className="text-xs" onClick={() => handleDemoLogin('dealer')}>
+                      Demo: Dealer
+                    </Button>
+                    <Button variant="outline" size="sm" className="text-xs" onClick={() => handleDemoLogin('mechanic')}>
+                      Demo: Mechanic
+                    </Button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
 
             <p className="text-center text-sm text-gray-500 mt-6">
               Don't have an account?{' '}

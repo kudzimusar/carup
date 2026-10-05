@@ -53,9 +53,11 @@ router.get('/api/features/effective', asyncHandler(async (req, res) => {
   // role + tenantId are trusted/server-derived; userId + cohortId only feed the
   // deterministic percentage bucket (cohortId is opaque, NON-AUTH). The response
   // stays subject-free (sanitized) — no bucket or subject is ever leaked.
-  const { role, tenantId, userId, cohortId } = await resolveRequestContext(req);
+  const { role, tenantId, tenantRole, tenantType, userId, cohortId } = await resolveRequestContext(req);
   const states = await getEffectiveStates(
-    { environment: serverEnvironment(), role, tenantId, userId, cohortId },
+    // OC-5D: tenantRole/tenantType come from the session's VERIFIED selection and satisfy only a
+    // feature's tenant scope — never its platform role list.
+    { environment: serverEnvironment(), role, tenantId, tenantRole, tenantType, userId, cohortId },
     { sanitize: true },
   );
   res.json({ environment: serverEnvironment(), features: states });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -157,6 +157,8 @@ const dealFlow = [
 
 export default function Landing() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const fixtureScope = searchParams.get('fixture_scope') || undefined
   const { fetchMarketplaceListings } = useCarUpApi()
   const [buyQuery, setBuyQuery] = useState('')
   const [verifyQuery, setVerifyQuery] = useState('')
@@ -165,7 +167,11 @@ export default function Landing() {
 
   useEffect(() => {
     let cancelled = false
-    fetchMarketplaceListings({ limit: 6, sort: 'newest' })
+    fetchMarketplaceListings({
+      limit: 6,
+      sort: 'newest',
+      ...(fixtureScope ? { fixture_scope: fixtureScope } : {}),
+    })
       .then(res => {
         if (cancelled) return
         setFeaturedVehicles(Array.isArray(res?.listings) ? res.listings : [])
@@ -177,7 +183,7 @@ export default function Landing() {
         setFeaturedState('unavailable')
       })
     return () => { cancelled = true }
-  }, [fetchMarketplaceListings])
+  }, [fetchMarketplaceListings, fixtureScope])
 
   // This is a live showroom, not an editorial "featured" award. Prefer the newest published
   // listing whose seller media is actually renderable; if none has usable media, keep the newest

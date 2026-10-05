@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { logger } from '../../utils/logger.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
 import {
   DECISION_ACTION,
@@ -20,6 +21,7 @@ import {
   LEGACY_REVIEWABLE_STATUSES,
 } from './caseWorkflow.js';
 import { getReasonConfig } from './reasonCodes.js';
+import { onVerificationApproved } from './identityLifecycleService.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 // Decisions that materially change the applicant's verification outcome and
@@ -277,8 +279,48 @@ export class VerificationDecisionRecorder {
       },
     });
 
-    if (!auditResult.success) {
-      console.warn('Decision audit write failed:', auditResult.error);
+    // OC-4A classification: BUSINESS HISTORY + SECURITY AUDIT. The decision is already durable — the
+    // idempotency-keyed verification_decisions row above IS the domain record — so failing the request
+    // now would misreport a decision that happened (and invite a retry against a moved session). The
+    // cross-domain trust_audit_events row is therefore not allowed to fail SILENTLY instead: the failure
+    // is logged as an error and the response carries audit_recorded: false, so the reviewer surface and
+    // reconciliation can see the gap (it is re-derivable from verification_decisions).
+    const auditRecorded = auditResult.success === true;
+    if (!auditRecorded) {
+      logger.error('IDENTITY', 'verification decision audit was NOT recorded; the decision is durable in verification_decisions', {
+        decision_id: decisionId, session_id: session.id, event_type: eventType, error: auditResult.error || null,
+      });
+    }
+
+    // O2-X3 (ported by OC-5C): a durable APPROVE also advances the CURRENT identity lifecycle
+    // (verified, or recovered from compromised). The approval above is already immutable history, so
+    // the hook cannot fail the decision — but it is never silent (#208 used .catch(console.warn), an
+    // OC-4A violation on an identity-history write): a policy refusal (a revoked identity, or evidence
+    // that predates a restriction) is recorded as lifecycle_outcome 'refused'; any other failure is a
+    // logged error with lifecycle_recorded false, which the reviewer surface can see.
+    let lifecycleOutcome = 'not_applicable';
+    if (action === DECISION_ACTION.APPROVE) {
+      try {
+        const lifecycle = await onVerificationApproved(client, {
+          userId: session.user_id,
+          sessionId: session.id,
+          reviewerId,
+          reviewerRole,
+        }, { req });
+        lifecycleOutcome = lifecycle.noop ? 'unchanged' : 'recorded';
+      } catch (lifecycleError) {
+        if (lifecycleError instanceof ForbiddenError) {
+          lifecycleOutcome = 'refused';
+          logger.warn('IDENTITY', 'verification approval did not advance the identity lifecycle (policy refusal)', {
+            decision_id: decisionId, session_id: session.id, reason: lifecycleError.message,
+          });
+        } else {
+          lifecycleOutcome = 'failed';
+          logger.error('IDENTITY', 'identity lifecycle was NOT updated after a durable approval', {
+            decision_id: decisionId, session_id: session.id, error: lifecycleError.message,
+          });
+        }
+      }
     }
 
     // Bridge the persisted decision into the communication engine (seam-E E5).
@@ -325,6 +367,9 @@ export class VerificationDecisionRecorder {
         reviewer_id: reviewerId,
         created_at: timestamp,
         audit_event_type: eventType,
+        audit_recorded: auditRecorded,
+        lifecycle_outcome: lifecycleOutcome,
+        lifecycle_recorded: lifecycleOutcome === 'recorded' || lifecycleOutcome === 'unchanged',
       },
       session: updatedSession,
       allowed_actions: newAssessment.allowed_actions,

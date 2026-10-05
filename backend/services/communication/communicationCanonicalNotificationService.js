@@ -50,7 +50,15 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
     });
 
     const prefs = await this.preferenceService.getPreferences(recipientUserId, thread.tenant_id);
-    const routeSequence = this.preferenceService.selectChannels(prefs, policy);
+    let routeSequence = this.preferenceService.selectChannels(prefs, policy);
+    // OC-5G: `policyChannelsOnly` makes the policy's channel list authoritative — a preference may
+    // choose among those channels, never add one. The base class enforces it; this subclass
+    // reimplemented the method and dropped it, so an in-app-only notice went out on email for anyone
+    // who preferred email, and even the DEFAULT preferences queued email and push as its fallbacks.
+    if (policy.policyChannelsOnly) {
+      const allowed = new Set((policy.channels || []).map(normalizeChannel).filter(Boolean));
+      routeSequence = routeSequence.filter((channel) => allowed.has(channel));
+    }
     if (!routeSequence.length) return [];
 
     const [primaryChannel, ...fallbackChannels] = routeSequence;

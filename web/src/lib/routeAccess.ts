@@ -24,7 +24,9 @@ import {
   matchRoutePattern,
   getStaticLifecycle,
   getDashboardRoute,
+  isFeatureRoleEligible,
   normalizeFrontendRole,
+  type ActiveTenantScope,
   type FeatureRegistryItem,
   type EffectiveFeatureState,
   type FeatureLifecycleState,
@@ -110,6 +112,18 @@ export interface RouteAccessInput {
   isBootstrapping: boolean
   isAuthenticated: boolean
   role: UserRole | null
+  /**
+   * OC-5D — the person's VERIFIED, SELECTED organisation (AuthUser.active_tenant): its type and their
+   * role inside it.
+   *
+   * Round 2 owner UAT: a real garage tenant-member could not open the garage workspace — public
+   * registration only ever creates an `owner`, while their `tenant_users` record says `mechanic`.
+   * #197 answered by letting the TENANT role satisfy the PLATFORM role list (F4). The two are now
+   * separate questions with one shared rule (isFeatureRoleEligible): the platform role satisfies a
+   * feature's `roles`; this scope satisfies its `tenantTypes`/`tenantRoles`. It widens no authority —
+   * every API route re-verifies the selection (requireActiveTenant) and remains the authority.
+   */
+  activeTenant?: ActiveTenantScope | null
   /** Backend-derived effective states keyed by feature id (optional; static defaults otherwise). */
   effectiveStates?: Record<string, EffectiveFeatureState>
   /**
@@ -160,11 +174,27 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
       ? resolveLegacyOwner(route) ?? direct
       : direct
 
-  // 2b. Still-unregistered route: public renders (router owns it); protected → login.
+  // 2b. Still-unregistered route: the ROUTER owns it. This branch used to send every
+  // unregistered non-public route to `/login?returnTo=…` regardless of `enforceAuth` and
+  // regardless of whether the caller was already signed in.
+  //
+  // U1 — that is an infinite loop by construction, and it was the Product Owner's blocker.
+  // `/dealer/onboarding` is not in the feature registry, so an APPLICANT who signed in
+  // successfully (200 from /auth/login, token stored, "Welcome" shown) was navigated to the page
+  // and immediately `replaceState`-ed back to `/login?returnTo=%2Fdealer%2Fonboarding`. Measured
+  // in a real browser: `pushState -> /dealer/onboarding` followed by
+  // `replaceState -> /login?returnTo=%2Fdealer%2Fonboarding`, with no API call and no 401.
+  //
+  // Redirecting to login can only ever help an ANONYMOUS caller. For a caller who is already
+  // authenticated it cannot change the outcome, so it must not be attempted; and where the layout
+  // has explicitly asked for lifecycle-only gating (`enforceAuth: false`) this branch has no
+  // business forcing an auth decision at all. Authority is unchanged either way: the page and the
+  // backend still decide what an applicant may see and do.
   if (!feature) {
-    return isPublicRoute(route)
-      ? { kind: 'render' }
-      : { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
+    if (isPublicRoute(route)) return { kind: 'render' }
+    if (!enforceAuth) return { kind: 'render' }
+    if (isAuthenticated) return { kind: 'render' }
+    return { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
   }
 
   const state = effectiveState(feature.id, getStaticLifecycle(feature), effectiveStates)
@@ -191,7 +221,10 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     if (!isAuthenticated || !role) {
       return { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
     }
-    if (!feature.roles.includes(role)) {
+    // ONE rule, two namespaces (OC-5D, F4): the platform role satisfies `roles`; the selected,
+    // verified organisation satisfies `tenantTypes`/`tenantRoles` — never across.
+    const satisfied = isFeatureRoleEligible(feature, { role, activeTenant: input.activeTenant })
+    if (!satisfied) {
       return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
     }
   }

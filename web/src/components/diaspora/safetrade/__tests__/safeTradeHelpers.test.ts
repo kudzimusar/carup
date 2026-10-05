@@ -119,6 +119,12 @@ describe('milestones + money', () => {
   })
   it('formats money and labels milestone status', () => {
     expect(formatMoney(1234.5, 'USD')).toMatch(/1,234/)
+    // JPY has no minor unit: the agreed yen figure is shown whole, never with invented decimals.
+    expect(formatMoney(2400000, 'JPY')).toBe('¥2,400,000')
+    // A missing currency is never rendered as USD.
+    expect(formatMoney(2400000, null)).not.toMatch(/\$|USD/)
+    expect(formatMoney(2400000, null)).toMatch(/currency not recorded/)
+    expect(formatMoney(2400000, '')).toMatch(/currency not recorded/)
     expect(milestoneStatusLabel('HELD')).toBeTruthy()
   })
   it('sums active (sandbox) milestones, excluding cancelled/waived/refund', () => {

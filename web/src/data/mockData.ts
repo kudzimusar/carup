@@ -953,7 +953,7 @@ export const notifications: Notification[] = [
   {
     id: 'n3',
     title: 'New Feature Available',
-    message: 'PartSentry 2.0 is now live! Track your vehicle parts with blockchain verification.',
+    message: 'PartSentry 2.0 is now live! Track your vehicle parts with a tamper-evident, hash-chained repair history.',
     type: 'info',
     timestamp: '2026-05-18T09:00:00Z',
     read: true

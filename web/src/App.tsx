@@ -7,6 +7,11 @@ import type { AuthUser, Notification } from '@shared/types'
 
 // Layout
 import MainLayout from './components/layout/MainLayout'
+import TradeOSWorkspaceLayout from './components/layout/TradeOSWorkspaceLayout'
+import TradeRequestQuotes from './pages/diaspora/TradeRequestQuotes'
+import TradeMyRequests from './pages/diaspora/TradeMyRequests'
+import TradeRequestDetail from './pages/diaspora/TradeRequestDetail'
+import TradeBuyerRequests from './pages/diaspora/TradeBuyerRequests'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
@@ -24,6 +29,8 @@ import VehicleSearch from './pages/VehicleSearch'
 import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
+import GarageDetail from './pages/GarageDetail'
+import ServiceLink from './pages/ServiceLink'
 import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
@@ -52,14 +59,24 @@ import {
   NewDiasporaImportOrder,
 } from './pages/diaspora/DiasporaTrade'
 import DiasporaOrderPassport from './pages/diaspora/DiasporaOrderPassport'
+import TradeTransactionPassport from './pages/diaspora/TradeTransactionPassport'
 import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
 import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
 import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
-import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
+import TradeRateResearch from './pages/diaspora/TradeRateResearch'
+import TradeDocumentsWorkspace from './pages/diaspora/TradeDocumentsWorkspace'
+import WarehouseIntakeWorkspace from './pages/diaspora/WarehouseIntakeWorkspace'
+import MyCargoIntake from './pages/diaspora/MyCargoIntake'
+import ContainerLoadingWorkspace from './pages/diaspora/ContainerLoadingWorkspace'
+import MyCargoLoading from './pages/diaspora/MyCargoLoading'
+import ShipmentTimelineWorkspace from './pages/diaspora/ShipmentTimelineWorkspace'
+import MyShipmentTracking from './pages/diaspora/MyShipmentTracking'
+import CustomsDestinationWorkspace from './pages/diaspora/CustomsDestinationWorkspace'
+import MyCustomsDestination from './pages/diaspora/MyCustomsDestination'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
@@ -75,13 +92,17 @@ import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 import VerifyEmail from './pages/auth/VerifyEmail'
 import KYCVerification from './pages/auth/KYCVerification'
+import RegistrationJourney from './pages/onboarding/RegistrationJourney'
+import DealerOnboarding from './pages/dealer/DealerOnboarding'
 
 // Owner Dashboard
 import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
 import MyGarage from './pages/dashboard/owner/MyGarage'
+import GarageSetup from './pages/dashboard/garage/GarageSetup'
 import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
 import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
 import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
+import ServiceRequests from './pages/dashboard/owner/ServiceRequests'
 import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
 import PartSentry from './pages/dashboard/owner/PartSentry'
 import MyListings from './pages/dashboard/owner/MyListings'
@@ -102,6 +123,12 @@ import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
 
 // Mechanic Dashboard
 import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
+// Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
+// that were certified in Foundation 1.0 and had no product surface at all.
+import GarageWorkspace from './pages/dashboard/garage/GarageWorkspace'
+import GarageCaseDetail from './pages/dashboard/garage/GarageCaseDetail'
+import GarageCustomers from './pages/dashboard/garage/GarageCustomers'
+import GarageProfileEditor from './pages/dashboard/garage/GarageProfileEditor'
 import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
 import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
 import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
@@ -145,8 +172,12 @@ import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
 import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
+import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
+import GarageApplications from './pages/dashboard/admin/GarageApplications'
+import GarageTeam from './pages/dashboard/garage/GarageTeam'
+import JoinGarage from './pages/JoinGarage'
 import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
@@ -257,6 +288,15 @@ export default function App() {
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
+          {/* Public garage profile. Lost when the post-#194 reconciliation took main's side of this
+              file wholesale, which left GarageDetail on disk with zero importers. Guarded by
+              web/src/__tests__/app-route-convergence.test.tsx. */}
+          <Route path="/garages/:slug" element={<GarageDetail />} />
+          {/* Where every CarUp QR code lands (R8). The backend resolved service links from the
+              start; this route did not exist, so every scan opened the 404 page. Public by
+              design: the resolver — not this route — decides what a scanner may see, and shows an
+              anonymous scanner only that the link is real. */}
+          <Route path="/s/:token" element={<ServiceLink />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
@@ -275,18 +315,10 @@ export default function App() {
           <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
-          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
-          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
-          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
-          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
-          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
-          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/diaspora/trade-profile" element={<DiasporaTradeProfile />} />
           <Route path="/diaspora/stock/:id/passport" element={<DiasporaStockPassport />} />
-          <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
-          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
           <Route path="/diaspora/safetrade" element={<DiasporaSafeTrade />} />
@@ -304,12 +336,77 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+          {/* O2-X2 (ported by OC-5C) — the signed-in person's own onboarding journey. A product
+              surface, not an auth step: it renders inside the canonical shell (#208 88000de9 moved it
+              out of the chromeless auth group for exactly that reason). Unregistered, so routeAccess
+              renders it for any signed-in caller (U1) and the page + backend decide the rest. */}
+          <Route path="/onboarding" element={<RegistrationJourney />} />
+          {/* O2-X5 (ported by OC-5C) — a dealer APPLICANT's own application. Deliberately outside the
+              Dealer workspace routes: an applicant is not an active Dealer (onboarding ≠ authority). */}
+          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
+        </Route>
+
+        {/* Trade OS operational workspace (owner UAT #1): the client-demo journey — Container
+            Co-Loading + the linked Import Order/Passport surfaces — runs in an AUTHENTICATED
+            operating shell (compact top bar + local Trade OS nav), not the public marketing
+            MainLayout. Other Diaspora routes stay in MainLayout until deliberately migrated. */}
+        <Route element={<TradeOSWorkspaceLayout />}>
+          {/* T2 — Request Quotes: buyer sourcing + supplier opportunity marketplace. */}
+          {/* The legacy /diaspora/rfq surface is retired: its buyer-facing term is now
+              "Request Quotes" and its mechanics live in the T2 surfaces below. The path is kept
+              as a redirect so existing links and bookmarks still land somewhere correct. */}
+          <Route path="/diaspora/rfq" element={<Navigate to="/diaspora/request-quotes" replace />} />
+          <Route path="/diaspora/request-quotes" element={<TradeRequestQuotes />} />
+          <Route path="/diaspora/requests" element={<TradeMyRequests />} />
+          <Route path="/diaspora/requests/:id" element={<TradeRequestDetail />} />
+          <Route path="/diaspora/buyer-requests" element={<TradeBuyerRequests />} />
+          {/* The SAME canonical Communications surface as /dashboard/communications, mounted in the
+              participant-neutral Trade OS shell. The dashboard path lives in the owner-only layout,
+              so suppliers were bounced to /dealer and could never read the thread they created. */}
+          <Route path="/diaspora/messages" element={<Communications />} />
+          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
+          {/* T6.5 — CarUp's own rate research. Platform authority only, enforced server-side; the
+              page renders an honest refusal rather than a blank screen for anyone else. */}
+          <Route path="/diaspora/rate-research" element={<TradeRateResearch />} />
+          {/* T8.3 — one Documents & Evidence workspace for any authoritative Trade OS object.
+              Access is derived from the transaction server-side; the page shows an honest refusal
+              rather than an empty list when it cannot be read. */}
+          <Route path="/diaspora/documents/:subjectType/:subjectId" element={<TradeDocumentsWorkspace />} />
+          {/* T9.3 — warehouse intake. Receiving authority is derived from the WAREHOUSE server-side,
+              so a customer reaching this route sees an empty queue rather than a locked door: there
+              is nothing here that is theirs to be refused. */}
+          <Route path="/diaspora/warehouse" element={<WarehouseIntakeWorkspace />} />
+          {/* T9.3 — the customer's own cargo. Authorized from the SUBJECT, not the warehouse. */}
+          <Route path="/diaspora/cargo/:subjectType/:subjectId" element={<MyCargoIntake />} />
+          {/* T10.3 — the operator's loading workspace. Sailing authority is resolved server-side
+              (coordinator, tenant admin, platform admin), so a caller without it is refused there
+              rather than hidden here. */}
+          <Route path="/diaspora/loading" element={<ContainerLoadingWorkspace />} />
+          {/* T10.3 — a participant's own cargo against the container. Authorized from the CARGO. */}
+          <Route path="/diaspora/cargo-loading/:subjectType/:subjectId" element={<MyCargoLoading />} />
+          {/* T11.2 — the operator's shipment movement timeline. Sailing authority server-side. */}
+          <Route path="/diaspora/shipments" element={<ShipmentTimelineWorkspace />} />
+          {/* T11.3 — a participant's own cargo journey. Authorized from the CARGO. */}
+          <Route path="/diaspora/tracking/:subjectType/:subjectId" element={<MyShipmentTracking />} />
+          <Route path="/diaspora/customs" element={<CustomsDestinationWorkspace />} />
+          <Route path="/diaspora/my-customs/:subjectType/:subjectId" element={<MyCustomsDestination />} />
+          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
+          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
+          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
+          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
+          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
+          {/* T4 — the operating transaction passport. `kind` is in the path so a purchase and a
+              shipment can never be conflated by a missing parameter. */}
+          <Route path="/diaspora/transactions/:kind/:id" element={<TradeTransactionPassport />} />
         </Route>
 
         {/* Auth Routes */}
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          {/* GMO-6 (OC-5E): an invitation must be readable before the person has an account. */}
+          <Route path="/join-garage" element={<JoinGarage />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so
@@ -327,9 +424,13 @@ export default function App() {
         <Route element={<DashboardLayout role="owner" />}>
           <Route path="/dashboard" element={<OwnerDashboard />} />
           <Route path="/dashboard/garage" element={<MyGarage />} />
+          <Route path="/dashboard/garage-setup" element={<GarageSetup />} />
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
+          {/* R3 — a successful service request must remain findable. This is a view of the
+              canonical Service Cases the owner already owns, not a second request ledger. */}
+          <Route path="/dashboard/service-requests" element={<ServiceRequests />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
@@ -358,6 +459,16 @@ export default function App() {
           <Route path="/mechanic/service-logs" element={<ServiceLogs />} />
           <Route path="/mechanic/parts" element={<PartsTracking />} />
           <Route path="/mechanic/customers" element={<CustomerRecords />} />
+          {/* The garage's own work, in the garage-side portal. OC-5D: no platform role admits these —
+              the registry's tenant scope does (the SELECTED, verified garage, in the roles the
+              backend's requireActiveTenant accepts), and this layout and the route boundary both
+              evaluate it, so the surface's answer to "who may act for a garage" is the API's. */}
+          <Route path="/garage" element={<GarageWorkspace />} />
+          <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
+          <Route path="/garage/customers" element={<GarageCustomers />} />
+          <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
+          <Route path="/garage/team" element={<GarageTeam />} />
         </Route>
 
         {/* Insurance Dashboard */}
@@ -413,8 +524,11 @@ export default function App() {
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
+          <Route path="/admin/people/:userId/review" element={<PeopleComplianceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+          {/* GMO-3/4 (OC-5E): the platform administrator decides garage applications; approval builds the workspace. */}
+          <Route path="/admin/garage-applications" element={<GarageApplications />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />

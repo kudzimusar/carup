@@ -24,6 +24,7 @@ import {
   MoreHorizontal
 } from 'lucide-react'
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
+import { ActiveOrganisationPrompt, OrganisationMenuSection } from '@/components/layout/OrganisationSwitcher'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -338,6 +339,12 @@ export default function Navbar() {
                       <Settings className="w-4 h-4 mr-2" /> Settings
                     </Link>
                   </DropdownMenuItem>
+                  {(user.memberships?.length || user.active_tenant_id || user.memberships_unavailable) ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <OrganisationMenuSection />
+                    </>
+                  ) : null}
                   <DropdownMenuSeparator />
                   <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
                   {getAllRoles().map((r) => {
@@ -373,6 +380,7 @@ export default function Navbar() {
           </div>
         </div>
       </div>
+      <ActiveOrganisationPrompt />
     </header>
   )
 }

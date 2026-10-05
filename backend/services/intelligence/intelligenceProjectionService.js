@@ -507,6 +507,9 @@ export async function getSellerPulse(client, actor, { windowDays = 7 } = {}) {
       shares_confirmed: metric(sumRows(sellerRows, 'shares_confirmed')),
       inquiries: metric(inquiries),
       inspections: metric(sumRows(sellerRows, 'inspections')),
+      // rollup@2 (OC-5F, #213 slice A): the funnel's compare stage and the reservations made with this seller.
+      compare_adds: metric(sumRows(sellerRows, 'compare_adds')),
+      reservations: metric(sumRows(sellerRows, 'reservations')),
     },
     conversion: {
       view_to_save: rate(saves, views),

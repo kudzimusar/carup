@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
-import { analyzeEvidenceImage } from '../ai/aiVisionProvider.js';
+import { resolveEvidenceVision, analysisNotRunRecord } from '../ai/evidenceVisionProvider.js';
 import {
   resolveClassification,
   deriveLegacyCompatibilityType,
@@ -11,6 +11,7 @@ import {
 } from './evidenceTaxonomy.js';
 import { computePerceptualHash } from './perceptualHash.js';
 import { recordProvenanceEvent } from './provenanceService.js';
+import { logger } from '../../utils/logger.js';
 
 export const evidenceTypes = [
   'import_photo',
@@ -348,7 +349,12 @@ export async function recordEvidenceUploadProvenance(client, { evidence, req, ev
       },
     });
   } catch (err) {
-    console.warn('[Provenance] failed to record upload event:', err.message);
+    // OC-4A classification: BUSINESS HISTORY (chain of custody), non-blocking by this domain's decision
+    // (provenance never gates capture) — but a missing custody event is a gap no verifier can see later
+    // (the next event simply links to whatever is last), so it is an ERROR, not a warning.
+    logger.error('PROVENANCE', 'chain-of-custody event NOT recorded for an evidence upload', {
+      evidence_id: evidence?.id ?? null, event_type: eventType, error_message: err.message,
+    });
   }
 }
 
@@ -460,15 +466,16 @@ export function mergeEventsWithEvidence(events, evidence) {
     .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 }
 
-export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceType, initialMetadata = {}) {
-  // 1. Initial status update: set to ai_pending
-  const initialAiAnalysis = {
-    ai_status: 'ai_pending',
-    risk_score: 0.0,
-    confidence: 1.0,
-    reviewer_summary: 'AI analysis queued...'
-  };
-
+/**
+ * Advisory analysis of one uploaded evidence image, recorded on the row's metadata.ai_analysis.
+ *
+ * OC-5B: an executor is asked for through the ONE selector (evidenceVisionProvider). Outside the
+ * test-fixture runtime no certified adapter exists, so the row records an explicit "not run — no
+ * provider configured" block: no score, no confidence, a human inspection. It used to run the
+ * evidence-vision SIMULATOR on every production upload. The checksum duplicate check is a
+ * deterministic comparison, not AI, and runs either way.
+ */
+export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceType, initialMetadata = {}, { vision = resolveEvidenceVision() } = {}) {
   const { data: currentRecord } = await supabase
     .from('vehicle_evidence')
     .select('metadata, checksum, id, vin')
@@ -476,21 +483,15 @@ export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceTy
     .single();
 
   if (!currentRecord) return;
-
   const currentMetadata = currentRecord.metadata || {};
-  let updatedMetadata = {
-    ...currentMetadata,
-    ai_analysis: initialAiAnalysis
-  };
-
-  await supabase
+  const save = (analysis) => supabase
     .from('vehicle_evidence')
-    .update({ metadata: updatedMetadata })
+    .update({ metadata: { ...currentMetadata, ai_analysis: analysis } })
     .eq('id', evidenceId);
 
+  let duplicateMatch = null;
   try {
-    // 2. Perform duplicate check
-    let duplicateMatch = null;
+    // Duplicate check — the same bytes already filed as other evidence (checksum equality, not AI).
     const checksum = currentRecord.checksum;
     if (checksum) {
       const { data: duplicateRecord } = await supabase
@@ -509,50 +510,58 @@ export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceTy
         };
       }
     }
+  } catch (err) {
+    console.error(`[Evidence duplicate check] Failed for evidence ${evidenceId}:`, err.message);
+  }
 
-    // 3. Call AI Vision Provider
-    const aiResult = await analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, initialMetadata);
+  if (!vision.available) {
+    const notRun = analysisNotRunRecord(vision);
+    if (duplicateMatch) {
+      notRun.duplicate_match = duplicateMatch;
+      notRun.recommended_action = 'reject';
+      notRun.reviewer_summary = `Duplicate of existing evidence ${duplicateMatch.original_evidence_id} (vehicle ${duplicateMatch.original_vin}) — the same file checksum; a deterministic check, not AI. ${notRun.reviewer_summary}`;
+    }
+    await save(notRun);
+    return;
+  }
 
-    // If duplicate check flagged it, override status and risk_score
+  // 1. A provider will examine it: say so — with no score and no confidence, because nothing has been measured yet.
+  await save({
+    ai_status: 'ai_pending',
+    risk_score: null,
+    confidence: null,
+    reviewer_summary: 'AI analysis queued.'
+  });
+
+  try {
+    // 2. Call the selected executor (today: the labelled simulator, in the test-fixture runtime only).
+    const aiResult = await vision.analyze(fileBuffer, mimeType, evidenceType, initialMetadata);
+
+    // If the duplicate check flagged it, override status and risk_score
     if (duplicateMatch) {
       aiResult.ai_status = 'ai_flagged';
-      aiResult.risk_score = Math.max(aiResult.risk_score, 0.95);
+      aiResult.risk_score = Math.max(aiResult.risk_score ?? 0, 0.95);
       aiResult.recommended_action = 'reject';
       aiResult.reviewer_summary = `Duplicate photo detected! Matches existing evidence ID: ${duplicateMatch.original_evidence_id} (Vehicle VIN: ${duplicateMatch.original_vin}).`;
       aiResult.duplicate_match = duplicateMatch;
     }
 
-    // 4. Save results back to metadata
-    updatedMetadata = {
-      ...currentRecord.metadata,
-      ai_analysis: aiResult
-    };
-
-    await supabase
-      .from('vehicle_evidence')
-      .update({ metadata: updatedMetadata })
-      .eq('id', evidenceId);
-
+    // 3. Save results back to metadata
+    await save(aiResult);
   } catch (err) {
     console.error(`[AI Analysis Error] Failed for evidence ${evidenceId}:`, err.message);
 
-    // Save provider_unavailable status
-    const failureResult = {
+    // Save provider_unavailable status. OC-3B: no risk figure — a failed analysis measured nothing,
+    // and the 0.1 it used to store read as "low risk". Inspection is the only recommendation.
+    await save({
       ai_status: 'ai_provider_unavailable',
-      risk_score: 0.1,
+      execution: 'failed',
+      advisory: true,
+      verifying: false,
+      risk_score: null,
       confidence: 0.0,
       reviewer_summary: `AI provider analysis failed: ${err.message}`,
       recommended_action: 'inspect'
-    };
-
-    updatedMetadata = {
-      ...currentRecord.metadata,
-      ai_analysis: failureResult
-    };
-
-    await supabase
-      .from('vehicle_evidence')
-      .update({ metadata: updatedMetadata })
-      .eq('id', evidenceId);
+    });
   }
 }

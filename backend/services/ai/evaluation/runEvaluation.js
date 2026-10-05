@@ -8,7 +8,10 @@
  * accuracy number — metrics are reported per task, and high-risk public findings require
  * conservative thresholds + human confirmation (this harness reports; it never publishes).
  *
- * Run:  node backend/services/ai/evaluation/runEvaluation.js
+ * Run:  NODE_ENV=test ALLOW_OCR_MOCK=true node backend/services/ai/evaluation/runEvaluation.js
+ *
+ * The default (mock) provider is a test fixture (OC-3B-R): it echoes each case's own metadata, so
+ * its numbers measure this harness, not any model. Only a real provider's run is a quality figure.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';

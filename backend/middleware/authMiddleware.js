@@ -1,4 +1,6 @@
 import { supabase } from '../db/supabase.js';
+import { isLendableTenantRole } from '../services/auth/tenantRoleCatalogue.js';
+import { resolveVerifiedActiveTenant, TenantContextUnavailableError } from '../services/auth/activeTenantContext.js';
 
 /**
  * The value `authenticationMethod` carries when an identity was ASSERTED by a header rather than
@@ -92,7 +94,10 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
     return requested;
   }
 
-  if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') {
+  // A verified membership may lend ONLY a governed domain role ('mechanic', 'dealer' — see
+  // tenantRoleCatalogue.js). Before OC-5A this refused 'admin' and admitted everything else, so a
+  // tenant row reading 'government', 'reviewer' or 'finance' became platform authority.
+  if (trustedTenantRole && requested === trustedTenantRole && isLendableTenantRole(requested)) {
     return requested;
   }
 
@@ -101,21 +106,25 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
   throw error;
 }
 
-export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } = {}) {
+export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true, ignoreTenantHeader = false } = {}) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-    const tenantIdHeader = req.headers['x-tenant-id'];
+    // The session's own endpoints (/api/auth/me, /api/auth/active-tenant) read the SELECTION and ignore
+    // the assertion, so a client holding a stale organisation can always recover instead of being
+    // refused on the very calls that would repair it.
+    const tenantIdHeader = ignoreTenantHeader ? undefined : req.headers['x-tenant-id'];
     const requestedRole = normalizeRole(req.headers['x-stakeholder-role']);
     const fallbackUserId = req.headers['x-user-id'];
 
     try {
       let activeUserId = null;
+      let sessionTenantId = null;
 
       // 1. Validate Session Token
       if (sessionToken) {
         const { data: session, error: sessionError } = await supabase
           .from('user_sessions')
-          .select('user_id, is_valid, expires_at')
+          .select('user_id, is_valid, expires_at, active_organization_id')
           .eq('token', sessionToken)
           .single();
 
@@ -123,6 +132,7 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
           return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
         }
         activeUserId = session.user_id;
+        sessionTenantId = session.active_organization_id || null;
       }
 
       // Distinguishes a PROVEN identity from an ASSERTED one. `requireProvenIdentity` refuses the
@@ -162,21 +172,50 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
 
       const platformRole = normalizeRole(user.role) || 'member';
 
-      // 3. Validate Tenant Context (Multi-Tenancy Rule)
-      let tenantRole = null;
-      if (tenantIdHeader) {
-        const { data: tenantUser, error: tenantError } = await supabase
-          .from('tenant_users')
-          .select('role')
-          .eq('tenant_id', tenantIdHeader)
-          .eq('user_id', activeUserId)
-          .single();
-
-        if (tenantError || !tenantUser) {
+      // 3. Validate Tenant Context (Multi-Tenancy Rule) — OC-5D: one verifier, an explicit selection.
+      //
+      // The organisation a request acts for is the one the person SELECTED on this session
+      // (PUT /api/auth/active-tenant), re-verified here on every request — a revoked membership or a
+      // deactivated tenant stops carrying authority at once. `x-tenant-id` is only an ASSERTION about
+      // that selection: if it names another organisation the request is refused. A session with no
+      // selection keeps the verified-header path for one release (membership AND an active tenant are
+      // required now); the x-user-id test fallback uses the same verified header. A membership that
+      // could not be READ is a 503 — never "you do not belong".
+      let activeTenant = null;
+      let tenantContext = 'none';
+      if (authenticationMethod === 'session' && sessionTenantId) {
+        if (tenantIdHeader && String(tenantIdHeader) !== String(sessionTenantId)) {
+          return res.status(403).json({
+            error: 'Forbidden. This request names a different organisation than the one selected for this session.',
+            code: 'TENANT_CONTEXT_MISMATCH',
+          });
+        }
+        const selected = await resolveVerifiedActiveTenant(supabase, activeUserId, sessionTenantId);
+        if (selected && selected.usable) {
+          activeTenant = selected;
+          tenantContext = 'selected';
+        } else if (tenantIdHeader) {
+          // The client still believes it acts for this organisation. Say so, rather than letting the
+          // request run without it — or letting a raw-header fallback downstream pick it back up.
+          return res.status(403).json({
+            error: 'Your access to the selected organisation has changed. Select an organisation again.',
+            code: 'TENANT_CONTEXT_REVOKED',
+          });
+        } else {
+          tenantContext = 'revoked';
+        }
+      } else if (tenantIdHeader) {
+        const asserted = await resolveVerifiedActiveTenant(supabase, activeUserId, tenantIdHeader);
+        if (!asserted) {
           return res.status(403).json({ error: 'Forbidden. You do not have access to this tenant organization.' });
         }
-        tenantRole = normalizeRole(tenantUser.role); // e.g., 'admin', 'manager', 'mechanic'
+        if (!asserted.usable) {
+          return res.status(403).json({ error: 'Forbidden. This organisation is not active.', code: 'TENANT_INACTIVE' });
+        }
+        activeTenant = asserted;
+        tenantContext = 'asserted';
       }
+      const tenantRole = activeTenant ? activeTenant.role : null;
 
       const effectiveRole = resolveEffectiveRole({
         userRole: platformRole,
@@ -199,7 +238,10 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
         baseRole: platformRole,
         platformRole,
         tenantRole,
-        tenantId: tenantIdHeader || null,
+        // Derived ONLY from the verified active tenant — never from a raw header.
+        tenantId: activeTenant ? activeTenant.id : null,
+        activeTenant,
+        tenantContext,
         requestedRole,
         isVerified: Boolean(user.is_verified),
         authenticationMethod,
@@ -208,8 +250,39 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
       next();
     } catch (error) {
       const statusCode = error.statusCode || 500;
-      res.status(statusCode).json({ error: error.message });
+      res.status(statusCode).json({ error: error.message, ...(error instanceof TenantContextUnavailableError ? { code: error.code } : {}) });
     }
+  };
+}
+
+/**
+ * OC-5D — require a verified ACTIVE organisation of the given type(s), where the caller holds one of
+ * the given TENANT roles. Compose after authorizeRole()/authorizeSessionRole(). The tenant role never
+ * becomes a platform role, and there is deliberately no platform-admin bypass: acting FOR a garage is
+ * a garage member's act.
+ */
+export function requireActiveTenant({ types = [], roles = [] } = {}) {
+  const allowedTypes = types.map((t) => String(t).toLowerCase());
+  const allowedRoles = roles.map(normalizeRole);
+  return (req, res, next) => {
+    const context = req.userContext;
+    if (!context?.id) return res.status(401).json({ error: 'Unauthorized.', code: 'UNAUTHENTICATED' });
+    const tenant = context.activeTenant;
+    if (!tenant) {
+      return context.tenantContext === 'revoked'
+        ? res.status(403).json({ error: 'Your access to the selected organisation has changed. Select an organisation again.', code: 'TENANT_CONTEXT_REVOKED' })
+        : res.status(403).json({ error: 'Select the organisation you are acting for.', code: 'ACTIVE_TENANT_REQUIRED' });
+    }
+    if (allowedTypes.length && tenant.metadataUnavailable) {
+      return res.status(503).json({ error: 'Your organisation context could not be read right now. Please try again shortly.', code: 'TENANT_CONTEXT_UNAVAILABLE' });
+    }
+    if (allowedTypes.length && !allowedTypes.includes(tenant.type)) {
+      return res.status(403).json({ error: 'This action is for a different kind of organisation.', code: 'ACTIVE_TENANT_TYPE' });
+    }
+    if (allowedRoles.length && !allowedRoles.includes(tenant.role)) {
+      return res.status(403).json({ error: 'Your role in this organisation does not allow this action.', code: 'ACTIVE_TENANT_ROLE' });
+    }
+    return next();
   };
 }
 
@@ -220,6 +293,29 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } 
  */
 export function authorizeSessionRole(allowedRoles = []) {
   return authorizeRole(allowedRoles, { allowUserIdFallback: false });
+}
+
+/**
+ * The tenant an optional-auth caller named, IF their membership of it is verified. Never throws:
+ * optional authentication must not fail a public request, so any doubt resolves to "no tenant".
+ */
+async function verifiedTenantMembership(tenantIdHeader, userId) {
+  const none = { tenantId: null, tenantRole: null, activeTenant: null };
+  if (!tenantIdHeader || !userId) return none;
+  try {
+    const tenant = await resolveVerifiedActiveTenant(supabase, userId, tenantIdHeader);
+    if (!tenant || !tenant.usable) return none;
+    return { tenantId: tenant.id, tenantRole: tenant.role, activeTenant: tenant };
+  } catch {
+    return none;
+  }
+}
+
+/** The session's selected organisation, re-verified; a header naming another one yields none. */
+async function verifiedSessionTenant(sessionTenantId, tenantIdHeader, userId) {
+  const none = { tenantId: null, tenantRole: null, activeTenant: null };
+  if (tenantIdHeader && String(tenantIdHeader) !== String(sessionTenantId)) return none;
+  return verifiedTenantMembership(sessionTenantId, userId);
 }
 
 /**
@@ -235,14 +331,16 @@ export function optionalAuth() {
     try {
       let activeUserId = null;
       let fallbackDerived = false;
+      let sessionTenantId = null;
       if (sessionToken) {
         const { data: session } = await supabase
           .from('user_sessions')
-          .select('user_id, is_valid, expires_at')
+          .select('user_id, is_valid, expires_at, active_organization_id')
           .eq('token', sessionToken)
           .single();
         if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
           activeUserId = session.user_id;
+          sessionTenantId = session.active_organization_id || null;
         }
       }
       if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) {
@@ -256,12 +354,23 @@ export function optionalAuth() {
       if (activeUserId) {
         const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
         const platformRole = normalizeRole(user?.role) || 'member';
+        // OC-5D: the session's verified selection, else a verified header (one release); a mismatch, a
+        // revoked selection or any doubt yields no tenant — optional auth never blocks.
+        const tenant = sessionTenantId && !fallbackDerived
+          ? await verifiedSessionTenant(sessionTenantId, req.headers['x-tenant-id'], activeUserId)
+          : await verifiedTenantMembership(req.headers['x-tenant-id'], activeUserId);
         req.userContext = {
           id: activeUserId,
           userId: activeUserId,
           role: platformRole,
           platformRole,
-          tenantId: req.headers['x-tenant-id'] || null,
+          // OC-5A: a tenant is context only when the caller's membership of it is VERIFIED — the
+          // question authorizeRole asks. The bare header used to become tenantId here, so every
+          // consumer had to remember not to trust it (the PartSentry read path documented exactly
+          // that). An unverified claim, or a failed lookup, yields no tenant — never the claimed one.
+          tenantId: tenant.tenantId,
+          tenantRole: tenant.tenantRole,
+          activeTenant: tenant.activeTenant || null,
           isVerified: Boolean(user?.is_verified),
           authenticationMethod: fallbackDerived ? FALLBACK_AUTH_METHOD : 'session',
           // A single boolean a consumer can gate on WITHOUT re-spelling the marker. The passport

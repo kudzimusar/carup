@@ -51,7 +51,8 @@ export async function runAnalysisJob(supabase, job, ctx = {}, opts = {}) {
     return Array.isArray(updated) ? updated[0] : updated;
   } catch (err) {
     const attempts = (Number(job.attempts) || 0) + 1;
-    const terminal = attempts >= (Number(job.max_attempts) || 3);
+    // A failure that declares itself non-retryable (no provider exists — OC-3B-R) is terminal at once.
+    const terminal = err?.retryable === false || attempts >= (Number(job.max_attempts) || 3);
     const { data: failed } = await supabase.from(JOBS).update({
       status: terminal ? 'failed_terminal' : 'failed_retryable',
       validation_errors: [{ message: err.message }], updated_at: new Date().toISOString(),

@@ -38,6 +38,7 @@ const BUSINESS_TYPES = [
   ['parts_seller', 'Parts seller'],
   ['insurer', 'Insurance provider'],
   ['lender', 'Finance / lender'],
+  ['logistics_provider', 'Logistics / freight forwarder'],
   ['other', 'Other automotive business'],
 ] as const
 
@@ -253,6 +254,14 @@ export default function Register() {
               </Button>
               <Button type="button" variant="outline" onClick={resendVerification} disabled={resending}>
                 {resending ? 'Requesting…' : 'Resend verification email'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate('/onboarding')}
+                data-testid="registration-onboarding-link"
+              >
+                Finish setting up — verify your identity when you're ready
               </Button>
             </div>
           </CardContent>

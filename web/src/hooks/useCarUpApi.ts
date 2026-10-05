@@ -1,7 +1,13 @@
 import { useState, useCallback, useMemo } from 'react'
+import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
+import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
+import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
+import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
+import type { DocumentWorkspace } from '@/pages/diaspora/TradeDocumentsWorkspace'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
+import type { PartSentryRecordResult, VehicleWorkOrder, WorkOrderDecision } from '@/lib/partsentry'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
@@ -19,6 +25,7 @@ import type {
 } from '@shared/types'
 import type { 
   User, 
+  LedgerIntegrityReport,
   Vehicle, 
   WorkOrder, 
   Part, 
@@ -103,6 +110,9 @@ import type {
   DiasporaAiExecuteResult,
   DiasporaMarketplaceContainer,
   DiasporaMarketplaceContainerPayload,
+  DiasporaRfqOpportunity,
+  DiasporaMyQuote,
+  DiasporaTradeContext,
   DiasporaContainerCapacityResult,
   DiasporaMarketplaceReservation,
   DiasporaReservationRequestPayload,
@@ -450,6 +460,105 @@ type CommunicationAuditEvent = {
   created_at?: string | null
 }
 
+/* ── Service Network response shapes ─────────────────────────────────────────────────────────────
+   These are the exact projections the certified routes return. `any` is the established idiom
+   elsewhere in this file; it is not a reason to add more where the server contract is known. */
+export type ServiceCaseView = {
+  id: string
+  vin: string
+  status: string
+  service_category: string | null
+  request_summary: string | null
+  garage_display_name?: string | null
+  garage_slug?: string | null
+  requested_at: string | null
+  accepted_at: string | null
+  declined_at: string | null
+  started_at: string | null
+  completed_at: string | null
+  cancelled_at: string | null
+  conversation_thread_id?: string | null
+}
+export type ServiceCaseResult = { case: ServiceCaseView; created?: boolean }
+export type ServiceCaseDetail = {
+  case: ServiceCaseView
+  access_basis?: string
+  history?: Array<{ event_type: string; from_status: string | null; to_status: string | null; created_at: string }>
+}
+export type GarageQueueResponse = {
+  queue: Array<{
+    id: string
+    status: string
+    vin: string
+    vehicle: { make: string | null; model: string | null; year: number | null } | null
+    service_category: string | null
+    requested_at: string | null
+    accepted_at?: string | null
+    branch_id?: string | null
+    work_order: { id: string; status: string; assigned_mechanic_user_id?: string | null } | null
+    next_action?: string
+  }>
+  total: number
+  counts: { requested: number; accepted: number; active: number }
+}
+export type GarageMechanicsResponse = {
+  mechanics: Array<{ user_id: string; display_name: string | null; role: string | null }>
+  total: number
+}
+export type GarageCustomersResponse = {
+  customers: Array<{
+    user_id: string
+    display_name: string | null
+    vehicle_count: number
+    case_count: number
+    completed_count: number
+    last_service_at: string | null
+    spend_by_currency: Record<string, number>
+    conversation_thread_id: string | null
+  }>
+  total: number
+}
+export type GarageProfileResponse = {
+  tenant?: { id: string; name: string; type: string }
+  profile: {
+    display_name: string | null
+    slug: string | null
+    description: string | null
+    location_city: string | null
+    location_province: string | null
+    contact_policy: string | null
+    public_phone: string | null
+    service_categories: string[] | null
+    publication_status: string | null
+  } | null
+  branches?: unknown[]
+}
+export type WorkOrderView = { id: string; status: string; service_case_id?: string | null; vin?: string }
+export type WorkOrderResult = { workOrder: WorkOrderView; created?: boolean }
+export type AssignmentResponse = {
+  work_order_id: string
+  assigned_mechanic_user_id: string | null
+  assigned: boolean
+  history: unknown[]
+}
+export type ServiceRecordResult = { record: { id: string; vin: string; work_performed: string | null } }
+export type MileageObservationResult = {
+  observation: { id: string; observed_mileage: number }
+  canonical_mileage: number | null
+  disagrees_with_canonical: boolean | null
+}
+export type ResolvedServiceLink = {
+  resource_type: string
+  access: string
+  next_action?: string | null
+  authenticated?: boolean
+  source_channel?: string | null
+  vin?: string | null
+  service_case_id?: string | null
+  status?: string | null
+  practitioner?: { affiliation: { display_name: string; slug: string } | null; credential_review_state: string | null } | null
+}
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -466,6 +575,11 @@ export function useCarUpApi() {
     if (user?.id) authHeaders['x-user-id'] = user.id
     if (user?.role) authHeaders['x-stakeholder-role'] = user.role
     if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+
+    // OC-5D: no role header is swapped for the garage routes. #197 sent the TENANT role as
+    // x-stakeholder-role on "garage-side" paths (a client-maintained list of the server's gates); the
+    // server now decides from the session's SELECTED, verified garage (requireActiveTenant), so the
+    // browser has nothing to claim and nothing to keep in step.
 
     try {
       const data = await apiRequest<T>({ baseUrl: BASE_URL, path, options, authHeaders })
@@ -916,6 +1030,53 @@ export function useCarUpApi() {
     return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/vehicles/${vin}/review`)
   }, [request])
 
+  // O2/P3 — People & Compliance reviewer aggregate (read-only).
+  const fetchPersonComplianceReview = useCallback(async (userId: string): Promise<{ success: boolean; review: Record<string, unknown> }> => {
+    return request<{ success: boolean; review: Record<string, unknown> }>(`/admin/people/${userId}/review`)
+  }, [request])
+
+  // O2/P4 — identity session decision through the OWNING identity service route.
+  // O2 post-Ready review C2 — the governed decision shape, not a free-text `notes` field.
+  // `reviewVerificationSession` reads reasonCode / internalNote / applicantMessage and reads
+  // NOTHING called `notes`; a rejection without a reason code, or a resubmission request
+  // without an applicant message, is refused by the decision recorder. The type now says so,
+  // so a caller cannot send the shape that always failed.
+  const reviewIdentitySession = useCallback(async (
+    sessionId: string,
+    payload: {
+      action: 'approve' | 'reject' | 'request_resubmission' | 'escalate' | 'add_internal_note'
+      reasonCode?: string | null
+      internalNote?: string | null
+      applicantMessage?: string | null
+    },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/identity/verification-sessions/${sessionId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // O2 post-Ready review C1 (ported by OC-5C from PR #208) — re-prove the account credential on
+  // THIS session so a step-up-gated action becomes reachable. The server is the only writer of
+  // step-up state; this carries the password to the one endpoint that verifies it against the stored
+  // hash. It grants no role and no capability — only recency of authentication.
+  const stepUpSession = useCallback(async (password: string): Promise<{
+    success: boolean; step_up_at: string; method: string
+  }> => {
+    return request('/auth/step-up', { method: 'POST', body: JSON.stringify({ password }) })
+  }, [request])
+
+  // O2/P4 — dealer compliance decision through the OWNING dealer service route.
+  const recordDealerComplianceDecision = useCallback(async (
+    dealerId: string,
+    payload: { decision: string; requirement_key?: string; reason?: string },
+  ): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/admin/dealers/${dealerId}/decision`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
   // Operations M1 — governed classification correction (reason mandatory).
   const correctEvidenceClassification = useCallback(async (
     vin: string,
@@ -945,8 +1106,10 @@ export function useCarUpApi() {
     return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
 
-  const verifyLedger = useCallback(async (vin: string): Promise<{ integrity: string; verified: boolean }> => {
-    return request<{ integrity: string; verified: boolean }>(`/vehicles/${vin}/verify-ledger`)
+  // OC-3B: the route answers an allow-listed integrity projection only — never the chain, its
+  // payloads or its signatures — and only to a session holding authority over this vin.
+  const verifyLedger = useCallback(async (vin: string): Promise<LedgerIntegrityReport> => {
+    return request<LedgerIntegrityReport>(`/vehicles/${vin}/verify-ledger`)
   }, [request])
 
   const fetchVehicle = useCallback(async (vin: string): Promise<Vehicle> => {
@@ -978,22 +1141,36 @@ export function useCarUpApi() {
   }, [request])
 
   // The mechanic identity is derived server-side from req.userContext.id — never client-supplied.
-  const addRepairLog = useCallback(async (vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number): Promise<any> => {
-    return request('/partsentry/add', {
+  // OC-5A: the same Idempotency-Key on every retry of ONE submit makes the server return the original
+  // record (a lost response is never a second entry, and never a refusal). Who stands behind the entry
+  // (its attestation) is decided by the server, never by the client.
+  const addRepairLog = useCallback(async (
+    vin: string, partName: string, partOem: string | null, actionType: string, description: string, mileage: number,
+    options?: { idempotencyKey?: string; workOrderId?: string | null },
+  ): Promise<PartSentryRecordResult> => {
+    return request<PartSentryRecordResult>('/partsentry/add', {
       method: 'POST',
-      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage })
+      ...(options?.idempotencyKey ? { headers: { 'Idempotency-Key': options.idempotencyKey } } : {}),
+      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage, ...(options?.workOrderId ? { workOrderId: options.workOrderId } : {}) })
+    })
+  }, [request])
+
+  // OC-5A: the vehicle's custodian (its owner; for owner-less dealership stock, its governed dealer)
+  // sees the work orders mechanics have opened on it and decides on each. A work order grants a
+  // mechanic nothing until it is authorized here.
+  const fetchVehicleWorkOrders = useCallback(async (vin: string): Promise<VehicleWorkOrder[]> => {
+    return request<VehicleWorkOrder[]>(`/vehicles/${encodeURIComponent(vin)}/work-orders`)
+  }, [request])
+
+  const decideWorkOrderAuthorization = useCallback(async (vin: string, workOrderId: string, decision: WorkOrderDecision, reason?: string): Promise<{ success: boolean; workOrder: VehicleWorkOrder }> => {
+    return request(`/vehicles/${encodeURIComponent(vin)}/work-orders/${encodeURIComponent(workOrderId)}/authorization`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, ...(reason ? { reason } : {}) })
     })
   }, [request])
 
   const fetchRepairHistory = useCallback(async (vin: string): Promise<any[]> => {
     return request<any[]>(`/partsentry/${vin}`)
-  }, [request])
-
-  const runOcrParsing = useCallback(async (docType: string, base64Data: string): Promise<any> => {
-    return request('/ai/ocr', {
-      method: 'POST',
-      body: JSON.stringify({ docType, base64Data })
-    })
   }, [request])
 
   const runFraudScan = useCallback(async (vin: string, price: number, listingTitle: string): Promise<any> => {
@@ -1540,13 +1717,113 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const fetchDiasporaRfqs = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
-    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/rfqs')
+  // Supplier-facing: the SANITIZED cross-tenant marketplace projection, never the buyer's row.
+  const fetchDiasporaRfqs = useCallback(async (filters: Record<string, string> = {}): Promise<DiasporaRfqOpportunity[]> => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString()
+    const response = await request<{ data: DiasporaRfqOpportunity[] }>(`/diaspora/rfqs${qs ? `?${qs}` : ''}`)
     return response.data || []
+  }, [request])
+
+  const fetchDiasporaRfqOpportunity = useCallback(async (id: string): Promise<DiasporaRfqOpportunity> => {
+    const response = await request<{ data: DiasporaRfqOpportunity }>(`/diaspora/rfqs/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  /** Open (or reuse) the canonical clarification thread for a request. Returns a thread id. */
+  const ensureDiasporaRfqConversation = useCallback(async (orderId: string, sellerId?: string): Promise<{ threadId: string | null; role: string }> => {
+    const response = await request<{ data: { threadId: string | null; role: string } }>(
+      `/diaspora/buyer-orders/${encodeURIComponent(orderId)}/conversation`,
+      { method: 'POST', body: JSON.stringify(sellerId ? { sellerId } : {}) },
+    )
+    return response.data
+  }, [request])
+
+  const fetchDiasporaMyQuotes = useCallback(async (): Promise<DiasporaMyQuote[]> => {
+    const response = await request<{ data: DiasporaMyQuote[] }>('/diaspora/my-quotes')
+    return response.data || []
+  }, [request])
+
+  /**
+   * T6 — a supplier's structured cost breakdown on their own procurement offer.
+   *
+   * Same shared mapper as the logistics hook, so an empty amount reaches the server as null
+   * (UNPRICED) rather than as zero. `breakdownComplete` is a declaration the server enforces.
+   */
+  const saveChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes',
+    quoteId: string,
+    components: DraftComponent[],
+    breakdownComplete = false,
+  ): Promise<unknown[]> => {
+    const response = await request<{ data: unknown[] }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`,
+      { method: 'POST', body: JSON.stringify({ components: toComponentPayload(components), breakdown_complete: breakdownComplete }) },
+    )
+    return response.data || []
+  }, [request])
+
+  const readChargeComponents = useCallback(async (
+    kind: 'import-quotes' | 'logistics-quotes', quoteId: string,
+  ): Promise<QuoteCommercials> => {
+    const response = await request<{ data: QuoteCommercials }>(
+      `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`)
+    return response.data
+  }, [request])
+
+  /** T7.4 — open (or reuse) the sailing conversation. The server derives who the caller is. */
+  /** T8.3 — the Documents & Evidence workspace projection for one transaction. */
+  const fetchDocumentWorkspace = useCallback(async (
+    subjectType: string, subjectId: string,
+  ): Promise<DocumentWorkspace> => {
+    const response = await request<{ data: DocumentWorkspace }>(
+      `/diaspora/document-workspace/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
+  const ensureDiasporaContainerConversation = useCallback(async (
+    containerId: string, participantId?: string,
+  ): Promise<{ threadId: string | null; role: string }> => {
+    const response = await request<{ data: { threadId: string | null; role: string } }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/conversation`,
+      { method: 'POST', body: JSON.stringify(participantId ? { participantId } : {}) },
+    )
+    return response.data
+  }, [request])
+
+  const readContainerSharedCharges = useCallback(async (containerId: string): Promise<SharedChargeSet> => {
+    const response = await request<{ data: SharedChargeSet }>(
+      `/diaspora/container-marketplace/${encodeURIComponent(containerId)}/shared-charges`)
+    return response.data
+  }, [request])
+
+  const allocateSharedCharge = useCallback(async (
+    componentId: string, containerId: string, basis: string,
+  ): Promise<unknown> => {
+    const response = await request<{ data: unknown }>(
+      `/diaspora/container-marketplace/charge-components/${encodeURIComponent(componentId)}/allocate`,
+      { method: 'POST', body: JSON.stringify({ container_id: containerId, basis }) })
+    return response.data
+  }, [request])
+
+  const compareQuotes = useCallback(async (
+    targets: Array<{ id: string; kind: 'import' | 'logistics'; label: string }>,
+    context: { cargo?: Record<string, unknown>; objective?: string | null } = {},
+  ): Promise<{ quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult }> => {
+    const response = await request<{ data: { quotes: ComparableQuote[]; comparison: ComparisonResult; advice: AdviceResult } }>(
+      '/diaspora/quote-comparison', {
+        method: 'POST',
+        body: JSON.stringify({ quotes: targets, cargo: context.cargo || {}, objective: context.objective ?? null }),
+      })
+    return response.data
   }, [request])
 
   const createDiasporaQuote = useCallback(async (orderId: string, payload: DiasporaQuotePayload): Promise<{ quote: DiasporaQuote; idempotentReplay?: boolean }> => {
     const response = await request<{ data: { quote: DiasporaQuote; idempotentReplay?: boolean } }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/quotes`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaQuote = useCallback(async (quoteId: string, payload: Partial<DiasporaQuotePayload>): Promise<DiasporaQuote> => {
+    const response = await request<{ data: DiasporaQuote }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}`, { method: 'PATCH', body: JSON.stringify(payload) })
     return response.data
   }, [request])
 
@@ -1597,8 +1874,16 @@ export function useCarUpApi() {
   }, [request])
 
   // ── Phase 6: Container Co-Loading Marketplace ──
-  const fetchDiasporaMarketplaceContainers = useCallback(async (): Promise<DiasporaMarketplaceContainer[]> => {
-    const response = await request<{ data: DiasporaMarketplaceContainer[] }>('/diaspora/container-marketplace/containers')
+  const fetchDiasporaTradeContext = useCallback(async (): Promise<DiasporaTradeContext> => {
+    const response = await request<{ data: DiasporaTradeContext }>('/diaspora/container-marketplace/trade-context')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaMarketplaceContainers = useCallback(async (status?: string): Promise<DiasporaMarketplaceContainer[]> => {
+    // T5.3 — status is server-authorized: any non-open status returns only sailings the CALLER
+    // operates, so an operator can list their own DRAFTs and nobody can browse anyone else's.
+    const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
+    const response = await request<{ data: DiasporaMarketplaceContainer[] }>(`/diaspora/container-marketplace/containers${suffix}`)
     return response.data || []
   }, [request])
 
@@ -1639,6 +1924,24 @@ export function useCarUpApi() {
 
   const closeDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
     const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/close-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // T5.2 — corridor reference data for the operator's sailing form (route composition only).
+  const fetchDiasporaTradeCorridors = useCallback(async (): Promise<Array<{ id: string; code: string; display_name: string; origin_country: string; destination_country: string; planning_status: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null; mode_options?: string[] }> }>> => {
+    const response = await request<{ data: Array<{ id: string; code: string; display_name: string; origin_country: string; destination_country: string; planning_status: string; legs: Array<{ id: string; sequence: number; origin_country: string; origin_locality?: string | null; destination_country: string; destination_locality?: string | null; mode_options?: string[] }> }> }>('/diaspora/trade-corridors')
+    return response.data || []
+  }, [request])
+
+  // T5.3 — deliberate sailing lifecycle: a DRAFT is opened explicitly; a sailing with no live
+  // reservations may be cancelled. Both operator-only server-side.
+  const openDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/open-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaContainerSailing = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({}) })
     return response.data
   }, [request])
 
@@ -2227,6 +2530,159 @@ export function useCarUpApi() {
     return request('/vehicles/saved/add', { method: 'POST', body: JSON.stringify({ vin }) })
   }, [request])
 
+  // ── Service Network (S2) — the owner's own service requests ────────────────
+  /**
+   * Open a governed Service Case against a PUBLISHED garage.
+   *
+   * The garage is named by its public slug: the public garage payload withholds `tenant_id`, so the
+   * browser never handles one, and the server resolves the slug against the same publication check.
+   */
+  const createServiceRequest = useCallback(async (input: {
+    garage_slug: string
+    vin: string
+    service_category?: string | null
+    request_summary?: string | null
+    source_channel?: string
+  }): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>('/service-cases', {
+      method: 'POST',
+      body: JSON.stringify({
+        garage_slug: input.garage_slug,
+        vin: input.vin,
+        service_category: input.service_category || null,
+        request_summary: input.request_summary || null,
+        source_channel: input.source_channel || 'directory',
+      }),
+    })
+  }, [request])
+
+  /** The requester's own Service Cases — the canonical ledger, not a second list. */
+  const fetchMyServiceRequests = useCallback(async (): Promise<ServiceCaseView[]> => {
+    const res = await request<ServiceCaseView[] | { cases?: ServiceCaseView[] }>('/service-cases/mine', { method: 'GET' })
+    return Array.isArray(res) ? res : (res?.cases ?? [])
+  }, [request])
+
+  const fetchServiceRequest = useCallback(async (caseId: string): Promise<ServiceCaseDetail> => {
+    return request<ServiceCaseDetail>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
+  }, [request])
+
+  /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
+     Every one of these endpoints was already certified and had no product surface: the garage's
+     queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
+     here — these are the canonical Service Network routes, called from a screen at last. */
+
+  const fetchGarageQueue = useCallback(async (status?: string): Promise<GarageQueueResponse> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+    return request<GarageQueueResponse>(`/garage/queue${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageMechanics = useCallback(async (): Promise<GarageMechanicsResponse> => {
+    return request<GarageMechanicsResponse>('/garage/mechanics', { method: 'GET' })
+  }, [request])
+
+  const fetchGarageCustomers = useCallback(async (): Promise<GarageCustomersResponse> => {
+    return request<GarageCustomersResponse>('/garage/customers', { method: 'GET' })
+  }, [request])
+
+  /* The garage's own public page. Certified since S1 and never reachable from the product, which
+     left the directory with no way to gain a garage — and so the owner journey with no supply. */
+  const fetchMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile', { method: 'GET' })
+  }, [request])
+
+  const saveMyGarageProfile = useCallback(async (body: Record<string, unknown>): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile', { method: 'PUT', body: JSON.stringify(body) })
+  }, [request])
+
+  const publishMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile/publish', { method: 'POST', body: '{}' })
+  }, [request])
+
+  const unpublishMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
+    return request<GarageProfileResponse>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
+  }, [request])
+
+  const acceptServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const declineServiceCase = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ reason_code: reasonCode || 'garage_declined' }),
+    })
+  }, [request])
+
+  const startServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/start`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const completeServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/complete`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const openWorkOrderForCase = useCallback(async (caseId: string, body: Record<string, unknown> = {}): Promise<WorkOrderResult> => {
+    return request<WorkOrderResult>(`/service-cases/${encodeURIComponent(caseId)}/work-order`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const fetchWorkOrderAssignment = useCallback(async (workOrderId: string): Promise<AssignmentResponse> => {
+    return request<AssignmentResponse>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assignment`, { method: 'GET' })
+  }, [request])
+
+  const assignMechanicToWorkOrder = useCallback(async (workOrderId: string, mechanicUserId: string): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/service-work-orders/${encodeURIComponent(workOrderId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ mechanic_user_id: mechanicUserId }),
+    })
+  }, [request])
+
+  const unassignMechanicFromWorkOrder = useCallback(async (workOrderId: string): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/service-work-orders/${encodeURIComponent(workOrderId)}/unassign`, {
+      method: 'POST',
+      body: '{}',
+    })
+  }, [request])
+
+  /** Record what was actually done. Cost is optional, but it never travels without its currency. */
+  const recordServiceOnWorkOrder = useCallback(async (workOrderId: string, body: {
+    work_performed?: string | null
+    service_category?: string | null
+    total_cost?: number | null
+    currency?: string | null
+  }): Promise<ServiceRecordResult> => {
+    return request<ServiceRecordResult>(`/service-work-orders/${encodeURIComponent(workOrderId)}/records`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  /** An OBSERVATION of the odometer. It does not write the vehicle's canonical mileage. */
+  const recordMileageObservation = useCallback(async (recordId: string, observedMileage: number): Promise<MileageObservationResult> => {
+    return request<MileageObservationResult>(`/service-records/${encodeURIComponent(recordId)}/mileage`, {
+      method: 'POST',
+      body: JSON.stringify({ observed_mileage: observedMileage, observation_source: 'garage_stated' }),
+    })
+  }, [request])
+
+  /**
+   * Resolve a scanned CarUp link (R8). The route is `optionalAuth`, so this is called both signed
+   * out and signed in — the identity headers `request` attaches when they exist are exactly what
+   * decides whether the answer is `authentication_required` or the real one.
+   */
+  const resolveServiceLink = useCallback(async (publicToken: string): Promise<ResolvedServiceLink> => {
+    return request<ResolvedServiceLink>(`/service-links/${encodeURIComponent(publicToken)}`, { method: 'GET' })
+  }, [request])
+
+  const cancelServiceRequest = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason_code: reasonCode || 'requester_withdrew' }),
+    })
+  }, [request])
+
   const fetchServiceHistory = useCallback(async (): Promise<any[]> => {
     return request<any[]>('/service-history/me', { method: 'GET' })
   }, [request])
@@ -2728,7 +3184,203 @@ export function useCarUpApi() {
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
 
+
+  // OCR 1.0-C3 — Garage applicant application + private evidence consumer only.
+  // Reviewer, activation, invitation and Garage workspace authority remain outside this lane.
+  type GarageApiJson = Record<string, unknown>
+
+  const fetchMyGarageApplication = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage-onboarding/application', { method: 'GET' })
+  }, [request])
+
+  const startGarageApplication = useCallback(async (body: { supersedes?: string } = {}): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage-onboarding/application', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const saveGarageApplication = useCallback(async (id: string, patch: Record<string, unknown>): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    })
+  }, [request])
+
+  const submitGarageApplication = useCallback(async (id: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage-onboarding/application/${encodeURIComponent(id)}/submit`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const garageEvidenceBase = (appId: string) =>
+    `/garage-onboarding/application/${encodeURIComponent(appId)}/evidence`
+
+  const listGarageEvidence = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageEvidenceBase(appId), { method: 'GET' })
+  }, [request])
+
+  const uploadGarageEvidence = useCallback(async (appId: string, body: Record<string, unknown>): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageEvidenceBase(appId), { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const removeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const previewGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
+  const extractGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/extract`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  const acknowledgeGarageEvidence = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageEvidenceBase(appId)}/${encodeURIComponent(docId)}/acknowledge`, {
+      method: 'POST', body: '{}',
+    })
+  }, [request])
+
+  // GMO-3/4 (ported by OC-5E from #209) — the CarUp reviewer's side of garage onboarding. The server
+  // decides every gate (session, review capability, X3 step-up); these only carry the request.
+  const garageReviewBase = (appId: string) => `/admin/garage-applications/${encodeURIComponent(appId)}`
+  const fetchGarageApplicationsForReview = useCallback(async (statuses?: string[]): Promise<GarageApiJson> => {
+    const q = statuses?.length ? `?status=${encodeURIComponent(statuses.join(','))}` : ''
+    return request<GarageApiJson>(`/admin/garage-applications${q}`, { method: 'GET' })
+  }, [request])
+
+  const fetchGarageApplicationForReview = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(garageReviewBase(appId), { method: 'GET' })
+  }, [request])
+
+  const decideGarageApplication = useCallback(async (appId: string, body: { decision: string; reason?: string; reason_code?: string }): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/decision`, { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const activateGarageApplication = useCallback(async (appId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/activate`, { method: 'POST', body: '{}' })
+  }, [request])
+
+  const previewGarageEvidenceForReview = useCallback(async (appId: string, docId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`${garageReviewBase(appId)}/evidence/${encodeURIComponent(docId)}/preview`, { method: 'GET' })
+  }, [request])
+
+  // GMO-6/7 (ported by OC-5E from #209) — a garage's invitations and team. Managing them is the
+  // selected garage's ADMIN's act; the server decides that from the session's verified organisation.
+  const listGarageInvitations = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations', { method: 'GET' })
+  }, [request])
+
+  const createGarageInvitation = useCallback(async (body: { email: string; role: string; name?: string }): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const revokeGarageInvitation = useCallback(async (invitationId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/invitations/${encodeURIComponent(invitationId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const peekGarageInvitation = useCallback(async (token: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/invitations/peek/${encodeURIComponent(token)}`, { method: 'GET' })
+  }, [request])
+
+  const acceptGarageInvitation = useCallback(async (token: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) })
+  }, [request])
+
+  const listGarageMembers = useCallback(async (): Promise<GarageApiJson> => {
+    return request<GarageApiJson>('/garage/members', { method: 'GET' })
+  }, [request])
+
+  const removeGarageMember = useCallback(async (userId: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+  }, [request])
+
+  const changeGarageMemberRole = useCallback(async (userId: string, role: string): Promise<GarageApiJson> => {
+    return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+  }, [request])
+
+  // O2-X2 (ported by OC-5C) — the registration onboarding journey (self-scoped; describes, never grants)
+  // and the applicant's own 7C identity wizard. Server-owned payloads travel as structural records;
+  // the consuming page narrows them.
+  type RegistrationJourneyPayload = {
+    success: boolean
+    user: Record<string, unknown> | null
+    profile: Record<string, unknown> | null
+    identity_session: Record<string, unknown> | null
+    journey: Record<string, unknown>
+    identity_assurance: Record<string, unknown> | null
+  }
+  type RegistrationCandidatesPayload = { success: boolean; candidates: Record<string, unknown> }
+  type RegistrationProfileSaveResult = { success: boolean; profile: Record<string, unknown>; field_provenance: Record<string, string>; audit_recorded: boolean }
+  type IdentitySessionEnvelope = { success: boolean; session: Record<string, unknown> }
+
+  const fetchRegistrationJourney = useCallback((): Promise<RegistrationJourneyPayload> =>
+    request<RegistrationJourneyPayload>('/registration/journey'), [request])
+  const fetchRegistrationCandidates = useCallback((): Promise<RegistrationCandidatesPayload> =>
+    request<RegistrationCandidatesPayload>('/registration/profile/candidates'), [request])
+  const saveRegistrationProfile = useCallback((payload: { profile: Record<string, unknown>; candidates_seen?: Record<string, string> }): Promise<RegistrationProfileSaveResult> =>
+    request<RegistrationProfileSaveResult>('/registration/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const createIdentitySession = useCallback((documentType: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>('/identity/verification-sessions', { method: 'POST', body: JSON.stringify({ documentType }) }), [request])
+  const uploadIdentitySide = useCallback((sessionId: string, side: 'front' | 'back' | 'selfie', image: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/upload/${side}`, { method: 'POST', body: JSON.stringify({ image }) }), [request])
+  const submitIdentitySession = useCallback((sessionId: string): Promise<IdentitySessionEnvelope> =>
+    request<IdentitySessionEnvelope>(`/identity/verification-sessions/${encodeURIComponent(sessionId)}/submit`, { method: 'POST', body: JSON.stringify({}) }), [request])
+
+  // O2-X5 (ported by OC-5C) — the dealer APPLICANT's own onboarding (self-scoped; grants no Dealer authority).
+  type DealerOnboardingPayload = Record<string, unknown> & { success: boolean }
+  const fetchDealerOnboardingOverview = useCallback((): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/overview'), [request])
+  const saveDealerOnboardingProfile = useCallback((payload: { profile: Record<string, unknown> }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/profile', { method: 'PUT', body: JSON.stringify(payload) }), [request])
+  const uploadDealerEvidence = useCallback((payload: { doc_type: string; file: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/documents', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const addDealerOnboardingBranch = useCallback((payload: { name: string; address: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/branches', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  const inspectDealerWorkbook = useCallback((payload: { fileBase64: string; filename: string; templateType?: string; sheetName?: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/inspect', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const confirmDealerWorkbookMapping = useCallback((payload: { template_type: string; sheet_name: string; workbook_checksum: string; mappings: Array<{ source: string; target: string }> }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/mapping/confirm', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const runDealerWorkbookDryRun = useCallback((payload: { fileBase64: string; filename: string; templateType: string; sheetName: string }): Promise<DealerOnboardingPayload> =>
+    request<DealerOnboardingPayload>('/dealer-onboarding/workbook/dry-run', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
   return {
+    inspectDealerWorkbook,
+    confirmDealerWorkbookMapping,
+    runDealerWorkbookDryRun,
+    fetchDealerOnboardingOverview,
+    saveDealerOnboardingProfile,
+    uploadDealerEvidence,
+    addDealerOnboardingBranch,
+    fetchRegistrationJourney,
+    fetchRegistrationCandidates,
+    saveRegistrationProfile,
+    createIdentitySession,
+    uploadIdentitySide,
+    submitIdentitySession,
+    fetchMyGarageApplication,
+    startGarageApplication,
+    saveGarageApplication,
+    submitGarageApplication,
+    listGarageEvidence,
+    uploadGarageEvidence,
+    removeGarageEvidence,
+    previewGarageEvidence,
+    extractGarageEvidence,
+    acknowledgeGarageEvidence,
+    fetchGarageApplicationsForReview,
+    fetchGarageApplicationForReview,
+    decideGarageApplication,
+    activateGarageApplication,
+    previewGarageEvidenceForReview,
+    listGarageInvitations,
+    createGarageInvitation,
+    revokeGarageInvitation,
+    peekGarageInvitation,
+    acceptGarageInvitation,
+    listGarageMembers,
+    removeGarageMember,
+    changeGarageMemberRole,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,
@@ -2785,6 +3437,28 @@ export function useCarUpApi() {
     reopenCommunicationThread,
     pauseCommunicationThreadSla,
     resumeCommunicationThreadSla,
+    createServiceRequest,
+    fetchMyServiceRequests,
+    fetchServiceRequest,
+    cancelServiceRequest,
+    resolveServiceLink,
+    fetchGarageQueue,
+    fetchGarageMechanics,
+    fetchGarageCustomers,
+    fetchMyGarageProfile,
+    saveMyGarageProfile,
+    publishMyGarageProfile,
+    unpublishMyGarageProfile,
+    acceptServiceCase,
+    declineServiceCase,
+    startServiceCase,
+    completeServiceCase,
+    openWorkOrderForCase,
+    fetchWorkOrderAssignment,
+    assignMechanicToWorkOrder,
+    unassignMechanicFromWorkOrder,
+    recordServiceOnWorkOrder,
+    recordMileageObservation,
     fetchCommunicationDeadLetters,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
@@ -2872,6 +3546,10 @@ export function useCarUpApi() {
     approveEvidence,
     rejectEvidence,
     fetchVehicleOperationsReview,
+    fetchPersonComplianceReview,
+    reviewIdentitySession,
+    stepUpSession,
+    recordDealerComplianceDecision,
     correctEvidenceClassification,
     reviewSellerAuthority,
     lookupVehiclePassport,
@@ -2882,8 +3560,9 @@ export function useCarUpApi() {
     fetchSafePayEscrows,
     updateSafePayEscrow,
     addRepairLog,
+    fetchVehicleWorkOrders,
+    decideWorkOrderAuthorization,
     fetchRepairHistory,
-    runOcrParsing,
     runFraudScan,
     runRiskAssessment,
     submitFinancing,
@@ -2960,7 +3639,18 @@ export function useCarUpApi() {
     fetchDiasporaOrderMatches,
     acceptDiasporaQuote,
     fetchDiasporaRfqs,
+    fetchDiasporaRfqOpportunity,
+    fetchDiasporaMyQuotes,
+    ensureDiasporaRfqConversation,
     createDiasporaQuote,
+    saveChargeComponents,
+    readChargeComponents,
+    compareQuotes,
+    readContainerSharedCharges,
+    allocateSharedCharge,
+    ensureDiasporaContainerConversation,
+    fetchDocumentWorkspace,
+    updateDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,
     parseDiasporaAiCommand,
@@ -2970,6 +3660,7 @@ export function useCarUpApi() {
     approveDiasporaAiCommand,
     rejectDiasporaAiCommand,
     executeDiasporaAiCommand,
+    fetchDiasporaTradeContext,
     fetchDiasporaMarketplaceContainers,
     createDiasporaMarketplaceContainer,
     fetchDiasporaContainerCapacity,
@@ -2979,6 +3670,9 @@ export function useCarUpApi() {
     rejectDiasporaMarketplaceReservation,
     cancelDiasporaMarketplaceReservation,
     closeDiasporaContainerBooking,
+    openDiasporaContainerBooking,
+    fetchDiasporaTradeCorridors,
+    cancelDiasporaContainerSailing,
     fetchDiasporaDriveStatus,
     fetchDiasporaDriveAuthorizeUrl,
     fetchDiasporaDriveFiles,

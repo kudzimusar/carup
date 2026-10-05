@@ -200,7 +200,7 @@ export default function EvidenceReview() {
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-orange-100/50 pb-2">
                           <div className="flex items-center gap-1.5 font-semibold text-orange-950">
                             <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
-                            AI Copilot Fraud Scan
+                            AI-assisted analysis (advisory)
                           </div>
                           <div className="flex gap-2">
                             <Badge className={`border-0 ${
@@ -211,9 +211,17 @@ export default function EvidenceReview() {
                             }`}>
                               {labelize(item.metadata.ai_analysis.ai_status)}
                             </Badge>
-                            <Badge className="bg-orange-100 text-orange-850 hover:bg-orange-100 border-0 font-normal">
-                              Confidence: {Math.round(item.metadata.ai_analysis.confidence * 100)}%
-                            </Badge>
+                            {/* OC-5B: a confidence is shown only for an analysis a provider actually ran —
+                                never for a simulation, a queued job, or one that did not run at all. */}
+                            {item.metadata.ai_analysis.execution === 'provider_executed' && typeof item.metadata.ai_analysis.confidence === 'number' ? (
+                              <Badge className="bg-orange-100 text-orange-850 hover:bg-orange-100 border-0 font-normal">
+                                Confidence: {Math.round(item.metadata.ai_analysis.confidence * 100)}%
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-gray-100 text-gray-600 hover:bg-gray-100 border-0 font-normal" data-testid="ai-analysis-not-measured">
+                                {item.metadata.ai_analysis.ai_status === 'ai_not_configured' ? 'Not run — no AI provider configured' : 'No measured confidence'}
+                              </Badge>
+                            )}
                           </div>
                         </div>
 

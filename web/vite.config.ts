@@ -21,6 +21,13 @@ const pairing = resolvePreviewApiUrl({
 if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 // The SHA this bundle was built from, so the running app can prove which candidate it is and compare
 // itself against the backend's `/api/health`. Empty when built outside Vercel (local/dev).
+// R14 (#197, ported by OC-5D) — demo identities must never reach a production build. The login page
+// shipped three named demo accounts and a hard-coded password, rendered unconditionally. The BUILD
+// decides, and it FAILS CLOSED: the flag is set only for a Vercel environment that positively
+// identifies itself as non-production; every other build — production, a local build, any build that
+// cannot say what it is — gets '' and the demo identities are folded out of the bundle.
+process.env.VITE_ALLOW_DEMO_LOGINS =
+  process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? 'true' : ''
 process.env.VITE_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? ''
 process.env.VITE_GIT_REF = process.env.VERCEL_GIT_COMMIT_REF ?? ''
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.

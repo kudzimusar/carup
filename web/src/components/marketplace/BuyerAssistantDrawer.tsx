@@ -11,7 +11,8 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 /**
  * AI buyer assistant entry point. Calls the advisory backend endpoint, which ALWAYS returns useful
  * guidance (deterministic fallback when the AI provider is unavailable). An ai_unavailable state is
- * surfaced honestly rather than faked.
+ * surfaced honestly rather than faked. OC-3E-W1: a signed-out visitor never triggers paid inference —
+ * the backend answers with safe guidance and ai_reason 'sign_in_required', and the badge says so.
  */
 export function BuyerAssistantDrawer({
   triggerClassName = '',
@@ -27,6 +28,7 @@ export function BuyerAssistantDrawer({
   const [loading, setLoading] = useState(false)
   const [guidance, setGuidance] = useState<string[]>([])
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null)
+  const [aiReason, setAiReason] = useState<string | null>(null)
   const [listening, setListening] = useState(false)
 
   const dictateUseCase = () => {
@@ -71,9 +73,11 @@ export function BuyerAssistantDrawer({
       const res = await marketplaceAiBuyerAssistant({ budget: budget ? Number(budget) : undefined, use_case: useCase || undefined })
       setGuidance(Array.isArray(res?.guidance) ? res.guidance : [])
       setAiAvailable(res?.ai_available ?? false)
+      setAiReason(typeof res?.ai_reason === 'string' ? res.ai_reason : null)
     } catch {
       setGuidance(['Use the verified inquiry flow and request an inspection before paying. Never pay outside CarUp.'])
       setAiAvailable(false)
+      setAiReason(null)
     } finally {
       setLoading(false)
     }
@@ -118,7 +122,11 @@ export function BuyerAssistantDrawer({
           {guidance.length > 0 && (
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3" data-testid="marketplace-ai-assistant-result">
               {aiAvailable === false && (
-                <Badge variant="outline" className="mb-2 text-[10px] text-amber-700">AI unavailable — showing safe guidance</Badge>
+                <Badge variant="outline" className="mb-2 text-[10px] text-amber-700" data-testid="marketplace-ai-assistant-fallback">
+                  {aiReason === 'sign_in_required'
+                    ? 'Sign in for AI-assisted guidance — showing safe guidance'
+                    : 'AI unavailable — showing safe guidance'}
+                </Badge>
               )}
               <ul className="space-y-1.5">
                 {guidance.map((g, i) => (

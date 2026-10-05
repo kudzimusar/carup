@@ -231,12 +231,12 @@ const EMBEDDED_VEHICLE_READS = [
  * intersection test below has no such blind spot, which is exactly why it needs an
  * explicit carve-out for the reads that are supposed to touch these columns.
  */
+// OC-5A moved the GET /api/partsentry/:vin comparison out of the route layer, into
+// resolvePartSentryReadScope (services/partsentry/partsentryServiceAuthority.js): it runs only for an
+// IDENTIFIED caller (an anonymous caller is answered 'public' before any read), compares owner_id to
+// that caller, and returns only 'full' | 'public' — never a vehicle field. Pinned behaviourally in
+// oc5a-partsentry-service-authority.test.js and by the return-shape test there.
 const AUTHORIZATION_CHECK_VEHICLE_READS = [
-  {
-    key: 'server.js (GET /api/partsentry/:vin) owner_id',
-    why: 'optionalAuth(); owner_id is compared to req.userContext.id to decide publicOnly for '
-      + 'getRepairHistory(). The response is repair history, never the vehicle row.',
-  },
   {
     key: 'routes/vehiclesRoutes.js (GET /api/vehicles/:vin/evidence) owner_id, tenant_id',
     why: 'compared to the active identity to choose the vehicle_evidence visibility filter; the '

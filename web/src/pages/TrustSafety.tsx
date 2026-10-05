@@ -262,7 +262,7 @@ export default function TrustSafety() {
             {
               icon: ShieldCheck,
               title: 'A signed internal record',
-              desc: 'Changes CarUp records against a vehicle are written to its own signed, append-only log, so an entry cannot be quietly altered later. It is an internal ledger — not a blockchain, and it carries no tax or ownership status from any authority.',
+              desc: 'Changes CarUp records against a vehicle are written to its own hash-chained audit ledger: each entry is linked to the one before it and signed by CarUp, so an alteration shows up when the ledger is verified. It is an internal ledger — not a blockchain — and it carries no tax or ownership status from any authority.',
               color: 'from-orange-500/20 to-amber-500/20',
               badge: 'Internal log'
             },
@@ -530,7 +530,7 @@ export default function TrustSafety() {
                           <label className="text-xs font-semibold text-gray-300">Your Email Address *</label>
                           <Input
                             type="email"
-                            placeholder="tendai@email.co.zw"
+                            placeholder="you@example.co.zw"
                             className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                             value={reporterEmail}
                             onChange={(e) => setReporterEmail(e.target.value)}

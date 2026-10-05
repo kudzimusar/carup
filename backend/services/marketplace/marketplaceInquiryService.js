@@ -23,6 +23,7 @@ import {
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { emitInquiryCreated } from '../intelligence/marketplaceActivityEmitters.js';
+import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -143,6 +144,36 @@ export async function resolveListingSeller(client, vin) {
   }
 }
 
+/**
+ * Resolve the target garage for a service request against the governed directory.
+ *
+ * Returns the PUBLISHED garage's tenant id, or null when the caller named no garage. Throws when a
+ * garage was named but does not resolve to a published profile — a named-but-invalid target is a
+ * caller error, not a reason to quietly record NULL and let the request look routable.
+ */
+async function resolveTargetProviderTenant(client, payload = {}) {
+  const slug = clampStr(payload.target_garage_slug, 160);
+  const assertedTenantId = clampStr(payload.target_provider_tenant_id, 64);
+  if (!slug && !assertedTenantId) return null;
+
+  let query = client
+    .from('garage_public_profiles')
+    .select('tenant_id, publication_status')
+    .eq('publication_status', 'published');
+  query = slug
+    ? query.eq('slug', String(slug).trim().toLowerCase())
+    : query.eq('tenant_id', assertedTenantId);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new DatabaseError(`Failed to resolve target garage: ${error.message}`);
+  if (!data?.tenant_id) {
+    throw new ValidationError('The requested garage is not a published garage on CarUp.', {
+      target_garage: slug || assertedTenantId,
+    });
+  }
+  return data.tenant_id;
+}
+
 export async function createInquiry(client, payload = {}, actor = null, deps = {}) {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
@@ -177,6 +208,22 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     contactPhone = contactPhone || profile?.phone || null;
   }
 
+  // Service Network S3 (O2): which garage was this service request directed to?
+  //
+  // The answer is resolved from the governed publication projection, never taken from the request.
+  // A caller may name a garage by its public slug or by tenant id, but either way the tenant that
+  // gets persisted is the one `garage_public_profiles` returns for a PUBLISHED garage. A tenant id
+  // the client simply asserts is not evidence of anything, and an unpublished or unknown garage is
+  // refused rather than silently recorded.
+  //
+  // It is deliberately NOT derived from seller ownership: seller_id/seller_tenant_id keep
+  // marketplace SELLER semantics and are never overloaded to fake a routing relationship (plan
+  // §10.2). A request with no target stays NULL — the S3 bridge already refuses to open a Service
+  // Case without one, so nothing is ever routed on a guess.
+  const targetProviderTenantId = inquiryType === 'garage_service_request'
+    ? await resolveTargetProviderTenant(client, payload)
+    : null;
+
   let sellerId = null;
   let sellerTenantId = null;
   if (listingId && VEHICLE_BOUND_TYPES.has(inquiryType)) {
@@ -201,6 +248,8 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     guest_phone: contactPhone,
     seller_id: sellerId,
     seller_tenant_id: sellerTenantId,
+    // Distinct from the two seller columns above, and only ever set for a service request.
+    target_provider_tenant_id: targetProviderTenantId,
     inquiry_type: inquiryType,
     message,
     referral_code: clampStr(payload.referral_code, 64),
@@ -291,14 +340,23 @@ const SAFE_OR_VALUE = /^[A-Za-z0-9_:@-]+$/;
 
 export async function listInquiriesForSeller(client, actor) {
   if (!actor?.id) throw new ForbiddenError('Authentication required.');
+  // OC-4D — a tenant's buyer inquiries carry the buyers' names, emails, phones and messages. A
+  // validated `x-tenant-id` proves MEMBERSHIP only (any role: a mechanic, a member); it is not the
+  // dealership's selling authority. The tenant leg therefore applies only when the canonical
+  // Dealer decision (#208 J-3/K-3/L-2, the same primitive listing and lifecycle use) says this
+  // actor acts for that dealership. The seller's own `seller_id` leg is unchanged.
+  const tenantId = actor.tenantId
+    && await hasGovernedDealerVehicleAuthority(client, actor, { tenant_id: actor.tenantId })
+    ? actor.tenantId
+    : null;
   const legs = [`seller_id.eq.${actor.id}`];
-  if (actor.tenantId) legs.push(`seller_tenant_id.eq.${actor.tenantId}`);
+  if (tenantId) legs.push(`seller_tenant_id.eq.${tenantId}`);
   const canPushDown = SAFE_OR_VALUE.test(String(actor.id))
-    && (!actor.tenantId || SAFE_OR_VALUE.test(String(actor.tenantId)));
+    && (!tenantId || SAFE_OR_VALUE.test(String(tenantId)));
   const rows = await fetchInquiries(client, canPushDown ? (query) => query.or(legs.join(',')) : undefined);
   const mine = rows.filter(
     (r) => (r.seller_id && r.seller_id === actor.id)
-      || (actor.tenantId && r.seller_tenant_id === actor.tenantId),
+      || (tenantId && r.seller_tenant_id === tenantId),
   );
   return mine.map(toSellerInquiry);
 }

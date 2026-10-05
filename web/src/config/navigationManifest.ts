@@ -32,7 +32,8 @@ import {
   getAllRoles,
   getRoleMetadata,
   resolveFeatureVisibility,
-  getDashboardItems,
+  getDashboardItemsFor,
+  resolveOperatingHome,
 } from './featureRegistry'
 
 // ── Node model ──────────────────────────────────────────────────────────────
@@ -604,7 +605,19 @@ export function getMobileNavigation(ctx: NavigationContext = {}): MobileNavigati
   let dashboardRoot: { label: string; href: string } | undefined
 
   if (ctx.isAuthenticated && ctx.role) {
-    roleItems = getDashboardItems(ctx.role)
+    // The SEVENTH place that judged a person by one of their two true roles.
+    //
+    // A garage employee is `owner` platform-wide (public registration creates nothing else) and
+    // `mechanic` inside their garage. The desktop sidebar, the route gates and feature governance
+    // were all taught this; the MOBILE drawer was not — so on a phone a real garage operator saw
+    // nineteen owner items, zero garage items, and a "Dashboard" pointing at the owner dashboard
+    // they had just been routed away from. Navigation visibility and route admission must derive
+    // from the same facts, and on mobile they did not.
+    //
+    // OC-5D: the items come from the ONE eligibility rule — the platform role's, plus the SELECTED,
+    // verified organisation's (a feature's tenant scope) — and each is still filtered by the same
+    // resolver. #197 merged in the dashboard of the TENANT role, as if it were a platform role (F4).
+    roleItems = getDashboardItemsFor({ role: ctx.role, activeTenant: ctx.activeTenant })
       .map(f => ({ f, vis: resolveFeatureVisibility(f, ctx) }))
       .filter(({ vis }) => vis.visible)
       .map(({ f, vis }) => ({
@@ -618,7 +631,9 @@ export function getMobileNavigation(ctx: NavigationContext = {}): MobileNavigati
         beta: vis.beta,
         governedTrust: false,
       }))
-    dashboardRoot = { label: 'Dashboard', href: getDashboardRoute(ctx.role) }
+    // Where this person actually operates. Sending a garage member to the owner dashboard is the
+    // same defect in one more place — and the owner dashboard now redirects them straight back.
+    dashboardRoot = { label: 'Dashboard', href: resolveOperatingHome({ role: ctx.role, activeTenant: ctx.activeTenant }) ?? getDashboardRoute(ctx.role) }
   }
 
   return { primary, secondary, roleItems, dashboardRoot }

@@ -34,6 +34,22 @@ function resetDb() {
     dealer_compliance_documents: [],
     dealer_compliance_requirements: [],
     dealer_compliance_decisions: [],
+    // O2-X3: the decision route now sits behind the step-up guard, which derives assurance
+    // from the PRESENTING session row — so the admin decision tests authenticate with a real
+    // mocked session that has a fresh password re-proof, exactly as a live admin would.
+    user_sessions: [
+      {
+        id: 'sess-admin-1', token: 'admin-session', user_id: 'admin-1', is_valid: true,
+        expires_at: '2099-01-01T00:00:00.000Z', created_at: new Date().toISOString(),
+        auth_method: 'password', step_up_at: new Date().toISOString(), step_up_method: 'password_reauth',
+      },
+      // OC-5C: the same admin on a session with NO re-proof — the decision must be refused.
+      {
+        id: 'sess-admin-1b', token: 'admin-session-unproven', user_id: 'admin-1', is_valid: true,
+        expires_at: '2099-01-01T00:00:00.000Z', created_at: new Date().toISOString(),
+        auth_method: 'password', step_up_at: null, step_up_method: null,
+      },
+    ],
   };
 }
 const APPEND_ONLY = new Set(['dealer_compliance_decisions']);
@@ -127,11 +143,11 @@ function createdDealerId() {
   return profile.id;
 }
 
-function request(method, path, body, userId) {
+function request(method, path, body, userId, sessionToken) {
   return serverPort().then((port) => new Promise((resolve, reject) => {
     {
       const data = body ? JSON.stringify(body) : null;
-      const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(sessionToken ? { 'x-session-token': sessionToken } : {}), ...(userId ? { 'x-user-id': userId } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
         let buf = '';
         res.on('data', (c) => (buf += c));
         res.on('end', () => {
@@ -184,18 +200,28 @@ test('admin records a governance decision (suspend) and it appears in the ledger
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
   const dealerId = createdDealerId();
-  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1');
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1', 'admin-session');
   assert.equal(res.status, 201);
   assert.equal(res.body.decision.decision, 'suspend');
   assert.equal(res.body.profile.suspension_state, 'suspended');
   assert.equal(db.dealer_compliance_decisions.length, 1);
 });
 
+test('OC-5C: an admin decision on a session with no fresh step-up is refused STEP_UP_REQUIRED, and nothing is recorded', async () => {
+  resetDb();
+  await request('POST', '/api/dealer/profile', { legal_name: 'Acme Motors', tenant_id: 't1' }, 'dealer-1');
+  const dealerId = createdDealerId();
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1', 'admin-session-unproven');
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'STEP_UP_REQUIRED');
+  assert.equal(db.dealer_compliance_decisions.length, 0, 'the guard runs before the decision is recorded');
+});
+
 test('admin decision with an invalid decision -> 400', async () => {
   resetDb();
   await request('POST', '/api/dealer/profile', { legal_name: 'Acme' }, 'dealer-1');
   const dealerId = createdDealerId();
-  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'nuke' }, 'admin-1');
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'nuke' }, 'admin-1', 'admin-session');
   assert.equal(res.status, 400);
 });
 
@@ -230,7 +256,7 @@ test('suspend blocks publication via evaluateCompliance', async () => {
   const before = await svc.evaluateCompliance(dealerId);
   assert.equal(before.can_publish, true);
 
-  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1');
+  const res = await request('PATCH', `/api/admin/dealers/${dealerId}/decision`, { decision: 'suspend', reason: 'fraud' }, 'admin-1', 'admin-session');
   assert.equal(res.status, 201);
   const after = await svc.evaluateCompliance(dealerId);
   assert.equal(after.can_publish, false);

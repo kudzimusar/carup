@@ -299,7 +299,10 @@ test('Auth middleware treats x-stakeholder-role as requestedRole, not authority'
   assert.equal(authMiddlewareFile.includes("const requestedRole = normalizeRole(req.headers['x-stakeholder-role'])"), true);
   assert.equal(authMiddlewareFile.includes('activeRole = roleHeader'), false);
   assert.equal(authMiddlewareFile.includes('resolveEffectiveRole({'), true);
-  assert.equal(authMiddlewareFile.includes("requested !== 'admin'"), true);
+  // OC-5A: the lent tenant role is an ALLOW-list (tenantRoleCatalogue), stronger than the former
+  // `requested !== 'admin'` deny-list — which this pin used to require and which admitted 'government'.
+  assert.equal(authMiddlewareFile.includes('isLendableTenantRole(requested)'), true);
+  assert.equal(authMiddlewareFile.includes("requested !== 'admin'"), false);
   assert.equal(authMiddlewareFile.includes('platformRole,'), true);
   assert.equal(authMiddlewareFile.includes('tenantRole,'), true);
   assert.equal(authMiddlewareFile.includes('isVerified: Boolean(user.is_verified)'), true);

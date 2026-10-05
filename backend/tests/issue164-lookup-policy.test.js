@@ -191,9 +191,23 @@ test('an explicit seller opt-in would allow the lookup without widening the defa
   }
 });
 
-test('the public kind list is exactly the VIN', () => {
-  // A new public kind has to be added here in the open, not by loosening a condition elsewhere.
-  assert.deepEqual([...PUBLIC_LOOKUP_KINDS], [LOOKUP_KINDS.VIN]);
+test('the public kind list is a deliberate, minimal registry', () => {
+  // This pinned a list of exactly one. Service Network obligation O6 added the second entry, in the
+  // open, which is precisely the discipline the list exists to enforce: `GET /api/service-links/
+  // :publicToken` was ALREADY anonymously resolvable and simply never consulted this policy, so the
+  // registry was not the whole answer to "what can a stranger resolve?". Registering it widened
+  // nothing; it made an existing surface visible and load-bearing — `resolveServiceLink` now asks
+  // this module for permission, so removing the entry genuinely closes the route.
+  //
+  // The pin is kept, not deleted: a THIRD entry must still arrive as a deliberate change here.
+  assert.deepEqual([...PUBLIC_LOOKUP_KINDS], [LOOKUP_KINDS.VIN, LOOKUP_KINDS.SERVICE_LINK]);
+
+  // The properties that make each entry safe to be public, stated rather than assumed:
+  //   - a VIN is read off a windscreen and confirms only the identifier the caller already holds;
+  //   - a service-link token is an opaque secret CarUp issued, so it correlates with nothing.
+  // Neither is an attribute an attacker can enumerate toward.
+  assert.equal(PUBLIC_LOOKUP_KINDS.includes(LOOKUP_KINDS.RESTRICTED), false,
+    'plate / chassis / temporary-id must never become publicly resolvable');
 });
 
 // ---------------------------------------------------------------------------

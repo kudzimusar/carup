@@ -139,8 +139,16 @@ export type NavigationSurface =
 export interface NavigationContext {
   /** Whether a user is authenticated */
   isAuthenticated?: boolean
-  /** Authenticated role, if any */
+  /** Authenticated PLATFORM role, if any */
   role?: UserRole | null
+  /**
+   * OC-5D (F4) — the VERIFIED active organisation (`AuthUser.active_tenant`): its type and the person's
+   * role inside it. It satisfies ONLY a feature's tenant scope (`tenantTypes` / `tenantRoles`), never its
+   * platform `roles`. #197 let a tenant role satisfy the platform list, so a garage's own admin was
+   * offered platform-admin navigation. A garage employee who signed up through the product is an
+   * `owner` platform-wide and a `mechanic` in their garage — both facts are true, in two namespaces.
+   */
+  activeTenant?: ActiveTenantScope | null
   /** Tenant id, when multi-tenant scoping applies */
   tenantId?: string | null
   /** Deployment environment */
@@ -151,6 +159,12 @@ export interface NavigationContext {
   coverage?: MarketplaceCoverageResponse | null
   /** Current time (only needed when time-windowed overrides are active) */
   now?: number
+}
+
+/** The verified active organisation, as eligibility needs it (OC-5D). */
+export interface ActiveTenantScope {
+  type: string | null
+  role: string | null
 }
 
 /** Minimal shape of the Marketplace coverage response consumed by nav. */
@@ -224,6 +238,9 @@ export type LucideIconName =
   | 'ScrollText'
   | 'Lock'
   | 'Share2'
+  | 'Container'
+  | 'Warehouse'
+  | 'Ship'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -231,12 +248,27 @@ export interface FeatureRegistryItem {
   id: string
   /** Display label in navigation */
   label: string
+  /**
+   * A shorter label for space-constrained navigation (the compact bottom bar).
+   *
+   * Optional, and it lives HERE rather than in the bar, because a second place deciding what a
+   * feature is called is how "Garage Customers" and "Customers" become two different features in
+   * someone's head. Absent means the full label is already short enough.
+   */
+  shortLabel?: string
   /** Route path */
   route: string
   /** Product domain this feature belongs to */
   domain: FeatureDomain
-  /** Which roles can access this feature */
+  /** Which PLATFORM roles can access this feature */
   roles: UserRole[]
+  /**
+   * OC-5D — an ORGANISATION's feature: the person's verified active organisation must be one of these
+   * types (e.g. 'garage')… Satisfied only by `NavigationContext.activeTenant`, never by `roles`.
+   */
+  tenantTypes?: readonly string[]
+  /** …and their role inside it one of these (e.g. 'admin', 'mechanic'). Never a platform role. */
+  tenantRoles?: readonly string[]
   /** Where this feature appears in the UI */
   placements: NavPlacement[]
   /** Whether authentication is required */
@@ -325,6 +357,38 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     badge: 'Upload',
     description: 'Upload and manage vehicle evidence photos and documents',
     lifecycle: 'active',
+  },
+  {
+    // OCR 1.0-C3 — the Garage applicant surface. Without this entry the registry-driven route
+    // boundary sends every visitor of /dashboard/garage-setup to /login, so the page exists in
+    // App.tsx but can never render. Same id, label, route and role as PR #209's entry, so the two
+    // lanes converge on one feature rather than two.
+    //
+    // Deliberately NOT "Set Up My Garage": the owner sidebar already carries "My Garage", and a
+    // label containing another label's full text makes every by-text locator in the navigation
+    // suite ambiguous. Named for what the page itself says — "Finish setting up your garage".
+    id: 'owner.garage-setup',
+    label: 'Finish Garage Setup',
+    route: '/dashboard/garage-setup',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Apply to operate a garage on CarUp',
+  },
+  {
+    // R3 (PR #197, ported by OC-5D) — the owner must be able to reach a request they made without a
+    // deep link.
+    id: 'owner.service-requests',
+    label: 'My Service Requests',
+    shortLabel: 'Requests',
+    route: '/dashboard/service-requests',
+    domain: 'service',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
   },
   {
     id: 'owner.service-history',
@@ -434,6 +498,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'owner.communications',
     label: 'Communications',
+    shortLabel: 'Messages',
     route: '/dashboard/communications',
     domain: 'info',
     roles: ['owner'],
@@ -458,6 +523,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'dealer.inventory',
     label: 'Inventory',
+    shortLabel: 'Inventory',
     route: '/dealer/inventory',
     domain: 'commerce',
     roles: ['dealer'],
@@ -507,6 +573,69 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
   },
 
+  // ─── Garage operator workspace (R5) ────────────────────────────────────
+  // The queue, cases, job cards, assignment and service records were all certified in Service
+  // Network Foundation 1.0 and none had a screen: a garage tenant-member signed in and saw the
+  // OWNER dashboard. OC-5D: these are an ORGANISATION's features — no platform role opens them
+  // (`roles: []`); the verified active garage does, in exactly the roles the backend routes accept
+  // (requireActiveTenant: workspace {admin, mechanic}; the public profile {admin}).
+  {
+    id: 'garage.workshop',
+    label: 'Workshop',
+    route: '/garage',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    description: 'Service requests and jobs for your garage',
+  },
+  {
+    id: 'garage.customers',
+    label: 'Garage Customers',
+    shortLabel: 'Customers',
+    route: '/garage/customers',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'People whose cars you have worked on through CarUp',
+  },
+  {
+    // GMO-6/7 (OC-5E): who works in the garage — invitations, roles, removal. The server's gate is
+    // requireActiveTenant({ types: ['garage'], roles: ['admin'] }); this scope says the same.
+    id: 'garage.team',
+    label: 'Your Team',
+    shortLabel: 'Team',
+    route: '/garage/team',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Users',
+    description: 'Invite the people who work with you, and manage what they can do',
+  },
+  {
+    id: 'garage.profile',
+    label: 'My Garage Page',
+    route: '/garage/profile',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'What customers see when they find you on CarUp',
+  },
+
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {
     id: 'mechanic.overview',
@@ -521,13 +650,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   {
     id: 'mechanic.work-orders',
     label: 'Work Orders',
+    shortLabel: 'Jobs',
     route: '/mechanic/work-orders',
     domain: 'service',
     roles: ['mechanic'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ClipboardList',
-    badge: 8,
+    // No badge. This read `badge: 8` — a constant shown to every mechanic on every account,
+    // including one with no work orders at all. Nothing counts work orders for the sidebar, so
+    // the honest number is no number.
   },
   {
     id: 'mechanic.service-logs',
@@ -740,6 +872,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Composed reviewer workspace: evidence classification, seller authority, registration readiness, trust/governance/risk context and the publication requirement matrix for one vehicle.',
   },
   {
+    // O2/P3 — person-centered People & Compliance workspace. A parameterized
+    // route cannot be a sidebar link; it is reached from User Management and
+    // the Identity Verification queue (per-person "Open People Review" link).
+    id: 'admin.people-operations',
+    label: 'People & Compliance',
+    route: '/admin/people/:userId/review',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'UserCog',
+    sidebarGroup: 'People & Compliance',
+    description: 'Composed reviewer workspace: identity verification state, per-vehicle seller authority, ownership and transfers, dealer compliance and the authority decision history for one person — separate facts, never one verified badge.',
+  },
+  {
     id: 'admin.verification',
     label: 'Verification Cases',
     route: '/admin/verification',
@@ -778,6 +925,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'ShieldAlert',
     sidebarGroup: 'Vehicles & Trust',
     description: 'Review and resolve open fraud cases',
+  },
+  {
+    // GMO-3/4 (OC-5E): deciding garage applications and building the workspace of an approved one.
+    // The server's capability is platform administration only (OC-5E owner decision), so the
+    // registry offers it to the platform admin role and nobody else.
+    id: 'admin.garage-applications',
+    label: 'Garage Applications',
+    shortLabel: 'Garages',
+    route: '/admin/garage-applications',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Wrench',
+    sidebarGroup: 'People',
+    description: 'Review garage applications and create the workspace of an approved one',
   },
   {
     id: 'admin.dealer-compliance',
@@ -962,13 +1125,208 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   },
   {
     id: 'diaspora.reverse-rfq',
-    label: 'Reverse RFQ',
-    route: '/diaspora/rfq',
+    // Buyer-facing language (T2 §10): ordinary users do not know the term "Reverse RFQ".
+    // The internal id stays stable; only what a human reads changes.
+    label: 'Request Quotes',
+    route: '/diaspora/request-quotes',
     domain: 'diaspora',
     roles: ['owner', 'dealer', 'admin'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'MessageSquare',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Tell suppliers what you need and compare their offers',
+  },
+  {
+    id: 'diaspora.my-requests',
+    label: 'My Requests',
+    // Was unregistered, which made it PUBLIC by the unregistered-path fallback (/diaspora is not a
+    // protected prefix) — any role could load the buyer's request surfaces. The API still authorizes
+    // per buyer, so this is defence in depth, not the only control. Dealers are included because a
+    // dealer can also be a buyer: diaspora.reverse-rfq lets them raise requests.
+    route: '/diaspora/requests',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Requests you have raised, and the offers suppliers have made on them',
+  },
+  {
+    id: 'diaspora.my-request-detail',
+    label: 'Request Detail',
+    // Distinct from the list above: matchRoutePattern compares segment counts, so a 3-segment
+    // pattern never shadows the 2-segment list route.
+    route: '/diaspora/requests/:id',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Compare supplier offers on one request and choose one',
+  },
+  {
+    id: 'diaspora.messages',
+    label: 'Messages',
+    // The canonical Communications surface, reachable from inside the Trade OS shell.
+    // `/dashboard/communications` renders the same component but sits in the OWNER-ONLY
+    // dashboard layout, so a supplier sent there was bounced to /dealer and could never
+    // open the thread they had just created. This route is the participant-neutral entry;
+    // thread visibility is still decided server-side per participant, not by this route.
+    route: '/diaspora/messages',
+    domain: 'diaspora',
+    // Government operates containers (registry admits it to /diaspora/containers, and the
+    // container product treats it as a reviewer). Operating a sailing entails its conversations.
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    // No sidebar placement: the Trade OS shell renders its own local navigation, and adding
+    // a second "Messages" to the owner dashboard sidebar would duplicate owner.communications.
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    description: 'Questions and answers on your trade requests, offers and containers',
+  },
+  {
+    id: 'diaspora.buyer-requests',
+    label: 'Buyer Requests',
+    route: '/diaspora/buyer-requests',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Store',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Customers looking for products you can supply',
+  },
+  {
+    // T9.3 — the warehouse intake workspace. Registered so the unregistered-path fallback can never
+    // make it public. The role list is the OUTER gate only: receiving authority is derived
+    // server-side from the warehouse, so a dealer with no warehouse gets an empty queue, not data.
+    id: 'diaspora.warehouse-intake',
+    label: 'Warehouse Intake',
+    route: '/diaspora/warehouse',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Warehouse',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Receive cargo, record its condition and measure it',
+  },
+  {
+    // T10.3 — the container loading workspace. Registered so the unregistered-path fallback can
+    // never make it public. The role list is the OUTER gate only: sailing authority is resolved
+    // server-side, so a dealer who runs no sailing can open the page and load nothing.
+    id: 'diaspora.container-loading',
+    label: 'Container Loading',
+    route: '/diaspora/loading',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Container',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Plan a container load, and record what actually went in',
+  },
+  {
+    // T11.2 — the operator's shipment movement timeline. Registered so the unregistered-path
+    // fallback can never make it public. Sailing authority is resolved server-side.
+    id: 'diaspora.shipment-movement',
+    label: 'Shipment Movement',
+    route: '/diaspora/shipments',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Ship',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Record and read what a shipment has actually done',
+  },
+  {
+    // T12 — the coordinator's customs and destination workspace. Registered so the
+    // unregistered-path fallback can never make it public; case authority is derived per case,
+    // server-side, from the appointment and the container.
+    id: 'diaspora.customs-destination',
+    label: 'Customs & Destination',
+    route: '/diaspora/customs',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ShieldCheck',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Coordinate clearance and destination handoff — CarUp is not ZIMRA',
+  },
+  {
+    // T12 — a participant's own customs status. Parameterized and reached from the transaction, so
+    // placements is empty; the FULL path is declared because the dead-link gate compares verbatim.
+    id: 'diaspora.my-customs',
+    label: 'Your Cargo & Customs',
+    route: '/diaspora/my-customs/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ShieldCheck',
+    description: 'What has actually been evidenced about your cargo clearing customs',
+  },
+  {
+    // T11.3 — a participant's own cargo journey. Parameterized and reached from the transaction, so
+    // placements is empty; the FULL path is declared because the dead-link gate compares verbatim.
+    id: 'diaspora.my-tracking',
+    label: 'Where Your Cargo Is',
+    route: '/diaspora/tracking/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Ship',
+    description: 'What has actually been recorded about your cargo moving',
+  },
+  {
+    // T10.3 — a participant's own cargo against the container. Parameterized and reached from the
+    // transaction, so placements is empty on purpose; the FULL path is declared because the
+    // dead-link gate compares against App.tsx verbatim.
+    id: 'diaspora.my-cargo-loading',
+    label: 'Your Cargo And The Container',
+    route: '/diaspora/cargo-loading/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Package',
+    description: 'Whether your cargo was loaded into the container',
+  },
+  {
+    // T9.3 — a participant's own cargo. Not a sidebar destination: it is reached from the
+    // transaction it belongs to, and the server authorizes it from the cargo's owner.
+    //
+    // The route is the FULL parameterised path, matching App.tsx exactly. A prefix here passes a
+    // casual reading and fails the dead-link gate, which compares against the declared `<Route
+    // path=...>` verbatim — and a registry that names a route the app does not serve is a dead link
+    // by construction.
+    id: 'diaspora.my-cargo',
+    label: 'Your Cargo',
+    route: '/diaspora/cargo/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Package',
+    description: 'What the warehouse recorded about your cargo',
+  },
+  {
+    // T6.5 — CarUp's own market-rate research. NOT a marketplace surface and never a customer
+    // price: registered so the unregistered-path fallback can never make it public.
+    id: 'diaspora.rate-research',
+    label: 'Rate Research',
+    route: '/diaspora/rate-research',
+    domain: 'diaspora',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'BarChart3',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'What CarUp has learned about market rates, with its source',
   },
   {
     id: 'diaspora.ai-command-center',
@@ -988,7 +1346,9 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     roles: ['owner', 'dealer', 'admin', 'government'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
-    icon: 'Gauge',
+    icon: 'Container',
+    sidebarGroup: 'Growth & Diaspora',
+    description: 'Shared container space: create containers, request cargo space, approve bookings',
   },
   {
     id: 'diaspora.drive-connections',
@@ -1440,6 +1800,33 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'FileText',
   },
+  {
+    // Was UNREGISTERED. `/diaspora` is not a protected prefix, so isPublicRoute()'s fallback
+    // classified this PUBLIC and the Order Passport for a specific import order rendered for
+    // anyone who typed the URL. Registered with the same owner-only scope as every sibling
+    // /diaspora/imports/:id/* surface. The API authorizes independently; this is the SPA agreeing.
+    id: 'owner.import-passport',
+    label: 'Order Passport',
+    route: '/diaspora/imports/:id/passport',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
+  {
+    // T4 — the operating transaction passport. Registered so that typed-URL access and navigation
+    // eligibility are the same rule: an unregistered route falls through isPublicRoute()'s default
+    // and renders for anyone, which is exactly the hole T3 found on the order passport.
+    id: 'owner.trade-transaction-passport',
+    label: 'Transaction',
+    route: '/diaspora/transactions/:kind/:id',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
 ]
 
 // ── Selector helpers ───────────────────────────────────────────────────────
@@ -1463,6 +1850,54 @@ export function getFeaturesByDomain(domain: FeatureDomain): FeatureRegistryItem[
 export function getDashboardItems(role: UserRole): FeatureRegistryItem[] {
   return FEATURE_REGISTRY.filter(
     f => f.roles.includes(role) && f.placements.includes('dashboard_sidebar')
+  )
+}
+
+/**
+ * OC-5D (F4) — the ONE eligibility rule, shared by visibility, the route gate, the sidebar and the
+ * compact bar: the PLATFORM role satisfies `roles`; the verified active organisation satisfies
+ * `tenantTypes` + `tenantRoles`. Never across the two. Mirrors the backend
+ * (featureGovernanceService.evaluateEffectiveState) — which, with every API route, stays the authority.
+ */
+export function isFeatureRoleEligible(
+  feature: Pick<FeatureRegistryItem, 'roles' | 'tenantTypes' | 'tenantRoles'>,
+  { role, activeTenant }: { role?: UserRole | null; activeTenant?: ActiveTenantScope | null },
+): boolean {
+  if (role && feature.roles.includes(role)) return true
+  const tenantRoles = feature.tenantRoles ?? []
+  if (tenantRoles.length === 0 || !activeTenant?.role) return false
+  if (!tenantRoles.includes(activeTenant.role)) return false
+  const tenantTypes = feature.tenantTypes ?? []
+  return tenantTypes.length === 0 || (activeTenant.type != null && tenantTypes.includes(activeTenant.type))
+}
+
+/** The verified active organisation of a signed-in user, as eligibility reads it (OC-5D). */
+export function activeTenantScopeOf(
+  user?: { active_tenant?: { type?: string | null; role?: string | null } | null } | null,
+): ActiveTenantScope | null {
+  const tenant = user?.active_tenant
+  return tenant ? { type: tenant.type ?? null, role: tenant.role ?? null } : null
+}
+
+/**
+ * Where a person OPERATES (OC-5D): the workspace of the organisation they selected, when the registry
+ * admits them to it; otherwise their platform role's dashboard. One answer for the compact bar and the
+ * mobile drawer — never a tenant role read as a platform role.
+ */
+export function resolveOperatingHome(
+  { role, activeTenant }: { role?: UserRole | null; activeTenant?: ActiveTenantScope | null },
+): string | null {
+  const workshop = FEATURE_REGISTRY.find((f) => f.id === 'garage.workshop')
+  if (workshop && activeTenant && isFeatureRoleEligible({ ...workshop, roles: [] }, { activeTenant })) return workshop.route
+  return role ? getDashboardRoute(role) : null
+}
+
+/** Sidebar items for a person: their platform role's, plus their active organisation's (OC-5D). */
+export function getDashboardItemsFor(
+  { role, activeTenant }: { role: UserRole; activeTenant?: ActiveTenantScope | null },
+): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('dashboard_sidebar') && isFeatureRoleEligible(f, { role, activeTenant })
   )
 }
 
@@ -1658,7 +2093,7 @@ export function resolveFeatureVisibility(
   } else if (!ctx.isAuthenticated || !ctx.role) {
     roleEligible = false
   } else {
-    roleEligible = feature.roles.includes(ctx.role)
+    roleEligible = isFeatureRoleEligible(feature, { role: ctx.role, activeTenant: ctx.activeTenant })
   }
 
   const lifecycleVisible = isLifecycleVisible(state)
@@ -1702,6 +2137,9 @@ export interface FeatureManifestEntry {
   requiresAuth: boolean
   betaCapable: boolean
   deprecatedTo?: string
+  /** OC-5D — an organisation's feature: evaluated by the backend against the verified active tenant. */
+  tenantTypes?: string[]
+  tenantRoles?: string[]
 }
 
 /** Build the deterministic, sorted governance manifest from the registry. */
@@ -1719,6 +2157,9 @@ export function buildFeatureManifest(): FeatureManifestEntry[] {
         betaCapable: true,
       }
       if (f.deprecatedTo) entry.deprecatedTo = f.deprecatedTo
+      // OC-5D: the tenant scope travels with the manifest so the backend evaluates the same rule.
+      if (f.tenantTypes?.length) entry.tenantTypes = [...f.tenantTypes].sort()
+      if (f.tenantRoles?.length) entry.tenantRoles = [...f.tenantRoles].sort()
       return entry
     })
     .sort((a, b) => a.id.localeCompare(b.id))

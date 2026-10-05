@@ -7,7 +7,71 @@ export interface AuthUser {
   phone?: string;
   role: UserRole;
   avatar?: string;
+  /**
+   * The organisation this SESSION acts for — set only by an explicit selection
+   * (PUT /api/auth/active-tenant) and re-verified by the server on every request (OC-5D). Login never
+   * picks one. Sent as `x-tenant-id`, which the server treats as an assertion about the selection.
+   */
   active_tenant_id?: string | null;
+  /** The person's role inside the active organisation (from the verified membership). Display only. */
+  tenant_role?: string | null;
+  active_tenant?: ActiveTenant | null;
+  /** 'selected', 'revoked' (the selection no longer holds — ask again) or 'none'. */
+  tenant_context?: TenantContextState;
+  /** The organisations the person may act for, as the server verified them at login or /me. */
+  memberships?: TenantMembership[];
+  /** True when the server could not read the memberships (retry; never "you belong nowhere"). */
+  memberships_unavailable?: boolean;
+}
+
+export type TenantContextState = 'selected' | 'revoked' | 'none' | 'asserted';
+
+/**
+ * OC-5D (P6) — one entry of GET /api/service-history/me, held to
+ * shared/contracts/owner-service-history.v1.contract.json. Money is shown with its currency or not at
+ * all; every field the schema may lack is nullable and must be rendered with a guard.
+ */
+export interface ServiceMoney {
+  recorded: boolean;
+  amount: number | null;
+  currency: string | null;
+}
+
+export type WorkOrderOwnerAuthorization = 'pending' | 'authorized' | 'declined' | 'revoked';
+
+export interface OwnerServiceHistoryEntry {
+  id: string;
+  vin: string;
+  status: string | null;
+  description: string | null;
+  issue_description: string | null;
+  total_cost: number | null;
+  labor_cost: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  owner_authorization: WorkOrderOwnerAuthorization | null;
+  money: ServiceMoney;
+  // Service Network enrichment (optional in v1)
+  service_case_id?: string | null;
+  service_category?: string | null;
+  work_performed?: string | null;
+  provenance?: string;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  performed_at?: string | null;
+}
+
+export interface ActiveTenant {
+  id: string;
+  name: string | null;
+  type: string | null;
+  status: string | null;
+  role: string | null;
+}
+
+export interface TenantMembership extends ActiveTenant {
+  /** Only an ACTIVE organisation can be selected. */
+  selectable: boolean;
 }
 
 export interface Vehicle {
