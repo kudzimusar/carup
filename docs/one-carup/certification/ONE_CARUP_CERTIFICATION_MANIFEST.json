@@ -37,7 +37,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5A-P1B-DATABASE",
@@ -70,7 +70,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5A-P1A-SOURCE",
@@ -101,7 +101,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5A-P1A-DATABASE",
@@ -135,7 +135,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5A-P1C-SOURCE",
@@ -165,7 +165,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5A-P1C-DATABASE",
@@ -198,7 +198,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5B-SOURCE",
@@ -230,7 +230,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X3-LIFECYCLE-SOURCE",
@@ -261,7 +261,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X3-LIFECYCLE-DATABASE",
@@ -295,7 +295,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X3-STEPUP-SOURCE",
@@ -331,7 +331,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X6-ASSURANCE-SOURCE",
@@ -362,7 +362,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X6-TEMPLATES-SOURCE",
@@ -393,7 +393,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X6-TEMPLATES-DATABASE",
@@ -427,7 +427,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X6-PEOPLE-SOURCE",
@@ -457,7 +457,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-NOTES-SOURCE",
@@ -490,7 +490,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X2-SOURCE",
@@ -522,7 +522,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X5-SOURCE",
@@ -556,7 +556,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X5-DATABASE",
@@ -596,7 +596,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-U2-SOURCE",
@@ -630,7 +630,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X5A-SOURCE",
@@ -664,7 +664,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X5A-DATABASE",
@@ -697,7 +697,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5C-X4-SOURCE",
@@ -727,7 +727,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T01:30:00Z"
+      "recorded_at": "2026-10-04T16:33:45Z"
     },
     {
       "id": "OC5D-P0-SOURCE",
@@ -755,7 +755,7 @@
       "remaining": [
         "DEPLOYED-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P7-BUNDLE-SOURCE",
@@ -783,7 +783,7 @@
       "remaining": [
         "DEPLOYED-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P1P2-SOURCE",
@@ -823,7 +823,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P7-SCOPE-SOURCE",
@@ -860,7 +860,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P4-SCOPE-SOURCE",
@@ -891,7 +891,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P7-SCOPE-NAV-SOURCE",
@@ -926,7 +926,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P6-SOURCE",
@@ -958,7 +958,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P7-MONEY-SOURCE",
@@ -991,7 +991,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P3-SOURCE",
@@ -1023,7 +1023,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P3-DATABASE",
@@ -1065,7 +1065,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5D-P4-SOURCE",
@@ -1100,7 +1100,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T09:45:00Z"
+      "recorded_at": "2026-10-05T00:24:06Z"
     },
     {
       "id": "OC5E-AUDIT-SOURCE",
@@ -1131,7 +1131,7 @@
       "remaining": [
         "DEPLOYED-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO34-SOURCE",
@@ -1166,7 +1166,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO34-DATABASE",
@@ -1211,7 +1211,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO34-WEB-SOURCE",
@@ -1245,7 +1245,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO67-SOURCE",
@@ -1278,7 +1278,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO67-DATABASE",
@@ -1325,7 +1325,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO67-WEB-SOURCE",
@@ -1357,7 +1357,7 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
     },
     {
       "id": "OC5E-GMO0-SOURCE",
@@ -1387,7 +1387,143 @@
         "DEPLOYED-CERTIFIED",
         "OWNER-UAT-CERTIFIED"
       ],
-      "recorded_at": "2026-10-05T14:30:00Z"
+      "recorded_at": "2026-10-05T02:05:26Z"
+    },
+    {
+      "id": "OC5F-F1-SOURCE",
+      "phase": "OC-5F",
+      "capability": "seller.rollups",
+      "sha": "ec63ab977b8a843f87e03e21d182d988bf8ce4f0",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "the rollup Supabase client is an in-memory fake that projects the selected columns and can refuse each write (no database)"
+      ],
+      "claims": [
+        "a refused rollup write fails the day: the run is marked failed, naming the table and code, and the result is ok:false",
+        "a refused run-ledger insert or completion update is reported, never a silent success"
+      ],
+      "evidence": {
+        "ci_run": "37254712482",
+        "suites": [
+          "intelligence-rollups"
+        ],
+        "mutants": "3/3 killed",
+        "commits": [
+          "f5de0967"
+        ]
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T02:49:11Z"
+    },
+    {
+      "id": "OC5F-B-DATABASE",
+      "phase": "OC-5F",
+      "capability": "seller.rollups",
+      "sha": "ec63ab977b8a843f87e03e21d182d988bf8ce4f0",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite over the repository's own Intelligence rollup migration with Supabase default privileges: Up applies twice, existing rows read 0, a negative value is refused, RLS stays forced with no client-role access, Down twice then Up round-trips, and Up raises without the table",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "20260827130000_intelligence_rollups.sql",
+          "20261004200000_seller_intelligence_compare_funnel.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "seller_daily_metrics.compare_adds is a non-negative NOT NULL column that a rollup@1 row reads as 0",
+        "the migration refuses to be a silent no-op on a database without the Intelligence tables"
+      ],
+      "evidence": {
+        "ci_run": "37254712482",
+        "suites": [
+          "oc5f-seller-compare-funnel-migration"
+        ],
+        "mutants": "3/3 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T02:49:11Z"
+    },
+    {
+      "id": "OC5F-A-SOURCE",
+      "phase": "OC-5F",
+      "capability": "seller.rollups",
+      "sha": "135319f0a9c85c01c0c58c0843a351f01087317d",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "the rollup Supabase client is an in-memory fake that projects the selected columns and can refuse each write (no database)"
+      ],
+      "claims": [
+        "rollup@2 credits a reservation to vehicle_reservations.seller_id, the seller it was made with — never the current owner after a transfer",
+        "seller rows carry compare_adds, the funnel's compare stage, and the Seller pulse emits compare_adds and reservations",
+        "the KPI catalogue describes the running rollup version (kpi_catalogue@2), guarded against drift",
+        "every Owner Dashboard report row reads a key the pulse emits; Unique visitors is measured, not \"Not measured\""
+      ],
+      "evidence": {
+        "ci_run": "37255370913",
+        "suites": [
+          "intelligence-rollups",
+          "intelligence-projections",
+          "intelligence-reports"
+        ],
+        "mutants": "10/10 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T02:49:11Z"
+    },
+    {
+      "id": "OC5F-F-SOURCE",
+      "phase": "OC-5F",
+      "capability": "seller.home_lifecycle",
+      "sha": "6a64ea49966d04d73bce01d430f652705892c4f3",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test over the product's own visibility rules and the gate's source + mutation testing; spec 48 typechecked (proved to fail on an injected error) and collected (6 tests, Phase Q expected skipped as fixme)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "ordinary discovery hides a Seller automation fixture; only its own run scope reveals it, another run's does not, and a sold listing leaves even its own scope",
+        "spec 48 is outside the aggregate gates' testMatch, runs only as its run's own per-viewport Seller, and its gate proves the governed preview pair before any identity write",
+        "spec 48's Communications phase is fixme, and its inquiry can never carry a phone"
+      ],
+      "evidence": {
+        "ci_run": "37256453786",
+        "suites": [
+          "oc5f-seller-home-gate"
+        ],
+        "mutants": "21/21 killed (2 product mutations)"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T02:49:11Z"
     }
   ],
   "capabilities": {
@@ -1536,8 +1672,8 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "seller.rollups": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
@@ -1657,6 +1793,14 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "N/A",
       "notes": "OC-5E: garage onboarding audit rows (C3 evidence, GMO decisions, activation, invitations, membership) name their subject in their values — trust_audit_events keeps no target for these types."
+    },
+    "seller.home_lifecycle": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5F slice F: a published Seller listing on Home only inside its run scope, and the unpublish / republish / sold lifecycle on Marketplace and Home. Spec 48 (deployed staging) is authored and has never run: DEPLOYED waits on a governed RC2 preview pair. Its Communications phase is fixme until owner decision D."
     }
   }
 }
