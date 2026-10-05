@@ -728,6 +728,379 @@
         "OWNER-UAT-CERTIFIED"
       ],
       "recorded_at": "2026-10-05T01:30:00Z"
+    },
+    {
+      "id": "OC5D-P0-SOURCE",
+      "phase": "OC-5D",
+      "capability": "web.production_bundle_demo_identity",
+      "sha": "ed6b1210a3847edfbb5fba13e35663c67fe447fa",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "a real production vite build in CI, then a scan of the built bundle; the render-level guard; mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "a production web build carries no demo identity, demo button or demo password; a non-production preview build is the positive control"
+      ],
+      "evidence": {
+        "ci_run": "37217517034",
+        "suites": [
+          "demoIdentityGuard",
+          "assert-no-demo-identities (built dist)"
+        ],
+        "mutants": "1/1 killed; 2 recorded EQUIVALENT (the bundler drops the unreachable demo block)"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P7-BUNDLE-SOURCE",
+      "phase": "OC-5D",
+      "capability": "web.production_bundle_demo_identity",
+      "sha": "f6a13c013db7b1289e94e95985bb15527afcc5f2",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "the same production build and scan, with the owner demo address as a fifth needle once Customer Records stopped hard-coding it",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the owner demo address no longer ships in a production bundle"
+      ],
+      "evidence": {
+        "ci_run": "37246835794",
+        "suites": [
+          "demoIdentityGuard",
+          "assert-no-demo-identities (built dist, 5 needles)"
+        ],
+        "mutants": "covered by the P0 build-flag mutant"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P1P2-SOURCE",
+      "phase": "OC-5D",
+      "capability": "service_network.active_tenant_context",
+      "sha": "fc03f92ee34246b0ed7c9e68071b6faae8c211d9",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app + web and native client suites + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "login never selects an organisation; only PUT /api/auth/active-tenant does, for an active tenant the caller belongs to",
+        "every request re-verifies the selection; x-tenant-id is an assertion; a failed membership read is 503, never \"not a member\"",
+        "the clients replace their copy of the organisation with the server's answer and never guess one"
+      ],
+      "evidence": {
+        "ci_run": "37221581319",
+        "suites": [
+          "oc5d-active-tenant-context",
+          "auth-middleware",
+          "feature-governance",
+          "OrganisationSwitcher",
+          "activeTenantClient",
+          "AuthContext.activeTenant",
+          "mobile oc5d-active-tenant",
+          "mobile gate2-session-validation"
+        ],
+        "mutants": "34/34 backend + 15/15 client killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P7-SCOPE-SOURCE",
+      "phase": "OC-5D",
+      "capability": "service_network.active_tenant_context",
+      "sha": "f6a13c013db7b1289e94e95985bb15527afcc5f2",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "web suites (full suite in CI) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "web unit tests in jsdom; the API client mocked at its boundary (no backend, no network)"
+      ],
+      "claims": [
+        "only the selected, verified garage moves a person into the garage workspace or admits them to it in the web"
+      ],
+      "evidence": {
+        "ci_run": "37246835794",
+        "suites": [
+          "tenantRoleAccess",
+          "compactNav",
+          "useGarageOperator",
+          "useCarUpApi.garageHeaders",
+          "AuthContext.sessionAdoption",
+          "designContract",
+          "full web suite (CI job oc5d-web-surfaces)"
+        ],
+        "mutants": "33/33 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P4-SCOPE-SOURCE",
+      "phase": "OC-5D",
+      "capability": "navigation.tenant_scope",
+      "sha": "7e244e5a64ef8f1e6852efa3771ebc9395bcab30",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "backend feature governance: a tenant role never satisfies a platform role list; a tenant scope is satisfied only by the verified active organisation"
+      ],
+      "evidence": {
+        "ci_run": "37244329467",
+        "suites": [
+          "feature-governance",
+          "oc5d-service-network-authority"
+        ],
+        "mutants": "38/38 killed (P4 set)"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P7-SCOPE-NAV-SOURCE",
+      "phase": "OC-5D",
+      "capability": "navigation.tenant_scope",
+      "sha": "f6a13c013db7b1289e94e95985bb15527afcc5f2",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "web suites (full suite in CI) + a source pin on every gate call site + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "web unit tests in jsdom; the API client mocked at its boundary (no backend, no network)"
+      ],
+      "claims": [
+        "every web reader of the registry (route gate, boundary, sidebar, drawer, compact bar, home) applies one rule; a garage admin is not a CarUp admin"
+      ],
+      "evidence": {
+        "ci_run": "37246835794",
+        "suites": [
+          "tenantRoleAccess",
+          "compactNav",
+          "dashboardSidebar.visibility",
+          "featureManifest.drift",
+          "navigationManifest",
+          "mobileNavigation"
+        ],
+        "mutants": "33/33 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P6-SOURCE",
+      "phase": "OC-5D",
+      "capability": "service_history.owner_contract",
+      "sha": "6783ae3f9d19530589b727bd77255a6c9de0dc96",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app over every row shape + native renderer suite + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "every entry carries exactly the v1 contract keys; nothing identifying another person leaves the server; a failed read is 503"
+      ],
+      "evidence": {
+        "ci_run": "37237789735",
+        "suites": [
+          "oc5d-owner-service-history-contract",
+          "mobile garage-service-history-contract"
+        ],
+        "mutants": "17/17 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P7-MONEY-SOURCE",
+      "phase": "OC-5D",
+      "capability": "service_history.owner_contract",
+      "sha": "f6a13c013db7b1289e94e95985bb15527afcc5f2",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "web suites + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "web unit tests in jsdom; the API client mocked at its boundary (no backend, no network)"
+      ],
+      "claims": [
+        "the Service History page and the Passport share one spend rule: money only with its currency, no sum across currencies, unknown never folded as zero"
+      ],
+      "evidence": {
+        "ci_run": "37246835794",
+        "suites": [
+          "ownerServiceHistory",
+          "ServiceHistory",
+          "serviceTruthParity"
+        ],
+        "mutants": "5/5 money mutants killed (within the P7 33)"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P3-SOURCE",
+      "phase": "OC-5D",
+      "capability": "service_network.foundation",
+      "sha": "1796756719ecfd48b12422a9c1c9819a1fe50b2f",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test (order, text and registration pins) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every Service Network migration sorts after what it references, with no stale or shared stamp; service_case_status_v1 is registered"
+      ],
+      "evidence": {
+        "ci_run": "37239177330",
+        "suites": [
+          "oc5d-service-network-migrations",
+          "service-network-s*-migration",
+          "migration-integrity",
+          "communication-event-coverage"
+        ],
+        "mutants": "19/19 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P3-DATABASE",
+      "phase": "OC-5D",
+      "capability": "service_network.foundation",
+      "sha": "1796756719ecfd48b12422a9c1c9819a1fe50b2f",
+      "level": "DATABASE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "PGlite over the real prerequisite migrations: the set applied twice yields an identical schema and loses no row; every Down then Up round-trips; FK refusals and RESTRICT deletes; O4 REVOKE on a fresh database",
+      "provider": null,
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20261004180000_service_network_s1_garage_identity.sql",
+          "database/migrations/20261004180100_service_network_s2_service_cases.sql",
+          "database/migrations/20261004180200_service_network_s3_inquiry_target_garage.sql",
+          "database/migrations/20261004180300_service_network_s4_work_order_assignment.sql",
+          "database/migrations/20261004180400_service_network_s5_service_records.sql",
+          "database/migrations/20261004180500_service_network_s8_service_links.sql",
+          "database/migrations/20261004180600_service_network_o4_event_dedupe.sql",
+          "database/migrations/20261004180700_service_network_o5_thread_type.sql",
+          "database/migrations/20261004180800_service_network_case_status_template.sql"
+        ]
+      },
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "assignments, records and record parts reference real rows (RESTRICT); the dedupe trigger function is not executable by PUBLIC"
+      ],
+      "evidence": {
+        "ci_run": "37239177330",
+        "suites": [
+          "oc5d-service-network-migrations",
+          "service_network_s{1,2,3,4,5,8}_check"
+        ],
+        "mutants": "19/19 killed"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
+    },
+    {
+      "id": "OC5D-P4-SOURCE",
+      "phase": "OC-5D",
+      "capability": "service_network.foundation",
+      "sha": "7e244e5a64ef8f1e6852efa3771ebc9395bcab30",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "node:test through the shipped app (21 Service Network suites + the authority suite) + mutation testing",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [
+        "in-memory supabase world (a database double, not PostgreSQL) under the shipped Express app"
+      ],
+      "claims": [
+        "every garage route needs the selected, verified garage and the right role inside it; there is no platform-admin bypass",
+        "no service record is written for an unauthorized work order; provenance is derived, never declared"
+      ],
+      "evidence": {
+        "ci_run": "37244329467",
+        "suites": [
+          "oc5d-service-network-authority",
+          "service-network-*",
+          "intelligence-service-mechanic-garage",
+          "issue164-lookup-policy"
+        ],
+        "mutants": "38/38 killed"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-05T09:45:00Z"
     }
   ],
   "capabilities": {
@@ -841,14 +1214,14 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "service_network.foundation": {
-      "SOURCE-CERTIFIED": "PENDING",
-      "DATABASE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "service_network.active_tenant_context": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "PENDING",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PENDING",
@@ -965,6 +1338,30 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
       "notes": "O2-X4 (OC-5C): interface only, provider NOT SELECTED; nothing calls a provider."
+    },
+    "web.production_bundle_demo_identity": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "R14 (OC-5D P0, P7): a production web bundle carries no demo identity or demo password. DEPLOYED needs the served production bundle scanned."
+    },
+    "service_history.owner_contract": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5D P6/P7: GET /api/service-history/me held to owner-service-history.v1 on the route, the native renderer and the web (money with its currency or not recorded; no other person identified; failed read is 503). Proven over a database double, so DATABASE stays PENDING."
+    },
+    "navigation.tenant_scope": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5D (F4 closed): a tenant role never satisfies a platform role list and a platform role never a tenant scope — backend feature governance (P4) and every web reader of the registry (P7)."
     }
   }
 }
