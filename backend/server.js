@@ -140,6 +140,9 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import registrationOnboardingRouter from './routes/registrationOnboardingRoutes.js';
 import garageOnboardingRouter from './routes/garageOnboardingRoutes.js';
+// GMO-3 (OC-5E): the reviewer side of garage onboarding — a real session, the platform-admin
+// garage review capability, and X3 step-up on every consequential route.
+import garageReviewRouter from './routes/garageReviewRoutes.js';
 // OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
 // garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
@@ -494,6 +497,7 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(registrationOnboardingRouter);
 app.use(garageOnboardingRouter);
+app.use(garageReviewRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);

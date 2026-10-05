@@ -41,6 +41,9 @@ export const OPERATIONS_CAPABILITIES = Object.freeze({
   // revocation. PLATFORM ADMINISTRATION ONLY (see ROLE_CAPABILITY_MAP).
   IDENTITY_LIFECYCLE: 'operations.identity.lifecycle',
   ACCOUNT_SECURITY: 'operations.account.security',
+  // GMO-3 (ported by OC-5E from #209): deciding a garage application. Approval is followed at once by
+  // GMO-4's activation, which creates a business workspace and makes the applicant its admin.
+  GARAGE_ONBOARDING_REVIEW: 'operations.garage_onboarding.review',
 });
 
 const ALL_VEHICLE_OPERATIONS = Object.freeze([
@@ -67,6 +70,12 @@ const ALL_OPERATIONS = Object.freeze([...ALL_VEHICLE_OPERATIONS, ...ALL_PEOPLE_O
 const PLATFORM_ADMIN_PEOPLE_OPERATIONS = Object.freeze([
   OPERATIONS_CAPABILITIES.IDENTITY_LIFECYCLE,
   OPERATIONS_CAPABILITIES.ACCOUNT_SECURITY,
+  // OC-5E: #209 put garage review in the shared people set, which `government` holds in full — so
+  // government would have gained, implicitly, the power to create business workspaces. Approving a
+  // garage creates a tenant and its administrator (GMO-4), an account-level act like the two above;
+  // until the owner decides otherwise it belongs to platform administration alone (recorded owner
+  // decision, fail closed).
+  OPERATIONS_CAPABILITIES.GARAGE_ONBOARDING_REVIEW,
 ]);
 const PLATFORM_ADMIN_OPERATIONS = Object.freeze([...ALL_OPERATIONS, ...PLATFORM_ADMIN_PEOPLE_OPERATIONS]);
 

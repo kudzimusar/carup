@@ -352,6 +352,14 @@ on:
       - 'web/src/**'
       - 'shared/**'
       - 'scripts/generate-feature-manifest.mjs'
+      # OC-5E: garage onboarding completion (#209 GMO-3..7) — the reviewer, activation, invitations,
+      # membership; their migrations, PGlite world and suites.
+      - 'backend/services/garageOnboarding/**'
+      - 'backend/routes/garage*.js'
+      - 'backend/services/operations/operationsAuthorizationService.js'
+      - 'backend/tests/oc5e-*.test.js'
+      - 'backend/tests/helpers/gmoGarageWorld.js'
+      - 'database/migrations/2026100419*'
   # Manual dispatch additionally runs a deployed exact-head provenance + route-gating probe against
   # the paired Vercel preview (job below). It is network-only: no live-provider call, no secret, so
   # it stays within this gate's credential-free contract. Push runs remain purely offline.
@@ -784,6 +792,14 @@ jobs:
           backend/tests/intelligence-service-mechanic-garage.test.js
           backend/tests/issue164-lookup-policy.test.js
           backend/tests/feature-governance.test.js
+      - name: OC-5E — GMO-3/4 the reviewer decides atomically and never sees a draft; activation builds one workspace, re-checks identity, and the founder is offered it (PGlite + shipped app)
+        run: >-
+          node --test
+          backend/tests/oc5e-*.test.js
+          backend/tests/o2-ocr-c3-garage-consumer.test.js
+          backend/tests/o2-ocr-c3-garage-security.test.js
+          backend/tests/gmo-1-garage-application.test.js
+          backend/tests/migration-integrity.test.js
       - name: OC-5D — R14 a PRODUCTION web bundle carries no demo identity or password (real build, then scan)
         run: |
           npm run test:unit --workspace=web -- src/pages/auth/demoIdentityGuard.test.tsx
