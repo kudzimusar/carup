@@ -14,8 +14,11 @@ import { nowIso } from './communicationUtils.js';
  *   - the owner is the authenticated session's account, never anything the client sends;
  *   - only a well-formed Expo push token is accepted;
  *   - registering the same token again for the same account changes nothing but `last_seen_at`;
- *   - a token another account still holds is refused, never moved — in ANY tenant scope, because a
- *     device token belongs to a device, not to an organisation;
+ *   - the identity is PLATFORM-scoped (tenant_id = null): a device token belongs to a device and its
+ *     account, never to whichever organisation the session has selected. The active tenant is kept as
+ *     non-authoritative metadata only;
+ *   - a token another account still holds is refused, never moved — including a legacy row in some
+ *     tenant scope, and including two accounts racing for the same new token;
  *   - revocation marks the identity `revoked` and keeps the row, so the audit trail survives;
  *   - the token is never echoed, logged or written to the audit trail.
  *
@@ -25,6 +28,8 @@ import { nowIso } from './communicationUtils.js';
 
 export const PUSH_CHANNEL = 'push';
 export const EXPO_PUSH_PROVIDER = 'expo_push';
+/** A device identity is never owned by an organisation. */
+const PLATFORM_SCOPE = null;
 
 const MAX_TOKEN_LENGTH = 256;
 const EXPO_PUSH_TOKEN = /^Expo(?:nent)?PushToken\[[^\s[\]]{1,230}\]$/;
@@ -104,16 +109,19 @@ export class CommunicationPushDeviceService {
   async register({ userContext, body = {} } = {}) {
     const userId = requireAccount(userContext);
     const token = requireToken(body);
-    const tenantId = userContext.tenantId || null;
+    // OC-EXPO-02R: canonical device ownership is platform-scoped. The selected organisation is
+    // recorded for audit, and decides nothing.
+    const activeTenantAtRegistration = userContext.tenantId || null;
 
-    // The unique key is (tenant scope, channel, provider, external_id), so the identity service
-    // only sees the current tenant scope. Ownership is a property of the device, so it is checked
-    // across all of them first.
+    // The unique key is (tenant scope, channel, provider, external_id). Every registration lands in
+    // the platform scope, where that index makes a concurrent claim fail closed (23505 → the identity
+    // service re-reads and refuses the transfer). Rows in other scopes can only be legacy, so they
+    // are checked here too: ownership is a property of the device.
     const existing = await this.identitiesForToken(token);
     if (existing.some((row) => row.user_id && row.user_id !== userId && !RELEASED_CONSENT_STATES.includes(row.consent_status))) {
       throw new PushDeviceRegistrationError('push_token_owned_by_another_account', 'This device is registered to another CarUp account. Sign out of that account on this device first.', 409);
     }
-    const sameScope = existing.find((row) => (row.tenant_id || null) === tenantId) || null;
+    const sameScope = existing.find((row) => (row.tenant_id || null) === PLATFORM_SCOPE) || null;
     const created = !sameScope;
     const reassigned = Boolean(sameScope?.user_id && sameScope.user_id !== userId);
 
@@ -125,7 +133,7 @@ export class CommunicationPushDeviceService {
         external_id: token,
         address: token,
         user_id: userId,
-        tenant_id: tenantId,
+        tenant_id: PLATFORM_SCOPE,
         verified: true,
         authenticated: true,
         // Re-registering after a revocation re-opens the route; the registration IS the consent.
@@ -134,6 +142,7 @@ export class CommunicationPushDeviceService {
         metadata: {
           ...deviceMetadata(body),
           registration_source: 'authenticated_native_session',
+          active_tenant_at_registration: activeTenantAtRegistration,
           registered_at: sameScope?.metadata?.registered_at || nowIso(),
           revoked_at: null,
           revoked_reason: null,
@@ -148,7 +157,7 @@ export class CommunicationPushDeviceService {
 
     if (created || reassigned) {
       await logCommunicationAuditEvent(this.repository, {
-        tenant_id: tenantId,
+        tenant_id: PLATFORM_SCOPE,
         event_type: COMMUNICATION_AUDIT_EVENTS.IDENTITY_LINKED,
         actor_type: 'customer',
         actor_id: userId,

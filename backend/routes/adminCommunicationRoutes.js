@@ -22,7 +22,16 @@ export function smokeTestBody(channel, correlationToken, message) {
 }
 
 // Channels a provider smoke test may target. Restricted to real external providers.
-const SMOKE_TEST_CHANNELS = new Set(['whatsapp', 'telegram', 'sms', 'email', 'facebook', 'instagram', 'push']);
+//
+// OC-EXPO-02R — push is NOT one of them. This endpoint sends to an arbitrary recipient string, and an
+// Expo token typed into it proves nothing about CarUp's push path: no authenticated registration, no
+// channel identity a person owns, no device. Expo is certified later from a real authenticated device
+// registration on a physical device, so push is refused here by name rather than left to look
+// certifiable.
+const SMOKE_TEST_CHANNELS = new Set(['whatsapp', 'telegram', 'sms', 'email', 'facebook', 'instagram']);
+const SMOKE_TEST_REFUSED_CHANNELS = Object.freeze({
+  push: 'Push is not certified by the generic provider smoke test. Expo delivery is certified from an authenticated device registration on a physical device.',
+});
 
 // The smoke test sends to an arbitrary external recipient, so it is restricted to genuine
 // platform admins — not the broader ADMIN_ROLES (which includes tenant-elevatable roles like
@@ -168,6 +177,12 @@ function requireDiagnosticAdminOrWorkerSecret(req, res, next) {
  */
 export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to, message, actor = {}, clientMessageId = null } = {}) {
   const normalizedChannel = normalizeChannel(channel);
+  if (normalizedChannel && SMOKE_TEST_REFUSED_CHANNELS[normalizedChannel]) {
+    const err = new Error(SMOKE_TEST_REFUSED_CHANNELS[normalizedChannel]);
+    err.statusCode = 400;
+    err.code = 'push_smoke_test_refused';
+    throw err;
+  }
   if (!normalizedChannel || !SMOKE_TEST_CHANNELS.has(normalizedChannel)) {
     const err = new Error(`Unsupported smoke-test channel: ${channel}`);
     err.statusCode = 400;
@@ -337,7 +352,11 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
   };
 }
 
-function deliveryPayloadForIdentity(identity = {}) {
+export function deliveryPayloadForIdentity(identity = {}) {
+  // OC-EXPO-02R — a push identity's external_id IS the device's Expo token. The queued row keeps a
+  // reference to the identity only; the delivery worker resolves the token from channel_identities
+  // at dispatch, so it never lands in a durable notification_queue payload.
+  if (identity.channel === 'push') return { external_identity_id: identity.id };
   const address = identity.normalized_address || identity.external_id || '';
   const payload = {
     external_identity_id: identity.id,
@@ -354,9 +373,6 @@ function deliveryPayloadForIdentity(identity = {}) {
       break;
     case 'telegram':
       payload.telegram_chat_id = identity.external_id || address;
-      break;
-    case 'push':
-      payload.expo_push_token = identity.external_id || address;
       break;
     default:
       break;

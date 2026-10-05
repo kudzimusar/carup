@@ -1,6 +1,7 @@
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
+import { withoutPushRouting } from './pushRouting.js';
 import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js';
 
 /**
@@ -993,6 +994,12 @@ export class CommunicationNotificationService {
   }
 
   async insertNotificationIdempotently(notificationRow) {
+    // OC-EXPO-02R — the one door into notification_queue. A push row never stores a routing
+    // credential, whichever producer built it: the worker resolves the Expo token from
+    // channel_identities at dispatch.
+    if (normalizeChannel(notificationRow?.channel) === 'push') {
+      notificationRow = { ...notificationRow, payload: withoutPushRouting(notificationRow.payload) };
+    }
     try {
       return await this.repository.insert('notification_queue', notificationRow);
     } catch (error) {

@@ -3,6 +3,7 @@ import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChann
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { RECIPIENT_RESOLUTION_REASONS, resolveNotificationRecipient } from './emailExperience/recipientResolution.js';
 import { renderEmailForNotification } from './emailExperience/renderEmail.js';
+import { withoutPushRouting } from './pushRouting.js';
 import {
   MARKETING_CONSENT_DISPOSITIONS,
   MARKETING_CONSENT_STATES,
@@ -19,14 +20,6 @@ import {
  */
 const ADDRESS_REQUIRED_CHANNELS = new Set(['email', 'sms', 'whatsapp', 'push']);
 
-/** Payload keys that carry a push routing credential. None may travel to the device as data. */
-const PUSH_ROUTING_KEYS = ['expo_push_token', 'push_token', 'address', 'to', 'external_id'];
-
-function withoutPushRouting(payload = {}) {
-  const data = { ...payload };
-  for (const key of PUSH_ROUTING_KEYS) delete data[key];
-  return data;
-}
 
 export class CommunicationDeliveryWorker {
   constructor({

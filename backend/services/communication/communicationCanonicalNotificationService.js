@@ -2,6 +2,8 @@ import { CLASSIFICATION_SOURCES } from './emailExperience/emailClassification.js
 import { CommunicationNotificationService, classificationMetadata, referencePayloadFor, withClassification } from './communicationNotificationService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
 import { logCommunicationAuditEvent } from './communicationAuditLog.js';
+import { resolveNotificationRecipient } from './emailExperience/recipientResolution.js';
+import { withoutPushRouting } from './pushRouting.js';
 
 const TERMINAL_SUCCESS = new Set(['delivered', 'read']);
 
@@ -266,6 +268,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       if (!recipientUserId) return null;
       return { recipientUserId, recipientIdentityId: null, provider: null, payload: {} };
     }
+    if (channel === 'push') return this.resolvePushFallbackRoute(recipientUserId);
 
     const metadata = notification.metadata || {};
     let participant = null;
@@ -337,8 +340,7 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       : (channel === 'sms' || channel === 'whatsapp'
         ? (payload.phone_number || payload.phone || payload.address)
         : (channel === 'telegram' ? (payload.telegram_chat_id || payload.external_id) : null));
-    if (!address && channel !== 'push') return null;
-    if (channel === 'push' && !(payload.expo_push_token || payload.push_token)) return null;
+    if (!address) return null;
 
     return {
       recipientUserId,
@@ -346,6 +348,24 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
       provider: null,
       payload: {},
     };
+  }
+
+  /**
+   * OC-EXPO-02R — a push fallback is user-bound and decided from CANONICAL state: the same
+   * resolution the delivery worker will run (a verified, unreleased expo_push identity owned by the
+   * recipient). The resolved address is used only to establish that the route exists; the route
+   * carries the identity reference and an empty payload, never the token. A token on the failing
+   * notification's payload is not evidence of anything and is not consulted.
+   */
+  async resolvePushFallbackRoute(recipientUserId) {
+    if (!recipientUserId) return null;
+    const resolved = await resolveNotificationRecipient({
+      notification: { channel: 'push', recipient_user_id: recipientUserId },
+      repository: this.repository,
+      channel: 'push',
+    });
+    if (!resolved.ok) return null;
+    return { recipientUserId, recipientIdentityId: resolved.identityId, provider: 'expo_push', payload: {} };
   }
 
   async queueNextFallback(notification = {}, context = {}) {
@@ -462,7 +482,9 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
           provider: route.provider || null,
           template_key: notification.template_key || null,
           payload: {
-            ...(notification.payload || {}),
+            // A push fallback inherits its parent's payload, whatever channel the parent was; it
+            // inherits no routing credential (OC-EXPO-02R).
+            ...(channel === 'push' ? withoutPushRouting(notification.payload || {}) : (notification.payload || {})),
             ...(route.payload || {}),
             communication_routing: {
               primary_channel: channel,

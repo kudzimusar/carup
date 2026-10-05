@@ -246,18 +246,23 @@ export function createCommunicationRouter({ services = createCommunicationServic
   }));
 
   // OC-EXPO-02 — a native device's Expo push token, bound to the AUTHENTICATED account. The owner is
-  // req.userContext, never the body; an asserted (x-user-id) identity is refused, because this binds
-  // a routing credential as verified. The token is never echoed in a response.
+  // req.userContext, never the body. The token is never echoed in a response.
+  //
+  // OC-EXPO-02R — a real CarUp session ONLY. `allowUserIdFallback: false` refuses an x-user-id
+  // assertion inside authorizeRole itself, so no environment flag can open these routes:
+  // requireProvenIdentity() alone would admit the fallback whenever CARUP_ALLOW_X_USER_ID_FALLBACK
+  // is 'true'. It stays as a second, independent refusal.
   const pushDevices = () => services.pushDeviceService || new CommunicationPushDeviceService({
     repository: services.repository,
     identityService: services.identityService,
   });
+  const pushDeviceSession = authorizeRole([], { allowUserIdFallback: false });
   const pushDeviceFailure = (res, error) => {
     if (!(error instanceof PushDeviceRegistrationError)) throw error;
     return res.status(error.statusCode).json({ error: error.message, code: error.code });
   };
 
-  router.post('/api/communications/push/devices', authorizeRole([]), requireProvenIdentity(), asyncHandler(async (req, res) => {
+  router.post('/api/communications/push/devices', pushDeviceSession, requireProvenIdentity(), asyncHandler(async (req, res) => {
     try {
       const result = await pushDevices().register({ userContext: req.userContext, body: req.body || {} });
       res.status(result.created ? 201 : 200).json({ registered: true, created: result.created, identity: result.identity });
@@ -266,7 +271,7 @@ export function createCommunicationRouter({ services = createCommunicationServic
     }
   }));
 
-  router.post('/api/communications/push/devices/revoke', authorizeRole([]), requireProvenIdentity(), asyncHandler(async (req, res) => {
+  router.post('/api/communications/push/devices/revoke', pushDeviceSession, requireProvenIdentity(), asyncHandler(async (req, res) => {
     try {
       const result = await pushDevices().revoke({ userContext: req.userContext, body: req.body || {}, reason: req.body?.reason });
       res.json({ revoked: result.revoked });
