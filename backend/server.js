@@ -920,7 +920,10 @@ app.get('/api/vehicles', async (req, res) => {
     // fails the filter rather than passing it on a legacy value.
 
     const { data: vehicles, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error('[Vehicles] public listing query failed:', error.message);
+      return res.status(500).json({ error: 'Unable to load vehicles.' });
+    }
 
     // PUBLIC_VEHICLE_SELECT no longer names the raw trust_score column at all (the projection
     // contract owns that list, and demoted it), so the only trust figure this route can publish is
@@ -941,7 +944,8 @@ app.get('/api/vehicles', async (req, res) => {
 
     res.json(filtered);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[Vehicles] public listing request failed:', error?.message || error);
+    res.status(500).json({ error: 'Unable to load vehicles.' });
   }
 });
 
