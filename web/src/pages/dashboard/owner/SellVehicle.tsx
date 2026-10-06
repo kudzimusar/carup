@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle, FileWarning, Eye, ShieldCheck, Images } from 'lucide-react'
 import { toast } from 'sonner'
-import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
+import { ZIMBABWE_LOCATIONS, ZIMBABWE_PROVINCES } from '@/data/zimbabweGeography'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 import { ListingQualityPanel } from '@/components/sell/ListingQualityPanel'
@@ -1401,14 +1401,14 @@ export default function SellVehicle() {
                   <label className="text-sm font-medium mb-1.5 block">Location *</label>
                   <Select value={form.location} onValueChange={v => set('location', v)}>
                     <SelectTrigger className={errors.location ? 'border-red-400' : ''}><SelectValue placeholder="City" /></SelectTrigger>
-                    <SelectContent>{zimbabweLocations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                    <SelectContent>{ZIMBABWE_LOCATIONS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Province</label>
                   <Select value={form.province} onValueChange={v => set('province', v)}>
                     <SelectTrigger><SelectValue placeholder="Province" /></SelectTrigger>
-                    <SelectContent>{zimbabweProvinces.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                    <SelectContent>{ZIMBABWE_PROVINCES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
 
