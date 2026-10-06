@@ -7,10 +7,10 @@ export const Sentry = {
   init: (options = {}) => {
     const dsn = process.env.SENTRY_DSN;
     if (dsn) {
-      console.log(`[Sentry] Initialized with DSN: ${dsn.substring(0, 20)}...`);
+      console.log('[Sentry] Initialized (DSN configured).');
       sentryInitialized = true;
     } else {
-      console.log('[Sentry] Running in simulation/logger fallback mode (no SENTRY_DSN configured).');
+      console.log('[Sentry] SDK not configured; structured logger fallback active.');
     }
   },
 
