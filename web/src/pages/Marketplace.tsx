@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
+import { ZIMBABWE_LOCATIONS } from '@/data/zimbabweGeography'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { MarketplaceListingSummary } from '@/types'
@@ -94,8 +94,6 @@ function MarketplaceImpression({
   return <div ref={ref}>{children}</div>
 }
 
-const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
-
 function marketplacePriceLabel(price: number | null | undefined, currency: string | null | undefined) {
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   const amount = price.toLocaleString()
@@ -103,15 +101,8 @@ function marketplacePriceLabel(price: number | null | undefined, currency: strin
   return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
 }
 
-/** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
-export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
-  if (live.length > 0) return live
-  return allowMock ? mock : []
-}
-
 type TrustRanking = { requested?: string; applied?: string; note?: string }
 type CanonicalListing = MarketplaceListingSummary
-type MockVehicle = (typeof mockVehicles)[number]
 
 const CONDITION_LABELS: Record<string, string> = {
   brand_new: 'Brand New',
@@ -145,49 +136,6 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
     requested: typeof value.requested === 'string' ? value.requested : undefined,
     applied: typeof value.applied === 'string' ? value.applied : undefined,
     note: typeof value.note === 'string' ? value.note : undefined,
-  }
-}
-
-/**
- * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
- * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
- * rather than laundering mock `trustScore` into a public claim.
- */
-function mockVehicleToListing(vehicle: MockVehicle): CanonicalListing {
-  return {
-    vin: vehicle.vin,
-    make: vehicle.make,
-    model: vehicle.model,
-    year: vehicle.year,
-    price: vehicle.price,
-    currency: vehicle.currency,
-    mileage: vehicle.mileage,
-    fuel_type: vehicle.fuelType,
-    transmission: vehicle.transmission,
-    status: vehicle.status || 'Available',
-    condition_category: 'unknown',
-    marketplace_tags: [],
-    trust_score: null,
-    trust: null,
-    primary_image_url: vehicle.images?.[0] || null,
-    primary_image_state: vehicle.images?.[0] ? 'first_published' : 'none',
-    primary_image_unpublishable_count: 0,
-    plate_verified: false,
-    plate_status: null,
-    passport_verified: false,
-    evidence_count: 0,
-    partsentry_checked: false,
-    repair_history_count: 0,
-    verified_parts_count: 0,
-    duty_cleared: false,
-    zimra_verified: false,
-    cid_clear: false,
-    seller_type: vehicle.sellerType === 'Dealer' ? 'dealer' : 'private',
-    seller_display_label: vehicle.sellerName,
-    seller_public_profile_enabled: true,
-    location: vehicle.location,
-    location_state: 'recorded',
-    created_at: vehicle.listingDate || null,
   }
 }
 
@@ -322,7 +270,7 @@ function FilterControls({
           <SelectTrigger className="bg-white" data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="All">All locations</SelectItem>
-            {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
+            {ZIMBABWE_LOCATIONS.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -482,7 +430,7 @@ export default function Marketplace() {
 
   // ONE public contract. Marketplace no longer falls back to /api/vehicles when this request fails:
   // that path lacks the listing-specific ranking/media/reservation contract and creates two answers
-  // for the same shopping surface. Production fails closed; explicit dev mode may show mock inventory.
+  // for the same shopping surface. If the canonical API is unavailable, the marketplace stays honestly empty.
   useEffect(() => {
     let cancelled = false
     const apiFilters = stateToApiFilters(url) as Record<string, string | number | boolean | undefined>
@@ -498,14 +446,14 @@ export default function Marketplace() {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
         const listings = Array.isArray(data?.listings) ? data.listings as CanonicalListing[] : []
-        setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
+        setLiveListings(listings)
       })
       .catch(error => {
         if (cancelled) return
         console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
         setLoadError(true)
-        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
+        setLiveListings([])
       })
       .finally(() => {
         if (!cancelled) setLoadingVehicles(false)
@@ -883,7 +831,7 @@ export default function Marketplace() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">Anywhere</SelectItem>
-                  {zimbabweLocations.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
+                  {ZIMBABWE_LOCATIONS.map(location => <SelectItem key={location} value={location}>{location}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
