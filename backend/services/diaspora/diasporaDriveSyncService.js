@@ -108,7 +108,7 @@ export function buildOAuthState({ userId, tenantId = null, nonce, iat, exp }) {
 }
 
 /** Verify signature, expiry and user/tenant binding (no DB). Throws on any failure. */
-function parseAndVerifyState(state, expectedUserId, expectedTenantId = null) {
+function parseAndVerifyState(state, expectedUserId = undefined, expectedTenantId = undefined) {
   if (!state || typeof state !== 'string' || !state.includes('.')) throw new ValidationError('Invalid OAuth state');
   const [payload, sig] = state.split('.');
   const expected = crypto.createHmac('sha256', driveStateSecret()).update(payload).digest('hex');
@@ -121,12 +121,13 @@ function parseAndVerifyState(state, expectedUserId, expectedTenantId = null) {
   } catch {
     throw new ValidationError('OAuth state payload is malformed');
   }
-  if (normalizeId(decoded.userId) !== normalizeId(expectedUserId)) {
+  if (expectedUserId !== undefined && normalizeId(decoded.userId) !== normalizeId(expectedUserId)) {
     throw new ForbiddenError('OAuth state does not belong to the authenticated user');
   }
-  // Tenant binding. A user who belongs to two tenants must not be able to start authorization in one
-  // and land the resulting connection — and therefore every document synced through it — in the other.
-  if (normalizeId(decoded.tenantId) !== normalizeId(expectedTenantId)) {
+  // Tenant binding. When an authenticated context is present, it must match. The browser redirect
+  // from Google does not carry CarUp's custom session header, so the callback may instead recover
+  // the identity from this HMAC-signed state and the one-time database nonce below.
+  if (expectedTenantId !== undefined && normalizeId(decoded.tenantId) !== normalizeId(expectedTenantId)) {
     throw new ForbiddenError('OAuth state does not belong to the authenticated tenant');
   }
   if (!decoded.exp || Date.now() > Number(decoded.exp)) {
@@ -137,13 +138,17 @@ function parseAndVerifyState(state, expectedUserId, expectedTenantId = null) {
 }
 
 /** Consume the nonce exactly once via a conditional update (consumed_at IS NULL). */
-async function consumeNonce(client, decoded, userId) {
-  const { data } = await client
+async function consumeNonce(client, decoded, userId = decoded.userId) {
+  let query = client
     .from(OAUTH_STATES)
     .update({ consumed_at: new Date().toISOString() })
     .eq('nonce', decoded.nonce)
     .eq('user_id', userId)
-    .is('consumed_at', null)
+    .is('consumed_at', null);
+  query = decoded.tenantId == null
+    ? query.is('tenant_id', null)
+    : query.eq('tenant_id', decoded.tenantId);
+  const { data } = await query
     .select()
     .maybeSingle();
   if (!data) throw new ValidationError('OAuth state has already been used or is unknown');
@@ -313,15 +318,29 @@ export async function getAuthorizationUrl(userContext = {}, options = {}) {
 }
 
 export async function handleOAuthCallback({ code, state } = {}, userContext = {}, options = {}) {
-  const context = requireUserContext(userContext);
   if (!isDriveEnabled()) throw new ValidationError('Drive integration is disabled');
   if (!code) throw new ValidationError('Missing authorization code');
 
   const client = await resolveClient(options);
 
+  // Google redirects the browser here without CarUp's custom session header. Identity is therefore
+  // recovered from the HMAC-signed, expiring state we issued and then cross-checked against the
+  // one-time nonce row. If an authenticated context happens to be present, it is additionally bound
+  // to the same user/tenant.
+  const suppliedUserId = normalizeId(userContext?.id ?? userContext?.userId ?? userContext?.actorId);
+  const suppliedTenantId = userContext?.tenantId ?? userContext?.tenant_id;
+  const decoded = suppliedUserId
+    ? parseAndVerifyState(state, suppliedUserId, normalizeId(suppliedTenantId))
+    : parseAndVerifyState(state);
+  const context = requireUserContext({
+    ...userContext,
+    id: decoded.userId,
+    userId: decoded.userId,
+    tenantId: decoded.tenantId ?? null,
+  });
+
   // The second half of the diaspora.drive.connect gate. A state string issued while the tenant was
-  // entitled must not still complete the connection after the plan changed — and this route is
-  // reachable on its own, so it cannot rely on the authorize call having been checked.
+  // entitled must not still complete the connection after the plan changed.
   await requireFeature(client, {
     tenantId: context.tenantId || null,
     userId: context.id,
@@ -333,8 +352,7 @@ export async function handleOAuthCallback({ code, state } = {}, userContext = {}
   // managed vault refuses to hand it back while acting for another one.
   const vault = resolveVault({ ...options, tenantId: context.tenantId || null });
 
-  // Signature + expiry + user/tenant binding, then one-time nonce consumption (replay rejected).
-  const decoded = parseAndVerifyState(state, context.id, context.tenantId);
+  // The signed state was verified above; consume its matching user+tenant nonce exactly once.
   const stateRow = await consumeNonce(client, decoded, context.id);
 
   const pkceMeta = stateRow?.metadata?.pkce || {};
