@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAuth } from '@/context/AuthContext'
-import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
+import { ZIMBABWE_LOCATIONS, ZIMBABWE_PROVINCES } from '@/data/zimbabweGeography'
 import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS, VEHICLE_COLORS, VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import { createSellerSubmissionId, readGuestSellDraft, readGuestSellDraftWithMedia, readGuestSellStep, saveGuestSellDraft, saveGuestSellStep } from '@/lib/guestSellDraft'
 import { LISTING_IMAGE_LIMIT, screenListingImages } from '@/lib/listingMediaIntake'
@@ -657,8 +657,8 @@ export default function GuestSell() {
                         <div><h3 className="text-sm font-black">Where is the vehicle?</h3><p className="text-xs text-slate-500">Location can later be governed by your privacy choice.</p></div>
                       </div>
                       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                        <SelectField label="City" value={form.location} error={errors.location} onValue={v => set('location', v)} options={zimbabweLocations} testId="guest-sell-city" />
-                        <SelectField label="Province" value={form.province} onValue={v => set('province', v)} options={zimbabweProvinces} testId="guest-sell-province" />
+                        <SelectField label="City" value={form.location} error={errors.location} onValue={v => set('location', v)} options={ZIMBABWE_LOCATIONS} testId="guest-sell-city" />
+                        <SelectField label="Province" value={form.province} onValue={v => set('province', v)} options={ZIMBABWE_PROVINCES} testId="guest-sell-province" />
                       </div>
                     </div>
                   </div>
