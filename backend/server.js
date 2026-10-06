@@ -425,7 +425,8 @@ app.get('/api/health', async (req, res) => {
         status: provider.status,
         available: provider.available,
         explanations: provider.explanations
-      }))
+      })),
+      marketingEmail: communicationConfiguration.marketingEmail
     },
     metrics: snapshot
   });
