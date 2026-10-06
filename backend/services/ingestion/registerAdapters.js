@@ -6,11 +6,17 @@
  */
 import { registerProvider } from './sourceProvider.js';
 import { sandboxJpAuctionAdapter } from './adapters/sandboxJpAuctionAdapter.js';
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
 
 let registered = false;
-export function registerAllAdapters() {
+export function registerAllAdapters(env = process.env) {
   if (registered) return;
-  registerProvider(sandboxJpAuctionAdapter);
+  // The only currently shipped JP-auction adapter is fixture-backed. Keep it available for
+  // local/test development, but never register it in staging/preview/production where a provider
+  // listing could otherwise make sandbox inventory look operational.
+  if (!isDeployedRuntime(env)) {
+    registerProvider(sandboxJpAuctionAdapter);
+  }
   registered = true;
 }
 
