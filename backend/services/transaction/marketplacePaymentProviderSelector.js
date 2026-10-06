@@ -1,16 +1,10 @@
 import { PaymentProviderError, selectPaymentProvider } from '../diaspora/safetrade/safeTradePaymentProvider.js';
 import { DurableSandboxPaymentProvider } from '../diaspora/safetrade/durableSandboxPaymentProvider.js';
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
 
 export function isMarketplaceSandboxRuntimeAllowed(env = process.env) {
+  if (isDeployedRuntime(env)) return false;
   const nodeEnv = String(env.NODE_ENV || '').toLowerCase();
-  const vercelEnv = String(env.VERCEL_ENV || '').toLowerCase();
-  const carupEnv = String(env.CARUP_ENV || env.APP_ENV || '').toLowerCase();
-
-  // Deployment-specific signals outrank NODE_ENV. Vercel previews commonly execute with
-  // NODE_ENV=production, while an actual production deployment must never be reopened by a stale
-  // CARUP_ENV=staging value.
-  if (vercelEnv) return vercelEnv === 'preview' || vercelEnv === 'development';
-  if (carupEnv) return carupEnv === 'staging' || carupEnv === 'development' || carupEnv === 'test';
   return nodeEnv === 'test' || nodeEnv === 'development';
 }
 
@@ -32,7 +26,7 @@ export function selectMarketplacePaymentProvider({ paymentProvider = null, clien
   if (selected?.name === 'sandbox') {
     if (!isMarketplaceSandboxRuntimeAllowed(env)) {
       throw new PaymentProviderError(
-        'Marketplace sandbox payments are available only in test/development/staging runtimes',
+        'Marketplace sandbox payments are available only in local test/development runtimes',
         'SANDBOX_TEST_ONLY',
       );
     }
