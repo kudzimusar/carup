@@ -2,6 +2,7 @@ import { CarUpError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { Sentry } from '../services/ai/sentry.js';
 import { metricsHub } from '../services/metrics.js';
+import { isDeployedRuntime } from '../utils/runtimeEnvironment.js';
 
 // Default machine codes for a deliberate client error raised as a plain Error.
 const CLIENT_ERROR_CODES = {
@@ -81,8 +82,8 @@ export default function errorHandler(err, req, res, next) {
     }
   };
 
-  // Only expose diagnostic details outside production viewports
-  if (process.env.NODE_ENV !== 'production' && details) {
+  // Diagnostic details are local/test-only; staging/preview are public deployment surfaces too.
+  if (!isDeployedRuntime(process.env) && details) {
     errorResponse.error.details = details;
   }
 
