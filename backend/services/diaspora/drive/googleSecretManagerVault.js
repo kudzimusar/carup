@@ -72,6 +72,7 @@ import {
   registerManagedVaultBackend,
 } from './credentialVault.js';
 import { createFetchTransport, DEFAULT_TIMEOUT_MS } from './httpTransport.js';
+import { isDeployedRuntime } from '../../../utils/runtimeEnvironment.js';
 
 export const SECRET_MANAGER_BASE_URL = 'https://secretmanager.googleapis.com/v1';
 export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -340,8 +341,8 @@ export function createMetadataServerTokenProvider({
  * environment variable is the exact anti-pattern this whole module was written to remove.
  */
 export function createStaticTokenProvider(token, { allowInProduction = false } = {}) {
-  if (process.env.NODE_ENV === 'production' && !allowInProduction) {
-    throw new VaultError('A static access token must never be used in production', 'VAULT_NOT_PERMITTED');
+  if (isDeployedRuntime(process.env) && !allowInProduction) {
+    throw new VaultError('A static access token must never be used in a deployed runtime', 'VAULT_NOT_PERMITTED');
   }
   return { name: 'static', reset() {}, async getAccessToken() { return token; } };
 }
