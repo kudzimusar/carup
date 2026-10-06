@@ -19,7 +19,7 @@ import {
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
   Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
 } from 'lucide-react'
-import { formatPrice } from '@/data/mockData'
+import { formatRecordedPrice } from '@/lib/formatRecordedPrice'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
@@ -1140,7 +1140,7 @@ function governedPrice(price: unknown, currency: unknown): string {
   const amount = typeof price === 'number' && Number.isFinite(price) ? price : null
   const ccy = typeof currency === 'string' && currency.trim() ? currency.trim() : null
   if (amount === null || ccy === null) return 'Price not recorded'
-  return formatPrice(amount, ccy)
+  return formatRecordedPrice(amount, ccy)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
