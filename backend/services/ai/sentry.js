@@ -7,10 +7,13 @@ export const Sentry = {
   init: (options = {}) => {
     const dsn = process.env.SENTRY_DSN;
     if (dsn) {
-      console.log(`[Sentry] Initialized with DSN: ${dsn.substring(0, 20)}...`);
-      sentryInitialized = true;
+      // A DSN is credential/configuration material. This module is only a logger shim; until a real
+      // Sentry SDK is installed it must neither print the DSN nor claim provider initialization.
+      console.log('[Sentry] DSN configured, but Sentry SDK is not installed; using logger fallback.');
+      sentryInitialized = false;
     } else {
-      console.log('[Sentry] Running in simulation/logger fallback mode (no SENTRY_DSN configured).');
+      console.log('[Sentry] Logger fallback active (no SENTRY_DSN configured).');
+      sentryInitialized = false;
     }
   },
 
