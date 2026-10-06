@@ -22,8 +22,7 @@ import {
   Check,
   HelpCircle,
   Activity,
-  Fingerprint,
-  FileSignature
+  Fingerprint
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -126,10 +125,9 @@ export default function PrivacyPolicy() {
   }, [])
 
   // Action handlers
-  const handleDownload = (format: string) => {
-    toast.success(`Download started: CarUp_Privacy_Policy_v2.4.${format}`, {
-      description: 'Your document is cryptographically signed for verification.',
-      icon: <FileSignature className="w-5 h-5 text-orange-500" />
+  const handleDownload = (_format: string) => {
+    toast.info('Official privacy-policy download is not connected yet.', {
+      description: 'Use Print for the currently displayed policy. CarUp will not claim a signed file was produced when no signed artifact exists.'
     })
   }
 
@@ -144,23 +142,16 @@ export default function PrivacyPolicy() {
     const nextVal = !consents[key]
     setConsents(prev => ({ ...prev, [key]: nextVal }))
     
-    if (nextVal) {
-      toast.success(`${label} Activated`, {
-        description: 'Synchronized with your localized browser cookie and secure trust token.',
-        duration: 3000
-      })
-    } else {
-      toast.warning(`${label} Deactivated`, {
-        description: 'Some automated features might be restricted. Security verification is unaffected.',
-        duration: 3000
-      })
-    }
+    const stateLabel = nextVal ? 'Enabled' : 'Disabled'
+    toast.info(`${label}: ${stateLabel}`, {
+      description: 'This control currently changes browser-session state only. No account preference, cookie, trust token, or server record is written by this page.',
+      duration: 4000
+    })
   }
 
   const handleApplyProtocol = () => {
-    toast.success('Custom Privacy Protocol Applied Successfully!', {
-      description: 'Signed with private key: SHA256-hash...' + Math.random().toString(36).substr(2, 8).toUpperCase(),
-      icon: <UserCheck className="w-5 h-5 text-green-500" />
+    toast.info('Privacy controls updated for this browser session.', {
+      description: 'No cryptographic signature or durable server-side consent record has been created by this page.'
     })
   }
 
@@ -879,7 +870,7 @@ export default function PrivacyPolicy() {
                   <div className="pt-4 border-t border-white/5 flex items-center justify-between flex-wrap gap-4">
                     <div className="text-[10px] text-gray-500 flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                      Changes are securely committed and encrypted locally on client browser cache.
+                      These controls currently affect this browser session only; durable consent persistence is not yet connected.
                     </div>
                     <Button 
                       onClick={handleApplyProtocol}
