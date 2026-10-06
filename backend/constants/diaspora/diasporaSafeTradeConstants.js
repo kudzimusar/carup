@@ -15,6 +15,7 @@
  *    there is no real network/provider here.
  */
 import { CarUpError } from '../../utils/errors.js';
+import { isDeployedRuntime, isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
 
 // Providers recognised by the SafeTrade escrow abstraction. SANDBOX/FAKE are always safe (no real
 // money). Real providers are added only at EB-4 external activation; the approved list is empty so
@@ -71,7 +72,7 @@ export const SAFETRADE_RELEASE_TRIGGERS = Object.freeze([
 export const SAFETRADE_RECONCILIATION_TOLERANCE = 0.005;
 
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isProductionLikeRuntime(process.env);
 }
 
 /** Master gate. Default OFF — when false, all SafeTrade routes/services are inert. */
@@ -110,8 +111,12 @@ export function assertSafeTradeProductionSafety() {
   }
 }
 
-/** Sandbox is selected unless live payment is enabled AND an approved provider is configured. */
+/**
+ * The escrow simulator is a local/test facility only. Deployed staging/preview/production must
+ * report external activation as unavailable rather than persisting simulated payment truth.
+ */
 export function shouldUseSandboxEscrow() {
+  if (isDeployedRuntime(process.env)) return false;
   if (!isSafeTradeLivePaymentEnabled()) return true;
   const provider = configuredSafeTradeProvider();
   return !provider || !SAFETRADE_APPROVED_LIVE_PROVIDERS.includes(provider);
