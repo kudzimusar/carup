@@ -36,6 +36,7 @@
  *    success.
  */
 import crypto from 'crypto';
+import { isDeployedRuntime } from '../../../utils/runtimeEnvironment.js';
 import {
   TOKEN_SHAPED_REFERENCE_PATTERNS,
   REDACTION_PATTERNS,
@@ -180,8 +181,8 @@ export class CredentialVault {
 export class InMemoryCredentialVault extends CredentialVault {
   constructor({ allowInProduction = false, referencePrefix = 'memvault' } = {}) {
     super();
-    if (process.env.NODE_ENV === 'production' && !allowInProduction) {
-      throw new VaultError('The in-memory credential vault must never be used in production', 'VAULT_NOT_PERMITTED');
+    if (isDeployedRuntime(process.env) && !allowInProduction) {
+      throw new VaultError('The in-memory credential vault must never be used in a deployed runtime', 'VAULT_NOT_PERMITTED');
     }
     this._entries = new Map();
     this._prefix = referencePrefix;
@@ -244,8 +245,8 @@ export class InMemoryCredentialVault extends CredentialVault {
 export class EnvCredentialVault extends CredentialVault {
   constructor({ allowInProduction = false } = {}) {
     super();
-    if (process.env.NODE_ENV === 'production' && !allowInProduction) {
-      throw new VaultError('The env credential vault must never be used in production', 'VAULT_NOT_PERMITTED');
+    if (isDeployedRuntime(process.env) && !allowInProduction) {
+      throw new VaultError('The env credential vault must never be used in a deployed runtime', 'VAULT_NOT_PERMITTED');
     }
   }
 
@@ -354,7 +355,7 @@ function buildManagedVault(configured) {
 }
 
 /**
- * Pick the vault for the current environment. FAILS CLOSED in production: an unset or `env_dev`
+ * Pick the vault for the current environment. FAILS CLOSED in every deployed runtime: an unset or `env_dev`
  * backend, or a managed backend with no registered client, raises NOT_CONFIGURED rather than falling
  * back to a volatile in-memory store.
  *
@@ -373,9 +374,9 @@ export function resolveVault(options = {}) {
     return scopeVault(buildManagedVault(configured), options.tenantId);
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (isDeployedRuntime(process.env)) {
     throw new VaultError(
-      'No production credential vault is configured (set DIASPORA_CREDENTIAL_VAULT_BACKEND to a managed backend)',
+      'No managed credential vault is configured for this deployed runtime (set DIASPORA_CREDENTIAL_VAULT_BACKEND to a managed backend)',
       'VAULT_NOT_CONFIGURED',
     );
   }
