@@ -38,6 +38,7 @@ import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvi
 // Import Group B & C Services
 import { submitFinancingApplication } from './services/finance/financeService.js';
 import { calculateInsuranceQuote, createInsurancePolicy } from './services/insurance/insuranceService.js';
+import { isProductionLikeRuntime } from './utils/runtimeEnvironment.js';
 import { calculateZimraDuty } from './services/import/importService.js';
 import { reportVehicleStolen, checkStolenStatus, clearStolenStatus } from './services/security/securityService.js';
 import { readDealerReputation, recalculateDealerReputation } from './services/reputation/reputationService.js';
@@ -2114,13 +2115,23 @@ app.post('/api/finance/pre-approve', authorizeRole(), async (req, res) => {
 });
 
 // --- PILLAR 11: INSURANCE QUOTES ---
-app.post('/api/insurance/quote', async (req, res) => {
-  const { vin, userId } = req.body;
+// No live insurer/underwriting provider is selected. The historical formula remains available to
+// local/test code, but a deployed CarUp runtime must never present it as an insurer quote.
+app.post('/api/insurance/quote', authorizeRole(), async (req, res) => {
+  if (isProductionLikeRuntime(process.env)) {
+    return res.status(503).json({
+      error: {
+        code: 'INSURANCE_PROVIDER_NOT_CONFIGURED',
+        message: 'Insurance quoting is unavailable until an approved live underwriting provider is configured.',
+      },
+    });
+  }
+  const { vin } = req.body;
   try {
-    const result = await calculateInsuranceQuote(vin, userId);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const result = await calculateInsuranceQuote(vin, req.userContext.id);
+    res.json({ ...result, mode: 'local_test_only' });
+  } catch {
+    res.status(500).json({ error: 'Insurance quote could not be calculated.' });
   }
 });
 
