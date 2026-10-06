@@ -23,11 +23,21 @@ import {
   configuredSafeTradeProvider,
   shouldUseSandboxEscrow,
   assertSafeTradeProductionSafety,
+  isProduction,
 } from '../../../constants/diaspora/diasporaSafeTradeConstants.js';
 
-// Deterministic webhook secret: env in prod, a fixed dev constant otherwise (so tests can sign).
+// Provider webhook authentication must never fall back to a repository-known secret on a deployed runtime.
 function safeTradeWebhookSecret() {
-  return process.env.DIASPORA_SAFETRADE_WEBHOOK_SECRET || 'safetrade-sandbox-webhook-secret';
+  const secret = process.env.DIASPORA_SAFETRADE_WEBHOOK_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === 'test') return 'safetrade-sandbox-webhook-secret';
+  if (isProduction()) {
+    throw new PaymentProviderError(
+      'DIASPORA_SAFETRADE_WEBHOOK_SECRET is required in a deployed runtime',
+      'PROVIDER_NOT_CONFIGURED',
+    );
+  }
+  return 'safetrade-sandbox-webhook-secret';
 }
 
 // 5-minute anti-replay drift window (ms), identical to paymentRouter.verifySignature.
@@ -379,6 +389,13 @@ export function selectPaymentProvider(options = {}) {
   if (options.paymentProvider) return options.paymentProvider; // test injection
   assertSafeTradeProductionSafety(); // fail closed if live requested without an approved provider
   if (shouldUseSandboxEscrow()) return getSharedSandboxPaymentProvider();
+
+  if (!isSafeTradeLivePaymentEnabled()) {
+    throw new PaymentProviderError(
+      'SafeTrade payment is not configured for this deployed environment; live provider activation is required',
+      SAFETRADE_EXTERNAL_ACTIVATION_ERROR,
+    );
+  }
 
   // Live requested. assertSafeTradeProductionSafety would already have thrown for an unapproved
   // provider; this guard is defense-in-depth so an empty/unknown approved list cannot fall through.
