@@ -51,6 +51,19 @@ const PROVIDER_REQUIREMENTS = Object.freeze([
     webhookPath: '/api/communications/webhooks/resend/email',
   },
   {
+    // Canonical marketing-only Email transport. The EmailTransportRouter owns selection, so this
+    // readiness row validates the Brevo configuration rather than pretending Brevo is a separate
+    // channel adapter.
+    channel: 'email_marketing',
+    provider: 'brevo',
+    configurationOnly: true,
+    when: (env) => !['sendgrid', 'cloudflare'].includes(normalizedEnv(env, 'EMAIL_PROVIDER_LEGACY', '')),
+    requiredProviderSecrets: ['BREVO_API_KEY', 'BREVO_FROM_EMAIL'],
+    requiredWebhookSecrets: ['BREVO_WEBHOOK_SECRET'],
+    requiredWebhookUrls: ['COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL'],
+    webhookPath: '/api/communications/webhooks/brevo/email',
+  },
+  {
     // Legacy — quarantined from canonical routing, retained for compatibility only.
     channel: 'email',
     provider: 'sendgrid',
@@ -209,7 +222,7 @@ export function validateCommunicationConfiguration({ env = process.env, adapterR
 
   for (const requirement of PROVIDER_REQUIREMENTS) {
     if (requirement.when && !requirement.when(env)) continue;
-    const adapter = registry.get?.(requirement.channel);
+    const adapter = requirement.configurationOnly ? null : registry.get?.(requirement.adapterChannel || requirement.channel);
     const health = adapterHealth(adapter, env);
     const providerIssues = [];
     const providerSecretMissing = [
@@ -246,19 +259,19 @@ export function validateCommunicationConfiguration({ env = process.env, adapterR
       }));
     }
 
-    if (!adapter) {
+    if (!requirement.configurationOnly && !adapter) {
       providerIssues.push(issue({
         scope: requirement.channel,
         code: 'adapter_missing',
         message: `${requirement.channel} adapter is not registered.`,
       }));
-    } else if (isFakeAdapter(adapter, health)) {
+    } else if (!requirement.configurationOnly && isFakeAdapter(adapter, health)) {
       providerIssues.push(issue({
         scope: requirement.channel,
         code: 'fake_adapter_active',
         message: `${requirement.channel} is using a fake adapter and cannot be claimed available.`,
       }));
-    } else if (health?.provider && health.provider !== requirement.provider) {
+    } else if (!requirement.configurationOnly && health?.provider && health.provider !== requirement.provider) {
       providerIssues.push(issue({
         severity: COMMUNICATION_CONFIG_STATUS.WARNING,
         scope: requirement.channel,
