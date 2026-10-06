@@ -37,16 +37,18 @@ export const DRIVE_FOLDER_STRUCTURE = Object.freeze({
 // Short-lived OAuth state window (one-time, replay-protected).
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
+
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isDeployedRuntime(process.env);
 }
 
 export function isDriveEnabled() {
   return String(process.env.DIASPORA_DRIVE_ENABLED || '').toLowerCase() === 'true';
 }
 
-// Fail closed: production NEVER auto-selects the mock provider. The mock is only used in dev/test or
-// when DIASPORA_DRIVE_MOCK is explicitly set outside production.
+// Fail closed: no deployed runtime (production OR staging/preview) may auto-select the mock provider.
+// The mock is local/test-only.
 export function shouldUseMockProvider() {
   if (isProduction()) return false;
   if (String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') return true;
@@ -54,10 +56,10 @@ export function shouldUseMockProvider() {
   return false;
 }
 
-// Reject an attempt to force the mock provider in production.
+// Reject an attempt to force the mock provider in any deployed runtime.
 export function assertDriveProductionSafety() {
   if (isProduction() && String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') {
-    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in production');
+    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in a deployed runtime');
   }
 }
 
