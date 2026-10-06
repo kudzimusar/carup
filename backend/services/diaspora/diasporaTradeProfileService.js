@@ -251,10 +251,26 @@ export async function verifyTradeProfile(id, payload = {}, userContext = {}, req
   }
   const { data: previous, error: fetchError } = await supabase.from('diaspora_trade_profiles').select('*').eq('id', id).is('deleted_at', null).single();
   if (fetchError || !previous) throw new NotFoundError('Diaspora trade profile not found');
-  const trustScore = Math.min(100, Math.max(previous.trust_score || 50, payload.trust_score || 80));
+  const requestedTrust = payload.trust_score === undefined || payload.trust_score === null
+    ? null
+    : Number(payload.trust_score);
+  if (requestedTrust !== null && (!Number.isFinite(requestedTrust) || requestedTrust < 0 || requestedTrust > 100)) {
+    throw new ValidationError('trust_score must be a finite number between 0 and 100 when supplied');
+  }
+  const previousTrust = Number(previous.trust_score);
+  const trustScore = requestedTrust !== null
+    ? requestedTrust
+    : (Number.isFinite(previousTrust) ? previousTrust : null);
+  const patch = {
+    verification_status: 'VERIFIED',
+    updated_by: context.id,
+    updated_at: new Date().toISOString(),
+    metadata: { ...(previous.metadata || {}), verification: payload },
+    ...(trustScore === null ? {} : { trust_score: trustScore }),
+  };
   const { data, error } = await supabase
     .from('diaspora_trade_profiles')
-    .update({ verification_status: 'VERIFIED', trust_score: trustScore, updated_by: context.id, updated_at: new Date().toISOString(), metadata: { ...(previous.metadata || {}), verification: payload } })
+    .update(patch)
     .eq('id', id)
     .select()
     .single();
