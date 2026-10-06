@@ -693,7 +693,8 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
     const [projected] = await withCanonicalTrust([vehicle]);
     res.json(projected);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Public vehicle details read failed', { name: error?.name || 'Error' });
+    res.status(500).json({ error: 'Unable to load vehicle details' });
   }
 });
 
@@ -940,7 +941,8 @@ app.get('/api/vehicles', async (req, res) => {
 
     res.json(filtered);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Public vehicle list read failed', { name: error?.name || 'Error' });
+    res.status(500).json({ error: 'Unable to load vehicles' });
   }
 });
 
