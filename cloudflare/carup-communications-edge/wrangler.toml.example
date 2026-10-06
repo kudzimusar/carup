@@ -47,6 +47,6 @@ crons = ["*/2 * * * *"]
 CARUP_API_BASE_URL = "https://carup-backend-staging.example.com"
 
 # Set these with `wrangler secret put`, never in this file:
-# CARUP_EDGE_WORKER_SECRET
-# CARUP_CLOUDFLARE_WEBHOOK_SECRET
+# CLOUDFLARE_EMAIL_WORKER_SECRET      # canonical; legacy CARUP_EDGE_WORKER_SECRET is still accepted
+# CLOUDFLARE_EMAIL_INBOUND_SECRET     # canonical; legacy CARUP_CLOUDFLARE_WEBHOOK_SECRET is still accepted
 # COMMUNICATION_WORKER_SECRET
