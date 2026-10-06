@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
 import {
+import { isDeployedRuntime } from '../../../utils/runtimeEnvironment.js';
   EMAIL_CLASSIFICATION_ERRORS,
   normalizeEmailClassification,
 } from '../emailExperience/emailClassification.js';
@@ -1042,9 +1043,8 @@ export class ExpoPushAdapter extends HttpCommunicationAdapter {
 }
 
 export function assertRealTelegramAdapter(registry, env = process.env) {
-  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  const isRealEnvironment = isDeployedRuntime(env) || env.COMMUNICATION_REAL_ADAPTERS === 'true';
   if (!isRealEnvironment) return;
-  if (env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true') return;
   if (!envValue(env, 'CARUP_TELEGRAM_BOT_TOKEN')) return;
 
   const adapter = registry.get('telegram');
@@ -1068,12 +1068,14 @@ export function assertRealTelegramAdapter(registry, env = process.env) {
 }
 
 export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
-  const allowFake = !isRealEnvironment || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true';
+  const isRealEnvironment = isDeployedRuntime(env) || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  // Fake provider adapters are local/test-only. A deployed runtime ignores both the legacy
+  // COMMUNICATION_FAKE_ADAPTERS_ENABLED escape hatch and injected fake provider adapters.
+  const allowFake = !isRealEnvironment && env.COMMUNICATION_FAKE_ADAPTERS_ENABLED !== 'false';
   const realOptions = { env, fetchImpl };
   const registry = new Map();
   const put = (channel, adapter) => registry.set(channel, adapter);
-  const configured = (channel, realAdapter) => fakeAdapters[channel] || (allowFake
+  const configured = (channel, realAdapter) => (!isRealEnvironment && fakeAdapters[channel]) || (allowFake
     ? new FakeCommunicationAdapter({ channel })
     : realAdapter);
 
