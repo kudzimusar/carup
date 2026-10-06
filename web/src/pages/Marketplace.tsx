@@ -139,49 +139,6 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
   }
 }
 
-/**
- * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
- * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
- * rather than laundering mock `trustScore` into a public claim.
- */
-function mockVehicleToListing(vehicle: MockVehicle): CanonicalListing {
-  return {
-    vin: vehicle.vin,
-    make: vehicle.make,
-    model: vehicle.model,
-    year: vehicle.year,
-    price: vehicle.price,
-    currency: vehicle.currency,
-    mileage: vehicle.mileage,
-    fuel_type: vehicle.fuelType,
-    transmission: vehicle.transmission,
-    status: vehicle.status || 'Available',
-    condition_category: 'unknown',
-    marketplace_tags: [],
-    trust_score: null,
-    trust: null,
-    primary_image_url: vehicle.images?.[0] || null,
-    primary_image_state: vehicle.images?.[0] ? 'first_published' : 'none',
-    primary_image_unpublishable_count: 0,
-    plate_verified: false,
-    plate_status: null,
-    passport_verified: false,
-    evidence_count: 0,
-    partsentry_checked: false,
-    repair_history_count: 0,
-    verified_parts_count: 0,
-    duty_cleared: false,
-    zimra_verified: false,
-    cid_clear: false,
-    seller_type: vehicle.sellerType === 'Dealer' ? 'dealer' : 'private',
-    seller_display_label: vehicle.sellerName,
-    seller_public_profile_enabled: true,
-    location: vehicle.location,
-    location_state: 'recorded',
-    created_at: vehicle.listingDate || null,
-  }
-}
-
 async function shareListing(vin: string, name: string) {
   const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
   try {
