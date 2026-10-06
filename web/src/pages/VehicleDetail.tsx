@@ -19,7 +19,7 @@ import {
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
   Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
 } from 'lucide-react'
-import { formatPrice } from '@/data/mockData'
+import { formatPrice } from '@/lib/formatPrice'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
