@@ -13,6 +13,8 @@
  * production never auto-selects an unsafe path.
  */
 
+import { isDeployedRuntime, isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
+
 // Providers recognised by the billing abstraction. SANDBOX/MANUAL are always safe; STRIPE is the
 // first real provider slot but is not implemented (external activation pending).
 export const BILLING_PROVIDERS = Object.freeze({
@@ -39,7 +41,7 @@ export const BILLING_TEST_PROFILES = Object.freeze({
 export const APPROVED_LIVE_PROVIDERS = Object.freeze([]);
 
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isProductionLikeRuntime(process.env);
 }
 
 /** Whether entitlement denials block protected operations. Default OFF (M1 foundation, no enforcement). */
@@ -73,8 +75,13 @@ export function assertBillingProductionSafety() {
   }
 }
 
-/** Sandbox is selected unless live billing is enabled AND an approved provider is configured. */
+/**
+ * Sandbox exists only for local/test development. A staging/preview/production deployment with no
+ * approved billing provider reports NOT CONFIGURED rather than manufacturing ACTIVE subscription
+ * truth in memory.
+ */
 export function shouldUseSandboxBilling() {
+  if (isDeployedRuntime(process.env)) return false;
   if (!isBillingLiveEnabled()) return true;
   const provider = configuredBillingProvider();
   return !provider || !APPROVED_LIVE_PROVIDERS.includes(provider);
