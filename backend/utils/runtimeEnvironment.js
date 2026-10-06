@@ -13,6 +13,8 @@ export function isDeployedRuntime(env = process.env) {
   const carupEnv = String(env.CARUP_ENV || '').trim().toLowerCase();
 
   return nodeEnv === 'production'
+    || nodeEnv === 'staging'
+    || String(env.VERCEL || '').trim() === '1'
     || vercelEnv === 'production'
     || vercelEnv === 'preview'
     || carupEnv === 'production'
