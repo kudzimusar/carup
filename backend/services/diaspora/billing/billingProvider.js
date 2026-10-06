@@ -226,6 +226,15 @@ export function selectBillingProvider(options = {}) {
 
   if (shouldUseSandboxBilling()) return getSharedSandboxProvider();
 
+  // A deployed runtime with no approved live provider is explicitly unavailable. Never persist
+  // sandbox ACTIVE subscriptions merely because external activation has not happened yet.
+  if (!isBillingLiveEnabled()) {
+    throw new BillingProviderError(
+      'Billing is not configured for this deployed environment; live provider activation is required',
+      'EXTERNAL_ACTIVATION_REQUIRED',
+    );
+  }
+
   // Live + approved provider configured: construct the real adapter (still external-activation gated).
   const provider = configuredBillingProvider();
   if (provider === BILLING_PROVIDERS.STRIPE) return new StripeBillingProvider();
