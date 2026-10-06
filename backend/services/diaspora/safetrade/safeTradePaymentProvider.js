@@ -390,7 +390,10 @@ export function selectPaymentProvider(options = {}) {
       SAFETRADE_EXTERNAL_ACTIVATION_ERROR,
     );
   }
-  return getSharedSandboxPaymentProvider();
+  throw new PaymentProviderError(
+    'SafeTrade payment is not configured for this deployed runtime. A regulated live provider must be separately approved.',
+    SAFETRADE_EXTERNAL_ACTIVATION_ERROR,
+  );
 }
 
 export { safeTradeWebhookSecret, PROVIDER_STATES as SAFETRADE_PROVIDER_STATES, WEBHOOK_EFFECTS as SAFETRADE_WEBHOOK_EFFECTS };
