@@ -28,8 +28,12 @@ router.get('/drive/status', auth, asyncHandler(async (req, res) => {
 router.get('/drive/google/authorize', auth, asyncHandler(async (req, res) => {
   res.json({ data: await getAuthorizationUrl(req.userContext, { req }) });
 }));
-router.get('/drive/google/callback', auth, asyncHandler(async (req, res) => {
-  res.json({ data: await handleOAuthCallback({ code: req.query.code, state: req.query.state }, req.userContext, { req }) });
+// Google redirects the user's browser here and cannot attach CarUp's custom authentication header.
+// The callback is authenticated by the HMAC-signed, expiring, user+tenant-bound OAuth state, the
+// one-time database nonce, and PKCE. handleOAuthCallback performs those checks before any token
+// exchange or connection write.
+router.get('/drive/google/callback', asyncHandler(async (req, res) => {
+  res.json({ data: await handleOAuthCallback({ code: req.query.code, state: req.query.state }, req.userContext || {}, { req }) });
 }));
 router.post('/drive/disconnect', auth, asyncHandler(async (req, res) => {
   res.json({ data: await disconnectDrive(req.userContext, { req }) });
