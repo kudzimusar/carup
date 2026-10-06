@@ -31,6 +31,7 @@ import { evaluateEscrowGates } from './escrowTrustService.js';
 import { isCallable } from '../providerPlatform/providerRegistry.js';
 import { executeProviderRequest } from '../providerPlatform/providerFramework.js';
 import { isCapabilityEnabled } from '../featureFlags/capabilityFlags.js';
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
 
 // ── Provider escrow lifecycle (distinct from the base escrow_trust FSM state names) ──────────
 // funding → inspection → release → payout → reconciliation, with dispute/refund/cancellation
@@ -51,7 +52,7 @@ export const PROVIDER_VALID_TRANSITIONS = {
 const PROVIDER_EVENT_PREFIX = 'provider:'; // namespaces provider events inside escrow_trust_events
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
-const IS_PRODUCTION = () => process.env.NODE_ENV === 'production' || process.env.CARUP_ENV === 'production';
+const IS_PRODUCTION = () => isDeployedRuntime(process.env);
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ export function fundLabel(provider) {
 
 /** Global + provider-level kill-switch / capability gate for creating NEW escrow. Fail-closed. */
 export function escrowCreationGate(provider, config, env = process.env) {
+  if (isDeployedRuntime(env) && provider?.activation_mode !== 'live') return { allowed: false, reason: 'sandbox_not_permitted_in_deployment' };
   if (!isCapabilityEnabled('escrow', env)) return { allowed: false, reason: 'capability_disabled' };
   if (env.ESCROW_GLOBAL_KILL_SWITCH === '1') return { allowed: false, reason: 'global_kill_switch' };
   const callable = isCallable(provider);
