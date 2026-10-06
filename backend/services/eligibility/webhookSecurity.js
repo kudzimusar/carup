@@ -6,12 +6,12 @@
  * Pure verification helpers so they are unit-testable without a server.
  */
 import crypto from 'crypto';
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
 
-const IS_PRODUCTION = () => process.env.NODE_ENV === 'production' || process.env.CARUP_ENV === 'production';
+const IS_PRODUCTION = () => isDeployedRuntime(process.env);
 
 // Fail-closed: in production a missing secret yields NO usable secret (null), so signature
-// verification can never succeed against a committed literal. Outside production a stable
-// dev secret is used so sandbox/staging webhook tests are reproducible.
+// verification can never succeed against a committed literal. Outside deployed runtimes a stable dev secret is used so local/test webhook tests are reproducible.
 const PROVIDER_SECRETS = () => ({
   insurance_sandbox: process.env.INSURANCE_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'insurance-sandbox-hmac-secret'),
   finance_sandbox: process.env.FINANCE_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'finance-sandbox-hmac-secret'),
