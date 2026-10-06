@@ -1,3 +1,5 @@
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
+
 /**
  * Phase 8 — Billing/subscription feature flags (env-driven, fail-closed in production).
  *
@@ -39,7 +41,7 @@ export const BILLING_TEST_PROFILES = Object.freeze({
 export const APPROVED_LIVE_PROVIDERS = Object.freeze([]);
 
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isDeployedRuntime(process.env);
 }
 
 /** Whether entitlement denials block protected operations. Default OFF (M1 foundation, no enforcement). */
@@ -73,8 +75,9 @@ export function assertBillingProductionSafety() {
   }
 }
 
-/** Sandbox is selected unless live billing is enabled AND an approved provider is configured. */
+/** Sandbox is local/test-only. Deployed runtimes must expose billing as not configured until a live provider is approved. */
 export function shouldUseSandboxBilling() {
+  if (isProduction()) return false;
   if (!isBillingLiveEnabled()) return true;
   const provider = configuredBillingProvider();
   return !provider || !APPROVED_LIVE_PROVIDERS.includes(provider);
