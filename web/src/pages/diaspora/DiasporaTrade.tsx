@@ -15,12 +15,12 @@ import { VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicle
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
 
 const requiredDocuments = [
-  'Buyer identity document',
-  'Invoice or auction sheet',
-  'Export certificate',
-  'Bill of lading',
-  'ZIMRA duty assessment',
-]
+  { label: 'Buyer identity document', types: ['passport', 'national_id', 'residence_card'] },
+  { label: 'Invoice or auction sheet', types: ['commercial_invoice', 'auction_sheet'] },
+  { label: 'Export certificate', types: ['export_certificate'] },
+  { label: 'Bill of lading', types: ['bill_of_lading'] },
+  { label: 'ZIMRA duty assessment', types: ['duty_receipt', 'customs_declaration'] },
+] as const
 
 const documentTypeOptions = [
   { value: 'passport', label: 'Passport' },
@@ -109,7 +109,7 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocument[] }) {
-  const uploadedTypes = new Set(documents.map(document => labelize(document.document_type)))
+  const uploadedTypes = new Set(documents.map(document => String(document.document_type || '').toLowerCase()))
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white" data-testid="diaspora-document-checklist">
@@ -117,14 +117,14 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
         <h2 className="text-base font-semibold text-gray-900">Required documents</h2>
       </div>
       <div className="divide-y divide-gray-100">
-        {requiredDocuments.map((documentName, index) => {
-          const uploaded = uploadedTypes.has(documentName)
+        {requiredDocuments.map((requirement, index) => {
+          const uploaded = requirement.types.some(type => uploadedTypes.has(type))
           return (
-            <div key={documentName} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="diaspora-document-row">
+            <div key={requirement.label} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="diaspora-document-row">
               <div className="flex items-center gap-3">
                 <FileText className="h-4 w-4 text-gray-400" />
                 <span className="text-sm font-medium text-gray-800" data-testid={`diaspora-document-name-${index}`}>
-                  {documentName}
+                  {requirement.label}
                 </span>
               </div>
               <Badge variant="outline" data-testid={`diaspora-document-status-${index}`}>
