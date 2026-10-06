@@ -59,7 +59,7 @@ export function shouldUseMockProvider() {
 // Reject an attempt to force the mock provider in a deployed runtime.
 export function assertDriveProductionSafety() {
   if (isProduction() && String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') {
-    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in a deployed runtime');
+    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in production or any deployed runtime');
   }
 }
 
