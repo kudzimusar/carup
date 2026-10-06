@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
+import { zimbabweLocations } from '@/data/zimbabweLocations'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { MarketplaceListingSummary } from '@/types'
@@ -94,24 +94,15 @@ function MarketplaceImpression({
   return <div ref={ref}>{children}</div>
 }
 
-const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
-
 function marketplacePriceLabel(price: number | null | undefined, currency: string | null | undefined) {
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   const amount = price.toLocaleString()
   if (!currency?.trim()) return `${amount} · currency not recorded`
-  return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
-}
-
-/** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
-export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
-  if (live.length > 0) return live
-  return allowMock ? mock : []
+  return currency.toUpperCase() === 'USD' ? `$${amount}` : `${currency.toUpperCase()} ${amount}`
 }
 
 type TrustRanking = { requested?: string; applied?: string; note?: string }
 type CanonicalListing = MarketplaceListingSummary
-type MockVehicle = (typeof mockVehicles)[number]
 
 const CONDITION_LABELS: Record<string, string> = {
   brand_new: 'Brand New',
@@ -498,14 +489,14 @@ export default function Marketplace() {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
         const listings = Array.isArray(data?.listings) ? data.listings as CanonicalListing[] : []
-        setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
+        setLiveListings(listings)
       })
       .catch(error => {
         if (cancelled) return
         console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
         setLoadError(true)
-        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
+        setLiveListings([])
       })
       .finally(() => {
         if (!cancelled) setLoadingVehicles(false)
