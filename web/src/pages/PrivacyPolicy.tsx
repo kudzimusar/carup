@@ -185,7 +185,7 @@ export default function PrivacyPolicy() {
                   Decentralized Integrity Protocol
                 </Badge>
                 <Badge className="bg-white/5 text-gray-300 border border-white/10 text-xs px-2.5 py-0.5">
-                  v2.4 (Active)
+                  Policy status: draft
                 </Badge>
               </div>
               <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-none bg-gradient-to-r from-white via-gray-100 to-gray-400 bg-clip-text text-transparent">
@@ -203,7 +203,7 @@ export default function PrivacyPolicy() {
                 variant="outline" 
                 className="bg-white/5 border-white/10 hover:bg-white/10 hover:text-white text-gray-300 text-xs h-9 transition-all duration-300 hover:border-orange-500/30 gap-1.5"
               >
-                <Download className="w-3.5 h-3.5" /> Official PDF
+                <Download className="w-3.5 h-3.5" /> Policy document status
               </Button>
               <Button 
                 onClick={handlePrint}
@@ -603,45 +603,25 @@ export default function PrivacyPolicy() {
 
               <div className="prose prose-invert max-w-none text-xs md:text-sm text-gray-400 leading-relaxed space-y-4">
                 <p>
-                  We facilitate integrated exchanges between key stakeholders in the Zimbabwean automotive ecosystem. We only initiate exchanges with partner networks under strict user-controlled authorization, except in legal verification cases.
+                  CarUp does not use this page to claim a live relationship with any named dealer,
+                  garage, insurer, bank, government body, or other external provider. Data may be
+                  shared with an external organization only where a governed integration is actually
+                  configured, the applicable authority and consent requirements are satisfied, and
+                  the product records that disclosure.
                 </p>
-                
-                <div className="space-y-4 my-6">
-                  {[
-                    {
-                      partner: "Verified Auto Dealers & Showrooms",
-                      purpose: "When you list your car for sale, we share verified vehicle history dossiers, Trust Scores, and odometer audits to speed up listings. Your phone number is only shared when buyers make verified bids.",
-                      tag: "Marketplace Integration"
-                    },
-                    {
-                      partner: "Registered Garages & Mechanics",
-                      purpose: "Mechanics can check your active PartSentry engine details and structural profiles. Upon servicing, they commit part changes and service stamps back to your digital profile.",
-                      tag: "Service Lifecycle"
-                    },
-                    {
-                      partner: "Verified Insurance Underwriters (e.g., Old Mutual, Zimnat, NicozDiamond)",
-                      purpose: "If you apply for auto coverage, we share verified trust and mechanical ratings to help you unlock premium discount rates. We never share driving metrics or route tracking data without explicit opt-in.",
-                      tag: "Underwriting & Risk"
-                    },
-                    {
-                      partner: "Asset Financing Banks (e.g., CBZ, CABS, Stanbic Bank)",
-                      purpose: "When you apply for a collateralized vehicle loan, we share verified valuation certificates in USD/ZiG directly to the bank's processing system to secure quick processing.",
-                      tag: "Financing Valuations"
-                    }
-                  ].map((p, index) => (
-                    <div key={index} className="flex gap-4 p-4 rounded-xl bg-[hsl(222,47%,10%)] border border-white/5 hover:border-white/10 transition-colors">
-                      <Building className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-xs md:text-sm text-white">{p.partner}</span>
-                          <Badge className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[9px] font-mono px-1.5">
-                            {p.tag}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-gray-400 leading-relaxed">{p.purpose}</p>
-                      </div>
+
+                <div className="rounded-xl border border-white/5 bg-[hsl(222,47%,10%)] p-4">
+                  <div className="flex gap-3">
+                    <Building className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-xs md:text-sm text-white">External integration status</p>
+                      <p className="text-xs text-gray-400 leading-relaxed mt-1">
+                        No insurer, lender, registry, or other third-party partnership should be
+                        inferred from example product copy. Named providers will be published only
+                        after the corresponding relationship and runtime integration are approved.
+                      </p>
                     </div>
-                  ))}
+                  </div>
                 </div>
               </div>
             </section>
@@ -664,7 +644,10 @@ export default function PrivacyPolicy() {
 
               <div className="prose prose-invert max-w-none text-xs md:text-sm text-gray-400 leading-relaxed space-y-4">
                 <p>
-                  Under Part IV of the Cyber Security and Data Protection Act [Chapter 12:07] of Zimbabwe, you hold explicit rights as a data subject. CarUp provides comprehensive controls to exercise these rights through your profile settings panel.
+                  CarUp intends to provide data-subject controls consistent with its applicable
+                  privacy obligations. This page does not claim that every control described below is
+                  already implemented in the current product. A control is operational only when the
+                  corresponding authenticated workflow and durable record are available.
                 </p>
 
                 <div className="grid sm:grid-cols-2 gap-4 my-6">
@@ -697,12 +680,12 @@ export default function PrivacyPolicy() {
                 </div>
               </div>
 
-              <CollapsibleDeepDive title="How do I request a complete dump of my vehicle dossier data?">
+              <CollapsibleDeepDive title="How do I request a copy of my CarUp data?">
                 <p>
-                  To export your vehicle data, navigate to your Owner Dashboard, select "Security Settings" and click "Request Data Dossier". Gutu AI will compile a password-protected zip file containing your complete personal details, ZINARA logs, mechanics work history, and CarUp audit ledger entries.
-                </p>
-                <p>
-                  This report is issued in both human-readable PDF format and machine-readable JSON format, enabling effortless data portability under POTRAZ regulatory guidelines.
+                  This page does not claim an automated dossier-export workflow is available. Use
+                  CarUp's verified support or privacy contact once that channel is formally published.
+                  Any future export workflow must derive its contents from canonical records and must
+                  not invent registry, service, ownership, or provider data.
                 </p>
               </CollapsibleDeepDive>
             </section>
@@ -725,13 +708,15 @@ export default function PrivacyPolicy() {
 
               <div className="prose prose-invert max-w-none text-xs md:text-sm text-gray-400 leading-relaxed space-y-4">
                 <p>
-                  We store your personal details for as long as your CarUp profile is active. If you initiate a profile deletion request, we immediately run automated secure-erase cycles on all personal identifiers (PII) like names, email channels, and phone numbers.
+                  CarUp's production retention, deletion, anonymization, and legal-hold rules require
+                  an approved policy and an implemented data-lifecycle workflow. This draft page does
+                  not assert a retention period, an immediate secure-erasure process, or indefinite
+                  retention for any category unless that rule is backed by the governed policy.
                 </p>
                 <p>
-                  However, please be informed that <span className="text-orange-400 font-semibold">vehicle-specific hardware ledgers</span> (including VIN, chassis numbers, historical odometer metrics, and mechanic work orders committed via PartSentry) are retained indefinitely. These parameters represent public safety information that must remain accessible to prevent commercial fraud, vehicle cloning, and secondary market manipulation in Zimbabwe.
-                </p>
-                <p>
-                  In the event of profile deletion, the historical records of your vehicles are permanently disconnected from your name or contact details, leaving an anonymous, unlinked technical logbook that subsequent buyers can audit safely.
+                  Vehicle-history integrity and a person's privacy rights can impose different
+                  requirements. The production policy must state exactly which records are retained,
+                  de-identified, restricted, or deleted, and why.
                 </p>
               </div>
             </section>
@@ -822,7 +807,7 @@ export default function PrivacyPolicy() {
                         Verified Insurer Instant Claim Sync
                       </label>
                       <span className="text-[11px] text-gray-500 leading-relaxed block max-w-xl">
-                        Allows partnered insurance brokers (e.g., Zimnat, NicozDiamond) to instantly query mechanical audit dossiers to accelerate your accident claims processing.
+                        Preview category for a future insurer-sharing permission. No insurer integration or data transfer is claimed by this control.
                       </span>
                     </div>
                     <Switch 
@@ -840,7 +825,7 @@ export default function PrivacyPolicy() {
                         Auto-Bank Collateral Valuations
                       </label>
                       <span className="text-[11px] text-gray-500 leading-relaxed block max-w-xl">
-                        Allows authorized financing institutions (e.g., CBZ, CABS) to execute background pricing algorithm queries against your vehicle profile for swift credit scoring.
+                        Preview category for a future lender-sharing permission. No lender integration or automated credit decision is claimed by this control.
                       </span>
                     </div>
                     <Switch 
@@ -904,51 +889,18 @@ export default function PrivacyPolicy() {
 
               <div className="prose prose-invert max-w-none text-xs md:text-sm text-gray-400 leading-relaxed space-y-4">
                 <p>
-                  If you have queries regarding this Privacy Policy, your rights under the Cyber Security and Data Protection Act [Chapter 12:07], or wish to submit verified corrections to vehicle registers, contact our designated Data Protection Officer (DPO) at our regional Harare headquarters:
+                  Official CarUp privacy and data-protection contact details are not published in
+                  this source yet. Placeholder addresses, telephone numbers, response-time promises,
+                  and officer identities are deliberately not shown as if they were operational.
                 </p>
-
-                {/* DPO Information Card Grid */}
-                <div className="grid md:grid-cols-3 gap-4 my-6">
-                  <Card className="bg-[hsl(222,47%,10%)] border-white/5">
-                    <CardContent className="p-4 space-y-1.5 text-center">
-                      <Building className="w-5 h-5 text-orange-500 mx-auto" />
-                      <h6 className="font-bold text-xs text-white">Physical Headquarters</h6>
-                      <p className="text-[11px] text-gray-400 leading-relaxed">
-                        CarUp Technologies Ltd<br />
-                        123 Samora Machel Ave<br />
-                        Harare, Zimbabwe
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-[hsl(222,47%,10%)] border-white/5">
-                    <CardContent className="p-4 space-y-1.5 text-center">
-                      <Lock className="w-5 h-5 text-orange-500 mx-auto" />
-                      <h6 className="font-bold text-xs text-white">Direct DPO Dispatch</h6>
-                      <p className="text-[11px] text-gray-400 leading-relaxed">
-                        dpo@carup.co.zw<br />
-                        legal@carup.co.zw<br />
-                        Response within 48 hrs
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-[hsl(222,47%,10%)] border-white/5">
-                    <CardContent className="p-4 space-y-1.5 text-center">
-                      <Activity className="w-5 h-5 text-orange-500 mx-auto" />
-                      <h6 className="font-bold text-xs text-white">Telephone Support</h6>
-                      <p className="text-[11px] text-gray-400 leading-relaxed">
-                        +263 242 700 000<br />
-                        +263 773 345 678<br />
-                        Mon-Fri: 8AM - 5PM
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <p className="text-xs text-gray-500">
-                  You also maintain the legal right to file direct complaints regarding data handling violations to the Postal and Telecommunications Regulatory Authority of Zimbabwe (POTRAZ) at their national offices: 1008 Performance Plaza, Samora Machel Ave, Harare, Zimbabwe.
+                <p>
+                  Until an owner-approved legal contact is configured, use the general CarUp contact
+                  page and do not treat this draft page as a representation of a registered office,
+                  appointed Data Protection Officer, or guaranteed response time.
                 </p>
+                <Button asChild variant="outline" className="bg-white/5 border-white/10 text-gray-200">
+                  <a href="/contact">Open CarUp contact page</a>
+                </Button>
               </div>
             </section>
             
