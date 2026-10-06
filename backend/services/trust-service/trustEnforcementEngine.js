@@ -118,7 +118,21 @@ export class TrustEnforcementEngine {
     if (!assessment.match) {
       const penalties = assessment.penalties;
       const totalPenalty = assessment.totalPenalty;
-      const originalScore = assessment.vehicleTrustScore || 80.0;
+      const originalScore = Number(assessment.vehicleTrustScore);
+      if (!Number.isFinite(originalScore)) {
+        logger.warn('TRUST_ENGINE', 'Refusing OCR mismatch penalty because no measured vehicle trust score exists.', {
+          vin,
+          docType,
+          totalPenalty,
+        });
+        return {
+          match: false,
+          penalties,
+          totalPenalty,
+          newScore: null,
+          reason: 'TRUST_SCORE_UNAVAILABLE',
+        };
+      }
       const newScore = Math.max(0.0, originalScore - totalPenalty);
 
       logger.warn('TRUST_ENGINE', `Mismatch detected! Degrading vehicle trust: ${originalScore} -> ${newScore} (Penalty: -${totalPenalty})`, {
@@ -209,7 +223,14 @@ export class TrustEnforcementEngine {
         metricsHub.recordReputationDegradation();
         
         for (const v of vehicles) {
-          const baseScore = v.trust_score || 80.0;
+          const baseScore = Number(v.trust_score);
+          if (!Number.isFinite(baseScore)) {
+            logger.warn('TRUST_ENGINE', 'Skipping stakeholder-risk propagation for an unmeasured vehicle trust score.', {
+              vin: v.vin,
+              stakeholderId,
+            });
+            continue;
+          }
           const penalty = baseScore * degradationMultiplier;
           const finalScore = Math.max(0.0, parseFloat((baseScore - penalty).toFixed(1)));
 
