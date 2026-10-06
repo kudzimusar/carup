@@ -1,3 +1,5 @@
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
+
 /**
  * Centralized capability feature flags — Workstream 12.
  *
@@ -7,7 +9,7 @@
  * Resolution order per flag:
  *   1. Emergency kill switch: CAPABILITY_KILL_SWITCH=1 forces ALL flags OFF.
  *   2. Per-flag explicit override: FLAG_<NAME>=1|0 (e.g. FLAG_FRAUD_ENGINE=1).
- *   3. Default: enabled OUTSIDE production; in production OFF unless CAPABILITIES_LIVE=1.
+ *   3. Default: enabled only for local/test development; any deployed runtime is OFF unless CAPABILITIES_LIVE=1.
  *
  * The set mirrors the directive's required flags: source adapters (zimra/cvr/zinara/vid/
  * cid), fraud engine, dealer compliance, mobile offline uploads, insurance, finance,
@@ -24,8 +26,7 @@ export function isCapabilityEnabled(flag, env = process.env) {
   const explicit = env[`FLAG_${flag.toUpperCase()}`];
   if (explicit === '1') return true;
   if (explicit === '0') return false;
-  const isProduction = env.NODE_ENV === 'production' || env.CARUP_ENV === 'production';
-  return isProduction ? env.CAPABILITIES_LIVE === '1' : true; // fail-closed in production
+  return isDeployedRuntime(env) ? env.CAPABILITIES_LIVE === '1' : true; // fail-closed in staging/preview/production
 }
 
 /** Snapshot of all capability flags for an admin/governance view. */
