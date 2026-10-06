@@ -37,7 +37,7 @@ import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvi
 
 // Import Group B & C Services
 import { submitFinancingApplication } from './services/finance/financeService.js';
-import { calculateInsuranceQuote, createInsurancePolicy } from './services/insurance/insuranceService.js';
+import { createInsurancePolicy } from './services/insurance/insuranceService.js';
 import { calculateZimraDuty } from './services/import/importService.js';
 import { reportVehicleStolen, checkStolenStatus, clearStolenStatus } from './services/security/securityService.js';
 import { readDealerReputation, recalculateDealerReputation } from './services/reputation/reputationService.js';
@@ -2114,14 +2114,15 @@ app.post('/api/finance/pre-approve', authorizeRole(), async (req, res) => {
 });
 
 // --- PILLAR 11: INSURANCE QUOTES ---
-app.post('/api/insurance/quote', async (req, res) => {
-  const { vin, userId } = req.body;
-  try {
-    const result = await calculateInsuranceQuote(vin, userId);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// No live insurance quotation provider is currently approved. The previous unauthenticated formula
+// produced a provider-looking premium without an insurer behind it, so the deployed API now states
+// the honest capability boundary instead of manufacturing a quote.
+app.post('/api/insurance/quote', authorizeRole(), async (_req, res) => {
+  res.status(503).json({
+    error: 'provider_not_configured',
+    code: 'INSURANCE_PROVIDER_NOT_CONFIGURED',
+    message: 'Insurance quotations are unavailable until an approved live insurer is configured.',
+  });
 });
 
 // --- PILLAR 12: ZIMRA IMPORT TAX DUTY ESTIMATOR ---
