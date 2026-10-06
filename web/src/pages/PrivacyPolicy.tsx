@@ -126,9 +126,9 @@ export default function PrivacyPolicy() {
   }, [])
 
   // Action handlers
-  const handleDownload = (format: string) => {
-    toast.success(`Download started: CarUp_Privacy_Policy_v2.4.${format}`, {
-      description: 'Your document is cryptographically signed for verification.',
+  const handleDownload = (_format: string) => {
+    toast.info('Official downloadable policy is not published yet.', {
+      description: 'This page will link the governed document when it is available.',
       icon: <FileSignature className="w-5 h-5 text-orange-500" />
     })
   }
@@ -143,23 +143,15 @@ export default function PrivacyPolicy() {
   const handleToggleConsent = (key: keyof typeof consents, label: string) => {
     const nextVal = !consents[key]
     setConsents(prev => ({ ...prev, [key]: nextVal }))
-    
-    if (nextVal) {
-      toast.success(`${label} Activated`, {
-        description: 'Synchronized with your localized browser cookie and secure trust token.',
-        duration: 3000
-      })
-    } else {
-      toast.warning(`${label} Deactivated`, {
-        description: 'Some automated features might be restricted. Security verification is unaffected.',
-        duration: 3000
-      })
-    }
+    toast.info(`${label}: preview ${nextVal ? 'on' : 'off'}`, {
+      description: 'Preview only. This control is not connected to a persisted consent record yet.',
+      duration: 3000
+    })
   }
 
   const handleApplyProtocol = () => {
-    toast.success('Custom Privacy Protocol Applied Successfully!', {
-      description: 'Signed with private key: SHA256-hash...' + Math.random().toString(36).substr(2, 8).toUpperCase(),
+    toast.info('Privacy preference preview updated locally.', {
+      description: 'Nothing was signed, transmitted, or persisted. Governed consent controls will replace this preview.',
       icon: <UserCheck className="w-5 h-5 text-green-500" />
     })
   }
@@ -761,7 +753,7 @@ export default function PrivacyPolicy() {
               </div>
 
               <p className="text-xs md:text-sm text-gray-400 leading-relaxed">
-                Take control of your data flow in real-time. Use the control dials below to specify what data parameters you permit Gutu AI and our integrated APIs to process. Toggling these settings immediately updates your system credentials.
+                Preview the consent categories CarUp intends to expose. These controls currently change this page only; they do not update credentials, provider permissions, or a canonical consent record.
               </p>
 
               {/* Console Dashboard Card */}
@@ -776,11 +768,11 @@ export default function PrivacyPolicy() {
                         Interactive Protocol Configurations
                       </CardTitle>
                       <CardDescription className="text-[11px] text-gray-500 mt-1">
-                        Configure customized permissions and watch changes synchronize on the secure platform client.
+                        Preview proposed permission categories. Canonical persisted consent controls are not connected on this page yet.
                       </CardDescription>
                     </div>
                     <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] uppercase font-bold tracking-wide shrink-0">
-                      Live Sandbox
+                      Preview Only
                     </Badge>
                   </div>
                 </CardHeader>
@@ -879,14 +871,14 @@ export default function PrivacyPolicy() {
                   <div className="pt-4 border-t border-white/5 flex items-center justify-between flex-wrap gap-4">
                     <div className="text-[10px] text-gray-500 flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                      Changes are securely committed and encrypted locally on client browser cache.
+                      Preview state exists only for this page session and is not a canonical consent record.
                     </div>
                     <Button 
                       onClick={handleApplyProtocol}
                       size="sm"
                       className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all duration-300 hover:shadow-orange-500/10 hover:shadow-lg hover:-translate-y-0.5 gap-1.5"
                     >
-                      <Check className="w-3.5 h-3.5" /> Apply Custom Protocol
+                      <Check className="w-3.5 h-3.5" /> Apply Preview
                     </Button>
                   </div>
 
