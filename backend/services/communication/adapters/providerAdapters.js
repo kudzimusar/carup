@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
+import { isProductionLikeRuntime } from '../../../utils/runtimeEnvironment.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
 import {
   EMAIL_CLASSIFICATION_ERRORS,
@@ -1042,9 +1043,9 @@ export class ExpoPushAdapter extends HttpCommunicationAdapter {
 }
 
 export function assertRealTelegramAdapter(registry, env = process.env) {
-  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  const isRealEnvironment = isProductionLikeRuntime(env) || env.COMMUNICATION_REAL_ADAPTERS === 'true';
   if (!isRealEnvironment) return;
-  if (env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true') return;
+  // A deployment must never suppress the real-adapter assertion by turning on a fake-adapter flag.
   if (!envValue(env, 'CARUP_TELEGRAM_BOT_TOKEN')) return;
 
   const adapter = registry.get('telegram');
@@ -1068,14 +1069,22 @@ export function assertRealTelegramAdapter(registry, env = process.env) {
 }
 
 export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
-  const allowFake = !isRealEnvironment || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true';
+  const deployedRuntime = isProductionLikeRuntime(env);
+  const isRealEnvironment = deployedRuntime || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  // COMMUNICATION_FAKE_ADAPTERS_ENABLED is a local/test harness flag only. It cannot turn a real
+  // deployment into a fake provider runtime.
+  const allowFake = !deployedRuntime
+    && (!isRealEnvironment || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true');
   const realOptions = { env, fetchImpl };
   const registry = new Map();
   const put = (channel, adapter) => registry.set(channel, adapter);
-  const configured = (channel, realAdapter) => fakeAdapters[channel] || (allowFake
-    ? new FakeCommunicationAdapter({ channel })
-    : realAdapter);
+  const configured = (channel, realAdapter) => {
+    const injected = fakeAdapters[channel];
+    if (injected && deployedRuntime) {
+      throw new Error(`FATAL: fake ${channel} communication adapter supplied in a deployed runtime.`);
+    }
+    return injected || (allowFake ? new FakeCommunicationAdapter({ channel }) : realAdapter);
+  };
 
   put('whatsapp', configured('whatsapp', new MetaWhatsAppAdapter(realOptions)));
   put('telegram', configured('telegram', new TelegramBotAdapter(realOptions)));
