@@ -13,6 +13,7 @@ export async function queueDiasporaNotification({ recipientId, type, title, mess
       .from('notification_queue')
       .insert({
         recipient_id: recipientId,
+        channel: 'in_app',
         type,
         title,
         message,
@@ -22,16 +23,10 @@ export async function queueDiasporaNotification({ recipientId, type, title, mess
       .select()
       .single();
 
-    if (error) {
-      // Some existing schemas do not have metadata; fall back to legacy columns only.
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('notification_queue')
-        .insert({ recipient_id: recipientId, type, title, message, read: false })
-        .select()
-        .single();
-      if (fallbackError) throw fallbackError;
-      return fallbackData;
-    }
+    // Do not fall back to a legacy insert that omits channel. The canonical reader filters on
+    // channel='in_app'; creating an invisible row would report success while dropping the user's
+    // notification from the product.
+    if (error) throw error;
     return data;
   } catch (err) {
     console.warn('⚠️ Diaspora notification queue insert skipped:', err.message);
