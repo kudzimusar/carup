@@ -251,7 +251,16 @@ export async function verifyTradeProfile(id, payload = {}, userContext = {}, req
   }
   const { data: previous, error: fetchError } = await supabase.from('diaspora_trade_profiles').select('*').eq('id', id).is('deleted_at', null).single();
   if (fetchError || !previous) throw new NotFoundError('Diaspora trade profile not found');
-  const trustScore = Math.min(100, Math.max(previous.trust_score || 50, payload.trust_score || 80));
+  const submittedTrustScore = payload.trust_score;
+  const previousTrustScore = Number(previous.trust_score);
+  let trustScore = Number.isFinite(previousTrustScore) ? previousTrustScore : null;
+  if (submittedTrustScore !== undefined && submittedTrustScore !== null) {
+    const reviewed = Number(submittedTrustScore);
+    if (!Number.isFinite(reviewed) || reviewed < 0 || reviewed > 100) {
+      throw new ValidationError('trust_score must be a reviewed number between 0 and 100');
+    }
+    trustScore = reviewed;
+  }
   const { data, error } = await supabase
     .from('diaspora_trade_profiles')
     .update({ verification_status: 'VERIFIED', trust_score: trustScore, updated_by: context.id, updated_at: new Date().toISOString(), metadata: { ...(previous.metadata || {}), verification: payload } })
