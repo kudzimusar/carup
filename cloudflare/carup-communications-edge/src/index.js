@@ -45,8 +45,16 @@ function timingSafeStringEqual(left, right) {
   return diff === 0;
 }
 
+function edgeWorkerSecret(env) {
+  return env.CLOUDFLARE_EMAIL_WORKER_SECRET || env.CARUP_EDGE_WORKER_SECRET || '';
+}
+
+function inboundWebhookSecret(env) {
+  return env.CLOUDFLARE_EMAIL_INBOUND_SECRET || env.CARUP_CLOUDFLARE_WEBHOOK_SECRET || '';
+}
+
 function isAuthorized(request, env) {
-  return timingSafeStringEqual(bearerToken(request), env.CARUP_EDGE_WORKER_SECRET || '');
+  return timingSafeStringEqual(bearerToken(request), edgeWorkerSecret(env));
 }
 
 function normalizeAddress(value) {
@@ -141,12 +149,14 @@ function extractAttachmentMetadataFromRaw(raw) {
 async function signCarUpPayload(rawBody, env, nonce = crypto.randomUUID()) {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const bodyHash = await sha256Hex(rawBody);
-  const signature = await hmacHex(env.CARUP_CLOUDFLARE_WEBHOOK_SECRET, `${timestamp}.${nonce}.${bodyHash}.${rawBody}`);
+  const secret = inboundWebhookSecret(env);
+  if (!secret) throw new Error('carup_inbound_secret_not_configured');
+  const signature = await hmacHex(secret, `${timestamp}.${nonce}.${bodyHash}.${rawBody}`);
   return { timestamp, nonce, bodyHash, signature: `v1=${signature}` };
 }
 
 async function forwardInboundEmail(payload, env, fetchImpl = fetch) {
-  if (!env.CARUP_API_BASE_URL || !env.CARUP_CLOUDFLARE_WEBHOOK_SECRET) throw new Error('carup_inbound_not_configured');
+  if (!env.CARUP_API_BASE_URL || !inboundWebhookSecret(env)) throw new Error('carup_inbound_not_configured');
   const rawBody = JSON.stringify(payload);
   const signed = await signCarUpPayload(rawBody, env, payload.nonce || crypto.randomUUID());
   const response = await fetchImpl(`${env.CARUP_API_BASE_URL.replace(/\/+$/, '')}/api/communications/webhooks/cloudflare/email`, {
