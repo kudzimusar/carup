@@ -15,6 +15,7 @@
  *    there is no real network/provider here.
  */
 import { CarUpError } from '../../utils/errors.js';
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
 
 // Providers recognised by the SafeTrade escrow abstraction. SANDBOX/FAKE are always safe (no real
 // money). Real providers are added only at EB-4 external activation; the approved list is empty so
@@ -71,7 +72,7 @@ export const SAFETRADE_RELEASE_TRIGGERS = Object.freeze([
 export const SAFETRADE_RECONCILIATION_TOLERANCE = 0.005;
 
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isDeployedRuntime(process.env);
 }
 
 /** Master gate. Default OFF — when false, all SafeTrade routes/services are inert. */
@@ -96,7 +97,15 @@ export function configuredSafeTradeProvider() {
  * The RPC enforces the same invariant inside the transaction (defense-in-depth).
  */
 export function assertSafeTradeProductionSafety() {
-  if (!isSafeTradeLivePaymentEnabled()) return; // sandbox path is always safe
+  if (isProduction() && isSafeTradeEnabled() && !isSafeTradeLivePaymentEnabled()) {
+    throw new CarUpError(
+      `SafeTrade is enabled in a deployed runtime but no approved live payment provider is active. `
+      + `Refusing sandbox escrow (${SAFETRADE_EXTERNAL_ACTIVATION_ERROR}).`,
+      403,
+      'EXTERNAL_ACTIVATION_REQUIRED',
+    );
+  }
+  if (!isSafeTradeLivePaymentEnabled()) return;
   const provider = configuredSafeTradeProvider();
   if (!provider || !SAFETRADE_APPROVED_LIVE_PROVIDERS.includes(provider)) {
     // Typed 403 so it surfaces to the UI as the "external-activation-unavailable" denial category
@@ -110,8 +119,9 @@ export function assertSafeTradeProductionSafety() {
   }
 }
 
-/** Sandbox is selected unless live payment is enabled AND an approved provider is configured. */
+/** Sandbox is local/test-only. Deployed runtimes must report SafeTrade unavailable until live activation. */
 export function shouldUseSandboxEscrow() {
+  if (isProduction()) return false;
   if (!isSafeTradeLivePaymentEnabled()) return true;
   const provider = configuredSafeTradeProvider();
   return !provider || !SAFETRADE_APPROVED_LIVE_PROVIDERS.includes(provider);
