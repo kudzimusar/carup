@@ -7,6 +7,7 @@
  */
 const DEPLOYED_CARUP_ENVS = new Set(['staging', 'production']);
 const DEPLOYED_VERCEL_ENVS = new Set(['preview', 'production']);
+const DEPLOYED_NODE_ENVS = new Set(['staging', 'production']);
 
 function normalized(value) {
   return String(value ?? '').trim().toLowerCase();
@@ -14,7 +15,8 @@ function normalized(value) {
 
 export function isDeployedRuntime(env = process.env) {
   return DEPLOYED_CARUP_ENVS.has(normalized(env?.CARUP_ENV))
-    || DEPLOYED_VERCEL_ENVS.has(normalized(env?.VERCEL_ENV));
+    || DEPLOYED_VERCEL_ENVS.has(normalized(env?.VERCEL_ENV))
+    || DEPLOYED_NODE_ENVS.has(normalized(env?.NODE_ENV));
 }
 
 export function isProductionLikeRuntime(env = process.env) {
