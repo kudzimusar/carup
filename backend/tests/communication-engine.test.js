@@ -2196,9 +2196,54 @@ test('assertRealTelegramAdapter is a no-op in test environment regardless of bot
     () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'staging' }),
     'must not throw when CARUP_TELEGRAM_BOT_TOKEN is not set'
   );
+});
+
+// OC-5R: fake adapters may exist only as local/test fixtures. COMMUNICATION_FAKE_ADAPTERS_ENABLED
+// once let a staging deployment run fake providers that report every send as accepted; that bypass
+// is retired, and no flag may override the deployed-runtime boundary.
+const DEPLOYED_RUNTIME_ENVS = [
+  { NODE_ENV: 'staging' },
+  { NODE_ENV: 'production' },
+  { NODE_ENV: 'test', CARUP_ENV: 'staging' },
+  { NODE_ENV: 'test', VERCEL_ENV: 'preview' },
+  { NODE_ENV: 'development', VERCEL_ENV: 'production' },
+];
+
+test('COMMUNICATION_FAKE_ADAPTERS_ENABLED cannot suppress the real-Telegram assertion in a deployed runtime', () => {
+  const fakeRegistry = { get: () => new FakeCommunicationAdapter({ channel: 'telegram' }) };
+  for (const runtime of DEPLOYED_RUNTIME_ENVS) {
+    assert.throws(
+      () => assertRealTelegramAdapter(fakeRegistry, { ...runtime, COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
+      /FATAL.*fake/i,
+      `${JSON.stringify(runtime)}: the fake-adapter flag must not silence the real-adapter assertion`,
+    );
+  }
+});
+
+test('a deployed runtime never builds fake external adapters, whatever COMMUNICATION_FAKE_ADAPTERS_ENABLED says', () => {
+  for (const runtime of DEPLOYED_RUNTIME_ENVS) {
+    const registry = createDefaultAdapterRegistry({ env: { ...runtime, COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' } });
+    for (const channel of ['whatsapp', 'telegram', 'email', 'sms', 'instagram', 'facebook', 'push']) {
+      const mode = registry.get(channel).validateConfiguration?.().mode;
+      assert.notEqual(mode, 'fake', `${JSON.stringify(runtime)}: ${channel} must not be a fake adapter`);
+    }
+    assert.throws(
+      () => createDefaultAdapterRegistry({ env: runtime, fakeAdapters: { telegram: new FakeCommunicationAdapter({ channel: 'telegram' }) } }),
+      /FATAL: fake telegram communication adapter supplied in a deployed runtime/,
+      `${JSON.stringify(runtime)}: an injected fake adapter is refused`,
+    );
+  }
+});
+
+test('a local/test fixture runtime may still use fake adapters, with or without the harness flag', () => {
+  for (const env of [{ NODE_ENV: 'test' }, { NODE_ENV: 'test', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true' }, { NODE_ENV: 'development' }]) {
+    const registry = createDefaultAdapterRegistry({ env });
+    assert.equal(registry.get('telegram').validateConfiguration?.().mode, 'fake', `${JSON.stringify(env)}: fixture fakes stay available`);
+  }
+  const fakeRegistry = { get: () => new FakeCommunicationAdapter({ channel: 'telegram' }) };
   assert.doesNotThrow(
-    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'staging', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
-    'must not throw when COMMUNICATION_FAKE_ADAPTERS_ENABLED=true'
+    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'test', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
+    'a local/test fixture runtime is not a deployment',
   );
 });
 

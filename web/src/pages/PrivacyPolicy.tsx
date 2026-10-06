@@ -31,9 +31,8 @@ export default function PrivacyPolicy() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm leading-relaxed text-slate-300">
             <p>
-              CarUp operates an internal audit ledger for governed platform events. It is not
-              published to any external or public network and must not be described as a public or
-              distributed ledger.
+              CarUp maintains an internal audit record for governed platform events. It is not
+              published to any external or public network.
             </p>
             <p>
               Public product surfaces may expose a marketplace-visible record only where the
