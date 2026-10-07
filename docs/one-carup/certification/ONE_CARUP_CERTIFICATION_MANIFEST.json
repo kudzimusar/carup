@@ -1975,6 +1975,39 @@
       "remaining": [
         "DEPLOYED-CERTIFIED"
       ]
+    },
+    {
+      "id": "OC5R-OCR-QWEN-LIVE-SMOKE",
+      "phase": "OC-5R",
+      "capability": "ocr.qwen_boundary",
+      "sha": "f8fed206ff6b0afad4772a1956efd58d39f0d8e6",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "workflow_dispatch of the in-lineage manual-only .github/workflows/o2-live-ocr-accuracy.yml at this exact SHA (checkout asserted): one real Cloudflare Workers AI vision request through CarUp's own CloudflareVisionClient on a synthetic corpus image, then a PARTIAL single-fixture Document Intelligence diagnostic whose database writes are captured in-process, never persisted",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/qwen/qwen3.8-27b",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "Cloudflare Workers AI @cf/qwen/qwen3.8-27b answered a vision request (synthetic national-id image, fixed JSON instruction) through this SHA's CloudflareVisionClient, outside production",
+        "the same provider and model completed one Document Intelligence extraction of the synthetic fixture national-id-clean through this SHA's OCR path: 8 of 8 graded fields exact, 0 fabrications, result held as a candidate (Pending_Verification)"
+      ],
+      "evidence": {
+        "request_class": "vision completion: one synthetic document image + a fixed raw-JSON instruction (proof call); one Document Intelligence extraction of one synthetic corpus fixture (partial diagnostic)",
+        "execution_evidence": "GitHub Actions run 37607951170 (workflow_dispatch, ref fix/oc5r-real-runtime-source-closure). Proof: usage 42.3 neurons, 714 prompt + 45 completion tokens, finishReason stop. Fixture national-id-clean: 16237 ms, 271.37 neurons, confidence 0.98.",
+        "result": "proof SUCCEEDED (content {\"ok\":true}); partial gate: fixtures 1/1, fields 8 exact / 0 missing / 0 incorrect, fabrications 0, verdict PARTIAL by design — a single-fixture run is never an accuracy pass, and the job exits non-zero for that reason",
+        "executed_at": "2026-10-07T10:31:57Z",
+        "not_claimed": "OCR accuracy (11-fixture gate not run), deployed wiring (the staging runtime is not this SHA and lacks CLOUDFLARE_API_TOKEN), any identity, Trust or registry authority"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T10:42:00Z"
     }
   ],
   "capabilities": {
@@ -1997,10 +2030,10 @@
     "ocr.qwen_boundary": {
       "SOURCE-CERTIFIED": "PENDING",
       "DATABASE-CERTIFIED": "PENDING",
-      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. Prior live Qwen evidence exists on OTHER lineages only (GMO-8 receipt on PR #209 @ce45e16f; O2 live OCR accuracy runs) — it does not certify this lineage."
+      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. LIVE-PROVIDER PASS rests on OC5R-OCR-QWEN-LIVE-SMOKE (run 37607951170 @f8fed206): the provider answered through this lineage's client; it proves no OCR accuracy (one fixture, PARTIAL) and no deployed wiring. SOURCE and DATABASE for the boundary are still PENDING. Prior live Qwen evidence on OTHER lineages (GMO-8 on PR #209 @ce45e16f) or on superseded code (run 36287013223 @e2961ad) is not carried. The staging runtime lacks CLOUDFLARE_API_TOKEN."
     },
     "identity.lifecycle": {
       "SOURCE-CERTIFIED": "PASS",
