@@ -87,6 +87,8 @@ test('collision: a plan touching a shared timestamp prefix is refused unless the
   const ops = [{ file: '20990101000300_a.sql', action: 'execute' }];
   assert.throws(() => validatePlan(planFor(dir, ops), { migrationsDir: dir }), /UNRESOLVED_COLLISION/);
   assert.throws(() => validatePlan(planFor(dir, ops, { collisions: { 20990101000300: { resolved: false, files: ['20990101000300_a.sql'] } } }), { migrationsDir: dir }), /UNRESOLVED_COLLISION/);
+  const elsewhere = { collisions: { 20990101000300: { resolved: true, files: ['20990101000300_b.sql'] } } };
+  assert.throws(() => validatePlan(planFor(dir, ops, elsewhere), { migrationsDir: dir }), /UNRESOLVED_COLLISION/, 'a resolution that does not name THIS file resolves nothing for it');
   const resolved = { collisions: { 20990101000300: { resolved: true, files: ['20990101000300_a.sql', '20990101000300_b.sql'] } } };
   assert.doesNotThrow(() => validatePlan(planFor(dir, ops, resolved), { migrationsDir: dir }));
   assert.throws(() => validatePlan(planFor(dir, [ops[0], ops[0]], resolved), { migrationsDir: dir }), /AMBIGUOUS_FILENAME/);
