@@ -18,7 +18,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 
 const { isPrivateByTypeRow, PRIVATE_BY_TYPE_CANONICAL } = await import('../services/evidence/evidenceTaxonomy.js');
-const { resolveEvidenceVisibility, isPrivateByTypeUpload, PRIVATE_EVIDENCE_BUCKET } = await import('../services/evidence/evidenceService.js');
+const { resolveEvidenceVisibility, isPrivateByTypeUpload, PRIVATE_EVIDENCE_BUCKET, evidenceStorageBucket } = await import('../services/evidence/evidenceService.js');
 const engine = await import('../services/ingestion/ingestionService.js');
 const { sandboxJpAuctionAdapter } = await import('../services/ingestion/adapters/sandboxJpAuctionAdapter.js');
 
@@ -64,6 +64,17 @@ test('REL-01: a narrower non-public level is still honoured for a private-by-typ
 test('REL-01: ordinary photos keep their public default (the rule is scoped to the type)', () => {
   assert.equal(resolveEvidenceVisibility({ requested: 'public_safe', isDocument: false, mayPublish: false }).visibility, 'public_safe');
   assert.equal(resolveEvidenceVisibility({}).visibility, 'public_safe');
+});
+
+// ── 2b. The bucket ────────────────────────────────────────────────────────────────────────────
+test('REL-01: the bucket is private by TYPE — even if a visibility decision ever said public', () => {
+  assert.equal(evidenceStorageBucket({ privateByType: true, visibility: 'public_safe' }), 'ocr-documents');
+  assert.equal(evidenceStorageBucket({ privateByType: true }), 'ocr-documents');
+  assert.equal(evidenceStorageBucket({ isDocument: true, visibility: 'public_safe' }), 'ocr-documents');
+  for (const visibility of ['private', 'restricted', 'government_only']) assert.equal(evidenceStorageBucket({ visibility }), 'ocr-documents', visibility);
+  // Anti-vacuity: an ordinary public photo still goes to the public bucket.
+  assert.equal(evidenceStorageBucket({ visibility: 'public_safe' }), 'vehicle-images');
+  assert.equal(evidenceStorageBucket({}), 'vehicle-images');
 });
 
 // ── 3. Provider ingestion ─────────────────────────────────────────────────────────────────────

@@ -157,6 +157,18 @@ export function isPrivateByTypeUpload(normalized) {
 /** The private bucket. Read-side privacy is decided by bucket (publicVehicleProjection). */
 export const PRIVATE_EVIDENCE_BUCKET = 'ocr-documents';
 
+const NON_PUBLIC_VISIBILITIES = Object.freeze(['private', 'restricted', 'government_only']);
+
+/**
+ * OC-5R-REL-01: the ONE bucket decision for an evidence artifact — private when it is a document, is
+ * private by type (an odometer photo), or carries a non-public visibility. The upload route uses it
+ * for the bytes it stores and for the bucket a remote create must name, so the type keeps an
+ * odometer photo private even if a visibility decision ever regressed.
+ */
+export function evidenceStorageBucket({ isDocument = false, privateByType = false, visibility = null } = {}) {
+  return (isDocument || privateByType || NON_PUBLIC_VISIBILITIES.includes(visibility)) ? PRIVATE_EVIDENCE_BUCKET : 'vehicle-images';
+}
+
 /**
  * Exposure ordering for the evidence visibility vocabulary, least to most public. `government_only`
  * is narrower than `private`: it is readable by one authority rather than by the vehicle's own

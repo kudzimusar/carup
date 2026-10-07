@@ -308,6 +308,10 @@ test('REL-01: a remote odometer create must reference a private object under thi
   assert.equal(publicUrl.status, 400, publicUrl.text.slice(0, 300));
   const noBucket = await call(uploadPath(), { body: { ...base, file_path: `${VIN}/odo-c.jpg`, file_url: `${VIN}/odo-c.jpg` } });
   assert.equal(noBucket.status, 400, noBucket.text.slice(0, 300));
+  // Naming the private bucket does not make a public URL private: the object is somewhere else.
+  const urlClaimingPrivate = await call(uploadPath(), { body: { ...base, storage_bucket: 'ocr-documents', file_url: `https://storage.invalid/vehicle-images/${VIN}/odo-e.jpg` } });
+  assert.equal(urlClaimingPrivate.status, 400, urlClaimingPrivate.text.slice(0, 300));
+  assert.match(urlClaimingPrivate.text, /odometer photo is private evidence/);
   assert.equal(db.vehicle_evidence.length, 0, 'no row points at a public copy');
   const privateRef = await call(uploadPath(), { body: { ...base, storage_bucket: 'ocr-documents', file_path: `${VIN}/odo-d.jpg`, file_url: `${VIN}/odo-d.jpg` } });
   assert.equal(privateRef.status, 201, privateRef.text.slice(0, 300));

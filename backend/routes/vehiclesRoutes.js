@@ -31,6 +31,7 @@ import {
   evidenceTypeLabel,
   isDocumentUpload,
   isPrivateByTypeUpload,
+  evidenceStorageBucket,
   PRIVATE_EVIDENCE_BUCKET,
   resolveEvidenceVisibility,
   isSupportedMimeType,
@@ -733,8 +734,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     const randomString = crypto.randomBytes(6).toString('hex');
     filePath = `${vin.toUpperCase()}/${normalized.evidenceType}_${randomString}.${fileExt}`;
 
-    const isPrivate = ['private', 'restricted', 'government_only'].includes(visibilityLevel);
-    bucketName = (isDocumentUpload(normalized) || privateByType || isPrivate) ? PRIVATE_EVIDENCE_BUCKET : 'vehicle-images';
+    bucketName = evidenceStorageBucket({ isDocument: isDocumentUpload(normalized), privateByType, visibility: visibilityLevel });
     const uploadResult = await uploadToStorage(bucketName, filePath, fileBuffer, mimeType);
     fileUrl = uploadResult;
   } else if (!isSupportedMimeType(mimeType)) {
@@ -801,11 +801,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
   // is what turns a public-image create into a private-document reference the read path will sign.
   if (bucketName) {
-    const expectedBucket = (isDocumentUpload(normalized)
-      || privateByType
-      || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
-      ? 'ocr-documents'
-      : 'vehicle-images';
+    const expectedBucket = evidenceStorageBucket({ isDocument: isDocumentUpload(normalized), privateByType, visibility: visibilityLevel });
     if (bucketName !== expectedBucket) {
       throw new ValidationError(
         `storage_bucket "${bucketName}" does not match this evidence type and visibility (expected "${expectedBucket}")`,
