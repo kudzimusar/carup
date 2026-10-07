@@ -46,7 +46,7 @@ export const EDITORIAL_ARTICLES: EditorialArticle[] = [
     description:
       'CarUp publishes one governed trust decision per vehicle. This explains the inputs, the versioning, and why a vehicle with no evaluation shows no number rather than a zero.',
     content: [
-      'A CarUp trust score is not an opinion about a vehicle and not a market rating. It is a governed decision produced by one service, stamped with the version of the rules that produced it, and published with the evidence basis it was derived from. Today that version is trust-decision-1.0.0.',
+      'A CarUp trust score is not an opinion about a vehicle and not a market rating. It is a governed decision produced by one service, stamped with the version of the rules that produced it, and published with the evidence basis it was derived from. Today that version is trust-decision-1.1.0.',
       'Every score carries four things besides the number: an evaluation state, a band, a confidence level, and a list of known limitations. The evaluation state is the part most people skip and the part that matters most. A vehicle that has never been assessed is "not evaluated" — it is not a zero, and it says nothing for or against the vehicle. A vehicle assessed under superseded rules is "stale", and CarUp withholds the earlier number rather than presenting it as current.',
       'Confidence is separate from the score on purpose. A number alone cannot distinguish a vehicle with thin evidence from one that was thoroughly assessed and genuinely scored low. So the evidence basis is published alongside: how many governed facts are backed by a record, how many are adverse, and how many connected sources contributed.',
       'The limitations are published too, in plain words. If no live government or partner source is connected for a vehicle, the score says so. CarUp does not estimate a sub-score for a signal it has no record of, and it does not fill a gap with a plausible average.',
@@ -62,7 +62,7 @@ export const EDITORIAL_ARTICLES: EditorialArticle[] = [
       capability: 'canonicalTrustService — versioned trust decisions with evaluation state, band, confidence, evidence basis and known limitations',
     },
     context: [
-      { label: 'Calculation version', value: 'trust-decision-1.0.0' },
+      { label: 'Calculation version', value: 'trust-decision-1.1.0' },
       { label: 'Valuation published', value: 'None' },
     ],
   },

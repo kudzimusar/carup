@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { assembleDecision, getTrustDecision } from '../services/trustDecision/trustDecisionService.js';
+import { assembleDecision, getTrustDecision, CALCULATION_VERSION } from '../services/trustDecision/trustDecisionService.js';
 import {
   assertCanonicalStaging,
   createPgSupabaseAdapter,
@@ -268,7 +268,7 @@ test('Finding 4 (P2) & Real PostgreSQL .gt() Adapter — >500 vehicle pagination
     const vehicle501 = '1HGCR2F83HA000501';
     const res501 = await db.query('SELECT vin, trust_calculation_version FROM vehicles WHERE vin = $1', [vehicle501]);
     assert.equal(res501.rows.length, 1, 'Vehicle #501 must exist in the database');
-    assert.equal(res501.rows[0].trust_calculation_version, 'trust-decision-1.0.0', 'Vehicle #501 must carry refreshed calculation version');
+    assert.equal(res501.rows[0].trust_calculation_version, CALCULATION_VERSION, 'Vehicle #501 must carry refreshed calculation version');
 
     // --limit semantics
     await db.exec('UPDATE vehicles SET trust_calculation_version = NULL');
@@ -438,7 +438,7 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
     const res = await db.query('SELECT vin, trust_score, trust_calculation_version FROM vehicles WHERE vin = $1', [testVin]);
     assert.equal(res.rows.length, 1);
     assert.ok(res.rows[0].trust_score !== null, 'Trust score must be materialized in PGlite DB');
-    assert.equal(res.rows[0].trust_calculation_version, 'trust-decision-1.0.0', 'Calculation version must be trust-decision-1.0.0');
+    assert.equal(res.rows[0].trust_calculation_version, CALCULATION_VERSION, 'Calculation version must be the running CALCULATION_VERSION');
   } finally {
     await db.close();
   }
@@ -455,12 +455,22 @@ test('P1-B — Post-refresh population trust verification rejects stale/legacy c
       );
     `);
 
-    // Case 1: Current version ('trust-decision-1.0.0') passes
-    await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN1', 75.0, 'trust-decision-1.0.0');`);
+    // Case 1: The running version passes
+    await db.query(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN1', 75.0, $1);`, [CALCULATION_VERSION]);
     await assert.doesNotReject(
       () => verifyPopulationTrust(db),
-      'Current calculation version trust-decision-1.0.0 must pass verification',
+      `Current calculation version ${CALCULATION_VERSION} must pass verification`,
     );
+
+    // Case 1b: a row stamped by the superseded 1.0.0 rules (which counted partner-file and manual
+    // review as connected sources) is stale under the running version and fails
+    await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN1B', 84.0, 'trust-decision-1.0.0');`);
+    await assert.rejects(
+      () => verifyPopulationTrust(db),
+      /1 post-refresh population trust contract violation/,
+      'A trust-decision-1.0.0 stamp must fail verification once the rules moved on',
+    );
+    await db.exec(`DELETE FROM vehicles WHERE vin = 'VIN1B';`);
 
     // Case 2: Stale version ('2026.06.21.v1') fails
     await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN2', 75.0, '2026.06.21.v1');`);
@@ -592,7 +602,7 @@ test('JSONB serialization regression — adapter handles trust_known_limitations
     const row = res.rows[0];
 
     assert.ok(row.trust_score !== null, 'trust_score must be materialized');
-    assert.equal(row.trust_calculation_version, 'trust-decision-1.0.0');
+    assert.equal(row.trust_calculation_version, CALCULATION_VERSION);
 
     // trust_known_limitations: non-empty JSON array (cheapDecide with coverage:[] produces limitations)
     const limitations = typeof row.trust_known_limitations === 'string'
@@ -721,7 +731,7 @@ test('P1-READ — getTrustDecision fails closed on dependency read errors; no wr
 
   const cleanDecision = await getTrustDecision(testVin, { client: emptyEvidenceClient });
   assert.equal(cleanDecision.vin, testVin);
-  assert.equal(cleanDecision.calculation_version, 'trust-decision-1.0.0');
+  assert.equal(cleanDecision.calculation_version, CALCULATION_VERSION);
   assert.ok(['low', 'insufficient_evidence'].includes(cleanDecision.overall_trust.status));
 });
 
