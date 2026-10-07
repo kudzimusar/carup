@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { SQLITE_DIALECT_ONLY, parseMigrationSource } from '../db/migrationParser.js';
 import {
+  CUSTODY_RECORD, DEFERRED_LINEAGE, ONE_TIME_DATA_MIGRATIONS,
   PLAN_SCHEMA, REPAIR_TAG, RUNNER_TAG, assertStagingTarget, isRecordedBy, prepareUpSql, runPlan, sha256, validatePlan,
 } from '../../database/scripts/lib/stagingMigrationRunner.mjs';
 
@@ -326,4 +327,57 @@ test('a file the plan first repairs into the ledger may then be replayed — nev
   assert.throws(() => validatePlan(twice, { migrationsDir: dir }), /AMBIGUOUS_FILENAME/);
   const repairedTwice = planFor(dir, [repairThenReplay.operations[0], repairThenReplay.operations[0]].map(({ sha256: _, ...op }) => op));
   assert.throws(() => validatePlan(repairedTwice, { migrationsDir: dir }), /AMBIGUOUS_FILENAME/);
+});
+
+// ── OC-5R Stage A: migration custody ─────────────────────────────────────────────────────────────────────────────────
+const repoPlan = (ops) => ({ schema: PLAN_SCHEMA, target_ref: STAGING, operations: ops });
+const repoSha = (file) => sha256(readFileSync(path.join(REPO_MIGRATIONS, file), 'utf8'));
+
+test('OC-5R A1: the SQLite-era 001/002 are refused for every action — a ledger repair included', () => {
+  for (const file of ['001_add_financial_ledger.sql', '002_add_notification_queue.sql']) {
+    assert.ok(SQLITE_DIALECT_ONLY[file], `${file} is in the parser's exclusion registry`);
+    for (const action of ['execute', 'ledger_repair', 'replay']) {
+      const op = { file, action, sha256: repoSha(file), expect: ['true'], group: 'g' };
+      assert.throws(() => validatePlan(repoPlan([op]), { migrationsDir: REPO_MIGRATIONS }), /NEVER_APPLY/, `${file} ${action}`);
+    }
+  }
+});
+
+test('OC-5R A2: the recorded publication backfill can never be executed or replayed; recording it stays possible', () => {
+  const file = '20260808140000_publication_gate_backfill.sql';
+  const one = ONE_TIME_DATA_MIGRATIONS[file];
+  assert.equal(one.classification, 'RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY');
+  assert.equal(repoSha(file), one.sha256, 'the pin names the recorded file exactly');
+  const plan = (action) => repoPlan([{ file, action, sha256: one.sha256, expect: ['true'], group: 'g' }]);
+  assert.throws(() => validatePlan(plan('replay'), { migrationsDir: REPO_MIGRATIONS }), /NEVER_REPLAY/);
+  assert.throws(() => validatePlan(plan('execute'), { migrationsDir: REPO_MIGRATIONS }), /NEVER_REPLAY/);
+  assert.doesNotThrow(() => validatePlan(plan('ledger_repair'), { migrationsDir: REPO_MIGRATIONS }), 'a ledger-only record runs no SQL');
+});
+
+test('OC-5R A3: lineage under custody is refused for every action wherever it sits, and agrees with the custody record', () => {
+  const record = JSON.parse(readFileSync(path.resolve(here, '../..', CUSTODY_RECORD), 'utf8'));
+  assert.equal(record.reverse_lineage_check.unexplained, 0, 'no live object is left unexplained');
+  for (const e of record.exceptions) {
+    assert.match(e.status, /^DEFERRED_[A-Z_]+_PRESENT_ON_STAGING$/);
+    assert.equal(e.production_authority, 'NONE');
+    assert.equal(e.automatic_apply_authority, 'NONE');
+    assert.ok(e.unresolved_before_promotion.length > 0, `${e.id} states what blocks promotion`);
+  }
+  const ids = new Set(record.exceptions.map((e) => e.id));
+  for (const [file, id] of Object.entries(DEFERRED_LINEAGE)) assert.ok(ids.has(id), `${file} -> ${id} is in the custody record`);
+  for (const c of record.exceptions.flatMap((e) => e.candidates || [])) {
+    assert.equal(sha256(readFileSync(path.resolve(here, '../..', c.path), 'utf8')), c.sha256, `${c.path} is the file the record pins`);
+  }
+  const x4 = record.exceptions.find((e) => e.id === 'X4-BIOMETRIC-CONSENT-LEDGER');
+  assert.match(x4.unresolved_before_promotion[0].question, /CASCADE/, 'the retention decision is surfaced, not decided');
+  // A copy under either name inside database/migrations is still refused — for every action.
+  const dir = migrationsDir(Object.fromEntries(Object.keys(DEFERRED_LINEAGE).map((f) => [f, mig('select 1;')])));
+  for (const file of Object.keys(DEFERRED_LINEAGE)) {
+    for (const action of ['execute', 'ledger_repair', 'replay']) {
+      assert.throws(() => validatePlan(planFor(dir, [{ file, action, expect: ['true'], group: 'g' }]), { migrationsDir: dir }), /DEFERRED_LINEAGE/, `${file} ${action}`);
+    }
+  }
+  // …and so is a plan that names the candidate by a path instead of a bare filename.
+  const viaPath = repoPlan([{ file: '../migration-candidates/oc5c/20261004175000_o2_x4_identity_biometric_consents.sql', action: 'execute', sha256: '0'.repeat(64) }]);
+  assert.throws(() => validatePlan(viaPath, { migrationsDir: REPO_MIGRATIONS }), /DEFERRED_LINEAGE/);
 });

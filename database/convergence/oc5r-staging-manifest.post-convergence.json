@@ -1,14 +1,14 @@
 {
  "schema": "oc5r-migration-manifest/v1",
  "target_ref": "eoyenigwevnxwwhyhaer",
- "captured_at": "2026-10-07T07:54:38.980140+00:00",
+ "captured_at": "2026-10-07T09:27:12.244907+00:00",
  "ledger_rows": 263,
  "repo_files": 215,
  "migration_files": 214,
  "counts": {
   "NEVER_APPLY": 7,
   "RECORDED_AND_PRESENT": 207,
-  "UNPROBEABLE": 1
+  "RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY": 1
  },
  "orphan_ledger_rows": [
   {
@@ -238,6 +238,20 @@
    "20260626120000_source_verification_network.sql"
   ]
  },
+ "lineage_exceptions": {
+  "record": "database/convergence/oc5r-lineage-exceptions.json",
+  "live_objects": 7703,
+  "explained_by_lineage": 7663,
+  "held_under_exception": {
+   "X4-BIOMETRIC-CONSENT-LEDGER": 36,
+   "PR208-DEALER-DOCUMENT-EXTRACTION": 4
+  },
+  "unexplained": 0,
+  "exceptions": {
+   "X4-BIOMETRIC-CONSENT-LEDGER": "DEFERRED_CANDIDATE_PRESENT_ON_STAGING",
+   "PR208-DEALER-DOCUMENT-EXTRACTION": "DEFERRED_FOREIGN_LINEAGE_PRESENT_ON_STAGING"
+  }
+ },
  "double_recorded_files": {
   "016_referral_engine_phase1.sql": [
    "20260612065744",
@@ -351,7 +365,7 @@
    "superseded_objects": [],
    "classification": "NEVER_APPLY",
    "notes": [
-    "Legacy SQLite-flavoured DDL (TEXT timestamps, FK to the retired safepay_escrows). Only financial_ledger exists live; payments/payouts/refunds are absent by design. Not in a parser registry (recommend RETIRED_UNAPPLIABLE); never apply."
+    "Parser registry SQLITE_DIALECT_ONLY: SQLite-dialect file, never executed against PostgreSQL."
    ],
    "dependency": "n/a",
    "precondition": [],
@@ -410,7 +424,7 @@
    "superseded_objects": [],
    "classification": "NEVER_APPLY",
    "notes": [
-    "Legacy SQLite-flavoured; notification_queue exists live in a different PostgreSQL shape; outbox_events/gateway_integration_logs/sync_reconciliation_queue absent by design. Not in a parser registry (recommend RETIRED_UNAPPLIABLE); never apply."
+    "Parser registry SQLITE_DIALECT_ONLY: SQLite-dialect file, never executed against PostgreSQL."
    ],
    "dependency": "n/a",
    "precondition": [],
@@ -5617,9 +5631,10 @@
    "effect_state": "NO_CATALOG_OBJECTS",
    "absent_objects": [],
    "superseded_objects": [],
-   "classification": "UNPROBEABLE",
+   "classification": "RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY",
    "notes": [
-    "One-time UPDATE that published every listable vehicle. Its post-state was deliberately reversed by the moderator-authorised OC-5R-DB2B-1 quarantine (0 published vehicles). Recorded; MUST NEVER be replayed \u2014 it would re-publish quarantined listings."
+    "One-time UPDATE that published every listable vehicle. Its post-state was deliberately reversed by the moderator-authorised OC-5R-DB2B-1 quarantine (0 published vehicles). Recorded; MUST NEVER be replayed \u2014 it would re-publish quarantined listings.",
+    "Runner refuses execute/replay: stagingMigrationRunner.mjs ONE_TIME_DATA_MIGRATIONS."
    ],
    "dependency": "n/a",
    "precondition": [],
@@ -10569,9 +10584,9 @@
    "rollback": "none (no action)"
   }
  ],
- "mode": "post-convergence recertification, after the OC-5R DB2C live run 2026-10-07T07:45:13.737Z -> 2026-10-07T07:49:47.684Z",
+ "mode": "post-convergence recertification, after the OC-5R DB2C live run 2026-10-07T07:45:13.737Z -> 2026-10-07T07:49:47.684Z; Stage-A custody classifications applied",
  "probe_evaluation": {
-  "catalog_captured_at": "2026-10-07T07:54:38.980140+00:00",
+  "catalog_captured_at": "2026-10-07T09:27:12.244907+00:00",
   "probes": 2289,
   "true": 2289
  }

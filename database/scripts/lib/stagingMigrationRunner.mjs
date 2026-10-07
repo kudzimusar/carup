@@ -23,7 +23,9 @@
  *   - a replay re-executes an ALREADY-RECORDED migration because a migration in the same group (its anchor,
  *     earlier in that group) regresses part of its effect. It runs inside the anchor's transaction, must prove
  *     the effect it restores, and never writes a ledger row: the file is recorded once, by its original row;
- *   - the target must positively be the staging project or an explicit local rehearsal; production is refused.
+ *   - the target must positively be the staging project or an explicit local rehearsal; production is refused;
+ *   - a recorded ONE-TIME data migration whose effect a later governed act reversed is never executed or replayed again,
+ *     and lineage held under a custody exception (present on staging, not promoted) is refused for every action.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -49,6 +51,35 @@ export const REPAIR_TAG = 'oc5r-ledger-repair';
 export const PLAN_SCHEMA = 'oc5r-staging-migration-plan/v1';
 export const RECEIPT_SCHEMA = 'oc5r-staging-migration-receipt/v1';
 const ACTIONS = new Set(['execute', 'replay', 'ledger_repair']);
+
+/**
+ * RECORDED ONE-TIME DATA MIGRATIONS (OC-5R A2). Recorded files whose only effect was a one-time data rewrite that a later,
+ * governed act deliberately reversed. Running one again would silently undo that act, so the runner refuses to execute or
+ * replay it whatever the ledger says. Recording without running (ledger_repair) stays possible: it executes no SQL.
+ */
+export const ONE_TIME_DATA_MIGRATIONS = Object.freeze({
+  '20260808140000_publication_gate_backfill.sql': Object.freeze({
+    classification: 'RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY',
+    sha256: '8149450f6d8e2b0e090564a84b68f9af4b36e94dc012b68e1849ec0bda2196d7',
+    reason: 'One-time UPDATE that published every listable vehicle. OC-5R DB2B-1 deliberately quarantined those listings '
+      + 'on staging (0 published vehicles); running it again would re-publish them.',
+  }),
+});
+
+/**
+ * DEFERRED LINEAGE UNDER CUSTODY (OC-5R A3). Migrations whose objects are present on canonical staging but which are NOT
+ * promoted into this lineage — see CUSTODY_RECORD. Automatic apply authority is NONE: a plan naming one is refused for every
+ * action, whether the file is a candidate (never reachable from database/migrations anyway) or ever lands in
+ * database/migrations under its original PR #208 name. Promotion is a separate owner decision, not a runner input.
+ */
+export const CUSTODY_RECORD = 'database/convergence/oc5r-lineage-exceptions.json';
+export const DEFERRED_LINEAGE = Object.freeze({
+  '20261004175000_o2_x4_identity_biometric_consents.sql': 'X4-BIOMETRIC-CONSENT-LEDGER',
+  '20261004175100_o2_x4_verification_assessments_biometrics.sql': 'X4-BIOMETRIC-CONSENT-LEDGER',
+  '20260903210000_identity_biometric_consents.sql': 'X4-BIOMETRIC-CONSENT-LEDGER',
+  '20260903211000_verification_assessments_biometrics.sql': 'X4-BIOMETRIC-CONSENT-LEDGER',
+  '20260903220000_dealer_onboarding_extensions.sql': 'PR208-DEALER-DOCUMENT-EXTRACTION',
+});
 
 export class RunnerRefusal extends Error {
   constructor(code, detail) {
@@ -197,7 +228,15 @@ export function validatePlan(plan, { migrationsDir }) {
   const prepared = [];
   for (const op of plan.operations) {
     const file = String(op.file || '');
+    const base = path.basename(file);
     if (!ACTIONS.has(op.action)) throw new RunnerRefusal('BAD_ACTION', `${file}: action must be one of ${[...ACTIONS].join(', ')}`);
+    if (DEFERRED_LINEAGE[base]) {
+      throw new RunnerRefusal('DEFERRED_LINEAGE', `${file} is under custody exception ${DEFERRED_LINEAGE[base]} (${CUSTODY_RECORD}): present on staging, not promoted, automatic apply authority NONE`);
+    }
+    if (ONE_TIME_DATA_MIGRATIONS[base] && op.action !== 'ledger_repair') {
+      const one = ONE_TIME_DATA_MIGRATIONS[base];
+      throw new RunnerRefusal('NEVER_REPLAY', `${file} is ${one.classification}: ${one.reason}`);
+    }
     if (neverApply.has(file)) throw new RunnerRefusal('NEVER_APPLY', `${file} is NEVER_APPLY: ${neverApply.get(file)}`);
     if (isSqliteDialectOnly(file)) throw new RunnerRefusal('NEVER_APPLY', `${file} is SQLite-dialect only`);
     if (isRetiredMigration(file)) throw new RunnerRefusal('NEVER_APPLY', `${file} is retired / unappliable`);

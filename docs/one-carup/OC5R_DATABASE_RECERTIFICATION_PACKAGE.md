@@ -42,7 +42,7 @@ Every dump has `pg_restore --list` rc 0, server 17.6 and client pg_dump 18.6. Th
 | 3 Manifest | 215 files: 109 RECORDED_AND_PRESENT, 79 EFFECT_PRESENT_LEDGER_MISSING, 13 ABSENT, 5 PARTIAL, 1 IDEMPOTENT, 7 NEVER_APPLY, 1 UNPROBEABLE, **0 AMBIGUOUS_COLLISION** (8 shared prefixes resolved by full filename) | `database/convergence/oc5r-staging-manifest.json` |
 | 4 Rehearsal | Faithful PG17.11 restore of the checkpoint (original owners and ACLs, live `postgres` role model): apply 79 repaired / 19 applied / 1 replayed; second apply and dry-run 99 ALREADY_RECORDED; 2,288/2,289 probes true, and the 1 `cron.job` probe is not evaluable on that engine but is true live; Email 1.0 pre/postflight PASS; data changes were inserts only, into the ledger and 2 template tables | rehearsal receipt (12 steps) |
 | 5 Live convergence | 8 preflight gates PASS; apply 2026-10-07 07:45:13Z→07:49:47Z, COMPLETE: 79 LEDGER_REPAIRED, 19 APPLIED, 1 REPLAYED; ledger 165→263 | live receipt (postflight A–G PASS) |
-| 6 Recertification | Post-convergence manifest **207 RECORDED_AND_PRESENT, 7 NEVER_APPLY, 1 UNPROBEABLE**, with 2,289/2,289 probes true live; the integrity sweep, the assertions and the staging integration suite are below | `database/convergence/oc5r-staging-manifest.post-convergence.json` |
+| 6 Recertification | Post-convergence manifest **207 RECORDED_AND_PRESENT, 7 NEVER_APPLY, 1 RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY** (Stage-A vocabulary; it read UNPROBEABLE before), with 2,289/2,289 probes true live; the integrity sweep, the assertions and the staging integration suite are below | `database/convergence/oc5r-staging-manifest.post-convergence.json` |
 
 ## Executed (19, in this order; one runner transaction per group)
 
@@ -69,11 +69,11 @@ prefix row names the sibling by slug.
 - `003_add_user_sessions`, `004_add_tamper_proofing`: parser registry SQLITE_DIALECT_ONLY.
 - `009_phase4_schema`: parser registry RETIRED_UNAPPLIABLE.
 - `supabase_schema.sql`: parser registry NON_MIGRATION_FILES.
-- `001_add_financial_ledger`, `002_add_notification_queue`: legacy SQLite-flavoured DDL. **These are not in a parser registry**; adding them to RETIRED_UNAPPLIABLE is recommended.
+- `001_add_financial_ledger`, `002_add_notification_queue`: SQLite-era files for the local dev database. **Stage A (OC-5R closure) added them to the parser registry SQLITE_DIALECT_ONLY** (sha-pinned; the local SQLite runner keeps applying them). Every PostgreSQL plan action — ledger repair included — is now refused.
 - `20260712100000_communication_scheduler_production_activation`: schedules a production-alias worker. Never apply it to staging.
 
-**UNPROBEABLE (1):** `20260808140000_publication_gate_backfill` is recorded. It was a one-time UPDATE whose post-state the DB2B-1
-quarantine reversed on purpose. **It must never be replayed**, because it would re-publish quarantined listings.
+**RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY (1):** `20260808140000_publication_gate_backfill` is recorded. It was a one-time UPDATE whose post-state the DB2B-1
+quarantine reversed on purpose. Since Stage A the runner refuses to execute or replay it (`ONE_TIME_DATA_MIGRATIONS`, sha-pinned, mutation-tested); only a ledger-only record runs no SQL.
 
 ## Recertification evidence (Stage 6)
 
@@ -105,7 +105,7 @@ backend-and-build) and Referral Engine CI succeeded. The two failures are the st
 - **Custody rollout is PREPARED.** Key activation is disabled until the protected finalizer runs (DB2A D-5). This is the chain's designed end state, not a partial one.
 - **The Trust correction wrote no history or audit row, on purpose.** Canonical `refreshCanonicalTrust` writes none. `trust_score_history` is the retired legacy writers' table, and the production publication gate counts `new_score IS NULL` there as an anomaly. `trust_change_log` may be written only by `governanceService.recordGovernedTrustChange`. The provenance is the receipt, the pre-image and the rollback. A truthful `trust_audit_events` row in the DB2B-1 pattern can be added if wanted.
 - **The ledger keeps its history as-is.** 38 MCP-applied rows match no repo file, and 17 files carry two historical rows. Nothing was deleted. 91 recorded files are identified by stated equivalences (their historical naming conventions), and 116 natively.
-- `identity_biometric_consents_append_only` is live but has no definer in `database/migrations` (X4 migration candidates `20261004175000`/`175100` are present on staging but not in the lineage). This was known since DB2A.
+- **Live schema lineage: 0 unexplained objects** (Stage A strict reverse check, 7,703 live public objects). 7,663 are defined by the lineage; 40 are held under two explicit custody exceptions in `database/convergence/oc5r-lineage-exceptions.json`: **X4-BIOMETRIC-CONSENT-LEDGER** (36 objects, DEFERRED_CANDIDATE_PRESENT_ON_STAGING, 9 consent rows, unresolved CASCADE-vs-RESTRICT retention decision) and **PR208-DEALER-DOCUMENT-EXTRACTION** (4 empty columns on `dealer_compliance_documents` from PR #208's `20260903220000_dealer_onboarding_extensions.sql`, DEFERRED_FOREIGN_LINEAGE_PRESENT_ON_STAGING). The runner refuses every file under custody, by name.
 - **Classified separately, not a database finding:** `Seller Home & Lifecycle Staging UAT` and `Diaspora Deployed Staging UAT` fail at "Prove the governed exact-head preview pair" (UNGOVERNED_BRANCH) on every push. These are stale deployment-pair gates, and none of them reached staging. Nothing was deployed: `git.deploymentEnabled` is false in all three `vercel.json` files.
 - **Deferred, untouched:** reviewer protection on the staging environment, `/triggers/github` CSRF rejections, the stale deployment/runtime, provider live certification, and native mobile.
 

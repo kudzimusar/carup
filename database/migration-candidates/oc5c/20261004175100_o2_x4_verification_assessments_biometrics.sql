@@ -1,6 +1,8 @@
 -- +migrate Up
--- CANDIDATE (OC-5C, ported from PR #208 20260903211000) — NOT APPLIED ANYWHERE. Promote it only
--- together with a SELECTED biometric provider and the deferred assessment service.
+-- CANDIDATE (OC-5C, ported from PR #208 20260903211000) — NOT PROMOTED into the canonical lineage. It IS present on
+-- canonical staging (applied by PR #208's runs, with no ledger row) and is held under custody exception
+-- X4-BIOMETRIC-CONSENT-LEDGER in database/convergence/oc5r-lineage-exceptions.json; the staging runner refuses it by name.
+-- Promote it only together with a SELECTED biometric provider and the deferred assessment service.
 -- O2-X4: biometric evidence columns on the EXISTING append-only verification_assessments.
 --
 -- No second assessment engine: face↔document and liveness are two more evidence dimensions on
