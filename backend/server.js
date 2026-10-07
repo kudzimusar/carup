@@ -39,6 +39,7 @@ import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvi
 import { submitFinancingApplication } from './services/finance/financeService.js';
 import { calculateInsuranceQuote, createInsurancePolicy } from './services/insurance/insuranceService.js';
 import { isProductionLikeRuntime } from './utils/runtimeEnvironment.js';
+import { sentryHealth } from './services/ai/sentry.js';
 import { calculateZimraDuty } from './services/import/importService.js';
 import { reportVehicleStolen, checkStolenStatus, clearStolenStatus } from './services/security/securityService.js';
 import { readDealerReputation, recalculateDealerReputation } from './services/reputation/reputationService.js';
@@ -398,9 +399,8 @@ app.get('/api/health', async (req, res) => {
       outboxBacklog,
       ledgerIntentBacklog
     },
-    sentry: {
-      enabled: !!process.env.SENTRY_DSN
-    },
+    // Truthful: a DSN without an installed SDK is `unavailable`, never `enabled` (OC-5R-PROV-01 C3).
+    sentry: sentryHealth(),
     // Canonical current OCR runtime status (authoritative for "is OCR available").
     ocr,
     // OC-5B: evidence-image analysis, stated as what it is. No adapter is certified, so outside the

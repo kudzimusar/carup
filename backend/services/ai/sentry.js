@@ -47,6 +47,30 @@ export const Sentry = {
   }
 };
 
+/**
+ * The truthful state of error reporting, for /api/health (OC-5R-PROV-01 C3). No Sentry SDK is a
+ * dependency of this lineage — the object above is a logger shim — so a configured DSN does not
+ * make reporting live. Health used to answer `enabled: !!SENTRY_DSN`, i.e. "enabled" whenever the
+ * variable existed. It now says `unavailable` (DSN present, no SDK) or `not_configured`. Installing
+ * and adopting an SDK is a separate decision; this only stops the health surface from claiming it.
+ */
+export const SENTRY_SDK_INSTALLED = false;
+
+export function sentryHealth(env = process.env) {
+  const dsnConfigured = Boolean(env.SENTRY_DSN);
+  const enabled = SENTRY_SDK_INSTALLED && dsnConfigured && sentryInitialized;
+  let status = 'not_configured';
+  if (enabled) status = 'enabled';
+  else if (dsnConfigured) status = 'unavailable';
+  return {
+    enabled,
+    status,
+    sdk_installed: SENTRY_SDK_INSTALLED,
+    dsn_configured: dsnConfigured,
+    reporting_to: enabled ? 'sentry' : 'structured_logger',
+  };
+}
+
 // Auto-initialize on load
 Sentry.init();
 

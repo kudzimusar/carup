@@ -54,8 +54,8 @@ const FAQS: FAQ[] = [
     id: 'faq-3',
     category: 'payments',
     question: 'What payment options are accepted in Zimbabwe?',
-    answer: 'CarUp supports multi-currency pricing in USD and ZiG for its own subscription plans and reports. For a vehicle purchase, money moves directly between buyer and seller: CarUp is non-custodial, holds no funds, has no trust account, and its escrow feature runs against a sandbox provider only — no live payment has ever been processed through it.',
-    tags: ['ZiG', 'USD', 'Ecocash', 'payments', 'fees']
+    answer: 'CarUp prices its own subscription plans and reports in USD and ZiG, but no online payment method — card, EcoCash, InnBucks, ZIPIT or RTGS — is live on CarUp yet, so nothing can be paid through CarUp today. For a vehicle purchase, money moves directly between buyer and seller: CarUp is non-custodial, holds no funds, has no trust account, and its escrow feature runs against a sandbox provider only — no live payment has ever been processed through it.',
+    tags: ['ZiG', 'USD', 'Ecocash', 'InnBucks', 'payments', 'fees']
   },
   {
     id: 'faq-4',
@@ -165,7 +165,7 @@ const CATEGORIES = [
   {
     id: 'payments',
     title: 'Payments & Fees',
-    desc: 'EcoCash, ZIPIT, RTGS and multi-currency (USD & ZiG) for CarUp plans. CarUp holds no funds.',
+    desc: 'USD and ZiG pricing for CarUp plans. No online payment method is live yet, and CarUp holds no funds.',
     icon: Coins,
     color: 'text-yellow-400',
     bgColor: 'bg-yellow-500/10',
@@ -260,8 +260,8 @@ export default function HelpCenter() {
         replyText = "PartSentry records a part change against a vehicle — what was replaced, by whom, and at what odometer reading. It records what a mechanic entered; it does not inspect or authenticate the part, and it guarantees nothing about whether a component is genuine.";
       } else if (cleanedMsg.includes('trust') || cleanedMsg.includes('score') || cleanedMsg.includes('binding') || cleanedMsg.includes('verify')) {
         replyText = "A Trust position reflects the evidence CarUp holds about a vehicle — the documents supplied and CarUp's own review of them. It is not derived from ZINARA or any registry, because CarUp is connected to none, and CarUp makes no claim that records held here are legally binding.";
-      } else if (cleanedMsg.includes('zig') || cleanedMsg.includes('usd') || cleanedMsg.includes('payment') || cleanedMsg.includes('ecocash') || cleanedMsg.includes('zipit') || cleanedMsg.includes('fee')) {
-        replyText = "Gutu AI: We accept multi-currency payments! You can pay platform listing fees or download premium vehicle history reports using USD (Cards or cash vouchers) and ZiG (via EcoCash, ZIPIT, or RTGS bank transfer). Vehicle deals themselves are negotiated directly between parties.";
+      } else if (cleanedMsg.includes('zig') || cleanedMsg.includes('usd') || cleanedMsg.includes('payment') || cleanedMsg.includes('ecocash') || cleanedMsg.includes('innbucks') || cleanedMsg.includes('zipit') || cleanedMsg.includes('rtgs') || cleanedMsg.includes('fee')) {
+        replyText = "Gutu AI: CarUp prices its plans and reports in USD and ZiG, but no online payment method — card, EcoCash, InnBucks, ZIPIT or RTGS — is live yet, so nothing can be paid through CarUp today. Vehicle deals are settled directly between buyer and seller, and CarUp holds no funds.";
       } else if (cleanedMsg.includes('dealer') || cleanedMsg.includes('register') || cleanedMsg.includes('showroom') || cleanedMsg.includes('cr14')) {
         replyText = "You can register a dealership by uploading your company documents in the Dealer portal. CarUp does not visit premises and has no bank financing integration, so registration creates an account rather than an endorsement.";
       } else if (cleanedMsg.includes('mhoro') || cleanedMsg.includes('salibonani') || cleanedMsg.includes('hello') || cleanedMsg.includes('hi') || cleanedMsg.includes('hey')) {

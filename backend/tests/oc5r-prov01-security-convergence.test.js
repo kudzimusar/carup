@@ -399,6 +399,29 @@ test('B3: in a deployment the payment webhook route answers 503 UNAVAILABLE and 
   }
 });
 
+test('B3: a deployment WITH a configured webhook secret still has no provider — a correctly signed delivery is 503, never reconciled', async () => {
+  // The case the secret guard alone cannot cover: staging holds DIASPORA_SAFETRADE_WEBHOOK_SECRET, a
+  // delivery is signed with it and verifies — but CarUp runs no approved provider there, so it must
+  // not be verified against the sandbox and reconciled into simulated payment truth.
+  install();
+  const base = await serve((app) => {
+    app.use(express.json());
+    app.use('/api/diaspora', safeTradeRouter);
+  });
+  const body = { id: 'evt-configured', type: 'release.captured', intentId: 'sbx_pi_1' };
+  const ts = Date.now();
+  const signedWithConfigured = hmac('configured-staging-webhook-secret', ts, JSON.stringify(body));
+  for (const { label, env } of DEPLOYED) {
+    writes.length = 0;
+    const res = await withEnv({ ...env, DIASPORA_SAFETRADE_ENABLED: 'true', DIASPORA_SAFETRADE_WEBHOOK_SECRET: 'configured-staging-webhook-secret' }, () => call(base, 'POST', '/api/diaspora/safetrade/payment-webhook', {
+      body, headers: { 'x-safetrade-signature': signedWithConfigured, 'x-safetrade-timestamp': String(ts) },
+    }));
+    assert.equal(res.status, 503, `${label}: ${JSON.stringify(res.json)}`);
+    assert.equal(res.json.code, 'SAFETRADE_WEBHOOK_UNAVAILABLE', label);
+    assert.deepEqual(writes, [], `${label}: nothing may be claimed or reconciled`);
+  }
+});
+
 test('B3: a pinned request clock is a fixture-runtime facility only — elsewhere the wall clock decides', async () => {
   install();
   const base = await serve((app) => {
