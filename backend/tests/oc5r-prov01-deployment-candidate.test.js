@@ -98,9 +98,17 @@ test('E3: the committed candidate manifest is well-formed and governed', () => {
   // Exactly the canonical staging project — which by construction is never the production one
   // (CR-1 forbids writing the production ref here, even to refuse it).
   assert.equal(m.database.project_ref, 'eoyenigwevnxwwhyhaer');
-  assert.equal(m.expected_pairing.frontend.value, FE);
+  // OC-5R-REL-01: the pairing names a CANDIDATE origin. It used to pin this branch's Vercel branch
+  // alias, which exists only for a Git-sourced deployment; the projects have had no connected Git
+  // repository since OC-P0, so a release pairs on aliases assigned and read back from Vercel. What
+  // stays fixed is the governance: a per-candidate vercel.app origin, never a stable alias, an
+  // anchored backend pattern, and a package that never records a deployment as done.
+  const fe = m.expected_pairing.frontend.value;
+  assert.match(fe, /^https:\/\/carup-staging-[a-z0-9-]+\.vercel\.app$/);
+  assert.notEqual(fe, 'https://carup-staging.vercel.app', 'the stable alias is not a candidate');
+  assert.match(m.expected_pairing.backend.pattern, /^\^https:\/\/carup-backend-staging-.+\$$/, 'anchored at both ends');
   const be = new RegExp(m.expected_pairing.backend.pattern);
-  assert.equal(be.test(BE), true);
   assert.equal(be.test('https://carup-backend-staging.vercel.app'), false, 'the stable alias is not a candidate');
+  assert.equal(be.test(fe), false, 'the backend pattern cannot admit the frontend');
   assert.equal(m.deployment.performed, false, 'the package prepares a deployment; it never records one as done');
 });

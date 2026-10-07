@@ -1,7 +1,7 @@
 import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
-import { loadPairingFile, resolvePreviewApiUrl } from "./build/previewPairing"
+import { loadPairingFile, resolveBuildIdentity, resolvePreviewApiUrl } from "./build/previewPairing"
 
 // ── Candidate provenance (Issue #164 Phase 8, Cluster I) ────────────────────────────────────────
 // A per-branch preview must be built against ITS OWN backend preview. The first Phase 8 physical UAT
@@ -12,10 +12,15 @@ import { loadPairingFile, resolvePreviewApiUrl } from "./build/previewPairing"
 // `VITE_`-prefixed process env var through `import.meta.env` during config resolution. `define` would
 // have to match the source text `import.meta.env?.VITE_API_URL` (with the optional chain) exactly, and
 // silently no-ops when it does not.
+//
+// OC-5R-REL-01: the revision and branch come from `resolveBuildIdentity` — Vercel's Git variables for
+// a Git-sourced deployment, the deployer's explicit CARUP_BUILD_SHA / CARUP_BUILD_REF for a CLI upload
+// (the projects have no connected Git repository), and a refusal when the two disagree.
+const build = resolveBuildIdentity(process.env)
 const pairing = resolvePreviewApiUrl({
   configuredApiUrl: process.env.VITE_API_URL,
   vercelEnv: process.env.VERCEL_ENV,
-  gitRef: process.env.VERCEL_GIT_COMMIT_REF,
+  gitRef: build.ref,
   pairing: loadPairingFile(),
 })
 if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
@@ -28,8 +33,8 @@ if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 // cannot say what it is — gets '' and the demo identities are folded out of the bundle.
 process.env.VITE_ALLOW_DEMO_LOGINS =
   process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? 'true' : ''
-process.env.VITE_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? ''
-process.env.VITE_GIT_REF = process.env.VERCEL_GIT_COMMIT_REF ?? ''
+process.env.VITE_COMMIT_SHA = build.sha
+process.env.VITE_GIT_REF = build.ref
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.
 console.log(
   `[carup] API base for this build: ${pairing.apiUrl ?? '(runtime host resolution)'} — ${pairing.reason}`,
@@ -61,6 +66,8 @@ function provenanceManifest() {
         source: JSON.stringify({
           commit_sha: process.env.VITE_COMMIT_SHA || null,
           git_ref: process.env.VITE_GIT_REF || null,
+          // How the revision above was stated: Vercel's Git variables, or the deployer's explicit input.
+          provenance_source: build.source,
           api_base_url: process.env.VITE_API_URL || null,
           api_base_source: pairing.reason,
           unpaired: pairing.unpaired,

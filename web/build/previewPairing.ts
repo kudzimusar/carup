@@ -24,6 +24,42 @@ import path from 'node:path'
 /** Mirrors `UNPAIRED_PREVIEW_API_BASE_URL` in `src/lib/apiClient.ts` (asserted equal by its test). */
 export const UNPAIRED_PREVIEW_API_BASE_URL = 'https://unpaired-preview.carup.invalid/api'
 
+/**
+ * OC-5R-REL-01 — which revision and branch this build IS.
+ *
+ * A Git-sourced Vercel deployment states it through its system variables (`VERCEL_GIT_COMMIT_SHA`,
+ * `VERCEL_GIT_COMMIT_REF`). Since OC-P0 the CarUp projects have NO connected Git repository, so a
+ * governed release is a CLI upload of a clean worktree at the exact SHA, and Vercel injects none of
+ * those variables. The deployer then states the revision explicitly through `CARUP_BUILD_SHA` and
+ * `CARUP_BUILD_REF`. Vercel's own variables always win when present, and a build whose two sources
+ * disagree is REFUSED — a bundle may not claim two revisions. The resolver and the candidate verifier
+ * still check the claim against the branch head; this only says where the claim came from.
+ */
+export type BuildIdentity = {
+  sha: string
+  ref: string
+  source: 'vercel_git' | 'explicit_build_input' | 'none'
+}
+
+export function resolveBuildIdentity(env: Record<string, string | undefined>): BuildIdentity {
+  const gitSha = env.VERCEL_GIT_COMMIT_SHA?.trim() || ''
+  const gitRef = env.VERCEL_GIT_COMMIT_REF?.trim() || ''
+  const inputSha = env.CARUP_BUILD_SHA?.trim() || ''
+  const inputRef = env.CARUP_BUILD_REF?.trim() || ''
+  if (gitSha && inputSha && gitSha !== inputSha) {
+    throw new Error(`build provenance conflict: VERCEL_GIT_COMMIT_SHA ${gitSha.slice(0, 8)} vs CARUP_BUILD_SHA ${inputSha.slice(0, 8)}`)
+  }
+  if (gitRef && inputRef && gitRef !== inputRef) {
+    throw new Error(`build provenance conflict: VERCEL_GIT_COMMIT_REF "${gitRef}" vs CARUP_BUILD_REF "${inputRef}"`)
+  }
+  if (gitSha) return { sha: gitSha, ref: gitRef || inputRef, source: 'vercel_git' }
+  if (inputSha) {
+    if (!/^[0-9a-f]{40}$/.test(inputSha)) throw new Error('CARUP_BUILD_SHA must be a full 40-character lowercase commit SHA')
+    return { sha: inputSha, ref: inputRef, source: 'explicit_build_input' }
+  }
+  return { sha: '', ref: gitRef || inputRef, source: 'none' }
+}
+
 export type PairingFile = { branches?: Record<string, string> }
 
 export type PairingInput = {
