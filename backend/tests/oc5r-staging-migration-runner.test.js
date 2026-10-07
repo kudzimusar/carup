@@ -230,3 +230,63 @@ test('a self-contained BEGIN...COMMIT envelope is unwrapped and stays atomic; ot
   assert.equal(real.unwrappedEnvelope, true);
   assert.doesNotMatch(real.sql, /^\s*COMMIT\s*;\s*$/m);
 });
+
+// ── replay: an already-recorded migration re-executed because a later file of the same group regresses it ──
+// (The real case: Email 1.0 rewrites communication_domain_event_dedupe_key(), which SN-O4 had moved on from.)
+const replayFiles = () => migrationsDir({
+  '20990101000900_defines.sql': mig('create or replace function public.oc5r_dedupe() returns int language sql as $$ select 2 $$;'),
+  '20990101001000_regresses.sql': mig('create table public.oc5r_anchor(id int);\ncreate or replace function public.oc5r_dedupe() returns int language sql as $$ select 1 $$;'),
+});
+async function recordedDefinition(dir) {
+  const f = await freshDb();
+  await f.pg.exec("create or replace function public.oc5r_dedupe() returns int language sql as $$ select 2 $$;");
+  await f.pg.exec("insert into supabase_migrations.schema_migrations(version, name) values ('20990101000900', 'defines')");
+  return f;
+}
+const replayPlan = (dir, extra = {}) => planFor(dir, [
+  { file: '20990101001000_regresses.sql', action: 'execute', group: 'g', expect: ["to_regclass('public.oc5r_anchor') is not null"] },
+  { file: '20990101000900_defines.sql', action: 'replay', group: 'g', expect: ['public.oc5r_dedupe() = 2'], ...extra },
+]);
+
+test('a replay re-executes a recorded migration inside its anchor\'s transaction and is never recorded twice', async () => {
+  const dir = replayFiles();
+  const { pg, db } = await recordedDefinition(dir);
+  const dry = await runPlan(db, replayPlan(dir), { migrationsDir: dir });
+  assert.deepEqual(dry.operations.map((o) => o.status), ['WOULD_APPLY', 'WOULD_REPLAY']);
+  const r = await runPlan(db, replayPlan(dir), { migrationsDir: dir, apply: true });
+  assert.deepEqual(r.operations.map((o) => o.status), ['APPLIED', 'REPLAYED']);
+  assert.equal((await pg.query('select public.oc5r_dedupe() as v')).rows[0].v, 2, 'the regressed effect is restored');
+  const rows = await ledger(pg);
+  assert.deepEqual(rows.map((l) => l.version), ['20990101000900', '20990101001000_regresses.sql'], 'the replayed file keeps its one original row');
+  const again = await runPlan(db, replayPlan(dir), { migrationsDir: dir, apply: true });
+  assert.deepEqual(again.operations.map((o) => o.status), ['ALREADY_RECORDED', 'ALREADY_RECORDED']);
+  assert.equal((await ledger(pg)).length, 2);
+});
+
+test('a replay that cannot prove its effect rolls back its anchor too: no regression is ever left behind', async () => {
+  const dir = replayFiles();
+  const { pg, db } = await recordedDefinition(dir);
+  const r = await runPlan(db, replayPlan(dir, { expect: ['public.oc5r_dedupe() = 3'] }), { migrationsDir: dir, apply: true });
+  assert.deepEqual(r.operations.map((o) => o.status), ['FAILED_ROLLED_BACK', 'FAILED_ROLLED_BACK']);
+  assert.equal(await exists(pg, 'public.oc5r_anchor'), false);
+  assert.equal((await pg.query('select public.oc5r_dedupe() as v')).rows[0].v, 2, 'the anchor\'s regression did not commit');
+  assert.equal((await ledger(pg)).length, 1);
+});
+
+test('a replay of an unrecorded file, or one without evidence or an anchor before it, is refused', async () => {
+  const dir = replayFiles();
+  const fresh = await freshDb();
+  const r = await runPlan(fresh.db, replayPlan(dir), { migrationsDir: dir, apply: true });
+  assert.deepEqual(r.operations.map((o) => o.status), ['REFUSED', 'REFUSED']);
+  assert.match(r.operations[1].error, /REPLAY_OF_UNRECORDED/);
+  assert.equal(await exists(fresh.pg, 'public.oc5r_anchor'), false, 'nothing ran');
+  assert.equal((await ledger(fresh.pg)).length, 0);
+  assert.throws(() => validatePlan(replayPlan(dir, { expect: [] }), { migrationsDir: dir }), /REPLAY_WITHOUT_EVIDENCE/);
+  const alone = planFor(dir, [{ file: '20990101000900_defines.sql', action: 'replay', expect: ['true'] }]);
+  assert.throws(() => validatePlan(alone, { migrationsDir: dir }), /REPLAY_WITHOUT_ANCHOR/);
+  const first = planFor(dir, [
+    { file: '20990101000900_defines.sql', action: 'replay', group: 'g', expect: ['true'] },
+    { file: '20990101001000_regresses.sql', action: 'execute', group: 'g' },
+  ]);
+  assert.throws(() => validatePlan(first, { migrationsDir: dir }), /REPLAY_BEFORE_ANCHOR/);
+});

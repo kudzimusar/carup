@@ -20,6 +20,9 @@
  *     applied unless that COMMIT succeeded, and no error ("already exists" included) is ever swallowed;
  *   - ledger-only repairs never run SQL and are recorded with a distinct created_by, and only after the
  *     stated effect is proven present;
+ *   - a replay re-executes an ALREADY-RECORDED migration because a migration in the same group (its anchor,
+ *     earlier in that group) regresses part of its effect. It runs inside the anchor's transaction, must prove
+ *     the effect it restores, and never writes a ledger row: the file is recorded once, by its original row;
  *   - the target must positively be the staging project or an explicit local rehearsal; production is refused.
  */
 import { createHash } from 'node:crypto';
@@ -215,7 +218,20 @@ export function validatePlan(plan, { migrationsDir }) {
     if (op.action === 'ledger_repair' && !(Array.isArray(op.expect) && op.expect.length)) {
       throw new RunnerRefusal('REPAIR_WITHOUT_EVIDENCE', `${file}: a ledger-only repair must state the effect it proves present`);
     }
+    if (op.action === 'replay' && !(Array.isArray(op.expect) && op.expect.length)) {
+      throw new RunnerRefusal('REPLAY_WITHOUT_EVIDENCE', `${file}: a replay must state the effect it restores`);
+    }
     prepared.push({ ...op, ...id, digest, up: parsed.up, executable, equivalences: op.equivalent_ledger_rows || [] });
+  }
+  // A replay exists only because an earlier migration of the SAME group regresses its effect.
+  for (const group of groupsOf(prepared)) {
+    group.ops.forEach((op, i) => {
+      if (op.action !== 'replay') return;
+      if (!group.id) throw new RunnerRefusal('REPLAY_WITHOUT_ANCHOR', `${op.file}: a replay must share a group with the migration that regresses it`);
+      if (!group.ops.slice(0, i).some((o) => o.action !== 'replay')) {
+        throw new RunnerRefusal('REPLAY_BEFORE_ANCHOR', `${op.file}: a replay must follow the migration that regresses it inside group ${group.id}`);
+      }
+    });
   }
   return prepared;
 }
@@ -257,7 +273,14 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
   for (const group of groupsOf(ops)) {
     if (stopped) { for (const op of group.ops) receipt.operations.push({ file: op.file, action: op.action, status: 'NOT_RUN' }); continue; }
     const ledger = await db.query(`select version, name, created_by from ${LEDGER_TABLE}`);
-    const recorded = group.ops.map((op) => ledger.some((row) => isRecordedBy(op.file, row, op.equivalences)));
+    const isRecorded = (op) => ledger.some((row) => isRecordedBy(op.file, row, op.equivalences));
+    // A replay must already be recorded; whether the group is pending is decided by its other migrations alone.
+    const unrecordedReplay = group.ops.find((op) => op.action === 'replay' && !isRecorded(op));
+    if (unrecordedReplay) {
+      for (const op of group.ops) receipt.operations.push({ file: op.file, action: op.action, group: group.id, status: 'REFUSED', error: `REPLAY_OF_UNRECORDED: ${unrecordedReplay.file}` });
+      stopped = true; continue;
+    }
+    const recorded = group.ops.filter((op) => op.action !== 'replay').map(isRecorded);
     if (recorded.every(Boolean)) {
       // Already recorded: still prove the effect is there, otherwise the ledger is lying.
       try {
@@ -279,7 +302,8 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
         try {
           const pre = await assertProbes(db, op.precondition, 'PRECONDITION_FAILED');
           const eff = op.action === 'ledger_repair' ? await assertProbes(db, op.expect, 'EFFECT_ABSENT') : [];
-          receipt.operations.push({ file: op.file, action: op.action, group: group.id, status: op.action === 'ledger_repair' ? 'WOULD_REPAIR_LEDGER' : 'WOULD_APPLY', preconditions: pre.length, effects: eff.length, unwrapped_envelope: Boolean(op.executable?.unwrappedEnvelope) });
+          const status = { ledger_repair: 'WOULD_REPAIR_LEDGER', replay: 'WOULD_REPLAY' }[op.action] || 'WOULD_APPLY';
+          receipt.operations.push({ file: op.file, action: op.action, group: group.id, status, preconditions: pre.length, effects: eff.length, unwrapped_envelope: Boolean(op.executable?.unwrappedEnvelope) });
         } catch (e) {
           receipt.operations.push({ file: op.file, action: op.action, group: group.id, status: 'BLOCKED', error: e.message });
         }
@@ -298,7 +322,8 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
         detail.push({ op, pre: pre.length, eff: eff.length });
       }
       // The ledger is written only now: after every statement and every effect assertion of the group.
-      for (const { op } of detail) {
+      // A replay is never recorded again — its original ledger row already records the file.
+      for (const { op } of detail.filter((d) => d.op.action !== 'replay')) {
         await db.query(
           `insert into ${LEDGER_TABLE} (version, name, statements, created_by, idempotency_key) values ($1, $2, $3, $4, $5)`,
           [op.version, op.slug, [op.up], op.action === 'ledger_repair' ? REPAIR_TAG : RUNNER_TAG, `sha256:${op.digest}`],
@@ -307,8 +332,8 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
       await db.exec('COMMIT');
       for (const { op, pre, eff } of detail) {
         receipt.operations.push({
-          file: op.file, action: op.action, group: group.id, status: op.action === 'ledger_repair' ? 'LEDGER_REPAIRED' : 'APPLIED',
-          ledger_version: op.version, sha256: op.digest, preconditions: pre, effects: eff,
+          file: op.file, action: op.action, group: group.id, status: { ledger_repair: 'LEDGER_REPAIRED', replay: 'REPLAYED' }[op.action] || 'APPLIED',
+          ledger_version: op.action === 'replay' ? null : op.version, sha256: op.digest, preconditions: pre, effects: eff,
           unwrapped_envelope: Boolean(op.executable?.unwrappedEnvelope), started_at: startedAt, committed_at: now(),
         });
       }
