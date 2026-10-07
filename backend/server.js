@@ -107,6 +107,7 @@ import { edgeClientIpMiddleware } from './middleware/edgeClientIp.js';
 import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
 import { resolveBuildProvenance } from './config/buildProvenance.js';
+import { resolveDatabaseTarget } from './config/databaseTarget.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
 import peopleOperationsRouter from './routes/peopleOperationsRoutes.js';
@@ -196,6 +197,7 @@ import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxono
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
+import { outboundHealth } from './services/communication/outboundKillSwitch.js';
 import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
 import { strictOcrStartupError } from './config/ocrStartupGuard.js';
 import { inspectAdvisoryRuntime } from './services/ai/domainAdvisoryAdapter.js';
@@ -371,21 +373,34 @@ app.get('/api/health', async (req, res) => {
   // an OCR request would actually do. No secret VALUES.
   let ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false };
   let cloudflareConfigured = false;
+  // OC-5R-REL-01: OCR custody, stated — 'canonical' (Cloudflare + Qwen), 'refused' (an override a
+  // deployed runtime will not run: OCR fails closed), or 'override' (only where the evaluation seam
+  // is open, which a declared deployment never is).
+  const ocrModule = await import('./services/ai/ocrVisionProvider.js').catch(() => null);
+  const custodyOf = ({ providerId = null, model = null, error = null } = {}) => ({
+    canonical_provider: ocrModule?.CANONICAL_OCR_PROVIDER ?? null,
+    canonical_model: ocrModule?.CANONICAL_OCR_MODEL ?? null,
+    status: error?.code === 'OCR_CUSTODY_REFUSED'
+      ? 'refused'
+      : (providerId === ocrModule?.CANONICAL_OCR_PROVIDER && model === ocrModule?.CANONICAL_OCR_MODEL ? 'canonical' : 'override'),
+  });
   try {
-    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { resolveVisionProvider } = ocrModule;
     const { isCloudflareVisionConfigured } = await import('./services/ai/CloudflareVisionClient.js');
     const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
     const provider = resolveVisionProvider();
-    let model = null; try { model = provider.model; } catch { model = null; }
+    let model = null; let modelError = null; try { model = provider.model; } catch (e) { model = null; modelError = e; }
     ocr = {
       selectedProvider: provider.id,
       selectedModel: model,
       configured: (() => { try { return provider.isConfigured() === true; } catch { return false; } })(),
       mockRuntimeAllowed: DocumentIntelligenceService.isOcrMockAllowed() === true,
+      custody: custodyOf({ providerId: provider.id, model, error: modelError }),
+      ...(modelError ? { error: modelError.message } : {}),
     };
     cloudflareConfigured = (() => { try { return isCloudflareVisionConfigured() === true; } catch { return false; } })();
   } catch (e) {
-    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, error: e.message };
+    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, custody: custodyOf({ error: e }), error: e.message };
   }
 
   res.json({
@@ -399,6 +414,8 @@ app.get('/api/health', async (req, res) => {
       outboxBacklog,
       ledgerIntentBacklog
     },
+    // OC-5R-REL-01: which Supabase project this runtime reaches — project refs only, never a URL.
+    database: resolveDatabaseTarget(process.env),
     // Truthful: a DSN without an installed SDK is `unavailable`, never `enabled` (OC-5R-PROV-01 C3).
     sentry: sentryHealth(),
     // Canonical current OCR runtime status (authoritative for "is OCR available").
@@ -426,7 +443,9 @@ app.get('/api/health', async (req, res) => {
         available: provider.available,
         explanations: provider.explanations
       })),
-      marketingEmail: communicationConfiguration.marketingEmail
+      marketingEmail: communicationConfiguration.marketingEmail,
+      // OC-5R-REL-01: the outbound kill switch — whether this runtime may send at all.
+      outbound: outboundHealth(process.env),
     },
     metrics: snapshot
   });
@@ -2804,7 +2823,9 @@ app.post('/api/auth/register', async (req, res) => {
       emailVerification = {
         status: deliveryStatus === 'sent'
           ? 'sent'
-          : deliveryStatus === 'retry_scheduled'
+          // OC-5R-REL-01: 'held' — the outbound kill switch kept it on the queue; it is sent when
+          // sending is re-enabled, so it is queued, not failed.
+          : deliveryStatus === 'retry_scheduled' || deliveryStatus === 'held'
             ? 'queued'
             : deliveryStatus
               ? 'delivery_failed'
