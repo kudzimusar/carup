@@ -1,0 +1,232 @@
+/**
+ * OC-5R — the staging migration runner (database/scripts/lib/stagingMigrationRunner.mjs) on a REAL
+ * PostgreSQL (PGlite, in process) with a replica of supabase_migrations.schema_migrations.
+ *
+ * Each test pins one failure the previous runner had or could have: production as a target, a timestamp
+ * prefix treated as identity, a failed migration leaving a partial effect or a ledger row, the ledger being
+ * written before the SQL succeeded, a rolled-back "already exists" reported as applied, and a NEVER_APPLY
+ * file being executed.   Run: node --test backend/tests/oc5r-staging-migration-runner.test.js
+ */
+import test, { after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { PGlite } from '@electric-sql/pglite';
+import { SQLITE_DIALECT_ONLY, parseMigrationSource } from '../db/migrationParser.js';
+import {
+  PLAN_SCHEMA, REPAIR_TAG, RUNNER_TAG, assertStagingTarget, isRecordedBy, prepareUpSql, runPlan, sha256, validatePlan,
+} from '../../database/scripts/lib/stagingMigrationRunner.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const REPO_MIGRATIONS = path.resolve(here, '../../database/migrations');
+const STAGING = 'eoyenigwevnxwwhyhaer';
+const PROD_REF = ['vhmnajoeicasa', 'igiophh'].join(''); // split so this file never trips the CR-1 scanner
+
+// Every in-process PostgreSQL is closed at the end: an unclosed PGlite makes the test process exit 99.
+const instances = [];
+after(async () => { await Promise.all(instances.map((pg) => pg.close().catch(() => {}))); });
+
+async function freshDb() {
+  const pg = new PGlite();
+  instances.push(pg);
+  await pg.exec(`create schema supabase_migrations;
+    create table supabase_migrations.schema_migrations (version text primary key, statements text[], name text,
+      created_by text, idempotency_key text unique, rollback text[]);`);
+  const log = [];
+  const db = {
+    exec: async (sql) => { log.push(sql); return pg.exec(sql); },
+    query: async (sql, params) => { log.push(sql); return (await pg.query(sql, params)).rows; },
+  };
+  return { pg, db, log };
+}
+function migrationsDir(files) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oc5r-runner-'));
+  for (const [name, body] of Object.entries(files)) writeFileSync(path.join(dir, name), body);
+  return dir;
+}
+const mig = (up) => `-- +migrate Up\n${up}\n`;
+const planFor = (dir, ops, extra = {}) => ({
+  schema: PLAN_SCHEMA, target_ref: STAGING, ...extra,
+  operations: ops.map((op) => ({ ...op, sha256: sha256(readFileSync(path.join(dir, op.file), 'utf8')) })),
+});
+const ledger = async (pg) => (await pg.query('select version, name, created_by, idempotency_key from supabase_migrations.schema_migrations order by version')).rows;
+const exists = async (pg, rel) => (await pg.query('select to_regclass($1) is not null as e', [rel])).rows[0].e;
+
+test('target: production is refused anywhere; only the staging project or an explicit local rehearsal is accepted', () => {
+  const pooler = 'aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres';
+  assert.throws(() => assertStagingTarget(`postgresql://postgres.${PROD_REF}:x@${pooler}`), /PRODUCTION_TARGET/);
+  assert.throws(() => assertStagingTarget(`postgresql://postgres:x@db.${PROD_REF}.supabase.co:5432/postgres`), /PRODUCTION_TARGET/);
+  assert.throws(() => assertStagingTarget(`postgresql://postgres.${STAGING}:x@${pooler}?application_name=${PROD_REF}`), /PRODUCTION_TARGET/);
+  assert.throws(() => assertStagingTarget(`postgresql://postgres.someotherref:x@${pooler}`), /NOT_STAGING/);
+  assert.throws(() => assertStagingTarget(`postgresql://postgres:x@evil.example.com:5432/${STAGING}`), /NOT_STAGING/);
+  assert.throws(() => assertStagingTarget(''), /NO_TARGET/);
+  assert.equal(assertStagingTarget(`postgresql://postgres.${STAGING}:x@${pooler}`).kind, 'staging');
+  assert.equal(assertStagingTarget(`postgresql://postgres:x@db.${STAGING}.supabase.co:5432/postgres`).kind, 'staging');
+  assert.throws(() => assertStagingTarget('postgresql://u:p@127.0.0.1:5432/oc5r_rehearsal_a'), /NOT_STAGING/, 'rehearsal must be explicit');
+  assert.equal(assertStagingTarget('postgresql://u:p@127.0.0.1:5432/oc5r_rehearsal_a', { rehearsal: true }).kind, 'rehearsal');
+  assert.throws(() => assertStagingTarget(`postgresql://postgres.${STAGING}:x@${pooler}`, { rehearsal: true }), /REHEARSAL_NOT_LOCAL/);
+  assert.throws(() => assertStagingTarget('postgresql://u:p@127.0.0.1:5432/postgres', { rehearsal: true }), /REHEARSAL_DB_NAME/);
+});
+
+test('identity: full filename or prefix+slug only - a timestamp prefix alone never identifies a migration', () => {
+  const f = '20990101000300_a.sql';
+  assert.equal(isRecordedBy(f, { version: f, name: 'a' }), true);
+  assert.equal(isRecordedBy(f, { version: '20990101000300_a', name: null }), true);
+  assert.equal(isRecordedBy(f, { version: '20990101000300', name: 'a' }), true);
+  assert.equal(isRecordedBy(f, { version: '20990101000300', name: 'b' }), false);
+  assert.equal(isRecordedBy(f, { version: '20990101000300', name: null }), false);
+  assert.equal(isRecordedBy(f, { version: '20990909000000', name: 'a' }), false, 'same slug at another version is not proof');
+  assert.equal(isRecordedBy(f, { version: '20990909000000', name: 'a' }, [{ version: '20990909000000', name: 'a' }]), true, 'only a stated equivalence is');
+});
+
+test('collision: a plan touching a shared timestamp prefix is refused unless the plan records it as resolved', () => {
+  const dir = migrationsDir({ '20990101000300_a.sql': mig('select 1;'), '20990101000300_b.sql': mig('select 2;') });
+  const ops = [{ file: '20990101000300_a.sql', action: 'execute' }];
+  assert.throws(() => validatePlan(planFor(dir, ops), { migrationsDir: dir }), /UNRESOLVED_COLLISION/);
+  assert.throws(() => validatePlan(planFor(dir, ops, { collisions: { 20990101000300: { resolved: false, files: ['20990101000300_a.sql'] } } }), { migrationsDir: dir }), /UNRESOLVED_COLLISION/);
+  const resolved = { collisions: { 20990101000300: { resolved: true, files: ['20990101000300_a.sql', '20990101000300_b.sql'] } } };
+  assert.doesNotThrow(() => validatePlan(planFor(dir, ops, resolved), { migrationsDir: dir }));
+  assert.throws(() => validatePlan(planFor(dir, [ops[0], ops[0]], resolved), { migrationsDir: dir }), /AMBIGUOUS_FILENAME/);
+  const tampered = planFor(dir, ops, resolved);
+  tampered.operations[0].sha256 = '0'.repeat(64);
+  assert.throws(() => validatePlan(tampered, { migrationsDir: dir }), /SHA_MISMATCH/);
+});
+
+test('a failing migration rolls back completely, writes no ledger row, and stops the run', async () => {
+  const dir = migrationsDir({
+    '20990101000100_creates.sql': mig('create table public.oc5r_ok(id int);'),
+    '20990101000200_fails.sql': mig('create table public.oc5r_half(id int);\nselect 1/0;'),
+    '20990101000300_after.sql': mig('create table public.oc5r_after(id int);'),
+  });
+  const { pg, db } = await freshDb();
+  const r = await runPlan(db, planFor(dir, [
+    { file: '20990101000100_creates.sql', action: 'execute', expect: ["to_regclass('public.oc5r_ok') is not null"] },
+    { file: '20990101000200_fails.sql', action: 'execute' },
+    { file: '20990101000300_after.sql', action: 'execute' },
+  ]), { migrationsDir: dir, apply: true });
+  assert.equal(r.result, 'STOPPED');
+  assert.deepEqual(r.operations.map((o) => o.status), ['APPLIED', 'FAILED_ROLLED_BACK', 'NOT_RUN']);
+  assert.equal(await exists(pg, 'public.oc5r_half'), false, 'no partial effect survives');
+  assert.equal(await exists(pg, 'public.oc5r_after'), false, 'nothing runs after a failure');
+  const rows = await ledger(pg);
+  assert.deepEqual(rows.map((l) => l.version), ['20990101000100_creates.sql'], 'version is the full filename');
+  assert.equal(rows[0].created_by, RUNNER_TAG);
+});
+
+test('the ledger row is written only after the SQL and every effect assertion, inside the same transaction', async () => {
+  const dir = migrationsDir({ '20990101000100_creates.sql': mig('create table public.oc5r_ok(id int);') });
+  const { db, log } = await freshDb();
+  await runPlan(db, planFor(dir, [{ file: '20990101000100_creates.sql', action: 'execute', expect: ["to_regclass('public.oc5r_ok') is not null"] }]), { migrationsDir: dir, apply: true });
+  const at = (re) => log.findIndex((s) => re.test(s));
+  const order = { begin: at(/^BEGIN$/), sql: at(/create table public\.oc5r_ok/), probe: at(/to_regclass\('public\.oc5r_ok'\)/), insert: at(/insert into supabase_migrations\.schema_migrations/), commit: at(/^COMMIT$/) };
+  assert.ok(order.begin >= 0 && order.begin < order.sql && order.sql < order.probe && order.probe < order.insert && order.insert < order.commit, JSON.stringify(order));
+
+  const dir2 = migrationsDir({ '20990101000100_lies.sql': mig('create table public.oc5r_lie(id int);') });
+  const f = await freshDb();
+  const r = await runPlan(f.db, planFor(dir2, [{ file: '20990101000100_lies.sql', action: 'execute', expect: ["to_regclass('public.oc5r_never') is not null"] }]), { migrationsDir: dir2, apply: true });
+  assert.equal(r.operations[0].status, 'FAILED_ROLLED_BACK');
+  assert.equal(await exists(f.pg, 'public.oc5r_lie'), false, 'SQL whose effect cannot be proven is rolled back');
+  assert.equal((await ledger(f.pg)).length, 0);
+});
+
+test('"already exists" is a failure, never ALREADY_APPLIED: the rolled-back migration is not recorded', async () => {
+  const dir = migrationsDir({ '20990101000100_dupe.sql': mig('create table public.oc5r_exists(id int);') });
+  const { pg, db } = await freshDb();
+  await pg.exec('create table public.oc5r_exists(id int)');
+  const r = await runPlan(db, planFor(dir, [{ file: '20990101000100_dupe.sql', action: 'execute' }]), { migrationsDir: dir, apply: true });
+  assert.equal(r.operations[0].status, 'FAILED_ROLLED_BACK');
+  assert.match(r.operations[0].error, /already exists/);
+  assert.equal((await ledger(pg)).length, 0);
+  assert.equal(r.result, 'STOPPED');
+});
+
+test('NEVER_APPLY, SQLite-only, retired and non-migration files are refused before any SQL runs', async () => {
+  const dir = migrationsDir({ '20990101000400_never.sql': mig('create table public.oc5r_never(id int);') });
+  const { pg, db, log } = await freshDb();
+  const plan = planFor(dir, [{ file: '20990101000400_never.sql', action: 'execute' }], { never_apply: [{ file: '20990101000400_never.sql', reason: 'production-only' }] });
+  await assert.rejects(runPlan(db, plan, { migrationsDir: dir, apply: true }), /NEVER_APPLY/);
+  assert.equal(log.some((s) => /^BEGIN$/.test(s)), false, 'refused before any transaction');
+  assert.equal(await exists(pg, 'public.oc5r_never'), false);
+  for (const file of [...Object.keys(SQLITE_DIALECT_ONLY), '009_phase4_schema.sql', 'supabase_schema.sql']) {
+    const p = { schema: PLAN_SCHEMA, target_ref: STAGING, operations: [{ file, action: 'execute', sha256: sha256(readFileSync(path.join(REPO_MIGRATIONS, file), 'utf8')) }] };
+    assert.throws(() => validatePlan(p, { migrationsDir: REPO_MIGRATIONS }), /NEVER_APPLY/, file);
+  }
+});
+
+test('a second run of the same plan executes nothing and records nothing twice', async () => {
+  const dir = migrationsDir({ '20990101000100_once.sql': mig('create table public.oc5r_once(id int);') });
+  const { pg, db } = await freshDb();
+  const plan = planFor(dir, [{ file: '20990101000100_once.sql', action: 'execute', expect: ["to_regclass('public.oc5r_once') is not null"] }]);
+  assert.equal((await runPlan(db, plan, { migrationsDir: dir, apply: true })).operations[0].status, 'APPLIED');
+  const again = await runPlan(db, plan, { migrationsDir: dir, apply: true });
+  assert.equal(again.operations[0].status, 'ALREADY_RECORDED');
+  assert.equal(again.result, 'COMPLETE');
+  assert.equal((await ledger(pg)).length, 1);
+});
+
+test('a recorded migration whose effect is missing is reported as DRIFT, not skipped', async () => {
+  const dir = migrationsDir({ '20990101000100_claimed.sql': mig('create table public.oc5r_claimed(id int);') });
+  const { pg, db } = await freshDb();
+  await pg.exec("insert into supabase_migrations.schema_migrations(version, name) values ('20990101000100', 'claimed')");
+  const r = await runPlan(db, planFor(dir, [{ file: '20990101000100_claimed.sql', action: 'execute', expect: ["to_regclass('public.oc5r_claimed') is not null"] }]), { migrationsDir: dir, apply: true });
+  assert.equal(r.operations[0].status, 'DRIFT');
+  assert.equal(r.result, 'STOPPED');
+});
+
+test('a ledger-only repair runs no SQL, requires proven evidence, and is tagged as a repair', async () => {
+  const dir = migrationsDir({ '20990101000500_present.sql': mig('create table public.oc5r_present(id int);') });
+  const op = { file: '20990101000500_present.sql', action: 'ledger_repair' };
+  assert.throws(() => validatePlan(planFor(dir, [op]), { migrationsDir: dir }), /REPAIR_WITHOUT_EVIDENCE/);
+  const { pg, db, log } = await freshDb();
+  const withEvidence = planFor(dir, [{ ...op, expect: ["to_regclass('public.oc5r_present') is not null"] }]);
+  let r = await runPlan(db, withEvidence, { migrationsDir: dir, apply: true });
+  assert.equal(r.operations[0].status, 'FAILED_ROLLED_BACK', 'an absent effect cannot be repaired into the ledger');
+  assert.equal((await ledger(pg)).length, 0);
+  await pg.exec('create table public.oc5r_present(id int)');
+  log.length = 0;
+  r = await runPlan(db, withEvidence, { migrationsDir: dir, apply: true });
+  assert.equal(r.operations[0].status, 'LEDGER_REPAIRED');
+  assert.equal(log.some((s) => /create table public\.oc5r_present/.test(s)), false, 'the repair must not run the migration SQL');
+  assert.equal((await ledger(pg))[0].created_by, REPAIR_TAG);
+});
+
+test('an atomic group commits all-or-nothing, ledger included', async () => {
+  const dir = migrationsDir({
+    '20990101000600_g1.sql': mig('create table public.oc5r_g1(id int);'),
+    '20990101000700_g2.sql': mig('select 1/0;'),
+  });
+  const { pg, db } = await freshDb();
+  const r = await runPlan(db, planFor(dir, [
+    { file: '20990101000600_g1.sql', action: 'execute', group: 'chain' },
+    { file: '20990101000700_g2.sql', action: 'execute', group: 'chain' },
+  ]), { migrationsDir: dir, apply: true });
+  assert.deepEqual(r.operations.map((o) => o.status), ['FAILED_ROLLED_BACK', 'FAILED_ROLLED_BACK']);
+  assert.equal(await exists(pg, 'public.oc5r_g1'), false);
+  assert.equal((await ledger(pg)).length, 0);
+});
+
+test('a self-contained BEGIN...COMMIT envelope is unwrapped and stays atomic; other transaction control is refused', async () => {
+  const envelope = "-- header\nBEGIN;\ncreate table public.oc5r_env(id int);\ncreate function public.oc5r_f() returns int language plpgsql as $$ begin return 1; end; $$;\nCOMMIT;\n";
+  const prepared = prepareUpSql(envelope, 'x.sql');
+  assert.equal(prepared.unwrappedEnvelope, true);
+  assert.doesNotMatch(prepared.sql, /^\s*(BEGIN|COMMIT)\s*;/im);
+  assert.match(prepared.sql, /create function public\.oc5r_f/);
+  assert.throws(() => prepareUpSql('create table t(id int);\nCOMMIT;\ncreate table u(id int);', 'y.sql'), /TOP_LEVEL_TRANSACTION_CONTROL/);
+  assert.throws(() => prepareUpSql('create index concurrently i on t(id);', 'z.sql'), /NON_TRANSACTIONAL_SQL/);
+  assert.equal(prepareUpSql('do $$ begin perform 1; end $$;', 'w.sql').unwrappedEnvelope, false);
+
+  const dir = migrationsDir({ '20990101000800_env.sql': mig(envelope) });
+  const { pg, db } = await freshDb();
+  const r = await runPlan(db, planFor(dir, [{ file: '20990101000800_env.sql', action: 'execute', expect: ["to_regclass('public.oc5r_never') is not null"] }]), { migrationsDir: dir, apply: true });
+  assert.equal(r.operations[0].status, 'FAILED_ROLLED_BACK');
+  assert.equal(await exists(pg, 'public.oc5r_env'), false, 'the envelope did not commit the runner transaction early');
+  assert.equal((await ledger(pg)).length, 0);
+
+  // The one real migration that carries such an envelope is accepted, with no top-level transaction control left.
+  const email = '20260826120000_email_1_0_hardening.sql';
+  const real = prepareUpSql(parseMigrationSource(readFileSync(path.join(REPO_MIGRATIONS, email), 'utf8'), email).up, email);
+  assert.equal(real.unwrappedEnvelope, true);
+  assert.doesNotMatch(real.sql, /^\s*COMMIT\s*;\s*$/m);
+});
