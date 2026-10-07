@@ -96,6 +96,8 @@ const OTHER = 'zyxwvutsrqponmlkjihg';
 // Fake passwords are interpolated, never written inline: CR-1 forbids a credential-bearing URI literal.
 const PW = 'pw-secret';
 const PW_VALUE = 'pw-secret-value';
+// A real-world password shape the WHATWG URL parser rejects: unencoded '#', '/', '?' and '@'.
+const HARD = 'p#a/s?s@w0rd';
 
 test('database target: refs are read by shape from every endpoint form, and nothing else is returned', () => {
   assert.equal(DB.refFromSupabaseUrl(`https://${REF}.supabase.co`), REF);
@@ -110,8 +112,31 @@ test('database target: refs are read by shape from every endpoint form, and noth
     DATABASE_URL: `postgresql://postgres.${REF}:${PW}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`,
     DIRECT_URL: `postgresql://postgres:${PW}@db.${REF}.supabase.co:5432/postgres`,
   });
-  assert.deepEqual(target, { supabase_project_ref: REF, postgres_project_refs: [REF], unrecognised_endpoints: 0, consistent: true });
+  assert.deepEqual(target, { supabase_project_ref: REF, postgres_project_refs: [REF], unrecognised_endpoints: 0, unrecognised_endpoint_names: [], consistent: true });
   assert.ok(!JSON.stringify(target).includes('pw-secret') && !JSON.stringify(target).includes('pooler'));
+});
+
+test('database target: a password the URL parser rejects is still read — and never returned', () => {
+  assert.equal(DB.refFromPostgresUrl(`postgresql://postgres.${REF}:${HARD}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`), REF);
+  assert.equal(DB.refFromPostgresUrl(`postgresql://postgres:${HARD}@db.${REF}.supabase.co:5432/postgres`), REF);
+  assert.equal(DB.refFromPostgresUrl(`postgresql://postgres.${REF}:${PW}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?application_name=a@b`), REF,
+    'an @ in the query string does not move the host');
+  const target = DB.resolveDatabaseTarget({ SUPABASE_URL: `https://${REF}.supabase.co`, DATABASE_URL: `postgresql://postgres:${HARD}@db.${REF}.supabase.co:5432/postgres` });
+  assert.equal(target.consistent, true);
+  assert.ok(!JSON.stringify(target).includes(HARD));
+});
+
+test('database target: readings that disagree are ambiguous, not guessed', () => {
+  const sneaky = `pw@db.${OTHER}.supabase.co:5432`;
+  assert.equal(DB.refFromPostgresUrl(`postgresql://postgres:${sneaky}@db.${REF}.supabase.co:5432/postgres`), null);
+});
+
+test('database target: an unreadable endpoint is named and makes the target inconsistent', () => {
+  const target = DB.resolveDatabaseTarget({ SUPABASE_URL: `https://${REF}.supabase.co`, DATABASE_URL: 'not a connection string', DIRECT_URL: `postgresql://postgres:${PW}@db.${REF}.supabase.co:5432/postgres` });
+  assert.deepEqual(target.unrecognised_endpoint_names, ['DATABASE_URL']);
+  assert.equal(target.unrecognised_endpoints, 1);
+  assert.equal(target.consistent, false, 'one endpoint cannot be shown to agree');
+  assert.ok(!JSON.stringify(target).includes('not a connection string'), 'names, never values');
 });
 
 test('database target: two projects behind one runtime are reported as inconsistent', () => {
@@ -183,5 +208,6 @@ test('health: the database target is reported as refs only — never a URL or a 
   assert.equal(body.database.supabase_project_ref, REF);
   assert.deepEqual(body.database.postgres_project_refs, [REF]);
   assert.equal(body.database.consistent, true);
+  assert.deepEqual(body.database.unrecognised_endpoint_names, []);
   for (const leak of ['pw-secret-value', 'pooler.supabase.com', 'postgresql://']) assert.ok(!text.includes(leak), `health leaked ${leak}`);
 });

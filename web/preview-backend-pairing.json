@@ -27,7 +27,6 @@
     "fix/zimbabwe-seller-reality-comms-hardening": "https://carup-backend-staging-git-fix-zimbabwe-seller-real-a9b7d7-11-11.vercel.app",
     "feat/operations-control-plane-serena-slice": "https://carup-backend-staging-git-feat-operations-control-6e0b93-11-11.vercel.app",
     "feat/trade-os-client-demo-convergence": "https://carup-backend-staging-git-feat-trade-os-client-dem-dbf311-11-11.vercel.app",
-    "fix/o2-ocr-trade-os-convergence": "https://carup-backend-staging-git-fix-o2-ocr-trade-os-convergence-11-11.vercel.app",
-    "fix/oc5r-real-runtime-source-closure": "https://carup-backend-staging-oc5r-rel01-11-11.vercel.app"
+    "fix/o2-ocr-trade-os-convergence": "https://carup-backend-staging-git-fix-o2-ocr-trade-os-convergence-11-11.vercel.app"
   }
 }
