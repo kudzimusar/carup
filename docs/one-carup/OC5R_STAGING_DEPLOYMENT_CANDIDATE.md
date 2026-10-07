@@ -15,8 +15,8 @@ node scripts/ci/verify-deployment-candidate.mjs \
 | | |
 |---|---|
 | Branch / PR | `fix/oc5r-real-runtime-source-closure` · #222 (Draft, unmerged) |
-| **Code SHA** | `e7b14a0778c755d11ec18e6f9cf550be133d6a4c` |
-| Supersedes | `d18936ab` (PROV-01). Historical — it is not deployed |
+| **Code SHA** | `15b604ba3dd13d440396f0f165ecf44b960646a6` |
+| Supersedes | `d18936ab` (PROV-01) and `e7b14a07`. The `e7b14a07` deploy commit `312916a6` had its backend preview deployed. Its runtime-identity check found one database endpoint unreadable by shape, so the parser was fixed in `15b604ba` and that backend preview is not used |
 | Deployable commit | The code SHA, or a descendant that changes **only** `docs/**` and this branch's two pairing records |
 | Frontend | `carup-staging` (`prj_auYmL5hA2ppWA15jdTK4GAdy3AYm`), **preview** target |
 | Backend | `carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`), **preview** target |

@@ -1,11 +1,18 @@
 {
   "schema": "carup.staging_deployment_candidate.v1",
   "programme": "One CarUp — OC-5R-REL-01",
-  "prepared_at": "2026-10-07T23:16:52Z",
-  "supersedes": {
-    "code_sha": "d18936abfda408753013e821605914134518b155",
-    "reason": "OC-5R-REL-01 source remediation (Marketplace valuation, odometer privacy, OCR custody, communications kill switch and acceptance ids) and a Git-less build provenance — the PROV-01 candidate is historical and is not deployed."
-  },
+  "prepared_at": "2026-10-07T23:31:23Z",
+  "supersedes": [
+    {
+      "code_sha": "d18936abfda408753013e821605914134518b155",
+      "reason": "PROV-01 candidate; superseded by the OC-5R-REL-01 source remediation. Never deployed."
+    },
+    {
+      "code_sha": "e7b14a0778c755d11ec18e6f9cf550be133d6a4c",
+      "deploy_commit": "312916a6ff977c9676e2580ee896f8ea741798ae",
+      "reason": "its backend preview (dpl_2ffvwVkRDtWBcF8SvMeUYNwvPjJ5) showed one configured database endpoint unreadable by shape; the health parser was fixed in the current code SHA. That preview is not used for any proof."
+    }
+  ],
   "deployment": {
     "performed": false,
     "statement": "This package PREPARES the governed staging release. The release itself — deployment ids, aliases, runtime proofs — is recorded in OC5R_STAGING_RELEASE_RECORD.json, never here."
@@ -13,7 +20,7 @@
   "candidate": {
     "branch": "fix/oc5r-real-runtime-source-closure",
     "pull_request": 222,
-    "code_sha": "e7b14a0778c755d11ec18e6f9cf550be133d6a4c",
+    "code_sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
     "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
     "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
     "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
