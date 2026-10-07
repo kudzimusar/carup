@@ -1,10 +1,29 @@
 /**
  * Marketplace pricing / all-in landed-cost estimator.
  *
- * PURE, DETERMINISTIC by default. Produces a MarketplacePricingSummary (shared/types/marketplace.ts)
- * with a conservative fair-price band and transparent cost components. AI price intelligence, when
- * available, may refine these, but the deterministic bands are the safe fallback (confidence 'low').
- * Never asserts authoritative pricing — everything is advisory and labelled.
+ * PURE and DETERMINISTIC. Produces a MarketplacePricingSummary (shared/types/marketplace.ts): the
+ * seller's recorded asking price and CarUp's own itemised, labelled cost estimates. Never asserts
+ * authoritative pricing — everything is advisory and labelled.
+ *
+ * ===========================================================================================
+ * OC-5R-REL-01 — NO VALUATION IS MANUFACTURED. CarUp has no approved valuation provider.
+ *
+ * This summary used to publish `estimated_fair_min` / `estimated_fair_max`: the asking price ±12%,
+ * rendered to buyers as a "Fair price band". That is a market valuation made from nothing — the
+ * seller's own number, widened — and it contradicted CarUp's published position ("CarUp publishes
+ * no vehicle valuation … no market range"). AI price intelligence could then raise the band's
+ * confidence label and add free-text notes. Both are gone:
+ *
+ *   · no fair band, no market range, no "value" of any kind is computed here;
+ *   · `valuation_status` says so explicitly — `not_configured` — rather than leaving the absence to
+ *     be inferred from missing keys;
+ *   · `price_confidence` is the confidence of CarUp's OWN cost components (flat and ratio
+ *     placeholders), fixed at 'low'. It is not a statement about whether the asking price is fair,
+ *     and no AI path may change it (marketplaceAiAssistantService.priceEstimate makes no provider
+ *     call at all).
+ *
+ * Only a governed valuation provider could ever populate a valuation, and none exists.
+ * ===========================================================================================
  *
  * ===========================================================================================
  * ISSUE #164 PHASE 4 — THIS ESTIMATOR STATES A CURRENCY AND A PRICE; IT NEVER CHOOSES EITHER.
@@ -42,9 +61,8 @@
  * The resolution is to STATE it, not to hide it and not to invent an exchange rate: whenever
  * denominated components are actually published, the summary carries `estimate_denomination` and a
  * price warning naming the mismatch if the listing's currency is unrecorded or different. The
- * ratio-derived components (fair band, service fee, export/import, the uncapped part of local
- * transport) are proportions of the asking price and are therefore already in the listing's own
- * currency.
+ * ratio-derived components (service fee, export/import, the uncapped part of local transport) are
+ * proportions of the asking price and are therefore already in the listing's own currency.
  *
  * `estimate_denomination` IS OMITTED WHEN NO COMPONENT IS PUBLISHED, and that is not cosmetic. On an
  * unpriced listing there is no cost figure to denominate, so naming a currency would put the string
@@ -61,7 +79,6 @@
 
 import { FIELD_STATES, attestedValue, isRecordedValue, statedValue } from '../../utils/publicVehicleProjection.js';
 
-const FAIR_BAND_RATIO = 0.12; // +/-12% deterministic fair band around the asking price.
 const SERVICE_FEE_RATIO = 0.015; // 1.5% platform service fee estimate.
 const LOCAL_TRANSPORT_RATIO = 0.02; // 2% of price, capped.
 const LOCAL_TRANSPORT_CAP = 350;
@@ -82,6 +99,21 @@ const CONTAINER_SHIPPING_FLAT = 1800;
  * can reconcile the two rather than assume they agree.
  */
 export const ESTIMATE_DENOMINATION = 'USD';
+
+/**
+ * The valuation state every pricing summary carries. CarUp has no approved valuation provider, so
+ * the only state that can be published is NOT_CONFIGURED — there is deliberately no code path that
+ * produces a market value, a fair price or a price range.
+ */
+export const VALUATION_STATUS = Object.freeze({ NOT_CONFIGURED: 'not_configured' });
+
+/** The plain-words statement that travels with `valuation_status`. */
+export const VALUATION_UNAVAILABLE_NOTICE =
+  'No market valuation: CarUp has no approved valuation provider, so no market value or fair-price range is published. '
+  + 'The figures shown are the seller’s recorded asking price and CarUp’s own itemised cost estimates.';
+
+/** Fixed: CarUp's own cost components are placeholders, and nothing may raise this. */
+export const COST_ESTIMATE_CONFIDENCE = 'low';
 
 function round(value) {
   return Math.round(Number(value) || 0);
@@ -143,9 +175,6 @@ export function buildPricingSummary({ listingSummary = {}, listingType = 'vehicl
     price_warnings.push('No cost estimate is produced without a published asking price — the components below are omitted rather than estimated from zero.');
   }
 
-  const estimated_fair_min = priced ? round(asking * (1 - FAIR_BAND_RATIO)) : undefined;
-  const estimated_fair_max = priced ? round(asking * (1 + FAIR_BAND_RATIO)) : undefined;
-
   const inspection_estimate = priced ? INSPECTION_FLAT : undefined;
   const local_transport_estimate = priced ? Math.min(round(asking * LOCAL_TRANSPORT_RATIO), LOCAL_TRANSPORT_CAP) : undefined;
   const documentation_estimate = priced ? DOCUMENTATION_FLAT : undefined;
@@ -199,9 +228,10 @@ export function buildPricingSummary({ listingSummary = {}, listingType = 'vehicl
     currency_source: currencyClaim.source,
     // Present only when there is a denominated figure below to attach it to. See the header.
     estimate_denomination: priced ? ESTIMATE_DENOMINATION : undefined,
-    estimated_fair_min,
-    estimated_fair_max,
-    price_confidence: 'low',
+    // No valuation provider exists: stated, never inferred from absent keys, and never a band.
+    valuation_status: VALUATION_STATUS.NOT_CONFIGURED,
+    valuation_notice: VALUATION_UNAVAILABLE_NOTICE,
+    price_confidence: COST_ESTIMATE_CONFIDENCE,
     inspection_estimate,
     local_transport_estimate,
     export_import_estimate,

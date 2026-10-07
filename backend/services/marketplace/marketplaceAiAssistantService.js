@@ -14,10 +14,28 @@
  * Paid inference needs a PROVEN caller: the public routes pass NO_PAID_INFERENCE for an anonymous
  * (or merely asserted) identity, which returns the same deterministic answer with
  * ai_reason='sign_in_required' and spends no provider capacity.
+ *
+ * OC-5R-REL-01 — NO VALUATION, FROM ANY PATH. CarUp has no approved valuation provider. The price
+ * estimate therefore makes no provider call at all (it used to let the model raise the confidence
+ * label and add free-text notes beside a manufactured fair band), and every AI text field that
+ * reaches a buyer or a seller passes `containsValuationClaim` — a line or field that makes a
+ * valuation claim is withheld and the deterministic answer stands in for it.
  */
 
 import { requestAdvisoryJson } from '../ai/domainAdvisoryAdapter.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
+import { containsValuationClaim, VALUATION_WITHHELD_GUIDANCE } from './valuationClaimGuard.js';
+
+/** Appended to every prompt that can reach a buyer or a seller. The guard, not this, is the boundary. */
+const NO_VALUATION_RULE =
+  'CarUp has no valuation provider: never state or estimate a market value, fair price, price range, '
+  + 'money amount or percentage, and never say whether a price is good, fair, high or low.';
+
+/** The AI field if it is a usable string that makes no valuation claim, otherwise the fallback. */
+function governedText(aiValue, fallback) {
+  if (typeof aiValue !== 'string' || !aiValue.trim()) return fallback;
+  return containsValuationClaim(aiValue) ? fallback : aiValue;
+}
 
 // Bounded by the shared transport (the request is aborted, not merely abandoned).
 const AI_TIMEOUT_MS = 12000;
@@ -34,11 +52,23 @@ async function tryAi(systemPrompt, userPrompt) {
     const reply = await requestAdvisoryJson({ systemPrompt, userPrompt, timeoutMs: AI_TIMEOUT_MS, purpose: 'marketplace assistant' });
     const parsed = reply.value;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.error === true) return null;
+    PROVENANCE.set(parsed, { provider: reply.provider, model: reply.model, execution: reply.execution });
     return parsed;
   } catch {
     // AiAdvisoryError (failure, timeout, malformed JSON, no credentials): the deterministic result stands.
     return null;
   }
+}
+
+/**
+ * OC-5R-REL-01: which model wrote an AI-assisted answer, carried on the answer itself
+ * (`ai_provenance: { provider, model, execution }`) so a reader — and a deployed proof — never has
+ * to infer it from configuration. Recorded only for answers the gateway actually executed.
+ */
+const PROVENANCE = new WeakMap();
+function withProvenance(ai) {
+  const provenance = ai && typeof ai === 'object' ? PROVENANCE.get(ai) : null;
+  return provenance ? { ai_provenance: provenance } : {};
 }
 
 /**
@@ -119,19 +149,20 @@ export async function listingDraft(input = {}, requested = {}) {
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicListingDraft(input);
   const ai = await callAi(
-    'You are CarUp listing assistant. Return strict JSON {title, short_description, detailed_description, recommended_tags[]}. Do not claim verification/PartSentry/passport status.',
+    `You are CarUp listing assistant. Return strict JSON {title, short_description, detailed_description, recommended_tags[]}. Do not claim verification/PartSentry/passport status. ${NO_VALUATION_RULE}`,
     `Draft a marketplace listing for: ${JSON.stringify(input)}`
   );
   if (!ai) return withoutAi(deterministic, deps);
   return {
-    title: ai.title || deterministic.title,
-    short_description: ai.short_description || deterministic.short_description,
-    detailed_description: ai.detailed_description || deterministic.detailed_description,
+    title: governedText(ai.title, deterministic.title),
+    short_description: governedText(ai.short_description, deterministic.short_description),
+    detailed_description: governedText(ai.detailed_description, deterministic.detailed_description),
     recommended_tags: deterministic.recommended_tags, // tags stay deterministic/governed
     missing_fields: deterministic.missing_fields,
     seller_checklist: deterministic.seller_checklist,
     ai_status: 'ai_assisted',
     ai_available: true,
+    ...withProvenance(ai),
   };
 }
 
@@ -159,32 +190,45 @@ export async function buyerAssistant(input = {}, requested = {}) {
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicBuyerRecommendation(input);
   const ai = await callAi(
-    'You are CarUp buyer assistant. Return strict JSON {guidance: string[]}. Be safety-first; never invent trust/verification facts; never expose internal risk data.',
+    `You are CarUp buyer assistant. Return strict JSON {guidance: string[]}. Be safety-first; never invent trust/verification facts; never expose internal risk data. ${NO_VALUATION_RULE}`,
     `Buyer query: ${JSON.stringify(input)}`
   );
   if (!ai || !Array.isArray(ai.guidance)) return withoutAi(deterministic, deps);
-  return { ...deterministic, guidance: ai.guidance, ai_status: 'ai_assisted', ai_available: true };
-}
-
-// ---- AI Price Intelligence (anchored to deterministic bands) ---------------
-
-export async function priceEstimate({ listingSummary = {}, listingType = 'vehicle' } = {}, requested = {}) {
-  const deps = inferencePolicy({ make: listingSummary.make, model: listingSummary.model, year: listingSummary.year, mileage: listingSummary.mileage, price: listingSummary.price }, requested);
-  const callAi = deps.aiCall || tryAi;
-  // Deterministic all-in cost is authoritative; AI may only annotate confidence/notes.
-  const pricing = buildPricingSummary({ listingSummary, listingType });
-  const ai = await callAi(
-    'You are CarUp price intelligence. Return strict JSON {price_confidence: "low"|"medium"|"high", notes: string[]}. Be conservative; this is advisory only.',
-    `Vehicle: ${JSON.stringify({ make: listingSummary.make, model: listingSummary.model, year: listingSummary.year, mileage: listingSummary.mileage, price: listingSummary.price })}`
-  );
-  if (!ai) return withoutAi(pricing, deps);
+  const offered = ai.guidance.filter((line) => typeof line === 'string' && line.trim());
+  const kept = offered.filter((line) => !containsValuationClaim(line));
+  const withheld = offered.length - kept.length;
+  if (kept.length === 0) {
+    // Nothing usable survived: the buyer gets the deterministic guidance, told why.
+    return {
+      ...withoutAi(deterministic, { aiReason: withheld > 0 ? 'ai_output_withheld' : undefined }),
+      ...(withheld > 0 ? { guidance: [...deterministic.guidance, VALUATION_WITHHELD_GUIDANCE], ai_withheld: withheld } : {}),
+    };
+  }
   return {
-    ...pricing,
-    price_confidence: ['low', 'medium', 'high'].includes(ai.price_confidence) ? ai.price_confidence : pricing.price_confidence,
-    estimate_basis: 'ai_assisted',
-    ai_notes: Array.isArray(ai.notes) ? ai.notes.slice(0, 5) : [],
+    ...deterministic,
+    guidance: withheld > 0 ? [...kept, VALUATION_WITHHELD_GUIDANCE] : kept,
+    ...(withheld > 0 ? { ai_withheld: withheld } : {}),
     ai_status: 'ai_assisted',
     ai_available: true,
+    ...withProvenance(ai),
+  };
+}
+
+// ---- Price estimate: deterministic, and no valuation ------------------------
+
+/**
+ * The all-in cost estimate, and nothing an AI could add to it. There is no approved valuation
+ * provider, so there is no price intelligence to request: no provider call is made for any caller,
+ * `price_confidence` stays the fixed cost-estimate label, and no `ai_notes` exist. The reason is the
+ * same for every caller — signing in would not change it.
+ */
+export async function priceEstimate({ listingSummary = {}, listingType = 'vehicle' } = {}) {
+  const pricing = buildPricingSummary({ listingSummary, listingType });
+  return {
+    ...pricing,
+    ai_status: 'ai_unavailable',
+    ai_available: false,
+    ai_reason: 'valuation_not_configured',
   };
 }
 
@@ -207,17 +251,18 @@ export async function shareCopy(input = {}, requested = {}) {
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicShareCopy(input);
   const ai = await callAi(
-    'You are CarUp social copy assistant. Return strict JSON {whatsapp, telegram, facebook, short}. Keep it honest; no fabricated trust claims.',
+    `You are CarUp social copy assistant. Return strict JSON {whatsapp, telegram, facebook, short}. Keep it honest; no fabricated trust claims. ${NO_VALUATION_RULE}`,
     `Listing: ${JSON.stringify(input)}`
   );
   if (!ai) return withoutAi(deterministic, deps);
   return {
-    whatsapp: ai.whatsapp || deterministic.whatsapp,
-    telegram: ai.telegram || deterministic.telegram,
-    facebook: ai.facebook || deterministic.facebook,
-    short: ai.short || deterministic.short,
+    whatsapp: governedText(ai.whatsapp, deterministic.whatsapp),
+    telegram: governedText(ai.telegram, deterministic.telegram),
+    facebook: governedText(ai.facebook, deterministic.facebook),
+    short: governedText(ai.short, deterministic.short),
     ai_status: 'ai_assisted',
     ai_available: true,
+    ...withProvenance(ai),
   };
 }
 
@@ -250,5 +295,6 @@ export async function moderationSummary({ listingSummary = {}, trustSummary = {}
     flags: deterministic.flags,
     ai_status: 'ai_assisted',
     ai_available: true,
+    ...withProvenance(ai),
   };
 }

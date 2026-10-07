@@ -215,9 +215,11 @@ router.post('/api/marketplace/ai/buyer-assistant', aiLimiter, optionalAuth(), as
   res.json(await buyerAssistant(req.body || {}, inferenceDepsFor(req)));
 }));
 
+// OC-5R-REL-01: no valuation provider exists, so this route spends no inference for ANY caller —
+// it returns the deterministic cost estimate with valuation_status 'not_configured'.
 router.post('/api/marketplace/ai/price-estimate', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {
   const listingSummary = await resolveSummaryForAi(req.body);
-  res.json(await priceEstimate({ listingSummary, listingType: req.body?.listingType || 'vehicle' }, inferenceDepsFor(req)));
+  res.json(await priceEstimate({ listingSummary, listingType: req.body?.listingType || 'vehicle' }));
 }));
 
 router.post('/api/marketplace/ai/share-copy', aiLimiter, optionalAuth(), asyncHandler(async (req, res) => {

@@ -86,3 +86,31 @@ describe('AllInPricePanel currency truthfulness', () => {
     expect(screen.getByText(/cannot be reconciled/i)).toBeTruthy()
   })
 })
+
+/**
+ * OC-5R-REL-01 — no valuation is manufactured. CarUp has no approved valuation provider, so the
+ * panel shows no fair-price band, market range or value, and says so. The band used to be the
+ * asking price ±12% (estimated_fair_min / estimated_fair_max) — a valuation made from nothing.
+ */
+describe('AllInPricePanel publishes no valuation', () => {
+  it('states that no market valuation exists', () => {
+    render(<AllInPricePanel pricing={{ ...base, currency: 'USD', currency_state: 'recorded', valuation_status: 'not_configured' }} />)
+    expect(screen.getByTestId('marketplace-allin-no-valuation').textContent)
+      .toMatch(/no approved valuation provider/i)
+  })
+
+  it('never renders a fair band, even from an older payload that still carries one', () => {
+    const legacy = { ...base, currency: 'USD', currency_state: 'recorded', estimated_fair_min: 22000, estimated_fair_max: 28000 } as unknown as MarketplacePricingSummary
+    const { container } = render(<AllInPricePanel pricing={legacy} />)
+    const text = container.textContent || ''
+    expect(text).not.toMatch(/fair price band/i)
+    expect(text).not.toContain('22,000')
+    expect(text).not.toContain('28,000')
+  })
+
+  it('never labels the estimate AI-assisted', () => {
+    const legacy = { ...base, estimate_basis: 'ai_assisted', price_confidence: 'high' } as unknown as MarketplacePricingSummary
+    const { container } = render(<AllInPricePanel pricing={legacy} />)
+    expect(container.textContent || '').not.toMatch(/AI-assisted/i)
+  })
+})

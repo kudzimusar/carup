@@ -125,7 +125,9 @@ export function BuyerAssistantDrawer({
                 <Badge variant="outline" className="mb-2 text-[10px] text-amber-700" data-testid="marketplace-ai-assistant-fallback">
                   {aiReason === 'sign_in_required'
                     ? 'Sign in for AI-assisted guidance — showing safe guidance'
-                    : 'AI unavailable — showing safe guidance'}
+                    : aiReason === 'ai_output_withheld'
+                      ? 'AI answer withheld (it commented on price or value) — showing safe guidance'
+                      : 'AI unavailable — showing safe guidance'}
                 </Badge>
               )}
               <ul className="space-y-1.5">
