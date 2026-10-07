@@ -278,10 +278,12 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
   const ledgerCount = async () => Number((await db.query(`select count(*)::int as n from ${LEDGER_TABLE}`))[0].n);
   receipt.ledger_rows_before = await ledgerCount();
   let stopped = false;
+  // Dry run only: files an earlier, fully-unblocked group WOULD record, so a later replay is judged as it will be at apply time.
+  const wouldRecord = new Set();
   for (const group of groupsOf(ops)) {
     if (stopped) { for (const op of group.ops) receipt.operations.push({ file: op.file, action: op.action, status: 'NOT_RUN' }); continue; }
     const ledger = await db.query(`select version, name, created_by from ${LEDGER_TABLE}`);
-    const isRecorded = (op) => ledger.some((row) => isRecordedBy(op.file, row, op.equivalences));
+    const isRecorded = (op) => wouldRecord.has(op.file) || ledger.some((row) => isRecordedBy(op.file, row, op.equivalences));
     // A replay must already be recorded; whether the group is pending is decided by its other migrations alone.
     const unrecordedReplay = group.ops.find((op) => op.action === 'replay' && !isRecorded(op));
     if (unrecordedReplay) {
@@ -306,6 +308,7 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
     }
     if (!apply) {
       // Dry run: preconditions and (for repairs) the claimed effect, read-only.
+      let blocked = false;
       for (const op of group.ops) {
         try {
           const pre = await assertProbes(db, op.precondition, 'PRECONDITION_FAILED');
@@ -313,9 +316,11 @@ export async function runPlan(db, plan, { migrationsDir, apply = false, now = ()
           const status = { ledger_repair: 'WOULD_REPAIR_LEDGER', replay: 'WOULD_REPLAY' }[op.action] || 'WOULD_APPLY';
           receipt.operations.push({ file: op.file, action: op.action, group: group.id, status, preconditions: pre.length, effects: eff.length, unwrapped_envelope: Boolean(op.executable?.unwrappedEnvelope) });
         } catch (e) {
+          blocked = true;
           receipt.operations.push({ file: op.file, action: op.action, group: group.id, status: 'BLOCKED', error: e.message });
         }
       }
+      if (!blocked) for (const op of group.ops) if (op.action !== 'replay') wouldRecord.add(op.file);
       continue;
     }
     const startedAt = now();

@@ -309,6 +309,17 @@ test('a file the plan first repairs into the ledger may then be replayed — nev
   assert.deepEqual(again.operations.map((o) => o.status), ['ALREADY_RECORDED', 'ALREADY_RECORDED', 'ALREADY_RECORDED']);
   assert.equal((await ledger(pg)).length, 2);
 
+  // The dry run judges the replay as apply will: recorded by the earlier repair — unless that repair would be blocked.
+  const f2 = await freshDb();
+  await f2.pg.exec("create or replace function public.oc5r_dedupe() returns int language sql as $$ select 2 $$;");
+  const dry = await runPlan(f2.db, repairThenReplay, { migrationsDir: dir });
+  assert.deepEqual(dry.operations.map((o) => o.status), ['WOULD_REPAIR_LEDGER', 'WOULD_APPLY', 'WOULD_REPLAY']);
+  assert.equal((await ledger(f2.pg)).length, 0, 'a dry run writes nothing');
+  const f3 = await freshDb();   // effect absent: the repair is blocked, so nothing would record the replayed file
+  const blocked = await runPlan(f3.db, repairThenReplay, { migrationsDir: dir });
+  assert.deepEqual(blocked.operations.map((o) => o.status), ['BLOCKED', 'REFUSED', 'REFUSED']);
+  assert.match(blocked.operations[2].error, /REPLAY_OF_UNRECORDED/);
+
   const replayFirst = planFor(dir, [repairThenReplay.operations[1], repairThenReplay.operations[2], repairThenReplay.operations[0]].map(({ sha256: _, ...op }) => op));
   assert.throws(() => validatePlan(replayFirst, { migrationsDir: dir }), /REPLAY_BEFORE_RECORD/);
   const twice = planFor(dir, [...repairThenReplay.operations, repairThenReplay.operations[2]].map(({ sha256: _, ...op }) => op));
