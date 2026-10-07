@@ -141,6 +141,24 @@ test('C3: a configured DSN without an installed SDK is UNAVAILABLE, never enable
   });
 });
 
+test('D1 gemma: /api/health states whether the general AI gateway is configured — truthfully, and never the credential', async () => {
+  Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: originalFrom });
+  const { app } = await import('../server.js');
+  const read = async () => {
+    const s = http.createServer(app).listen(0);
+    try {
+      await new Promise((r) => s.once('listening', r));
+      return await (await fetch(`http://127.0.0.1:${s.address().port}/api/health`)).json();
+    } finally { await new Promise((r) => s.close(r)); }
+  };
+  const missing = await withEnv({ CLOUDFLARE_ACCOUNT_ID: undefined, CLOUDFLARE_API_TOKEN: undefined, CLOUDFLARE_TOKEN: 'stale-unread-token-value' }, read);
+  assert.deepEqual(missing.ai, { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', configured: false, authority: 'advisory' },
+    'CLOUDFLARE_TOKEN is not a credential this runtime reads: without CLOUDFLARE_API_TOKEN the gateway is NOT configured');
+  const present = await withEnv({ CLOUDFLARE_ACCOUNT_ID: 'acct-id-value', CLOUDFLARE_API_TOKEN: 'cf-api-token-secret-value' }, read);
+  assert.deepEqual(present.ai, { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', configured: true, authority: 'advisory' });
+  assert.equal(JSON.stringify(present).includes('cf-api-token-secret-value'), false, 'health never echoes the credential');
+});
+
 test('C3: /api/health reports the truthful Sentry state and never echoes the DSN', async () => {
   // server.js reads through the real client shape at import; undo the C2 route test's auth double.
   Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: originalFrom });

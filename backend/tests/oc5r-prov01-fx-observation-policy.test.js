@@ -43,15 +43,21 @@ function snapshotsClient(seed = []) {
 }
 
 test('C1: a hung source is cut off by the timeout and degrades to UNAVAILABLE', async () => {
-  const hung = (_url, { signal }) => new Promise((_resolve, reject) => {
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  // A source that never answers. It gives up ONLY when the request's own abort signal fires; with
+  // no signal it hangs forever, exactly like an unbounded request against a stalled host.
+  const hung = (_url, init = {}) => new Promise((_resolve, reject) => {
+    if (init.signal) init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
   });
+  // The test's own deadline, so an unbounded read fails this test instead of hanging the suite.
+  const within = (promise, ms = 2000) => Promise.race([
+    promise,
+    new Promise((resolve) => { setTimeout(() => resolve('DEADLINE_EXCEEDED'), ms).unref(); }),
+  ]);
   const provider = fx.createEcbFxProvider({ fetchImpl: hung, timeoutMs: 40 });
-  const started = Date.now();
-  assert.equal(await provider.fetchDaily(), null);
-  assert.ok(Date.now() - started < 2000, 'the read must not wait on the source indefinitely');
+  assert.equal(await within(provider.fetchDaily()), null, 'a hung source must be cut off by the timeout, not waited on');
   const { c } = snapshotsClient();
-  const rate = await fx.getReferenceRate('JPY', 'USD', { supabaseClient: c, provider: fx.createEcbFxProvider({ fetchImpl: hung, timeoutMs: 40 }), today: '2026-09-04' });
+  const rate = await within(fx.getReferenceRate('JPY', 'USD', { supabaseClient: c, provider: fx.createEcbFxProvider({ fetchImpl: hung, timeoutMs: 40 }), today: '2026-09-04' }));
+  assert.notEqual(rate, 'DEADLINE_EXCEEDED', 'the read must not wait on the source indefinitely');
   assert.equal(rate.status, 'UNAVAILABLE');
   assert.equal(rate.rate, undefined);
 });

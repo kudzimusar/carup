@@ -201,7 +201,7 @@ test('C1b the RENDERER consults the guard: a non-equivalent canonical artefact i
   let captured = null;
   const adapter = new ResendEmailAdapter({
     env: RESEND_ENV,
-    fetchImpl: async (_u, init) => { captured = JSON.parse(init.body); return { ok: true, status: 200, text: async () => '{}', headers: new Map() }; },
+    fetchImpl: async (_u, init) => { captured = JSON.parse(init.body); return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'resend-email-id' }), headers: new Map() }; },
   });
   const result = await adapter.send({
     notificationId: 'c1b', recipient: { email: 'u@example.test' },
@@ -306,7 +306,7 @@ test('D3 an unmigrated auth template still reports the compatibility path', asyn
   let captured = null;
   const adapter = new ResendEmailAdapter({
     env: RESEND_ENV,
-    fetchImpl: async (_u, init) => { captured = JSON.parse(init.body); return { ok: true, status: 200, text: async () => '{}', headers: new Map() }; },
+    fetchImpl: async (_u, init) => { captured = JSON.parse(init.body); return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'resend-email-id' }), headers: new Map() }; },
   });
   const result = await adapter.send({
     notificationId: 'n-2', recipient: { email: 'u@example.test' },

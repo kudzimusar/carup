@@ -50,6 +50,22 @@ function stableRequestId(prefix, input) {
     .slice(0, 24)}`;
 }
 
+/**
+ * OC-5R-PROV-01 G6 — a 2xx that carries none of the provider's own message identifiers proves
+ * nothing. These adapters used to synthesise one (stableRequestId) and report the send as accepted,
+ * so 'sent' could be recorded under an id the provider never issued and no receipt could ever
+ * match. Such an answer is now an explicit, NON-retryable failure: not recorded as sent, and not
+ * retried into a possible duplicate. For providers whose API guarantees an id on success.
+ */
+function unprovenAcceptance(provider) {
+  return {
+    accepted: false,
+    retryable: false,
+    errorCode: 'provider_acceptance_unproven',
+    errorMessage: `${provider} answered 2xx without its message identifier; the send cannot be proven, so it is not recorded as sent and is not retried.`,
+  };
+}
+
 function recipientField(input, ...keys) {
   const data = input?.content?.data || {};
   const recipient = input?.recipient || {};
@@ -478,7 +494,8 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
       };
     }
 
-    const providerRequestId = response.body?.id || stableRequestId('resend', input);
+    if (!response.body?.id) return unprovenAcceptance('Resend');
+    const providerRequestId = response.body.id;
     // Resend exposes the RFC Message-ID on the send response; fall back to its own id so reply
     // correlation always has something durable to match against.
     const rfcMessageId = response.body?.message_id || response.headers?.get?.('message-id') || null;
@@ -831,8 +848,12 @@ export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
       body: cloudflareEmailBody(input, this.env),
     });
     if (!response.ok) return this.providerFailure(response);
+    // G6: the worker must SAY it accepted the mail (or name the message); a bare 2xx is not proof.
+    if (response.body?.accepted !== true && !(response.body?.providerMessageId || response.body?.message_id)) {
+      return unprovenAcceptance('Cloudflare email worker');
+    }
     return {
-      accepted: response.body?.accepted !== false,
+      accepted: true,
       providerRequestId: response.body?.providerRequestId || response.body?.id || response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
       providerMessageId: response.body?.providerMessageId || response.body?.message_id || null,
       providerStatus: response.body?.providerStatus || response.body?.status || 'accepted',
@@ -898,9 +919,10 @@ export class TwilioSmsAdapter extends HttpCommunicationAdapter {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) return this.providerFailure({ status: response.status, body });
+      if (!body?.sid) return unprovenAcceptance('Twilio');
       return {
         accepted: true,
-        providerRequestId: body?.sid || stableRequestId('twilio', input),
+        providerRequestId: body.sid,
         providerMessageId: body?.sid || null,
         providerStatus: body?.status || 'accepted',
       };
@@ -934,9 +956,10 @@ export class MetaWhatsAppAdapter extends HttpCommunicationAdapter {
       body: { messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);
+    if (!response.body?.messages?.[0]?.id) return unprovenAcceptance('Meta WhatsApp');
     return {
       accepted: true,
-      providerRequestId: response.body?.messages?.[0]?.id || stableRequestId('meta_wa', input),
+      providerRequestId: response.body.messages[0].id,
       providerMessageId: response.body?.messages?.[0]?.id || null,
       providerStatus: 'accepted',
     };
@@ -957,9 +980,10 @@ export class FacebookMessengerAdapter extends HttpCommunicationAdapter {
       body: { recipient: { id: recipientId }, messaging_type: 'RESPONSE', message: { text: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);
+    if (!response.body?.message_id) return unprovenAcceptance('Meta Messenger');
     return {
       accepted: true,
-      providerRequestId: response.body?.message_id || stableRequestId('meta_fb', input),
+      providerRequestId: response.body.message_id,
       providerMessageId: response.body?.message_id || null,
       providerStatus: 'accepted',
     };
@@ -981,9 +1005,10 @@ export class InstagramMessagingAdapter extends HttpCommunicationAdapter {
       body: { recipient: { id: recipientId }, messaging_type: 'RESPONSE', message: { text: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);
+    if (!response.body?.message_id) return unprovenAcceptance('Instagram Messaging');
     return {
       accepted: true,
-      providerRequestId: response.body?.message_id || stableRequestId('meta_ig', input),
+      providerRequestId: response.body.message_id,
       providerMessageId: response.body?.message_id || null,
       providerStatus: 'accepted',
     };
@@ -1004,10 +1029,14 @@ export class TelegramBotAdapter extends HttpCommunicationAdapter {
       headers: jsonHeaders(),
       body: { chat_id: chatId, text: textBody(input), disable_web_page_preview: true },
     });
-    if (!response.ok || response.body?.ok === false) return this.providerFailure({ status: response.status || 400, body: response.body });
+    // G5: a timeout or network failure is not a rejection. Rebuilding it as `{ status: 0 || 400 }`
+    // erased its classification and recorded a retryable outage as a permanent HTTP-400 refusal.
+    if (response.networkError) return this.providerFailure(response);
+    if (!response.ok || response.body?.ok === false) return this.providerFailure({ status: response.status, body: response.body });
+    if (!response.body?.result?.message_id) return unprovenAcceptance('Telegram');
     return {
       accepted: true,
-      providerRequestId: response.body?.result?.message_id ? String(response.body.result.message_id) : stableRequestId('telegram', input),
+      providerRequestId: String(response.body.result.message_id),
       providerMessageId: response.body?.result?.message_id ? String(response.body.result.message_id) : null,
       providerStatus: 'sent',
     };

@@ -293,7 +293,9 @@ test('B1: the Seller automation fixture scope exists only in previews and the fi
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
 test('B2: an unsigned `{test:true}` communications webhook is refused in every deployment', () => {
-  const cases = [['sendgrid', 'email'], ['twilio', 'sms'], ['expo', 'push'], ['generic', 'webchat']];
+  // ['generic', 'webchat'] used to reach a catch-all shared-secret branch; since G1 no inbound
+  // provider may speak for web chat at all, in any runtime (see the communications boundary suite).
+  const cases = [['sendgrid', 'email'], ['twilio', 'sms'], ['expo', 'push']];
   for (const { label, env } of DEPLOYED) {
     const svc = new CommunicationWebhookService({ env: { NODE_ENV: 'test', ...env } });
     for (const [provider, channel] of cases) {
@@ -304,6 +306,7 @@ test('B2: an unsigned `{test:true}` communications webhook is refused in every d
   for (const [provider, channel] of cases) {
     assert.equal(local.verify(provider, channel, { headers: {}, body: { test: true } }), true, `fixture ${provider}`);
   }
+  assert.equal(local.verify('generic', 'webchat', { headers: {}, body: { test: true } }), false, 'no provider speaks for web chat');
 });
 
 test('B2: the committed billing webhook key does not exist in any deployment', async () => {

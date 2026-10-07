@@ -1122,7 +1122,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
         event_type: COMMUNICATION_AUDIT_EVENTS.SMOKE_TEST,
         actor_type: actor.actor_type, actor_id: actor.actor_id,
         channel: req.body?.channel || 'whatsapp',
-        summary: `Provider smoke test → ${result.ok ? 'delivered' : 'failed'}`,
+        // Accepted by the provider is not delivered to the recipient (OC-5R-PROV-01 G6).
+        summary: `Provider smoke test → ${result.ok ? 'accepted by provider' : 'failed'}`,
         correlation_id: result?.delivery?.provider_message_id || null,
         metadata: { ok: Boolean(result.ok), provider: result?.provider || null },
       });

@@ -61,6 +61,28 @@ const inboxProjectionMigrationSql = readFileSync(new URL('../../database/migrati
 const auditMigrationSql = readFileSync(new URL('../../database/migrations/20260705170000_communication_audit_events.sql', import.meta.url), 'utf8');
 const slaMigrationSql = readFileSync(new URL('../../database/migrations/20260705180000_communication_sla.sql', import.meta.url), 'utf8');
 
+/**
+ * OC-5R-PROV-01 G8 — a test that simulates a preview DEPLOYMENT must leave the process as it found
+ * it. Two tests set VERCEL_ENV=preview (and the diagnostics flags) and never restored them, so
+ * every later test in this file silently ran as a deployed runtime. In a deployment a Meta POST is
+ * authenticated by Meta's own HMAC, so these tests now sign the way Meta does.
+ */
+const UAT_META_APP_SECRET = 'meta-app-secret-uat-preview';
+function simulatePreviewDeployment(t) {
+  const keys = ['VERCEL_ENV', 'CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS', 'COMMUNICATION_WORKER_SECRET', 'CARUP_META_APP_SECRET'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  t.after(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
+  process.env.VERCEL_ENV = 'preview';
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  process.env.CARUP_META_APP_SECRET = UAT_META_APP_SECRET;
+}
+const metaSignature = (rawBody) => `sha256=${crypto.createHmac('sha256', UAT_META_APP_SECRET).update(rawBody).digest('hex')}`;
+
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
   const identityService = new CommunicationIdentityService({ repository });
@@ -1184,11 +1206,9 @@ test('communication Meta GET route rejects wrong verify token with controlled er
   }), (error) => error.statusCode === 403 && /Meta webhook verification failed/.test(error.message));
 });
 
-test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp message/thread', async () => {
+test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp message/thread', async (t) => {
   clearMetaWhatsAppWebhookReceiptsForTest();
-  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
-  process.env.VERCEL_ENV = 'preview';
-  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  simulatePreviewDeployment(t);
   const services = createHarness();
   const router = createCommunicationRouter({ services });
   const adminRouter = createAdminCommunicationRouter({ services });
@@ -1201,7 +1221,7 @@ test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp mes
     requestId: 'req-whatsapp-uat-1',
     correlationId: 'req-whatsapp-uat-1',
     headers: {
-      'x-channel-webhook-secret': 'test-channel-secret',
+      'x-hub-signature-256': metaSignature(JSON.stringify(payload)),
       'content-type': 'application/json',
       'user-agent': 'node-test',
     },
@@ -1318,11 +1338,9 @@ test('Meta WhatsApp duplicate provider message id is idempotent and does not cre
   assert.equal((await services.repository.list('channel_identities')).length, 1);
 });
 
-test('Meta WhatsApp duplicate channel identity race is recovered and receipt is processed', async () => {
+test('Meta WhatsApp duplicate channel identity race is recovered and receipt is processed', async (t) => {
   clearMetaWhatsAppWebhookReceiptsForTest();
-  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
-  process.env.VERCEL_ENV = 'preview';
-  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  simulatePreviewDeployment(t);
   class RaceyIdentityRepository extends MemoryCommunicationRepository {
     constructor(seed) {
       super(seed);
@@ -1394,10 +1412,9 @@ test('Meta WhatsApp duplicate channel identity race is recovered and receipt is 
     requestId: 'req-whatsapp-racey-identity',
     correlationId: 'req-whatsapp-racey-identity',
     headers: {
-      'x-channel-webhook-secret': 'test-channel-secret',
+      'x-hub-signature-256': metaSignature(JSON.stringify(payload)),
       'content-type': 'application/json',
       'user-agent': 'facebookexternalua',
-      'x-hub-signature-256': 'sha256=present',
     },
     query: {},
     body: payload,
