@@ -1,10 +1,19 @@
 # OC-5R — Staging database healing & migration convergence: recertification package
 
-**Status:** candidate evidence for moderator review. **No certification level is claimed or issued by this document.**
-The moderator decides what, if anything, it certifies. Under `ONE_CARUP_EVIDENCE_CERTIFICATION_POLICY.md`, DATABASE-CERTIFIED
-covers the repository's SQL on disposable PostgreSQL and never the contents of a real CarUp Supabase project (guard rule 6), and
-DEPLOYED-CERTIFIED needs a deployed SHA, which this work did not produce. So this package is evidence about the **staging
-project's database state**, presented for review.
+**Status:** the moderator accepted the healing, the Trust healing, the convergence and the staging evidence. The
+**repository behaviour** is now formally certified in `docs/one-carup/certification/ONE_CARUP_CERTIFICATION_MANIFEST.json`
+under capability `programme.database_migration_convergence`:
+
+| Receipt | Level | SHA | Certifies |
+|---|---|---|---|
+| `OC5R-DBMC-SOURCE-RUNNER` | SOURCE | `fe6e93f7` | runner identity, production refusal, transactional ledger-after-success, replay, collision and NEVER_APPLY refusal (26/27 mutants; the survivor was a test gap closed at `d3f95c4d`) |
+| `OC5R-DBMC-SOURCE-CUSTODY` | SOURCE | `d3f95c4d` | 001/002 refusal, never-replay of the publication backfill, custody refusal (27/27 + 7/7 mutants) |
+| `OC5R-DBMC-DATABASE-PGLITE` | DATABASE | `fe6e93f7` | the 29-migration PGlite chain (Up/Down/re-Up) and the runner's transaction semantics |
+| `OC5R-DBMC-DATABASE-POSTGRES` | DATABASE | `fe6e93f7` | the Trust migration's Up/Down/re-Up and the convergence plan on disposable PostgreSQL 17.11 |
+
+**What is not certified, and cannot be.** The contents of the real staging project are staging reconciliation observations
+(this package), never a ladder level. Guard rule 6 forbids a DATABASE receipt naming a real CarUp Supabase project, and
+DEPLOYED stays PENDING until an exact-SHA staging pair runs against the converged database.
 
 **Target:** canonical staging `eoyenigwevnxwwhyhaer` only. Production was not connected to, queried, or written at any point.
 

@@ -1792,6 +1792,189 @@
       },
       "remaining": [],
       "recorded_at": "2026-10-05T05:02:09Z"
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-SOURCE-RUNNER",
+      "sha": "fe6e93f7fc99cd93e0fde6270dabdd480885f5ed",
+      "level": "SOURCE-CERTIFIED",
+      "database": null,
+      "proof_mechanism": "node:test — the staging migration runner suite (real PostgreSQL semantics via PGlite) and the full backend suite under ci.yml validate-job env, plus an exact-SHA mutation battery, all run in a git worktree at this commit (ci.yml does not run on this PR)",
+      "claims": [
+        "migration identity is the full filename: a timestamp prefix alone never records a file, and other ledger conventions count only as equivalences a plan states",
+        "the runner refuses any connection string naming the production project and accepts only the positively identified staging project or an explicit loopback rehearsal database",
+        "each group runs in one transaction: the ledger row is written only after the SQL and every expected-effect probe succeed, and a failure rolls back SQL and ledger together and stops the run",
+        "an \"already exists\" error is a failure, never reported as applied; a recorded file whose effect is missing is reported as drift",
+        "a replay re-executes an already-recorded migration inside its anchor's transaction, must prove what it restores, and is never recorded twice",
+        "a timestamp-prefix collision is refused unless the plan records it as resolved",
+        "NEVER_APPLY, SQLite-only, retired and non-migration files are refused before any SQL runs"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-staging-migration-runner.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "runner 16/16 at this SHA; full backend suite 8029 tests: 8006 pass, 0 fail, 23 skipped",
+        "mutants": "26/27 killed at this SHA; survivor 'collision: resolved without naming this file' was a test gap (the guard was correct) closed at d3f95c4d, where 27/27 are killed",
+        "artifacts": "scratchpad MUT_fe6e93f7_convergence.json (battery), stage6_full_backend.tap"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-SOURCE-CUSTODY",
+      "sha": "d3f95c4dabb4701805a2f989212b61aaf94056fc",
+      "level": "SOURCE-CERTIFIED",
+      "database": null,
+      "proof_mechanism": "node:test — runner suite, OC-4A migration hygiene, X4 candidate and full backend suites, plus the exact-SHA mutation battery (convergence and custody sets), run at this commit",
+      "claims": [
+        "001_add_financial_ledger and 002_add_notification_queue are refused for every PostgreSQL plan action, a ledger repair included",
+        "20260808140000_publication_gate_backfill is classified RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY and is never executed or replayed by the runner",
+        "files held under the custody record (the X4 biometric candidates, their PR #208 originals and the PR #208 dealer extension) are refused for every action, by filename or by path",
+        "a collision resolution resolves only the files it names",
+        "every runner guard certified at fe6e93f7 still holds at this commit"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-staging-migration-runner.test.js",
+          "backend/tests/oc4a-migration-hygiene.test.js",
+          "backend/tests/o2-x4-biometric-interface.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "runner 19/19; full backend suite 8032 tests: 8009 pass, 0 fail, 23 skipped",
+        "mutants": "27/27 convergence + 7/7 custody killed at this SHA",
+        "artifacts": "scratchpad MUT_d3f95c4d_convergence.json, MUT_d3f95c4d_custody.json, full_backend_d3f95c4d.tap"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-DATABASE-PGLITE",
+      "sha": "fe6e93f7fc99cd93e0fde6270dabdd480885f5ed",
+      "level": "DATABASE-CERTIFIED",
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql",
+          "database/migrations/20260621130000_external_source_ingestion.sql",
+          "database/migrations/20260621140000_ai_temporal_disclosure_intelligence.sql",
+          "database/migrations/20260621150000_report_versions.sql",
+          "database/migrations/20260621160000_governance_disputes_corrections.sql",
+          "database/migrations/20260621170000_outbox_dead_letter.sql",
+          "database/migrations/20260624120000_vehicle_trust_security_hardening.sql",
+          "database/migrations/20260624130000_vehicle_document_extractions.sql",
+          "database/migrations/20260624140000_listing_publication_lifecycle.sql",
+          "database/migrations/20260624150000_trust_change_log_immutability.sql",
+          "database/migrations/20260626120000_source_verification_network.sql",
+          "database/migrations/20260626130000_partner_api.sql",
+          "database/migrations/20260626140000_fraud_engine.sql",
+          "database/migrations/20260626150000_dealer_compliance.sql",
+          "database/migrations/20260626160000_eligibility_framework.sql",
+          "database/migrations/20260626180000_escrow_trust_sessions.sql",
+          "database/migrations/20260703120000_provider_platform.sql",
+          "database/migrations/20260703130000_government_source_activation.sql",
+          "database/migrations/20260703140000_insurance_provider.sql",
+          "database/migrations/20260703150000_finance_provider.sql",
+          "database/migrations/20260703160000_escrow_provider.sql",
+          "database/migrations/20260703170000_mobile_certification.sql",
+          "database/migrations/20260703190000_provider_storage.sql",
+          "database/migrations/20260710120000_provider_request_attempts_provider_scope.sql",
+          "database/migrations/20260710130000_partsentry_review_requests.sql",
+          "database/migrations/20260808150000_mechanic_work_orders_convergence.sql",
+          "database/migrations/20260809100000_trust_side_tables.sql",
+          "database/migrations/20260809110000_api_role_write_hardening.sql",
+          "database/migrations/20260810120000_trust_side_convergence.sql"
+        ]
+      },
+      "proof_mechanism": "PGlite at this commit: database/test/migration_pglite_check.mjs (Up, Down, re-Up of the governed chain) and the runner suite's transactional cases",
+      "claims": [
+        "the 29 chain migrations apply, revert and re-apply on PostgreSQL semantics with no prerequisite, Up, Down or re-Up failure",
+        "a failing migration leaves no partial effect and no ledger row; an atomic group commits all-or-nothing, ledger included",
+        "a self-contained BEGIN/COMMIT envelope is unwrapped and cannot commit the runner transaction early"
+      ],
+      "evidence": {
+        "harness": "database/test/migration_pglite_check.mjs",
+        "result": "overall PASS: up 29, down 29, re-up 29, catalog {'legacy_backfill': {'evidence_class': 'inspection', 'evidence_subtype': 'odometer_photo', 'checksum_algorithm': 'sha256', 'expected_class': 'inspection', 'backfill_ok': True}, 'new_tables': ['ai_analysis_jobs', 'ai_observations', 'disclosure_claims', 'disclosure_conflicts', 'dispute_events', 'disputes', 'evidence_class_taxonomy', 'evidence_provenance_events', 'evidence_sets', 'evidence_sources', 'ingestion_jobs', 'listing_snapshots', 'report_versions', 'review_decisions', 'review_tasks', 'source_records', 'temporal_findings', 'trust_change_log', 'vehicle_identity_candidates'], 'views': ['evidence_sources_public'], 'triggers': ['dealer_decisions_no_delete on dealer_compliance_decisions', 'dealer_decisions_no_update on dealer_compliance_decisions', 'dispute_events_no_delete on dispute_events', 'dispute_events_no_update on dispute_events', 'elig_dec_no_delete on eligibility_decisions', 'elig_dec_no_update on eligibility_decisions', 'elig_wh_no_delete on eligibility_webhook_events', 'elig_wh_no_update on eligibility_webhook_events', 'escrow_dual_control_no_delete on escrow_dual_control_approvals', 'escrow_dual_control_no_update on escrow_dual_control_approvals', 'escrow_events_no_delete on escrow_trust_events', 'escrow_events_no_update on escrow_trust_events', 'escrow_recon_ledger_no_delete on escrow_reconciliation_ledger', 'escrow_recon_ledger_no_update on escrow_reconciliation_ledger', 'escrow_wh_no_delete on escrow_trust_webhook_events', 'escrow_wh_no_update on escrow_trust_webhook_events', 'fin_dec_no_delete on finance_provider_decisions', 'fin_dec_no_update on finance_provider_decisions', 'fraud_case_events_no_delete on fraud_case_events', 'fraud_case_events_no_update on fraud_case_events', 'fraud_case_resolutions_no_delete on fraud_case_resolutions', 'fraud_case_resolutions_no_update on fraud_case_resolutions', 'fraud_cases_set_updated_at on fraud_cases', 'fraud_signals_no_delete on fraud_signals', 'fraud_signals_no_update on fraud_signals', 'gov_batch_no_delete on government_source_batch_imports', 'gov_batch_no_update on government_source_batch_imports', 'ins_decisions_no_delete on insurance_provider_decisions', 'ins_decisions_no_update on insurance_provider_decisions', 'insurance_consent_guard_del on insurance_consents', 'insurance_consent_guard_upd on insurance_consents', 'mobile_cert_results_no_delete on mobile_certification_results', 'mobile_cert_results_no_update on mobile_certification_results', 'partner_requests_no_delete on partner_api_requests', 'partner_requests_no_update on partner_api_requests', 'provider_activation_no_delete on provider_activation_history', 'provider_activation_no_update on provider_activation_history', 'provider_attempts_no_delete on provider_request_attempts', 'provider_attempts_no_update on provider_request_attempts', 'review_decisions_no_delete on review_decisions', 'review_decisions_no_update on review_decisions', 'svr_no_delete on source_verification_results', 'svr_no_update on source_verification_results', 'trg_extraction_no_content_update on vehicle_document_extractions', 'trg_finance_consent_guard_update on finance_consents', 'trg_finance_consent_no_delete on finance_consents', 'trg_listing_snapshot_no_delete on listing_snapshots', 'trg_listing_snapshot_no_update on listing_snapshots', 'trg_provenance_no_delete on evidence_provenance_events', 'trg_provenance_no_update on evidence_provenance_events', 'trg_report_version_guard on report_versions', 'trust_change_log_no_delete on trust_change_log', 'trust_change_log_no_update on trust_change_log'], 'rls_policies': ['ai_observations: 1', 'dealer_branches: 2', 'dealer_compliance_decisions: 2', 'dealer_compliance_documents: 2', 'dealer_compliance_requirements: 2', 'dealer_profiles: 4', 'disclosure_claims: 1', 'disclosure_conflicts: 1', 'dispute_events: 1', 'disputes: 1', 'eligibility_requests: 2', 'escrow_dual_control_approvals: 2', 'escrow_kyc_kyb_states: 2', 'escrow_provider_config: 1', 'escrow_reconciliation_ledger: 1', 'escrow_trust_sessions: 2', 'evidence_provenance_events: 1', 'evidence_sets: 1', 'finance_consents: 2', 'finance_provider_decisions: 2', 'fraud_case_events: 1', 'fraud_case_resolutions: 1', 'fraud_cases: 1', 'fraud_signals: 1', 'government_source_batch_imports: 1', 'government_source_config: 1', 'insurance_consents: 2', 'insurance_provider_decisions: 2', 'insurer_profiles: 1', 'lender_profiles: 1', 'mobile_certification_results: 1', 'mobile_certification_runs: 1', 'provider_registry: 1', 'provider_request_attempts: 1', 'report_versions: 3', 'review_decisions: 1', 'review_tasks: 1', 'source_verification_results: 2', 'temporal_findings: 1', 'trust_change_log: 1', 'vehicle_document_extractions: 2', 'vehicle_evidence: 4'], 'provenance_append_only_enforced': True, 'provenance_fk_mode': 'r', 'provenance_fk_is_restrict': True, 'evidence_sets_fk_mode': 'r', 'evidence_sets_fk_is_restrict': True, 'report_versions_fk_mode': 'r', 'report_versions_fk_is_restrict': True, 'vehicle_evidence_rls': True, 'vehicle_plate_history_rls': False, 'extractions_table': 'vehicle_document_extractions', 'extractions_rls': True, 'extraction_content_guard_enforced': True, 'publication_status_col': 'text', 'temp_plate_id_col': 'text', 'publication_status_check_enforced': True, 'review_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'dispute_events_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'listing_snapshots_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'trust_change_log_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'source_verification_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'source_verification_mode_enforced': True, 'source_coverage_view_sandbox_labelled': True, 'fraud_signals_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'dealer_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'eligibility_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'escrow_events_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'partner_requests_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'gov_batch_imports_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'insurance_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'finance_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'escrow_recon_ledger_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'mobile_cert_results_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'mechanic_work_orders_columns': [], 'mechanic_parts_columns': [], 'mechanic_convergence_ok': True, 'mechanic_phase4_insert_ok': True, 'tables_after_down': 0, 'tables_after_reup': 19}",
+        "artifacts": "scratchpad DBX_fe6e93f7_pglite_chain.json"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-DATABASE-POSTGRES",
+      "sha": "fe6e93f7fc99cd93e0fde6270dabdd480885f5ed",
+      "level": "DATABASE-CERTIFIED",
+      "database": {
+        "engine": "postgres-disposable",
+        "migrations": [
+          "database/migrations/20261007063512_vehicles_trust_score_unknown_is_null.sql",
+          "database/migrations/20260826120000_email_1_0_hardening.sql",
+          "database/migrations/20260828220000_passport_ownership_transfer_communications.sql",
+          "database/migrations/20260828210000_issue158_private_key_custody.sql",
+          "database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql",
+          "database/migrations/20260829020000_issue158_activation_boundary_hardening.sql",
+          "database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql",
+          "database/migrations/20260830060000_issue158_terminal_operation_identity.sql",
+          "database/migrations/20260901120000_vehicle_finance_obligation_authority.sql",
+          "database/migrations/20260902123000_auth_activity_not_conversation.sql",
+          "database/migrations/20261003100000_ocr_c3_garage_evidence_lineage_reconciliation.sql",
+          "database/migrations/20261004150000_o2_dealer_compliance_decision_template.sql",
+          "database/migrations/20261004160100_oc5a_work_order_owner_authorization.sql",
+          "database/migrations/20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql",
+          "database/migrations/20261004172000_o2_x6_semantic_event_templates.sql",
+          "database/migrations/20261004180800_service_network_case_status_template.sql",
+          "database/migrations/20261004190000_gmo3_garage_application_decision.sql",
+          "database/migrations/20261004190200_gmo6_garage_invitations.sql",
+          "database/migrations/20261004190300_gmo7_garage_membership_guard.sql",
+          "database/migrations/20261004210000_oc5g_policy_notification_templates.sql",
+          "database/migrations/20261004180600_service_network_o4_event_dedupe.sql"
+        ]
+      },
+      "proof_mechanism": "disposable loopback PostgreSQL 17.11 (restored from an OC-5R recovery snapshot with original owners and ACLs, the runner connecting as a non-superuser role), driven by this commit's runner CLI and parser; scratch databases dropped afterwards",
+      "claims": [
+        "20261007063512_vehicles_trust_score_unknown_is_null removes the trust_score default: an INSERT that omits trust_score stores NULL, an explicit score is still stored, a second Up executes nothing, Down restores DEFAULT 80.0, and re-Up succeeds",
+        "the 19 executed migrations of the OC-5R convergence plan apply in dependency order with one runner transaction per group — the Issue-158 custody chain as one atomic group, Email 1.0 atomically with the SN-O4 replay — and a second run executes and records nothing",
+        "applying Email 1.0 after SN-O4 rewrites communication_domain_event_dedupe_key(); replaying SN-O4 in the same transaction restores it",
+        "converging the plan changes pre-existing data only by inserting ledger and communication-template rows"
+      ],
+      "evidence": {
+        "steps": "Trust migration 8/8; convergence rehearsal 12/12 steps",
+        "result": "PASS",
+        "artifacts": "scratchpad DBX_fe6e93f7_trust.json, DELIVERABLES/DB2C_rehearsal_receipt.json"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
     }
   ],
   "capabilities": {
@@ -2101,6 +2284,14 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
       "notes": "OC-5J: a governed ownership-transfer refusal (42501/P0002/23505/23514/22023) is a 403/404/409/409/400 with its own words; an unexpected fault stays a 500 DatabaseError."
+    },
+    "programme.database_migration_convergence": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "The OC-5R staging migration runner and the repository lineage it converges. SOURCE and DATABASE certify repository behaviour only (local worktree runs at the receipt SHAs; disposable PostgreSQL / PGlite). The live staging convergence and its database state are staging reconciliation observations (docs/one-carup/OC5R_DATABASE_RECERTIFICATION_PACKAGE.md), never a ladder level. DEPLOYED stays PENDING until an exact-SHA staging pair runs against the converged database; no external provider and no owner journey are involved."
     }
   }
 }
