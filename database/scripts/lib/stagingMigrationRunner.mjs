@@ -181,11 +181,19 @@ export function validatePlan(plan, { migrationsDir }) {
   const neverApply = new Map((plan.never_apply || []).map((n) => [n.file, n.reason]));
   const repoFiles = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
   const collidingPrefixes = new Set(findTimestampPrefixCollisions(repoFiles));
+  // Ledger identity must be unambiguous: each file appears once among the operations that can record it. A replay
+  // records nothing, so it may name a file an EARLIER operation of the plan records (repair, then replay).
   try {
-    assertDeterministicVersions(plan.operations.map((op) => op.file));
+    assertDeterministicVersions(plan.operations.filter((op) => op.action !== 'replay').map((op) => op.file));
+    assertDeterministicVersions(plan.operations.filter((op) => op.action === 'replay').map((op) => op.file));
   } catch (e) {
     throw new RunnerRefusal('AMBIGUOUS_FILENAME', e.message);
   }
+  plan.operations.forEach((op, i) => {
+    if (op.action !== 'replay') return;
+    const recorder = plan.operations.findIndex((o) => o.action !== 'replay' && o.file === op.file);
+    if (recorder > i) throw new RunnerRefusal('REPLAY_BEFORE_RECORD', `${op.file}: the plan records this file only after replaying it`);
+  });
   const prepared = [];
   for (const op of plan.operations) {
     const file = String(op.file || '');

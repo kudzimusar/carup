@@ -290,3 +290,29 @@ test('a replay of an unrecorded file, or one without evidence or an anchor befor
   ]);
   assert.throws(() => validatePlan(first, { migrationsDir: dir }), /REPLAY_BEFORE_ANCHOR/);
 });
+
+test('a file the plan first repairs into the ledger may then be replayed — never replayed first, never twice', async () => {
+  const dir = replayFiles();
+  const { pg, db } = await freshDb();
+  await pg.exec("create or replace function public.oc5r_dedupe() returns int language sql as $$ select 2 $$;"); // effect present, ledger silent
+  const repairThenReplay = planFor(dir, [
+    { file: '20990101000900_defines.sql', action: 'ledger_repair', expect: ['public.oc5r_dedupe() = 2'] },
+    { file: '20990101001000_regresses.sql', action: 'execute', group: 'g', expect: ["to_regclass('public.oc5r_anchor') is not null"] },
+    { file: '20990101000900_defines.sql', action: 'replay', group: 'g', expect: ['public.oc5r_dedupe() = 2'] },
+  ]);
+  const r = await runPlan(db, repairThenReplay, { migrationsDir: dir, apply: true });
+  assert.deepEqual(r.operations.map((o) => o.status), ['LEDGER_REPAIRED', 'APPLIED', 'REPLAYED']);
+  const rows = await ledger(pg);
+  assert.deepEqual(rows.map((l) => [l.version, l.created_by]), [['20990101000900_defines.sql', REPAIR_TAG], ['20990101001000_regresses.sql', RUNNER_TAG]], 'one row per file');
+  assert.equal((await pg.query('select public.oc5r_dedupe() as v')).rows[0].v, 2);
+  const again = await runPlan(db, repairThenReplay, { migrationsDir: dir, apply: true });
+  assert.deepEqual(again.operations.map((o) => o.status), ['ALREADY_RECORDED', 'ALREADY_RECORDED', 'ALREADY_RECORDED']);
+  assert.equal((await ledger(pg)).length, 2);
+
+  const replayFirst = planFor(dir, [repairThenReplay.operations[1], repairThenReplay.operations[2], repairThenReplay.operations[0]].map(({ sha256: _, ...op }) => op));
+  assert.throws(() => validatePlan(replayFirst, { migrationsDir: dir }), /REPLAY_BEFORE_RECORD/);
+  const twice = planFor(dir, [...repairThenReplay.operations, repairThenReplay.operations[2]].map(({ sha256: _, ...op }) => op));
+  assert.throws(() => validatePlan(twice, { migrationsDir: dir }), /AMBIGUOUS_FILENAME/);
+  const repairedTwice = planFor(dir, [repairThenReplay.operations[0], repairThenReplay.operations[0]].map(({ sha256: _, ...op }) => op));
+  assert.throws(() => validatePlan(repairedTwice, { migrationsDir: dir }), /AMBIGUOUS_FILENAME/);
+});
