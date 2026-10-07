@@ -1,15 +1,19 @@
 {
   "schema": "carup.staging_deployment_candidate.v1",
-  "programme": "One CarUp — OC-5R-PROV-01",
-  "prepared_at": "2026-10-07T15:03:27Z",
+  "programme": "One CarUp — OC-5R-REL-01",
+  "prepared_at": "2026-10-07T23:16:52Z",
+  "supersedes": {
+    "code_sha": "d18936abfda408753013e821605914134518b155",
+    "reason": "OC-5R-REL-01 source remediation (Marketplace valuation, odometer privacy, OCR custody, communications kill switch and acceptance ids) and a Git-less build provenance — the PROV-01 candidate is historical and is not deployed."
+  },
   "deployment": {
     "performed": false,
-    "statement": "This package PREPARES a governed staging deployment. No deployment, redeploy, alias move, promotion, Git auto-deploy change or merge was performed by OC-5R-PROV-01."
+    "statement": "This package PREPARES the governed staging release. The release itself — deployment ids, aliases, runtime proofs — is recorded in OC5R_STAGING_RELEASE_RECORD.json, never here."
   },
   "candidate": {
     "branch": "fix/oc5r-real-runtime-source-closure",
     "pull_request": 222,
-    "code_sha": "d18936abfda408753013e821605914134518b155",
+    "code_sha": "e7b14a0778c755d11ec18e6f9cf550be133d6a4c",
     "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
     "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
     "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
@@ -27,29 +31,32 @@
       "target": "preview (this branch's per-branch deployment)"
     },
     "stable_aliases": "carup-staging.vercel.app and carup-backend-staging.vercel.app are NOT moved; the pair resolver refuses them as non-candidate origins",
-    "git_auto_deploy": "disabled (vercel.json git.deploymentEnabled:false) — deploying is an explicit, governed action"
+    "git_auto_deploy": "disabled (vercel.json git.deploymentEnabled:false) — deploying is an explicit, governed action",
+    "git_connection": "none — the CarUp Vercel projects have no connected Git repository (OC-P0 cost containment). Vercel therefore assigns no branch alias and injects no VERCEL_GIT_* variables; a release is a CLI upload of a clean detached worktree at the deploy commit (owner decision 2026-10-08)."
   },
   "database": {
     "project_ref": "eoyenigwevnxwwhyhaer",
     "role": "canonical staging database (OC-5R DB convergence: SOURCE PASS + DATABASE PASS)",
-    "migrations": "none introduced by OC-5R-PROV-01; the read-only post-convergence manifest recertification is recorded in the readiness report"
+    "migrations": "none introduced by OC-5R-REL-01 (no file under database/ changed); the read-only post-convergence manifest recertification is recorded in the release report"
   },
   "expected_pairing": {
     "frontend": {
       "file": "web/preview-frontend-pairing.json",
-      "value": "https://carup-staging-git-fix-oc5r-real-runtime-source-closure-11-11.vercel.app",
-      "basis": "Vercel's stable per-branch alias for carup-staging; 60 characters, so it is not truncated"
+      "value": "https://carup-staging-oc5r-rel01-11-11.vercel.app",
+      "basis": "a named preview alias assigned to the frontend deployment through the Vercel API and read back from Vercel (no branch alias exists for a Git-less deployment)"
     },
     "backend": {
       "file": "web/preview-backend-pairing.json",
-      "pattern": "^https://carup-backend-staging-git-fix-oc5r-real-runtime-so[a-z0-9-]*-11-11\\.vercel\\.app$",
-      "basis": "Vercel truncates this per-branch alias (it exceeds 63 characters) and appends a hash it assigns at the branch's first preview deployment. The hash is not composed by hand: it is read from that deployment's alias list and recorded in a pairing-only commit."
+      "value": "https://carup-backend-staging-oc5r-rel01-11-11.vercel.app",
+      "pattern": "^https://carup-backend-staging-oc5r-rel01-11-11\\.vercel\\.app$",
+      "basis": "a named preview alias assigned to the backend deployment through the Vercel API and read back from Vercel"
     },
     "procedure": [
-      "1. Deploy the BACKEND preview of the deploy commit (carup-backend-staging, target preview, branch fix/oc5r-real-runtime-source-closure); read its stable per-branch alias from the deployment's alias list.",
-      "2. Commit ONLY the two pairing records for this branch (frontend value above; backend alias from step 1). Verify the commit with the verify command — it must pass with pairing 'present'.",
-      "3. Deploy BOTH previews from that pairing commit (the frontend embeds the pairing at build time, so the deployed frontend commit must contain it). Re-verify with the verify command.",
-      "4. Dispatch Seller Home & Lifecycle Staging UAT and Diaspora Deployed Staging UAT on the branch head; each proves the governed exact-head pair (resolve-governed-preview-pair.mjs) before any staging contact."
+      "1. Commit ONLY this branch's two pairing records (values above) plus candidate documentation on top of code_sha. Verify that commit with the verify command — it must pass with pairing \"present\". That commit is the deploy commit.",
+      "2. From a clean detached worktree at the deploy commit (git status empty; the CLI upload set is exactly the tracked tree), deploy carup-backend-staging to the PREVIEW target: vercel deploy --project carup-backend-staging -b CARUP_BUILD_SHA=<deploy commit> -b CARUP_BUILD_REF=<branch> -e CARUP_BUILD_SHA=<deploy commit> -e CARUP_BUILD_REF=<branch> -e COMMUNICATION_OUTBOUND_DISABLED=true -m carupSourceSha=<deploy commit>. Assign the backend alias above to that deployment and read it back.",
+      "3. The same for carup-staging (-b CARUP_BUILD_SHA / CARUP_BUILD_REF; the build pairs from the backend record); assign the frontend alias above and read it back.",
+      "4. Prove runtime identity before any journey: /carup-provenance.json and /api/health both serve the deploy commit, the frontend is paired to the backend alias, the database refs are the staging project only, OCR custody is canonical (cloudflare/Qwen), general AI is cloudflare/Gemma, and the outbound kill switch is active.",
+      "5. Run the deployed provider proof (label oc5r-deployed-provider-proof) and the two staging gates on the deploy commit."
     ]
   },
   "environment_contract": {
@@ -133,7 +140,25 @@
       "Remove the stale CLOUDFLARE_TOKEN from carup-backend-staging (production target).",
       "Optional: store CLOUDFLARE_API_TOKEN as type 'sensitive' (it is 'encrypted', i.e. decryptable by team members) for parity with the other provider credentials.",
       "Optional, per webhook to be exercised on staging: set the now-strict webhook secrets above."
-    ]
+    ],
+    "outbound_kill_switch": {
+      "variable": "COMMUNICATION_OUTBOUND_DISABLED",
+      "value_for_this_release": "true",
+      "scope": "deployment-scoped runtime env on the backend preview deployment (vercel deploy -e); the project has no connected Git repository, so a branch-scoped variable cannot be created. Never set on production.",
+      "proof": "/api/health communications.outbound.kill_switch == \"active\""
+    },
+    "build_provenance": {
+      "variables": [
+        "CARUP_BUILD_SHA",
+        "CARUP_BUILD_REF"
+      ],
+      "scope": "build env (-b) on both previews and runtime env (-e) on the backend; values = the deploy commit and the branch",
+      "why": "a Git-less CLI deployment carries no VERCEL_GIT_* variables; Vercel's own variables still win when present and a contradiction is refused"
+    },
+    "d7_worker_secret": {
+      "variable": "COMMUNICATION_WORKER_SECRET",
+      "state": "absent on this preview — the Diaspora gate's spec 45 D7 (two tests) drains the outbox with GitHub TRADEOS_WORKER_SECRET and will get 401 (owner decision 2026-10-08: run it and report)."
+    }
   },
   "provider_config": {
     "ocr": {
@@ -143,7 +168,8 @@
         "CLOUDFLARE_ACCOUNT_ID",
         "CLOUDFLARE_API_TOKEN"
       ],
-      "mock": "refused in every deployment"
+      "mock": "refused in every deployment",
+      "custody": "in a deployed runtime CARUP_OCR_MODEL must be absent or equal the canonical model, and CARUP_OCR_PROVIDER must be cloudflare — anything else fails closed (OCR_CUSTODY_REFUSED)"
     },
     "general_ai": {
       "provider": "cloudflare",
@@ -170,8 +196,10 @@
     "communications": {
       "resend": "RESEND_API_KEY + RESEND_FROM_EMAIL (+ RESEND_WEBHOOK_SECRET inbound)",
       "telegram": "CARUP_TELEGRAM_BOT_TOKEN (+ CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN inbound)",
-      "meta_whatsapp": "CARUP_META_ACCESS_TOKEN + CARUP_META_PHONE_NUMBER_ID (+ CARUP_META_APP_SECRET inbound, CARUP_META_WABA_ID templates)"
+      "meta_whatsapp": "CARUP_META_ACCESS_TOKEN + CARUP_META_PHONE_NUMBER_ID (+ CARUP_META_APP_SECRET inbound, CARUP_META_WABA_ID templates)",
+      "kill_switch": "COMMUNICATION_OUTBOUND_DISABLED=true on this release (no provider is contacted; external notifications are held, not lost)"
     },
-    "biometrics": "not activated"
+    "biometrics": "not activated",
+    "marketplace_valuation": "none — no approved valuation provider; valuation_status not_configured; no AI price intelligence"
   }
 }

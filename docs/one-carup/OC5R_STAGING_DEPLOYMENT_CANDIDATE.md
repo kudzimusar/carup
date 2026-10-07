@@ -1,26 +1,8 @@
-# OC-5R staging deployment candidate (PROV-01 E1–E3)
+# OC-5R staging deployment candidate (REL-01)
 
-**Nothing here has been deployed.** This package prepares a governed staging deployment. No deployment, redeploy, alias move,
-promotion, Git auto-deploy change or merge was performed. DEPLOYED-CERTIFIED is not claimed.
+This package prepares the governed staging release of PR #222. The release itself is recorded separately in `certification/OC5R_STAGING_RELEASE_RECORD.json`: deployment ids, aliases, runtime-identity proof and gate runs. That separation keeps the candidate an immutable statement of *what may be deployed*.
 
-The machine-readable package is [`certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json`](certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json).
-`scripts/ci/verify-deployment-candidate.mjs` checks a deploy commit against it.
-
-## The candidate
-
-| | |
-|---|---|
-| Branch / PR | `fix/oc5r-real-runtime-source-closure` · #222 (Draft) |
-| **Code SHA** | `d18936abfda408753013e821605914134518b155` |
-| Deployable commit | The code SHA, or a descendant that changes **only** `docs/**` and this branch's two pairing records |
-| Frontend | `carup-staging` (`prj_auYmL5hA2ppWA15jdTK4GAdy3AYm`), **preview** target, this branch |
-| Backend | `carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`), **preview** target, this branch |
-| Frontend SHA = backend SHA | Yes: one monorepo commit. The gates require frontend == backend == candidate head |
-| Database | `eoyenigwevnxwwhyhaer` (canonical staging). PROV-01 introduced no migration |
-| Stable aliases | `carup-staging.vercel.app` and `carup-backend-staging.vercel.app` are **not** moved; the pair resolver refuses them |
-| Vercel team | `team_InL2Jmsg4dbG0rFY8nxriTha`. Git auto-deploy stays disabled |
-
-**Verifier.** Run:
+The machine-readable package is [`certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json`](certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json). It is checked by:
 
 ```
 node scripts/ci/verify-deployment-candidate.mjs \
@@ -28,118 +10,69 @@ node scripts/ci/verify-deployment-candidate.mjs \
   --deployed-sha <deploy commit>
 ```
 
-It refuses by name:
-- `NOT_A_DESCENDANT`
-- `CODE_CHANGED`
-- `OTHER_BRANCH_PAIRING_CHANGED`
-- `FRONTEND_ALIAS_MISMATCH`
-- `BACKEND_ALIAS_SHAPE`
-- `PAIR_REFUSED`
+## The candidate
 
-8 tests cover it; 6 of 6 mutants are killed.
-
-## Pairing authority
-
-| Record | Expected |
+| | |
 |---|---|
-| `web/preview-frontend-pairing.json` | `https://carup-staging-git-fix-oc5r-real-runtime-source-closure-11-11.vercel.app`. This is Vercel's per-branch alias: 60 characters, not truncated |
-| `web/preview-backend-pairing.json` | Must match `^https://carup-backend-staging-git-fix-oc5r-real-runtime-so[a-z0-9-]*-11-11\.vercel\.app$` |
+| Branch / PR | `fix/oc5r-real-runtime-source-closure` · #222 (Draft, unmerged) |
+| **Code SHA** | `e7b14a0778c755d11ec18e6f9cf550be133d6a4c` |
+| Supersedes | `d18936ab` (PROV-01). Historical — it is not deployed |
+| Deployable commit | The code SHA, or a descendant that changes **only** `docs/**` and this branch's two pairing records |
+| Frontend | `carup-staging` (`prj_auYmL5hA2ppWA15jdTK4GAdy3AYm`), **preview** target |
+| Backend | `carup-backend-staging` (`prj_ddsVeXDxxHxyMAaZxX4v5ORya27W`), **preview** target |
+| Frontend SHA = backend SHA | Yes. One monorepo commit; the gates require frontend == backend == head |
+| Database | `eoyenigwevnxwwhyhaer` (canonical staging). REL-01 changed nothing under `database/` |
+| Stable aliases | `carup-staging.vercel.app` and `carup-backend-staging.vercel.app` are **never** moved |
 
-The backend alias is over 63 characters, so Vercel truncates it and appends a hash it assigns at the branch's first backend
-preview. That hash is **read from the deployment's alias list, never composed by hand**. Until that deployment exists, the
-pairing records for this branch are deliberately absent.
+## Why the pair is on named aliases
 
-## Procedure (for the authorised deployer; not performed here)
+The CarUp Vercel projects have had **no connected Git repository** since the OC-P0 cost containment. This has three consequences:
+- Vercel assigns no `-git-<branch>` alias.
+- Vercel injects no `VERCEL_GIT_*` variables.
+- Vercel refuses branch-scoped environment variables.
 
-1. Deploy the **backend** preview of the deploy commit. Read its per-branch alias from the deployment's alias list.
-2. Commit **only** this branch's two pairing records. Run the verifier: it must pass with pairing `present`.
-3. Deploy **both** previews from that pairing commit. The frontend embeds the pairing at build time, so the deployed frontend
-   commit must contain it. Run the verifier again.
-4. Dispatch *Seller Home & Lifecycle Staging UAT* and *Diaspora Deployed Staging UAT* on the branch head. Each proves the
-   governed exact-head pair before any staging contact.
+The PROV-01 procedure assumed all three. On 2026-10-08 the owner chose this path:
+- **CLI upload of the exact commit.** The upload comes from a clean detached worktree; the dry run shows the upload set is the tracked tree and nothing else.
+- **Two named preview aliases**, assigned through the Vercel API and read back:
 
-**What counts as DEPLOYED RUNTIME VERIFIED:**
-- the served bundle's pairing and the runtime request capture, not a READY deployment;
-- `/api/health` on the backend preview reporting `ai.configured` / `ocr.configured`.
+| Record | Value |
+|---|---|
+| `web/preview-frontend-pairing.json` | `https://carup-staging-oc5r-rel01-11-11.vercel.app` |
+| `web/preview-backend-pairing.json` | `https://carup-backend-staging-oc5r-rel01-11-11.vercel.app` |
 
-Until then, the Workers AI credential is **STAGING CONFIG PREPARED** only.
+- **Explicit build provenance.** `CARUP_BUILD_SHA` and `CARUP_BUILD_REF` are set to the deploy commit and branch.
+  - They are build env on both previews, and runtime env on the backend.
+  - The frontend pairs and stamps `/carup-provenance.json` from them.
+  - The backend's `/api/health` build block reports them, with `source`.
+  - Vercel's own variables win when present, and a contradiction is refused.
 
-## Environment contract (E1)
+## Procedure (REL-01)
 
-Names and targets only. No value was read or decrypted. Read at 2026-10-07T14:44Z.
+1. Commit only the two pairing records and the candidate documents on top of the code SHA. Verify the result (pairing `present`). This is the deploy commit.
+2. Deploy `carup-backend-staging` to the preview target from a clean worktree at the deploy commit. Pass:
+   - `-b`/`-e CARUP_BUILD_SHA`
+   - `-b`/`-e CARUP_BUILD_REF`
+   - `-e COMMUNICATION_OUTBOUND_DISABLED=true`
+   - `-m carupSourceSha`
 
-- **`CLOUDFLARE_API_TOKEN`:** present on `carup-backend-staging`, preview and production (the owner set it at 2026-10-07T14:25:16Z).
-  `CLOUDFLARE_ACCOUNT_ID` is present too. These are what OCR (`@cf/qwen/qwen3.8-27b`) and the general AI gateway
-  (`@cf/google/gemma-4-26b-a4b-it`) need.
-- **`CLOUDFLARE_TOKEN`:** stale. No code reads it and no compatibility was added. **Owner action:** remove it.
-- **`CLOUDFLARE_API_TOKEN` type:** `encrypted`, so team members can decrypt it. **Optional owner action:** store it as `sensitive`,
-  like the other provider credentials.
-- **Present on the backend preview target:**
-  - `ALLOW_OCR_MOCK` (ignored in every deployment)
-  - `BREVO_*`
-  - `CLOUDFLARE_*`
-  - `CORS_ALLOWED_ORIGINS`
-  - the database URLs
-  - `DIASPORA_SAFETRADE_ENABLED`, `DIASPORA_TRADE_GRAPH`
-  - `ENABLE_AUTOMATION_WEBHOOKS`
-  - `JWT_SECRET`
-  - `OCR_MODE`
-  - `RESEND_*`
-  - `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`
-- **Absent on the preview target (pre-existing; production target only):**
-  - `CARUP_BLOCKCHAIN_*`
-  - `CARUP_EMAIL_REPLY_TOKEN_SECRET`
-  - `CARUP_META_*`
-  - `CARUP_TELEGRAM_*`
-  - `COMMUNICATION_*`
-  - `CRON_SECRET`
-  - `CARUP_PUBLIC_API_URL`
-  - `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`
-  - `NODE_ENV`
+   Assign the backend alias and read it back.
+3. Deploy `carup-staging` the same way (`-b` build provenance). Assign the frontend alias and read it back.
+4. Prove runtime identity before any journey:
+   - the served bundle and `/api/health` both state the deploy commit;
+   - the bundle calls the backend alias;
+   - the database refs are the staging project only;
+   - OCR custody is canonical (cloudflare/Qwen) and general AI is cloudflare/Gemma;
+   - the outbound kill switch is **active**.
+5. Run the deployed provider proof, then the two staging gates, on the deploy commit. The proof runs when the label `oc5r-deployed-provider-proof` is added to the PR.
 
-  A branch preview therefore runs with:
-  - ledger signing refused;
-  - Meta and Telegram reporting `provider_not_configured`;
-  - the communications worker off.
+## Environment contract changes (names only)
 
-  No staging UAT spec signs a webhook, so this adds no dependency to the two gates.
-- **Now strict in every deployment.** These are absent on staging, so their webhooks fail closed there:
-  - `INSURANCE_WEBHOOK_SECRET`
-  - `FINANCE_WEBHOOK_SECRET`
-  - `ESCROW_TRUST_WEBHOOK_SECRET`
-  - `ESCROW_PROVIDER_WEBHOOK_SECRET`
-  - `DIASPORA_BILLING_WEBHOOK_SECRET`
-  - `DIASPORA_SAFETRADE_WEBHOOK_SECRET`
-  - `CARUP_CHANNEL_WEBHOOK_SECRET`
-
-  Set one only when that webhook is to be exercised on staging. SafeTrade still answers 503 without an approved provider.
-- **Frontend:** `VITE_API_URL` must **not** be set for this branch on `carup-staging`, because it would override the governed
-  pairing. None is set today.
+- **`COMMUNICATION_OUTBOUND_DISABLED=true`.** Deployment-scoped runtime env on the backend preview. Without a Git connection a branch-scoped variable cannot be created. It is never set on production. Proven by `/api/health` → `communications.outbound.kill_switch: active`.
+- **`CARUP_BUILD_SHA`, `CARUP_BUILD_REF`.** Deployment-scoped; see above.
+- **`CLOUDFLARE_API_TOKEN`.** Unchanged: the owner set it on the preview and production targets. Nothing reads the stale `CLOUDFLARE_TOKEN`.
+- **`COMMUNICATION_WORKER_SECRET`.** Absent on this preview. The Diaspora gate's spec 45 (D7, two tests) drains the outbox with GitHub's `TRADEOS_WORKER_SECRET`, so it gets 401. On 2026-10-08 the owner decided to run it and report this.
+- **Everything else** is as in the PROV-01 contract. The now-strict webhook secrets remain absent on staging.
 
 ## GitHub staging protection (E2)
 
-Applied and read back at 2026-10-07T15:03:58Z, and confirmed again at 15:16:57Z:
-- **Environment:** `staging`.
-- **Required reviewers:** one of `kudzimusar` or `11-eleven-skm`.
-- **`prevent_self_review`:** `false`.
-- **`can_admins_bypass`:** `true`.
-- **Branch policy:** none.
-
-**Consequences:**
-- **Jobs that now wait for a reviewer.** Every job that names `environment: staging`:
-  - `diaspora-scheduler-dispatch`
-  - `diaspora-staging-uat-tenancy`
-  - `diaspora-staging-gtm-migrations`
-  - `events-cron-staging-migration`
-  - `issue164-golden-vehicles-dispatcher`
-  - `issue164-staging-truth-cutover`
-  - `marketplace-reference-media-staging`
-  - `publication-gate-staging-migrations`
-  - `seller-registration-profile-staging`
-  - `seller-s0-global-taxonomy-staging`
-  - `seller-s3-location-visibility-staging`
-- **The two deployed-UAT gates in step 4 are unaffected.** They declare no environment.
-- **The scheduler queues inert waiting runs.** `diaspora-scheduler-dispatch` runs on a `*/15` cron on `main`, so each tick now
-  queues a waiting run. Its last run (2026-10-07T09:16Z) was a no-op: "SKIPPED — DIASPORA_API_BASE_URL is not configured".
-  Pausing it therefore stops no live job.
-- **A stricter mirror of Production is one setting change:** self-review prevented, no admin bypass.
+Unchanged since PROV-01: the `staging` environment requires one of `kudzimusar` or `11-eleven-skm`. The two deployed-UAT gates and the label-triggered provider proof declare no environment.
