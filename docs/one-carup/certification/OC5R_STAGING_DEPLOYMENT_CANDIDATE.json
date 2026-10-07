@@ -1,0 +1,177 @@
+{
+  "schema": "carup.staging_deployment_candidate.v1",
+  "programme": "One CarUp — OC-5R-PROV-01",
+  "prepared_at": "2026-10-07T15:03:27Z",
+  "deployment": {
+    "performed": false,
+    "statement": "This package PREPARES a governed staging deployment. No deployment, redeploy, alias move, promotion, Git auto-deploy change or merge was performed by OC-5R-PROV-01."
+  },
+  "candidate": {
+    "branch": "fix/oc5r-real-runtime-source-closure",
+    "pull_request": 222,
+    "code_sha": "d18936abfda408753013e821605914134518b155",
+    "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
+    "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
+    "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
+  },
+  "projects": {
+    "vercel_team": "team_InL2Jmsg4dbG0rFY8nxriTha",
+    "frontend": {
+      "name": "carup-staging",
+      "id": "prj_auYmL5hA2ppWA15jdTK4GAdy3AYm",
+      "target": "preview (this branch's per-branch deployment)"
+    },
+    "backend": {
+      "name": "carup-backend-staging",
+      "id": "prj_ddsVeXDxxHxyMAaZxX4v5ORya27W",
+      "target": "preview (this branch's per-branch deployment)"
+    },
+    "stable_aliases": "carup-staging.vercel.app and carup-backend-staging.vercel.app are NOT moved; the pair resolver refuses them as non-candidate origins",
+    "git_auto_deploy": "disabled (vercel.json git.deploymentEnabled:false) — deploying is an explicit, governed action"
+  },
+  "database": {
+    "project_ref": "eoyenigwevnxwwhyhaer",
+    "role": "canonical staging database (OC-5R DB convergence: SOURCE PASS + DATABASE PASS)",
+    "migrations": "none introduced by OC-5R-PROV-01; the read-only post-convergence manifest recertification is recorded in the readiness report"
+  },
+  "expected_pairing": {
+    "frontend": {
+      "file": "web/preview-frontend-pairing.json",
+      "value": "https://carup-staging-git-fix-oc5r-real-runtime-source-closure-11-11.vercel.app",
+      "basis": "Vercel's stable per-branch alias for carup-staging; 60 characters, so it is not truncated"
+    },
+    "backend": {
+      "file": "web/preview-backend-pairing.json",
+      "pattern": "^https://carup-backend-staging-git-fix-oc5r-real-runtime-so[a-z0-9-]*-11-11\\.vercel\\.app$",
+      "basis": "Vercel truncates this per-branch alias (it exceeds 63 characters) and appends a hash it assigns at the branch's first preview deployment. The hash is not composed by hand: it is read from that deployment's alias list and recorded in a pairing-only commit."
+    },
+    "procedure": [
+      "1. Deploy the BACKEND preview of the deploy commit (carup-backend-staging, target preview, branch fix/oc5r-real-runtime-source-closure); read its stable per-branch alias from the deployment's alias list.",
+      "2. Commit ONLY the two pairing records for this branch (frontend value above; backend alias from step 1). Verify the commit with the verify command — it must pass with pairing 'present'.",
+      "3. Deploy BOTH previews from that pairing commit (the frontend embeds the pairing at build time, so the deployed frontend commit must contain it). Re-verify with the verify command.",
+      "4. Dispatch Seller Home & Lifecycle Staging UAT and Diaspora Deployed Staging UAT on the branch head; each proves the governed exact-head pair (resolve-governed-preview-pair.mjs) before any staging contact."
+    ]
+  },
+  "environment_contract": {
+    "read_at": "2026-10-07T14:44Z (Vercel project env NAMES and targets only; no value was read or decrypted)",
+    "canonical_cloudflare_credential": {
+      "CLOUDFLARE_API_TOKEN": "PRESENT on carup-backend-staging for targets preview AND production (set by the Product Owner, updated 2026-10-07T14:25:16Z). STAGING CONFIG PREPARED.",
+      "CLOUDFLARE_ACCOUNT_ID": "PRESENT (preview, production).",
+      "CLOUDFLARE_TOKEN": "STALE — present on the production target, read by no code in this lineage. No compatibility was added. Owner action: remove it.",
+      "runtime": "NOT DEPLOYED-RUNTIME VERIFIED: the running staging deployment (dpl_91cteUJnAN8218aeCtUPrXHSHLa3, main@bb9d9900) predates the variable and this lineage (its /api/health has no `ai` block). The variable becomes runtime evidence only after the governed exact-SHA deployment, through /api/health ai.configured and ocr.configured."
+    },
+    "backend_preview_target_present": [
+      "ALLOW_OCR_MOCK",
+      "BREVO_API_KEY",
+      "BREVO_FROM_EMAIL",
+      "BREVO_WEBHOOK_SECRET",
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_ZONE_ID",
+      "CORS_ALLOWED_ORIGINS",
+      "DATABASE_URL",
+      "DIASPORA_SAFETRADE_ENABLED",
+      "DIASPORA_STAGING_DATABASE_URL",
+      "DIASPORA_TRADE_GRAPH",
+      "DIRECT_URL",
+      "ENABLE_AUTOMATION_WEBHOOKS",
+      "JWT_SECRET",
+      "OCR_MODE",
+      "POSTGRES_PRISMA_URL",
+      "POSTGRES_URL",
+      "POSTGRES_URL_NON_POOLING",
+      "RESEND_API_KEY",
+      "RESEND_AUTH_FROM_EMAIL",
+      "RESEND_FROM_EMAIL",
+      "RESEND_WEBHOOK_SECRET",
+      "SUPABASE_DB_URL",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_URL"
+    ],
+    "backend_preview_target_absent_preexisting": {
+      "names": [
+        "CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET",
+        "CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET",
+        "CARUP_EMAIL_REPLY_TOKEN_SECRET",
+        "CARUP_META_ACCESS_TOKEN",
+        "CARUP_META_APP_SECRET",
+        "CARUP_META_PHONE_NUMBER_ID",
+        "CARUP_META_WABA_ID",
+        "CARUP_META_WEBHOOK_VERIFY_TOKEN",
+        "CARUP_TELEGRAM_BOT_TOKEN",
+        "CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN",
+        "COMMUNICATION_ENGINE_ENABLED",
+        "COMMUNICATION_REAL_ADAPTERS",
+        "COMMUNICATION_WEBHOOK_BASE_URL",
+        "COMMUNICATION_WORKER_ENABLED",
+        "COMMUNICATION_WORKER_SECRET",
+        "CRON_SECRET",
+        "CARUP_PUBLIC_API_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_JWT_SECRET",
+        "NODE_ENV"
+      ],
+      "meaning": "Present on the production target (the stable staging runtime) only, so a new per-branch PREVIEW runs without them: ledger signing refuses (no ephemeral key in a deployment), Meta/Telegram adapters report provider_not_configured, the communications worker is off. Pre-existing; unchanged by this programme. No staging UAT spec signs a webhook, so the B/C hardening adds no new dependency to the two gates."
+    },
+    "now_strict_in_every_deployment": {
+      "names": [
+        "INSURANCE_WEBHOOK_SECRET",
+        "FINANCE_WEBHOOK_SECRET",
+        "ESCROW_TRUST_WEBHOOK_SECRET",
+        "ESCROW_PROVIDER_WEBHOOK_SECRET",
+        "DIASPORA_BILLING_WEBHOOK_SECRET",
+        "DIASPORA_SAFETRADE_WEBHOOK_SECRET",
+        "CARUP_CHANNEL_WEBHOOK_SECRET"
+      ],
+      "meaning": "Absent on staging. Their webhooks fail closed in a deployment (committed literals and the generic shared secret are local/CI only). Set them only when that webhook is to be exercised on staging; SafeTrade still answers 503 without an approved provider."
+    },
+    "frontend": {
+      "VITE_API_URL": "must NOT be set for branch fix/oc5r-real-runtime-source-closure on carup-staging — an explicit VITE_API_URL overrides the governed pairing file. None is set for it today.",
+      "pairing": "web/preview-frontend-pairing.json and web/preview-backend-pairing.json (see expected_pairing)"
+    },
+    "owner_actions": [
+      "Remove the stale CLOUDFLARE_TOKEN from carup-backend-staging (production target).",
+      "Optional: store CLOUDFLARE_API_TOKEN as type 'sensitive' (it is 'encrypted', i.e. decryptable by team members) for parity with the other provider credentials.",
+      "Optional, per webhook to be exercised on staging: set the now-strict webhook secrets above."
+    ]
+  },
+  "provider_config": {
+    "ocr": {
+      "provider": "cloudflare",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "requires": [
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN"
+      ],
+      "mock": "refused in every deployment"
+    },
+    "general_ai": {
+      "provider": "cloudflare",
+      "model": "@cf/google/gemma-4-26b-a4b-it",
+      "requires": [
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN"
+      ],
+      "authority": "advisory"
+    },
+    "reference_fx": {
+      "provider": "ECB eurofxref-daily.xml",
+      "requires": [],
+      "policy": "bounded, observed once per TTL, written only on a newer publication"
+    },
+    "billing": {
+      "provider": "none approved",
+      "behaviour": "provider routes answer 503 EXTERNAL_ACTIVATION_REQUIRED; reads work"
+    },
+    "safetrade_payments": {
+      "provider": "none approved",
+      "behaviour": "payment webhook answers 503 SAFETRADE_WEBHOOK_UNAVAILABLE; payments not activated"
+    },
+    "communications": {
+      "resend": "RESEND_API_KEY + RESEND_FROM_EMAIL (+ RESEND_WEBHOOK_SECRET inbound)",
+      "telegram": "CARUP_TELEGRAM_BOT_TOKEN (+ CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN inbound)",
+      "meta_whatsapp": "CARUP_META_ACCESS_TOKEN + CARUP_META_PHONE_NUMBER_ID (+ CARUP_META_APP_SECRET inbound, CARUP_META_WABA_ID templates)"
+    },
+    "biometrics": "not activated"
+  }
+}
