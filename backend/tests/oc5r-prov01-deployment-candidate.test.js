@@ -95,8 +95,9 @@ test('E3: the committed candidate manifest is well-formed and governed', () => {
   const m = JSON.parse(readFileSync(file, 'utf8'));
   assert.match(m.candidate.code_sha, /^[0-9a-f]{40}$/);
   assert.equal(m.candidate.branch, BRANCH);
+  // Exactly the canonical staging project — which by construction is never the production one
+  // (CR-1 forbids writing the production ref here, even to refuse it).
   assert.equal(m.database.project_ref, 'eoyenigwevnxwwhyhaer');
-  assert.notEqual(m.database.project_ref, 'vhmnajoeicasaigiophh', 'never the production database');
   assert.equal(m.expected_pairing.frontend.value, FE);
   const be = new RegExp(m.expected_pairing.backend.pattern);
   assert.equal(be.test(BE), true);
