@@ -10,6 +10,13 @@ import {
   MARKETING_CONSENT_UNAVAILABLE_CODE,
   evaluateMarketingConsent,
 } from './marketingConsentState.js';
+import {
+  OUTBOUND_DISABLED_CODE,
+  OUTBOUND_HOLD_MS,
+  OUTBOUND_KILL_SWITCH_ENV,
+  isExternalChannel,
+  isOutboundDisabled,
+} from './outboundKillSwitch.js';
 
 /**
  * Channels whose delivery requires an external address the platform must resolve.
@@ -92,6 +99,14 @@ export class CommunicationDeliveryWorker {
     const adapter = this.adapterRegistry.get(channel);
     if (!adapter) {
       return this.markDeadLetter(notification, { errorCode: 'adapter_missing', errorMessage: `No adapter registered for ${channel}` });
+    }
+
+    // OC-5R-REL-01 — the outbound kill switch. An external-channel notification is HELD: put back on
+    // the queue with any claimed attempt restored, and audited. It is never attempted, never retried
+    // into exhaustion and never dead-lettered into a fallback channel (which would be another send).
+    // Internal channels (in_app, web_chat, mobile_chat) never leave CarUp and keep flowing.
+    if (isOutboundDisabled() && isExternalChannel(channel)) {
+      return this.holdForOutboundKillSwitch(notification, { alreadyClaimed });
     }
 
     // G0 — resolve the recipient BEFORE dispatch.
@@ -443,6 +458,27 @@ export class CommunicationDeliveryWorker {
     }
 
     return this.markDeadLetter(notification, result);
+  }
+
+  /** See deliverNotification: a held send is rescheduled, not attempted. */
+  async holdForOutboundKillSwitch(notification, { alreadyClaimed = false } = {}) {
+    const nextAttemptAt = new Date(Date.now() + OUTBOUND_HOLD_MS).toISOString();
+    const patch = {
+      status: 'retry_scheduled',
+      next_attempt_at: nextAttemptAt,
+      last_error_code: OUTBOUND_DISABLED_CODE,
+      last_error_message: `Held: outbound communications are disabled (${OUTBOUND_KILL_SWITCH_ENV}). Nothing was sent.`,
+      locked_at: null,
+      locked_by: null,
+    };
+    // The claim already counted an attempt for this row; a hold is not an attempt, so it is restored.
+    if (alreadyClaimed) patch.attempt_count = Math.max(0, Number(notification.attempt_count || 1) - 1);
+    await this.repository.updateById('notification_queue', notification.id, patch);
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.OUTBOUND_HELD, {
+      summary: `Held — outbound communications are disabled (${OUTBOUND_KILL_SWITCH_ENV})`,
+      metadata: { next_attempt_at: nextAttemptAt, control: OUTBOUND_KILL_SWITCH_ENV },
+    });
+    return { notificationId: notification.id, status: 'held', reason: OUTBOUND_DISABLED_CODE, nextAttemptAt };
   }
 
   resultFromThrownError(error = {}) {

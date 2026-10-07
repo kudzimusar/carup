@@ -662,7 +662,9 @@ test('Cloudflare email adapter posts authenticated Worker request and maps accep
 });
 
 test('Cloudflare email adapter uses official REST fallback when Worker credentials are incomplete', async () => {
-  const fetchImpl = jsonFetchRecorder({ status: 200, body: { success: true, result: { delivered: [], queued: ['buyer@example.test'] } }, headers: { 'cf-ray': 'ray-rest-1' } });
+  // OC-5R-REL-01: the REST answer carries Cloudflare's own message id; `cf-ray` (an edge trace header)
+  // used to stand in for one and is no longer accepted as proof of a send.
+  const fetchImpl = jsonFetchRecorder({ status: 200, body: { success: true, result: { id: 'cf-rest-msg-1', delivered: [], queued: ['buyer@example.test'] } }, headers: { 'cf-ray': 'ray-rest-1' } });
   const adapter = new CloudflareEmailAdapter({
     env: {
       CLOUDFLARE_EMAIL_FROM: 'noreply@example.test',
@@ -678,7 +680,8 @@ test('Cloudflare email adapter uses official REST fallback when Worker credentia
     content: { subject: 'REST update', body: 'REST body', data: {} },
   });
   assert.equal(result.accepted, true);
-  assert.equal(result.providerRequestId, 'ray-rest-1');
+  assert.equal(result.providerRequestId, 'cf-rest-msg-1');
+  assert.equal(result.providerMessageId, 'cf-rest-msg-1');
   assert.equal(fetchImpl.calls[0].url, 'https://api.cloudflare.com/client/v4/accounts/account-1/email/sending/send');
   assert.equal(fetchImpl.calls[0].options.headers.authorization, 'Bearer cf-api-token');
 });

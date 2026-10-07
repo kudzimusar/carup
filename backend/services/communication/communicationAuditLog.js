@@ -32,6 +32,8 @@ export const COMMUNICATION_AUDIT_EVENTS = Object.freeze({
   MARKED_READ: 'marked_read',
   FEEDBACK_RECEIVED: 'feedback_received',
   SMOKE_TEST: 'smoke_test',
+  // OC-5R-REL-01: an external send held by the outbound kill switch (never attempted).
+  OUTBOUND_HELD: 'outbound_held',
 });
 
 const ACTOR_TYPES = new Set(['agent', 'admin', 'system', 'worker', 'ai', 'customer', 'platform']);

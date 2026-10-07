@@ -1,6 +1,6 @@
-import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
 import { isProductionLikeRuntime } from '../../../utils/runtimeEnvironment.js';
+import { isOutboundDisabled, outboundDisabledResult } from '../outboundKillSwitch.js';
 import { renderAuthEmail } from '../authEmailTemplates.js';
 import {
   EMAIL_CLASSIFICATION_ERRORS,
@@ -42,22 +42,18 @@ function jsonHeaders(extra = {}) {
   return { 'content-type': 'application/json', ...extra };
 }
 
-function stableRequestId(prefix, input) {
-  return `${prefix}_${crypto
-    .createHash('sha256')
-    .update(String(input.idempotencyKey || input.messageId || input.notificationId || Date.now()))
-    .digest('hex')
-    .slice(0, 24)}`;
-}
-
 /**
  * OC-5R-PROV-01 G6 — a 2xx that carries none of the provider's own message identifiers proves
  * nothing. These adapters used to synthesise one (stableRequestId) and report the send as accepted,
  * so 'sent' could be recorded under an id the provider never issued and no receipt could ever
  * match. Such an answer is now an explicit, NON-retryable failure: not recorded as sent, and not
  * retried into a possible duplicate. For providers whose API guarantees an id on success.
+ *
+ * OC-5R-REL-01 closed the rest: SendGrid, Brevo, Expo and Cloudflare (REST and worker) no longer
+ * synthesise an id either, and `stableRequestId` — the helper that minted them — is gone. Exported
+ * for the governed WhatsApp template path, which accepted a 2xx with no message id.
  */
-function unprovenAcceptance(provider) {
+export function unprovenAcceptance(provider) {
   return {
     accepted: false,
     retryable: false,
@@ -231,6 +227,11 @@ export class HttpCommunicationAdapter {
   }
 
   async requestJson(url, { method = 'POST', headers = {}, body = undefined, basicAuth = null } = {}) {
+    // OC-5R-REL-01: the outbound kill switch, at the transport every HTTP adapter shares. A send is
+    // refused here before any provider is contacted; read-only GETs are not sends.
+    if (String(method).toUpperCase() !== 'GET' && isOutboundDisabled(this.env)) {
+      return { ok: false, status: 0, outboundDisabled: true };
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const finalHeaders = { ...headers };
@@ -263,6 +264,7 @@ export class HttpCommunicationAdapter {
   }
 
   providerFailure(response) {
+    if (response.outboundDisabled) return outboundDisabledResult(this.provider);
     if (response.networkError) {
       return {
         accepted: false,
@@ -295,10 +297,12 @@ export class SendGridEmailAdapter extends HttpCommunicationAdapter {
       },
     });
     if (!response.ok) return this.providerFailure(response);
+    const messageId = response.headers?.get?.('x-message-id') || null;
+    if (!messageId) return unprovenAcceptance('SendGrid');
     return {
       accepted: true,
-      providerRequestId: response.headers?.get?.('x-message-id') || stableRequestId('sendgrid', input),
-      providerMessageId: response.headers?.get?.('x-message-id') || null,
+      providerRequestId: messageId,
+      providerMessageId: messageId,
       providerStatus: 'accepted',
     };
   }
@@ -647,9 +651,10 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
     if (!response.ok) return this.providerFailure(response);
 
     const providerMessageId = response.body?.messageId || response.body?.messageIds?.[0] || null;
+    if (!providerMessageId) return unprovenAcceptance('Brevo');
     return {
       accepted: true,
-      providerRequestId: providerMessageId || stableRequestId('brevo', input),
+      providerRequestId: providerMessageId,
       providerMessageId,
       providerStatus: 'accepted',
       // Provenance for the compliance-critical unsubscribe control, recorded on the delivery attempt.
@@ -848,14 +853,14 @@ export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
       body: cloudflareEmailBody(input, this.env),
     });
     if (!response.ok) return this.providerFailure(response);
-    // G6: the worker must SAY it accepted the mail (or name the message); a bare 2xx is not proof.
-    if (response.body?.accepted !== true && !(response.body?.providerMessageId || response.body?.message_id)) {
-      return unprovenAcceptance('Cloudflare email worker');
-    }
+    // G6 / REL-01: the worker must NAME the message. `accepted: true` alone is a claim, not an id —
+    // the edge worker reports it even when Cloudflare returned no message id.
+    const workerMessageId = response.body?.providerMessageId || response.body?.message_id || null;
+    if (!workerMessageId) return unprovenAcceptance('Cloudflare email worker');
     return {
       accepted: true,
-      providerRequestId: response.body?.providerRequestId || response.body?.id || response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
-      providerMessageId: response.body?.providerMessageId || response.body?.message_id || null,
+      providerRequestId: response.body?.providerRequestId || response.body?.id || workerMessageId,
+      providerMessageId: workerMessageId,
       providerStatus: response.body?.providerStatus || response.body?.status || 'accepted',
     };
   }
@@ -868,12 +873,15 @@ export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
     });
     if (!response.ok || response.body?.success === false) return this.providerFailure(response);
     const result = response.body?.result || {};
+    // REL-01: only the provider's own message id proves the send; `cf-ray` traces the HTTP edge
+    // request, and a recipient list without an id can never be reconciled with a receipt.
+    if (!result.id) return unprovenAcceptance('Cloudflare email REST');
     const to = recipientField(input, 'email', 'address', 'to');
     const delivered = Array.isArray(result.delivered) && result.delivered.includes(to);
     return {
       accepted: true,
-      providerRequestId: response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
-      providerMessageId: response.body?.result?.id || null,
+      providerRequestId: result.id,
+      providerMessageId: result.id,
       providerStatus: delivered ? 'delivered' : 'accepted',
       deliveredRecipients: result.delivered || [],
       queuedRecipients: result.queued || [],
@@ -904,6 +912,8 @@ export class TwilioSmsAdapter extends HttpCommunicationAdapter {
   }
 
   async sendUrlEncoded(input, params) {
+    // OC-5R-REL-01: this transport bypasses requestJson, so it carries its own kill-switch check.
+    if (isOutboundDisabled(this.env)) return outboundDisabledResult(this.provider);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const accountSid = envValue(this.env, 'TWILIO_ACCOUNT_SID');
@@ -1031,7 +1041,7 @@ export class TelegramBotAdapter extends HttpCommunicationAdapter {
     });
     // G5: a timeout or network failure is not a rejection. Rebuilding it as `{ status: 0 || 400 }`
     // erased its classification and recorded a retryable outage as a permanent HTTP-400 refusal.
-    if (response.networkError) return this.providerFailure(response);
+    if (response.networkError || response.outboundDisabled) return this.providerFailure(response);
     if (!response.ok || response.body?.ok === false) return this.providerFailure({ status: response.status, body: response.body });
     if (!response.body?.result?.message_id) return unprovenAcceptance('Telegram');
     return {
@@ -1062,10 +1072,11 @@ export class ExpoPushAdapter extends HttpCommunicationAdapter {
       const code = String(ticket.details?.error || ticket.message || 'expo_rejected').toLowerCase();
       return { accepted: false, retryable: ['messageratelimited', 'unknown'].includes(code), errorCode: code, errorMessage: ticket.message || 'Expo rejected push notification' };
     }
+    if (!ticket?.id) return unprovenAcceptance('Expo');
     return {
       accepted: true,
-      providerRequestId: ticket?.id || stableRequestId('expo', input),
-      providerMessageId: ticket?.id || null,
+      providerRequestId: ticket.id,
+      providerMessageId: ticket.id,
       providerStatus: ticket?.status || 'accepted',
     };
   }
