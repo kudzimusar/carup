@@ -7,6 +7,7 @@ import { isSellerAuthorityEffectivelyDenied } from '../seller/sellerAuthoritySer
 import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { isFixtureRuntime } from '../../utils/runtimeEnvironment.js';
 
 /**
  * OCR Path Convergence — local vehicle documents.
@@ -124,7 +125,8 @@ export function toVehicleExtractionFields(contract, ocrResult = {}) {
   return fields;
 }
 
-function assertVehicleOcrActor(actor = {}) {
+// Exported so the deployed-runtime boundary is provable by executing it (OC-5R-PROV-01 B1).
+export function assertVehicleOcrActor(actor = {}) {
   const userId = actorId(actor);
   if (!userId) throw new ValidationError('Authenticated user context is required.');
 
@@ -136,7 +138,7 @@ function assertVehicleOcrActor(actor = {}) {
   // The route already composes authorizeRole + requireProvenIdentity. The service repeats the
   // consequential part so a future internal caller cannot bypass it by importing this function
   // directly. Tests intentionally omit authenticationMethod and remain injectable under NODE_ENV=test.
-  if (process.env.NODE_ENV !== 'test' && actor.authenticationMethod !== 'session') {
+  if (!isFixtureRuntime(process.env) && actor.authenticationMethod !== 'session') {
     throw new ForbiddenError('Vehicle document OCR requires a proven authenticated session.');
   }
 

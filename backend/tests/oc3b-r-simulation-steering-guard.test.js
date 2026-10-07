@@ -316,7 +316,11 @@ test('OC-3B-R source: positive control — the guard module holds the rule the s
   assert.ok(existsSync(GUARD_PATH), 'guard module missing');
   const code = stripComments(await readFile(GUARD_PATH, 'utf8'));
   assert.match(code, INLINE_GATE, 'the INLINE_GATE pattern must match the real rule, or the scan above proves nothing');
-  assert.match(code, /production/);
-  assert.match(code, /preview/);
-  assert.match(code, /staging/);
+  // OC-5R-PROV-01 B1: the deployment half of the rule is the CENTRAL classifier, imported rather
+  // than re-listed — a second hand-kept list is how the copies drifted in the first place.
+  assert.match(code, /import \{ isDeployedRuntime \} from '\.\.\/utils\/runtimeEnvironment\.js'/);
+  const central = stripComments(await readFile(new URL('utils/runtimeEnvironment.js', ROOT), 'utf8'));
+  assert.match(central, /production/);
+  assert.match(central, /preview/);
+  assert.match(central, /staging/);
 });

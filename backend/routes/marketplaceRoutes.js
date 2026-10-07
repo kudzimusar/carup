@@ -23,6 +23,7 @@ import {
   emitListingOpened,
 } from '../services/intelligence/marketplaceActivityEmitters.js';
 import { listingDraft, buyerAssistant, priceEstimate, shareCopy, NO_PAID_INFERENCE } from '../services/marketplace/marketplaceAiAssistantService.js';
+import { isFixtureRuntime } from '../utils/runtimeEnvironment.js';
 
 const router = express.Router();
 
@@ -33,11 +34,11 @@ const asyncHandler = (fn) => (req, res, next) => {
 const aiLimiter = rateLimiter({ max: 20, windowMs: 60 * 1000, isSensitive: true });
 const inquiryLimiter = rateLimiter({ max: 15, windowMs: 60 * 1000, isSensitive: true });
 
-/** Explicit Seller automation fixture scope for PREVIEW/TEST traffic only. */
-function sellerAutomationFixtureScope(req) {
+/** Explicit Seller automation fixture scope for PREVIEW/TEST traffic only. Exported for the B1 boundary test. */
+export function sellerAutomationFixtureScope(req) {
   const scope = String(req.query?.fixture_scope ?? '').trim();
   if (!scope || !/^seller-[0-9]+-[0-9]+$/.test(scope)) return null;
-  const previewLike = process.env.NODE_ENV === 'test' || process.env.VERCEL_ENV === 'preview';
+  const previewLike = isFixtureRuntime(process.env) || process.env.VERCEL_ENV === 'preview';
   return previewLike ? scope : null;
 }
 

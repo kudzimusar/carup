@@ -1,6 +1,7 @@
 import { supabase } from '../db/supabase.js';
 import { isLendableTenantRole } from '../services/auth/tenantRoleCatalogue.js';
 import { resolveVerifiedActiveTenant, TenantContextUnavailableError } from '../services/auth/activeTenantContext.js';
+import { isProductionLikeRuntime } from '../utils/runtimeEnvironment.js';
 
 /**
  * The value `authenticationMethod` carries when an identity was ASSERTED by a header rather than
@@ -58,24 +59,21 @@ export function isPrivateEvidenceFallbackAllowed(env = process.env) {
 }
 
 /**
- * Deployment environments that must NEVER honour a NODE_ENV inference, whatever NODE_ENV says.
+ * A declared deployment must NEVER honour a NODE_ENV inference, whatever NODE_ENV says.
  *
  * CarUp has already run NODE_ENV=test inside a Vercel PRODUCTION environment, which turned the
  * spoofable x-user-id header into a working identity — including admin. A single mis-set
- * variable was enough. Conjoining the inference with the deployment environment means no single
- * mis-set variable can open it again: the incident that happened is closed, because VERCEL_ENV
- * was 'production' throughout it.
+ * variable was enough. Conjoining the inference with the deployment declaration means no single
+ * mis-set variable can open it again. Until OC-5R-PROV-01 B1 only a PRODUCTION declaration
+ * counted, so NODE_ENV=test in a preview or on staging still opened it; the declaration is now
+ * the central classifier (utils/runtimeEnvironment.js), which covers every deployment.
  *
  * The explicit CARUP_ALLOW_X_USER_ID_FALLBACK opt-in is unchanged and still overrides, so local
  * development and the test suite are unaffected.
  */
-function isProductionDeployment(env) {
-  return env.CARUP_ENV === 'production' || env.VERCEL_ENV === 'production';
-}
-
 export function isUserIdFallbackAllowed(env = process.env) {
   if (env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true') return true;
-  if (isProductionDeployment(env)) return false;
+  if (isProductionLikeRuntime(env)) return false;
   return env.NODE_ENV === 'test' ||
     env.NODE_ENV === 'development' ||
     env.NODE_ENV === 'local';

@@ -31,6 +31,7 @@ import { evaluateEscrowGates } from './escrowTrustService.js';
 import { isCallable } from '../providerPlatform/providerRegistry.js';
 import { executeProviderRequest } from '../providerPlatform/providerFramework.js';
 import { isCapabilityEnabled } from '../featureFlags/capabilityFlags.js';
+import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
 
 // ── Provider escrow lifecycle (distinct from the base escrow_trust FSM state names) ──────────
 // funding → inspection → release → payout → reconciliation, with dispute/refund/cancellation
@@ -51,7 +52,6 @@ export const PROVIDER_VALID_TRANSITIONS = {
 const PROVIDER_EVENT_PREFIX = 'provider:'; // namespaces provider events inside escrow_trust_events
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
-const IS_PRODUCTION = () => process.env.NODE_ENV === 'production' || process.env.CARUP_ENV === 'production';
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────────────────────
 
@@ -335,10 +335,11 @@ export function signEscrowWebhook(payloadString, timestamp) {
   return crypto.createHmac('sha256', secret).update(`${timestamp}.${payloadString}`).digest('hex');
 }
 
-// Fail-closed: in production a missing secret yields null (no signature can ever verify). Outside
-// production a stable dev secret keeps sandbox/staging webhook tests reproducible.
+// Fail-closed: in ANY declared deployment a missing secret yields null (no signature can ever
+// verify). The committed literal exists only for a local/CI runtime (OC-5R-PROV-01 B2) — staging
+// and previews are externally reachable, so a published key is no key there.
 function escrowWebhookSecret() {
-  return process.env.ESCROW_PROVIDER_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'escrow-provider-sandbox-hmac-secret');
+  return process.env.ESCROW_PROVIDER_WEBHOOK_SECRET || (isProductionLikeRuntime(process.env) ? null : 'escrow-provider-sandbox-hmac-secret');
 }
 
 /**

@@ -24,10 +24,16 @@ import {
   shouldUseSandboxEscrow,
   assertSafeTradeProductionSafety,
 } from '../../../constants/diaspora/diasporaSafeTradeConstants.js';
+import { isProductionLikeRuntime } from '../../../utils/runtimeEnvironment.js';
 
-// Deterministic webhook secret: env in prod, a fixed dev constant otherwise (so tests can sign).
+// The webhook secret: configured, or — ONLY in a local/CI runtime — a fixed dev constant so tests
+// can sign. A committed constant is a credential everyone who has read this file holds, so no
+// declared deployment may ever use it (OC-5R-PROV-01 B3): there an unconfigured secret is null and
+// verification fails closed as unavailable.
 function safeTradeWebhookSecret() {
-  return process.env.DIASPORA_SAFETRADE_WEBHOOK_SECRET || 'safetrade-sandbox-webhook-secret';
+  const configured = process.env.DIASPORA_SAFETRADE_WEBHOOK_SECRET;
+  if (configured) return configured;
+  return isProductionLikeRuntime(process.env) ? null : 'safetrade-sandbox-webhook-secret';
 }
 
 // 5-minute anti-replay drift window (ms), identical to paymentRouter.verifySignature.
@@ -285,24 +291,31 @@ export class SandboxPaymentProvider extends PaymentProvider {
    * 5-minute anti-replay drift check — the exact composition of paymentRouter.verifySignature. Returns
    * `{ verified:false }` (never throws) on bad signature/missing timestamp/excess drift so a router can
    * answer 401 cleanly. `now` is injectable for deterministic drift tests.
+   *
+   * The anti-replay clock is the WALL clock unless a caller injects one. It used to fall back to
+   * `this._now` — the sandbox's FIXED record timestamp (2026-06-21T00:00Z) — so the five-minute
+   * window was anchored to a constant: a delivery signed near that instant verified forever, and a
+   * genuinely fresh one never did. `_now` stamps deterministic sandbox records; it is not time.
    */
   async verifyWebhook({ rawBody, signature, timestamp, now = null } = {}) {
-    const fail = { verified: false, eventId: null, eventType: null, intentId: null, payload: null };
-    if (rawBody == null || !signature) return fail;
-    if (timestamp == null) return fail;
-    const clock = now == null ? Date.parse(this._now) : Number(now);
+    const fail = (reason) => ({ verified: false, reason, eventId: null, eventType: null, intentId: null, payload: null });
+    const secret = safeTradeWebhookSecret();
+    if (!secret) return fail('webhook_secret_unconfigured');
+    if (rawBody == null || !signature) return fail('missing_signature');
+    if (timestamp == null) return fail('missing_timestamp');
+    const clock = now == null ? Date.now() : Number(now);
     const drift = Math.abs(clock - Number(timestamp));
-    if (Number.isNaN(drift) || drift > WEBHOOK_DRIFT_MS) return fail;
+    if (Number.isNaN(drift) || drift > WEBHOOK_DRIFT_MS) return fail('timestamp_drift');
 
     const body = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody);
     const expected = crypto
-      .createHmac('sha256', safeTradeWebhookSecret())
+      .createHmac('sha256', secret)
       .update(`${timestamp}.${body}`)
       .digest('hex');
     const provided = String(signature);
     const verified = provided.length === expected.length
       && crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
-    if (!verified) return fail;
+    if (!verified) return fail('bad_signature');
 
     let payload = null;
     try {

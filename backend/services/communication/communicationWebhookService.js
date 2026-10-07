@@ -4,6 +4,7 @@ import { buildDedupeKey, normalizeChannel, redactPayload, stableHash, nowIso } f
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { ForbiddenError, ValidationError } from '../../utils/errors.js';
 import { RESEND_EVENT_STATUS, RESEND_SUPPRESSION_REASON, verifyResendSignature } from './resendWebhookService.js';
+import { isFixtureRuntime } from '../../utils/runtimeEnvironment.js';
 
 const DEFAULT_CLOUDFLARE_SIGNATURE_TOLERANCE_SECONDS = 300;
 const DEFAULT_CLOUDFLARE_MAX_EMAIL_BYTES = 25 * 1024 * 1024;
@@ -104,7 +105,7 @@ export class CommunicationWebhookService {
         return this.verifySendGridSignature(headers, rawBody);
       }
       const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && isFixtureRuntime(this.env));
     }
     // Resend signs with Svix over the exact raw bytes. No shared-secret or test-mode fallback:
     // a P0 auth/security transport must never accept an unverified event.
@@ -133,12 +134,12 @@ export class CommunicationWebhookService {
         return this.verifyTwilioSignature(headers, body);
       }
       const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && isFixtureRuntime(this.env));
     }
     if (normalizedProvider === 'expo') {
       const expected = this.env.EXPO_ACCESS_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
       const supplied = headers.authorization?.replace(/^Bearer\s+/i, '') || headers['x-channel-webhook-secret'];
-      return Boolean(expected && supplied === expected) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+      return Boolean(expected && supplied === expected) || Boolean(body?.test === true && isFixtureRuntime(this.env));
     }
     if (normalizedProvider === 'cloudflare' && normalized === 'email') {
       return this.verifyCloudflareEmailSignature(headers, rawBody);
@@ -161,7 +162,7 @@ export class CommunicationWebhookService {
       return Boolean(shared && (headers['x-channel-webhook-secret'] === shared || headers['x-carup-channel-secret'] === shared));
     }
     const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-    return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && isFixtureRuntime(this.env));
   }
 
   verifySendGridSignature(headers = {}, rawBody = '') {

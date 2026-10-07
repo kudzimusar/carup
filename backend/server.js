@@ -318,8 +318,8 @@ app.get('/api/security/csrf-token', (req, res) => {
   const token = generateCsrfToken(currentUserId, sessionToken);
   res.cookie('csrf-token', token, {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: isProductionLikeRuntime(process.env),
+    sameSite: isProductionLikeRuntime(process.env) ? 'none' : 'lax',
     maxAge: 3600000 * 2,
     path: '/',
   });

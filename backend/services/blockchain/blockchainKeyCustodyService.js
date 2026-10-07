@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isFixtureRuntime } from '../../utils/runtimeEnvironment.js';
 
 const CURVE_ORDER = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
 const DEFAULT_VERSION = 'v1';
@@ -23,8 +24,8 @@ function toBase64Url(buffer) {
  * configured secret throws, whatever NODE_ENV claims.
  */
 function isEphemeralTestSecretAllowed() {
-  if (process.env.CARUP_ENV === 'production' || process.env.VERCEL_ENV === 'production') return false;
-  return process.env.NODE_ENV === 'test';
+  // The central classifier: any declared deployment (not only production) refuses it.
+  return isFixtureRuntime(process.env);
 }
 
 function masterSecret(explicit = null) {
