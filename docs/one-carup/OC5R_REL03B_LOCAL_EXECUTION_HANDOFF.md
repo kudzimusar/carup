@@ -2,7 +2,7 @@
 
 **Scope:** local runtime custody only, after REL-03A source/harness preparation is frozen by the moderator.
 
-**Canonical staging Supabase project:** `eoyenigwevnxwwhyhaer`  
+**Canonical staging Supabase project:** `eoyenigwevnxwwhyhaer`
 **Production Supabase project:** `vhmnajoeicasaigiophh` — **Production is forbidden.**
 
 > **Do not activate or drain the worker until the backlog inventory has been reviewed and classified safe enough for bounded processing.**
