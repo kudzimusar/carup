@@ -18,13 +18,14 @@
  * Outbox note: staging pg_cron drains domain_events every minute AGAINST THE CANONICAL BACKEND,
  * whose code predates the container_booking subscriptions — it consumes events with zero handlers.
  * The spec therefore drains through THIS candidate's backend immediately after each mutation
- * (TRADEOS_WORKER_SECRET), which is the same governed drain endpoint the cron uses.
+ * (COMMUNICATION_WORKER_SECRET), which is the same governed Communications drain credential the cron uses.
  *
  * Chromium runs the full journey; tablet/mobile re-verify sign-in, discovery, participant status
  * and responsive layout against the state the chromium pass created.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
 import { stagingTest, expect, API_URL, ensureActingForOrganisation, type OrganisationSelection } from './staging-helpers';
+import { D7_PARTICIPANT_EVENT, D7_ORGANISER_EVENT, matchesD7Notification, reservationReference } from '../../scripts/ci/lib/oc5r-rel03-d7-correlation.mjs';
 
 const IDS = {
   operator: { email: 'tradeos.operator@carup-staging.test', envPassword: 'TRADEOS_UAT_OPERATOR_PASSWORD' },
@@ -50,7 +51,7 @@ const OCT_DEPARTURE = '2026-10-15';
 const DEC_DEPARTURE = '2026-12-10';
 
 // Cross-test state within one project run (workers=1, ordered execution).
-const runState: { octoberId?: string; vehicleReservationId?: string } = {};
+const runState: { octoberId?: string; vehicleReservationId?: string; vehicleReservationNotBefore?: string } = {};
 
 function password(role: TradeRole): string {
   const value = process.env[IDS[role].envPassword];
@@ -108,7 +109,7 @@ const drainResponses: Array<{ at: string; status: number | 'transport_error'; bo
 
 /** Drain the domain-event outbox through THIS candidate's backend (best-effort, bounded). */
 async function drainOutbox(request: APIRequestContext): Promise<void> {
-  const secret = process.env.TRADEOS_WORKER_SECRET;
+  const secret = process.env.COMMUNICATION_WORKER_SECRET;
   if (!secret) return;
   try {
     const response = await request.post(`${API_URL}/internal/events/process`, {
@@ -134,6 +135,16 @@ async function sessionToken(page: Page): Promise<string> {
   const token = await page.evaluate(() => localStorage.getItem('carup_token'));
   if (!token) throw new Error('no carup_token in localStorage after sign-in');
   return token;
+}
+
+async function currentUserId(request: APIRequestContext, token: string, tenantId?: string): Promise<string> {
+  const headers: Record<string, string> = { 'x-session-token': token };
+  if (tenantId) headers['x-tenant-id'] = tenantId;
+  const res = await request.get(`${API_URL}/auth/me`, { headers });
+  if (!res.ok()) throw new Error(`GET /auth/me failed while proving D7 recipient direction (HTTP ${res.status()})`);
+  const id = (await res.json().catch(() => ({})))?.user?.id;
+  if (!id) throw new Error('GET /auth/me returned no current user id for D7 correlation');
+  return String(id);
 }
 
 /**
@@ -242,6 +253,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await orderSelect.selectOption({ index: 1 });
     const reserveResponse = page.waitForResponse((r) =>
       r.request().method() === 'POST' && /\/reservations$/.test(new URL(r.url()).pathname));
+    runState.vehicleReservationNotBefore = new Date().toISOString();
     await page.getByTestId('diaspora-container-reserve-submit').click();
     const reserved = await reserveResponse;
     expect(reserved.status()).toBe(201);
@@ -524,22 +536,32 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await testInfo.attach(`operator-${testInfo.project.name}.png`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
   });
 
-  // ── D7 — kept at the END of the serial chain, with its assertions unchanged ──────────────────────────
-  // D7 needs the candidate runtime to accept TRADEOS_WORKER_SECRET at /internal/events/process (its
-  // COMMUNICATION_WORKER_SECRET or CRON_SECRET). Where it does not, the drain answers 401 and D7 fails —
-  // an environment fact. In a serial chain a failure skips everything after it, so D7 sits LAST: a D7
-  // failure can no longer hide the D7-independent journeys. Both tests record the exact drain answers.
-  stagingTest('participant A: the canonical in-app container_booking notification exists and is visible in Communications (D7)', async ({ page, request }, testInfo) => {
+  // ── D7 — run-correlated, at the END of the serial chain ────────────────────────────────
+  // A row is proof only when it is this run's exact reservation, current recipient, canonical
+  // event direction/state, durable outbox event_id and post-mutation timestamp. Historical
+  // container_booking rows are deliberately harmless.
+  stagingTest('participant A: this run\'s APPROVED container_booking notification exists and is visible in Communications (D7)', async ({ page, request }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     try {
-      // Activity/communication state (D7) — UNCONDITIONAL (owner UAT #10B): the certification fails
-      // unless the participant's canonical in-app notification actually exists AND is visible in the
-      // deployed Communications surface. TRADEOS_WORKER_SECRET must be exported; a run without it is
-      // not a certification.
-      expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();
+      expect(process.env.COMMUNICATION_WORKER_SECRET, 'COMMUNICATION_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();
+      expect(runState.vehicleReservationId, 'this run must have created the participant reservation before D7').toBeTruthy();
+      expect(runState.vehicleReservationNotBefore, 'this run must retain its reservation mutation timestamp').toBeTruthy();
+
+      const reservationId = runState.vehicleReservationId!;
+      const reference = reservationReference(reservationId);
       const token = await sessionToken(page);
+      const recipientUserId = await currentUserId(request, token);
+      const expectedNotification = {
+        recipientUserId,
+        reservationId,
+        reference,
+        status: 'APPROVED',
+        eventType: D7_PARTICIPANT_EVENT,
+        notBefore: runState.vehicleReservationNotBefore!,
+      };
+
       await expect.poll(async () => {
         await drainOutbox(request);
         const res = await request.get(`${API_URL}/communications/notifications`, {
@@ -548,33 +570,48 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
         if (!res.ok()) return 'unreadable';
         const payload = await res.json().catch(() => ({}));
         const rows = payload?.data || payload?.notifications || [];
-        return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
+        return Array.isArray(rows) && rows.some((n: unknown) => matchesD7Notification(n, expectedNotification))
           ? 'present' : 'absent';
       }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
 
-      // …and the human can SEE it: the canonical Communications surface renders the booking thread.
+      // Human-visible proof uses this run's exact canonical RES reference, never a generic RES match.
       await gotoSettled(page, '/dashboard/communications');
-      await expect(page.getByText(/Container booking RES-/i).first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(reference, { exact: false }).first()).toBeVisible({ timeout: 15_000 });
     } finally {
       await attachDrainEvidence(testInfo);
     }
   });
 
-  stagingTest('operator receives the organiser-directed booking notification (D7 direction)', async ({ page, request }, testInfo) => {
+  stagingTest('operator receives this run\'s organiser-directed REQUESTED notification (D7 direction)', async ({ page, request }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set').toBeTruthy();
+    expect(process.env.COMMUNICATION_WORKER_SECRET, 'COMMUNICATION_WORKER_SECRET must be set').toBeTruthy();
+    expect(runState.vehicleReservationId, 'this run must have created the reservation before organiser D7').toBeTruthy();
+    expect(runState.vehicleReservationNotBefore, 'this run must retain its reservation mutation timestamp').toBeTruthy();
     await signInActingFor(page, 'operator');
     try {
+      const tenantId = 'c0106a0e-1a11-4a6a-9e01-000000000a01';
+      const reservationId = runState.vehicleReservationId!;
+      const reference = reservationReference(reservationId);
       const token = await sessionToken(page);
+      const recipientUserId = await currentUserId(request, token, tenantId);
+      const expectedNotification = {
+        recipientUserId,
+        reservationId,
+        reference,
+        status: 'REQUESTED',
+        eventType: D7_ORGANISER_EVENT,
+        notBefore: runState.vehicleReservationNotBefore!,
+      };
+
       await expect.poll(async () => {
         await drainOutbox(request);
         const res = await request.get(`${API_URL}/communications/notifications`, {
-          headers: { 'x-session-token': token, 'x-tenant-id': 'c0106a0e-1a11-4a6a-9e01-000000000a01' },
+          headers: { 'x-session-token': token, 'x-tenant-id': tenantId },
         });
         if (!res.ok()) return 'unreadable';
         const payload = await res.json().catch(() => ({}));
         const rows = payload?.data || payload?.notifications || [];
-        return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
+        return Array.isArray(rows) && rows.some((n: unknown) => matchesD7Notification(n, expectedNotification))
           ? 'present' : 'absent';
       }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
     } finally {
