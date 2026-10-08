@@ -51,6 +51,7 @@ jobs:
         run: |
           node --test \
             backend/tests/oc5r-rel03-communications-hardening.test.js \
+            backend/tests/oc5r-rel03b-local-custody-safety.test.js \
             backend/tests/oc5r-rel02-uat-harness-contracts.test.js
 
       - name: Affected Communications contracts
@@ -72,6 +73,7 @@ jobs:
           node --check scripts/ci/lib/oc5r-rel03-d7-correlation.mjs
           node --check scripts/ci/lib/oc5r-rel03-db-readonly.mjs
           node --check scripts/ci/lib/oc5r-rel03-subscriber-classifier.mjs
+          node --check scripts/ci/lib/oc5r-rel03-worker-custody.mjs
           node --check scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
           node --check scripts/ci/oc5r-rel03-communications-snapshot.mjs
           node --check scripts/ci/oc5r-rel03-communications-reconcile.mjs
@@ -85,6 +87,7 @@ jobs:
             scripts/ci/lib/oc5r-rel03-d7-correlation.mjs
             scripts/ci/lib/oc5r-rel03-db-readonly.mjs
             scripts/ci/lib/oc5r-rel03-subscriber-classifier.mjs
+            scripts/ci/lib/oc5r-rel03-worker-custody.mjs
             scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
             scripts/ci/oc5r-rel03-communications-snapshot.mjs
             scripts/ci/oc5r-rel03-communications-reconcile.mjs
