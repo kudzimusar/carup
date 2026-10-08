@@ -17,7 +17,8 @@ node scripts/ci/verify-deployment-candidate.mjs \
 | | |
 |---|---|
 | Branch / PR | `fix/oc5r-real-runtime-source-closure` · #222 (Draft, unmerged) |
-| **Code SHA** | `1737763513f36158abb954fcd49e25dc49181779` |
+| **Code SHA** | `ff50ba347b8cd43f144b320195bdcd18c98ffbd5` |
+| Superseded interim candidate | code `17377635`, deploy `1ab0e357`: deployed, runtime-verified and gate-tested; its Diaspora gate found two **test-harness** defects (below) and no product defect. No product source differs between it and the code SHA |
 | Starting head | `ce89a8fac7ad75d07e9b6d9fc4ab87e8503dbc80` (REL-01's release record) |
 | Preserved, not superseded | `d491b5aa` (code `15b604ba`): REL-01's accepted **frozen deployed evidence**. Its named preview aliases (`…-oc5r-rel01-11-11`) keep serving that exact deployment, and its receipts, release record and report stand as written |
 | Deployable commit | The code SHA, or a descendant that changes **only** `docs/**` and this branch's two pairing records |
@@ -29,7 +30,7 @@ node scripts/ci/verify-deployment-candidate.mjs \
 
 ## What REL-02 changed (source)
 
-REL-01's two governed gates were red on four defects, none of them REL-01's. REL-02 closes them without weakening an assertion and without bypassing the real UI.
+REL-01's two governed gates were red on four defects, none of them REL-01's, and REL-02's own first deployed run found two more test-harness defects (C2, J2). REL-02 closes them without weakening an assertion and without bypassing the real UI.
 
 | | Defect | Resolution |
 |---|---|---|
@@ -39,6 +40,8 @@ REL-01's two governed gates were red on four defects, none of them REL-01's. REL
 | **D** | Spec 38's tablet tap failed | Reproduced before any change. **A harness-scroll defect**: the page's smooth scrolling and Playwright's auto-scroll never settle between two fixed bars. The control is structurally clear. The test now scrolls it clear, measures it, and taps normally. No force, and neither bar is touched |
 | **E** | The deployed buyer assistant timed out: Gemma reasons by default (~16 s against a 12 s bound) | The Gemma policy sends `chat_template_kwargs.enable_thinking=false`. The 12 s bound, the shared transport, the OCR/Qwen body and the model pin are unchanged. A timed-out Marketplace answer now says `ai_reason: ai_timeout` |
 | **J** | D7 would hide every journey after it if its drain were rejected | D7's assertions are unchanged and now run last. The drain's answers are recorded |
+| **C2** | Spec 45's seven-viewport geometry sweep hit the suite's 90 s ceiling at its seventh viewport (six had completed, ~13 s each, every assertion passing) | Slow, not stuck: the one long test (and the one visual-capture test) now set explicit test timeouts (240 s / 180 s). Every per-action bound, the 90 s default, the retry count (0) and all assertions are unchanged |
+| **J2** | Spec 42 read the evidence list while the product's own upload was still in flight (tablet shard: the read ran inside the 2.7 s POST that then returned 201) | The spec observes the product's `POST /evidence/upload` (registered before the click), requires it to have been accepted, and waits for the uploader to close, which it does only on success, before the reviewer reads. The evidence assertions are unchanged and the list is still one read |
 
 ## Why the pair is on named aliases
 
@@ -59,8 +62,8 @@ REL-02 uses **new** aliases, so the REL-01 evidence keeps serving the exact depl
 
 ## Procedure (REL-02)
 
-1. Deploy the **backend** preview of the code SHA first. Assign the backend alias and read it back; its `/api/health` must already state the code SHA and an active kill switch.
-2. Commit only the two pairing records and the candidate documents on top of the code SHA. Verify the result (pairing `present`). This is the deploy commit.
+1. First iteration only: deploy the **backend** preview of the code SHA first. Assign the backend alias and read it back; its `/api/health` must already state the code SHA and an active kill switch. The aliases are **named**, so a later iteration inherits them and deploys straight from its deploy commit.
+2. Commit the two pairing records and the candidate documents on top of the code SHA. Verify the result: pairing `present` the first time the records change, and `absent` when a later code SHA already carries the same records (the deploy commit then adds documentation only). This is the deploy commit.
 3. Deploy **both** previews from that commit. Pass:
    - `-b`/`-e CARUP_BUILD_SHA`, `-b`/`-e CARUP_BUILD_REF`;
    - on the backend, `-e COMMUNICATION_OUTBOUND_DISABLED=true`;
