@@ -4,6 +4,7 @@
 
 **Canonical staging Supabase project:** `eoyenigwevnxwwhyhaer`
 **Production Supabase project:** `vhmnajoeicasaigiophh` — **Production is forbidden.**
+**GitHub Actions secret environment:** `staging`
 
 > **Do not activate or drain the worker until the backlog inventory has been reviewed and classified safe enough for bounded processing.**
 
@@ -53,9 +54,9 @@ test "$COMMUNICATION_OUTBOUND_DISABLED" = true
 
 Never echo, print, artifact, screenshot, or commit `COMMUNICATION_WORKER_SECRET`, database URLs, UAT passwords or provider credentials.
 
-## 3. Prove the staging database target before doing anything else
+## 3. Inventory the live backlog and exact next worker batch
 
-The inventory code parses the connection itself and refuses production, unknown targets and unprovable identities before opening a socket.
+The inventory parses the configured connection and refuses production, unknown targets and unprovable identities before opening a socket.
 
 ```bash
 : "${DIASPORA_STAGING_DATABASE_URL:?}"
@@ -64,46 +65,106 @@ node scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs \
   --output "$PWD/rel03-backlog-before.json"
 ```
 
-Expected target in JSON:
+Require:
 
 ```text
 target.kind        = staging
 target.project_ref = eoyenigwevnxwwhyhaer
 boundary.transaction = BEGIN READ ONLY
 boundary.mutating_sql = false
+worker_selection_contract.max_outbox_attempts = 5
+worker_selection_contract.order_by = created_at ASC
+worker_selection_contract.batch_limit = 10
 ```
 
-Any other target is an immediate stop.
+The inventory's `next_worker_batch` reproduces the current worker's eligibility/order/limit contract:
 
-## 4. Interpret the backlog
+```text
+status = pending
+attempts < MAX_OUTBOX_ATTEMPTS (currently 5, derived from eventWorker.js)
+ORDER BY created_at ASC
+LIMIT 10
+```
 
-Read `source_classification` and `live_backlog_observation` as different evidence:
+The read-only inventory deliberately does not acquire `FOR UPDATE SKIP LOCKED`; it must never lock or mutate staging rows.
 
-- **SOURCE CLASSIFICATION** says what this exact checkout registers and what Communications policy permits.
-- **LIVE BACKLOG OBSERVATION** says what rows actually exist in staging.
-- Neither substitutes for the other.
+For every exact next-batch event, review only:
+
+```text
+id
+event_type
+status
+attempts
+tenant_id
+created_at
+classification
+```
+
+No payload review is required by this tool.
+
+## 4. Fail-closed next-batch review
+
+Read these evidence domains separately:
+
+- **SOURCE CLASSIFICATION** — what this exact checkout registers.
+- **LIVE BACKLOG OBSERVATION** — which rows actually exist in staging.
+- **NEXT WORKER BATCH** — the exact oldest eligible rows a single worker poll would attempt under the current source contract.
 
 Effect classes:
 
-- `IN_APP_ONLY` — Communications subscriber exists and policy is internal-only.
-- `EXTERNAL_CHANNEL_POSSIBLE` — processing may reach an external provider.
-- `NON_COMMUNICATION_SIDE_EFFECT` — exact non-Communications subscriber found.
-- `AUDIT_ONLY` — reserved for a source-proven audit-only subscriber.
-- `NO_CURRENT_SUBSCRIBER` — no exact subscriber found in the current source scan.
-- `UNKNOWN_REQUIRES_REVIEW` — do not infer safety.
+- `IN_APP_ONLY` — Communications subscriber; internal channel only.
+- `AUDIT_ONLY` — source-proven audit-only subscriber.
+- `EXTERNAL_CHANNEL_POSSIBLE` — an external provider may be reached.
+- `NON_COMMUNICATION_SIDE_EFFECT` — a non-Communications handler can mutate another domain.
+- `NO_CURRENT_SUBSCRIBER` — no current handler was found.
+- `UNKNOWN_REQUIRES_REVIEW` — source truth is insufficient.
 
-### Stop before worker activation if
+### Default first-batch gate
+
+The first worker invocation is permitted by classification only when every row in the exact `next_worker_batch` is:
+
+```text
+IN_APP_ONLY
+AUDIT_ONLY
+```
+
+Require:
+
+```text
+next_worker_batch_review.stop_required = false
+next_worker_batch_review.default_classification_gate_passes = true
+```
+
+If `next_worker_batch` is empty, do not invoke the worker.
+
+### Mandatory STOP classes
+
+Any exact next-batch row classified as one of these is a STOP pending moderator review:
+
+```text
+EXTERNAL_CHANNEL_POSSIBLE
+NON_COMMUNICATION_SIDE_EFFECT
+NO_CURRENT_SUBSCRIBER
+UNKNOWN_REQUIRES_REVIEW
+```
+
+`NO_CURRENT_SUBSCRIBER` is specifically fail-closed. The current event worker resolves an empty handler list and still marks the event `processed`. It therefore means:
+
+> processing would consume authority evidence without a current handler
+
+It does **not** mean safe to discard.
+
+`COMMUNICATION_OUTBOUND_DISABLED=true` does not override this gate. The kill switch prevents external sends; it does not neutralize non-Communications handlers or make handlerless event consumption harmless.
+
+Also STOP if:
 
 - target proof is not exactly `eoyenigwevnxwwhyhaer`;
-- any pending event is `UNKNOWN_REQUIRES_REVIEW`;
-- any pending `EXTERNAL_CHANNEL_POSSIBLE` family has not been explicitly reviewed;
-- any pending non-Communications side effect is not understood;
-- row age/count/distribution is materially different from the moderator-reviewed inventory;
-- the five reconciliation tables cannot be inspected;
+- the exact next-batch shape differs unexpectedly from the reviewed inventory;
+- any reconciliation table required below cannot be inspected;
 - runtime identity cannot be tied to `$OC5R_REL03A_SOURCE_SHA`;
-- `COMMUNICATION_OUTBOUND_DISABLED=true` is not proven active on the runtime.
+- `COMMUNICATION_OUTBOUND_DISABLED=true` is not proven active.
 
-## 5. Canonical worker-secret custody
+## 5. Canonical GitHub staging-environment worker-secret custody
 
 REL-03 uses only:
 
@@ -113,16 +174,27 @@ COMMUNICATION_WORKER_SECRET
 
 The backend remains the existing Communications worker authority. Do not create `TRADEOS_WORKER_SECRET` support.
 
-The **same protected value** must be held in:
-1. the branch-scoped **Vercel Preview** backend environment; and
-2. the GitHub repository Actions secret named `COMMUNICATION_WORKER_SECRET`.
+The same protected value must be held in:
 
-If custody must be established, do it only under explicit REL-03B authority and never print the value. GitHub example:
+1. the branch-scoped **Vercel Preview** backend environment; and
+2. the GitHub Actions **`staging` environment** secret named `COMMUNICATION_WORKER_SECRET`.
+
+The deployed Diaspora bootstrap job and reusable shard job are source-bound to:
+
+```yaml
+environment: staging
+```
+
+If GitHub custody must be established, do it only under explicit REL-03B authority and never print the value:
 
 ```bash
 printf '%s' "$COMMUNICATION_WORKER_SECRET" | \
-  gh secret set COMMUNICATION_WORKER_SECRET --repo kudzimusar/carup
+  gh secret set COMMUNICATION_WORKER_SECRET \
+    --repo kudzimusar/carup \
+    --env staging
 ```
+
+Do not create or replace a repository-wide `COMMUNICATION_WORKER_SECRET`.
 
 No Production-scoped secret may be changed.
 
@@ -144,22 +216,33 @@ cd ..
 
 If an entry already exists, reconcile it through the connected Vercel custody tool rather than printing or reading the secret.
 
-## 7. Deployment order
+## 7. Required REL-03B execution order
 
-1. Freeze exact REL-03A SHA.
-2. Inventory and review backlog.
-3. Establish Preview-only backend worker-secret + outbound-kill-switch custody.
-4. Deploy backend Preview from the exact SHA.
-5. Prove backend runtime identity and outbound kill switch.
-6. Deploy the paired frontend Preview from the same exact SHA if the governed pair resolver requires a fresh frontend.
-7. Prove the pair.
-8. Take the **before** database snapshot.
-9. Only then perform one bounded worker poll.
-10. Take the **after** snapshot and reconcile.
-11. Review the delta before any second worker call.
-12. Run the corrected D7 staging spec.
-13. Run the governed GitHub staging certification.
-14. Take final database inventory/reconciliation and return evidence.
+Use this exact order:
+
+```text
+freeze exact SHA
+→ inventory live backlog
+→ inspect exact next_worker_batch
+→ STOP if next batch contains any non-default class
+→ establish GitHub staging-environment + Vercel Preview secret custody
+→ deploy exact Preview pair
+→ prove exact runtime SHA
+→ prove COMMUNICATION_OUTBOUND_DISABLED=true
+→ capture BEFORE snapshot tracking exact next-batch IDs
+→ make ONE worker call
+→ capture AFTER snapshot tracking the SAME IDs
+→ reconcile exact event mutations + newly-created Communications rows
+→ run inventory again
+→ explicitly review the NEW next_worker_batch
+→ only then seek authority for any second worker call
+```
+
+No automatic loop.
+
+No drain-until-empty command.
+
+Approval of batch 1 never authorizes batch 2.
 
 ## 8. Runtime identity and outbound-disabled proof
 
@@ -187,9 +270,9 @@ node scripts/ci/resolve-governed-preview-pair.mjs
 
 Do not continue on a mismatched SHA, unpaired frontend, stable-main backend, production origin, or wrong staging project.
 
-## 9. Before snapshot
+## 9. Before snapshot — track the reviewed batch by exact event ID
 
-Choose a bounded UTC window that starts before the controlled drain:
+Choose a bounded UTC window for **new Communications rows**:
 
 ```bash
 : "${REL03_WINDOW_START:?set an ISO-8601 UTC timestamp}"
@@ -198,20 +281,35 @@ REL03_BEFORE_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 node scripts/ci/oc5r-rel03-communications-snapshot.mjs \
   --since "$REL03_WINDOW_START" \
   --until "$REL03_BEFORE_END" \
+  --track-events-from "$PWD/rel03-backlog-before.json" \
   --output "$PWD/rel03-before.json"
 ```
 
-The snapshot is read-only and covers:
+The snapshot has two different observation modes:
+
+1. `tracked_worker_batch` queries the exact IDs from `rel03-backlog-before.json` regardless of their original `created_at`, current status or update time.
+2. The ordinary time window observes newly-created rows in:
 
 ```text
-domain_events
 notification_queue
 message_threads
 messages
 message_delivery_attempts
 ```
 
-## 10. Bounded worker drain
+An old September event in the exact worker batch must therefore remain visible during an October REL-03 run.
+
+Before calling the worker, require:
+
+```text
+tracked_worker_batch.expected_ids
+==
+tracked_worker_batch.rows[].id
+```
+
+Any missing expected ID is a STOP.
+
+## 10. One bounded worker call
 
 Generate a non-secret correlation ID:
 
@@ -229,9 +327,11 @@ curl --fail-with-body --silent --show-error \
   -H 'content-type: application/json'
 ```
 
-Stop on `401`, `503 event_worker_unarmed`, transport failure, or an unexpected processed/backlog result. Review the before/after reconciliation before authorizing another call.
+Stop on `401`, `503 event_worker_unarmed`, transport failure, or an unexpected processed/backlog result.
 
-## 11. After snapshot and reconciliation
+## 11. After snapshot — same exact event IDs
+
+Use the **same** reviewed inventory file:
 
 ```bash
 REL03_AFTER_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -239,6 +339,7 @@ REL03_AFTER_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 node scripts/ci/oc5r-rel03-communications-snapshot.mjs \
   --since "$REL03_WINDOW_START" \
   --until "$REL03_AFTER_END" \
+  --track-events-from "$PWD/rel03-backlog-before.json" \
   --output "$PWD/rel03-after.json"
 
 node scripts/ci/oc5r-rel03-communications-reconcile.mjs \
@@ -247,9 +348,56 @@ node scripts/ci/oc5r-rel03-communications-reconcile.mjs \
   --output "$PWD/rel03-reconciliation.json"
 ```
 
-Review exactly which domain event changed status, which notification/thread/message appeared, and whether any `message_delivery_attempts` row appeared. With D7's in-app-only policy and the kill switch active, an unexpected external attempt is a stop condition.
+The reconciliation must include:
 
-## 12. Corrected D7 dispatch
+```text
+tracked_worker_batch.expected_ids
+tracked_worker_batch.observed_before
+tracked_worker_batch.observed_after
+tracked_worker_batch.status_transitions
+tracked_worker_batch.attempt_transitions
+tracked_worker_batch.error_transitions
+tracked_worker_batch.missing_ids
+tracked_worker_batch.complete
+```
+
+If any expected ID is absent before or after, the reconciliation command exits non-zero:
+
+```text
+TRACKED WORKER BATCH RECONCILIATION INCOMPLETE
+```
+
+Do not reinterpret a missing tracked event as a removed row.
+
+Review:
+
+- `pending → processed`;
+- `pending → pending` with attempts incremented;
+- `pending → dead_letter`;
+- error-state changes;
+- new notifications, threads and messages;
+- every new delivery attempt;
+- any unexpected external delivery attempt.
+
+## 12. Re-inventory before any possible second worker call
+
+Immediately after reconciliation:
+
+```bash
+node scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs \
+  --format both \
+  --output "$PWD/rel03-backlog-after-batch1.json"
+```
+
+This produces a **new** `next_worker_batch`.
+
+Review it from zero under the same classification gate.
+
+Batch-1 approval is consumed after the first worker invocation.
+
+Do not make a second worker call unless the new exact batch is separately reviewed and the moderator explicitly authorizes continuation.
+
+## 13. Corrected D7 dispatch
 
 Do not grep-run only the two D7 tests: the spec is serial and the current reservation is created earlier in the same spec. Run the whole Trade OS container spec on Chromium:
 
@@ -261,15 +409,16 @@ npx playwright test \
 ```
 
 D7 must prove:
+
 - participant current user + exact current reservation reference + `APPROVED` + `diaspora.container_booking.reservation_approved`;
-- current Hikari coordinator + the same reservation reference + `REQUESTED` + `diaspora.container_booking.reservation_received`;
+- current Hikari coordinator + same reservation reference + `REQUESTED` + `diaspora.container_booking.reservation_received`;
 - non-null `event_id`;
 - notification `created_at` after this run's reservation mutation;
-- Communications UI visibly contains the exact current `RES-...` reference.
+- Communications UI contains the exact current `RES-...` reference.
 
-A historical `container_booking` row cannot satisfy the predicate.
+Historical `container_booking` rows cannot satisfy the predicate.
 
-## 13. GitHub staging certification scope only
+## 14. GitHub staging certification scope only
 
 After local proof is reconciled, dispatch the existing governed **staging** workflow from this branch:
 
@@ -279,11 +428,13 @@ gh workflow run diaspora-deployed-staging-uat.yml \
   --ref "$REL03_BRANCH"
 ```
 
+The workflow's secret-consuming bootstrap and reusable shard jobs are bound to the GitHub `staging` environment.
+
 Record the run ID and exact head. Do not dispatch a production release workflow.
 
-## 14. Final staging reconciliation
+## 15. Final staging reconciliation
 
-Run the backlog inventory again and compare it with the reviewed pre-drain inventory:
+After D7/staging certification, run the inventory again for evidence:
 
 ```bash
 node scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs \
@@ -291,20 +442,28 @@ node scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs \
   --output "$PWD/rel03-backlog-final.json"
 ```
 
-No cleanup/delete command exists in REL-03 tooling. Do not mark historical events processed manually and do not delete historical notifications to make D7 pass.
+No cleanup/delete command exists in REL-03 tooling.
 
-## 15. Evidence to return to the moderator
+Do not mark historical events processed manually.
+
+Do not delete historical notifications to make D7 pass.
+
+## 16. Evidence to return to the moderator
 
 Return:
 
 - exact checked-out SHA;
 - governed Preview frontend/backend URLs and runtime SHA proofs;
-- redacted proof that `COMMUNICATION_WORKER_SECRET` custody is present in Preview + GitHub Actions (never the value);
+- redacted proof that `COMMUNICATION_WORKER_SECRET` custody exists in Vercel Preview and GitHub Actions `staging` environment, never the value;
 - `/api/health` outbound kill-switch proof;
 - `rel03-backlog-before.json`;
-- inventory classification review / stop decisions;
+- exact batch classification review and stop decision;
+- `rel03-before.json`;
 - worker HTTP status, correlation ID, processed/backlog counts;
-- `rel03-before.json`, `rel03-after.json`, `rel03-reconciliation.json`;
+- `rel03-after.json`;
+- `rel03-reconciliation.json`;
+- `rel03-backlog-after-batch1.json`;
+- explicit evidence that the new next batch was reviewed before any second call;
 - corrected D7 Playwright result and artifact paths;
 - GitHub staging workflow run ID/result;
 - `rel03-backlog-final.json`;
@@ -315,13 +474,17 @@ Return:
 **Production is forbidden.**
 
 Do not:
+
 - contact Supabase production `vhmnajoeicasaigiophh`;
 - use Vercel Production scope or `--prod`;
 - move production aliases;
 - print or artifact secrets;
+- use a repository-wide `COMMUNICATION_WORKER_SECRET`;
+- process a batch containing a default STOP classification without moderator authority;
 - delete historical notifications;
 - manually mark domain events processed;
 - broaden the worker auth contract;
 - run an automatic drain loop;
+- assume batch-1 approval authorizes batch 2;
 - run Owner UAT;
 - merge PR #222.
