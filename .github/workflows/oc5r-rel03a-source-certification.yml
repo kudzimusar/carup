@@ -21,15 +21,16 @@ jobs:
     timeout-minutes: 30
     env:
       NODE_ENV: test
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact pushed SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
 
       - name: Assert exact checkout
-        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
 
       - uses: actions/setup-node@v4
         with:
@@ -106,4 +107,4 @@ jobs:
         run: node scripts/cr1-secret-scan.mjs
 
       - name: Whitespace and conflict-marker check
-        run: git diff --check ${{ github.event.before || 'HEAD^' }} ${{ github.sha }}
+        run: git diff --check 3fc022e9ca14ab4ddbd81f6442c9e7e46974c2e4 "$CANDIDATE_SHA"
