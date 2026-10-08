@@ -186,6 +186,9 @@ All four were classified by the harness at `4a6f96e7`. No message was sent; no f
 
 - **STAGING CONFIG PREPARED:** `CLOUDFLARE_API_TOKEN` is present on `carup-backend-staging` for preview and production (owner, 2026-10-07T14:25:16Z). `CLOUDFLARE_ACCOUNT_ID` is present.
 - **NOT DEPLOYED-RUNTIME VERIFIED:** the running deployment `dpl_91cteUJnAN8218aeCtUPrXHSHLa3` serves `main@bb9d9900` and predates both the variable and this lineage.
+  - **Superseded (2026-10-08, OC-5R-REL-01):** the governed REL-01 preview pair (`d491b5aa`) verified the variable at runtime — OCR (Qwen)
+    and general AI (Gemma) reported configured by `/api/health`, and a deployed Qwen run answered (run 37705240258). Only the *stable*
+    deployment named above still predates it. See `OC5R_REL01_STAGING_RELEASE_REPORT.md`.
 - `CLOUDFLARE_TOKEN` is stale and unread. No compatibility was added. Removing it is an owner action.
 
 The full names-only contract is in the candidate package. It covers what a new branch preview has and lacks, and which webhook secrets are now strict in every deployment.

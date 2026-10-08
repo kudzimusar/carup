@@ -56,6 +56,8 @@
 **The deployed staging runtime is not this lineage.** `carup-backend-staging` production runs `bb9d9900`, an ancestor 476 commits behind
 `f8fed206`. So the "unavailable behaviour" column above describes this source, not a deployed runtime.
 
+> **Update (2026-10-08, OC-5R-REL-01):** this lineage has since been deployed as a governed **preview** pair (`d491b5aa`) and its runtime verified; see the sections below and `OC5R_REL01_STAGING_RELEASE_REPORT.md`. The *stable* staging runtime is unchanged and still runs `bb9d9900`.
+
 ## Blocked
 
 - **By missing source integration** (fix in source, do not work around):
@@ -110,6 +112,10 @@ programme report is [OC5R_PROV01_PROVIDER_CONVERGENCE_REPORT.md](OC5R_PROV01_PRO
   deployment `dpl_91cteUJnAN8218aeCtUPrXHSHLa3` serves `main@bb9d9900`, which predates the variable and this lineage. The
   variable becomes runtime evidence only through `/api/health` (`ai.configured`, `ocr.configured`) after a governed exact-SHA
   deployment.
+  - **Superseded (2026-10-08, OC-5R-REL-01).** The governed exact-SHA REL-01 preview (`d491b5aa`) **did** verify it at runtime:
+    `/api/health` reported OCR (cloudflare / `@cf/qwen/qwen3.8-27b`, custody canonical, no mock) and general AI (cloudflare /
+    `@cf/google/gemma-4-26b-a4b-it`) configured, and a deployed Qwen run through the product path answered (run 37705240258).
+    The stable staging deployment `dpl_91cteUJnAN8218aeCtUPrXHSHLa3` still predates the variable.
 - **`CLOUDFLARE_TOKEN`** is stale and still present on the production target. No code reads it, and no compatibility was added.
   Removing it is an owner action.
 - **GitHub repository secrets** (names read earlier in this session): `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and
