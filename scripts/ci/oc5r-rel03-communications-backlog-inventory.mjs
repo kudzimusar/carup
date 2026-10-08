@@ -108,7 +108,7 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
       max_outbox_attempts: workerContract.max_outbox_attempts,
       order_by: workerContract.order_by,
       batch_limit: workerContract.batch_limit,
-      observation_locking_note: 'Inventory reproduces eligibility/order/limit but does not acquire FOR UPDATE locks because it is strictly read-only.',
+      observation_locking_note: 'Inventory reproduces eligibility/order/limit but does not acquire row locks because it is strictly read-only.',
     },
     source_classification_note: 'SOURCE CLASSIFICATION is derived from this checkout. It does not prove which rows exist in staging.',
     live_observation_note: 'LIVE BACKLOG OBSERVATION is read-only database evidence. It does not by itself prove a subscriber will complete successfully.',
