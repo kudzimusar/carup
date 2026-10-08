@@ -87,7 +87,7 @@ jobs:
       PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
-      TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
+      COMMUNICATION_WORKER_SECRET: ${{ secrets.COMMUNICATION_WORKER_SECRET }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +108,7 @@ jobs:
           missing=''
           [ -n "$DIASPORA_STAGING_DATABASE_URL" ] || missing="$missing DIASPORA_STAGING_DATABASE_URL"
           [ -n "$STAGING_UAT_PASSWORD" ] || missing="$missing STAGING_UAT_PASSWORD"
-          [ -n "$TRADEOS_WORKER_SECRET" ] || missing="$missing TRADEOS_WORKER_SECRET"
+          [ -n "$COMMUNICATION_WORKER_SECRET" ] || missing="$missing COMMUNICATION_WORKER_SECRET"
           if [ -n "$missing" ]; then
             echo "::error::not configured;$missing — deployed acceptance cannot be certified."
             exit 1
