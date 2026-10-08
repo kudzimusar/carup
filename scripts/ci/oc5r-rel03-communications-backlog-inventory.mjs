@@ -2,6 +2,12 @@
 import fs from 'node:fs';
 import { withReadOnlyDatabase } from './lib/oc5r-rel03-db-readonly.mjs';
 import { classifyEventTypes } from './lib/oc5r-rel03-subscriber-classifier.mjs';
+import {
+  assertObservedNextWorkerBatch,
+  loadWorkerSelectionContract,
+  nextWorkerBatchSql,
+  reviewNextWorkerBatch,
+} from './lib/oc5r-rel03-worker-custody.mjs';
 
 function argValue(name) {
   const i = process.argv.indexOf(name);
@@ -16,6 +22,7 @@ if (!['human', 'json', 'both'].includes(format)) {
 
 const databaseUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
 const allowLocalTest = process.env.OC5R_REL03_ALLOW_LOCAL_TEST_DB === 'true';
+const workerContract = loadWorkerSelectionContract();
 
 const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query }) => {
   const grouped = await query(`
@@ -40,7 +47,13 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     ORDER BY event_type, count(*) DESC, tenant_id NULLS LAST
   `);
 
-  const eventTypes = grouped.rows.map((row) => row.event_type);
+  const nextBatchResult = await query(nextWorkerBatchSql(workerContract), [workerContract.max_outbox_attempts]);
+  assertObservedNextWorkerBatch(nextBatchResult.rows, workerContract);
+
+  const eventTypes = [
+    ...grouped.rows.map((row) => row.event_type),
+    ...nextBatchResult.rows.map((row) => row.event_type),
+  ];
   const sourceClassification = classifyEventTypes(eventTypes);
   const classificationByType = new Map(sourceClassification.map((row) => [row.event_type, row]));
 
@@ -61,8 +74,22 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     source_classification: classificationByType.get(row.event_type) || null,
   }));
 
+  const nextWorkerBatch = nextBatchResult.rows.map((row) => ({
+    id: String(row.id),
+    event_type: row.event_type,
+    status: row.status,
+    attempts: Number(row.attempts),
+    tenant_id: row.tenant_id,
+    created_at: row.created_at,
+    classification: classificationByType.get(row.event_type) || {
+      effect_class: 'UNKNOWN_REQUIRES_REVIEW',
+      confidence: 'unknown',
+      source_files: [],
+    },
+  }));
+
   return {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: new Date().toISOString(),
     target: {
       kind: target.kind,
@@ -74,10 +101,21 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
       worker_called: false,
       live_rows_changed: false,
     },
+    worker_selection_contract: {
+      source_file: workerContract.source_file,
+      status: workerContract.status,
+      attempts_predicate: `attempts < ${workerContract.max_outbox_attempts}`,
+      max_outbox_attempts: workerContract.max_outbox_attempts,
+      order_by: workerContract.order_by,
+      batch_limit: workerContract.batch_limit,
+      observation_locking_note: 'Inventory reproduces eligibility/order/limit but does not acquire FOR UPDATE locks because it is strictly read-only.',
+    },
     source_classification_note: 'SOURCE CLASSIFICATION is derived from this checkout. It does not prove which rows exist in staging.',
     live_observation_note: 'LIVE BACKLOG OBSERVATION is read-only database evidence. It does not by itself prove a subscriber will complete successfully.',
     source_classification: sourceClassification,
     live_backlog_observation: liveBacklogObservation,
+    next_worker_batch: nextWorkerBatch,
+    next_worker_batch_review: reviewNextWorkerBatch(nextWorkerBatch),
   };
 }, { allowLocalTest });
 
@@ -85,12 +123,21 @@ const human = [
   'OC-5R-REL-03 Communications backlog inventory (READ ONLY)',
   `Target: ${report.target.kind} / ${report.target.project_ref}`,
   `Observed groups: ${report.live_backlog_observation.length}`,
+  `Authoritative worker batch: pending, attempts < ${report.worker_selection_contract.max_outbox_attempts}, created_at ASC, LIMIT ${report.worker_selection_contract.batch_limit}`,
   '',
   'status | event_type | count | oldest | newest | effect',
   ...report.live_backlog_observation.map((row) =>
     `${row.status} | ${row.event_type} | ${row.count} | ${row.oldest_created_at || '-'} | ${row.newest_created_at || '-'} | ${row.source_classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW'}`),
   '',
+  'NEXT WORKER BATCH',
+  'id | event_type | attempts | tenant_id | created_at | effect',
+  ...report.next_worker_batch.map((row) =>
+    `${row.id} | ${row.event_type} | ${row.attempts} | ${row.tenant_id || '-'} | ${row.created_at} | ${row.classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW'}`),
+  `Default classification gate passes: ${report.next_worker_batch_review.default_classification_gate_passes}`,
+  `STOP required: ${report.next_worker_batch_review.stop_required}`,
+  '',
   'SOURCE CLASSIFICATION and LIVE BACKLOG OBSERVATION are intentionally separate.',
+  'COMMUNICATION_OUTBOUND_DISABLED does not override next-batch classification.',
 ].join('\n');
 
 const json = JSON.stringify(report, null, 2);
