@@ -7,6 +7,22 @@ const VIEWPORTS = [
   { name: 'mobile', width: 390, height: 844 },
 ] as const
 
+/**
+ * The dashboard SIDEBAR's navigation: the `<aside>`'s own `<nav>`.
+ *
+ * CarUp has two responsive navigation systems and each truthfully marks its own active destination
+ * with `aria-current="page"`: the sidebar and the compact bottom bar. The bar is hidden by CSS above
+ * 1024px (`lg:hidden`) but stays in the DOM, so an unscoped `nav a[aria-current="page"]` counts BOTH
+ * and can never be 1 — which is not what E1.2 set out to prove. Its contract is that the sidebar has
+ * exactly ONE active destination, so that is what is asserted, scoped to the sidebar (REL-02 B).
+ */
+const sidebarCurrent = (page: Page) => page.locator('aside > nav a[aria-current="page"]')
+
+async function expectOneActiveSidebarDestination(page: Page, href: string) {
+  await expect(sidebarCurrent(page)).toHaveCount(1)
+  await expect(sidebarCurrent(page)).toHaveAttribute('href', href)
+}
+
 async function clearIdentity(page: Page) {
   await page.context().clearCookies()
   await page.goto('/')
@@ -57,13 +73,13 @@ test.describe('Seller Phase E — deployed navigation and intent', () => {
 
       await page.goto('/dashboard/garage')
       await expect(page.getByTestId('seller-workspace-header')).toBeVisible()
-      await expect(page.locator('nav a[aria-current="page"]')).toHaveCount(1)
+      await expectOneActiveSidebarDestination(page, '/dashboard/garage')
       await expect(page.getByRole('link', { name: 'Seller / Owner home' })).toHaveAttribute('href', '/dashboard')
 
       await page.goto('/dashboard/evidence')
       await expect(page.getByTestId('owner-evidence-vault')).toBeVisible()
       await expect(page.getByTestId('seller-workspace-header')).toBeVisible()
-      await expect(page.locator('nav a[aria-current="page"]')).toHaveCount(1)
+      await expectOneActiveSidebarDestination(page, '/dashboard/evidence')
 
       await page.goto('/dashboard/listings')
       await expect(page.getByTestId('seller-workspace-header')).toBeVisible()
