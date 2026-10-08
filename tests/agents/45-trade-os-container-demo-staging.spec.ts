@@ -449,6 +449,11 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('HARD GEOMETRY GATE: no horizontal document overflow across desktop classes (owner UAT #2)', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'geometry sweep runs once, resizing a desktop browser');
+    // REL-02 C: a real organisation selection now precedes this sweep, and the sweep is SEVEN viewports, each a
+    // navigation, a container open and a full-page screenshot against real staging latency (~12 s apiece). The
+    // per-action timeouts (expect 15 s, action 20 s) are unchanged; only the suite-level 90 s ceiling is lifted
+    // for this one test, as spec 38 (480 s) and spec 41 (180 s) already do for their long journeys.
+    stagingTest.setTimeout(240_000);
     await signInActingFor(page, 'operator');
     // Element-existence can pass while the document is wider than the viewport — this gate cannot.
     const WIDTHS: Array<[number, number]> = [[393, 852], [820, 1180], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1536, 864]];
@@ -477,6 +482,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('full-page visual evidence: operator and participant desktop + narrow desktop', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'visual sweep runs once on desktop');
+    stagingTest.setTimeout(180_000); // REL-02 C: two sign-ins (one with a real organisation selection) and three full-page captures
     await signInActingFor(page, 'operator');
     for (const [name, width, height] of [['operator-desktop-1440', 1440, 900], ['operator-narrow-1024', 1024, 768]] as Array<[string, number, number]>) {
       await page.setViewportSize({ width, height });

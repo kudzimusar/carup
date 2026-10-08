@@ -240,3 +240,23 @@ test('J — the candidate drain\'s answers are recorded, never swallowed, with o
   assert.equal((SPEC_45.match(/await attachDrainEvidence\(testInfo\);/g) || []).length, 2, 'both D7 tests attach the evidence even when they fail');
   assert.ok(!/\.catch\(\(\) => undefined\);\s*\n\}/.test(drain), 'the drain no longer swallows its answer');
 });
+
+// ── C/J: the sweep's time ceiling is lifted for the two long tests ONLY, and nothing else is loosened ─
+test('C — the multi-viewport geometry sweep and the visual-evidence capture set explicit test timeouts', () => {
+  const geometry = between(SPEC_45, "stagingTest('HARD GEOMETRY GATE", "stagingTest('full-page visual evidence");
+  assert.match(geometry, /stagingTest\.setTimeout\(240_000\);/, 'seven viewports + a real organisation selection need more than the 90 s default');
+  const visual = between(SPEC_45, "stagingTest('full-page visual evidence", "stagingTest('responsive: participant journey state");
+  assert.match(visual, /stagingTest\.setTimeout\(180_000\);/);
+  // the sweep still asserts every overflow axis at every width
+  for (const axis of ['geometry.doc', 'geometry.body', 'geometry.workspace']) assert.ok(geometry.includes(`expect(${axis},`), `${axis} overflow is still asserted`);
+  assert.ok(geometry.includes('[[393, 852], [820, 1180], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1536, 864]]'), 'all seven widths are still swept');
+});
+
+test('C — the staging Playwright config keeps its strict defaults (no retries, 90 s suite ceiling, 15 s expect, 20 s action)', () => {
+  const config = read('playwright.staging.config.ts');
+  assert.match(config, /timeout:\s*90_000,/);
+  assert.match(config, /expect:\s*\{\s*timeout:\s*15_000\s*\}/);
+  assert.match(config, /retries:\s*0,/, 'a flaky retry must never mask a real defect');
+  assert.match(config, /actionTimeout:\s*20_000/);
+  assert.match(config, /workers:\s*1,/);
+});
