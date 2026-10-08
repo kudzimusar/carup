@@ -209,17 +209,27 @@ test('D — spec 38 taps BOTH listing-page controls through the helper, with its
   assert.ok(!/pointer-events-none/.test(nav), 'the compact bar must not be made click-through');
 });
 
-// ── J: D7 is executed UNCHANGED, last, and its answers are recorded ────────────────────────────────
-test('J — D7\'s assertions are exactly the original ones (relocated, not weakened)', () => {
-  for (const line of [
-    "expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();",
-    "expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set').toBeTruthy();",
-    "rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')",
-    "await expect(page.getByText(/Container booking RES-/i).first()).toBeVisible({ timeout: 15_000 });",
-    "headers: { 'x-session-token': token, 'x-tenant-id': 'c0106a0e-1a11-4a6a-9e01-000000000a01' },",
-  ]) assert.ok(SPEC_45.includes(line), `D7 line missing or changed: ${line.slice(0, 80)}`);
-  assert.equal((SPEC_45.match(/\}, \{ timeout: 45_000, intervals: \[2_000\] \}\)\.toBe\('present'\);/g) || []).length, 2, 'both D7 polls still require "present"');
-  assert.ok(!/toBe\('absent'\)/.test(SPEC_45));
+// ── J: REL-03A strengthens D7 to current-run proof without weakening its original gates ─────────────
+test('J — D7 requires the current reservation, recipient, event direction, state and run window', () => {
+  for (const marker of [
+    'matchesD7Notification(n, expectedNotification)',
+    'reservationReference(reservationId)',
+    "status: 'APPROVED'",
+    'eventType: D7_PARTICIPANT_EVENT',
+    "status: 'REQUESTED'",
+    'eventType: D7_ORGANISER_EVENT',
+    'recipientUserId = await currentUserId',
+    'notBefore: runState.vehicleReservationNotBefore!',
+  ]) assert.ok(SPEC_45.includes(marker), `D7 correlation marker missing: ${marker}`);
+
+  assert.ok(!SPEC_45.includes("rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')"),
+    'notification_type alone is the REL-02 historical-row false positive');
+  assert.ok(!SPEC_45.includes('getByText(/Container booking RES-/i)'),
+    'a generic RES UI match can be satisfied by an old booking');
+  assert.ok(SPEC_45.includes("getByText(reference, { exact: false })"),
+    'the UI must render this run\'s exact reservation reference');
+  assert.equal((SPEC_45.match(/\}, \{ timeout: 45_000, intervals: \[2_000\] \}\)\.toBe\('present'\);/g) || []).length, 2,
+    'both D7 polls remain fail-closed and bounded');
 });
 
 test('J — D7 sits LAST in the serial chain, so a D7 failure cannot hide the D7-independent journeys', () => {
@@ -232,19 +242,21 @@ test('J — D7 sits LAST in the serial chain, so a D7 failure cannot hide the D7
   assert.match(SPEC_45, /stagingTest\.describe\.configure\(\{ mode: 'serial' \}\)/, 'the chain is still serial (the journeys share state)');
 });
 
-test('J — the candidate drain\'s answers are recorded, never swallowed, with only TRADEOS_WORKER_SECRET', () => {
+test('J — the candidate drain records answers and consumes only COMMUNICATION_WORKER_SECRET', () => {
   const drain = between(SPEC_45, 'async function drainOutbox', 'async function attachDrainEvidence');
-  assert.match(drain, /process\.env\.TRADEOS_WORKER_SECRET/);
-  assert.ok(!/process\.env\.(COMMUNICATION_WORKER_SECRET|CRON_SECRET)|\['(COMMUNICATION_WORKER_SECRET|CRON_SECRET)'\]/.test(SPEC_45 + HELPERS), 'no other backend secret is read by the harness');
+  assert.match(drain, /process\.env\.COMMUNICATION_WORKER_SECRET/);
+  assert.ok(!/process\.env\.(TRADEOS_WORKER_SECRET|CRON_SECRET)|\['(TRADEOS_WORKER_SECRET|CRON_SECRET)'\]/.test(SPEC_45 + HELPERS),
+    'REL-03 D7 must not read Trade OS or cron credentials');
   assert.match(drain, /\/internal\/events\/process/);
-  assert.match(drain, /authorization: `Bearer \$\{secret\}`/);
+  assert.match(drain, /authorization: `Bearer \${secret}\`/);
   assert.match(drain, /drainResponses\.push\(\{ at: new Date\(\)\.toISOString\(\), status: response\.status\(\)/);
   assert.match(drain, /transport_error/);
   const evidence = between(SPEC_45, 'async function attachDrainEvidence', 'async function sessionToken');
   assert.match(evidence, /d7-drain-responses\.json/);
   assert.match(evidence, /console\.log\(`\[spec45\] \/internal\/events\/process answered/);
-  assert.equal((SPEC_45.match(/await attachDrainEvidence\(testInfo\);/g) || []).length, 2, 'both D7 tests attach the evidence even when they fail');
-  assert.ok(!/\.catch\(\(\) => undefined\);\s*\n\}/.test(drain), 'the drain no longer swallows its answer');
+  assert.equal((SPEC_45.match(/await attachDrainEvidence\(testInfo\);/g) || []).length, 2,
+    'both D7 tests attach evidence even when they fail');
+  assert.ok(!/\.catch\(\(\) => undefined\);\s*\n\}/.test(drain), 'the drain never swallows its answer');
 });
 
 // ── C/J: the sweep's time ceiling is lifted for the two long tests ONLY, and nothing else is loosened ─
