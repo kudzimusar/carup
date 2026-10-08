@@ -30,8 +30,9 @@ function stagingCustodyContract(uat, shard, handoff) {
   const bootstrap = /\n  bootstrap:\n[\s\S]{0,180}?\n    environment: staging\n/.test(uat);
   const reusableShard = /\n  shard:\n[\s\S]{0,140}?\n    environment: staging\n/.test(shard);
   const command = /gh secret set COMMUNICATION_WORKER_SECRET[\s\S]{0,180}?--repo kudzimusar\/carup[\s\S]{0,100}?--env staging/.test(handoff);
-  const noTradeOs = !/TRADEOS_WORKER_SECRET/.test(uat + shard + handoff);
-  return bootstrap && reusableShard && command && noTradeOs;
+  const noTradeOsInExecutableWorkflows = !/TRADEOS_WORKER_SECRET/.test(uat + shard);
+  const handoffExplicitlyForbidsTradeOs = /Do not create \`TRADEOS_WORKER_SECRET\` support/.test(handoff);
+  return bootstrap && reusableShard && command && noTradeOsInExecutableWorkflows && handoffExplicitlyForbidsTradeOs;
 }
 
 test('GitHub worker-secret jobs and handoff are staging-environment scoped', () => {
