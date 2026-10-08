@@ -42,7 +42,7 @@ jobs:
       PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
       # No DIASPORA_STAGING_DATABASE_URL: a shard makes NO direct database connection any more.
       STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
-      TRADEOS_WORKER_SECRET: ${{ secrets.TRADEOS_WORKER_SECRET }}
+      COMMUNICATION_WORKER_SECRET: ${{ secrets.COMMUNICATION_WORKER_SECRET }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
     steps:
       - name: Checkout the exact candidate head
@@ -64,8 +64,8 @@ jobs:
       # certification — fail loudly rather than produce a green that means less than it looks.
       - name: Require the staging worker secret
         run: |
-          if [ -z "$TRADEOS_WORKER_SECRET" ]; then
-            echo '::error::TRADEOS_WORKER_SECRET is not configured; the D7 outbox tests cannot be certified.'
+          if [ -z "$COMMUNICATION_WORKER_SECRET" ]; then
+            echo '::error::COMMUNICATION_WORKER_SECRET is not configured; the D7 outbox tests cannot be certified against the canonical Communications worker contract.'
             exit 1
           fi
 
