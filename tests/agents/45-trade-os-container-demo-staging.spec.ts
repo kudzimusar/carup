@@ -24,7 +24,7 @@
  * and responsive layout against the state the chromium pass created.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
-import { stagingTest, expect, API_URL } from './staging-helpers';
+import { stagingTest, expect, API_URL, ensureActingForOrganisation, type OrganisationSelection } from './staging-helpers';
 
 const IDS = {
   operator: { email: 'tradeos.operator@carup-staging.test', envPassword: 'TRADEOS_UAT_OPERATOR_PASSWORD' },
@@ -33,6 +33,18 @@ const IDS = {
   outsider: { email: 'tradeos.outsider@carup-staging.test', envPassword: 'TRADEOS_UAT_OUTSIDER_PASSWORD' },
 } as const;
 type TradeRole = keyof typeof IDS;
+
+/**
+ * Login never selects an organisation (OC-5D): a person who belongs to one is OFFERED it and must
+ * explicitly choose it — one tap, even with a single selectable membership. The operator works for
+ * Hikari Co-Load and the rival-tenant outsider for Rival Freight; participants A and B hold no
+ * organisation and act for themselves. (REL-02 C: this spec used to assume the operator was already
+ * "inside" Hikari after login, which the product no longer does.)
+ */
+const ORGANISATION: Partial<Record<TradeRole, RegExp>> = {
+  operator: /Hikari Co-Load/i,
+  outsider: /Rival Freight/i,
+};
 
 const OCT_DEPARTURE = '2026-10-15';
 const DEC_DEPARTURE = '2026-12-10';
@@ -66,6 +78,17 @@ async function signIn(page: Page, role: TradeRole): Promise<void> {
     await page.getByTestId('password-input').fill(password(role));
   }
   throw new Error(`UI login remained rate-limited for ${role}`);
+}
+
+/**
+ * Sign in through the real login form, then — for an identity that belongs to an organisation —
+ * explicitly act for it through the real prompt/switcher and prove the context before the caller
+ * touches any organisation-scoped workspace. Identities without an organisation act for themselves.
+ */
+async function signInActingFor(page: Page, role: TradeRole): Promise<OrganisationSelection | null> {
+  await signIn(page, role);
+  const organisation = ORGANISATION[role];
+  return organisation ? ensureActingForOrganisation(page, organisation) : null;
 }
 
 /** Navigate and let the surface finish its background reads — journeys must not outrun the page
@@ -115,7 +138,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('operator: normal navigation → create the October container through the UI', async ({ page, cap }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
 
     // Discoverability (D1): the dashboard sidebar carries Container Co-Loading — no hidden URL.
     await gotoSettled(page, '/dashboard');
@@ -244,7 +267,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('operator: sees both requests with cargo context, approves the vehicle — capacity updates', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
@@ -287,7 +310,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
     // … but approving it must fail atomically: 22 approved + 50 = 72 > 60.
     await page.context().clearCookies();
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     const probeRow = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'Overfill probe' });
@@ -347,7 +370,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   stagingTest('operator receives the organiser-directed booking notification (D7 direction)', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set').toBeTruthy();
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     const token = await sessionToken(page);
     await expect.poll(async () => {
       await drainOutbox(request);
@@ -364,7 +387,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('cross-tenant denial: a rival tenant admin cannot see, approve or close this container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'outsider');
+    await signInActingFor(page, 'outsider');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
@@ -391,7 +414,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('operator: December container + booking-close semantics on a proof container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
 
     // December sailing (left OPEN for the client demo).
@@ -443,7 +466,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('HARD GEOMETRY GATE: no horizontal document overflow across desktop classes (owner UAT #2)', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'geometry sweep runs once, resizing a desktop browser');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     // Element-existence can pass while the document is wider than the viewport — this gate cannot.
     const WIDTHS: Array<[number, number]> = [[393, 852], [820, 1180], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1536, 864]];
     for (const [width, height] of WIDTHS) {
@@ -471,7 +494,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('full-page visual evidence: operator and participant desktop + narrow desktop', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'visual sweep runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     for (const [name, width, height] of [['operator-desktop-1440', 1440, 900], ['operator-narrow-1024', 1024, 768]] as Array<[string, number, number]>) {
       await page.setViewportSize({ width, height });
       await gotoSettled(page, '/diaspora/containers?view=containers');
@@ -502,7 +525,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('responsive: operator view on this viewport', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name === 'chromium', 'chromium already ran the full journey');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await expect(page.getByTestId('diaspora-container-create-section')).toBeVisible();
     await openContainerByDeparture(page, OCT_DEPARTURE);
