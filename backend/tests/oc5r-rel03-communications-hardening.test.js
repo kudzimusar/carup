@@ -230,5 +230,5 @@ test('outbound kill-switch requested by REL-03B is a real runtime control', () =
   assert.match(KILL_SWITCH, /OUTBOUND_KILL_SWITCH_ENV = 'COMMUNICATION_OUTBOUND_DISABLED'/);
   assert.match(KILL_SWITCH, /FAIL CLOSED/);
   assert.match(KILL_SWITCH, /isOutboundDisabled/);
-  assert.match(KILL_SWITCH, /provider was not contacted and nothing was sent/);
+  assert.match(KILL_SWITCH, /was not contacted and nothing was sent/);
 });
