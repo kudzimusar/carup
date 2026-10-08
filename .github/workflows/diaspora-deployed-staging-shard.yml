@@ -33,6 +33,7 @@ permissions:
 jobs:
   shard:
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 35
     env:
       EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
