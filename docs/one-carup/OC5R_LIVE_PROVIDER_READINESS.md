@@ -56,6 +56,8 @@
 **The deployed staging runtime is not this lineage.** `carup-backend-staging` production runs `bb9d9900`, an ancestor 476 commits behind
 `f8fed206`. So the "unavailable behaviour" column above describes this source, not a deployed runtime.
 
+> **Update (2026-10-08, OC-5R-REL-02):** the REL-02 governed preview pair (`24a14933`, code `ff50ba34`) proved Gemma through the deployed buyer assistant inside its 12 s bound (3937 ms, run 37728492328; the policy now sends `chat_template_kwargs.enable_thinking=false`) and re-proved Qwen candidate-only and private. No OCR accuracy is claimed. See `OC5R_REL02_STAGING_RELEASE_REPORT.md`.
+>
 > **Update (2026-10-08, OC-5R-REL-01):** this lineage has since been deployed as a governed **preview** pair (`d491b5aa`) and its runtime verified; see the sections below and `OC5R_REL01_STAGING_RELEASE_REPORT.md`. The *stable* staging runtime is unchanged and still runs `bb9d9900`.
 
 ## Blocked

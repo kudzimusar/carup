@@ -2947,6 +2947,505 @@
       "remaining": [
         "OWNER-UAT-CERTIFIED"
       ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-PASSPORT-SOURCE",
+      "capability": "owner.vehicle_passport_identity",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "the successfully loaded owner /dashboard/garage/:vin page visibly identifies itself as the Vehicle Passport: a label \"Vehicle Passport\" above the vehicle heading and VIN, and the page landmark is named by the label plus the heading",
+        "the loading state keeps its own \"Loading Vehicle Passport\" announcement and the error state its own \"Vehicle Passport unavailable\" words; neither carries the loaded-state label",
+        "the label asserts nothing about the vehicle: no data, no authority, no fabricated state"
+      ],
+      "evidence": {
+        "suites": [
+          "web/src/pages/dashboard/owner/VehicleProfile.passport-identity.test.tsx",
+          "web/src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx",
+          "web/src/pages/dashboard/owner/VehicleProfile.claims.test.tsx"
+        ],
+        "mutation": "REL2-PASSPORT 7/7 killed at ff50ba34"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-GEMMA-SOURCE",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "the Gemma request body is PR #217's plus exactly one intentional field, chat_template_kwargs.enable_thinking=false, on text, JSON and image requests (hidden reasoning pushed the deployed buyer assistant past its 12 s bound)",
+        "cloudflareAiTransport still sends every policy's body verbatim; the OCR/Qwen request body is byte-identical to a baseline captured before the change and does not inherit the field",
+        "model and provider stay pinned, one attempt, no fallback vendor, provenance unchanged (cloudflare / @cf/google/gemma-4-26b-a4b-it / provider_executed, advisory machine output)"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel02-gemma-latency-convergence.test.js",
+          "backend/tests/oc3c-cloudflare-ai-transport.test.js",
+          "backend/tests/ai01b-carup-ai-gateway.test.js"
+        ],
+        "mutation": "REL2-GEMMA 21/21 killed at ff50ba34"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ADVISORY-SOURCE",
+      "capability": "marketplace.ai_advisory",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "a degraded Marketplace answer whose AI call timed out carries ai_reason ai_timeout (buyer assistant, listing draft, share copy, moderation summary), and ONLY a timeout does; every other failure keeps the deterministic answer with no reason",
+        "sign-in required, oversized input, valuation not configured and withheld output keep their existing reason vocabulary; an answer that never reached the model is never relabelled",
+        "the buyer-assistant bound is still 12 seconds"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel02-gemma-latency-convergence.test.js",
+          "web/src/components/marketplace/BuyerAssistantDrawer.test.tsx",
+          "backend/tests/oc5r-rel01-marketplace-valuation-boundary.test.js"
+        ],
+        "mutation": "REL2-GEMMA 21/21, REL2-GEMMA-web 4/4, REL-MARKET 24/24 killed at ff50ba34"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-HARNESS-SOURCE",
+      "capability": "programme.deployed_uat_harness",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "spec 41 asserts exactly ONE active sidebar destination (and which), while the compact bar may mark its own; the product's two aria-current systems are untouched",
+        "spec 45 chooses its organisation through the real \"Act for …\" prompt or switcher, observing the product's own PUT /api/auth/active-tenant; it bypasses nothing, and its tenant assertions and the rival-tenant 403 are unchanged",
+        "spec 38 scrolls its listing-page controls clear of the sticky header and the compact bar (measured by a pure geometry module) and taps with a normal click; it never forces, hides or alters a bar",
+        "D7's assertions are unchanged and run last; every drain answer is recorded and attached even when D7 fails",
+        "the frozen Seller assertion /Vehicle Passport|Passport/i in spec 48 is exactly as written",
+        "C2: spec 45's seven-viewport geometry sweep and visual capture set explicit test timeouts (240 s / 180 s); the 90 s default, per-action bounds, retries 0 and every overflow assertion are unchanged",
+        "J2: spec 42 observes the product's own POST /vehicles/:vin/evidence/upload (registered before the click), requires it accepted and waits for the uploader to close before the reviewer reads; its evidence assertions are unchanged and the list is one read"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel02-uat-harness-contracts.test.js",
+          "web/src/components/layout/sidebarCurrentContract.test.tsx",
+          "web/src/components/layout/organisationSelectionFlow.test.tsx",
+          "web/src/components/EvidenceUploadModal.settled-state.test.tsx"
+        ],
+        "mutation": "REL2-HARNESS 59/59, REL2-NAV-web 5/5, REL2-ORG-web 8/8, REL2-EVIDENCE-web 8/8 killed at ff50ba34"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-PROOF-HARNESS-SOURCE",
+      "capability": "programme.live_provider_smoke_harness",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "the deployed provider proof counts a Gemma answer only when it is ai_assisted, ai_available true (the boolean), names cloudflare / Gemma / provider_executed, and arrives inside the assistant's own 12 s bound (exclusive); a degraded ai_timeout answer is classified as a timeout"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-deployed-provider-proof.test.js"
+        ],
+        "mutation": "REL2-PROOF 9/9, REL-PROOF 10/10 killed at ff50ba34"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-CANDIDATE-DEPLOYED",
+      "capability": "programme.staging_deployment_candidate",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the REL-02 deploy commit (docs and the two alias records only, accepted by verify-deployment-candidate) runs as a second frontend/backend preview pair that serves that exact SHA, pairs with each other and reaches only the staging project, on NEW named aliases; REL-01's aliases were not moved"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "GET /carup-provenance.json and /api/health on both aliases (14/14 identity checks, 8/8 acceptance conditions incl. SUPABASE_DB_URL not restored to Preview); a browser load of the frontend alias called only the REL-02 backend alias; scripts/ci/resolve-governed-preview-pair.mjs passed in CI for the provider proof and both gates"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-HEALTH-DEPLOYED",
+      "capability": "observability.health_truth",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the deployed /api/health states the exact build, the database project of every configured endpoint (consistent, 0 unrecognised), OCR custody, the AI configuration and the outbound kill switch"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "GET /api/health on dpl_796CYuhndXadx1TTvHjPWcFmJDfa (the release backend; build.commit_sha = the deploy SHA, source explicit_build_input), inside the identity proof and again inside the provider proof run"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-QWEN-DEPLOYED",
+      "capability": "ocr.qwen_boundary",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "OCR on the deployed runtime runs as cloudflare/@cf/qwen/qwen3.8-27b with canonical custody and answers with a candidate (candidate_pending_review) whose authority effects are all false; the recorded mileage did not move; the odometer photo was stored private"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "POST /api/vehicles/:vin/evidence/upload (current_condition/odometer, visibility_level public_safe) → 201, applied private, bucket ocr-documents, refusal recorded; POST …/run-ocr → 201 (provider cloudflare, model @cf/qwen/qwen3.8-27b, candidate_pending_review, authority_effects all false), run 37728492328",
+        "not_claimed": "OCR accuracy: the one synthetic odometer read 4213 km where 084213 was drawn (two leading digits dropped), as in REL-01; the 11-fixture accuracy gate has not been run"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ODOMETER-DEPLOYED",
+      "capability": "garage.native_odometer_candidate",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "on the deployed runtime an odometer photo uploaded with visibility public_safe is stored private in ocr-documents with the refusal recorded, and its OCR yields a candidate only; mileage unchanged, vehicle unpublished"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "the same upload and run-ocr as above (run 37728492328)",
+        "not_claimed": "the device/Expo capture runtime: the request was made by the CI harness with the native client's contract, so the capability ladder is not promoted"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-GEMMA-DEPLOYED",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the real deployed Marketplace buyer-assistant route returns an AI-assisted answer from cloudflare / @cf/google/gemma-4-26b-a4b-it with provider_executed provenance, inside its 12 s bound (3937 ms; REL-01's first deployed call had timed out at 13.35 s before the policy fix); protected vehicle and user state is unchanged"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "POST /api/marketplace/ai/buyer-assistant (session-proven caller) → 200, ai_status ai_assisted, ai_available true, ai_provenance {cloudflare, @cf/google/gemma-4-26b-a4b-it, provider_executed}, 7 guidance lines, run 37728492328",
+        "not_claimed": "answer quality; any consumer other than the buyer assistant"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ADVISORY-DEPLOYED",
+      "capability": "marketplace.ai_advisory",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the deployed buyer assistant is AI-assisted, available and provenance-carrying on the real route, with no valuation claim in the guidance"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "the same buyer-assistant call (run 37728492328): ai_assisted, ai_available true, ai_withheld 0",
+        "not_claimed": "the listing draft, share copy and moderation summary consumers, and the fraud scan, were not exercised on the deployed runtime"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/google/gemma-4-26b-a4b-it",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-GEMMA-LIVE",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, a synthetic request through the DEPLOYED backend's own product routes (not a test endpoint)",
+      "claims": [
+        "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it answered an advisory request made through the deployed preview of this SHA, inside the product's 12 s bound"
+      ],
+      "evidence": {
+        "request_class": "one synthetic Marketplace buyer-assistant question (a used diesel pickup for a farm; what to check before paying) through the deployed route, request body carrying chat_template_kwargs.enable_thinking=false",
+        "execution_evidence": "GitHub Actions run 37728492328 (label-triggered, attempt 1); deployed backend dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+        "result": "HTTP 200 in 3937 ms; ai_status ai_assisted, ai_available true, ai_provenance {cloudflare, @cf/google/gemma-4-26b-a4b-it, provider_executed}; 7 guidance lines, 0 withheld; the vehicles and users fingerprints were unchanged",
+        "executed_at": "2026-10-08T04:40:13Z",
+        "not_claimed": "answer quality or accuracy; any consumer other than the buyer assistant"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/google/gemma-4-26b-a4b-it",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ADVISORY-LIVE",
+      "capability": "marketplace.ai_advisory",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, a synthetic request through the DEPLOYED backend's own product routes (not a test endpoint)",
+      "claims": [
+        "the Marketplace buyer assistant obtained a live Gemma answer through the deployed route (scope: the buyer assistant only)"
+      ],
+      "evidence": {
+        "request_class": "the same synthetic buyer-assistant question through the deployed route",
+        "execution_evidence": "GitHub Actions run 37728492328; deployed backend dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+        "result": "ai_assisted and available inside the 12 s bound (3937 ms), with full provenance",
+        "executed_at": "2026-10-08T04:40:13Z",
+        "not_claimed": "the listing draft, share copy, moderation summary and fraud-scan consumers were not exercised against the live provider"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/qwen/qwen3.8-27b",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-QWEN-LIVE",
+      "capability": "ocr.qwen_boundary",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, a synthetic request through the DEPLOYED backend's own product routes (not a test endpoint)",
+      "claims": [
+        "Cloudflare Workers AI @cf/qwen/qwen3.8-27b answered an OCR request made through the deployed preview of this SHA, and the product held the result as a candidate with no authority effect"
+      ],
+      "evidence": {
+        "request_class": "one synthetic 680x220 seven-segment odometer PNG drawn by the proof (084213 km), uploaded as current_condition/odometer and read by run-ocr",
+        "execution_evidence": "GitHub Actions run 37728492328 (label-triggered, attempt 1); deployed backend dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+        "result": "reading.status candidate_pending_review, odometer_reading 4213 km (drawn 084213: two leading digits dropped, no accuracy is claimed); authority_effects all false; mileage unchanged; the proof deleted its OCR rows (2 extractions, 1 OCR document)",
+        "executed_at": "2026-10-08T04:41:10Z",
+        "not_claimed": "OCR accuracy"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-SELLER-HOME-DEPLOYED",
+      "capability": "seller.home_lifecycle",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "P+R on desktop, tablet and mobile Chromium: a published Seller listing appears on Home only inside its run scope; unpublish, republish and sold move it on Marketplace and Home; the sold vehicle's Garage page still opens with its VIN and the visible Vehicle Passport label; the sold listing is absent from Marketplace and Home; availability is sold and the publication history is preserved"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "Seller Home & Lifecycle Staging UAT run 37728393919 attempt 2 at the deploy SHA: spec 48 P+R passed on chromium, tablet-chromium and mobile-chromium; the retirement sweep found nothing left in commerce",
+        "not_claimed": "Q (Marketplace inquiry → Communications thread) is fixme until owner decision D and did not run"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-PASSPORT-DEPLOYED",
+      "capability": "owner.vehicle_passport_identity",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the sold vehicle's /dashboard/garage/:vin page on the deployed pair shows the VIN and the visible Vehicle Passport text (the frozen assertion /Vehicle Passport|Passport/i), on three viewports"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "spec 48 line 450 passed on chromium, tablet-chromium and mobile-chromium (run 37728393919 attempt 2)"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ACTIVE-TENANT-DEPLOYED",
+      "capability": "service_network.active_tenant_context",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "on the deployed pair, signing in never selects an organisation: the Trade OS operator lands acting for themself and chooses Hikari Co-Load through the real \"Act for …\" prompt or switcher; the product's own PUT /api/auth/active-tenant answers 200 and the header badge then names the organisation",
+        "the chosen context carries the organisation's authority (create section, identity header) on desktop, tablet and mobile Chromium, and a rival organisation's admin who chose their own organisation is refused (403) on approval of a Hikari reservation"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "Diaspora Deployed Staging UAT run 37728394135 attempt 2 at the deploy SHA: spec 45 operator and outsider journeys (chromium) and the responsive operator view (tablet-chromium, mobile-chromium) passed through tests/agents/staging-helpers.ts ensureActingForOrganisation; chromium 71/0/9, tablet 50/0/30, mobile 50/0/30",
+        "not_claimed": "DATABASE-level certification of the tenant context; garage/mechanic organisations were not exercised by this gate; D7 (in-app container_booking notification) is not claimed"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
     }
   ],
   "capabilities": {
@@ -2961,10 +3460,10 @@
     "ai.general.gemma_gateway": {
       "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
-      "LIVE-PROVIDER-CERTIFIED": "PENDING",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it. SOURCE PASS rests on OC5R-PROV01-GEMMA-SOURCE @4a6f96e7. LIVE stays PENDING: the first call through the deployed preview (run 37705240258 @d491b5aa, POST /api/marketplace/ai/buyer-assistant) answered ai_unavailable after 13.35 s. A diagnostic outside the governed path (Cloudflare account API, not evidence) measured 16.3 s with the model's default reasoning and 2.7 s with chat_template_kwargs.enable_thinking=false, so the 12 s product bound expires every time. Remediation is a code change (disable reasoning for advisory calls or raise the bound), not made in REL-01."
+      "notes": "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it, advisory. SOURCE PASS: OC5R-PROV01-GEMMA-SOURCE and OC5R-REL02-GEMMA-SOURCE (the request body is #217's plus chat_template_kwargs.enable_thinking=false). LIVE PASS: OC5R-REL02-GEMMA-LIVE (run 37728492328 @24a14933: ai_assisted in 3937 ms through the deployed buyer assistant). DEPLOYED PASS: OC5R-REL02-GEMMA-DEPLOYED. REL-01's first deployed call (run 37705240258 @d491b5aa) did not return inside the 12 s bound; a diagnostic outside the governed path measured ~16 s with the model's default reasoning and ~2.7 s without. No answer quality or accuracy is claimed."
     },
     "ocr.qwen_boundary": {
       "SOURCE-CERTIFIED": "PASS",
@@ -2972,7 +3471,7 @@
       "LIVE-PROVIDER-CERTIFIED": "PASS",
       "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. LIVE-PROVIDER PASS rests on OC5R-OCR-QWEN-LIVE-SMOKE (run 37607951170 @f8fed206): the provider answered through this lineage's client; it proves no OCR accuracy (one fixture, PARTIAL) and no deployed wiring. DATABASE for the boundary is still PENDING. Prior live Qwen evidence on OTHER lineages (GMO-8 on PR #209 @ce45e16f) or on superseded code (run 36287013223 @e2961ad) is not carried. Staging CONFIG now has CLOUDFLARE_API_TOKEN (owner, 2026-10-07T14:25Z); the running staging deployment does not, so no deployed wiring is proven. SOURCE PASS rests on OC5R-PROV01-QWEN-SOURCE @4a6f96e7 (21/21). CARUP_OCR_MODEL may still select another proven, non-rejected model by explicit configuration. Carry-forward check at d18936ab: of the live receipt's 18-file import closure, two files changed since f8fed206 — config/testFixtureGuard.js (B1: its deployment test now comes from utils/runtimeEnvironment.js; the path calls only isTestFixtureAllowed, which is false under the workflow's NODE_ENV=production before and after) and services/ai/sentry.js (C3: an additive health export the path never calls). The receipt's path behaves identically. REL-01: custody fails closed in a deployment (OC5R-REL01-OCR-CUSTODY-SOURCE @15b604ba); DEPLOYED PASS and a current-lineage LIVE receipt rest on the deployed proof run 37705240258 @d491b5aa (OC5R-REL01-QWEN-DEPLOYED, OC5R-REL01-QWEN-DEPLOYED-LIVE): candidate only, no authority; the one synthetic reading dropped two leading digits (4213 vs 084213) — no accuracy is claimed."
+      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. SOURCE PASS: OC5R-PROV01-QWEN-SOURCE, OC5R-REL01-OCR-CUSTODY-SOURCE (custody fails closed in a deployment; 8/8). LIVE PASS: OC5R-OCR-QWEN-LIVE-SMOKE (CI run 37607951170 @f8fed206), and through the DEPLOYED path OC5R-REL01-QWEN-DEPLOYED-LIVE (run 37705240258 @d491b5aa) and OC5R-REL02-QWEN-LIVE (run 37728492328 @24a14933). DEPLOYED PASS: the preview runtime is configured (cloudflare / Qwen, custody canonical, no mock) and a deployed run answers a candidate with no authority effect (OC5R-REL01-QWEN-DEPLOYED, OC5R-REL02-QWEN-DEPLOYED). NOT claimed: OCR accuracy — in both deployed runs the synthetic odometer drawn as 084213 read 4213 (two leading digits dropped) — and any identity, Trust or registry authority; the 11-fixture accuracy gate has not been run. DATABASE for the boundary is still PENDING. Only the STABLE staging deployment (main@bb9d9900) still predates the credential. Live evidence on OTHER lineages (GMO-8 on PR #209 @ce45e16f) or on superseded code (run 36287013223 @e2961ad) is not carried."
     },
     "identity.lifecycle": {
       "SOURCE-CERTIFIED": "PASS",
@@ -3070,8 +3569,9 @@
       "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "PENDING",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
-      "DEPLOYED-CERTIFIED": "PENDING",
-      "OWNER-UAT-CERTIFIED": "PENDING"
+      "DEPLOYED-CERTIFIED": "PASS",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5D: login never selects an organisation; the person explicitly chooses it (one tap even with a single membership). SOURCE PASS (OC-5D). DEPLOYED PASS: OC5R-REL02-ACTIVE-TENANT-DEPLOYED — the Trade OS operator chose Hikari Co-Load through the real prompt on the governed pair @24a14933 (PUT /api/auth/active-tenant 200) on three viewports, and a rival tenant admin was refused. DATABASE still PENDING; garage/mechanic organisations were not exercised on the deployed runtime."
     },
     "garage.application_review_activation": {
       "SOURCE-CERTIFIED": "PASS",
@@ -3111,10 +3611,10 @@
     "marketplace.ai_advisory": {
       "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
-      "LIVE-PROVIDER-CERTIFIED": "PENDING",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Advisory Gemma consumers (buyer assistant, listing draft, fraud scan). SOURCE PASS: OC5R-REL01-MARKET-SOURCE @15b604ba closes the valuation boundary (no fair band; the estimate makes no provider call; valuation claims in AI text withheld; ai_provenance carried) on top of OC5R-PROV01-ADVISORY-SOURCE. Deployed (run 37705240258 @d491b5aa) the buyer assistant answered ai_unavailable after 13.35 s: Gemma reasons by default and needs ~16 s for this request class, beyond the assistant's 12 s bound, so it degrades to deterministic every time (truthfully labelled, but with no ai_reason). LIVE and DEPLOYED stay PENDING until that is fixed in code."
+      "notes": "Advisory Gemma consumers (buyer assistant, listing draft, share copy, moderation summary, fraud scan). SOURCE PASS: REL-01 (no valuation from any path) and REL-02 (OC5R-REL02-ADVISORY-SOURCE: ai_timeout named only for AI_TIMEOUT). LIVE and DEPLOYED PASS are scoped to the BUYER ASSISTANT: the deployed route returned an AI-assisted, available, provenance-carrying answer in 3937 ms (OC5R-REL02-ADVISORY-LIVE / -DEPLOYED, run 37728492328). History: REL-01's first deployed call timed out at 13.35 s because Gemma reasons by default; REL-02 E fixed the policy (enable_thinking=false) without lengthening the 12 s bound. The listing draft, share copy, moderation summary and fraud scan were not exercised on the deployed runtime."
     },
     "communications.governed_templates": {
       "SOURCE-CERTIFIED": "PASS",
@@ -3221,9 +3721,9 @@
       "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "OC-5F slice F: a published Seller listing on Home only inside its run scope, and the unpublish / republish / sold lifecycle on Marketplace and Home. First deployed run (run 37703062846 attempt 2, governed pair @d491b5aa) FAILED on all three viewports at spec 48 line 450: the sold vehicle's Garage page loaded with its VIN, but the spec expects a visible \"Passport\" label the loaded page has never rendered — a pre-existing Seller/Garage product-spec convergence blocker (present since the spec was authored at 6a64ea49; not a REL-01 regression). The assertion is preserved unweakened and the Garage UI was not patched in the frozen run; remediation awaits moderator review. Everything before it passed (P, unpublish, republish, sold); the after-sold Marketplace/Home/retirement assertions were not reached. DEPLOYED stays PENDING. Its Communications phase Q is fixme until owner decision D."
+      "notes": "OC-5F slice F. DEPLOYED PASS: spec 48 P+R on desktop, tablet and mobile Chromium against the governed pair @24a14933 (OC5R-REL02-SELLER-HOME-DEPLOYED). History: the REL-01 run @d491b5aa failed on all three viewports at spec 48 line 450 because the loaded Garage page never said \"Vehicle Passport\"; REL-02 A added that visible label and the assertion is unchanged. Its Communications phase Q is fixme until owner decision D and did not run."
     },
     "communications.policy_channel_routing": {
       "SOURCE-CERTIFIED": "PASS",
@@ -3327,7 +3827,7 @@
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "N/A",
-      "notes": "C3 Sentry; the Gemma configured flag is in OC5R-PROV01-GEMMA-SOURCE. REL-01: database target, OCR custody and the outbound kill switch (OC5R-REL01-HEALTH-SOURCE @15b604ba); DEPLOYED @d491b5aa — it caught the unreadable SUPABASE_DB_URL before any journey."
+      "notes": "C3 Sentry; the Gemma configured flag is in OC5R-PROV01-GEMMA-SOURCE. REL-01/REL-02: database target, OCR custody and the outbound kill switch (OC5R-REL01-HEALTH-SOURCE); DEPLOYED @d491b5aa and again @24a14933 — it caught the unreadable SUPABASE_DB_URL before any journey in REL-01."
     },
     "web.help_center_payment_claims": {
       "SOURCE-CERTIFIED": "PASS",
@@ -3359,7 +3859,23 @@
       "LIVE-PROVIDER-CERTIFIED": "N/A",
       "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "N/A",
-      "notes": "E3 package docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json; REL-01 deployed it as the governed preview pair @d491b5aa (OC5R_STAGING_RELEASE_RECORD.json)."
+      "notes": "E3 package docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json (REL-02 version; REL-01's is in git history). Deployed as the governed preview pair @d491b5aa (REL-01) and again @24a14933 (REL-02), on separate named aliases."
+    },
+    "owner.vehicle_passport_identity": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PASS",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "The owner's loaded /dashboard/garage/:vin page is the canonical Vehicle Passport surface and now says so (REL-02 A). SOURCE PASS: OC5R-REL02-PASSPORT-SOURCE. The spec-48 assertion /Vehicle Passport|Passport/i is the frozen one and is unchanged."
+    },
+    "programme.deployed_uat_harness": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "N/A",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "REL-02 B/C/D/J/C2/J2: the deployed-UAT harness corrections hold the product contract (spec 41 sidebar scope; spec 45 explicit organisation selection, D7 last with recorded drain answers, explicit timeouts for the seven-viewport sweep; spec 38 tap clear of the fixed bars; spec 42 waits for the product's own evidence upload). SOURCE PASS: OC5R-REL02-HARNESS-SOURCE. No product navigation, organisation or layout behaviour was changed to make a test pass."
     }
   }
 }
