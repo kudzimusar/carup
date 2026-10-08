@@ -582,7 +582,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     }
   });
 
-  stagingTest('operator receives this run\'s organiser-directed REQUESTED notification (D7 direction)', async ({ page, request }, testInfo) => {
+  stagingTest('operator receives current-run organiser-directed REQUESTED notification (D7 direction)', async ({ page, request }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     expect(process.env.COMMUNICATION_WORKER_SECRET, 'COMMUNICATION_WORKER_SECRET must be set').toBeTruthy();
     expect(runState.vehicleReservationId, 'this run must have created the reservation before organiser D7').toBeTruthy();
