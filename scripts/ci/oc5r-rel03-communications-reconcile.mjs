@@ -12,8 +12,16 @@ function load(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+}
+
 function stable(value) {
-  return JSON.stringify(value, Object.keys(value || {}).sort());
+  return JSON.stringify(canonical(value));
 }
 
 function changedFields(before, after) {
