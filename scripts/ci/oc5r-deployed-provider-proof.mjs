@@ -11,7 +11,8 @@
  *                   project, runs OCR as cloudflare/Qwen (custody canonical, no mock), general AI as
  *                   cloudflare/Gemma, and has the outbound kill switch ACTIVE. Any miss stops the proof.
  *   gemma         — one session-proven buyer-assistant question (a route that writes nothing); the
- *                   answer must carry ai_provenance naming Gemma; vehicle price/trust/publication and
+ *                   answer must be ai_assisted and available, carry ai_provenance naming Gemma, and
+ *                   arrive inside the assistant's 12-second bound; vehicle price/trust/publication and
  *                   user role/verification state are fingerprinted before and after.
  *   qwen          — one synthetic vehicle (a draft, never published) owned by this run's identity;
  *                   one synthetic odometer image through the canonical native path, sent with
@@ -30,6 +31,8 @@ import pg from 'pg';
 export const QWEN = '@cf/qwen/qwen3.8-27b';
 export const GEMMA = '@cf/google/gemma-4-26b-a4b-it';
 export const PROOF_ODOMETER_DIGITS = '084213';
+/** The buyer assistant's own bound on one Gemma call (marketplaceAiAssistantService AI_TIMEOUT_MS). */
+export const GEMMA_PRODUCT_BOUND_MS = 12_000;
 
 // ── Identity and fixture names ────────────────────────────────────────────────────────────────
 const RUN_SHAPE = /^proof-(\d+)-(\d+)$/;
@@ -122,10 +125,19 @@ export function healthRefusals(health = {}, { expectedSha, expectedRef } = {}) {
   return r;
 }
 
-export function gemmaVerdict(status, body = {}) {
+/**
+ * Success is an EXECUTED, available, AI-assisted answer that names Gemma, delivered inside the product's
+ * own 12-second bound (REL-02 H). A degraded answer is classified, never counted: `ai_reason` 'ai_timeout'
+ * is the model being too slow; any other unavailability is the provider.
+ */
+export function gemmaVerdict(status, body = {}, latencyMs = null) {
   const p = body?.ai_provenance || {};
-  if (status === 200 && body.ai_status === 'ai_assisted' && p.provider === 'cloudflare' && p.model === GEMMA && p.execution === 'provider_executed') return 'SUCCEEDED';
-  if (status === 200 && body.ai_status === 'ai_unavailable') return 'PROVIDER_UNAVAILABLE';
+  if (status === 200 && body.ai_status === 'ai_assisted' && body.ai_available === true
+    && p.provider === 'cloudflare' && p.model === GEMMA && p.execution === 'provider_executed') {
+    const withinBound = latencyMs === null || (Number.isFinite(latencyMs) && latencyMs < GEMMA_PRODUCT_BOUND_MS);
+    return withinBound ? 'SUCCEEDED' : 'TOO_SLOW';
+  }
+  if (status === 200 && body.ai_status === 'ai_unavailable') return body.ai_reason === 'ai_timeout' ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNAVAILABLE';
   return 'FAILED';
 }
 
@@ -192,11 +204,13 @@ export async function runProof(env = process.env) {
     });
     const after = (await db.query(PROTECTED_STATE_SQL)).rows[0];
     record.gemma = {
-      http_status: gemma.status, latency_ms: gemma.latency_ms, ai_status: gemma.body?.ai_status ?? null, ai_reason: gemma.body?.ai_reason ?? null,
+      http_status: gemma.status, latency_ms: gemma.latency_ms, product_bound_ms: GEMMA_PRODUCT_BOUND_MS,
+      within_product_bound: gemma.latency_ms < GEMMA_PRODUCT_BOUND_MS,
+      ai_status: gemma.body?.ai_status ?? null, ai_available: gemma.body?.ai_available ?? null, ai_reason: gemma.body?.ai_reason ?? null,
       ai_provenance: gemma.body?.ai_provenance ?? null, guidance_lines: Array.isArray(gemma.body?.guidance) ? gemma.body.guidance.length : null,
       ai_withheld: gemma.body?.ai_withheld ?? 0,
       protected_state_unchanged: { vehicles: before.vehicles === after.vehicles, users: before.users === after.users },
-      verdict: gemmaVerdict(gemma.status, gemma.body || {}),
+      verdict: gemmaVerdict(gemma.status, gemma.body || {}, gemma.latency_ms),
     };
 
     // ── Qwen ──

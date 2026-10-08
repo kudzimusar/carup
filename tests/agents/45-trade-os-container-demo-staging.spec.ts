@@ -98,13 +98,36 @@ async function gotoSettled(page: Page, path: string): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
 }
 
+/**
+ * Every answer the candidate's drain endpoint gave this run. The drain is best-effort and bounded, but
+ * its ANSWER is evidence: a 401 here means the candidate runtime holds no matching worker secret (an
+ * environment fact, not a product defect) and must be reportable exactly (REL-02 J). Bodies are the
+ * server's own error JSON; no request header or secret is ever recorded.
+ */
+const drainResponses: Array<{ at: string; status: number | 'transport_error'; body: string }> = [];
+
 /** Drain the domain-event outbox through THIS candidate's backend (best-effort, bounded). */
 async function drainOutbox(request: APIRequestContext): Promise<void> {
   const secret = process.env.TRADEOS_WORKER_SECRET;
   if (!secret) return;
-  await request.post(`${API_URL}/internal/events/process`, {
-    headers: { authorization: `Bearer ${secret}` },
-  }).catch(() => undefined);
+  try {
+    const response = await request.post(`${API_URL}/internal/events/process`, {
+      headers: { authorization: `Bearer ${secret}` },
+    });
+    drainResponses.push({ at: new Date().toISOString(), status: response.status(), body: (await response.text().catch(() => '')).slice(0, 300) });
+  } catch (error) {
+    drainResponses.push({ at: new Date().toISOString(), status: 'transport_error', body: String((error as Error)?.message ?? error).slice(0, 300) });
+  }
+}
+
+/** Attach what the drain endpoint answered, and print it, so the run log states the exact response. */
+async function attachDrainEvidence(testInfo: { attach: (name: string, options: { body: string; contentType: string }) => Promise<void> }) {
+  const distinct = [...new Set(drainResponses.map((r) => `${r.status} ${r.body}`))];
+  console.log(`[spec45] /internal/events/process answered ${drainResponses.length}×: ${distinct.join(' | ') || '(never called)'}`);
+  await testInfo.attach('d7-drain-responses.json', {
+    contentType: 'application/json',
+    body: JSON.stringify({ endpoint: `${API_URL}/internal/events/process`, calls: drainResponses.length, responses: drainResponses }, null, 1),
+  });
 }
 
 async function sessionToken(page: Page): Promise<string> {
@@ -325,7 +348,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await drainOutbox(request);
   });
 
-  stagingTest('participant A: sees APPROVED state, can cancel a second request, and has activity/communication state', async ({ page, request }) => {
+  stagingTest('participant A: sees APPROVED state and can cancel a second request', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
     await gotoSettled(page, '/diaspora/containers?view=containers');
@@ -343,46 +366,6 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await partsRow.getByTestId('diaspora-container-cancel').click();
     await expect(partsRow.getByText('CANCELLED')).toBeVisible();
     await drainOutbox(request);
-
-    // Activity/communication state (D7) — UNCONDITIONAL (owner UAT #10B): the certification fails
-    // unless the participant's canonical in-app notification actually exists AND is visible in the
-    // deployed Communications surface. TRADEOS_WORKER_SECRET must be exported; a run without it is
-    // not a certification.
-    expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();
-    const token = await sessionToken(page);
-    await expect.poll(async () => {
-      await drainOutbox(request);
-      const res = await request.get(`${API_URL}/communications/notifications`, {
-        headers: { 'x-session-token': token },
-      });
-      if (!res.ok()) return 'unreadable';
-      const payload = await res.json().catch(() => ({}));
-      const rows = payload?.data || payload?.notifications || [];
-      return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
-        ? 'present' : 'absent';
-    }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
-
-    // …and the human can SEE it: the canonical Communications surface renders the booking thread.
-    await gotoSettled(page, '/dashboard/communications');
-    await expect(page.getByText(/Container booking RES-/i).first()).toBeVisible({ timeout: 15_000 });
-  });
-
-  stagingTest('operator receives the organiser-directed booking notification (D7 direction)', async ({ page, request }) => {
-    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set').toBeTruthy();
-    await signInActingFor(page, 'operator');
-    const token = await sessionToken(page);
-    await expect.poll(async () => {
-      await drainOutbox(request);
-      const res = await request.get(`${API_URL}/communications/notifications`, {
-        headers: { 'x-session-token': token, 'x-tenant-id': 'c0106a0e-1a11-4a6a-9e01-000000000a01' },
-      });
-      if (!res.ok()) return 'unreadable';
-      const payload = await res.json().catch(() => ({}));
-      const rows = payload?.data || payload?.notifications || [];
-      return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
-        ? 'present' : 'absent';
-    }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
   });
 
   stagingTest('cross-tenant denial: a rival tenant admin cannot see, approve or close this container', async ({ page, request }) => {
@@ -533,5 +516,63 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, `document overflows by ${overflow}px`).toBeLessThanOrEqual(1);
     await testInfo.attach(`operator-${testInfo.project.name}.png`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  });
+
+  // ── D7 — kept at the END of the serial chain, with its assertions unchanged ──────────────────────────
+  // D7 needs the candidate runtime to accept TRADEOS_WORKER_SECRET at /internal/events/process (its
+  // COMMUNICATION_WORKER_SECRET or CRON_SECRET). Where it does not, the drain answers 401 and D7 fails —
+  // an environment fact. In a serial chain a failure skips everything after it, so D7 sits LAST: a D7
+  // failure can no longer hide the D7-independent journeys. Both tests record the exact drain answers.
+  stagingTest('participant A: the canonical in-app container_booking notification exists and is visible in Communications (D7)', async ({ page, request }, testInfo) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
+    await signIn(page, 'participantA');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
+    try {
+      // Activity/communication state (D7) — UNCONDITIONAL (owner UAT #10B): the certification fails
+      // unless the participant's canonical in-app notification actually exists AND is visible in the
+      // deployed Communications surface. TRADEOS_WORKER_SECRET must be exported; a run without it is
+      // not a certification.
+      expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();
+      const token = await sessionToken(page);
+      await expect.poll(async () => {
+        await drainOutbox(request);
+        const res = await request.get(`${API_URL}/communications/notifications`, {
+          headers: { 'x-session-token': token },
+        });
+        if (!res.ok()) return 'unreadable';
+        const payload = await res.json().catch(() => ({}));
+        const rows = payload?.data || payload?.notifications || [];
+        return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
+          ? 'present' : 'absent';
+      }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
+
+      // …and the human can SEE it: the canonical Communications surface renders the booking thread.
+      await gotoSettled(page, '/dashboard/communications');
+      await expect(page.getByText(/Container booking RES-/i).first()).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await attachDrainEvidence(testInfo);
+    }
+  });
+
+  stagingTest('operator receives the organiser-directed booking notification (D7 direction)', async ({ page, request }, testInfo) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
+    expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set').toBeTruthy();
+    await signInActingFor(page, 'operator');
+    try {
+      const token = await sessionToken(page);
+      await expect.poll(async () => {
+        await drainOutbox(request);
+        const res = await request.get(`${API_URL}/communications/notifications`, {
+          headers: { 'x-session-token': token, 'x-tenant-id': 'c0106a0e-1a11-4a6a-9e01-000000000a01' },
+        });
+        if (!res.ok()) return 'unreadable';
+        const payload = await res.json().catch(() => ({}));
+        const rows = payload?.data || payload?.notifications || [];
+        return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
+          ? 'present' : 'absent';
+      }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
+    } finally {
+      await attachDrainEvidence(testInfo);
+    }
   });
 });

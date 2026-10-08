@@ -113,12 +113,33 @@ for (const [name, mutate, refusal] of [
 }
 
 test('gemma verdict: only an executed answer that names Gemma succeeds', () => {
-  const ok = { ai_status: 'ai_assisted', ai_provenance: { provider: 'cloudflare', model: P.GEMMA, execution: 'provider_executed' } };
+  const ok = { ai_status: 'ai_assisted', ai_available: true, ai_provenance: { provider: 'cloudflare', model: P.GEMMA, execution: 'provider_executed' } };
   assert.equal(P.gemmaVerdict(200, ok), 'SUCCEEDED');
+  assert.equal(P.gemmaVerdict(200, { ...ok, ai_available: false }), 'FAILED', 'an answer that says the AI was not available is not AI-assisted');
+  assert.equal(P.gemmaVerdict(200, { ...ok, ai_available: undefined }), 'FAILED');
+  assert.equal(P.gemmaVerdict(200, { ...ok, ai_provenance: { ...ok.ai_provenance, provider: 'gemini' } }), 'FAILED');
+  assert.equal(P.gemmaVerdict(200, { ...ok, ai_provenance: { ...ok.ai_provenance, execution: 'deterministic' } }), 'FAILED');
   assert.equal(P.gemmaVerdict(200, { ...ok, ai_provenance: { ...ok.ai_provenance, model: P.QWEN } }), 'FAILED');
   assert.equal(P.gemmaVerdict(200, { ai_status: 'ai_assisted' }), 'FAILED', 'no provenance, no proof');
   assert.equal(P.gemmaVerdict(200, { ai_status: 'ai_unavailable' }), 'PROVIDER_UNAVAILABLE');
   assert.equal(P.gemmaVerdict(500, ok), 'FAILED');
+});
+
+test('gemma verdict (REL-02 H): the 12-second product bound is part of success, and a timeout is classified as one', () => {
+  const ok = { ai_status: 'ai_assisted', ai_available: true, ai_provenance: { provider: 'cloudflare', model: P.GEMMA, execution: 'provider_executed' } };
+  assert.equal(P.GEMMA_PRODUCT_BOUND_MS, 12_000);
+  assert.equal(P.gemmaVerdict(200, ok, 2700), 'SUCCEEDED');
+  assert.equal(P.gemmaVerdict(200, ok, 11_999), 'SUCCEEDED');
+  assert.equal(P.gemmaVerdict(200, ok, 12_000), 'TOO_SLOW', 'the bound is exclusive: 12 s is not "within" it');
+  assert.equal(P.gemmaVerdict(200, ok, 16_300), 'TOO_SLOW');
+  assert.equal(P.gemmaVerdict(200, ok, NaN), 'TOO_SLOW', 'an unmeasurable latency is not proof of being within the bound');
+  // a degraded answer: the model being slow is named as such; anything else stays plain unavailability
+  assert.equal(P.gemmaVerdict(200, { ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'ai_timeout' }, 13_346), 'PROVIDER_TIMEOUT');
+  assert.equal(P.gemmaVerdict(200, { ai_status: 'ai_unavailable', ai_available: false }, 900), 'PROVIDER_UNAVAILABLE');
+  assert.equal(P.gemmaVerdict(200, { ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'sign_in_required' }, 900), 'PROVIDER_UNAVAILABLE');
+  // the run record states the bound and whether the answer met it
+  assert.match(SRC, /within_product_bound: gemma\.latency_ms < GEMMA_PRODUCT_BOUND_MS/);
+  assert.match(SRC, /verdict: gemmaVerdict\(gemma\.status, gemma\.body \|\| \{\}, gemma\.latency_ms\)/);
 });
 
 test('qwen verdict: a Qwen candidate with no authority effect succeeds; anything else fails', () => {
