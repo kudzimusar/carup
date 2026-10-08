@@ -1,0 +1,107 @@
+name: OC-5R REL-03A Source Certification
+
+on:
+  push:
+    branches:
+      - fix/oc5r-real-runtime-source-closure
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc5r-rel03a-source-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact pushed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Assert exact checkout
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: REL-03A correlation, custody and mutation certification
+        run: |
+          node --test \
+            backend/tests/oc5r-rel03-communications-hardening.test.js \
+            backend/tests/oc5r-rel02-uat-harness-contracts.test.js
+
+      - name: Affected Communications contracts
+        run: |
+          node --test \
+            backend/tests/communication-engine.test.js \
+            backend/tests/communication-event-coverage.test.js
+
+      - name: Trade OS D7 spec compiles and is discoverable
+        run: |
+          npx playwright test \
+            --config=playwright.staging.config.ts \
+            --project=chromium \
+            tests/agents/45-trade-os-container-demo-staging.spec.ts \
+            --list
+
+      - name: REL-03 observation tooling syntax
+        run: |
+          node --check scripts/ci/lib/oc5r-rel03-d7-correlation.mjs
+          node --check scripts/ci/lib/oc5r-rel03-db-readonly.mjs
+          node --check scripts/ci/lib/oc5r-rel03-subscriber-classifier.mjs
+          node --check scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
+          node --check scripts/ci/oc5r-rel03-communications-snapshot.mjs
+          node --check scripts/ci/oc5r-rel03-communications-reconcile.mjs
+
+      - name: No synthetic runtime/auth bypass in REL-03 paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          paths=(
+            tests/agents/45-trade-os-container-demo-staging.spec.ts
+            scripts/ci/lib/oc5r-rel03-d7-correlation.mjs
+            scripts/ci/lib/oc5r-rel03-db-readonly.mjs
+            scripts/ci/lib/oc5r-rel03-subscriber-classifier.mjs
+            scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
+            scripts/ci/oc5r-rel03-communications-snapshot.mjs
+            scripts/ci/oc5r-rel03-communications-reconcile.mjs
+          )
+          if git grep -nE 'COMMUNICATION_FAKE_ADAPTERS_ENABLED|ALLOW_[A-Z0-9_]*MOCK|NODE_ENV.{0,20}test.{0,20}(auth|bypass)|mock.*\/internal\/events\/process' -- "${paths[@]}"; then
+            echo '::error::REL-03 path contains a synthetic-runtime or authentication bypass.'
+            exit 1
+          fi
+          echo 'REL-03 synthetic-runtime bypass scan clean.'
+
+      - name: Canonical worker-secret staging contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in             tests/agents/45-trade-os-container-demo-staging.spec.ts             .github/workflows/diaspora-deployed-staging-uat.yml             .github/workflows/diaspora-deployed-staging-shard.yml; do
+            grep -q 'COMMUNICATION_WORKER_SECRET' "$file"
+            if grep -q 'TRADEOS_WORKER_SECRET' "$file"; then
+              echo "::error file=$file::REL-03 certification path still references TRADEOS_WORKER_SECRET"
+              exit 1
+            fi
+          done
+
+      - name: Deployed-staging assertion guard
+        run: node scripts/ci/assert-gate-assertions-intact.mjs
+
+      - name: CR-1 credential scan
+        run: node scripts/cr1-secret-scan.mjs
+
+      - name: Whitespace and conflict-marker check
+        run: git diff --check ${{ github.event.before || 'HEAD^' }} ${{ github.sha }}
