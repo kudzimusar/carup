@@ -78,6 +78,7 @@ jobs:
   bootstrap:
     name: Bootstrap
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 10
     outputs:
       staging_run_id: ${{ steps.identifier.outputs.staging_run_id }}
