@@ -8,6 +8,12 @@ import {
   nextWorkerBatchSql,
   reviewNextWorkerBatch,
 } from './lib/oc5r-rel03-worker-custody.mjs';
+import {
+  attachRenderContracts,
+  governedTemplateRegistrySql,
+  pendingEligiblePayloadSql,
+  summarizeClassARenderContracts,
+} from './lib/oc5r-rel03-render-contract.mjs';
 
 function argValue(name) {
   const i = process.argv.indexOf(name);
@@ -49,6 +55,8 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
 
   const nextBatchResult = await query(nextWorkerBatchSql(workerContract), [workerContract.max_outbox_attempts]);
   assertObservedNextWorkerBatch(nextBatchResult.rows, workerContract);
+  const registryResult = await query(governedTemplateRegistrySql());
+  const pendingEligibleResult = await query(pendingEligiblePayloadSql(), [workerContract.max_outbox_attempts]);
 
   const eventTypes = [
     ...grouped.rows.map((row) => row.event_type),
@@ -74,7 +82,8 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     source_classification: classificationByType.get(row.event_type) || null,
   }));
 
-  const nextWorkerBatch = nextBatchResult.rows.map((row) => ({
+  const nextWithContracts = attachRenderContracts(nextBatchResult.rows, registryResult.rows, classificationByType);
+  const nextWorkerBatch = nextWithContracts.map((row) => ({
     id: String(row.id),
     event_type: row.event_type,
     status: row.status,
@@ -86,7 +95,13 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
       confidence: 'unknown',
       source_files: [],
     },
+    render_contract: row.render_contract,
   }));
+  const classARenderContractReview = summarizeClassARenderContracts(
+    pendingEligibleResult.rows,
+    registryResult.rows,
+    classificationByType,
+  );
 
   return {
     schema_version: 2,
@@ -116,6 +131,9 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     live_backlog_observation: liveBacklogObservation,
     next_worker_batch: nextWorkerBatch,
     next_worker_batch_review: reviewNextWorkerBatch(nextWorkerBatch),
+    class_a_render_contract_review: classARenderContractReview,
+    class_a_render_contract_gate_passes: classARenderContractReview.length > 0
+      && classARenderContractReview.every((row) => row.result === 'PASS'),
   };
 }, { allowLocalTest });
 
@@ -132,9 +150,17 @@ const human = [
   'NEXT WORKER BATCH',
   'id | event_type | attempts | tenant_id | created_at | effect',
   ...report.next_worker_batch.map((row) =>
-    `${row.id} | ${row.event_type} | ${row.attempts} | ${row.tenant_id || '-'} | ${row.created_at} | ${row.classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW'}`),
+    `${row.id} | ${row.event_type} | ${row.attempts} | ${row.tenant_id || '-'} | ${row.created_at} | ${row.classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW'} | render=${row.render_contract?.render_contract_ready === true ? 'READY' : 'STOP'}`),
   `Default classification gate passes: ${report.next_worker_batch_review.default_classification_gate_passes}`,
+  `Render-contract gate passes: ${report.next_worker_batch_review.render_contract_gate_passes}`,
+  `Combined batch gate passes: ${report.next_worker_batch_review.combined_batch_gate_passes}`,
   `STOP required: ${report.next_worker_batch_review.stop_required}`,
+  '',
+  'PENDING CLASS-A RENDER CONTRACTS (payloads withheld)',
+  'event_type | count | template | required | missing | result',
+  ...report.class_a_render_contract_review.map((row) =>
+    `${row.event_type} | ${row.count} | ${row.policy_template || '-'} | ${(row.required_variables || []).join(',') || '-'} | ${(row.missing_required_variables || []).join(',') || '-'} | ${row.result}`),
+  `Class-A render-contract gate passes: ${report.class_a_render_contract_gate_passes}`,
   '',
   'SOURCE CLASSIFICATION and LIVE BACKLOG OBSERVATION are intentionally separate.',
   'COMMUNICATION_OUTBOUND_DISABLED does not override next-batch classification.',

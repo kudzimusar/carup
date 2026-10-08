@@ -104,11 +104,13 @@ test('worker-selection mutation set is killed 4/4', () => {
 
 test('only IN_APP_ONLY and AUDIT_ONLY pass the default first-batch classification gate', () => {
   const allowed = reviewNextWorkerBatch([
-    { id: 'a', event_type: 'one', classification: { effect_class: 'IN_APP_ONLY' } },
-    { id: 'b', event_type: 'two', classification: { effect_class: 'AUDIT_ONLY' } },
+    { id: 'a', event_type: 'one', classification: { effect_class: 'IN_APP_ONLY' }, render_contract: { render_contract_ready: true } },
+    { id: 'b', event_type: 'two', classification: { effect_class: 'AUDIT_ONLY' }, render_contract: { render_contract_ready: true } },
   ]);
   assert.equal(allowed.stop_required, false);
   assert.equal(allowed.default_classification_gate_passes, true);
+  assert.equal(allowed.render_contract_gate_passes, true);
+  assert.equal(allowed.combined_batch_gate_passes, true);
 
   for (const effect of [
     'EXTERNAL_CHANNEL_POSSIBLE',
@@ -116,7 +118,7 @@ test('only IN_APP_ONLY and AUDIT_ONLY pass the default first-batch classificatio
     'NO_CURRENT_SUBSCRIBER',
     'UNKNOWN_REQUIRES_REVIEW',
   ]) {
-    const result = reviewNextWorkerBatch([{ id: effect, event_type: 'x', classification: { effect_class: effect } }]);
+    const result = reviewNextWorkerBatch([{ id: effect, event_type: 'x', classification: { effect_class: effect }, render_contract: { render_contract_ready: true } }]);
     assert.equal(result.stop_required, true, effect);
     assert.equal(result.default_classification_gate_passes, false, effect);
   }
@@ -133,12 +135,26 @@ test('next-batch classification stop mutation set is killed 4/4', () => {
   ];
   let killed = 0;
   for (const effect of forbidden) {
-    const review = reviewNextWorkerBatch([{ id: 'event', event_type: 'x', classification: { effect_class: effect } }]);
+    const review = reviewNextWorkerBatch([{ id: 'event', event_type: 'x', classification: { effect_class: effect }, render_contract: { render_contract_ready: true } }]);
     assert.equal(review.stop_required, true);
     killed += 1;
   }
   console.log(`[REL03A-R2 MUTATION] classification stops killed ${killed}/${forbidden.length}`);
   assert.equal(killed, 4);
+});
+
+test('combined batch gate fails closed when render preflight is absent or not ready', () => {
+  for (const row of [
+    { id: 'missing-preflight', event_type: 'x', classification: { effect_class: 'IN_APP_ONLY' } },
+    { id: 'unregistered', event_type: 'x', classification: { effect_class: 'IN_APP_ONLY' }, render_contract: { render_contract_ready: false, stop_reason: 'template_unregistered' } },
+    { id: 'missing-variable', event_type: 'x', classification: { effect_class: 'IN_APP_ONLY' }, render_contract: { render_contract_ready: false, stop_reason: 'required_variables_missing', missing_required_variables: ['headline'] } },
+  ]) {
+    const review = reviewNextWorkerBatch([row]);
+    assert.equal(review.default_classification_gate_passes, true);
+    assert.equal(review.render_contract_gate_passes, false);
+    assert.equal(review.combined_batch_gate_passes, false);
+    assert.equal(review.stop_required, true);
+  }
 });
 
 test('snapshot tracks exact inventory event IDs independently of created_at or status', () => {

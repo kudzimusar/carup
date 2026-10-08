@@ -41,7 +41,7 @@ export function loadWorkerSelectionContract(root = DEFAULT_ROOT) {
 
 export function nextWorkerBatchSql(contract = loadWorkerSelectionContract()) {
   const sql = `
-    SELECT id, event_type, status, attempts, tenant_id, created_at
+    SELECT id, event_type, status, attempts, tenant_id, created_at, payload
     FROM public.domain_events
     WHERE status = 'pending' AND attempts < $1
     ORDER BY created_at ASC
@@ -99,16 +99,37 @@ export function reviewNextWorkerBatch(rows) {
     ...DEFAULT_ALLOWED_WORKER_EFFECTS,
     ...DEFAULT_STOP_WORKER_EFFECTS,
   ].map((effect) => [effect, 0]));
-  const stopReasons = [];
+  const classificationStopReasons = [];
+  const renderStopReasons = [];
 
   for (const row of rows || []) {
     const effect = row?.classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW';
     if (!(effect in counts)) counts[effect] = 0;
     counts[effect] += 1;
     if (!DEFAULT_ALLOWED_WORKER_EFFECTS.includes(effect)) {
-      stopReasons.push({ id: String(row?.id || ''), event_type: row?.event_type || null, effect_class: effect });
+      classificationStopReasons.push({
+        id: String(row?.id || ''),
+        event_type: row?.event_type || null,
+        effect_class: effect,
+        reason: 'effect_class_not_authorized',
+      });
+    }
+    if (row?.render_contract?.render_contract_ready !== true) {
+      renderStopReasons.push({
+        id: String(row?.id || ''),
+        event_type: row?.event_type || null,
+        effect_class: effect,
+        template_key: row?.render_contract?.template_key || null,
+        reason: row?.render_contract?.stop_reason || 'render_contract_not_evaluated',
+        missing_required_variables: row?.render_contract?.missing_required_variables || [],
+      });
     }
   }
+
+  const hasRows = Array.isArray(rows) && rows.length > 0;
+  const classificationPasses = hasRows && classificationStopReasons.length === 0;
+  const renderPasses = hasRows && renderStopReasons.length === 0;
+  const stopReasons = [...classificationStopReasons, ...renderStopReasons];
 
   return {
     batch_size: Array.isArray(rows) ? rows.length : 0,
@@ -116,7 +137,9 @@ export function reviewNextWorkerBatch(rows) {
     stop_effect_classes: [...DEFAULT_STOP_WORKER_EFFECTS],
     effect_counts: counts,
     stop_required: stopReasons.length > 0,
-    default_classification_gate_passes: Array.isArray(rows) && rows.length > 0 && stopReasons.length === 0,
+    default_classification_gate_passes: classificationPasses,
+    render_contract_gate_passes: renderPasses,
+    combined_batch_gate_passes: classificationPasses && renderPasses,
     stop_reasons: stopReasons,
     outbound_kill_switch_does_not_override_classification: true,
   };
