@@ -15,6 +15,10 @@
  *      smooth scrolling between a sticky header and a fixed bottom bar. The control is explicitly scrolled
  *      clear of both bars and tapped NORMALLY — never forced, and the bars are never touched.
  *
+ *   J  spec 42 clicked "Submit Evidence" and read the evidence list at once. On a slower shard the read
+ *      landed INSIDE the product's own upload and found no row (run 37723228342, tablet). The test now lets
+ *      the product's POST settle, and the uploader close, before anyone reads.
+ *
  * What these tests refuse is the easy way out: a weakened assertion, a bypass of the real UI, a forced
  * click. They run offline against the harness sources and the pure geometry decision.
  */
@@ -28,11 +32,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const read = (rel) => readFileSync(path.join(ROOT, rel), 'utf8');
 const SPEC_38 = read('tests/agents/38-seller-staging-browser-golden.spec.ts');
 const SPEC_41 = read('tests/agents/41-seller-phase-e-staging.spec.ts');
+const SPEC_42 = read('tests/agents/42-seller-media-lifecycle-staging.spec.ts');
 const SPEC_45 = read('tests/agents/45-trade-os-container-demo-staging.spec.ts');
 const SPEC_48 = read('tests/agents/48-seller-home-comms-lifecycle-staging.spec.ts');
 const HELPERS = read('tests/agents/staging-helpers.ts');
 const SAFE_TAP = read('tests/agents/safe-tap.ts');
 const SWITCHER = read('web/src/components/layout/OrganisationSwitcher.tsx');
+const EVIDENCE_MODAL = read('web/src/components/EvidenceUploadModal.tsx');
 
 const { clearBand, assessClearance, clearanceFailure } = await import(
   new URL('../../tests/agents/safe-tap-geometry.mjs', import.meta.url).href
@@ -259,4 +265,61 @@ test('C — the staging Playwright config keeps its strict defaults (no retries,
   assert.match(config, /retries:\s*0,/, 'a flaky retry must never mask a real defect');
   assert.match(config, /actionTimeout:\s*20_000/);
   assert.match(config, /workers:\s*1,/);
+});
+
+// ── J (REL-02): spec 42 lets the product's own upload settle before the reviewer reads the list ─────
+const UPLOAD_STEP = between(SPEC_42, '// ── upload the ownership document through the Evidence UI', 'const verified = await request.patch(');
+
+test('J — spec 42 registers the product\'s upload response BEFORE the click, then awaits it, then waits for the uploader to close, then reads', () => {
+  const at = (needle) => {
+    const i = UPLOAD_STEP.indexOf(needle);
+    assert.ok(i >= 0, `missing in the upload step: ${needle}`);
+    return i;
+  };
+  const registered = at('page.waitForResponse(');
+  const pressed = at("await press(page, page.getByRole('button', { name: 'Submit Evidence' }), 'Submit Evidence');");
+  const awaited = at('await uploadSettled');
+  const accepted = at('expect(upload.ok()');
+  const closed = at("page.getByRole('dialog', { name: /Upload Vehicle Evidence/i })");
+  const reviewer = at('await reviewerAuth(request)');
+  const listing = at('request.get(`${API_URL}/vehicles/${VIN}/evidence`');
+  assert.ok(registered < pressed, 'the response is registered before the click, so a fast upload cannot be missed');
+  assert.ok(pressed < awaited && awaited < accepted && accepted < closed && closed < reviewer && reviewer < listing,
+    'order: click → upload response → accepted → uploader closed → reviewer authenticates → reviewer lists');
+});
+
+test('J — spec 42 observes exactly the vehicle\'s evidence POST and requires the product to have accepted it', () => {
+  assert.match(UPLOAD_STEP, /response\.request\(\)\.method\(\) === 'POST'/, 'only the upload (a POST), never the reviewer\'s GET or the verify PATCH');
+  assert.ok(UPLOAD_STEP.includes('endsWith(`/vehicles/${VIN}/evidence/upload`)'), 'this run\'s own vehicle, this run\'s own upload route');
+  assert.match(UPLOAD_STEP, /expect\(upload\.ok\(\), `the product must accept the seller's evidence upload \(HTTP \$\{upload\.status\(\)\}\)`\)\.toBe\(true\);/);
+  assert.match(UPLOAD_STEP, /\{ timeout: 60_000 \}/, 'a bounded wait, not an open one');
+  assert.match(UPLOAD_STEP, /toHaveCount\(0, \{ timeout: 30_000 \}\)/, 'closure is awaited, with a bound');
+  // a request that never left the browser reports what the uploader is showing, not a bare timeout
+  assert.ok(UPLOAD_STEP.includes("the seller's evidence upload never reached the API; the uploader shows:"));
+});
+
+test('J — spec 42 settles the upload through the product only: no route, mock, direct upload, storage write or tenant header', () => {
+  for (const banned of ['page.route(', 'route.fulfill', 'request.post(', 'localStorage', 'sessionStorage', 'x-tenant-id', 'waitForTimeout', 'force: true']) {
+    assert.ok(!UPLOAD_STEP.includes(banned), `the upload step must not use ${banned}`);
+  }
+  assert.ok(UPLOAD_STEP.includes("await page.locator('input[type=\"file\"]').first().setInputFiles(FIXTURES + PHOTOS[0].file);"), 'the seller still attaches the file through the UI');
+});
+
+test('J — spec 42 keeps its evidence-row and verification assertions exactly (the wait is added, nothing is weakened)', () => {
+  assert.ok(SPEC_42.includes("expect(ownership?.id, 'the seller\\'s UI upload must have produced a governed evidence row').toBeTruthy();"));
+  assert.ok(SPEC_42.includes("const ownership = rows.find((r) => /registration|ownership/i.test(r.evidence_type));"));
+  assert.ok(SPEC_42.includes('expect(verified.status(), await verified.text()).toBe(200);'));
+  assert.ok(SPEC_42.includes('expect(listed.status(), await listed.text()).toBe(200);'));
+  // the listing is still ONE read after the wait, not a poll that would forgive a missing row
+  assert.equal((SPEC_42.match(/request\.get\(`\$\{API_URL\}\/vehicles\/\$\{VIN\}\/evidence`/g) || []).length, 1);
+});
+
+test('J — the wait relies on a product contract that is pinned: the uploader\'s name, and closing only on success', () => {
+  assert.match(EVIDENCE_MODAL, /<DialogTitle[^>]*>Upload Vehicle Evidence<\/DialogTitle>/, 'the dialog name the gate waits on');
+  const handler = between(EVIDENCE_MODAL, 'const response = await uploadEvidence(vin, payload)', '} finally {');
+  const success = handler.indexOf('onSuccess(response)');
+  const close = handler.indexOf('onClose()');
+  const caught = handler.indexOf('} catch');
+  assert.ok(success > 0 && close > success && close < caught, 'onSuccess then onClose, both only after the awaited upload, both before the catch');
+  assert.ok(!handler.slice(caught).includes('onClose'), 'a refused upload never closes the uploader');
 });
