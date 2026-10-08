@@ -41,21 +41,48 @@ function governedText(aiValue, fallback) {
 const AI_TIMEOUT_MS = 12000;
 
 /**
+ * OC-5R-REL-02 E — the machine-readable reason on a degraded answer whose AI call TIMED OUT (the gateway's
+ * `AI_TIMEOUT`, which the transport raises when the bound above expires). It joins the vocabulary
+ * 'sign_in_required', 'input_too_large', 'valuation_not_configured' and 'ai_output_withheld'.
+ */
+export const AI_TIMEOUT_REASON = 'ai_timeout';
+
+/**
+ * One advisory attempt. Returns the answer (or null) and the inference policy to report the degraded
+ * answer with: unchanged, except that an AI call that TIMED OUT adds `ai_reason: 'ai_timeout'`. A caller
+ * that never reaches the model (anonymous, oversized) already carries its own reason and is never
+ * relabelled; any other failure stays unnamed.
+ */
+async function attempt(callAi, deps, systemPrompt, userPrompt) {
+  const outcome = {};
+  const ai = await callAi(systemPrompt, userPrompt, { gateway: deps.gateway, outcome });
+  const used = !ai && outcome.reason && !deps.aiReason ? { ...deps, aiReason: outcome.reason } : deps;
+  return { ai, deps: used };
+}
+
+/**
  * Try the gateway in JSON mode; returns the parsed object or null (never throws).
  *
  * Only an answer the gateway marked executed and advisory reaches here (the adapter refuses the
  * rest), so a failure, a timeout or malformed JSON is `null` → `ai_status: 'ai_unavailable'`,
  * never `ai_assisted`.
  */
-async function tryAi(systemPrompt, userPrompt) {
+async function tryAi(systemPrompt, userPrompt, { gateway, timeoutMs, outcome } = {}) {
   try {
-    const reply = await requestAdvisoryJson({ systemPrompt, userPrompt, timeoutMs: AI_TIMEOUT_MS, purpose: 'marketplace assistant' });
+    const reply = await requestAdvisoryJson(
+      { systemPrompt, userPrompt, timeoutMs: timeoutMs ?? AI_TIMEOUT_MS, purpose: 'marketplace assistant' },
+      gateway ? { gateway } : {},
+    );
     const parsed = reply.value;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.error === true) return null;
     PROVENANCE.set(parsed, { provider: reply.provider, model: reply.model, execution: reply.execution });
     return parsed;
-  } catch {
+  } catch (error) {
     // AiAdvisoryError (failure, timeout, malformed JSON, no credentials): the deterministic result stands.
+    // OC-5R-REL-02 E: ONLY a timeout is named. It is the one failure a buyer can act on (ask again) and
+    // the one the deployed proof measured; every other failure keeps the deterministic answer with no
+    // reason, exactly as before — a provider outage is not a slow answer.
+    if (outcome && error?.code === 'AI_TIMEOUT') outcome.reason = AI_TIMEOUT_REASON;
     return null;
   }
 }
@@ -148,11 +175,11 @@ export async function listingDraft(input = {}, requested = {}) {
   const deps = inferencePolicy(input, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicListingDraft(input);
-  const ai = await callAi(
+  const { ai, deps: used } = await attempt(callAi, deps,
     `You are CarUp listing assistant. Return strict JSON {title, short_description, detailed_description, recommended_tags[]}. Do not claim verification/PartSentry/passport status. ${NO_VALUATION_RULE}`,
     `Draft a marketplace listing for: ${JSON.stringify(input)}`
   );
-  if (!ai) return withoutAi(deterministic, deps);
+  if (!ai) return withoutAi(deterministic, used);
   return {
     title: governedText(ai.title, deterministic.title),
     short_description: governedText(ai.short_description, deterministic.short_description),
@@ -189,11 +216,11 @@ export async function buyerAssistant(input = {}, requested = {}) {
   const deps = inferencePolicy(input, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicBuyerRecommendation(input);
-  const ai = await callAi(
+  const { ai, deps: used } = await attempt(callAi, deps,
     `You are CarUp buyer assistant. Return strict JSON {guidance: string[]}. Be safety-first; never invent trust/verification facts; never expose internal risk data. ${NO_VALUATION_RULE}`,
     `Buyer query: ${JSON.stringify(input)}`
   );
-  if (!ai || !Array.isArray(ai.guidance)) return withoutAi(deterministic, deps);
+  if (!ai || !Array.isArray(ai.guidance)) return withoutAi(deterministic, used);
   const offered = ai.guidance.filter((line) => typeof line === 'string' && line.trim());
   const kept = offered.filter((line) => !containsValuationClaim(line));
   const withheld = offered.length - kept.length;
@@ -250,11 +277,11 @@ export async function shareCopy(input = {}, requested = {}) {
   const deps = inferencePolicy(input, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicShareCopy(input);
-  const ai = await callAi(
+  const { ai, deps: used } = await attempt(callAi, deps,
     `You are CarUp social copy assistant. Return strict JSON {whatsapp, telegram, facebook, short}. Keep it honest; no fabricated trust claims. ${NO_VALUATION_RULE}`,
     `Listing: ${JSON.stringify(input)}`
   );
-  if (!ai) return withoutAi(deterministic, deps);
+  if (!ai) return withoutAi(deterministic, used);
   return {
     whatsapp: governedText(ai.whatsapp, deterministic.whatsapp),
     telegram: governedText(ai.telegram, deterministic.telegram),
@@ -284,11 +311,11 @@ export async function moderationSummary({ listingSummary = {}, trustSummary = {}
   const deps = inferencePolicy({ vin: listingSummary.vin, risk: trustSummary.risk_status, partsentry: trustSummary.partsentry_public_status, evidence: trustSummary.evidence_status }, requested);
   const callAi = deps.aiCall || tryAi;
   const deterministic = deterministicModerationSummary({ listingSummary, trustSummary });
-  const ai = await callAi(
+  const { ai, deps: used } = await attempt(callAi, deps,
     'You are CarUp moderation copilot. Return strict JSON {summary, suggested_action}. Advisory only — you cannot approve or change status. Do not expose private data.',
     `Listing trust state: ${JSON.stringify({ vin: listingSummary.vin, risk: trustSummary.risk_status, partsentry: trustSummary.partsentry_public_status, evidence: trustSummary.evidence_status })}`
   );
-  if (!ai) return withoutAi(deterministic, deps);
+  if (!ai) return withoutAi(deterministic, used);
   return {
     summary: ai.summary || deterministic.summary,
     suggested_action: ['review', 'monitor', 'approve', 'suppress'].includes(ai.suggested_action) ? ai.suggested_action : deterministic.suggested_action,

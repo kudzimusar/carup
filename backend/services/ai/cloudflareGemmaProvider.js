@@ -1,11 +1,23 @@
 /**
  * The general inference POLICY on Cloudflare Workers AI: Gemma, behind the CarUp AI gateway.
  *
- * Converged from PR #217 (AI-01-B, head 6c8ff6f7) by OC-3C. The request body and the answer
- * envelope are #217's, unchanged (buildGemmaRequestBody / readGemmaResponseContent). #217's own
- * HTTP client — credentials, URL, fetch, timeout and caller abort, failure classification and
- * secret redaction — is now the shared cloudflareAiTransport.js, the same transport the certified
- * OCR policy uses. Exactly one attempt; no retry, no fallback to another model or vendor.
+ * Converged from PR #217 (AI-01-B, head 6c8ff6f7) by OC-3C. The answer envelope is #217's,
+ * unchanged (readGemmaResponseContent). #217's own HTTP client — credentials, URL, fetch, timeout and
+ * caller abort, failure classification and secret redaction — is now the shared
+ * cloudflareAiTransport.js, the same transport the certified OCR policy uses. Exactly one attempt; no
+ * retry, no fallback to another model or vendor.
+ *
+ * OC-5R-REL-02 E — ONE INTENTIONAL CHANGE TO #217's REQUEST BODY. The body now carries
+ * `chat_template_kwargs: { enable_thinking: false }`. Why: the first call through the deployed
+ * Marketplace buyer assistant (REL-01, run 37705240258) did not return. Gemma 4 REASONS BY DEFAULT
+ * (the model schema documents `chat_template_kwargs.enable_thinking`, default true), and for the
+ * assistant's own request it spent ~16 s generating hidden reasoning tokens before a ~120-token
+ * answer; with reasoning off the same request answered in ~2.7 s. The assistant's 12 s product bound
+ * is a deliberate interactive-latency limit and is NOT what changed: an interactive CarUp advisory
+ * call needs bounded latency, and hidden model reasoning is neither a CarUp product output nor an
+ * authority — the answer is advisory machine output either way. It is a property of THIS POLICY, not
+ * of the shared transport, which still sends every policy's body verbatim; the OCR/Qwen body is not
+ * touched and does not inherit the field.
  */
 import {
   CARUP_AI_MODEL,
@@ -99,6 +111,8 @@ export function buildGemmaRequestBody({
     messages,
     temperature: 0,
     max_tokens: Number(maxTokens) > 0 ? Number(maxTokens) : DEFAULT_MAX_TOKENS,
+    // REL-02 E (see the file header): the provider-supported switch for Gemma's hidden reasoning.
+    chat_template_kwargs: { enable_thinking: false },
   };
 }
 
