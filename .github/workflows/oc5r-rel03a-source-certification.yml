@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: oc5r-rel03a-source-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   source-certification:
