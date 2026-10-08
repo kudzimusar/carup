@@ -172,6 +172,7 @@ test('D — the helper scrolls to the middle with an instant scroll, measures, t
   assert.match(SAFE_TAP, /assessClearance\(/);
   assert.match(SAFE_TAP, /expect\(assessment\.clear/, 'a control that cannot be cleared FAILS the test, loudly');
   assert.match(SAFE_TAP, /centreHitTarget/);
+  assert.match(SAFE_TAP, /expect\(m\.centreHitTarget, `\$\{label\}: something is on top of the control's centre`\)\.toBe\('the control'\);/, 'what is on top of the control\'s centre must be the control itself');
   assert.match(SAFE_TAP, /await target\.click\(\);/);
   const order = ['scrollIntoView', 'waitForScrollToSettle(page)', 'assessClearance(', 'await target.click();'].map((m) => SAFE_TAP.indexOf(m, SAFE_TAP.indexOf('export async function tapClearOfBars')));
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'scroll → settle → measure → tap, in that order');

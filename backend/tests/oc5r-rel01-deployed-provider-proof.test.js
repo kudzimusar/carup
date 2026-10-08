@@ -117,6 +117,8 @@ test('gemma verdict: only an executed answer that names Gemma succeeds', () => {
   assert.equal(P.gemmaVerdict(200, ok), 'SUCCEEDED');
   assert.equal(P.gemmaVerdict(200, { ...ok, ai_available: false }), 'FAILED', 'an answer that says the AI was not available is not AI-assisted');
   assert.equal(P.gemmaVerdict(200, { ...ok, ai_available: undefined }), 'FAILED');
+  assert.equal(P.gemmaVerdict(200, { ...ok, ai_available: 'true' }), 'FAILED', 'availability is the boolean true, not a truthy string');
+  assert.equal(P.gemmaVerdict(200, { ...ok, ai_available: 1 }), 'FAILED');
   assert.equal(P.gemmaVerdict(200, { ...ok, ai_provenance: { ...ok.ai_provenance, provider: 'gemini' } }), 'FAILED');
   assert.equal(P.gemmaVerdict(200, { ...ok, ai_provenance: { ...ok.ai_provenance, execution: 'deterministic' } }), 'FAILED');
   assert.equal(P.gemmaVerdict(200, { ...ok, ai_provenance: { ...ok.ai_provenance, model: P.QWEN } }), 'FAILED');
