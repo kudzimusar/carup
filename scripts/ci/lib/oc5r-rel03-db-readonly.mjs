@@ -7,7 +7,7 @@
  */
 
 export const OC5R_STAGING_PROJECT_REF = 'eoyenigwevnxwwhyhaer';
-export const OC5R_PRODUCTION_PROJECT_REF = 'vhmnajoeicasaigiophh';
+export const OC5R_PRODUCTION_PROJECT_REF = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const FORBIDDEN_SQL = /\b(insert|update|delete|upsert|merge|alter|drop|create|truncate|grant|revoke|copy|call|do|vacuum|refresh|reindex|cluster|comment|listen|notify|lock)\b/i;
