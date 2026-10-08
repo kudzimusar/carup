@@ -2,13 +2,12 @@
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { withReadOnlyDatabase } from './lib/oc5r-rel03-db-readonly.mjs';
+import {
+  extractTrackedEventIds,
+  trackedDomainEventsSql,
+} from './lib/oc5r-rel03-worker-custody.mjs';
 
 const TABLES = Object.freeze([
-  {
-    name: 'domain_events',
-    time: 'created_at',
-    columns: ['id', 'event_type', 'status', 'attempts', 'tenant_id', 'dedupe_key', 'created_at', 'updated_at', 'available_at', 'dead_lettered_at', 'payload'],
-  },
   {
     name: 'notification_queue',
     time: 'created_at',
@@ -57,10 +56,21 @@ function sourceSha() {
   }
 }
 
+function loadJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(`Cannot read tracked-event inventory ${file}: ${error.message}`);
+  }
+}
+
 const since = validIso('--since', arg('--since', true));
 const until = validIso('--until', arg('--until') || new Date().toISOString());
 if (Date.parse(until) < Date.parse(since)) throw new Error('--until must not be before --since');
 const output = arg('--output', true);
+const trackEventsFrom = arg('--track-events-from', true);
+const trackedInventory = loadJson(trackEventsFrom);
+const trackedEventIds = extractTrackedEventIds(trackedInventory);
 const databaseUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
 const allowLocalTest = process.env.OC5R_REL03_ALLOW_LOCAL_TEST_DB === 'true';
 
@@ -96,20 +106,32 @@ const snapshot = await withReadOnlyDatabase(databaseUrl, async ({ target, query 
       rows: result.rows,
     };
   }
+
+  const trackedRows = trackedEventIds.length
+    ? (await query(trackedDomainEventsSql(), [trackedEventIds])).rows
+    : [];
+
   return {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: new Date().toISOString(),
     source_sha: sourceSha(),
     target: { kind: target.kind, project_ref: target.projectRef },
     window: { since, until },
     boundary: { transaction: 'BEGIN READ ONLY', mutating_sql: false, worker_called: false },
+    tracked_worker_batch: {
+      source_inventory: trackEventsFrom,
+      expected_ids: trackedEventIds,
+      rows: trackedRows,
+      selection_basis: 'exact event IDs from inventory.next_worker_batch; independent of created_at/status',
+    },
     tables,
   };
 }, { allowLocalTest });
 
 fs.writeFileSync(output, JSON.stringify(snapshot, null, 2) + '\n', { mode: 0o600 });
 console.log(`REL-03 read-only snapshot: ${snapshot.target.project_ref}`);
-console.log(`Window: ${snapshot.window.since} → ${snapshot.window.until}`);
+console.log(`Window for newly-created Communications rows: ${snapshot.window.since} → ${snapshot.window.until}`);
+console.log(`Tracked worker events: ${snapshot.tracked_worker_batch.rows.length}/${snapshot.tracked_worker_batch.expected_ids.length}`);
 for (const [name, value] of Object.entries(snapshot.tables)) {
   console.log(`${name}: ${value.available ? value.rows.length : 'UNAVAILABLE'}`);
 }
