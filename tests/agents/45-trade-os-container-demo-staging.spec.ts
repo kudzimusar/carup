@@ -540,7 +540,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
   // A row is proof only when it is this run's exact reservation, current recipient, canonical
   // event direction/state, durable outbox event_id and post-mutation timestamp. Historical
   // container_booking rows are deliberately harmless.
-  stagingTest('participant A: this run\'s APPROVED container_booking notification exists and is visible in Communications (D7)', async ({ page, request }, testInfo) => {
+  stagingTest('participant A: current-run APPROVED container_booking notification exists and is visible in Communications (D7)', async ({ page, request }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
     await gotoSettled(page, '/diaspora/containers?view=containers');
