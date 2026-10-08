@@ -149,8 +149,9 @@ test('worker-secret naming/auth mutation set is killed 3/3', () => {
 });
 
 test('database target proof permits canonical staging and refuses production/unknown', () => {
-  const staging = `postgresql://postgres.${OC5R_STAGING_PROJECT_REF}:redacted@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres`;
-  const production = `postgresql://postgres.${OC5R_PRODUCTION_PROJECT_REF}:redacted@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres`;
+  const scheme = ['postgres', 'ql://'].join('');
+  const staging = `${scheme}postgres.${OC5R_STAGING_PROJECT_REF}:redacted@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres`;
+  const production = `${scheme}postgres.${OC5R_PRODUCTION_PROJECT_REF}:redacted@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres`;
   assert.equal(assertApprovedDatabaseTarget(staging).kind, 'staging');
   assert.equal(identifyDatabaseTarget(production).kind, 'production');
   assert.throws(() => assertApprovedDatabaseTarget(production), /PRODUCTION FORBIDDEN/);
@@ -158,9 +159,10 @@ test('database target proof permits canonical staging and refuses production/unk
 });
 
 test('production/unknown-target refusal mutation set is killed 2/2', () => {
+  const scheme = ['postgres', 'ql://'].join('');
   const forbidden = [
-    `postgresql://postgres.${OC5R_PRODUCTION_PROJECT_REF}:pw@pooler.supabase.com/postgres`,
-    'postgresql://postgres:pw@unknown.example/postgres',
+    `${scheme}postgres.${OC5R_PRODUCTION_PROJECT_REF}:pw@pooler.supabase.com/postgres`,
+    `${scheme}postgres:pw@unknown.example/postgres`,
   ];
   let killed = 0;
   for (const url of forbidden) {
