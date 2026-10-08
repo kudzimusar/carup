@@ -127,6 +127,13 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     },
     source_classification_note: 'SOURCE CLASSIFICATION is derived from this checkout. It does not prove which rows exist in staging.',
     live_observation_note: 'LIVE BACKLOG OBSERVATION is read-only database evidence. It does not by itself prove a subscriber will complete successfully.',
+    operator_guidance: {
+      NO_CURRENT_SUBSCRIBER: {
+        instruction: 'DO NOT CALL CURRENT WORKER UNTIL PROVEN DISPOSITION.',
+        worker_semantics: 'The worker now retains an explicit NO_CURRENT_SUBSCRIBER failure through its normal retry/dead-letter path; preservation or quarantine is not business-event success.',
+        disposition_note: 'A real subscriber, an audit-only designation, or historical terminal quarantine requires separate provenance authority.',
+      },
+    },
     source_classification: sourceClassification,
     live_backlog_observation: liveBacklogObservation,
     next_worker_batch: nextWorkerBatch,
@@ -161,6 +168,11 @@ const human = [
   ...report.class_a_render_contract_review.map((row) =>
     `${row.event_type} | ${row.count} | ${row.policy_template || '-'} | ${(row.required_variables || []).join(',') || '-'} | ${(row.missing_required_variables || []).join(',') || '-'} | ${row.result}`),
   `Class-A render-contract gate passes: ${report.class_a_render_contract_gate_passes}`,
+  '',
+  'OPERATOR GUIDANCE',
+  `NO_CURRENT_SUBSCRIBER: ${report.operator_guidance.NO_CURRENT_SUBSCRIBER.instruction}`,
+  report.operator_guidance.NO_CURRENT_SUBSCRIBER.worker_semantics,
+  report.operator_guidance.NO_CURRENT_SUBSCRIBER.disposition_note,
   '',
   'SOURCE CLASSIFICATION and LIVE BACKLOG OBSERVATION are intentionally separate.',
   'COMMUNICATION_OUTBOUND_DISABLED does not override next-batch classification.',

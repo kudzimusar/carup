@@ -201,6 +201,19 @@ class EventWorker {
     });
 
     try {
+      // An outbox row is business work, not evidence that work completed. With no
+      // subscriber there is nobody capable of performing that work, so use the
+      // existing retry/dead-letter path and retain an operator-visible reason.
+      // Retrying below the normal attempt ceiling allows a subscriber deployed
+      // during an incident to pick the row up without an operator replay. Once
+      // terminal, reprocessDeadLetters({ ids: [...] }) remains the governed path
+      // after a real subscriber is installed.
+      if (handlers.length === 0) {
+        const error = new Error(`NO_CURRENT_SUBSCRIBER: no handler is registered for ${event.event_type}`);
+        error.code = 'NO_CURRENT_SUBSCRIBER';
+        throw error;
+      }
+
       // Run handlers within the correlation AsyncLocalStorage boundaries
       await asyncStore.run({ correlationId, tenantId }, async () => {
         for (const handler of handlers) {

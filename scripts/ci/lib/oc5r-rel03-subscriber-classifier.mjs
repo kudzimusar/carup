@@ -30,7 +30,13 @@ function communicationEventTypes(root) {
   if (start < 0) throw new Error('COMMUNICATION_EVENT_TYPES registry not found');
   const end = source.indexOf('];', start);
   if (end < 0) throw new Error('COMMUNICATION_EVENT_TYPES registry is unterminated');
-  return new Set(stringsIn(source.slice(start + marker.length, end))
+  // Registry entries are one quoted literal per line. An unanchored quote scan
+  // also treats apostrophes in comments (for example "authority's") as string
+  // delimiters and silently drops real event names that follow. Parse only the
+  // array's literal entry lines so comments cannot hide current subscribers.
+  const body = source.slice(start + marker.length, end);
+  const entries = [...body.matchAll(/^\s*['"]([^'"]+)['"]\s*,?/gm)].map((match) => match[1]);
+  return new Set(entries
     .filter((value) => value.includes('.') || /^[A-Z][A-Z0-9_]+$/.test(value)));
 }
 
