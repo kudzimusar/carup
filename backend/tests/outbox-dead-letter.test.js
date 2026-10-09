@@ -33,6 +33,26 @@ function makeClient() {
       const text = sql.trim();
       queryLog.push(text);
 
+      if (/^(BEGIN;?|COMMIT;?|ROLLBACK;?)$/i.test(text)) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (/^SELECT \* FROM domain_events/i.test(text)) {
+        const maxAttempts = Number(params[0]);
+        const selected = rows
+          .filter((r) => r.status === 'pending' && r.attempts < maxAttempts)
+          .slice()
+          .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+          .slice(0, 10);
+        return { rows: selected, rowCount: selected.length };
+      }
+
+      if (/^SELECT COUNT\(\*\) as count FROM domain_events/i.test(text)) {
+        const maxAttempts = Number(params[0]);
+        const count = rows.filter((r) => r.status === 'pending' && r.attempts < maxAttempts).length;
+        return { rows: [{ count: String(count) }], rowCount: 1 };
+      }
+
       // processEvent failure path:
       // UPDATE domain_events SET status=$1, attempts=$2, error_log=$3, dead_lettered_at=NOW()|NULL WHERE id=$4
       if (/^UPDATE domain_events\s+SET status = \$1/i.test(text)) {
@@ -187,10 +207,35 @@ test('repeated failures escalate from pending to dead_letter', async () => {
   assert.equal(final.status, 'dead_letter');
 });
 
-test('reprocessDeadLetters replays all dead-lettered events back to pending', async () => {
+test('pollEvents never selects or emits success for a quarantined event', async () => {
+  const quarantined = seedEvent({ id: 'q-poll', status: 'quarantined', event_type: 'owned.event', attempts: 0 });
+  const pending = seedEvent({ id: 'p-poll', status: 'pending', event_type: 'owned.event', attempts: 0 });
+  quarantined.created_at = '2026-09-01T00:00:00.000Z';
+  pending.created_at = '2026-09-02T00:00:00.000Z';
+
+  eventWorker.subscribe('owned.event', async () => {});
+  const emissions = [];
+  const listener = (event) => emissions.push(event.id);
+  memoryBroker.on('outbox:owned.event', listener);
+  try {
+    const result = await eventWorker.pollEvents();
+    assert.equal(result.processed, 1);
+  } finally {
+    memoryBroker.off('outbox:owned.event', listener);
+  }
+
+  assert.equal(rows.find((r) => r.id === 'q-poll').status, 'quarantined');
+  assert.equal(rows.find((r) => r.id === 'q-poll').attempts, 0);
+  assert.equal(rows.find((r) => r.id === 'p-poll').status, 'processed');
+  assert.equal(rows.find((r) => r.id === 'p-poll').attempts, 1);
+  assert.deepEqual(emissions, ['p-poll']);
+});
+
+test('reprocessDeadLetters replays all dead-lettered events back to pending and never selects quarantined', async () => {
   seedEvent({ id: 'dl-1', status: 'dead_letter', attempts: 5 });
   seedEvent({ id: 'dl-2', status: 'dead_letter', attempts: 5 });
   seedEvent({ id: 'ok-1', status: 'processed', attempts: 1 });
+  seedEvent({ id: 'q-1', status: 'quarantined', attempts: 0 });
 
   const result = await eventWorker.reprocessDeadLetters();
   assert.equal(result.replayed, 2);
@@ -202,8 +247,10 @@ test('reprocessDeadLetters replays all dead-lettered events back to pending', as
     assert.equal(row.attempts, 0);
     assert.equal(row.dead_lettered_at, null);
   }
-  // Unrelated processed row is untouched.
+  // Unrelated processed and quarantined rows are untouched.
   assert.equal(rows.find((r) => r.id === 'ok-1').status, 'processed');
+  assert.equal(rows.find((r) => r.id === 'q-1').status, 'quarantined');
+  assert.equal(rows.find((r) => r.id === 'q-1').attempts, 0);
 });
 
 test('reprocessDeadLetters honors id and eventType filters', async () => {

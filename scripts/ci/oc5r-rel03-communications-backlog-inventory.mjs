@@ -53,6 +53,34 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     ORDER BY event_type, count(*) DESC, tenant_id NULLS LAST
   `);
 
+  const statusSummaryResult = await query(`
+    SELECT
+      count(*) FILTER (WHERE status = 'pending' AND attempts < $1)::bigint AS deliverable_pending,
+      count(*) FILTER (WHERE status = 'dead_letter')::bigint AS dead_letter,
+      count(*) FILTER (WHERE status = 'quarantined')::bigint AS quarantined,
+      count(*) FILTER (WHERE status = 'processed')::bigint AS processed
+    FROM public.domain_events
+  `, [workerContract.max_outbox_attempts]);
+
+  const quarantineColumnResult = await query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'domain_events'
+      AND column_name IN ('quarantined_at', 'quarantine_reason', 'quarantine_metadata')
+    ORDER BY column_name
+  `);
+  const quarantineColumnsReady = quarantineColumnResult.rows.length === 3;
+  const quarantineReasonResult = quarantineColumnsReady
+    ? await query(`
+        SELECT quarantine_reason, count(*)::bigint AS count
+        FROM public.domain_events
+        WHERE status = 'quarantined'
+        GROUP BY quarantine_reason
+        ORDER BY quarantine_reason
+      `)
+    : { rows: [] };
+
   const nextBatchResult = await query(nextWorkerBatchSql(workerContract), [workerContract.max_outbox_attempts]);
   assertObservedNextWorkerBatch(nextBatchResult.rows, workerContract);
   const registryResult = await query(governedTemplateRegistrySql());
@@ -136,6 +164,17 @@ const report = await withReadOnlyDatabase(databaseUrl, async ({ target, query })
     },
     source_classification: sourceClassification,
     live_backlog_observation: liveBacklogObservation,
+    queue_status_totals: {
+      deliverable_pending: Number(statusSummaryResult.rows[0]?.deliverable_pending || 0),
+      dead_letter: Number(statusSummaryResult.rows[0]?.dead_letter || 0),
+      quarantined: Number(statusSummaryResult.rows[0]?.quarantined || 0),
+      processed: Number(statusSummaryResult.rows[0]?.processed || 0),
+    },
+    historical_quarantine_count: Number(statusSummaryResult.rows[0]?.quarantined || 0),
+    quarantine_reason_counts: quarantineReasonResult.rows.map((row) => ({
+      reason: row.quarantine_reason,
+      count: Number(row.count),
+    })),
     next_worker_batch: nextWorkerBatch,
     next_worker_batch_review: reviewNextWorkerBatch(nextWorkerBatch),
     class_a_render_contract_review: classARenderContractReview,
@@ -153,6 +192,11 @@ const human = [
   'status | event_type | count | oldest | newest | effect',
   ...report.live_backlog_observation.map((row) =>
     `${row.status} | ${row.event_type} | ${row.count} | ${row.oldest_created_at || '-'} | ${row.newest_created_at || '-'} | ${row.source_classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW'}`),
+  '',
+  'QUEUE STATUS TOTALS',
+  `deliverable_pending=${report.queue_status_totals.deliverable_pending} dead_letter=${report.queue_status_totals.dead_letter} quarantined=${report.queue_status_totals.quarantined} processed=${report.queue_status_totals.processed}`,
+  `historical_quarantine_count=${report.historical_quarantine_count}`,
+  ...report.quarantine_reason_counts.map((row) => `quarantine_reason=${row.reason || '<null>'} count=${row.count}`),
   '',
   'NEXT WORKER BATCH',
   'id | event_type | attempts | tenant_id | created_at | effect',

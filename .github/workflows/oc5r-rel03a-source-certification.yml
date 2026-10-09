@@ -64,6 +64,20 @@ jobs:
             backend/tests/diaspora-payment-milestone.test.js \
             backend/tests/diaspora-workflow.test.js
 
+      - name: REL-03B-5 quarantine contract
+        run: |
+          node --test \
+            backend/tests/oc5r-rel03b5-historical-quarantine.test.js \
+            backend/tests/outbox-dead-letter.test.js
+
+      - name: REL-03B-5 quarantine tooling syntax
+        run: |
+          node --check scripts/ci/lib/oc5r-rel03b5-quarantine-contract.mjs
+          node --check scripts/ci/oc5r-rel03b5-quarantine-historical-events.mjs
+          node --check scripts/ci/oc5r-rel03b5-restore-quarantined-events.mjs
+          grep -q "domain_events_quarantined_requires_provenance" database/migrations/20261009110000_oc5r_rel03b5_historical_event_quarantine.sql
+          grep -q "status <> 'quarantined'" database/migrations/20261009110000_oc5r_rel03b5_historical_event_quarantine.sql
+
       - name: Affected Communications contracts
         run: |
           node --test \
@@ -87,6 +101,9 @@ jobs:
           node --check scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs
           node --check scripts/ci/oc5r-rel03-communications-snapshot.mjs
           node --check scripts/ci/oc5r-rel03-communications-reconcile.mjs
+          node --check scripts/ci/lib/oc5r-rel03b5-quarantine-contract.mjs
+          node --check scripts/ci/oc5r-rel03b5-quarantine-historical-events.mjs
+          node --check scripts/ci/oc5r-rel03b5-restore-quarantined-events.mjs
 
       - name: No synthetic runtime/auth bypass in REL-03 paths
         shell: bash
