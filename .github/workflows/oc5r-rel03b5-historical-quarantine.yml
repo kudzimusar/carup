@@ -1,0 +1,252 @@
+name: OC-5R REL-03B-5 Historical Quarantine
+
+on:
+  push:
+    branches:
+      - fix/oc5r-real-runtime-source-closure
+    paths:
+      - .github/workflows/oc5r-rel03b5-historical-quarantine.yml
+
+permissions:
+  contents: read
+
+jobs:
+  quarantine:
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact pushed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact SHA and branch custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "fix/oc5r-real-runtime-source-closure"
+          echo "Exact checkout and branch custody proven."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies without database credential
+        run: npm ci
+
+      - name: Require protected staging database secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL" || {
+            echo "::error::DIASPORA_STAGING_DATABASE_URL is unavailable from staging."
+            exit 1
+          }
+          echo "Protected staging database secret is present."
+
+      - name: Prove frozen immutable row truth before apply
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import pg from 'pg';
+          import { assertRel03b5StagingTarget, REL03B5_FAMILY_COUNTS } from './scripts/ci/lib/oc5r-rel03b5-quarantine-contract.mjs';
+          import { identifyDatabaseTarget } from './scripts/ci/lib/oc5r-rel03-db-readonly.mjs';
+
+          const raw = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          assertRel03b5StagingTarget(identifyDatabaseTarget(raw));
+          const connectionString = raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN READ ONLY');
+            const result = await client.query(
+              `SELECT
+                 count(*)::int AS total,
+                 count(*) FILTER (WHERE locked_at IS NOT NULL OR locked_by IS NOT NULL)::int AS locked_rows,
+                 md5(coalesce(string_agg(id::text, '||' ORDER BY id::text),'')) AS ids_hash,
+                 md5(coalesce(string_agg(md5((to_jsonb(d) - 'status' - 'quarantined_at' - 'quarantine_reason' - 'quarantine_metadata')::text), '||' ORDER BY id::text),'')) AS immutable_rows_hash,
+                 md5(coalesce(string_agg(md5(coalesce(payload::text,'')), '||' ORDER BY id::text),'')) AS payload_hash
+               FROM public.domain_events d
+               WHERE status='pending' AND event_type = ANY($1::text[])`,
+              [Object.keys(REL03B5_FAMILY_COUNTS)]
+            );
+            const row = result.rows[0];
+            assert.equal(Number(row.total), 196);
+            assert.equal(Number(row.locked_rows), 0);
+            assert.equal(row.ids_hash, 'aa09d8563deca75d636893036934702e');
+            assert.equal(row.immutable_rows_hash, '1797731a902350f5dd417da36301edcb');
+            assert.equal(row.payload_hash, '971b512aa80352817216491cb7bbbbb3');
+            console.log(JSON.stringify({ phase: 'pre-apply-row-truth', total: 196, locked_rows: 0, ids_hash: row.ids_hash, immutable_rows_hash: row.immutable_rows_hash, payload_hash: row.payload_hash }, null, 2));
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw error;
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Governed B5 dry-run
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/oc5r-rel03b5-quarantine-historical-events.mjs             --dry-run             --authority-sha "$GITHUB_SHA"
+
+      - name: Governed B5 apply exactly once
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/oc5r-rel03b5-quarantine-historical-events.mjs             --apply             --authority-sha "$GITHUB_SHA"
+
+      - name: Immediate post-apply read-only certification
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import pg from 'pg';
+          import { assertRel03b5StagingTarget, REL03B5_FAMILY_COUNTS } from './scripts/ci/lib/oc5r-rel03b5-quarantine-contract.mjs';
+          import { identifyDatabaseTarget } from './scripts/ci/lib/oc5r-rel03-db-readonly.mjs';
+
+          const raw = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const target = assertRel03b5StagingTarget(identifyDatabaseTarget(raw));
+          const connectionString = raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
+          const types = Object.keys(REL03B5_FAMILY_COUNTS);
+          await client.connect();
+          try {
+            await client.query('BEGIN READ ONLY');
+            const truth = await client.query(
+              `SELECT
+                 count(*)::int AS total,
+                 md5(coalesce(string_agg(id::text, '||' ORDER BY id::text),'')) AS ids_hash,
+                 md5(coalesce(string_agg(md5((to_jsonb(d) - 'status' - 'quarantined_at' - 'quarantine_reason' - 'quarantine_metadata')::text), '||' ORDER BY id::text),'')) AS immutable_rows_hash,
+                 md5(coalesce(string_agg(md5(coalesce(payload::text,'')), '||' ORDER BY id::text),'')) AS payload_hash
+               FROM public.domain_events d
+               WHERE status='quarantined' AND event_type = ANY($1::text[])`,
+              [types]
+            );
+            const frozen = truth.rows[0];
+            assert.equal(Number(frozen.total), 196);
+            assert.equal(frozen.ids_hash, 'aa09d8563deca75d636893036934702e');
+            assert.equal(frozen.immutable_rows_hash, '1797731a902350f5dd417da36301edcb');
+            assert.equal(frozen.payload_hash, '971b512aa80352817216491cb7bbbbb3');
+
+            const family = await client.query(
+              `SELECT
+                 count(*) FILTER (WHERE status='pending')::int AS pending,
+                 count(*) FILTER (WHERE status='quarantined')::int AS quarantined
+               FROM public.domain_events
+               WHERE event_type = ANY($1::text[])`,
+              [types]
+            );
+            assert.equal(Number(family.rows[0].pending), 0);
+            assert.equal(Number(family.rows[0].quarantined), 196);
+
+            const reasons = await client.query(
+              `SELECT quarantine_reason,count(*)::int AS count
+               FROM public.domain_events
+               WHERE status='quarantined' AND event_type = ANY($1::text[])
+               GROUP BY quarantine_reason ORDER BY quarantine_reason`,
+              [types]
+            );
+            const reasonCounts = Object.fromEntries(reasons.rows.map((r) => [r.quarantine_reason, Number(r.count)]));
+            assert.deepEqual(reasonCounts, {
+              AUDIT_ONLY_LEGACY: 6,
+              LEGACY_DUPLICATE_DIRECT_NOTIFICATION: 168,
+              LEGACY_DUPLICATE_WORKFLOW_EVENT: 16,
+              RETIRED_HISTORICAL_EVENT: 6,
+            });
+
+            const overall = await client.query(
+              `SELECT
+                 count(*) FILTER (WHERE status='pending' AND attempts < 5)::int AS eligible_pending,
+                 count(*) FILTER (WHERE status='dead_letter')::int AS dead_letter,
+                 count(*) FILTER (WHERE status='processed')::int AS processed,
+                 count(*) FILTER (WHERE status='quarantined')::int AS quarantined
+               FROM public.domain_events`
+            );
+
+            console.log(JSON.stringify({
+              phase: 'post-apply',
+              target,
+              frozen_family_pending: 0,
+              frozen_family_quarantined: 196,
+              reason_counts: reasonCounts,
+              overall: overall.rows[0],
+              preservation: {
+                same_ids: true,
+                all_non_quarantine_fields_unchanged: true,
+                payload_preserved: true,
+                attempts_preserved: true,
+                tenant_id_preserved: true,
+                created_at_preserved: true,
+                processed_at_preserved: true,
+                no_deletion: true,
+                no_dead_letter_rewrite: true,
+              },
+            }, null, 2));
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw error;
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Existing REL-03 read-only queue inventory
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs             --output "$RUNNER_TEMP/oc5r-rel03-inventory.json"             --format human             > "$RUNNER_TEMP/oc5r-rel03-inventory-human.txt"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import assert from 'node:assert/strict';
+          const inventory = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'oc5r-rel03-inventory.json'), 'utf8'));
+          assert.equal(inventory.target?.kind, 'staging');
+          assert.equal(inventory.target?.project_ref, 'eoyenigwevnxwwhyhaer');
+          assert.equal(inventory.boundary?.worker_called, false);
+          assert.equal(inventory.boundary?.mutating_sql, false);
+          console.log(JSON.stringify({
+            queue_status_totals: inventory.queue_status_totals,
+            quarantine_reason_counts: inventory.quarantine_reason_counts,
+            next_worker_batch: inventory.next_worker_batch.map((row) => ({
+              id: row.id,
+              event_type: row.event_type,
+              attempts: row.attempts,
+              tenant_id: row.tenant_id,
+              created_at: row.created_at,
+              effect_class: row.classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW',
+              render_contract_ready: row.render_contract?.render_contract_ready === true,
+            })),
+            combined_effect_render_gate: {
+              default_classification_gate_passes: inventory.next_worker_batch_review.default_classification_gate_passes,
+              render_contract_gate_passes: inventory.next_worker_batch_review.render_contract_gate_passes,
+              combined_batch_gate_passes: inventory.next_worker_batch_review.combined_batch_gate_passes,
+              stop_required: inventory.next_worker_batch_review.stop_required,
+            },
+            worker_called: false,
+          }, null, 2));
+          NODE
