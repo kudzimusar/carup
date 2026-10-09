@@ -20,11 +20,12 @@ test('registered Communications consumers are not hidden by apostrophes in regis
   }
 });
 
-test('dealer onboarding started remains an observability-only event with no fictional subscriber', () => {
+test('dealer onboarding observability is deliberately outside the durable worker path', () => {
   const [row] = classifyEventTypes(['dealer.onboarding.started']);
   assert.equal(row.known_subscriber, false);
   assert.equal(row.effect_class, 'NO_CURRENT_SUBSCRIBER');
-  assert.match(DEALER, /Observability only \(no Communications policy subscribes these\)/);
+  assert.match(DEALER, /structured logger keeps operational visibility without creating an unconsumable event/);
+  assert.doesNotMatch(DEALER, /emitDomainEvent\s*\(/);
   assert.doesNotMatch(DEALER, /subscribe\(\s*['"]dealer\.onboarding\.started/);
 });
 
