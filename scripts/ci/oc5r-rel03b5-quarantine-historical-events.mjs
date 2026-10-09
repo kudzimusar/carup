@@ -62,6 +62,7 @@ const candidateSql = [
   "WHERE status = 'pending'",
   '  AND event_type = ANY($1::text[])',
   'ORDER BY id',
+  'FOR UPDATE NOWAIT',
 ].join('\n');
 
 const fingerprintSql = [
