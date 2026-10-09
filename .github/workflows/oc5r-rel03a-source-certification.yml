@@ -54,6 +54,16 @@ jobs:
             backend/tests/oc5r-rel03b-local-custody-safety.test.js \
             backend/tests/oc5r-rel02-uat-harness-contracts.test.js
 
+      - name: REL-03B-4 current-producer convergence
+        run: |
+          node --test \
+            backend/tests/oc5r-rel03b3-unhandled-event-truth.test.js \
+            backend/tests/oc5r-rel03b4-current-producer-contract.test.js \
+            backend/tests/outbox-dead-letter.test.js \
+            backend/tests/o2-x5-dealer-onboarding.test.js \
+            backend/tests/diaspora-payment-milestone.test.js \
+            backend/tests/diaspora-workflow.test.js
+
       - name: Affected Communications contracts
         run: |
           node --test \
