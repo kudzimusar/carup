@@ -1,3 +1,4 @@
+-- +migrate Up
 -- OC-5R REL-03B-5 — truthful historical outbox quarantine.
 --
 -- "quarantined" means the historical event is preserved but intentionally excluded
