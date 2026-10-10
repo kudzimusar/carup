@@ -1,0 +1,98 @@
+name: OC-5R PC01 Governed Queue Closure
+
+# PC01 B–E: continues REL-03B-6 (run 38016065906 @ 98158b51, stop_reason d7_authority_boundary).
+# One governed run, five fail-closed segments, every id/fingerprint/total frozen in
+# scripts/ci/lib/oc5r-pc01-frozen-sets.json. Staging only; outbound disabled; no scheduler.
+on:
+  push:
+    branches:
+      - fix/oc5r-real-runtime-source-closure
+    paths:
+      - .github/workflows/oc5r-pc01-queue-closure.yml
+      - scripts/ci/oc5r-pc01-queue-closure.mjs
+      - scripts/ci/lib/oc5r-pc01-queue-closure-contract.mjs
+      - scripts/ci/lib/oc5r-pc01-frozen-sets.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc5r-pc01-queue-closure
+  cancel-in-progress: false
+
+jobs:
+  close:
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout exact pushed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact SHA and branch custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "fix/oc5r-real-runtime-source-closure"
+          echo "Exact checkout and branch custody proven."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies without staging credentials
+        run: npm ci
+
+      - name: Prove the contract offline before any credential is read
+        shell: bash
+        env:
+          NODE_ENV: test
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+        run: node --test backend/tests/oc5r-pc01-queue-closure-contract.test.js
+
+      - name: Require protected staging runtime custody
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL" || { echo "::error::DIASPORA_STAGING_DATABASE_URL unavailable"; exit 1; }
+          test -n "$SUPABASE_URL" || { echo "::error::STAGING_SUPABASE_URL unavailable"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "::error::STAGING_SUPABASE_SERVICE_ROLE_KEY unavailable"; exit 1; }
+          case "$SUPABASE_URL" in
+            https://eoyenigwevnxwwhyhaer.supabase.co|https://eoyenigwevnxwwhyhaer.supabase.co/) ;;
+            *) echo "::error::SUPABASE_URL is not canonical CarUp staging"; exit 1 ;;
+          esac
+          echo "Protected staging runtime custody proven."
+
+      - name: Execute governed queue closure (S0 preflight → S1 D7 → S2 D → S3 B/C → S4/S5 E)
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          CARUP_ENV: staging
+          VERCEL_ENV: preview
+          NODE_ENV: production
+          COMMUNICATION_ENGINE_ENABLED: "true"
+          COMMUNICATION_OUTBOUND_DISABLED: "true"
+          EVENT_WORKER_INTERVAL_ENABLED: "false"
+        run: node scripts/ci/oc5r-pc01-queue-closure.mjs
+
+      - name: Upload the closure receipt (ids, counts and verdicts only; no payloads, no secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc5r-pc01-queue-closure-${{ github.run_id }}
+          path: ${{ runner.temp }}/oc5r-pc01-queue-closure-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
