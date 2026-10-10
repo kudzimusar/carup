@@ -77,7 +77,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/oc5r-rel03b6-runner.mjs" <<'NODE'
+          RUNNER_FILE="$GITHUB_WORKSPACE/.oc5r-rel03b6-runner.mjs"
+          trap 'rm -f "$RUNNER_FILE"' EXIT
+          cat > "$RUNNER_FILE" <<'NODE'
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
           import path from 'node:path';
@@ -447,4 +449,31 @@ jobs:
           if (externalAttemptDelta !== 0 || externalSendDelta !== 0) throw new Error('External delivery delta detected; B6 must remain zero.');
           if (finalTotals.dead_letter !== EXPECTED_START_TOTALS.dead_letter) throw new Error('Dead-letter total changed during B6.');
           NODE
-          node "$RUNNER_TEMP/oc5r-rel03b6-runner.mjs"
+
+          echo "Preflight: proving generated runner module resolution without any worker call."
+          RUNNER_FILE="$RUNNER_FILE" node --input-type=module <<'NODE'
+          import { createRequire } from 'node:module';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+
+          const runnerFile = process.env.RUNNER_FILE;
+          if (!runnerFile || !runnerFile.startsWith(process.env.GITHUB_WORKSPACE + path.sep)) {
+            throw new Error('Generated B6 runner is not inside GITHUB_WORKSPACE.');
+          }
+          const runnerUrl = pathToFileURL(runnerFile);
+          const requireFromRunner = createRequire(runnerUrl);
+          const pgEntry = requireFromRunner.resolve('pg');
+          await import(pathToFileURL(pgEntry).href);
+          await import(pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, 'backend/services/eventBus/eventWorker.js')).href);
+          await import(pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, 'backend/services/communication/communicationEventListeners.js')).href);
+          console.log(JSON.stringify({
+            module_resolution_preflight: 'PASS',
+            runner_inside_workspace: true,
+            pg_resolved: true,
+            event_worker_imported: true,
+            communication_listeners_imported: true,
+            worker_called: false
+          }));
+          NODE
+
+          node "$RUNNER_FILE"
