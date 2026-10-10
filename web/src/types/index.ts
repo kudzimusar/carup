@@ -1,5 +1,6 @@
 export type { PublicationGap } from '@/lib/publicationRefusal';
 import type { PublicationGap } from '@/lib/publicationRefusal';
+import type { PublicationLastChange } from '@/lib/publicationStatus';
 
 import type { 
   AuthUser as SharedAuthUser, 
@@ -44,6 +45,12 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
     unpublishable_count: number;
     empty_statement: string | null;
   } | null;
+  /**
+   * Who last moved this listing on or off the public Marketplace, from `/api/vehicles/me` (PC01-J-R1).
+   * `not_read` is a failed read, never "nobody changed it". Render it through
+   * `describeReadyToPublish` (web/src/lib/publicationStatus.ts).
+   */
+  publication_last_change?: PublicationLastChange | null;
   location?: string;
   /**
    * Why `location` is or is not there. Carried through from the marketplace summary so a card can

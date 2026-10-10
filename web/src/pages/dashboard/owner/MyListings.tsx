@@ -9,7 +9,7 @@ import ListingInsights from '@/components/intelligence/ListingInsights'
 import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
-import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
+import { PUBLICATION_BADGE, describeReadyToPublish } from '@/lib/publicationStatus'
 import { describePublicationRefusal } from '@/lib/publicationRefusal'
 import { readOwnerTrustClaim, statedPrice } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
@@ -353,6 +353,14 @@ export default function MyListings() {
                       </Badge>
                     )}
                   </div>
+                  {publication === 'publishable' && !isSold && (
+                    <p
+                      className="mt-3 max-w-2xl border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950"
+                      data-testid={`publication-explainer-${listing.vin}`}
+                    >
+                      {describeReadyToPublish(listing.publication_last_change)}
+                    </p>
+                  )}
 
                   <div className="mt-6 grid gap-px bg-slate-200 sm:grid-cols-3">
                     <div className="bg-white px-4 py-4" data-testid={`listing-views-${listing.vin}`}>

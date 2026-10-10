@@ -198,8 +198,15 @@ export default function SellVehicle() {
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
   const requestedStage = searchParams.get('stage')
-  const [guestDraft] = useState(() => readGuestSellDraft())
-  const [step, setStep] = useState(() => readGuestSellStep())
+  // An explicit ?vin= names a listing the account already holds — every link that carries one comes
+  // from a server-known vehicle (My Listings, My Garage, the Vehicle Profile, the Passport, the
+  // post-save redirect) — so the account's copy is the authority for it. The browser draft is the
+  // guest hand-off and is restored only when no listing is named. It used to win regardless, and
+  // because this page also copied the account listing into it, every revisit of an account listing
+  // reopened as a "guest preview" with its identity lock and publication readiness gone.
+  const namesAccountListing = isCompleteVin(resumeVin)
+  const [guestDraft] = useState(() => (namesAccountListing ? null : readGuestSellDraft()))
+  const [step, setStep] = useState(() => (namesAccountListing ? 0 : readGuestSellStep()))
   const [form, setForm] = useState(() => guestDraft ? ({
     ...INITIAL,
     submissionId: guestDraft.submissionId,
@@ -410,7 +417,10 @@ export default function SellVehicle() {
   }, [fetchOwnedVehicles, guestDraft, requestedStage, resumeVin])
 
   useEffect(() => {
-    if (savedVin || serverDraftLoading) return
+    // An account listing already has a governed home — the account, with its own autosave below —
+    // so it is never copied into the guest browser draft. That copy outlived sign-out, carried the
+    // listing's engine, chassis and plate numbers, and was offered back on the public Sell page.
+    if (savedVin || serverDraftLoading || serverDraftLoaded || namesAccountListing) return
     const hasProgress = Boolean(
       form.vin || form.make || form.model || form.color || form.description || form.images.length || form.features.length
     )
@@ -456,7 +466,7 @@ export default function SellVehicle() {
     }, 300)
 
     return () => window.clearTimeout(timer)
-  }, [coverImageIndex, form, guestHistoryPlan, savedVin, serverDraftLoading, step])
+  }, [coverImageIndex, form, guestHistoryPlan, namesAccountListing, savedVin, serverDraftLoaded, serverDraftLoading, step])
 
   // Once an account-scoped server draft exists, it becomes the durable authority for Seller-
   // commercial/privacy edits. The browser draft remains crash-recovery only; this PATCH cannot
@@ -1136,7 +1146,7 @@ export default function SellVehicle() {
             : serverAutosaveState === 'saved'
               ? 'Commercial draft changes saved to your account.'
               : serverAutosaveState === 'error'
-                ? 'Account autosave is unavailable right now. Your browser recovery copy is still being kept.'
+                ? 'Account autosave is unavailable right now, so your latest changes are not saved to your account yet. Keep this page open — CarUp tries again when you next edit.'
                 : 'Account draft loaded. Changes will autosave after you pause.'}
         </p>
       )}
