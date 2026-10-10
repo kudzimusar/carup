@@ -201,12 +201,13 @@ export default function MobileNavDrawer() {
               </>
             ) : (
               <div className="flex flex-col gap-2 px-2 pt-1">
-                <Button variant="outline" asChild className="w-full justify-start gap-2" data-testid="mobile-signin">
+                {/* PC01-J-R1: 44 px touch targets — these rendered 36 px tall on a phone. */}
+                <Button variant="outline" asChild className="min-h-11 w-full justify-start gap-2" data-testid="mobile-signin">
                   <Link to="/login" onClick={close}>
                     <LogIn className="w-4 h-4" /> Sign In
                   </Link>
                 </Button>
-                <Button asChild className="w-full justify-start gap-2 bg-orange-500 hover:bg-orange-600" data-testid="mobile-register">
+                <Button asChild className="min-h-11 w-full justify-start gap-2 bg-orange-500 hover:bg-orange-600" data-testid="mobile-register">
                   <Link to="/register" onClick={close}>Create account</Link>
                 </Button>
               </div>

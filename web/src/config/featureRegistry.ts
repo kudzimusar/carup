@@ -1691,6 +1691,12 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['footer'],
     requiresAuth: false,
     icon: 'BookOpen',
+    // PC01-J-R1: the page documents `https://api.carup.dev/v1/vehicles/valuations`, `/v1/inspections`
+    // and `/v1/dealers`. None exists — the partner API is `/api/partner/v1/vehicles/:vin/identity`,
+    // `/trust-summary`, `/source-coverage`, `/dealers/:id/summary` and the rest in
+    // backend/routes/partnerApiRoutes.js. Documentation for endpoints that do not exist is planned,
+    // not active, until it describes the real API.
+    lifecycle: 'planned',
   },
 
   // ─── Auth / Registration Flow Routes ─────────────────────────────────

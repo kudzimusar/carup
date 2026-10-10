@@ -19,7 +19,8 @@ describe('Mobile navigation (Milestone 4)', () => {
   })
 
   it('mobile Sell uses guest vs authenticated destination', () => {
-    expect(getMobileNavigation(GUEST).primary.find(i => i.id === 'mobile.sell')!.href).toBe('/register')
+    // PC01-J-R1: a guest starts in the public Sell draft flow, not a bare /register that loses the intent.
+    expect(getMobileNavigation(GUEST).primary.find(i => i.id === 'mobile.sell')!.href).toBe('/sell')
     expect(getMobileNavigation(ctxFor('owner')).primary.find(i => i.id === 'mobile.sell')!.href).toBe('/dashboard/sell-vehicle')
   })
 

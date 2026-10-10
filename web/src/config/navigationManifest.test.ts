@@ -100,8 +100,13 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
 
   it('auth-aware destinations resolve correctly for guest vs authenticated', () => {
     const sellYourCar = NAVIGATION_MANIFEST.find(n => n.id === 'sell.your-car')!
-    expect(buildFeatureHref(sellYourCar, GUEST)).toBe('/register')
+    // PC01-J-R1: guests start in the public Sell draft flow; the account is asked for at save time.
+    expect(buildFeatureHref(sellYourCar, GUEST)).toBe('/sell')
     expect(buildFeatureHref(sellYourCar, OWNER)).toBe('/dashboard/sell-vehicle')
+    // A guest who picks a signed-in destination keeps it through the account step.
+    const uploadEvidence = NAVIGATION_MANIFEST.find(n => n.id === 'sell.upload-evidence')!
+    expect(buildFeatureHref(uploadEvidence, GUEST)).toBe('/register?returnTo=%2Fdashboard%2Fgarage')
+    expect(buildFeatureHref(uploadEvidence, OWNER)).toBe('/dashboard/garage')
   })
 
   it('role-restricted nodes: dealer listing visible to guests + dealers, hidden from non-dealer authed users', () => {
@@ -109,12 +114,13 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
       getDesktopMegaMenu('navbar-mega-sell', ctx)
         .flatMap(s => s.items)
         .map(i => i.id)
-    expect(dealerItems(GUEST)).toContain('sell.dealer-listing') // guest sees it (→ /register)
+    expect(dealerItems(GUEST)).toContain('sell.dealer-listing') // guest sees it (→ the public Dealer Directory)
     expect(dealerItems(DEALER)).toContain('sell.dealer-listing') // dealer sees it
     expect(dealerItems(OWNER)).not.toContain('sell.dealer-listing') // owner does NOT
     // Destinations
     const node = NAVIGATION_MANIFEST.find(n => n.id === 'sell.dealer-listing')!
-    expect(buildFeatureHref(node, GUEST)).toBe('/register')
+    // PC01-J-R1: a guest is shown the public directory and how to apply — never a dealer workspace route.
+    expect(buildFeatureHref(node, GUEST)).toBe('/dealers')
     expect(buildFeatureHref(node, DEALER)).toBe('/dealer/inventory')
     // Mechanic work orders gated to mechanics
     const mechItems = getDesktopMegaMenu('navbar-mega-parts', MECHANIC).flatMap(s => s.items).map(i => i.id)
@@ -399,9 +405,13 @@ describe('Navigation manifest — guest registration CTAs survive governance hyd
     expect(mobilePrimaryIds(anon())).toContain('mobile.sell')
   })
 
-  it('the guest CTA routes to /register (never the protected destination)', () => {
-    expect(buildFeatureHref(node('sell.your-car'), { isAuthenticated: false, role: null })).toBe('/register')
-    expect(buildFeatureHref(node('mobile.sell'), { isAuthenticated: false, role: null })).toBe('/register')
+  it('the guest Sell CTA routes to the public Sell flow (never the protected destination)', () => {
+    // PC01-J-R1: `/sell` drafts in the browser and asks for an account only when the draft is saved.
+    expect(buildFeatureHref(node('sell.your-car'), { isAuthenticated: false, role: null })).toBe('/sell')
+    expect(buildFeatureHref(node('mobile.sell'), { isAuthenticated: false, role: null })).toBe('/sell')
+    for (const id of ['sell.your-car', 'mobile.sell', 'sell.create-passport', 'sell.upload-evidence', 'sell.service-history', 'sell.safepay-ready', 'sell.dealer-listing']) {
+      expect(buildFeatureHref(node(id), { isAuthenticated: false, role: null })).not.toMatch(/^\/(dashboard|dealer\/)/)
+    }
   })
 
   it('a globally disabled (enabled:false) owner feature hides its guest CTA for everyone', () => {
