@@ -44,7 +44,7 @@ class MockQuery {
   }
   select() { return this; }
   eq(key, value) { this.filters.push({ key, value }); return this; }
-  in() { return this; }
+  in(key, values) { this.filters.push({ key, value: values, op: 'in' }); return this; }
   order() { return this; }
   limit() { return this; }
   insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
@@ -53,7 +53,7 @@ class MockQuery {
   single() { return this.execute({ single: true, maybe: false }); }
   then(resolve, reject) { return this.execute({ single: false, maybe: false }).then(resolve, reject); }
   rows() { return (this.client.data[this.table] ||= []); }
-  matches(row) { return this.filters.every((f) => row[f.key] === f.value); }
+  matches(row) { return this.filters.every((f) => (f.op === 'in' ? f.value.includes(row[f.key]) : row[f.key] === f.value)); }
   async execute({ single, maybe }) {
     if (this.operation === 'insert') {
       const rows = Array.isArray(this.payload) ? this.payload : [this.payload];

@@ -33,6 +33,11 @@ class MockQuery {
     return this;
   }
 
+  in(key, values) {
+    this.filters.push({ key, value: values, op: 'in' });
+    return this;
+  }
+
   insert(payload) {
     this.operation = 'insert';
     this.payload = payload;
@@ -63,7 +68,7 @@ class MockQuery {
   }
 
   matches(row) {
-    return this.filters.every(filter => row[filter.key] === filter.value);
+    return this.filters.every(filter => (filter.op === 'in' ? filter.value.includes(row[filter.key]) : row[filter.key] === filter.value));
   }
 
   async execute({ single, maybe }) {
@@ -123,7 +128,6 @@ function createMockClient() {
 }
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('not-a-real-document').toString('base64');
 
 // A buffer that passes Workstream C evidence validation (valid JPEG magic,
 // non-trivial size) so the OCR-decision path is exercised. Distinct fill per
@@ -134,6 +138,8 @@ function validImage() {
   buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff;
   return buf;
 }
+// Uploads are validated at the door (PC01-F F3): the upload fixture is a real JPEG, not arbitrary text.
+const image = 'data:image/jpeg;base64,' + validImage().toString('base64');
 
 test('creates verification session and writes audit event', async () => {
   const client = createMockClient();

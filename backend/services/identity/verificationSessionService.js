@@ -3,7 +3,7 @@ import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { DocumentIntelligenceService } from '../document-intelligence/documentIntelligenceService.js';
 import { downloadFromStorage, uploadToStorage, generateSecureReadUrl } from '../storage/storageService.js';
-import { validateEvidenceImages } from './evidenceValidation.js';
+import { validateEvidenceImages, detectImageType, MIN_IMAGE_BYTES } from './evidenceValidation.js';
 import { compareAccountToDocument, documentHolderName } from './identityBinding.js';
 import { DocumentClassifier, EVIDENCE_CLASSIFICATION, EXTRACTION_TRUST_STATUS } from './documentClassifier.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
@@ -18,10 +18,25 @@ import {
   decisionToPhase,
 } from './caseWorkflow.js';
 import { getReasonConfig } from './reasonCodes.js';
-import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
+// The size limit is deliberately UNCHANGED here. PC01-F proved on the deployed backend that the
+// platform refuses request bodies above 4.5 MB (HTTP 413 FUNCTION_PAYLOAD_TOO_LARGE), i.e. ~3.3 MB of
+// image once base64-encoded, while the pages promise 15 MB — for identity, dealer and garage uploads
+// alike. Fixing that means choosing between browser-side compression, direct-to-storage signed uploads
+// or a smaller promise: a product decision recorded for the owner (PC01-F F3b), not made here.
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+// Evidence belongs to the APPLICANT only while the case is still theirs to prepare. Once it is with a
+// reviewer, resolved, or rejected, uploading or submitting would rewrite what a reviewer saw or decided:
+// a rejected applicant could re-enter review through the same session (bypassing the policy-A refusal
+// to start a new one) and a VERIFIED session's evidence could be replaced after approval (PC01-F F3).
+// These are exactly the states in which the registration wizard offers uploads (draft, capturing,
+// ready_to_submit, action_required — registrationJourneyService.deriveIdentityStepState). A draft or
+// captured session may still call submit: it then fails the missing-uploads check with its precise
+// message rather than a generic conflict.
+const APPLICANT_OWNED_STATUSES = new Set(['draft', 'captured', 'uploaded', 'retry_requested']);
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const DOUBLE_SIDED_DOCUMENTS = new Set(['national_id', 'driver_license', 'drivers_license', 'registration_book']);
 const PUBLIC_OCR_FIELDS = ['first_name', 'last_name', 'national_id_number', 'date_of_birth', 'country'];
@@ -113,20 +128,36 @@ function parseImagePayload(payload = {}) {
     throw new ValidationError('A base64 image payload is required.');
   }
 
-  const dataUriMatch = image.match(/^data:([^;]+);base64,(.+)$/);
-  const mimeType = String(payload.mimeType || dataUriMatch?.[1] || 'image/jpeg').toLowerCase();
-  const base64 = dataUriMatch ? dataUriMatch[2] : image;
+  const dataUriMatch = image.match(/^data:([^;]+);base64,(.+)$/s);
+  let mimeType = String(payload.mimeType || dataUriMatch?.[1] || 'image/jpeg').toLowerCase();
+  if (mimeType === 'image/jpg') mimeType = 'image/jpeg';
+  const base64 = (dataUriMatch ? dataUriMatch[2] : image).replace(/\s+/g, '');
 
   if (!ALLOWED_MIME_TYPES.has(mimeType)) {
     throw new ValidationError('Unsupported verification image MIME type.');
   }
 
+  // Strict base64. Buffer.from silently drops characters outside the alphabet, so arbitrary text used to
+  // be stored as an "image" (PC01-F F3).
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64) || base64.length % 4 !== 0) {
+    throw new ValidationError('Verification image payload is not valid base64.');
+  }
   const buffer = Buffer.from(base64, 'base64');
   if (!buffer.length) {
     throw new ValidationError('Verification image payload is empty.');
   }
   if (buffer.length > MAX_IMAGE_BYTES) {
     throw new ValidationError('Verification image exceeds the 15MB limit.');
+  }
+  if (buffer.length < MIN_IMAGE_BYTES) {
+    throw new ValidationError('Verification image is too small to be a readable photo.');
+  }
+  // The DECLARED type is a claim; the bytes are the fact. Dealer onboarding already refuses a declared
+  // type the bytes contradict; identity now does too, at the door and before anything is stored, using
+  // the magic-byte table submit-time validation reads (detectImageType).
+  const actualType = detectImageType(buffer);
+  if (!actualType || actualType !== mimeType) {
+    throw new ValidationError('Verification image content is not the image type it claims to be. Upload a real JPG, PNG or WEBP photo.');
   }
 
   return { buffer, mimeType, dataUri: `data:${mimeType};base64,${base64}` };
@@ -334,6 +365,9 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
   }
 
   const session = await fetchSession(client, sessionId, actor);
+  if (!APPLICANT_OWNED_STATUSES.has(session.status)) {
+    throw new ConflictError(`Evidence can no longer be added to a ${session.status} verification session.`);
+  }
   const parsed = parseImagePayload(payload);
   const timestamp = now();
   const extension = extensionForMimeType(parsed.mimeType);
@@ -355,15 +389,20 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
   const hasSelfie = side === 'selfie' || Boolean(session.selfie_storage_path);
   updatePayload.status = hasFront && hasSelfie && (!session.double_sided || hasBack) ? 'uploaded' : 'captured';
 
+  // Compare-and-set: a reviewer may reject or escalate a case while the applicant is resubmitting
+  // (both are allowed in APPLICANT_ACTION_REQUIRED), and this write must not put 'uploaded' back over
+  // that decision. The stored object is then an unreferenced private file under the applicant's path.
   const { data, error } = await client
     .from('verification_sessions')
     .update(updatePayload)
     .eq('id', session.id)
     .eq('user_id', session.user_id)
+    .in('status', [...APPLICANT_OWNED_STATUSES])
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
+  if (!data) throw new ConflictError('This verification session changed while the image was uploading. Refresh and try again.');
 
   await writeAudit(client, {
     req: options.req,
@@ -382,6 +421,9 @@ export async function uploadVerificationSessionImage(client = supabase, actor = 
 
 export async function submitVerificationSession(client = supabase, actor = {}, sessionId, options = {}) {
   const session = await fetchSession(client, sessionId, actor);
+  if (!APPLICANT_OWNED_STATUSES.has(session.status)) {
+    throw new ConflictError(`A ${session.status} verification session cannot be submitted.`);
+  }
   const missing = [];
   if (!session.front_storage_path) missing.push('front document');
   if (session.double_sided && !session.back_storage_path) missing.push('back document');
@@ -411,10 +453,12 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     })
     .eq('id', session.id)
     .eq('user_id', session.user_id)
+    .in('status', [...APPLICANT_OWNED_STATUSES])
     .select()
-    .single();
+    .maybeSingle();
 
   if (pendingError) throw new Error(pendingError.message);
+  if (!pendingSession) throw new ConflictError('This verification session has already been submitted or was changed by a reviewer.');
 
   await writeAudit(client, {
     req: options.req,
