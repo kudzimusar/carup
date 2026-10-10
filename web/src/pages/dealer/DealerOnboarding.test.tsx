@@ -7,7 +7,7 @@
  * documents are not read automatically (the page says so and offers no extraction); a non-dealer is
  * sent back to registration.
  */
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import DealerOnboarding from './DealerOnboarding'
@@ -206,6 +206,34 @@ describe('DealerOnboarding', () => {
     renderPage()
     await waitFor(() => expect(screen.getByTestId('dealer-onboarding-denied')).toBeTruthy())
     expect(screen.getByText(/Go to registration/)).toBeTruthy()
+  })
+
+  it('PC01-F F6: every mapping decision is a named control inside a real table — on a phone the rows stack, the decision stays labelled', async () => {
+    inspectDealerWorkbook.mockResolvedValue({
+      checksum: 'c'.repeat(64), template_type: 'buyer', sheet_name: 'DIASPORA_IMPORT_ORDERS', row_count: 2,
+      canonical_columns: ['VIN', 'NOTES'],
+      ai: { state: 'provider_executed', model: '@cf/google/gemma-4-26b-a4b-it' },
+      proposals: [
+        { source: 'Reg_No', proposed_target: 'VIN', confidence: 1, provider: 'deterministic' },
+        { source: 'Stock ref', proposed_target: 'NOTES', confidence: 0.7, provider: 'ai', model: '@cf/google/gemma-4-26b-a4b-it' },
+      ],
+    })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('workbook-lane')).toBeTruthy())
+    const file = new File(['fake'], 'stock.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    fireEvent.change(screen.getByTestId('workbook-file'), { target: { files: [file] } })
+    await waitFor(() => expect((screen.getByTestId('inspect-workbook') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('inspect-workbook'))
+    await waitFor(() => expect(screen.getByTestId('mapping-table')).toBeTruthy())
+
+    // A column header does not name a form control: without its own name a screen reader announced
+    // each decision as just "combo box" (WCAG 4.1.2).
+    expect(screen.getByRole('combobox', { name: 'CarUp field for Reg_No' })).toBe(screen.getByTestId('target-Reg_No'))
+    expect(screen.getByRole('combobox', { name: 'CarUp field for Stock ref' })).toBe(screen.getByTestId('target-Stock ref'))
+    // The rows stack on a phone by changing their display; the explicit roles keep the table a table.
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Workbook column', 'CarUp field', 'Suggested by'])
+    expect(within(table).getAllByRole('row')).toHaveLength(3)
   })
 
   it('PC01-F F4: the document upload and the workbook picker are reachable by keyboard (WCAG 2.1.1)', async () => {

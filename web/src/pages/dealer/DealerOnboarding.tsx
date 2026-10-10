@@ -379,21 +379,25 @@ export default function DealerOnboarding() {
                   {inspection.ai.state === 'unavailable' && (
                     <p className="text-xs text-amber-700" data-testid="ai-unavailable">AI suggestions are unavailable right now — map the remaining columns yourself.</p>
                   )}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead><tr className="text-left text-muted-foreground"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Suggested by</th></tr></thead>
-                      <tbody>
+                  {/* On a phone each mapping is a stacked block (column, decision, provenance) so the decision is never
+                      off-screen; from sm up it is the table it always was. Explicit roles keep the table semantics that
+                      a display change would otherwise drop (PC01-F F6). */}
+                  <div className="sm:overflow-x-auto">
+                    <table className="block w-full text-xs sm:table" role="table">
+                      <thead className="sr-only sm:not-sr-only sm:table-header-group" role="rowgroup"><tr className="text-left text-muted-foreground" role="row"><th className="p-1" role="columnheader">Workbook column</th><th className="p-1" role="columnheader">CarUp field</th><th className="p-1" role="columnheader">Suggested by</th></tr></thead>
+                      <tbody className="block sm:table-row-group" role="rowgroup">
                         {inspection.proposals.map((row) => (
-                          <tr key={row.source} className="border-t border-border">
-                            <td className="p-1">{row.source}</td>
-                            <td className="p-1">
+                          <tr key={row.source} className="block border-t border-border py-2 sm:table-row sm:py-0" role="row">
+                            <td className="block break-words p-1 font-medium text-foreground sm:table-cell sm:break-normal sm:font-normal" role="cell">{row.source}</td>
+                            <td className="block p-1 sm:table-cell" role="cell">
                               <select className={fieldClass} value={mappingTargets[row.source] || 'ignore'} data-testid={`target-${row.source}`}
+                                aria-label={`CarUp field for ${row.source}`}
                                 onChange={(e) => { setMappingTargets({ ...mappingTargets, [row.source]: e.target.value }); setMappingConfirmed(false) }}>
                                 <option value="ignore">— ignore —</option>
                                 {inspection.canonical_columns.map((c) => <option key={c} value={c}>{c}</option>)}
                               </select>
                             </td>
-                            <td className="p-1 text-muted-foreground" data-testid={`source-${row.source}`}>{sourceLabel(row)}</td>
+                            <td className="block p-1 text-muted-foreground sm:table-cell" role="cell" data-testid={`source-${row.source}`}>{sourceLabel(row)}</td>
                           </tr>
                         ))}
                       </tbody>
