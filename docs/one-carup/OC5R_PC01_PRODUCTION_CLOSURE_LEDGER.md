@@ -466,7 +466,7 @@ branch's CLI Preview deployments. The existing Preview entries are scoped to oth
 
 Evidence: `docs/one-carup/evidence/OC5R_PC01_J_SMOKE.json`.
 
-## PC01-J-R1 — Owner usability convergence — **remediated, exact-head certified; new pair to deploy**
+## PC01-J-R1 — Owner usability convergence — **remediated; new pair DEPLOYED RUNTIME VERIFIED (28/28); Checkpoint 2 ready**
 
 The moderator's disposition on Checkpoint 1 was **OWNER USABILITY CHECKPOINT 1 — REMEDIATE**. The brief was also given
 to a second agent (ChatGPT Codex), which opened a worktree at `d13c2e78`. The Product Owner assigned J-R1 to this lane.
@@ -485,9 +485,27 @@ That worktree was left untouched.
 The full record is `docs/one-carup/OC5R_PC01_J_R1_OWNER_USABILITY_CONVERGENCE.md` (sections A–J), with evidence in
 `docs/one-carup/evidence/OC5R_PC01_J_R1_*.json`.
 
+**The J-R1 pair** (procedure unchanged: CLI uploads of a clean detached worktree to Preview, named PC01 aliases, no
+production target):
+
+| | |
+|---|---|
+| **Shared source SHA (deploy commit)** | **`40621751d4b74c59324fe6601aa5ddbdc7769b08`** = code `896ee73f` plus docs and evidence only. `verify-deployment-candidate`: `ok`, pairing `absent`. It was run from a space-free worktree: from a path containing a space the CLI silently does nothing and exits 0 |
+| **Frontend** | `dpl_GrfRSYSiEaSeAmStjpRVTCbteiZn`; immutable `https://carup-staging-p40vcj7rq-11-11.vercel.app`; alias **`https://carup-staging-oc5r-pc01-11-11.vercel.app`** |
+| **Backend** | `dpl_Cx9js7Ntwwcy9azQHUTVpywNHibU`; immutable `https://carup-backend-staging-klbmb7c7j-11-11.vercel.app`; alias **`https://carup-backend-staging-oc5r-pc01-11-11.vercel.app`** |
+| Order | Deployed 19:25:48–19:27:11Z. Aliases moved and read back 19:27:40Z and 19:27:55Z. Pushed 19:28:34Z, so the gates found the pair already serving the commit |
+| Runtime identity | **28/28** (`evidence/OC5R_PC01_J_R1_RUNTIME_IDENTITY.json`). It includes the J-R1 fixes live: the Serena's anonymous frame-number passport is 401; an ISO VIN is 200; the legal page and the bundle carry the approved identity |
+| Live evidence | Navigation: 129 items, 0 broken, 0 private-workspace links. Responsive: 150 rows, 0 overflow, 0 sub-44 px controls. Native: iOS Simulator with Expo Go 54; a guest lands on the Marketplace; the pairing is proven from the backend logs |
+| Gates | **Seller Home & Lifecycle 38079945232 PASS** (pair proven at `40621751`; 3 viewports). **Diaspora Deployed Staging UAT 38079945430 waiting for owner approval.** Eight other runs green |
+| Not moved | REL-01, REL-02 and the stable aliases (`bb9d9900`); production untouched |
+
 **Superseded as the candidate:**
 - The Checkpoint 1 pair (`d13c2e78`). Its evidence stands.
-- Its two gate runs (38056687030, 38056686796). They never received owner approval and are cancelled before the J-R1 push.
+- Its two gate runs (38056687030, 38056686796). They never received owner approval and were cancelled at 19:25Z, before
+  any journey ran.
+
+**Native UAT on an iPhone** needs an owner decision. The App Store Expo Go no longer opens SDK 54, and an installable
+build is blocked by `newArchEnabled:false`. Android (Expo Go 54 APK) and the iOS Simulator work.
 
 **New owner decisions** (recorded, not taken):
 - Guest marketplace inquiries and parts quotes stay open by product design; the J-R1 rule would ask for an account.
@@ -510,14 +528,15 @@ Six security branches exist. Each was checked against the candidate by ancestry 
 
 ## Running blockers
 
-**Owner Usability Checkpoint 1 — REMEDIATE → PC01-J-R1.**
-- Remediated and exact-head certified at `896ee73f`.
-- The Checkpoint 1 pair `d13c2e78` is superseded as the candidate, and its unapproved gate runs are cancelled.
-- The J-R1 pair, its runtime proof and the Checkpoint 2 itinerary are recorded in the J-R1 section after deployment.
+**Owner Usability Checkpoint 2 (PC01-J-R1) — ready.**
+- The pair `40621751` is deployed, verified 28/28 and Seller-gate green. The itinerary is §J of the J-R1 record.
 - Owner actions:
-  - approve the `staging` gates on the J-R1 deploy commit (then re-add the provider-proof label);
+  - approve the Diaspora `staging` gate 38079945430 (then re-add the provider-proof label);
   - provide the worker secret for a fresh D7;
-  - run Checkpoint 2.
+  - run Checkpoint 2;
+  - decide the iPhone native-UAT path.
+- This ledger update and the post-deployment evidence are committed **locally and not pushed** until the Diaspora gate
+  finishes. A push would make the PR head differ from the deployed SHA under it.
 
 **Owner decisions carried to M** (none blocks a source or staging step):
 
@@ -529,6 +548,9 @@ Six security branches exist. Each was checked against the candidate by ancestry 
 | 4 | #213 D / F-Q / O (F10–F12) |
 | 5 | #208's deferred set: PDF identity, the X4 provider, dealer company-document OCR, X5A, the upload-idempotency migration |
 | 6 | #209: garage notifications, the GMO-8 approach, the reviewer identity, Cloudflare spend |
+| 7 | J-R1: guest marketplace inquiries and parts quotes (open by product design); D10, guest "find a garage" versus signed-in "request this garage" |
+| 8 | J-R1: the native path to iPhone UAT — an SDK upgrade, or a New-Architecture development build on the owner's Expo/Apple accounts |
+| 9 | J-R1: the auth-email footer wording (under Email X2); republishing the Serena (DB2B-1 class owner-review) |
 
 **Missing for PC01-J/K (owner action):**
 - `COMMUNICATION_WORKER_SECRET` in Vercel Preview for this branch, for a fresh D7;

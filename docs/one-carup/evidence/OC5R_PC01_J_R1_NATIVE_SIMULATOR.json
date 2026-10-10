@@ -1,0 +1,44 @@
+{
+ "schema": "oc5r-pc01-j-r1-native-simulator/v1",
+ "kind": "NATIVE runtime evidence (iOS, React Native in Expo Go) — separate from the responsive-web evidence, which is browser emulation",
+ "source": {
+  "deploy_commit": "40621751d4b74c59324fe6601aa5ddbdc7769b08",
+  "where": "Metro bundler run from a clean detached worktree at the deploy commit (tracked tree clean; node_modules an APFS clone of the shared install)",
+  "api": "EXPO_PUBLIC_API_URL = https://carup-backend-staging-oc5r-pc01-11-11.vercel.app (set explicitly; the app has no default and refuses to start without it)"
+ },
+ "device": {
+  "simulator": "iPhone 17, iOS 27.0 (24A434) — a dedicated device created for this run and deleted afterwards; the existing iPhone 17 simulator (Expo Go 57.0.9) was left as found",
+  "expo_go": "54.0.7 (SDK 54.0.0, runtime exposdk:54.0.0), from the iosClientUrl published for SDK 54 at api.expo.dev/v2/versions/latest",
+  "bundle": "iOS Bundled 10.2 s — node_modules/expo-router/entry.js, 1,825 modules"
+ },
+ "ran": "2026-10-10T19:44Z → 20:01Z",
+ "observed": [
+  {
+   "screen": "first launch, no session",
+   "result": "the public Marketplace ('CarUp Vehicles' / 'Find your next vehicle') with two tabs — Marketplace and Sign in. Before J-R1 every launch without a session went to Login (N1).",
+   "screenshot": "pc01-j-r1-screens/native_ios_expo-go_guest_launch.jpg"
+  },
+  {
+   "screen": "Marketplace data",
+   "result": "'0 matching vehicles' — truthful: staging has no public listing (PC01-J smoke). Copy note: the empty state says 'Try another make or broaden your search' even with All makes selected — recorded for NEXT_NATIVE_PRODUCT_PHASE"
+  },
+  {
+   "screen": "backend pairing",
+   "result": "the new backend deployment dpl_Cx9js7Ntwwcy9azQHUTVpywNHibU logged the app's GET /api/features/effective and GET /api/marketplace/listings (200) on domain carup-backend-staging-oc5r-pc01-11-11.vercel.app, clustered at each launch; an idle 50 s window after the last launch had none — no request loop"
+  },
+  {
+   "screen": "Metro warning",
+   "result": "'React Native's New Architecture is always enabled in Expo Go, but it is explicitly disabled in your project's app config' — corroborates the recorded installable-build blocker (newArchEnabled:false vs Reanimated 4 / FlashList 2); Expo Go itself is unaffected"
+  }
+ ],
+ "not_captured": {
+  "screens": [
+   "Sign in (Create account / Browse as guest)",
+   "Register",
+   "Garage and the owner Passport fallback",
+   "the lock screen"
+  ],
+  "why": "this machine's Xcode has no Simulator.app GUI and no UI-automation tool is installed, so nothing can be tapped: `simctl openurl` stops on iOS's 'Open in Expo Go?' confirmation, and a launch URL with a route path opens the project root. These screens are certified at the code head by tests (login-submit-button, native-boundary-audit, native-dashboard-bootstrap, garage-odometer-ocr, upload-queue-drain) and are owner steps at Checkpoint 2."
+ },
+ "writes": "none by the app beyond the anonymous GETs above; no account created, no sign-in"
+}
