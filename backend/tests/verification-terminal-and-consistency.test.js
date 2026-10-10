@@ -139,6 +139,9 @@ test('P1: classification stays VALID when core identity fields ARE extracted', a
     first_name: 'Ruvimbo',
     last_name: 'Chigumba',
     national_id_number: 'ZN0943248',
+    // A genuine provider reading carries the delivery proof DocumentIntelligenceService records
+    // (PC01-F F2: extraction trust requires positive proof the image reached the model).
+    provenance: { imageBytesSent: 3000 },
   });
 
   const row = client.data.verification_sessions.find((r) => r.id === session.id);

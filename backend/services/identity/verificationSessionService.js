@@ -394,6 +394,10 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
   const timestamp = now();
   const storage = options.storage || { downloadFromStorage };
   const ocr = options.ocr || DocumentIntelligenceService;
+  // The classifier is injectable for the SAME reason the OCR service is: the approval contract has
+  // to be provable for each classification the product can actually produce, and a test cannot
+  // reach `likely_identity_document` by asking a real model nicely (#209 43be0ad2, PO ruling §12D).
+  const classifier = options.classifier || DocumentClassifier;
 
   const { data: pendingSession, error: pendingError } = await client
     .from('verification_sessions')
@@ -444,7 +448,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // -------------------------------------------------------
     // STAGE 1: Document classification (Layer 1 + Layer 2)
     // -------------------------------------------------------
-    let classificationResult = await DocumentClassifier.classify(
+    let classificationResult = await classifier.classify(
       { front: frontDocument.buffer, back: backBuffer, selfie: selfieBuffer },
       session.document_type
     );
@@ -452,7 +456,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     evidenceHashes = classificationResult.hashes;
 
     // Persist classification assessment
-    await DocumentClassifier.persistClassification(client, session.id, classificationResult);
+    await classifier.persistClassification(client, session.id, classificationResult);
 
     const completedAt = now();
 
@@ -471,6 +475,12 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
           status: 'pending_manual_review',
           workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
           primary_reason_code: reasonCode,
+          // Record WHAT it was classified as, not only why it was refused. Without this the stored row
+          // carried a reason code and NO classification, so the decision policy's evidence-class gate
+          // read NOT_RUN and a non-document was held by one guard where two must apply — the guard a
+          // reviewer's reason could once overwrite (PC01-F F1/F2; PO ruling §12D invariant 4).
+          evidence_classification: classificationResult.classification,
+          extraction_trust_status: EXTRACTION_TRUST_STATUS.NOT_RUN,
           failure_reason: reasonText,
           review_notes: `Evidence classified as "${classificationResult.classification}". ${reasonText}. Manual review required.`,
           ocr_result: null,
@@ -528,10 +538,36 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         hasText(sanitizedResult.national_id_number) ||
         (hasText(sanitizedResult.first_name) && hasText(sanitizedResult.last_name));
       const hasFields = Object.keys(sanitizedResult).length > 0;
-      if (hasCoreIdentityFields && classificationResult.classification === EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT) {
+
+      /**
+       * CLASSIFICATION AND EXTRACTION TRUST ARE INDEPENDENT AXES (Product Owner ruling §12D; #209
+       * 43be0ad2, re-keyed to this lineage).
+       *
+       * This used to grant PARTIALLY_TRUSTED only when the classifier had chosen exactly
+       * VALID_IDENTITY_DOCUMENT and stamped OCR_RESULT_UNTRUSTED on everything else — so a
+       * `likely_identity_document` with its core fields read was unapprovable by anyone, although
+       * decisionPolicy._checkApprove permits "a valid OR LIKELY identity document". Two layers
+       * disagreed about the same case; the coupling here was the defect.
+       *
+       * Extraction trust is now derived from EXTRACTION FACTS: the provider succeeded, it actually
+       * processed the submitted image bytes, and the core identity fields are present. What the
+       * document IS stays the classifier's answer, gated where it belongs — the decision policy's
+       * evidence-class list (non_document, unsupported_document, unreadable, uncertain still blocked).
+       *
+       * Delivery is proven POSITIVELY. This lineage's DocumentIntelligenceService records the bytes it
+       * actually sent in `extractedData.provenance.imageBytesSent`; #209 read a different shape
+       * (`provider_execution.usage`) and passed when it was ABSENT, which here would read nothing and
+       * pass every case. A reading with no delivery proof is not a reading.
+       *
+       * LIKELY still never auto-verifies: the session always lands in pending_manual_review and only a
+       * capable, stepped-up reviewer decides. OCR_RESULT_UNTRUSTED stays approval-blocking.
+       */
+      const providerProcessedTheImage = Number(result.extractedData?.provenance?.imageBytesSent) > 0;
+      if (hasCoreIdentityFields && providerProcessedTheImage) {
         extractionTrust = EXTRACTION_TRUST_STATUS.PARTIALLY_TRUSTED;
         extractionReasonCode = null;
       } else if (hasCoreIdentityFields) {
+        // Fields, but no proof the image ever reached the model.
         extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
         extractionReasonCode = 'OCR_RESULT_UNTRUSTED';
       } else if (hasFields) {
@@ -542,6 +578,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         extractionReasonCode = 'REQUIRED_FIELDS_MISSING';
       }
     } else {
+      // A provider failure or outage can never produce trusted extraction (§12D invariant 8).
       extractionTrust = EXTRACTION_TRUST_STATUS.NO_FIELDS;
       extractionReasonCode = 'OCR_PROVIDER_FAILED';
     }
