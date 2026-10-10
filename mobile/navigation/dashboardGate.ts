@@ -10,7 +10,10 @@
  * completes — so the screen MUST wait for bootstrap before redirecting, or it
  * would eject an already-signed-in user. Ordering is strictly:
  *   1. auth bootstrap/loading  → 'loading'  (never redirect mid-restore)
- *   2. confirmed anonymous     → 'redirect' (init finished, still no role)
+ *   2. confirmed anonymous     → 'redirect' to the PUBLIC Marketplace (init finished, still no role).
+ *      PC01-J-R1: this sent every guest to Login, so a guest could not browse at all — not the
+ *      Marketplace, not a vehicle, not its trust position. Browsing never needs an account; the
+ *      app asks for one at the point of messaging, saving or selling.
  *   3. role-owned boundary     → 'boundary' (governed by `${role}.overview`)
  */
 import type { UserRole } from '@shared/types';
@@ -18,7 +21,7 @@ import { getFeatureById } from './featureManifest';
 
 export type DashboardGate =
   | { kind: 'loading' }
-  | { kind: 'redirect'; to: '/login' }
+  | { kind: 'redirect'; to: '/marketplace' }
   | { kind: 'boundary'; role: UserRole; featureId: string; route: string };
 
 export function resolveDashboardGate(input: {
@@ -27,8 +30,8 @@ export function resolveDashboardGate(input: {
 }): DashboardGate {
   // 1. Auth bootstrap — never decide while the saved session is still restoring.
   if (input.loading) return { kind: 'loading' };
-  // 2. Confirmed anonymous (init finished, no role) → login.
-  if (!input.role) return { kind: 'redirect', to: '/login' };
+  // 2. Confirmed anonymous (init finished, no role) → the public Marketplace.
+  if (!input.role) return { kind: 'redirect', to: '/marketplace' };
   // 3. Role-owned governed boundary (role known → never a fabricated owner).
   const featureId = `${input.role}.overview`;
   const route = getFeatureById(featureId)?.route ?? '/dashboard';

@@ -22,7 +22,7 @@ export async function checkBiometricSupport(): Promise<{ hasHardware: boolean; i
   }
 }
 
-export async function authenticateWithBiometrics(reason = 'Verify your identity to access CarUp Kimi'): Promise<boolean> {
+export async function authenticateWithBiometrics(reason = 'Verify your identity to access CarUp'): Promise<boolean> {
   try {
     const isSupported = await checkBiometricsSupport();
     if (!isSupported) {
@@ -42,6 +42,6 @@ export async function authenticateWithBiometrics(reason = 'Verify your identity 
   }
 }
 
-export async function authenticateBiometrics(reason = 'Verify your identity to access CarUp Kimi'): Promise<boolean> {
+export async function authenticateBiometrics(reason = 'Verify your identity to access CarUp'): Promise<boolean> {
   return authenticateWithBiometrics(reason);
 }

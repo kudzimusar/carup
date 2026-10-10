@@ -9,6 +9,7 @@
  * The actual file bytes are referenced by `localFileRef`; the resolver is injected so this
  * module stays testable without React Native (in tests we pass an in-memory resolver).
  */
+import { csrfFetch } from './csrfFetch';
 import { useUploadQueueStore, type UploadQueueItem } from '../store/uploadQueueStore';
 import { ODOMETER_NATIVE_EVIDENCE_TYPE, ODOMETER_UPLOAD_CONTRACT } from './odometerCapture';
 
@@ -40,7 +41,8 @@ export function makeHttpUploader(baseUrl: string, token: string | null) {
   return async (item: UploadQueueItem, payload: string): Promise<string> => {
     const contract = NATIVE_EVIDENCE_CONTRACTS[item.evidenceType];
     if (!contract) throw new Error(`unsupported_native_evidence_type:${item.evidenceType}`);
-    const res = await fetch(`${baseUrl}/api/vehicles/${encodeURIComponent(item.vin)}/evidence/upload`, {
+    // PC01-J-R1: the evidence upload is a mutating route, so it carries a session-bound CSRF token.
+    const res = await csrfFetch(baseUrl, token, `${baseUrl}/api/vehicles/${encodeURIComponent(item.vin)}/evidence/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

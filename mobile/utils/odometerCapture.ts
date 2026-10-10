@@ -9,6 +9,7 @@
  * The app never calls an AI gateway or a model for OCR; the server's OCR authority does that.
  * Contract pinned in shared/contracts/native-odometer-capture.contract.json.
  */
+import { csrfFetch } from './csrfFetch';
 
 export const ODOMETER_NATIVE_EVIDENCE_TYPE = 'odometer_reading';
 
@@ -40,7 +41,8 @@ export async function requestOdometerReading(
   evidenceId: string,
 ): Promise<OdometerReadingOutcome> {
   try {
-    const res = await fetch(odometerOcrUrl(baseUrl, vin, evidenceId), {
+    // PC01-J-R1: the OCR read is a mutating route, so it carries a session-bound CSRF token.
+    const res = await csrfFetch(baseUrl, token, odometerOcrUrl(baseUrl, vin, evidenceId), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { 'x-session-token': token } : {}) },
       body: '{}',

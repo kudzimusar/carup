@@ -29,12 +29,22 @@ console.log('\n=== LOGIN SUBMIT BUTTON STATIC TEST ===\n');
 const submitIdx = src.indexOf('testID="login-submit"');
 const submitBlock = submitIdx > -1 ? src.slice(submitIdx - 200, submitIdx + 700) : '';
 
-test('exact visible marker string is present: VISIBLE LOGIN BUTTON BELOW', () => {
-  assert.ok(src.includes('VISIBLE LOGIN BUTTON BELOW'), 'marker text present');
+// PC01-J-R1: the two debug strings this file used to require ("VISIBLE LOGIN BUTTON BELOW" and
+// "SIGN IN — VISIBLE CTA") were rendered on the customer screen. The button's visibility is still
+// pinned below (testID, full width, minHeight, solid orange background); its label is a real label.
+test('no debug label is rendered on the customer sign-in screen', () => {
+  assert.ok(!src.includes('VISIBLE LOGIN BUTTON BELOW'), 'debug marker removed');
+  assert.ok(!src.includes('VISIBLE CTA'), 'debug CTA label removed');
 });
 
-test('exact CTA string is present: SIGN IN — VISIBLE CTA', () => {
-  assert.ok(src.includes('SIGN IN — VISIBLE CTA'), 'CTA label present');
+test('the submit button reads "Sign in"', () => {
+  assert.ok(/>\s*Sign in\s*</.test(submitBlock), 'real CTA label present in the submit block');
+});
+
+test('the sign-in screen offers account creation and guest browsing', () => {
+  assert.ok(src.includes('testID="login-create-account"'), 'create-account link present');
+  assert.ok(src.includes("router.push('/(auth)/register')"), 'it opens registration');
+  assert.ok(src.includes('testID="login-browse-as-guest"'), 'guest browsing link present');
 });
 
 test('submit control declares testID="login-submit"', () => {
@@ -64,9 +74,11 @@ test('button text is white (not white-on-white — bg is coloured)', () => {
   assert.ok(/color:\s*'#FFFFFF'/.test(submitBlock), 'button text is white');
 });
 
-test('marker appears before the submit button (button is below the marker)', () => {
-  const markerIdx = src.indexOf('VISIBLE LOGIN BUTTON BELOW');
-  assert.ok(markerIdx > -1 && submitIdx > markerIdx, 'marker precedes the submit button');
+test('the submit button sits directly below the password field, in the same flow', () => {
+  // Anchored to the password field now that the debug marker that used to sit between them is gone.
+  const passwordIdx = src.indexOf('testID="login-password"');
+  assert.ok(passwordIdx > -1 && submitIdx > passwordIdx, 'password field precedes the submit button');
+  assert.ok(!src.slice(passwordIdx, submitIdx).includes('testID="login-email"'), 'nothing re-orders the form between them');
 });
 
 test('submit button is not conditionally hidden (only `disabled` toggles)', () => {
