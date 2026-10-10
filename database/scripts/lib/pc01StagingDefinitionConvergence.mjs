@@ -87,6 +87,40 @@ export const POST_ASSERTIONS = Object.freeze([
     "(select coalesce(array_agg(grantee::text order by grantee::text), '{}') from information_schema.role_routine_grants where routine_schema = 'public' and routine_name = 'activate_garage_application' and privilege_type = 'EXECUTE' and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')) = array['service_role']"],
 ]);
 
+const REBUILT = "('public.identity_lifecycle_events'::regclass, 'public.dealer_workbook_mapping_confirmations'::regclass)";
+const REBUILT_NAMES = "('identity_lifecycle_events', 'dealer_workbook_mapping_confirmations')";
+
+/**
+ * Everything the convergence answers for, as one comparable JSON value. Grants are limited to the API roles
+ * the lineage governs explicitly (both tables' REVOKE/GRANT and GMO-4's function grants); the trigger
+ * function's grants come from each environment's default privileges, which the lineage does not state.
+ */
+export const CONVERGED_CATALOG_SQL = `select json_build_object(
+  'constraints', (select json_agg(json_build_array(c.relname, co.conname, pg_get_constraintdef(co.oid)) order by c.relname, co.conname)
+                  from pg_constraint co join pg_class c on c.oid = co.conrelid where c.oid in ${REBUILT}),
+  'columns', (select json_agg(json_build_array(table_name, column_name, data_type, is_nullable, column_default) order by table_name, column_name)
+              from information_schema.columns where table_schema = 'public' and table_name in ${REBUILT_NAMES}),
+  'indexes', (select json_agg(json_build_array(tablename, indexname, indexdef) order by tablename, indexname)
+              from pg_indexes where schemaname = 'public' and tablename in ${REBUILT_NAMES}),
+  'triggers', (select json_agg(json_build_array(tgname, pg_get_triggerdef(oid)) order by tgname) from pg_trigger where not tgisinternal and tgrelid in ${REBUILT}),
+  'rls', (select json_agg(json_build_array(relname, relrowsecurity, relforcerowsecurity) order by relname) from pg_class where oid in ${REBUILT}),
+  'table_comments', (select json_agg(json_build_array(relname, obj_description(oid, 'pg_class')) order by relname) from pg_class where oid in ${REBUILT}),
+  'table_grants', (select json_agg(json_build_array(table_name, grantee, privilege_type) order by table_name, grantee, privilege_type)
+                   from information_schema.role_table_grants where table_schema = 'public' and table_name in ${REBUILT_NAMES} and grantee in ('anon', 'authenticated', 'service_role')),
+  'functions', (select json_agg(json_build_array(proname, pg_get_function_identity_arguments(oid), pg_get_function_result(oid), proconfig, prosecdef, md5(prosrc)) order by proname)
+                from pg_proc where pronamespace = 'public'::regnamespace and proname in ('identity_lifecycle_events_append_only', 'activate_garage_application')),
+  'activation_grants', (select json_agg(json_build_array(grantee, privilege_type) order by grantee, privilege_type) from information_schema.role_routine_grants
+                        where routine_schema = 'public' and routine_name = 'activate_garage_application' and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')),
+  'activation_comment', (select obj_description('public.activate_garage_application(uuid, text)'::regprocedure, 'pg_proc')),
+  'receipts_tenant_id_not_null', (select attnotnull from pg_attribute where attrelid = 'public.diaspora_workbook_import_receipts'::regclass and attname = 'tenant_id' and not attisdropped)
+)::text as catalog`;
+
+/** The top-level keys whose values differ (an empty list means identical). */
+export function catalogDifferences(a, b) {
+  const keys = [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])].sort();
+  return keys.filter((k) => JSON.stringify(a?.[k] ?? null) !== JSON.stringify(b?.[k] ?? null));
+}
+
 /** Table grants of the two rebuilt tables, so the rebuild can be held to what was granted before it. */
 export const GRANTS_SQL = `select coalesce(json_agg(json_build_array(table_name, grantee, privilege_type) order by 1, 2, 3), '[]')::text as grants
   from information_schema.role_table_grants
@@ -142,7 +176,7 @@ async function evaluate(client, assertions) {
  * Run the convergence on an open `pg` client (staging, or a local rehearsal). `apply: false` executes
  * everything and rolls back. Returns the receipt; throws (after rolling back) on any refusal.
  */
-export async function runConvergence(client, { migrationsDir, apply = false } = {}) {
+export async function runConvergence(client, { migrationsDir, apply = false, cleanSource = null } = {}) {
   const steps = buildConvergence(migrationsDir);
   const receipt = { schema: 'oc5r-pc01-staging-definition-convergence/v1', mode: apply ? 'apply' : 'dry-run', steps: steps.map(({ sql, ...rest }) => rest) };
   await client.query('BEGIN');
@@ -156,11 +190,19 @@ export async function runConvergence(client, { migrationsDir, apply = false } = 
       throw err;
     }
     receipt.grants_before = (await client.query(GRANTS_SQL)).rows[0].grants;
+    receipt.catalog_before = JSON.parse((await client.query(CONVERGED_CATALOG_SQL)).rows[0].catalog);
     for (const step of steps) await client.query(step.sql);
     receipt.post = await evaluate(client, POST_ASSERTIONS);
     receipt.grants_after = (await client.query(GRANTS_SQL)).rows[0].grants;
     const failed = receipt.post.filter((r) => !r.ok);
     if (receipt.grants_after !== receipt.grants_before) failed.push({ name: 'table grants unchanged by the rebuild', ok: false });
+    // The converged objects, read INSIDE this transaction — so a dry run's result is evidence, not lost at ROLLBACK.
+    receipt.catalog_after = JSON.parse((await client.query(CONVERGED_CATALOG_SQL)).rows[0].catalog);
+    if (cleanSource) {
+      const differences = catalogDifferences(receipt.catalog_after, cleanSource);
+      receipt.clean_source = { equal: differences.length === 0, differences, sha256: sha256(JSON.stringify(cleanSource)) };
+      if (differences.length) failed.push({ name: `converged catalog equals the clean-source catalog (differs: ${differences.join(', ')})`, ok: false });
+    }
     if (failed.length) {
       const err = new Error(`POST_ASSERTION_FAILED: ${failed.map((r) => r.name).join('; ')}`);
       err.code = 'POST_ASSERTION_FAILED';

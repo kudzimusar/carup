@@ -15,18 +15,14 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
-import { PGlite } from '@electric-sql/pglite';
 
 import {
-  SOURCES, PRE_ASSERTIONS, POST_ASSERTIONS, ROLLBACK_STATEMENTS, buildConvergence, runConvergence,
+  SOURCES, PRE_ASSERTIONS, POST_ASSERTIONS, ROLLBACK_STATEMENTS, buildConvergence, runConvergence, catalogDifferences,
 } from '../../database/scripts/lib/pc01StagingDefinitionConvergence.mjs';
-import { prepareUpSql } from '../../database/scripts/lib/stagingMigrationRunner.mjs';
-import { parseMigrationSource } from '../db/migrationParser.js';
+import { buildCleanSourceDb, cleanSourceCatalog } from '../../database/scripts/lib/pc01CleanSourceCatalog.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = path.join(here, '../../database/migrations');
-const upOf = (file) => prepareUpSql(parseMigrationSource(readFileSync(path.join(MIGRATIONS, file), 'utf8'), file).up, file).sql;
 
 /** node-postgres-shaped adapter: every statement list runs as one simple query; rows come from the last. */
 const adapter = (db) => ({ query: async (sql) => { const res = await db.exec(sql); return { rows: res.at(-1)?.rows ?? [] }; } });
@@ -35,21 +31,8 @@ const instances = [];
 after(async () => { await Promise.all(instances.map((db) => db.close().catch(() => {}))); });
 
 async function freshLineage() {
-  const db = new PGlite();
+  const db = await buildCleanSourceDb(MIGRATIONS);
   instances.push(db);
-  await db.exec(`
-    DO $$ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-    DO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-    DO $$ BEGIN CREATE ROLE service_role; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-    CREATE TABLE public.users (id text PRIMARY KEY);
-    CREATE TABLE public.dealer_profiles (id uuid PRIMARY KEY);
-    CREATE TABLE public.garage_applications (id uuid PRIMARY KEY);
-    CREATE TABLE public.tenants (id uuid PRIMARY KEY);
-    CREATE TABLE public.tenant_users (id uuid PRIMARY KEY);
-    -- the column D5 is about, as 20260727120000 defines it
-    CREATE TABLE public.diaspora_workbook_import_receipts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL);
-  `);
-  for (const file of [SOURCES.identity, SOURCES.confirmations, SOURCES.activation]) await db.exec(upOf(file));
   return db;
 }
 
@@ -110,12 +93,17 @@ test('PC01-H: on the measured drift — the dry run changes nothing; the apply c
   assert.notDeepEqual(drifted, lineage, 'the rehearsal really is drifted');
   assert.ok((await assertionsHold(db, PRE_ASSERTIONS)).every(([, ok]) => ok === true), 'the rehearsal drift is the measured drift');
 
-  const dry = await runConvergence(adapter(db), { migrationsDir: MIGRATIONS, apply: false });
+  const clean = await cleanSourceCatalog(MIGRATIONS);
+  const dry = await runConvergence(adapter(db), { migrationsDir: MIGRATIONS, apply: false, cleanSource: clean });
+  assert.deepEqual(dry.clean_source.differences, [], 'the dry run produced exactly the clean source');
+  assert.deepEqual(dry.catalog_after, clean);
+  assert.ok(catalogDifferences(dry.catalog_before, clean).length > 0, 'and the pre-image visibly was not');
   assert.equal(dry.committed, false);
   assert.ok(dry.post.every((r) => r.ok), JSON.stringify(dry.post.filter((r) => !r.ok)));
   assert.deepEqual(await catalog(db), drifted, 'a dry run leaves the database as it was');
 
-  const applied = await runConvergence(adapter(db), { migrationsDir: MIGRATIONS, apply: true });
+  const applied = await runConvergence(adapter(db), { migrationsDir: MIGRATIONS, apply: true, cleanSource: clean });
+  assert.equal(applied.clean_source.equal, true);
   assert.equal(applied.committed, true);
   assert.equal(applied.grants_after, applied.grants_before);
   assert.deepEqual(await catalog(db), lineage, 'converged: identical to a fresh application of the lineage');
@@ -137,4 +125,15 @@ test('PC01-H: refuses when either rebuilt table holds a row, and rolls everythin
   await assert.rejects(() => runConvergence(adapter(db), { migrationsDir: MIGRATIONS, apply: true }), /PRE_ASSERTION_FAILED: identity_lifecycle_events is empty/);
   assert.deepEqual(await catalog(db), before);
   assert.equal((await db.query('select count(*)::int as n from public.identity_lifecycle_events')).rows[0].n, 1, 'the row is untouched');
+});
+
+test('PC01-H: a converged result that differs from the clean source is refused and rolled back — even on apply', async () => {
+  const db = await freshLineage();
+  await drift(db);
+  const drifted = await catalog(db);
+  const clean = await cleanSourceCatalog(MIGRATIONS);
+  const tampered = { ...clean, constraints: clean.constraints.map((c) => (c[1] === 'identity_lifecycle_events_user_id_fkey' ? [c[0], c[1], c[2].replace('RESTRICT', 'CASCADE')] : c)) };
+  await assert.rejects(() => runConvergence(adapter(db), { migrationsDir: MIGRATIONS, apply: true, cleanSource: tampered }),
+    /POST_ASSERTION_FAILED: converged catalog equals the clean-source catalog \(differs: constraints\)/);
+  assert.deepEqual(await catalog(db), drifted, 'nothing committed');
 });
