@@ -98,7 +98,7 @@ function CommerceMenu({
                     className="flex min-h-[34px] items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-400 cursor-not-allowed select-none"
                   >
                     <span className="truncate">{item.label}</span>
-                    <Badge variant="outline" className="shrink-0 border-gray-200 bg-transparent text-[10px] font-semibold uppercase tracking-wide text-gray-400">Soon</Badge>
+                    <Badge variant="outline" className="shrink-0 border-gray-200 bg-transparent text-[10px] font-semibold uppercase tracking-wide text-gray-400">{item.badge ?? 'Soon'}</Badge>
                   </div>
                 ))}
               </div>
@@ -166,7 +166,9 @@ export default function Navbar() {
   const unreadCount = user && notificationsState === 'ready' ? liveNotifications.filter(n => !n.read).length : 0
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
-  const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
+  // PC01-J-R1: a guest starts selling in the public draft flow (/sell) and is asked for an account
+  // when the draft is saved; a bare /register used to drop the intent on a role dashboard.
+  const sellerPath = user ? '/dashboard/sell-vehicle' : '/sell'
 
   // Registry-driven mega-menus. Coverage gating, lifecycle visibility and
   // auth/role-aware destinations are resolved by the navigation manifest — no
@@ -200,7 +202,7 @@ export default function Navbar() {
       <div className="section-padding mx-auto max-w-[1440px]">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 mr-4">
+          <Link to="/" className="flex min-h-11 items-center gap-2 mr-4">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
               <Car className="w-5 h-5 text-white" />
             </div>

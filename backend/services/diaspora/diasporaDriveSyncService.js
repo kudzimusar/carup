@@ -107,8 +107,8 @@ export function buildOAuthState({ userId, tenantId = null, nonce, iat, exp }) {
   return `${payload}.${sig}`;
 }
 
-/** Verify signature, expiry and user/tenant binding (no DB). Throws on any failure. */
-function parseAndVerifyState(state, expectedUserId, expectedTenantId = null) {
+/** Verify signature + shape + expiry without relying on browser session headers. */
+function parseSignedState(state) {
   if (!state || typeof state !== 'string' || !state.includes('.')) throw new ValidationError('Invalid OAuth state');
   const [payload, sig] = state.split('.');
   const expected = crypto.createHmac('sha256', driveStateSecret()).update(payload).digest('hex');
@@ -121,18 +121,23 @@ function parseAndVerifyState(state, expectedUserId, expectedTenantId = null) {
   } catch {
     throw new ValidationError('OAuth state payload is malformed');
   }
-  if (normalizeId(decoded.userId) !== normalizeId(expectedUserId)) {
-    throw new ForbiddenError('OAuth state does not belong to the authenticated user');
-  }
-  // Tenant binding. A user who belongs to two tenants must not be able to start authorization in one
-  // and land the resulting connection — and therefore every document synced through it — in the other.
-  if (normalizeId(decoded.tenantId) !== normalizeId(expectedTenantId)) {
-    throw new ForbiddenError('OAuth state does not belong to the authenticated tenant');
-  }
+  if (!decoded.userId) throw new ValidationError('OAuth state is missing its user binding');
   if (!decoded.exp || Date.now() > Number(decoded.exp)) {
     throw new ValidationError('OAuth state has expired');
   }
   if (!decoded.nonce) throw new ValidationError('OAuth state is missing its nonce');
+  return decoded;
+}
+
+/** Verify signature, expiry and user/tenant binding when an authenticated context is available. */
+function parseAndVerifyState(state, expectedUserId, expectedTenantId = null) {
+  const decoded = parseSignedState(state);
+  if (normalizeId(decoded.userId) !== normalizeId(expectedUserId)) {
+    throw new ForbiddenError('OAuth state does not belong to the authenticated user');
+  }
+  if (normalizeId(decoded.tenantId) !== normalizeId(expectedTenantId)) {
+    throw new ForbiddenError('OAuth state does not belong to the authenticated tenant');
+  }
   return decoded;
 }
 
@@ -310,6 +315,22 @@ export async function getAuthorizationUrl(userContext = {}, options = {}) {
   }
   // The verifier is deliberately NOT returned. Only the challenge ever leaves this process.
   return { url, scopes: DRIVE_SCOPES, state, codeChallengeMethod: pkce.codeChallengeMethod };
+}
+
+/**
+ * Google returns through an ordinary browser redirect and cannot attach CarUp's x-session-token.
+ * The callback authenticates the flow from signed, expiring state, then the existing path rechecks
+ * the binding, consumes the nonce once and redeems the server-held PKCE verifier.
+ */
+export async function handleOAuthRedirectCallback({ code, state } = {}, options = {}) {
+  const decoded = parseSignedState(state);
+  const stateBoundContext = {
+    id: normalizeId(decoded.userId),
+    userId: normalizeId(decoded.userId),
+    tenantId: normalizeId(decoded.tenantId),
+    role: 'member',
+  };
+  return handleOAuthCallback({ code, state }, stateBoundContext, options);
 }
 
 export async function handleOAuthCallback({ code, state } = {}, userContext = {}, options = {}) {

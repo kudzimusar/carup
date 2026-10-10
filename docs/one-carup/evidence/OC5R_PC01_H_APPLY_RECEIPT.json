@@ -1,0 +1,922 @@
+{
+  "schema": "oc5r-pc01-staging-definition-convergence/v1",
+  "mode": "apply",
+  "steps": [
+    {
+      "label": "D1/D6: drop the empty identity_lifecycle_events (RESTRICT: refuses if anything depends on it)",
+      "source": null,
+      "sqlSha256": "02c21c857e02effeb85fb70afcf50cc4c851e453ce19e6940ca107ca3ceaf4e1"
+    },
+    {
+      "label": "D1/D6: replay 20261004170000_o2_x3_identity_lifecycle_events.sql",
+      "source": {
+        "file": "20261004170000_o2_x3_identity_lifecycle_events.sql",
+        "sha256": "20434fc21cc55e122e56d32966db9c0f79310da126a02fed84cd3f4dd040904d"
+      },
+      "sqlSha256": "4ae6309793a95cececbbe865a0b4ce6011b4f37a1edb41a7aab7293e903e7f99"
+    },
+    {
+      "label": "D2-D4: drop the empty dealer_workbook_mapping_confirmations (RESTRICT)",
+      "source": null,
+      "sqlSha256": "fe01398984b10b5b4b8eaa48adb7a786f0e163afa69c7644c67aa36e5447c77c"
+    },
+    {
+      "label": "D2-D4: replay 20261004173000_o2_x5_dealer_workbook_mapping_confirmations.sql",
+      "source": {
+        "file": "20261004173000_o2_x5_dealer_workbook_mapping_confirmations.sql",
+        "sha256": "e6d94161e67bdf4a8e795f3b1c4bca6b1ef9bdacddd568bbcacab91aeffa79eb"
+      },
+      "sqlSha256": "a10a48964b01fb7dea910c2740a7d044176e64a7e565141ab18c759a0befce97"
+    },
+    {
+      "label": "D7: replay 20261004190100_gmo4_garage_business_activation.sql",
+      "source": {
+        "file": "20261004190100_gmo4_garage_business_activation.sql",
+        "sha256": "bf329110136efa577dbfccf662975caa493a4dfbe89b731610c87245566eba57"
+      },
+      "sqlSha256": "e9f302cedb007bb6ba6fb6fdb94d23cd6138fa1e171135d87b08f1bb6071cdd7"
+    },
+    {
+      "label": "D5: tenant_id NOT NULL, as 20260727120000_diaspora_gtm_activation_foundation.sql defines it",
+      "source": {
+        "file": "20260727120000_diaspora_gtm_activation_foundation.sql",
+        "sha256": "157dae537997a911cbd39dbfdd3d62baaa5a1228e3c5431b7a832bd6f7b86f8c"
+      },
+      "sqlSha256": "b0f51d0b9b37687ee87ca32f9b8f33f0a5e6deb73517297c8ef1d8120a095730"
+    }
+  ],
+  "started_at": "2026-10-10 13:32:54.603514+00",
+  "pre": [
+    {
+      "name": "D1 identity user FK is CASCADE",
+      "ok": true
+    },
+    {
+      "name": "D2 confirmations user FK is CASCADE",
+      "ok": true
+    },
+    {
+      "name": "D2 confirmations dealer FK is CASCADE",
+      "ok": true
+    },
+    {
+      "name": "D3 confirmations has no CHECK",
+      "ok": true
+    },
+    {
+      "name": "D4 confirmations dealer_id is nullable",
+      "ok": true
+    },
+    {
+      "name": "D5 receipts tenant_id is nullable",
+      "ok": true
+    },
+    {
+      "name": "D6 append-only trigger function has no search_path",
+      "ok": true
+    },
+    {
+      "name": "D7 activate_garage_application has no search_path",
+      "ok": true
+    },
+    {
+      "name": "identity_lifecycle_events is empty",
+      "ok": true
+    },
+    {
+      "name": "dealer_workbook_mapping_confirmations is empty",
+      "ok": true
+    },
+    {
+      "name": "no receipt has a null tenant",
+      "ok": true
+    },
+    {
+      "name": "nothing references, views or polices identity_lifecycle_events",
+      "ok": true
+    },
+    {
+      "name": "nothing references, views or polices dealer_workbook_mapping_confirmations",
+      "ok": true
+    }
+  ],
+  "grants_before": "[[\"dealer_workbook_mapping_confirmations\", \"postgres\", \"INSERT\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"SELECT\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"UPDATE\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"DELETE\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"TRUNCATE\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"REFERENCES\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"TRIGGER\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"INSERT\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"SELECT\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"UPDATE\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"DELETE\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"TRUNCATE\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"REFERENCES\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"TRIGGER\"], [\"identity_lifecycle_events\", \"postgres\", \"INSERT\"], [\"identity_lifecycle_events\", \"postgres\", \"SELECT\"], [\"identity_lifecycle_events\", \"postgres\", \"UPDATE\"], [\"identity_lifecycle_events\", \"postgres\", \"DELETE\"], [\"identity_lifecycle_events\", \"postgres\", \"TRUNCATE\"], [\"identity_lifecycle_events\", \"postgres\", \"REFERENCES\"], [\"identity_lifecycle_events\", \"postgres\", \"TRIGGER\"], [\"identity_lifecycle_events\", \"service_role\", \"INSERT\"], [\"identity_lifecycle_events\", \"service_role\", \"SELECT\"], [\"identity_lifecycle_events\", \"service_role\", \"UPDATE\"], [\"identity_lifecycle_events\", \"service_role\", \"DELETE\"], [\"identity_lifecycle_events\", \"service_role\", \"TRUNCATE\"], [\"identity_lifecycle_events\", \"service_role\", \"REFERENCES\"], [\"identity_lifecycle_events\", \"service_role\", \"TRIGGER\"]]",
+  "catalog_before": {
+    "constraints": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_dealer_id_fkey",
+        "FOREIGN KEY (dealer_id) REFERENCES dealer_profiles(id) ON DELETE CASCADE"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_pkey",
+        "PRIMARY KEY (id)"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_user_id_fkey",
+        "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_actor",
+        "CHECK ((((actor_kind = 'user'::text) AND (actor_user_id IS NOT NULL)) OR (actor_kind = 'system'::text)))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_actor_kind_check",
+        "CHECK ((actor_kind = ANY (ARRAY['user'::text, 'system'::text])))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_next_state_check",
+        "CHECK ((next_state = ANY (ARRAY['verified'::text, 'reverification_required'::text, 'suspended'::text, 'compromised'::text, 'disputed'::text, 'revoked'::text, 'recovered'::text])))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_pkey",
+        "PRIMARY KEY (id)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_trigger_source_check",
+        "CHECK ((trigger_source = ANY (ARRAY['reviewer_action'::text, 'verification_approved'::text, 'account_recovery'::text, 'security_event'::text, 'material_identity_change'::text, 'document_expiry_sweep'::text])))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_user_id_fkey",
+        "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+      ]
+    ],
+    "columns": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "created_at",
+        "timestamp with time zone",
+        "NO",
+        "now()"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_id",
+        "uuid",
+        "YES",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "id",
+        "text",
+        "NO",
+        "(gen_random_uuid())::text"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "mapping",
+        "jsonb",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "mapping_version",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "seq",
+        "bigint",
+        "NO",
+        "nextval('dealer_workbook_mapping_confirmations_seq_seq'::regclass)"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "sheet_name",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "template_type",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "user_id",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "workbook_checksum",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "actor_kind",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "actor_role",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "actor_user_id",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "created_at",
+        "timestamp with time zone",
+        "NO",
+        "now()"
+      ],
+      [
+        "identity_lifecycle_events",
+        "evidence_reference",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "id",
+        "text",
+        "NO",
+        "(gen_random_uuid())::text"
+      ],
+      [
+        "identity_lifecycle_events",
+        "next_state",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "note",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "policy_version",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "previous_state",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "reason_code",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "seq",
+        "bigint",
+        "NO",
+        "nextval('identity_lifecycle_events_seq_seq'::regclass)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "trigger_source",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "user_id",
+        "text",
+        "NO",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_pkey",
+        "CREATE UNIQUE INDEX dealer_workbook_mapping_confirmations_pkey ON public.dealer_workbook_mapping_confirmations USING btree (id)"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "idx_dealer_workbook_mapping_confirmations_lookup",
+        "CREATE INDEX idx_dealer_workbook_mapping_confirmations_lookup ON public.dealer_workbook_mapping_confirmations USING btree (user_id, workbook_checksum, template_type, sheet_name, seq DESC)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_pkey",
+        "CREATE UNIQUE INDEX identity_lifecycle_events_pkey ON public.identity_lifecycle_events USING btree (id)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "idx_identity_lifecycle_events_user",
+        "CREATE INDEX idx_identity_lifecycle_events_user ON public.identity_lifecycle_events USING btree (user_id, seq DESC)"
+      ]
+    ],
+    "triggers": [
+      [
+        "trg_identity_lifecycle_events_append_only",
+        "CREATE TRIGGER trg_identity_lifecycle_events_append_only BEFORE DELETE OR UPDATE ON public.identity_lifecycle_events FOR EACH ROW EXECUTE FUNCTION identity_lifecycle_events_append_only()"
+      ]
+    ],
+    "rls": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        true,
+        true
+      ],
+      [
+        "identity_lifecycle_events",
+        true,
+        true
+      ]
+    ],
+    "table_comments": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "Human-confirmed semantic column mappings for dealer workbook migration, bound to workbook checksum + template/sheet. Advisory-AI proposals never execute imports; the existing dry-run/confirm/execute chain remains the import authority."
+      ],
+      [
+        "identity_lifecycle_events",
+        "Append-only CURRENT identity lifecycle ledger. Historical verification decisions live in verification_sessions and are never rewritten."
+      ]
+    ],
+    "table_grants": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "DELETE"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "INSERT"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "REFERENCES"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "SELECT"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "TRIGGER"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "TRUNCATE"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "UPDATE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "DELETE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "INSERT"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "REFERENCES"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "SELECT"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "TRIGGER"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "TRUNCATE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "UPDATE"
+      ]
+    ],
+    "functions": [
+      [
+        "activate_garage_application",
+        "p_application_id uuid, p_actor_user_id text",
+        "TABLE(tenant_id uuid, membership_id uuid, founder_user_id text, founding_role text, created boolean)",
+        null,
+        false,
+        "06da4e43f0fade0ab14cbd5172776475"
+      ],
+      [
+        "identity_lifecycle_events_append_only",
+        "",
+        "trigger",
+        null,
+        false,
+        "7eb508fb6de1ee11f61f277162e23682"
+      ]
+    ],
+    "activation_grants": [
+      [
+        "service_role",
+        "EXECUTE"
+      ]
+    ],
+    "activation_comment": "GMO-4 canonical garage activation. Atomic, serialized by FOR UPDATE, idempotent, and derived entirely from the approved application row.",
+    "receipts_tenant_id_not_null": false
+  },
+  "post": [
+    {
+      "name": "D1 identity user FK is RESTRICT",
+      "ok": true
+    },
+    {
+      "name": "D2 confirmations user FK is RESTRICT",
+      "ok": true
+    },
+    {
+      "name": "D2 confirmations dealer FK is RESTRICT",
+      "ok": true
+    },
+    {
+      "name": "D3 checksum CHECK",
+      "ok": true
+    },
+    {
+      "name": "D3 mapping CHECK",
+      "ok": true
+    },
+    {
+      "name": "D4 confirmations dealer_id is NOT NULL",
+      "ok": true
+    },
+    {
+      "name": "D5 receipts tenant_id is NOT NULL",
+      "ok": true
+    },
+    {
+      "name": "D6 append-only trigger function search_path",
+      "ok": true
+    },
+    {
+      "name": "D7 activate_garage_application search_path",
+      "ok": true
+    },
+    {
+      "name": "identity RLS enabled and forced",
+      "ok": true
+    },
+    {
+      "name": "confirmations RLS enabled and forced",
+      "ok": true
+    },
+    {
+      "name": "browser roles hold no privilege on either rebuilt table (lineage: REVOKE ALL FROM anon, authenticated)",
+      "ok": true
+    },
+    {
+      "name": "append-only trigger present",
+      "ok": true
+    },
+    {
+      "name": "activate_garage_application executable by service_role only (of the API roles)",
+      "ok": true
+    }
+  ],
+  "grants_after": "[[\"dealer_workbook_mapping_confirmations\", \"postgres\", \"INSERT\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"SELECT\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"UPDATE\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"DELETE\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"TRUNCATE\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"REFERENCES\"], [\"dealer_workbook_mapping_confirmations\", \"postgres\", \"TRIGGER\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"INSERT\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"SELECT\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"UPDATE\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"DELETE\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"TRUNCATE\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"REFERENCES\"], [\"dealer_workbook_mapping_confirmations\", \"service_role\", \"TRIGGER\"], [\"identity_lifecycle_events\", \"postgres\", \"INSERT\"], [\"identity_lifecycle_events\", \"postgres\", \"SELECT\"], [\"identity_lifecycle_events\", \"postgres\", \"UPDATE\"], [\"identity_lifecycle_events\", \"postgres\", \"DELETE\"], [\"identity_lifecycle_events\", \"postgres\", \"TRUNCATE\"], [\"identity_lifecycle_events\", \"postgres\", \"REFERENCES\"], [\"identity_lifecycle_events\", \"postgres\", \"TRIGGER\"], [\"identity_lifecycle_events\", \"service_role\", \"INSERT\"], [\"identity_lifecycle_events\", \"service_role\", \"SELECT\"], [\"identity_lifecycle_events\", \"service_role\", \"UPDATE\"], [\"identity_lifecycle_events\", \"service_role\", \"DELETE\"], [\"identity_lifecycle_events\", \"service_role\", \"TRUNCATE\"], [\"identity_lifecycle_events\", \"service_role\", \"REFERENCES\"], [\"identity_lifecycle_events\", \"service_role\", \"TRIGGER\"]]",
+  "catalog_after": {
+    "constraints": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_dealer_id_fkey",
+        "FOREIGN KEY (dealer_id) REFERENCES dealer_profiles(id) ON DELETE RESTRICT"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_mapping_check",
+        "CHECK ((jsonb_typeof(mapping) = 'array'::text))"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_pkey",
+        "PRIMARY KEY (id)"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_user_id_fkey",
+        "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_workbook_checksum_check",
+        "CHECK ((workbook_checksum ~ '^[0-9a-f]{64}$'::text))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_actor",
+        "CHECK ((((actor_kind = 'user'::text) AND (actor_user_id IS NOT NULL)) OR (actor_kind = 'system'::text)))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_actor_kind_check",
+        "CHECK ((actor_kind = ANY (ARRAY['user'::text, 'system'::text])))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_next_state_check",
+        "CHECK ((next_state = ANY (ARRAY['verified'::text, 'reverification_required'::text, 'suspended'::text, 'compromised'::text, 'disputed'::text, 'revoked'::text, 'recovered'::text])))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_pkey",
+        "PRIMARY KEY (id)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_trigger_source_check",
+        "CHECK ((trigger_source = ANY (ARRAY['reviewer_action'::text, 'verification_approved'::text, 'account_recovery'::text, 'security_event'::text, 'material_identity_change'::text, 'document_expiry_sweep'::text])))"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_user_id_fkey",
+        "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT"
+      ]
+    ],
+    "columns": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "created_at",
+        "timestamp with time zone",
+        "NO",
+        "now()"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_id",
+        "uuid",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "id",
+        "text",
+        "NO",
+        "(gen_random_uuid())::text"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "mapping",
+        "jsonb",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "mapping_version",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "seq",
+        "bigint",
+        "NO",
+        "nextval('dealer_workbook_mapping_confirmations_seq_seq'::regclass)"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "sheet_name",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "template_type",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "user_id",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "workbook_checksum",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "actor_kind",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "actor_role",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "actor_user_id",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "created_at",
+        "timestamp with time zone",
+        "NO",
+        "now()"
+      ],
+      [
+        "identity_lifecycle_events",
+        "evidence_reference",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "id",
+        "text",
+        "NO",
+        "(gen_random_uuid())::text"
+      ],
+      [
+        "identity_lifecycle_events",
+        "next_state",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "note",
+        "text",
+        "YES",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "policy_version",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "previous_state",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "reason_code",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "seq",
+        "bigint",
+        "NO",
+        "nextval('identity_lifecycle_events_seq_seq'::regclass)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "trigger_source",
+        "text",
+        "NO",
+        null
+      ],
+      [
+        "identity_lifecycle_events",
+        "user_id",
+        "text",
+        "NO",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "dealer_workbook_mapping_confirmations_pkey",
+        "CREATE UNIQUE INDEX dealer_workbook_mapping_confirmations_pkey ON public.dealer_workbook_mapping_confirmations USING btree (id)"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "idx_dealer_workbook_mapping_confirmations_lookup",
+        "CREATE INDEX idx_dealer_workbook_mapping_confirmations_lookup ON public.dealer_workbook_mapping_confirmations USING btree (user_id, workbook_checksum, template_type, sheet_name, seq DESC)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "identity_lifecycle_events_pkey",
+        "CREATE UNIQUE INDEX identity_lifecycle_events_pkey ON public.identity_lifecycle_events USING btree (id)"
+      ],
+      [
+        "identity_lifecycle_events",
+        "idx_identity_lifecycle_events_user",
+        "CREATE INDEX idx_identity_lifecycle_events_user ON public.identity_lifecycle_events USING btree (user_id, seq DESC)"
+      ]
+    ],
+    "triggers": [
+      [
+        "trg_identity_lifecycle_events_append_only",
+        "CREATE TRIGGER trg_identity_lifecycle_events_append_only BEFORE DELETE OR UPDATE ON public.identity_lifecycle_events FOR EACH ROW EXECUTE FUNCTION identity_lifecycle_events_append_only()"
+      ]
+    ],
+    "rls": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        true,
+        true
+      ],
+      [
+        "identity_lifecycle_events",
+        true,
+        true
+      ]
+    ],
+    "table_comments": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "Human-confirmed semantic column mappings for dealer workbook migration, bound to workbook checksum + template/sheet. Advisory-AI proposals never execute imports; the existing dry-run/confirm/execute chain remains the import authority."
+      ],
+      [
+        "identity_lifecycle_events",
+        "Append-only CURRENT identity lifecycle ledger. Historical verification decisions live in verification_sessions and are never rewritten."
+      ]
+    ],
+    "table_grants": [
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "DELETE"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "INSERT"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "REFERENCES"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "SELECT"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "TRIGGER"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "TRUNCATE"
+      ],
+      [
+        "dealer_workbook_mapping_confirmations",
+        "service_role",
+        "UPDATE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "DELETE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "INSERT"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "REFERENCES"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "SELECT"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "TRIGGER"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "TRUNCATE"
+      ],
+      [
+        "identity_lifecycle_events",
+        "service_role",
+        "UPDATE"
+      ]
+    ],
+    "functions": [
+      [
+        "activate_garage_application",
+        "p_application_id uuid, p_actor_user_id text",
+        "TABLE(tenant_id uuid, membership_id uuid, founder_user_id text, founding_role text, created boolean)",
+        [
+          "search_path=public, pg_temp"
+        ],
+        false,
+        "e497c9fa456b00f2949f824fb511cec2"
+      ],
+      [
+        "identity_lifecycle_events_append_only",
+        "",
+        "trigger",
+        [
+          "search_path=public, pg_temp"
+        ],
+        false,
+        "7eb508fb6de1ee11f61f277162e23682"
+      ]
+    ],
+    "activation_grants": [
+      [
+        "service_role",
+        "EXECUTE"
+      ]
+    ],
+    "activation_comment": "GMO-4 canonical garage activation (OC-5E). Atomic, serialized by FOR UPDATE, idempotent, and derived entirely from the approved application row — no parameter lets a caller choose the tenant, the founder or the role. Founding role is the tenant-scoped admin (PO-1); the platform role is never modified.",
+    "receipts_tenant_id_not_null": true
+  },
+  "clean_source": {
+    "equal": true,
+    "differences": [],
+    "sha256": "80c7206c047ddffd84c6d25107074331185471ea75fb7fa52b67d8ffa14ab07b"
+  },
+  "finished_at": "2026-10-10 13:33:02.998912+00",
+  "committed": true,
+  "target": {
+    "kind": "staging",
+    "ref": "eoyenigwevnxwwhyhaer"
+  }
+}

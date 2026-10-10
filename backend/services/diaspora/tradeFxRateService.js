@@ -41,6 +41,19 @@
  *   arrives as a NEW row and never rewrites a conversion a customer already saw. On outage or a
  *   malformed response the provider returns nothing; the caller degrades the USD comparison and
  *   keeps the source money. Never 0, never 1:1, never a silent last-known rate.
+ *
+ * Refresh, cache and observation policy (OC-5R-PROV-01 C1):
+ *   · The source is OBSERVED, not fetched per read. One provider per process remembers its last
+ *     successful feed for ECB_FEED_TTL_MS and an outage for ECB_FAILURE_TTL_MS, so a page that
+ *     converts twenty charge components makes at most one request, and an outage is not re-probed
+ *     on every read. Every request is bounded by ECB_FETCH_TIMEOUT_MS — a hung source degrades to
+ *     UNAVAILABLE instead of holding the customer's request open.
+ *   · A snapshot is WRITTEN only when the source has published a rate date NEWER than the newest
+ *     stored one for that pair (the first observation included). A read that finds the same
+ *     publication already stored writes nothing. One row per pair per ECB publication.
+ *   · A snapshot dated today cannot be superseded, so it is served without consulting the source.
+ *   · AVAILABLE vs STALE is computed when the rate is READ, from the age of the rate's own date —
+ *     not frozen at the moment the row was written.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { ValidationError } from '../../utils/errors.js';
@@ -51,6 +64,12 @@ const ECB_DAILY_URL = 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily
 
 /** A rate older than this many days is reported STALE rather than presented as current. */
 export const STALENESS_DAYS = 4;
+/** One source request may take at most this long; past it the read degrades to UNAVAILABLE. */
+export const ECB_FETCH_TIMEOUT_MS = 5000;
+/** A successful observation of the feed is reused for this long. */
+export const ECB_FEED_TTL_MS = 30 * 60 * 1000;
+/** An outage is remembered for this long, so it is not re-probed on every read. */
+export const ECB_FAILURE_TTL_MS = 60 * 1000;
 
 export const FX_STATUS = Object.freeze({
   AVAILABLE: 'AVAILABLE',
@@ -67,30 +86,57 @@ const dayDiff = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000)
  *
  * A provider returns { base: 'EUR', rateDate: 'YYYY-MM-DD', rates: { USD: n, JPY: n, … } } or null.
  */
-export function createEcbFxProvider({ fetchImpl = globalThis.fetch, url = ECB_DAILY_URL } = {}) {
+export function createEcbFxProvider({
+  fetchImpl = globalThis.fetch,
+  url = ECB_DAILY_URL,
+  timeoutMs = ECB_FETCH_TIMEOUT_MS,
+  ttlMs = ECB_FEED_TTL_MS,
+  failureTtlMs = ECB_FAILURE_TTL_MS,
+  clock = () => Date.now(),
+} = {}) {
+  let memo = null;                          // { at, feed } — the last observation, success or outage
+  let inflight = null;                      // concurrent readers share one request
+
+  async function observe() {
+    let xml;
+    try {
+      const res = await fetchImpl(url, { headers: { accept: 'application/xml' }, signal: AbortSignal.timeout(timeoutMs) });
+      if (!res || !res.ok) return null;
+      xml = await res.text();
+    } catch {
+      return null;                          // outage or timeout: no rate, not a guessed rate
+    }
+    const dateMatch = /time='(\d{4}-\d{2}-\d{2})'/.exec(xml || '');
+    if (!dateMatch) return null;            // malformed: refuse rather than parse hopefully
+    const rates = {};
+    for (const m of String(xml).matchAll(/currency='([A-Z]{3})'\s+rate='([0-9.]+)'/g)) {
+      const value = Number(m[2]);
+      if (Number.isFinite(value) && value > 0) rates[m[1]] = value;
+    }
+    if (!Object.keys(rates).length) return null;
+    return { base: 'EUR', rateDate: dateMatch[1], rates };
+  }
+
   return {
     name: 'ECB',
     reference: url,
     async fetchDaily() {
-      let xml;
-      try {
-        const res = await fetchImpl(url, { headers: { accept: 'application/xml' } });
-        if (!res || !res.ok) return null;
-        xml = await res.text();
-      } catch {
-        return null;                        // outage: no rate, not a guessed rate
+      if (memo && clock() - memo.at < (memo.feed ? ttlMs : failureTtlMs)) return memo.feed;
+      if (!inflight) {
+        inflight = observe()
+          .then((feed) => { memo = { at: clock(), feed }; return feed; })
+          .finally(() => { inflight = null; });
       }
-      const dateMatch = /time='(\d{4}-\d{2}-\d{2})'/.exec(xml || '');
-      if (!dateMatch) return null;          // malformed: refuse rather than parse hopefully
-      const rates = {};
-      for (const m of String(xml).matchAll(/currency='([A-Z]{3})'\s+rate='([0-9.]+)'/g)) {
-        const value = Number(m[2]);
-        if (Number.isFinite(value) && value > 0) rates[m[1]] = value;
-      }
-      if (!Object.keys(rates).length) return null;
-      return { base: 'EUR', rateDate: dateMatch[1], rates };
+      return inflight;
     },
   };
+}
+
+// The process-wide observer every read shares unless a caller injects its own provider.
+let sharedProvider = null;
+function sharedEcbProvider() {
+  if (!sharedProvider) sharedProvider = createEcbFxProvider();
+  return sharedProvider;
 }
 
 /**
@@ -120,6 +166,23 @@ async function newestSnapshot(client, base, quote) {
   return (data || [])[0] || null;
 }
 
+/** Present a stored snapshot. Its status is decided NOW, from the age of its own rate date. */
+function fromSnapshot(row, today, { unreachable = false } = {}) {
+  const stale = dayDiff(today, row.rate_date) > STALENESS_DAYS;
+  const out = {
+    status: stale ? FX_STATUS.STALE : FX_STATUS.AVAILABLE,
+    rate: Number(row.rate), rate_date: row.rate_date, source: row.source,
+    source_reference: row.source_reference || null,
+    triangulation: row.triangulation || null, snapshot_id: row.id,
+  };
+  if (stale) {
+    out.reason = unreachable
+      ? 'The rate source could not be reached; showing the last published rate with its own date.'
+      : `The newest ${row.source} publication for this pair is dated ${row.rate_date}.`;
+  }
+  return out;
+}
+
 /**
  * Get a reference rate for display.
  *
@@ -128,7 +191,8 @@ async function newestSnapshot(client, base, quote) {
  */
 export async function getReferenceRate(base, quote, options = {}) {
   const client = await resolveClient(options);
-  const provider = options.provider || createEcbFxProvider(options.providerOptions);
+  const provider = options.provider
+    || (options.providerOptions ? createEcbFxProvider(options.providerOptions) : sharedEcbProvider());
   const today = options.today || new Date().toISOString().slice(0, 10);
 
   if (!isCode(base) || !isCode(quote)) {
@@ -138,67 +202,48 @@ export async function getReferenceRate(base, quote, options = {}) {
     return { status: FX_STATUS.AVAILABLE, rate: 1, rate_date: today, source: 'identity', triangulation: null };
   }
 
-  // Prefer a stored snapshot; it is what makes an already-displayed conversion reproducible.
+  // Prefer a stored snapshot; it is what makes an already-displayed conversion reproducible. One
+  // dated today cannot be superseded by a newer publication, so the source is not consulted.
   const existing = await newestSnapshot(client, base, quote);
-  if (existing && dayDiff(today, existing.rate_date) <= STALENESS_DAYS) {
-    return {
-      status: existing.status === FX_STATUS.STALE ? FX_STATUS.STALE : FX_STATUS.AVAILABLE,
-      rate: Number(existing.rate), rate_date: existing.rate_date, source: existing.source,
-      source_reference: existing.source_reference || null,
-      triangulation: existing.triangulation || null, snapshot_id: existing.id,
-    };
-  }
+  if (existing && existing.rate_date >= today) return fromSnapshot(existing, today);
 
+  // Otherwise observe the source (at most once per provider TTL, bounded by the fetch timeout).
   const feed = await provider.fetchDaily();
   if (!feed) {
-    // Outage. If we hold an older snapshot we may still show it — clearly marked STALE, with its
-    // own effective date. What we must never do is present it as today's rate.
-    if (existing) {
-      return {
-        status: FX_STATUS.STALE, rate: Number(existing.rate), rate_date: existing.rate_date,
-        source: existing.source, triangulation: existing.triangulation || null,
-        snapshot_id: existing.id,
-        reason: 'The rate source could not be reached; showing the last published rate with its own date.',
-      };
-    }
+    // Outage. If we hold an older snapshot we may still show it — with its own effective date and
+    // a status decided by its age. What we must never do is present it as today's rate.
+    if (existing) return fromSnapshot(existing, today, { unreachable: true });
     return { status: FX_STATUS.UNAVAILABLE, reason: 'The reference rate source could not be reached.' };
   }
 
   const derived = deriveRate(feed, base, quote);
   if (!derived) {
+    if (existing) return fromSnapshot(existing, today);
     return {
       status: FX_STATUS.UNAVAILABLE,
       reason: `${base}/${quote} is not published by ${provider.name}. No comparison is shown rather than an approximated one.`,
     };
   }
 
-  const stale = dayDiff(today, feed.rateDate) > STALENESS_DAYS;
+  // The source has published nothing newer than what is stored: write nothing.
+  if (existing && existing.rate_date >= feed.rateDate) return fromSnapshot(existing, today);
+
   const row = {
     base_currency: base, quote_currency: quote,
     rate: Number(derived.rate.toFixed(10)), rate_date: feed.rateDate,
     source: provider.name, source_reference: provider.reference,
-    status: stale ? FX_STATUS.STALE : FX_STATUS.AVAILABLE,
+    status: dayDiff(today, feed.rateDate) > STALENESS_DAYS ? FX_STATUS.STALE : FX_STATUS.AVAILABLE,
     triangulation: derived.triangulation,
   };
-  // A same-date re-fetch collides with the unique index and is simply a no-op; the existing
-  // snapshot is authoritative because it is the one a customer may already have seen.
+  // Two readers observing the same new publication at once collide on the unique index; the row
+  // that won is authoritative because it is the one a customer may already have seen.
   const { data, error } = await client.from(SNAPSHOTS).insert(row).select().single();
   if (error) {
     const again = await newestSnapshot(client, base, quote);
-    if (again) {
-      return {
-        status: again.status === FX_STATUS.STALE ? FX_STATUS.STALE : FX_STATUS.AVAILABLE,
-        rate: Number(again.rate), rate_date: again.rate_date, source: again.source,
-        triangulation: again.triangulation || null, snapshot_id: again.id,
-      };
-    }
+    if (again) return fromSnapshot(again, today);
     return { status: FX_STATUS.UNAVAILABLE, reason: 'The reference rate could not be recorded.' };
   }
-  return {
-    status: row.status, rate: Number(data.rate), rate_date: data.rate_date, source: data.source,
-    source_reference: data.source_reference, triangulation: data.triangulation || null,
-    snapshot_id: data.id,
-  };
+  return fromSnapshot(data, today);
 }
 
 /**

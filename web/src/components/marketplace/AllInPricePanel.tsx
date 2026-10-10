@@ -3,9 +3,16 @@ import { Calculator } from 'lucide-react'
 import type { MarketplacePricingSummary } from '@/types'
 
 /**
- * Transparent all-in landed-cost estimate. Values are advisory (deterministic bands unless AI refines
- * them) and clearly labelled — never presented as an authoritative quote.
+ * Transparent all-in landed-cost estimate: the seller's recorded asking price plus CarUp's own
+ * itemised, labelled cost estimates — never presented as an authoritative quote.
+ *
+ * OC-5R-REL-01: there is NO valuation here. CarUp has no approved valuation provider, so this panel
+ * shows no "fair price band", market range or value of any kind — it states that instead. A payload
+ * from an older backend that still carries `estimated_fair_min`/`estimated_fair_max` is not
+ * rendered either: those figures were the asking price ±12%, a valuation made from nothing.
  */
+const NO_VALUATION_NOTICE =
+  'No market valuation: CarUp has no approved valuation provider, so no market value or fair-price range is shown.'
 export function AllInPricePanel({ pricing }: { pricing: MarketplacePricingSummary }) {
   // `pricing.currency || 'USD'` re-created, on the surface the buyer actually reads, exactly the
   // fabrication `marketplacePricingService` removed one layer down. That service publishes a
@@ -41,7 +48,7 @@ export function AllInPricePanel({ pricing }: { pricing: MarketplacePricingSummar
           <h3 className="text-sm font-semibold text-gray-900">All-in cost estimate</h3>
         </div>
         <Badge variant="outline" className="text-[10px] capitalize">
-          {pricing.estimate_basis === 'ai_assisted' ? 'AI-assisted' : 'Estimate'} · {pricing.price_confidence} confidence
+          Estimate · {pricing.price_confidence} confidence
         </Badge>
       </div>
 
@@ -69,11 +76,9 @@ export function AllInPricePanel({ pricing }: { pricing: MarketplacePricingSummar
         )}
       </div>
 
-      {(pricing.estimated_fair_min || pricing.estimated_fair_max) && (
-        <p className="mt-2 text-xs text-gray-500">
-          Fair price band: {fmt(pricing.estimated_fair_min)} – {fmt(pricing.estimated_fair_max)}
-        </p>
-      )}
+      <p className="mt-2 text-xs text-gray-500" data-testid="marketplace-allin-no-valuation">
+        {NO_VALUATION_NOTICE}
+      </p>
 
       {pricing.price_warnings.length > 0 && (
         <ul className="mt-2 space-y-1">

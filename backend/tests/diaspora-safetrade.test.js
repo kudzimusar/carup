@@ -869,15 +869,18 @@ test('webhook HMAC verification: valid passes, tampered/late/missing-timestamp f
   const body = JSON.stringify({ id: 'evt-1', type: 'hold.authorized', intentId: 'sbx_pi_1' });
   const ts = Date.parse(FIXED_TS);
   const sig = crypto.createHmac('sha256', provider.safeTradeWebhookSecret()).update(`${ts}.${body}`).digest('hex');
-  const ok = await sandbox.verifyWebhook({ rawBody: body, signature: sig, timestamp: ts });
+  // The clock is INJECTED (`now`). Since OC-5R-PROV-01 B3 an un-injected verify measures drift
+  // against the wall clock, not the sandbox's fixed record timestamp, so a deterministic test pins it.
+  const now = ts;
+  const ok = await sandbox.verifyWebhook({ rawBody: body, signature: sig, timestamp: ts, now });
   assert.equal(ok.verified, true);
   assert.equal(ok.eventId, 'evt-1');
   // Tampered signature.
-  assert.equal((await sandbox.verifyWebhook({ rawBody: body, signature: 'deadbeef', timestamp: ts })).verified, false);
+  assert.equal((await sandbox.verifyWebhook({ rawBody: body, signature: 'deadbeef', timestamp: ts, now })).verified, false);
   // Excess drift (> 5 min).
-  assert.equal((await sandbox.verifyWebhook({ rawBody: body, signature: sig, timestamp: ts - 600000 })).verified, false);
+  assert.equal((await sandbox.verifyWebhook({ rawBody: body, signature: sig, timestamp: ts - 600000, now })).verified, false);
   // Missing timestamp.
-  assert.equal((await sandbox.verifyWebhook({ rawBody: body, signature: sig, timestamp: null })).verified, false);
+  assert.equal((await sandbox.verifyWebhook({ rawBody: body, signature: sig, timestamp: null, now })).verified, false);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1063,11 +1066,12 @@ test('ROUTE: payment-webhook rejects a bad signature (401) and is idempotent for
   const { server, baseUrl } = await startServer();
   try {
     const body = { id: 'wh-evt-1', type: 'hold.authorized', intentId: 'sbx_pi_1' };
-    // The route's verifyWebhook uses the shared sandbox provider's internal clock for drift (now=null),
-    // which is the SandboxPaymentProvider default '2026-06-21T00:00:00.000Z'. Sign with that timestamp so
-    // the 5-minute anti-replay drift check passes. The provider hashes `${ts}.${JSON.stringify(body)}`
-    // (express.json parses then the provider re-stringifies), so sign JSON.stringify(body).
-    const ts = Date.parse('2026-06-21T00:00:00.000Z');
+    // This harness pins no request clock, so the route's anti-replay window is the WALL clock. It used
+    // to be the sandbox provider's fixed record timestamp ('2026-06-21T00:00:00.000Z') — a delivery
+    // signed at that instant verified forever (OC-5R-PROV-01 B3) — so this test signed with it. Sign
+    // with now. The provider hashes `${ts}.${JSON.stringify(body)}` (express.json parses then the
+    // provider re-stringifies), so sign JSON.stringify(body).
+    const ts = Date.now();
     const okSig = crypto.createHmac('sha256', provider.safeTradeWebhookSecret()).update(`${ts}.${JSON.stringify(body)}`).digest('hex');
 
     // Bad signature -> 401 (the HMAC signature is the webhook's only authentication).

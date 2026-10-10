@@ -81,55 +81,60 @@ export class ResendInboundContentService {
     let lastStatus = null;
     for (const [index, buildUrl] of RECEIVING_ENDPOINTS.entries()) {
       const controller = new AbortController();
+      // OC-5R-PROV-01 G7: the timer bounds the WHOLE exchange — headers and body. It used to be
+      // cleared the moment headers arrived, which left response.json() free to stall indefinitely.
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      let response;
       try {
-        response = await this.fetchImpl(buildUrl(emailId), {
-          method: 'GET',
-          headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
-          signal: controller.signal,
-        });
-      } catch (error) {
-        clearTimeout(timer);
-        // Network fault or timeout — transient by nature, so the webhook must retry rather than
-        // commit an empty body.
-        return { ok: false, reason: `fetch_failed:${error.name || 'error'}`, retryable: true };
-      }
-      clearTimeout(timer);
+        let response;
+        try {
+          response = await this.fetchImpl(buildUrl(emailId), {
+            method: 'GET',
+            headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
+            signal: controller.signal,
+          });
+        } catch (error) {
+          // Network fault or timeout — transient by nature, so the webhook must retry rather than
+          // commit an empty body.
+          return { ok: false, reason: `fetch_failed:${error.name || 'error'}`, retryable: true };
+        }
 
-      lastStatus = response.status;
-      if (response.status === 404 && index < RECEIVING_ENDPOINTS.length - 1) continue;
-      if (!response.ok) {
+        lastStatus = response.status;
+        if (response.status === 404 && index < RECEIVING_ENDPOINTS.length - 1) continue;
+        if (!response.ok) {
+          return {
+            ok: false,
+            reason: `provider_status_${response.status}`,
+            status: response.status,
+            // 4xx other than 429 is a durable refusal; 429/5xx are worth retrying.
+            retryable: response.status === 429 || response.status >= 500,
+          };
+        }
+
+        let body;
+        try {
+          body = await response.json();
+        } catch {
+          if (controller.signal.aborted) return { ok: false, reason: 'provider_body_timeout', retryable: true };
+          return { ok: false, reason: 'provider_body_unparseable', retryable: true };
+        }
+        const received = body?.data && typeof body.data === 'object' ? body.data : body;
+        const selected = selectInboundContent(received);
+        if (!selected.text && !selected.html) {
+          // The provider answered successfully with no content at all. Not retryable — retrying cannot
+          // conjure a body — but reported explicitly so it is never mistaken for a successful capture.
+          return { ok: false, reason: 'provider_returned_no_content', retryable: false, status: response.status };
+        }
         return {
-          ok: false,
-          reason: `provider_status_${response.status}`,
-          status: response.status,
-          // 4xx other than 429 is a durable refusal; 429/5xx are worth retrying.
-          retryable: response.status === 429 || response.status >= 500,
+          ok: true,
+          text: selected.text,
+          html: selected.html,
+          derivedFromHtml: selected.derivedFromHtml,
+          headers: received?.headers && typeof received.headers === 'object' ? received.headers : {},
+          endpoint: index === 0 ? 'emails.receiving.get' : 'emails.get',
         };
+      } finally {
+        clearTimeout(timer);
       }
-
-      let body;
-      try {
-        body = await response.json();
-      } catch {
-        return { ok: false, reason: 'provider_body_unparseable', retryable: true };
-      }
-      const received = body?.data && typeof body.data === 'object' ? body.data : body;
-      const selected = selectInboundContent(received);
-      if (!selected.text && !selected.html) {
-        // The provider answered successfully with no content at all. Not retryable — retrying cannot
-        // conjure a body — but reported explicitly so it is never mistaken for a successful capture.
-        return { ok: false, reason: 'provider_returned_no_content', retryable: false, status: response.status };
-      }
-      return {
-        ok: true,
-        text: selected.text,
-        html: selected.html,
-        derivedFromHtml: selected.derivedFromHtml,
-        headers: received?.headers && typeof received.headers === 'object' ? received.headers : {},
-        endpoint: index === 0 ? 'emails.receiving.get' : 'emails.get',
-      };
     }
     return { ok: false, reason: `provider_status_${lastStatus ?? 'unknown'}`, retryable: false, status: lastStatus };
   }

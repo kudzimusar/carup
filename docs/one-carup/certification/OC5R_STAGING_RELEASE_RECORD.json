@@ -1,0 +1,1172 @@
+{
+ "schema": "carup.oc5r.staging_release_record.v1",
+ "programme": "OC-5R-REL-01",
+ "pull_request": 222,
+ "branch": "fix/oc5r-real-runtime-source-closure",
+ "recorded_at": "2026-10-08T01:06:07Z",
+ "shas": {
+  "starting": "0c67d52958a02aa0397094111ffd6c08c4f5ca65",
+  "code": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+  "deploy": "d491b5aa8778002341f1eba6e2450273546e52cb",
+  "superseded": {
+   "d18936ab": "PROV-01 candidate code",
+   "e7b14a07": "REL-01 candidate code before the database-endpoint parser fix",
+   "312916a6": "deploy commit of e7b14a07; its backend preview dpl_2ffvwVkRDtWBcF8SvMeUYNwvPjJ5 found one unreadable endpoint and is not used"
+  }
+ },
+ "deployments": {
+  "frontend": {
+   "project": "carup-staging (prj_auYmL5hA2ppWA15jdTK4GAdy3AYm)",
+   "target": "preview",
+   "deployment_id": "dpl_F6XtrHpnu12WecJZYgMGzqZEqcbo",
+   "url": "https://carup-staging-k07fu1es1-11-11.vercel.app",
+   "alias": "https://carup-staging-oc5r-rel01-11-11.vercel.app",
+   "alias_assigned_at": "2026-10-07T23:54:27.310Z",
+   "created_at": "2026-10-07T23:37:16Z",
+   "ready_at": "2026-10-07T23:38:48Z",
+   "build_inputs": [
+    "CARUP_BUILD_SHA",
+    "CARUP_BUILD_REF"
+   ],
+   "meta": {
+    "carupSourceSha": "d491b5aa8778002341f1eba6e2450273546e52cb"
+   },
+   "upload_set": {
+    "head": "d491b5aa8778002341f1eba6e2450273546e52cb",
+    "worktree_clean": true,
+    "uploaded": 3190,
+    "tracked": 3194,
+    "uploaded_not_tracked": [],
+    "tracked_not_uploaded": [],
+    "ignored_by_cli": [
+     ".git",
+     ".gitignore",
+     "backend/.gitignore",
+     "mobile/.gitignore",
+     "web/.gitignore"
+    ],
+    "upload_is_tracked_tree": true
+   }
+  },
+  "backend": {
+   "project": "carup-backend-staging (prj_ddsVeXDxxHxyMAaZxX4v5ORya27W)",
+   "target": "preview",
+   "deployment_id": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB",
+   "url": "https://carup-backend-staging-2mgsnx3hl-11-11.vercel.app",
+   "alias": "https://carup-backend-staging-oc5r-rel01-11-11.vercel.app",
+   "alias_reassigned_at": "2026-10-07T23:54Z (from dpl_2ffvwVkRDtWBcF8SvMeUYNwvPjJ5)",
+   "created_at": "2026-10-07T23:52:07Z",
+   "ready_at": "2026-10-07T23:52:48Z",
+   "build_inputs": [
+    "CARUP_BUILD_SHA",
+    "CARUP_BUILD_REF"
+   ],
+   "deployment_env": [
+    "CARUP_BUILD_SHA",
+    "CARUP_BUILD_REF",
+    "COMMUNICATION_OUTBOUND_DISABLED=true"
+   ],
+   "meta": {
+    "carupSourceSha": "d491b5aa8778002341f1eba6e2450273546e52cb"
+   },
+   "upload_set": {
+    "head": "d491b5aa8778002341f1eba6e2450273546e52cb",
+    "worktree_clean": true,
+    "uploaded": 3190,
+    "tracked": 3194,
+    "uploaded_not_tracked": [],
+    "tracked_not_uploaded": [],
+    "ignored_by_cli": [
+     ".git",
+     ".gitignore",
+     "backend/.gitignore",
+     "mobile/.gitignore",
+     "web/.gitignore"
+    ],
+    "upload_is_tracked_tree": true
+   }
+  },
+  "not_used": {
+   "dpl_aw6JohCorvwwrvufmBd9BT5GbzjY": "first backend preview of the deploy commit: its health named SUPABASE_DB_URL unreadable (consistent:false), so Stage 4 stopped; never aliased",
+   "dpl_HCKwBhTFLYHqzw8b51nTwjky9KPg": "measurement probe: same commit with the five other Postgres variables blanked for that deployment only, so health reads DATABASE_URL alone; never aliased",
+   "dpl_A5P5ty8Z7zrpCNJ9MBFa9UrC6v3A": "positive control: every Postgres variable blanked; health shows postgres_project_refs [] (proves the blanking takes effect); never aliased"
+  },
+  "stable_aliases_unchanged": {
+   "carup-backend-staging.vercel.app": "dpl_91cteUJnAN8218aeCtUPrXHSHLa3 (main@bb9d9900, created 2026-10-06T01:26:56Z)",
+   "carup-staging.vercel.app": "dpl_4LzS7ioRPzjvDbw1nSaiFdoqkT6Y (main@bb9d9900, created 2026-09-04T02:44:25Z)"
+  }
+ },
+ "environment_change": {
+  "what": "SUPABASE_DB_URL on carup-backend-staging: target [production, preview] -> [production]",
+  "authorised_by": "owner decision 2026-10-07 (Stage 4 stop): drop Preview, redeploy the same SHA",
+  "at": "2026-10-07T23:49:06Z",
+  "why": "the first backend preview reported this sensitive variable unreadable by shape (database.consistent false); no runtime path reads it while DATABASE_URL is set",
+  "value": "never read, decrypted or written; the edit carried only `target`",
+  "before": {
+   "key": "SUPABASE_DB_URL",
+   "id": "Sab5My6TWWcNGRJ4",
+   "type": "sensitive",
+   "target": [
+    "production",
+    "preview"
+   ],
+   "gitBranch": null,
+   "createdAt": 1780975339217,
+   "updatedAt": 1785054439089,
+   "decrypted": false
+  },
+  "after": [
+   {
+    "key": "SUPABASE_DB_URL",
+    "type": "sensitive",
+    "target": [
+     "production"
+    ],
+    "gitBranch": null,
+    "updatedAt": 1791416946782
+   }
+  ],
+  "production_scope": "unchanged (still targets production; no production-target deployment was made)"
+ },
+ "stage4_runtime_identity": {
+  "verdict": "DEPLOYED RUNTIME VERIFIED",
+  "identity_checks": {
+   "frontend serves the exact SHA": true,
+   "frontend is paired, not unpaired": true,
+   "frontend API base is the paired backend alias": true,
+   "backend serves the exact SHA": true,
+   "backend database is healthy": true,
+   "backend reaches the staging project only": true,
+   "no production project ref in the health body": true,
+   "no production project ref in any served chunk": true,
+   "a served chunk names the staging project": true,
+   "the served bundle calls the paired backend alias": true,
+   "OCR: cloudflare / Qwen, configured, custody canonical, no mock": true,
+   "general AI: cloudflare / Gemma, configured, advisory": true,
+   "outbound kill switch active": true,
+   "the stale CLOUDFLARE_TOKEN is not what configures OCR or AI": true
+  },
+  "identity_v1_note": "the first run scanned only the entry chunk and so missed the staging ref in the separately split supabase chunk; v2 crawls the whole served chunk closure (stricter for the production check too). v1 is kept: {\"the served bundle names the staging project\": false}",
+  "owner_acceptance": {
+   "DATABASE_URL → staging eoyenigwevnxwwhyhaer": true,
+   "SUPABASE_DB_URL absent from Preview": true,
+   "production scope of SUPABASE_DB_URL unchanged": true,
+   "frontend/backend SHA = d491b5aa": true,
+   "Qwen configured = true": true,
+   "Gemma configured = true": true,
+   "communications outbound kill switch = active": true,
+   "database consistent = true": true
+  },
+  "health": {
+   "build": {
+    "commit_sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+    "commit_sha_short": "d491b5aa",
+    "branch": "fix/oc5r-real-runtime-source-closure",
+    "deployment_id": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB",
+    "environment": "preview",
+    "source": "explicit_build_input",
+    "provenance_available": true
+   },
+   "database": {
+    "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+    "postgres_project_refs": [
+     "eoyenigwevnxwwhyhaer"
+    ],
+    "unrecognised_endpoints": 0,
+    "unrecognised_endpoint_names": [],
+    "consistent": true
+   },
+   "ocr": {
+    "selectedProvider": "cloudflare",
+    "selectedModel": "@cf/qwen/qwen3.8-27b",
+    "configured": true,
+    "mockRuntimeAllowed": false,
+    "custody": {
+     "canonical_provider": "cloudflare",
+     "canonical_model": "@cf/qwen/qwen3.8-27b",
+     "status": "canonical"
+    }
+   },
+   "ai": {
+    "provider": "cloudflare",
+    "model": "@cf/google/gemma-4-26b-a4b-it",
+    "configured": true,
+    "authority": "advisory"
+   },
+   "outbound": {
+    "kill_switch": "active",
+    "external_sends": "disabled",
+    "internal_channels": "enabled",
+    "control": "COMMUNICATION_OUTBOUND_DISABLED"
+   },
+   "supabase": {
+    "status": "healthy",
+    "outboxBacklog": 569,
+    "ledgerIntentBacklog": 0
+   },
+   "sentry": {
+    "enabled": false,
+    "status": "not_configured",
+    "sdk_installed": false,
+    "dsn_configured": false,
+    "reporting_to": "structured_logger"
+   },
+   "evidenceVision": {
+    "state": "not_configured",
+    "provider": null,
+    "available": false,
+    "authority": "advisory"
+   }
+  },
+  "provenance": {
+   "commit_sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+   "git_ref": "fix/oc5r-real-runtime-source-closure",
+   "provenance_source": "explicit_build_input",
+   "api_base_url": "https://carup-backend-staging-oc5r-rel01-11-11.vercel.app",
+   "api_base_source": "paired from preview-backend-pairing.json for \"fix/oc5r-real-runtime-source-closure\"",
+   "unpaired": false
+  },
+  "bundle_closure": {
+   "origin": "https://carup-staging-oc5r-rel01-11-11.vercel.app",
+   "at": "2026-10-07T23:55:52.390Z",
+   "chunks": 3,
+   "fetched_ok": 3,
+   "chunks_naming_staging": [
+    "supabase-GXzasmYy.js"
+   ],
+   "chunks_naming_production": [],
+   "chunks_with_supabase_host": [
+    "supabase-GXzasmYy.js"
+   ],
+   "html_names_staging": false,
+   "html_names_production": false
+  },
+  "request_capture": {
+   "schema": "oc5r-rel01-runtime-request-capture/v1",
+   "captured_at": "2026-10-07T23:57:12Z",
+   "method": "Playwright (MCP) browser load of the frontend alias home page, then the page's full network log (static included)",
+   "frontend": "https://carup-staging-oc5r-rel01-11-11.vercel.app/",
+   "requests": [
+    "GET https://carup-staging-oc5r-rel01-11-11.vercel.app/ => 200",
+    "GET https://carup-staging-oc5r-rel01-11-11.vercel.app/assets/index-3F8HCCtf.js => 200",
+    "GET https://carup-staging-oc5r-rel01-11-11.vercel.app/assets/index-DFHHs5OS.css => 200",
+    "GET https://fonts.googleapis.com/css2?family=Inter... => 200",
+    "GET https://carup-backend-staging-oc5r-rel01-11-11.vercel.app/api/health => 200",
+    "GET https://carup-backend-staging-oc5r-rel01-11-11.vercel.app/api/marketplace/nav-coverage => 200",
+    "GET https://carup-backend-staging-oc5r-rel01-11-11.vercel.app/api/marketplace/listings?limit=6&sort=newest => 200",
+    "GET https://carup-backend-staging-oc5r-rel01-11-11.vercel.app/api/features/effective => 200",
+    "GET https://fonts.gstatic.com/s/inter/v20/... => 200",
+    "GET https://carup-staging-oc5r-rel01-11-11.vercel.app/favicon.svg => 200",
+    "GET https://carup-backend-staging-oc5r-rel01-11-11.vercel.app/api/security/csrf-token => 200",
+    "POST https://carup-backend-staging-oc5r-rel01-11-11.vercel.app/api/analytics/navigation => 202"
+   ],
+   "api_hosts_called": [
+    "carup-backend-staging-oc5r-rel01-11-11.vercel.app"
+   ],
+   "stable_staging_backend_called": false,
+   "unpaired_invalid_host_called": false,
+   "note": "the navigation POST writes one NAVIGATION_ANALYTICS_BATCH_INGESTED trust_audit_events row (background class allowed by the net-zero rule)"
+  }
+ },
+ "stage5_deployed_provider_proof": {
+  "run": "https://github.com/kudzimusar/carup/actions/runs/37705240258 (attempt 1, label oc5r-deployed-provider-proof)",
+  "overall": "FAILED",
+  "qwen": {
+   "vin": "JTREL770524025801",
+   "vehicle_add_status": 201,
+   "publication_status": "draft",
+   "upload": {
+    "http_status": 201,
+    "evidence_id": "251405ee-fa95-4d41-bbe7-5a69e4c674e6",
+    "visibility_requested": "public_safe",
+    "visibility_applied": "private",
+    "storage_bucket": "ocr-documents",
+    "refusal_recorded": true
+   },
+   "ocr": {
+    "http_status": 201,
+    "latency_ms": 12740,
+    "provider": "cloudflare",
+    "model": "@cf/qwen/qwen3.8-27b",
+    "reading": {
+     "odometer_reading": 4213,
+     "odometer_unit": "km",
+     "status": "candidate_pending_review"
+    },
+    "authority_effects": {
+     "identity_verified": false,
+     "dealer_compliant": false,
+     "seller_authorised": false,
+     "vehicle_registered": false,
+     "vehicle_trusted": false,
+     "listing_published": false,
+     "mileage_recorded": false
+    },
+    "expected_digits": "084213"
+   },
+   "mileage_unchanged": true,
+   "still_unpublished": true,
+   "verdict": "SUCCEEDED"
+  },
+  "gemma": {
+   "http_status": 200,
+   "latency_ms": 13397,
+   "ai_status": "ai_unavailable",
+   "ai_reason": null,
+   "ai_provenance": null,
+   "guidance_lines": 3,
+   "ai_withheld": 0,
+   "protected_state_unchanged": {
+    "vehicles": true,
+    "users": true
+   },
+   "verdict": "PROVIDER_UNAVAILABLE"
+  },
+  "cleanup": {
+   "vehicle_document_extractions_deleted": 2,
+   "ocr_documents_deleted": 1,
+   "retained_by_design": [
+    "users (this run's proof identity) and its user_sessions/login_attempts",
+    "vehicles (one synthetic draft, never published, owned by the proof identity)",
+    "vehicle_evidence (one private odometer photo in ocr-documents) and its append-only evidence_provenance_events",
+    "trust_audit_events (append-only audit of the upload and the OCR observation)"
+   ]
+  },
+  "residue": {
+   "schema": "oc5r-rel01-proof-residue/v1",
+   "window": {
+    "from": "2026-10-07T23:57:39.567Z (rel01_pre_proof)",
+    "to": "2026-10-08T00:04:37.904Z (rel01_post_proof)"
+   },
+   "run": "37705240258 attempt 1 (label-triggered proof at d491b5aa)",
+   "fingerprint_delta_equals_attributed": true,
+   "rows": {
+    "public.users": {
+     "delta": 1,
+     "attributed": "proof identity u_oc5rproof_37705240258_1 (role owner, staging automation)"
+    },
+    "public.user_sessions": {
+     "delta": 1,
+     "attributed": "the proof identity's login session"
+    },
+    "public.login_attempts": {
+     "delta": 1,
+     "attributed": "the proof identity's login"
+    },
+    "public.vehicles": {
+     "delta": 1,
+     "attributed": "synthetic draft JTREL770524025801 owned by the proof identity; 0 published"
+    },
+    "public.vehicle_ownership_history": {
+     "delta": 1,
+     "attributed": "ownership row of JTREL770524025801 (vehicle add)"
+    },
+    "public.vehicle_evidence": {
+     "delta": 1,
+     "attributed": "251405ee-fa95-4d41-bbe7-5a69e4c674e6: visibility private, bucket ocr-documents (requested public_safe; refusal recorded)"
+    },
+    "public.evidence_provenance_events": {
+     "delta": 1,
+     "attributed": "append-only custody event of that evidence (DB-enforced: BEFORE UPDATE/DELETE block)"
+    },
+    "storage.objects": {
+     "delta": 1,
+     "attributed": "ocr-documents/JTREL770524025801/odometer_photo_d46b17501ceb.png (synthetic seven-segment PNG drawn by the proof)"
+    },
+    "public.communication_reconciliation_work": {
+     "delta": 1,
+     "attributed": "work item vehicle_trust_presentation for JTREL770524025801 (enqueued by vehicle add, 23:59:53Z) — first row ever in this table on staging"
+    },
+    "public.trust_audit_events": {
+     "delta": 2,
+     "attributed": "append-only audit: EVIDENCE_UPLOADED, VEHICLE_DOCUMENT_OCR_OBSERVED"
+    }
+   },
+   "cleaned_by_the_proof": {
+    "public.vehicle_document_extractions": "2 deleted, 0 remain for the VIN",
+    "public.ocr_documents": "1 deleted, 0 remain for the identity"
+   },
+   "not_net_zero_because": "the identity, its draft vehicle and the private evidence are retained by design: the evidence row cannot be deleted without deleting its append-only provenance event (blocked by trigger), and the vehicle and user are referenced by it. None is public; none is published."
+  },
+  "gemma_diagnostic": {
+   "schema": "oc5r-rel01-gemma-diagnostic/v1",
+   "status": "DIAGNOSTIC ONLY — not LIVE-PROVIDER evidence (direct Cloudflare account API via the cloudflare-carup MCP, outside the deployed runtime and the governed harness)",
+   "why": "the deployed proof (run 37705240258) got ai_status ai_unavailable from POST /api/marketplace/ai/buyer-assistant after 13.35 s; the buyer assistant bounds the gateway at AI_TIMEOUT_MS = 12000 and swallows the AI_TIMEOUT without an ai_reason",
+   "model_listing": "GET /accounts/{account}/ai/models/search?search=gemma → @cf/google/gemma-4-26b-a4b-it present (Text Generation, created 2026-04-02, context 256000)",
+   "model_schema": "chat_template_kwargs.enable_thinking: boolean, default true ('Whether to enable reasoning for this model')",
+   "call_1_default_thinking": {
+    "request": "the buyer assistant's exact system prompt + user prompt (synthetic proof question) + JSON instruction, temperature 0, max_tokens 4096",
+    "elapsed_ms": 16265,
+    "completion_tokens": 856,
+    "reasoning_chars": 2999,
+    "content_chars": 710,
+    "json_ok": true,
+    "guidance_count": 7,
+    "neurons": 24.66
+   },
+   "call_2_thinking_disabled": {
+    "request": "identical + chat_template_kwargs.enable_thinking=false",
+    "elapsed_ms": 2672,
+    "completion_tokens": 119,
+    "reasoning_chars": 0,
+    "content_chars": 625,
+    "json_ok": true,
+    "guidance_count": 6,
+    "neurons": 4.58
+   },
+   "conclusion": "systematic, not transient: with default reasoning Gemma needs ~16 s for this request class, beyond the product's 12 s bound, so the deployed advisory path degrades to deterministic every time. Remediation (a code change, not made in REL-01): send enable_thinking=false for advisory JSON/text calls (or raise the bound to cover reasoning), and surface ai_reason 'ai_timeout' on the degraded answer.",
+   "measured_at": "2026-10-08T00:0xZ (see transcript order: after proof run 37705240258 finished at 00:00:35Z)"
+  }
+ },
+ "stage6_gates": {
+  "seller_home_lifecycle": {
+   "workflow": "Seller Home & Lifecycle Staging UAT",
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37703062846 (attempt 2; attempt 1 was the deliberate cancel before Stage 4)",
+   "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+   "started": "2026-10-08T00:06:05Z",
+   "finished": "2026-10-08T00:13:26Z",
+   "conclusion": "failure",
+   "pairing_proof": "passed (resolve-governed-preview-pair.mjs: frontend and backend at the exact head; frozen bundle index-3F8HCCtf.js; env-truth mode acceptance)",
+   "results": {
+    "chromium": "failed at spec 48 line 450 (2.1 min)",
+    "tablet-chromium": "failed at spec 48 line 450 (1.9 min)",
+    "mobile-chromium": "failed at spec 48 line 450 (1.7 min)",
+    "Q (Communications)": "fixme in every project (owner decision D) — not run"
+   },
+   "failure": "after `page.goto('/dashboard/garage/' + vin)` the body contains the VIN, but `toContainText(/Vehicle Passport|Passport/i)` never matches (15 s): the loaded VehicleProfile page renders no visible 'Passport' text (only its loading sr-only text and its error state do). The error-context snapshot shows the page fully loaded: heading '2020 Toyota Hilux', VIN, Trust Score 60/100, the verified Zimbabwe registration document, Evidence & Media, Vehicle Summary.",
+   "cause": "spec defect, not a REL-01 regression: spec 48 has never run before (authored at 6a64ea49, 2026-10-05); at that commit the loaded VehicleProfile already had no visible 'Passport' label; VehicleProfile.tsx is unchanged from 0c67d529 to d491b5aa; no REL-01 file is on this path",
+   "passed_before_the_failure": [
+    "publication gate refused the draft without ownership evidence (400), then registration evidence uploaded (private ocr-documents) and verified by the staging reviewer",
+    "P: ordinary Home never showed the automation listing; the run-scoped Home inventory card rendered it with its cover (the hero was the run's own listing on mobile)",
+    "R: unpublish removed it from Marketplace and Home; republish returned it to both; mark-sold showed Sold on My Listings and removed the publication control",
+    "the sold vehicle's garage page loaded with its VIN"
+   ],
+   "not_reached": "after-sold public Marketplace count 0, after-sold Home scope absence, and the retirement axes check (status sold, publication_status still published)",
+   "post_run_db_observation_not_a_gate_assertion": "all three run VINs (JTHLCCHR/TAB/MXB030628462) read status sold and publication_status published; the gate's own sweep found nothing of the run left in commerce",
+   "classification": "pre-existing Seller/Garage product-spec convergence blocker (moderator classification, 2026-10-08): spec 48 line 450 expects a visible \"Passport\" label the loaded Garage page has never rendered; preserved unweakened; no UI patch in this frozen run",
+   "remediation": "not begun — awaiting moderator review"
+  },
+  "diaspora_deployed": {
+   "workflow": "Diaspora Deployed Staging UAT",
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37703063171 (attempt 2; attempt 1 was the deliberate cancel before Stage 4)",
+   "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+   "started": "2026-10-08T00:17:26Z",
+   "finished": "2026-10-08T00:54:36Z",
+   "conclusion": "failure",
+   "pairing_proof": "passed in Bootstrap and in every shard (staging-pairing-* records: sha d491b5aa, deployment dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB, unpaired false, staging project eoyenigwevnxwwhyhaer)",
+   "shards": {
+    "chromium": {
+     "job": 113083794028,
+     "passed": 57,
+     "failed": 2,
+     "skipped": 7,
+     "did_not_run": 13,
+     "duration": "11.8m"
+    },
+    "tablet-chromium": {
+     "job": 113087913499,
+     "passed": 47,
+     "failed": 3,
+     "skipped": 29,
+     "duration": "9.2m"
+    },
+    "mobile-chromium": {
+     "job": 113090848094,
+     "passed": 48,
+     "failed": 2,
+     "skipped": 29,
+     "duration": "9.5m"
+    },
+    "aggregate": "failure (requires all three shards)"
+   },
+   "failures": [
+    {
+     "spec": "tests/agents/41-seller-phase-e-staging.spec.ts:60",
+     "projects": [
+      "chromium",
+      "tablet-chromium",
+      "mobile-chromium"
+     ],
+     "error": "on /dashboard/garage the locator nav a[aria-current=\"page\"] matched 2 elements where the spec expects 1 (the dashboard sidebar and the compact bottom nav both mark My Garage as the current page)",
+     "rel01_relation": "none: REL-01 changed no navigation, layout or dashboard file; CompactBottomNav (with aria-current) predates the spec",
+     "classification": "pre-existing navigation product-spec convergence gap in this lineage"
+    },
+    {
+     "spec": "tests/agents/45-trade-os-container-demo-staging.spec.ts:138 (operator create, chromium) and :507 (operator responsive, tablet + mobile)",
+     "projects": [
+      "chromium",
+      "tablet-chromium",
+      "mobile-chromium"
+     ],
+     "error": "the operator lands 'acting for yourself' with an organisation chooser ('Act for SYNTHETIC Hikari Co-Load Logistics'); the spec expects the organisation context implicitly (tradeos-identity-org 'Hikari Co-Load', the container create section)",
+     "rel01_relation": "none: REL-01 changed no Trade OS, Diaspora or tenant-context file",
+     "classification": "pre-existing active-organisation-context product-spec convergence gap in this lineage (the spec was last changed 2026-09-08)",
+     "consequence": "the serial spec-45 chain stopped on chromium: 13 tests did not run, including D7 (line 347), so the anticipated D7 worker-secret failure was never reached"
+    },
+    {
+     "spec": "tests/agents/38-seller-staging-browser-golden.spec.ts:569",
+     "projects": [
+      "tablet-chromium"
+     ],
+     "error": "the first 'Request an inspection' button was visible but every click landed on the fixed compact-bottom-nav ('Verify') for 20 s",
+     "rel01_relation": "not on the path by layout: REL-01 changed the All-in cost panel on this page, but the clicked CTA sits ABOVE that panel in the stacked tablet layout, so the panel cannot move it; the same step passed on desktop and mobile. Not excluded by a comparative run",
+     "classification": "tablet-only fixed-overlay layout/test interaction"
+    }
+   ],
+   "skips": {
+    "spec 43 (3, chromium)": "Kingstone staging credentials are not provisioned for this run",
+    "spec 47 (2, chromium)": "T3 fixtures not provisioned",
+    "spec 46 responsive (2, chromium)": "by design (responsive cases run on the narrow projects)",
+    "tablet/mobile (29 each)": "desktop-once journeys skip by design"
+   },
+   "d7": "not executed: on chromium its serial chain stopped at line 138; it is desktop-only. COMMUNICATION_WORKER_SECRET remains absent on this preview, so a run that reaches D7 will still get 401 from /internal/events/process with TRADEOS_WORKER_SECRET — an environment blocker, unchanged"
+  }
+ },
+ "net_zero": {
+  "rel01_pre_release_rel01_pre_d_deployed_window": {
+   "from": "2026-10-07T23:17:35.385383+00:00",
+   "to": "2026-10-07T23:37:31.256564+00:00",
+   "changed": {
+    "public.trust_audit_events": [
+     33490,
+     33491
+    ]
+   },
+   "background": [
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 1
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": true
+  },
+  "rel01_pre_d_deployed_window_rel01_pre_proof": {
+   "from": "2026-10-07T23:37:31.256564+00:00",
+   "to": "2026-10-07T23:57:39.567113+00:00",
+   "changed": {
+    "public.marketplace_activity_events": [
+     6625,
+     6626
+    ],
+    "public.navigation_analytics_events": [
+     10661,
+     10662
+    ],
+    "public.trust_audit_events": [
+     33491,
+     33492
+    ]
+   },
+   "background": [
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 1
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel01_pre_proof_rel01_post_proof": {
+   "from": "2026-10-07T23:57:39.567113+00:00",
+   "to": "2026-10-08T00:04:37.904946+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     0,
+     1
+    ],
+    "public.evidence_provenance_events": [
+     198,
+     199
+    ],
+    "public.login_attempts": [
+     5384,
+     5385
+    ],
+    "public.trust_audit_events": [
+     33492,
+     33494
+    ],
+    "public.user_sessions": [
+     5311,
+     5312
+    ],
+    "public.users": [
+     270,
+     271
+    ],
+    "public.vehicle_evidence": [
+     217,
+     218
+    ],
+    "public.vehicle_ownership_history": [
+     257,
+     258
+    ],
+    "public.vehicles": [
+     295,
+     296
+    ],
+    "storage.objects": [
+     1768,
+     1769
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 1
+    },
+    {
+     "t": "VEHICLE_DOCUMENT_OCR_OBSERVED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+     "n": 1
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel01_post_proof_rel01_post_seller": {
+   "from": "2026-10-08T00:04:37.904946+00:00",
+   "to": "2026-10-08T00:17:11.497430+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     1,
+     4
+    ],
+    "public.domain_events": [
+     1644,
+     1647
+    ],
+    "public.evidence_provenance_events": [
+     199,
+     202
+    ],
+    "public.listing_images": [
+     1294,
+     1303
+    ],
+    "public.login_attempts": [
+     5385,
+     5403
+    ],
+    "public.marketplace_activity_events": [
+     6626,
+     6661
+    ],
+    "public.navigation_analytics_events": [
+     10662,
+     10681
+    ],
+    "public.trust_audit_events": [
+     33494,
+     33540
+    ],
+    "public.user_sessions": [
+     5312,
+     5330
+    ],
+    "public.users": [
+     271,
+     274
+    ],
+    "public.vehicle_evidence": [
+     218,
+     221
+    ],
+    "public.vehicle_ownership_history": [
+     258,
+     261
+    ],
+    "public.vehicles": [
+     296,
+     299
+    ],
+    "storage.objects": [
+     1769,
+     1781
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 3
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 3
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 16
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 13
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 6
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 2
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 3
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel01_post_seller_rel01_final": {
+   "from": "2026-10-08T00:17:11.497430+00:00",
+   "to": "2026-10-08T01:02:45.308565+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     4,
+     10
+    ],
+    "public.diaspora_import_audit_log": [
+     1882,
+     1908
+    ],
+    "public.diaspora_import_order_request_lines": [
+     41,
+     42
+    ],
+    "public.diaspora_import_orders": [
+     190,
+     194
+    ],
+    "public.diaspora_import_quotes": [
+     65,
+     66
+    ],
+    "public.diaspora_payment_milestones": [
+     199,
+     205
+    ],
+    "public.diaspora_stock_items": [
+     94,
+     97
+    ],
+    "public.diaspora_stock_ledger": [
+     90,
+     93
+    ],
+    "public.domain_events": [
+     1647,
+     1669
+    ],
+    "public.evidence_provenance_events": [
+     202,
+     208
+    ],
+    "public.intelligence_ingestion_stats": [
+     143,
+     144
+    ],
+    "public.intelligence_rollup_runs": [
+     74,
+     76
+    ],
+    "public.listing_daily_metrics": [
+     159,
+     167
+    ],
+    "public.listing_images": [
+     1303,
+     1333
+    ],
+    "public.login_attempts": [
+     5403,
+     5530
+    ],
+    "public.marketplace_activity_events": [
+     6661,
+     6752
+    ],
+    "public.marketplace_inquiries": [
+     289,
+     294
+    ],
+    "public.navigation_analytics_events": [
+     10681,
+     10779
+    ],
+    "public.notification_queue": [
+     1103,
+     1112
+    ],
+    "public.platform_daily_metrics": [
+     7,
+     8
+    ],
+    "public.referral_events": [
+     1393,
+     1398
+    ],
+    "public.seller_daily_metrics": [
+     29,
+     36
+    ],
+    "public.trust_audit_events": [
+     33540,
+     33685
+    ],
+    "public.user_sessions": [
+     5330,
+     5457
+    ],
+    "public.users": [
+     274,
+     277
+    ],
+    "public.vehicle_evidence": [
+     221,
+     227
+    ],
+    "public.vehicle_ownership_history": [
+     261,
+     267
+    ],
+    "public.vehicle_taxonomy_observations": [
+     51,
+     54
+    ],
+    "public.vehicles": [
+     299,
+     305
+    ],
+    "storage.objects": [
+     1781,
+     1817
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 6
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 6
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 85
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders/4036a4f1-f768-4cee-a058-3102abf796b5/accept-quote",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/trade-profiles/00000000-0000-0000-0000-000000000000/verify",
+     "n": 3
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 18
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 9
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 6
+    },
+    {
+     "t": "VEHICLE_PRICE_CHANGED",
+     "r": "/api/vehicles/:vin/price",
+     "n": 2
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 8
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel01_pre_release_rel01_final": {
+   "from": "2026-10-07T23:17:35.385383+00:00",
+   "to": "2026-10-08T01:02:45.308565+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     0,
+     10
+    ],
+    "public.diaspora_import_audit_log": [
+     1882,
+     1908
+    ],
+    "public.diaspora_import_order_request_lines": [
+     41,
+     42
+    ],
+    "public.diaspora_import_orders": [
+     190,
+     194
+    ],
+    "public.diaspora_import_quotes": [
+     65,
+     66
+    ],
+    "public.diaspora_payment_milestones": [
+     199,
+     205
+    ],
+    "public.diaspora_stock_items": [
+     94,
+     97
+    ],
+    "public.diaspora_stock_ledger": [
+     90,
+     93
+    ],
+    "public.domain_events": [
+     1644,
+     1669
+    ],
+    "public.evidence_provenance_events": [
+     198,
+     208
+    ],
+    "public.intelligence_ingestion_stats": [
+     143,
+     144
+    ],
+    "public.intelligence_rollup_runs": [
+     74,
+     76
+    ],
+    "public.listing_daily_metrics": [
+     159,
+     167
+    ],
+    "public.listing_images": [
+     1294,
+     1333
+    ],
+    "public.login_attempts": [
+     5384,
+     5530
+    ],
+    "public.marketplace_activity_events": [
+     6625,
+     6752
+    ],
+    "public.marketplace_inquiries": [
+     289,
+     294
+    ],
+    "public.navigation_analytics_events": [
+     10661,
+     10779
+    ],
+    "public.notification_queue": [
+     1103,
+     1112
+    ],
+    "public.platform_daily_metrics": [
+     7,
+     8
+    ],
+    "public.referral_events": [
+     1393,
+     1398
+    ],
+    "public.seller_daily_metrics": [
+     29,
+     36
+    ],
+    "public.trust_audit_events": [
+     33490,
+     33685
+    ],
+    "public.user_sessions": [
+     5311,
+     5457
+    ],
+    "public.users": [
+     270,
+     277
+    ],
+    "public.vehicle_evidence": [
+     217,
+     227
+    ],
+    "public.vehicle_ownership_history": [
+     257,
+     267
+    ],
+    "public.vehicle_taxonomy_observations": [
+     51,
+     54
+    ],
+    "public.vehicles": [
+     295,
+     305
+    ],
+    "storage.objects": [
+     1768,
+     1817
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 10
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 9
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 102
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders/4036a4f1-f768-4cee-a058-3102abf796b5/accept-quote",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/trade-profiles/00000000-0000-0000-0000-000000000000/verify",
+     "n": 3
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 32
+    },
+    {
+     "t": "VEHICLE_DOCUMENT_OCR_OBSERVED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+     "n": 1
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 15
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 8
+    },
+    {
+     "t": "VEHICLE_PRICE_CHANGED",
+     "r": "/api/vehicles/:vin/price",
+     "n": 2
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 11
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  }
+ },
+ "residue_attribution": {
+  "net_zero": false,
+  "pre_existing_rows_unchanged": true,
+  "summary": "every changed table is attributed to this run's own actors; nothing was deleted or rewritten outside the proof's own OCR rows; append-only audit and telemetry are named, not hidden",
+  "stage4_capture_23_57Z": "3 anonymous telemetry rows from the browser request capture (navigation_analytics_events 1, marketplace_activity_events 1, trust_audit_events 1)",
+  "proof_run_37705240258": "see stage5_deployed_provider_proof.residue",
+  "seller_run_37703062846": "3 Golden Sellers (u_golden_37703062846_2_*), 15 of their sessions + 3 reviewer sessions, 18 login attempts; 3 vehicles JTHLC{CHR,TAB,MXB}030628462 (all Sold, publication history published), 3 ownership rows, 9 listing images, 12 storage objects (9 vehicle-images, 3 private registration documents), 3 evidence rows + 3 provenance events, 3 trust-presentation work items, 3 evidence.review.decided domain events (pending), telemetry 35 + 19, trust_audit_events 46 (append-only)",
+  "diaspora_run_37703063171": "3 Golden Sellers (u_golden_37703063171_2_*); 6 vehicles (3 spec-38 JTDKARFP0H3* and 3 spec-42 JTMLC*030631712, all Sold); 30 listing images, 36 storage objects, 6 evidence + 6 provenance events, 6 ownership rows, 3 taxonomy observations, 6 trust-presentation work items; 5 guest inquiries to the run's own listings + 5 referral events; 4 Diaspora import orders (3 by the staging Diaspora identity, 1 by u_tradeos_rfq_buyer) with their lines, quote, milestones, stock items/ledger and 26 import-audit rows; 9 in-app notification_queue rows (queued, 0 attempts, no channel); 22 domain events (pending); 2 intelligence rollup runs and the daily-metrics rows they wrote; 127 sessions/login attempts; telemetry 91 + 98; trust_audit_events 145 (append-only)",
+  "background": "SECURITY_CSRF_VIOLATION on /triggers/github (GitHub webhook deliveries to the stable staging runtime): 1 + 13 + 18 over the run",
+  "whole_run": {
+   "vehicles_created": 10,
+   "left_live_in_commerce": 0,
+   "sold": 9,
+   "drafts": 1,
+   "users_created": 7
+  },
+  "outbound": {
+   "message_delivery_attempts_started_in_run": 0,
+   "notification_queue_sent_or_delivered_in_run": 0
+  }
+ },
+ "invariants": {
+  "pre_release": {
+   "at": "2026-10-07T23:17:47.804270+00:00",
+   "result": {
+    "retired_rows_present": 0,
+    "by_table": null,
+    "synthetic_reference_objects": 0,
+    "synthetic_reference_listing_images": 0,
+    "u3_present": 1,
+    "escrow_present": 1
+   }
+  },
+  "post_proof": {
+   "at": "2026-10-08T00:08:29.860424+00:00",
+   "result": {
+    "retired_rows_present": 0,
+    "by_table": null,
+    "synthetic_reference_objects": 0,
+    "synthetic_reference_listing_images": 0,
+    "u3_present": 1,
+    "escrow_present": 1
+   }
+  },
+  "final": {
+   "at": "2026-10-08T01:03:28.720564+00:00",
+   "result": {
+    "retired_rows_present": 0,
+    "by_table": null,
+    "synthetic_reference_objects": 0,
+    "synthetic_reference_listing_images": 0,
+    "u3_present": 1,
+    "escrow_present": 1
+   }
+  }
+ },
+ "production_untouched": {
+  "vercel_production_target_deployments": 0,
+  "stable_or_production_aliases_moved": 0,
+  "carup.dev / api.carup.dev": "not touched",
+  "production_supabase_project": "never contacted (every read: eoyenigwevnxwwhyhaer)",
+  "only_env_edit": "SUPABASE_DB_URL lost its Preview target (owner decision); production scope unchanged"
+ }
+}

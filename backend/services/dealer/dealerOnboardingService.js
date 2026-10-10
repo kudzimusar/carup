@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
-import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { uploadToStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { getIdentityAssurance, toSubjectIdentityAssurance } from '../identity/identityAssuranceService.js';
 import { isFallbackMarker } from '../registration/registrationJourneyService.js';
@@ -83,13 +82,13 @@ async function auditAfterWrite(client, event) {
   return false;
 }
 
-/** Observability only (no Communications policy subscribes these): a lost event is logged, never fatal. */
-async function announce(eventType, payload) {
-  try {
-    await emitDomainEvent(null, eventType, payload, null);
-  } catch (err) {
-    logger.warn('DEALER_ONBOARDING', `${eventType} not emitted`, { error: err?.message || String(err) });
-  }
+/**
+ * Observability only: these are not business work for the transactional outbox.
+ * The durable authority is the dealer row plus trust_audit_events written by auditAfterWrite();
+ * the structured logger keeps operational visibility without creating an unconsumable event.
+ */
+function announce(eventType, payload) {
+  logger.info('DEALER_ONBOARDING', eventType, payload);
 }
 
 /**

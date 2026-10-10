@@ -5,7 +5,8 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { RegisterSchema } from '@shared/schemas';
 import { useAuthStore } from '../../store/authStore';
-import { apiUrl } from '../../utils/apiBase';
+import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
+import { csrfFetch } from '../../utils/csrfFetch';
 import { z } from 'zod';
 
 type RegisterFormValues = z.infer<typeof RegisterSchema>;
@@ -29,10 +30,13 @@ export default function RegisterScreen() {
   const onSubmit = async (data: RegisterFormValues) => {
     setServerError(null);
     try {
-      const response = await fetch(apiUrl('/api/auth/register'), {
+      // PC01-J-R1: registration is a mutating route. Without the guest-bound CSRF token every deployed
+      // backend refused it with 403, so nobody could create an account in the app.
+      const response = await csrfFetch(resolveApiBaseUrl(), null, apiUrl('/api/auth/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         // Public sign-up is always a Car Owner; never transmit a client-chosen role. The server also
         // rejects any non-owner role request.
@@ -131,7 +135,7 @@ export default function RegisterScreen() {
               render={({ field: { onChange, onBlur, value } }) => (
                 <TextInput
                   className="bg-slate-50 border border-slate-200 text-slate-900 p-4 rounded-xl text-base h-12"
-                  placeholder="e.g. +263 773 345 678"
+                  placeholder="Your mobile number"
                   placeholderTextColor="#94a3b8"
                   onBlur={onBlur}
                   onChangeText={onChange}

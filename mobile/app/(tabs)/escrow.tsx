@@ -2,7 +2,8 @@ import React from 'react';
 import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
-import { apiUrl } from '../../utils/apiBase';
+import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
+import { csrfFetch } from '../../utils/csrfFetch';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 
 type TransactionStatus =
@@ -72,7 +73,8 @@ function EscrowDashboardScreenInner() {
 
   const actionMutation = useMutation({
     mutationFn: async ({ id, action }: { id: string; action: 'cancel' | 'dispute' }) => {
-      const response = await fetch(apiUrl(`/api/escrow/${encodeURIComponent(id)}/${action}`), {
+      // PC01-J-R1: a participant action is a mutating route, so it carries a session-bound CSRF token.
+      const response = await csrfFetch(resolveApiBaseUrl(), token, apiUrl(`/api/escrow/${encodeURIComponent(id)}/${action}`), {
         method: 'POST',
         headers,
         body: JSON.stringify({}),

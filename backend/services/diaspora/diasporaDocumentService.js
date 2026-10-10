@@ -14,6 +14,7 @@ import {
   redactTradeDocumentStorage,
   requireUserContext,
 } from './diasporaAuthorization.js';
+import { isFixtureRuntime } from '../../utils/runtimeEnvironment.js';
 
 async function getOrder(importOrderId) {
   const { data, error } = await supabase.from('diaspora_import_orders').select('*').eq('id', importOrderId).is('deleted_at', null).single();
@@ -191,7 +192,7 @@ function retiredClientExtractionError() {
 // result, so that property must be provable by executing it — not by matching its source text.
 export function normalizeProviderBackedExtraction(payload = {}, req = null) {
   if (!req) {
-    if (process.env.NODE_ENV !== 'test') {
+    if (!isFixtureRuntime(process.env)) {
       throw retiredClientExtractionError();
     }
     return {

@@ -139,12 +139,30 @@ const ADMIN = { 'x-session-token': 'oc3e-admin-session' };
 const ASSERTED = { 'x-user-id': 'buyer-1' };
 
 // Each public route, a request it accepts, and a valid advisory answer for it.
+// OC-5R-REL-01: /api/marketplace/ai/price-estimate left this list — no valuation provider exists, so it
+// makes no provider call for ANY caller (pinned in its own test below).
 const PUBLIC_AI_ROUTES = [
   ['/api/marketplace/ai/listing-draft', { make: 'Toyota', model: 'Hilux', year: 2020, price: 21000 }, { title: 'AI Hilux', short_description: 's', detailed_description: 'd' }],
   ['/api/marketplace/ai/buyer-assistant', { budget: 15000, use_case: 'farm' }, { guidance: ['AI: shortlist two diesel pickups.'] }],
-  ['/api/marketplace/ai/price-estimate', { listingSummary: { make: 'Toyota', model: 'Hilux', year: 2020, mileage: 90000, price: 21000 } }, { price_confidence: 'medium', notes: ['AI note'] }],
   ['/api/marketplace/ai/share-copy', { make: 'Toyota', model: 'Hilux', year: 2020, price: 21000 }, { whatsapp: 'w', telegram: 't', facebook: 'f', short: 's' }],
 ];
+
+test('OC-5R-REL-01 price-estimate: no caller — anonymous, asserted or session-proven — reaches a provider, and no valuation is published', async () => {
+  for (const headers of [{}, ASSERTED, BUYER]) {
+    providerCalls.length = 0;
+    providerAnswer = answer({ price_confidence: 'high', notes: ['Fair market value is about $25,000.'] });
+    const res = await post('/api/marketplace/ai/price-estimate', { listingSummary: { make: 'Toyota', model: 'Hilux', year: 2020, mileage: 90000, price: 21000 } }, headers);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(providerCalls.length, 0, `price-estimate reached a provider for ${JSON.stringify(headers)}`);
+    assert.equal(res.body.valuation_status, 'not_configured');
+    assert.equal(res.body.ai_reason, 'valuation_not_configured');
+    assert.equal(res.body.ai_available, false);
+    assert.equal(res.body.price_confidence, 'low');
+    assert.equal(res.body.estimate_basis, 'deterministic');
+    for (const key of ['ai_notes', 'estimated_fair_min', 'estimated_fair_max']) assert.equal(key in res.body, false, `${key} published`);
+    assert.ok(!res.text.includes('25,000') && !res.text.includes('Fair market value'), 'no model text');
+  }
+});
 
 // ── 1. Provider cost ─────────────────────────────────────────────────────────────────────────
 
@@ -177,6 +195,16 @@ for (const [route, body, aiReply] of PUBLIC_AI_ROUTES) {
     assert.equal(res.body.ai_status, 'ai_assisted');
     assert.equal(res.body.ai_available, true);
     assert.equal('ai_reason' in res.body, false);
+    // OC-5R-REL-01: the answer names the model that wrote it — no inference from configuration.
+    assert.deepEqual(res.body.ai_provenance, { provider: 'cloudflare', model: GEMMA, execution: 'provider_executed' });
+  });
+
+  test(`OC-5R-REL-01 ${route}: an answer the gateway did not execute carries no provenance`, async () => {
+    providerAnswer = async () => new Response('upstream down', { status: 503 });
+    const res = await post(route, body, BUYER);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.ai_status, 'ai_unavailable');
+    assert.equal('ai_provenance' in res.body, false);
   });
 }
 

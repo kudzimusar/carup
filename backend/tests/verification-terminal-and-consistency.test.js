@@ -34,6 +34,7 @@ class MockQuery {
   }
   select() { return this; }
   eq(key, value) { this.filters.push({ key, value }); return this; }
+  in(key, values) { this.filters.push({ key, value: values, op: 'in' }); return this; }
   order() { return this; }
   insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
   update(payload) { this.operation = 'update'; this.payload = payload; return this; }
@@ -41,7 +42,7 @@ class MockQuery {
   single() { return this.execute({ single: true, maybe: false }); }
   then(resolve, reject) { return this.execute({ single: false, maybe: false }).then(resolve, reject); }
   rows() { return (this.client.data[this.table] ||= []); }
-  matches(row) { return this.filters.every((f) => row[f.key] === f.value); }
+  matches(row) { return this.filters.every((f) => (f.op === 'in' ? f.value.includes(row[f.key]) : row[f.key] === f.value)); }
   async execute({ single, maybe }) {
     if (this.operation === 'insert') {
       const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
@@ -89,7 +90,6 @@ function createMockClient() {
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
 const admin = { id: 'admin-1', userId: 'admin-1', role: 'admin', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('household-object-book').toString('base64');
 
 let __imgSeq = 0;
 function validImage() {
@@ -97,6 +97,8 @@ function validImage() {
   buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff;
   return buf;
 }
+// Uploads are validated at the door (PC01-F F3): the upload fixture is a real JPEG, not arbitrary text.
+const image = 'data:image/jpeg;base64,' + validImage().toString('base64');
 
 async function uploadedSession(client) {
   const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
@@ -139,6 +141,9 @@ test('P1: classification stays VALID when core identity fields ARE extracted', a
     first_name: 'Ruvimbo',
     last_name: 'Chigumba',
     national_id_number: 'ZN0943248',
+    // A genuine provider reading carries the delivery proof DocumentIntelligenceService records
+    // (PC01-F F2: extraction trust requires positive proof the image reached the model).
+    provenance: { imageBytesSent: 3000 },
   });
 
   const row = client.data.verification_sessions.find((r) => r.id === session.id);

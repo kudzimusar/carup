@@ -18,13 +18,14 @@
  * Outbox note: staging pg_cron drains domain_events every minute AGAINST THE CANONICAL BACKEND,
  * whose code predates the container_booking subscriptions — it consumes events with zero handlers.
  * The spec therefore drains through THIS candidate's backend immediately after each mutation
- * (TRADEOS_WORKER_SECRET), which is the same governed drain endpoint the cron uses.
+ * (COMMUNICATION_WORKER_SECRET), which is the same governed Communications drain credential the cron uses.
  *
  * Chromium runs the full journey; tablet/mobile re-verify sign-in, discovery, participant status
  * and responsive layout against the state the chromium pass created.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
-import { stagingTest, expect, API_URL } from './staging-helpers';
+import { stagingTest, expect, API_URL, ensureActingForOrganisation, type OrganisationSelection } from './staging-helpers';
+import { D7_PARTICIPANT_EVENT, D7_ORGANISER_EVENT, matchesD7Notification, reservationReference } from '../../scripts/ci/lib/oc5r-rel03-d7-correlation.mjs';
 
 const IDS = {
   operator: { email: 'tradeos.operator@carup-staging.test', envPassword: 'TRADEOS_UAT_OPERATOR_PASSWORD' },
@@ -34,11 +35,23 @@ const IDS = {
 } as const;
 type TradeRole = keyof typeof IDS;
 
+/**
+ * Login never selects an organisation (OC-5D): a person who belongs to one is OFFERED it and must
+ * explicitly choose it — one tap, even with a single selectable membership. The operator works for
+ * Hikari Co-Load and the rival-tenant outsider for Rival Freight; participants A and B hold no
+ * organisation and act for themselves. (REL-02 C: this spec used to assume the operator was already
+ * "inside" Hikari after login, which the product no longer does.)
+ */
+const ORGANISATION: Partial<Record<TradeRole, RegExp>> = {
+  operator: /Hikari Co-Load/i,
+  outsider: /Rival Freight/i,
+};
+
 const OCT_DEPARTURE = '2026-10-15';
 const DEC_DEPARTURE = '2026-12-10';
 
 // Cross-test state within one project run (workers=1, ordered execution).
-const runState: { octoberId?: string; vehicleReservationId?: string } = {};
+const runState: { octoberId?: string; vehicleReservationId?: string; vehicleReservationNotBefore?: string } = {};
 
 function password(role: TradeRole): string {
   const value = process.env[IDS[role].envPassword];
@@ -68,6 +81,17 @@ async function signIn(page: Page, role: TradeRole): Promise<void> {
   throw new Error(`UI login remained rate-limited for ${role}`);
 }
 
+/**
+ * Sign in through the real login form, then — for an identity that belongs to an organisation —
+ * explicitly act for it through the real prompt/switcher and prove the context before the caller
+ * touches any organisation-scoped workspace. Identities without an organisation act for themselves.
+ */
+async function signInActingFor(page: Page, role: TradeRole): Promise<OrganisationSelection | null> {
+  await signIn(page, role);
+  const organisation = ORGANISATION[role];
+  return organisation ? ensureActingForOrganisation(page, organisation) : null;
+}
+
 /** Navigate and let the surface finish its background reads — journeys must not outrun the page
  *  and turn in-flight dashboard fetches into aborted-fetch console noise. */
 async function gotoSettled(page: Page, path: string): Promise<void> {
@@ -75,19 +99,52 @@ async function gotoSettled(page: Page, path: string): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
 }
 
+/**
+ * Every answer the candidate's drain endpoint gave this run. The drain is best-effort and bounded, but
+ * its ANSWER is evidence: a 401 here means the candidate runtime holds no matching worker secret (an
+ * environment fact, not a product defect) and must be reportable exactly (REL-02 J). Bodies are the
+ * server's own error JSON; no request header or secret is ever recorded.
+ */
+const drainResponses: Array<{ at: string; status: number | 'transport_error'; body: string }> = [];
+
 /** Drain the domain-event outbox through THIS candidate's backend (best-effort, bounded). */
 async function drainOutbox(request: APIRequestContext): Promise<void> {
-  const secret = process.env.TRADEOS_WORKER_SECRET;
+  const secret = process.env.COMMUNICATION_WORKER_SECRET;
   if (!secret) return;
-  await request.post(`${API_URL}/internal/events/process`, {
-    headers: { authorization: `Bearer ${secret}` },
-  }).catch(() => undefined);
+  try {
+    const response = await request.post(`${API_URL}/internal/events/process`, {
+      headers: { authorization: `Bearer ${secret}` },
+    });
+    drainResponses.push({ at: new Date().toISOString(), status: response.status(), body: (await response.text().catch(() => '')).slice(0, 300) });
+  } catch (error) {
+    drainResponses.push({ at: new Date().toISOString(), status: 'transport_error', body: String((error as Error)?.message ?? error).slice(0, 300) });
+  }
+}
+
+/** Attach what the drain endpoint answered, and print it, so the run log states the exact response. */
+async function attachDrainEvidence(testInfo: { attach: (name: string, options: { body: string; contentType: string }) => Promise<void> }) {
+  const distinct = [...new Set(drainResponses.map((r) => `${r.status} ${r.body}`))];
+  console.log(`[spec45] /internal/events/process answered ${drainResponses.length}×: ${distinct.join(' | ') || '(never called)'}`);
+  await testInfo.attach('d7-drain-responses.json', {
+    contentType: 'application/json',
+    body: JSON.stringify({ endpoint: `${API_URL}/internal/events/process`, calls: drainResponses.length, responses: drainResponses }, null, 1),
+  });
 }
 
 async function sessionToken(page: Page): Promise<string> {
   const token = await page.evaluate(() => localStorage.getItem('carup_token'));
   if (!token) throw new Error('no carup_token in localStorage after sign-in');
   return token;
+}
+
+async function currentUserId(request: APIRequestContext, token: string, tenantId?: string): Promise<string> {
+  const headers: Record<string, string> = { 'x-session-token': token };
+  if (tenantId) headers['x-tenant-id'] = tenantId;
+  const res = await request.get(`${API_URL}/auth/me`, { headers });
+  if (!res.ok()) throw new Error(`GET /auth/me failed while proving D7 recipient direction (HTTP ${res.status()})`);
+  const id = (await res.json().catch(() => ({})))?.user?.id;
+  if (!id) throw new Error('GET /auth/me returned no current user id for D7 correlation');
+  return String(id);
 }
 
 /**
@@ -115,7 +172,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('operator: normal navigation → create the October container through the UI', async ({ page, cap }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
 
     // Discoverability (D1): the dashboard sidebar carries Container Co-Loading — no hidden URL.
     await gotoSettled(page, '/dashboard');
@@ -196,6 +253,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await orderSelect.selectOption({ index: 1 });
     const reserveResponse = page.waitForResponse((r) =>
       r.request().method() === 'POST' && /\/reservations$/.test(new URL(r.url()).pathname));
+    runState.vehicleReservationNotBefore = new Date().toISOString();
     await page.getByTestId('diaspora-container-reserve-submit').click();
     const reserved = await reserveResponse;
     expect(reserved.status()).toBe(201);
@@ -244,7 +302,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('operator: sees both requests with cargo context, approves the vehicle — capacity updates', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
@@ -287,7 +345,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
     // … but approving it must fail atomically: 22 approved + 50 = 72 > 60.
     await page.context().clearCookies();
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
     const probeRow = page.getByTestId('diaspora-container-reservation-row').filter({ hasText: 'Overfill probe' });
@@ -302,7 +360,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await drainOutbox(request);
   });
 
-  stagingTest('participant A: sees APPROVED state, can cancel a second request, and has activity/communication state', async ({ page, request }) => {
+  stagingTest('participant A: sees APPROVED state and can cancel a second request', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
     await signIn(page, 'participantA');
     await gotoSettled(page, '/diaspora/containers?view=containers');
@@ -320,51 +378,11 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     await partsRow.getByTestId('diaspora-container-cancel').click();
     await expect(partsRow.getByText('CANCELLED')).toBeVisible();
     await drainOutbox(request);
-
-    // Activity/communication state (D7) — UNCONDITIONAL (owner UAT #10B): the certification fails
-    // unless the participant's canonical in-app notification actually exists AND is visible in the
-    // deployed Communications surface. TRADEOS_WORKER_SECRET must be exported; a run without it is
-    // not a certification.
-    expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();
-    const token = await sessionToken(page);
-    await expect.poll(async () => {
-      await drainOutbox(request);
-      const res = await request.get(`${API_URL}/communications/notifications`, {
-        headers: { 'x-session-token': token },
-      });
-      if (!res.ok()) return 'unreadable';
-      const payload = await res.json().catch(() => ({}));
-      const rows = payload?.data || payload?.notifications || [];
-      return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
-        ? 'present' : 'absent';
-    }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
-
-    // …and the human can SEE it: the canonical Communications surface renders the booking thread.
-    await gotoSettled(page, '/dashboard/communications');
-    await expect(page.getByText(/Container booking RES-/i).first()).toBeVisible({ timeout: 15_000 });
-  });
-
-  stagingTest('operator receives the organiser-directed booking notification (D7 direction)', async ({ page, request }) => {
-    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    expect(process.env.TRADEOS_WORKER_SECRET, 'TRADEOS_WORKER_SECRET must be set').toBeTruthy();
-    await signIn(page, 'operator');
-    const token = await sessionToken(page);
-    await expect.poll(async () => {
-      await drainOutbox(request);
-      const res = await request.get(`${API_URL}/communications/notifications`, {
-        headers: { 'x-session-token': token, 'x-tenant-id': 'c0106a0e-1a11-4a6a-9e01-000000000a01' },
-      });
-      if (!res.ok()) return 'unreadable';
-      const payload = await res.json().catch(() => ({}));
-      const rows = payload?.data || payload?.notifications || [];
-      return Array.isArray(rows) && rows.some((n: { notification_type?: string }) => n.notification_type === 'container_booking')
-        ? 'present' : 'absent';
-    }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
   });
 
   stagingTest('cross-tenant denial: a rival tenant admin cannot see, approve or close this container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'outsider');
+    await signInActingFor(page, 'outsider');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await openContainerByDeparture(page, OCT_DEPARTURE);
 
@@ -391,7 +409,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('operator: December container + booking-close semantics on a proof container', async ({ page, request }) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
 
     // December sailing (left OPEN for the client demo).
@@ -443,7 +461,12 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('HARD GEOMETRY GATE: no horizontal document overflow across desktop classes (owner UAT #2)', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'geometry sweep runs once, resizing a desktop browser');
-    await signIn(page, 'operator');
+    // REL-02 C: a real organisation selection now precedes this sweep, and the sweep is SEVEN viewports, each a
+    // navigation, a container open and a full-page screenshot against real staging latency (~12 s apiece). The
+    // per-action timeouts (expect 15 s, action 20 s) are unchanged; only the suite-level 90 s ceiling is lifted
+    // for this one test, as spec 38 (480 s) and spec 41 (180 s) already do for their long journeys.
+    stagingTest.setTimeout(240_000);
+    await signInActingFor(page, 'operator');
     // Element-existence can pass while the document is wider than the viewport — this gate cannot.
     const WIDTHS: Array<[number, number]> = [[393, 852], [820, 1180], [1024, 768], [1280, 800], [1366, 768], [1440, 900], [1536, 864]];
     for (const [width, height] of WIDTHS) {
@@ -471,7 +494,8 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('full-page visual evidence: operator and participant desktop + narrow desktop', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'visual sweep runs once on desktop');
-    await signIn(page, 'operator');
+    stagingTest.setTimeout(180_000); // REL-02 C: two sign-ins (one with a real organisation selection) and three full-page captures
+    await signInActingFor(page, 'operator');
     for (const [name, width, height] of [['operator-desktop-1440', 1440, 900], ['operator-narrow-1024', 1024, 768]] as Array<[string, number, number]>) {
       await page.setViewportSize({ width, height });
       await gotoSettled(page, '/diaspora/containers?view=containers');
@@ -502,7 +526,7 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
 
   stagingTest('responsive: operator view on this viewport', async ({ page }, testInfo) => {
     stagingTest.skip(stagingTest.info().project.name === 'chromium', 'chromium already ran the full journey');
-    await signIn(page, 'operator');
+    await signInActingFor(page, 'operator');
     await gotoSettled(page, '/diaspora/containers?view=containers');
     await expect(page.getByTestId('diaspora-container-create-section')).toBeVisible();
     await openContainerByDeparture(page, OCT_DEPARTURE);
@@ -510,5 +534,88 @@ stagingTest.describe('Trade OS container co-loading — client demo (deployed st
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, `document overflows by ${overflow}px`).toBeLessThanOrEqual(1);
     await testInfo.attach(`operator-${testInfo.project.name}.png`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  });
+
+  // ── D7 — run-correlated, at the END of the serial chain ────────────────────────────────
+  // A row is proof only when it is this run's exact reservation, current recipient, canonical
+  // event direction/state, durable outbox event_id and post-mutation timestamp. Historical
+  // container_booking rows are deliberately harmless.
+  stagingTest('participant A: current-run APPROVED container_booking notification exists and is visible in Communications (D7)', async ({ page, request }, testInfo) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
+    await signIn(page, 'participantA');
+    await gotoSettled(page, '/diaspora/containers?view=containers');
+    try {
+      expect(process.env.COMMUNICATION_WORKER_SECRET, 'COMMUNICATION_WORKER_SECRET must be set — D7 cannot be proven without draining the candidate runtime').toBeTruthy();
+      expect(runState.vehicleReservationId, 'this run must have created the participant reservation before D7').toBeTruthy();
+      expect(runState.vehicleReservationNotBefore, 'this run must retain its reservation mutation timestamp').toBeTruthy();
+
+      const reservationId = runState.vehicleReservationId!;
+      const reference = reservationReference(reservationId);
+      const token = await sessionToken(page);
+      const recipientUserId = await currentUserId(request, token);
+      const expectedNotification = {
+        recipientUserId,
+        reservationId,
+        reference,
+        status: 'APPROVED',
+        eventType: D7_PARTICIPANT_EVENT,
+        notBefore: runState.vehicleReservationNotBefore!,
+      };
+
+      await expect.poll(async () => {
+        await drainOutbox(request);
+        const res = await request.get(`${API_URL}/communications/notifications`, {
+          headers: { 'x-session-token': token },
+        });
+        if (!res.ok()) return 'unreadable';
+        const payload = await res.json().catch(() => ({}));
+        const rows = payload?.data || payload?.notifications || [];
+        return Array.isArray(rows) && rows.some((n: unknown) => matchesD7Notification(n, expectedNotification))
+          ? 'present' : 'absent';
+      }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
+
+      // Human-visible proof uses this run's exact canonical RES reference, never a generic RES match.
+      await gotoSettled(page, '/dashboard/communications');
+      await expect(page.getByText(reference, { exact: false }).first()).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await attachDrainEvidence(testInfo);
+    }
+  });
+
+  stagingTest('operator receives current-run organiser-directed REQUESTED notification (D7 direction)', async ({ page, request }, testInfo) => {
+    stagingTest.skip(stagingTest.info().project.name !== 'chromium', 'full journey runs once on desktop');
+    expect(process.env.COMMUNICATION_WORKER_SECRET, 'COMMUNICATION_WORKER_SECRET must be set').toBeTruthy();
+    expect(runState.vehicleReservationId, 'this run must have created the reservation before organiser D7').toBeTruthy();
+    expect(runState.vehicleReservationNotBefore, 'this run must retain its reservation mutation timestamp').toBeTruthy();
+    await signInActingFor(page, 'operator');
+    try {
+      const tenantId = 'c0106a0e-1a11-4a6a-9e01-000000000a01';
+      const reservationId = runState.vehicleReservationId!;
+      const reference = reservationReference(reservationId);
+      const token = await sessionToken(page);
+      const recipientUserId = await currentUserId(request, token, tenantId);
+      const expectedNotification = {
+        recipientUserId,
+        reservationId,
+        reference,
+        status: 'REQUESTED',
+        eventType: D7_ORGANISER_EVENT,
+        notBefore: runState.vehicleReservationNotBefore!,
+      };
+
+      await expect.poll(async () => {
+        await drainOutbox(request);
+        const res = await request.get(`${API_URL}/communications/notifications`, {
+          headers: { 'x-session-token': token, 'x-tenant-id': tenantId },
+        });
+        if (!res.ok()) return 'unreadable';
+        const payload = await res.json().catch(() => ({}));
+        const rows = payload?.data || payload?.notifications || [];
+        return Array.isArray(rows) && rows.some((n: unknown) => matchesD7Notification(n, expectedNotification))
+          ? 'present' : 'absent';
+      }, { timeout: 45_000, intervals: [2_000] }).toBe('present');
+    } finally {
+      await attachDrainEvidence(testInfo);
+    }
   });
 });

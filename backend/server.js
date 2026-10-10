@@ -38,6 +38,8 @@ import { runFraudAnalysis, runRiskScoring, aiProviderUnavailableResponse, AiAdvi
 // Import Group B & C Services
 import { submitFinancingApplication } from './services/finance/financeService.js';
 import { calculateInsuranceQuote, createInsurancePolicy } from './services/insurance/insuranceService.js';
+import { isProductionLikeRuntime } from './utils/runtimeEnvironment.js';
+import { sentryHealth } from './services/ai/sentry.js';
 import { calculateZimraDuty } from './services/import/importService.js';
 import { reportVehicleStolen, checkStolenStatus, clearStolenStatus } from './services/security/securityService.js';
 import { readDealerReputation, recalculateDealerReputation } from './services/reputation/reputationService.js';
@@ -105,6 +107,7 @@ import { edgeClientIpMiddleware } from './middleware/edgeClientIp.js';
 import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
 import { resolveBuildProvenance } from './config/buildProvenance.js';
+import { resolveDatabaseTarget } from './config/databaseTarget.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import vehicleOperationsRouter from './routes/vehicleOperationsRoutes.js';
 import peopleOperationsRouter from './routes/peopleOperationsRoutes.js';
@@ -185,15 +188,18 @@ import {
   classifyLookupIdentifier,
   resolveLookupAccess,
   resolveSellerLookupOptIn,
+  resolvePassportKeyAccess,
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { readPublicationLastChange } from './services/marketplace/publicationLastChange.js';
 import { resolveDealerListingSubject, hasGovernedDealerVehicleAuthority } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
+import { outboundHealth } from './services/communication/outboundKillSwitch.js';
 import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
 import { strictOcrStartupError } from './config/ocrStartupGuard.js';
 import { inspectAdvisoryRuntime } from './services/ai/domainAdvisoryAdapter.js';
@@ -317,8 +323,8 @@ app.get('/api/security/csrf-token', (req, res) => {
   const token = generateCsrfToken(currentUserId, sessionToken);
   res.cookie('csrf-token', token, {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: isProductionLikeRuntime(process.env),
+    sameSite: isProductionLikeRuntime(process.env) ? 'none' : 'lax',
     maxAge: 3600000 * 2,
     path: '/',
   });
@@ -369,21 +375,34 @@ app.get('/api/health', async (req, res) => {
   // an OCR request would actually do. No secret VALUES.
   let ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false };
   let cloudflareConfigured = false;
+  // OC-5R-REL-01: OCR custody, stated — 'canonical' (Cloudflare + Qwen), 'refused' (an override a
+  // deployed runtime will not run: OCR fails closed), or 'override' (only where the evaluation seam
+  // is open, which a declared deployment never is).
+  const ocrModule = await import('./services/ai/ocrVisionProvider.js').catch(() => null);
+  const custodyOf = ({ providerId = null, model = null, error = null } = {}) => ({
+    canonical_provider: ocrModule?.CANONICAL_OCR_PROVIDER ?? null,
+    canonical_model: ocrModule?.CANONICAL_OCR_MODEL ?? null,
+    status: error?.code === 'OCR_CUSTODY_REFUSED'
+      ? 'refused'
+      : (providerId === ocrModule?.CANONICAL_OCR_PROVIDER && model === ocrModule?.CANONICAL_OCR_MODEL ? 'canonical' : 'override'),
+  });
   try {
-    const { resolveVisionProvider } = await import('./services/ai/ocrVisionProvider.js');
+    const { resolveVisionProvider } = ocrModule;
     const { isCloudflareVisionConfigured } = await import('./services/ai/CloudflareVisionClient.js');
     const { DocumentIntelligenceService } = await import('./services/document-intelligence/documentIntelligenceService.js');
     const provider = resolveVisionProvider();
-    let model = null; try { model = provider.model; } catch { model = null; }
+    let model = null; let modelError = null; try { model = provider.model; } catch (e) { model = null; modelError = e; }
     ocr = {
       selectedProvider: provider.id,
       selectedModel: model,
       configured: (() => { try { return provider.isConfigured() === true; } catch { return false; } })(),
       mockRuntimeAllowed: DocumentIntelligenceService.isOcrMockAllowed() === true,
+      custody: custodyOf({ providerId: provider.id, model, error: modelError }),
+      ...(modelError ? { error: modelError.message } : {}),
     };
     cloudflareConfigured = (() => { try { return isCloudflareVisionConfigured() === true; } catch { return false; } })();
   } catch (e) {
-    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, error: e.message };
+    ocr = { selectedProvider: null, selectedModel: null, configured: false, mockRuntimeAllowed: false, custody: custodyOf({ error: e }), error: e.message };
   }
 
   res.json({
@@ -397,9 +416,10 @@ app.get('/api/health', async (req, res) => {
       outboxBacklog,
       ledgerIntentBacklog
     },
-    sentry: {
-      enabled: !!process.env.SENTRY_DSN
-    },
+    // OC-5R-REL-01: which Supabase project this runtime reaches — project refs only, never a URL.
+    database: resolveDatabaseTarget(process.env),
+    // Truthful: a DSN without an installed SDK is `unavailable`, never `enabled` (OC-5R-PROV-01 C3).
+    sentry: sentryHealth(),
     // Canonical current OCR runtime status (authoritative for "is OCR available").
     ocr,
     // OC-5B: evidence-image analysis, stated as what it is. No adapter is certified, so outside the
@@ -424,7 +444,10 @@ app.get('/api/health', async (req, res) => {
         status: provider.status,
         available: provider.available,
         explanations: provider.explanations
-      }))
+      })),
+      marketingEmail: communicationConfiguration.marketingEmail,
+      // OC-5R-REL-01: the outbound kill switch — whether this runtime may send at all.
+      outbound: outboundHealth(process.env),
     },
     metrics: snapshot
   });
@@ -919,7 +942,10 @@ app.get('/api/vehicles', async (req, res) => {
     // fails the filter rather than passing it on a legacy value.
 
     const { data: vehicles, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error('[Vehicles] public listing query failed:', error.message);
+      return res.status(500).json({ error: 'Unable to load vehicles.' });
+    }
 
     // PUBLIC_VEHICLE_SELECT no longer names the raw trust_score column at all (the projection
     // contract owns that list, and demoted it), so the only trust figure this route can publish is
@@ -940,7 +966,8 @@ app.get('/api/vehicles', async (req, res) => {
 
     res.json(filtered);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[Vehicles] public listing request failed:', error?.message || error);
+    res.status(500).json({ error: 'Unable to load vehicles.' });
   }
 });
 
@@ -1811,12 +1838,50 @@ async function buildVehiclePassport(
   };
 }
 
+/**
+ * Whether `key` is the key of a publicly listed vehicle — the exact predicate the public details
+ * route above applies. A failed or empty read is "not listed", which makes the passport route refuse:
+ * the fail-closed direction.
+ */
+async function isPubliclyListedVehicleKey(key) {
+  try {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('status, publication_status')
+      .eq('vin', key)
+      .maybeSingle();
+    if (error || !data) return false;
+    return isPublicVehicleStatus(data.status) && isPubliclyVisiblePublication(data.publication_status);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PC01-J-R1 — the lookup policy's answer for the per-key passport route (utils/passportLookupPolicy.js,
+ * resolvePassportKeyAccess), decided BEFORE any passport is built. An ISO VIN resolves for everyone and
+ * a signed-in caller resolves every key, so the durable record stays reachable after a listing is
+ * withdrawn (R27). The single listing-dependent case is the one the owner decision of 2026-08-17
+ * restricts: an ANONYMOUS caller using a plate/chassis/frame-shaped key, who is answered only while the
+ * vehicle is publicly listed — when that key is already the public listing's own URL.
+ */
+async function passportKeyAllowed(vin, actor) {
+  const first = resolvePassportKeyAccess({ key: vin, actor });
+  if (first.decision !== LOOKUP_DECISIONS.REQUIRE_AUTHENTICATION) return first.decision === LOOKUP_DECISIONS.ALLOW;
+  const listed = await isPubliclyListedVehicleKey(vin);
+  return resolvePassportKeyAccess({ key: vin, actor, publiclyListed: listed }).decision === LOOKUP_DECISIONS.ALLOW;
+}
+
 // Canonical VIN passport lookup.
 // optionalAuth() resolves identity when one is genuinely present and never blocks:
 // the passport stays publicly reachable, only its audience changes.
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
+    // PC01-J-R1: the lookup policy decides first (passportKeyAllowed, above).
+    if (!(await passportKeyAllowed(vin, req.userContext || null))) {
+      return res.status(NON_ENUMERABLE_LOOKUP_RESPONSE.status).json(NON_ENUMERABLE_LOOKUP_RESPONSE.body);
+    }
     const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures, projectFinanceObligationForVehicle);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
@@ -2114,13 +2179,23 @@ app.post('/api/finance/pre-approve', authorizeRole(), async (req, res) => {
 });
 
 // --- PILLAR 11: INSURANCE QUOTES ---
-app.post('/api/insurance/quote', async (req, res) => {
-  const { vin, userId } = req.body;
+// No live insurer/underwriting provider is selected. The historical formula remains available to
+// local/test code, but a deployed CarUp runtime must never present it as an insurer quote.
+app.post('/api/insurance/quote', authorizeRole(), async (req, res) => {
+  if (isProductionLikeRuntime(process.env)) {
+    return res.status(503).json({
+      error: {
+        code: 'INSURANCE_PROVIDER_NOT_CONFIGURED',
+        message: 'Insurance quoting is unavailable until an approved live underwriting provider is configured.',
+      },
+    });
+  }
+  const { vin } = req.body;
   try {
-    const result = await calculateInsuranceQuote(vin, userId);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const result = await calculateInsuranceQuote(vin, req.userContext.id);
+    res.json({ ...result, mode: 'local_test_only' });
+  } catch {
+    res.status(500).json({ error: 'Insurance quote could not be calculated.' });
   }
 });
 
@@ -2788,7 +2863,9 @@ app.post('/api/auth/register', async (req, res) => {
       emailVerification = {
         status: deliveryStatus === 'sent'
           ? 'sent'
-          : deliveryStatus === 'retry_scheduled'
+          // OC-5R-REL-01: 'held' — the outbound kill switch kept it on the queue; it is sent when
+          // sending is re-enabled, so it is queued, not failed.
+          : deliveryStatus === 'retry_scheduled' || deliveryStatus === 'held'
             ? 'queued'
             : deliveryStatus
               ? 'delivery_failed'
@@ -4036,6 +4113,11 @@ app.get('/api/compliance/reports', authorizeRole(['government', 'admin']), async
 
 // --- ADMIN TELEMETRY & USER SERVICES MOVED TO MODULAR ROUTER ---
 
+// PC01-J-R1: these public legal pages named "CarUp Automotive Intelligence Private Limited" and
+// `@carup.co.zw` contacts — a domain CarUp does not use. Contacts now follow the owner-approved
+// functional mapping (docs/communications/EMAIL_EXPERIENCE_1_0_CONTACT_IDENTITY_MAPPING.md §3.1,
+// MIGRATE_SHIPPED_CARUP_CO_ZW_CONTACTS = YES) and the entity is the frozen "CarUp Technologies".
+// Only the identity strings changed; no obligation, right, retention period or jurisdiction did.
 function renderPublicLegalPage({ title, description, sections }) {
   const sectionHtml = sections.map((section) => `
     <section>
@@ -4076,7 +4158,7 @@ function renderPublicLegalPage({ title, description, sections }) {
     </div>
   </header>
   <main>${sectionHtml}</main>
-  <footer>CarUp Automotive Intelligence Private Limited - legal@carup.co.zw</footer>
+  <footer>CarUp Technologies - legal@carup.dev</footer>
 </body>
 </html>`;
 }
@@ -4100,7 +4182,7 @@ app.get('/privacy-policy', (_req, res) => {
       },
       {
         heading: 'Your Choices',
-        body: 'Users can request access, correction, or deletion of eligible personal data by contacting privacy@carup.co.zw or legal@carup.co.zw. See the User Data Deletion page for deletion instructions.',
+        body: 'Users can request access, correction, or deletion of eligible personal data by contacting privacy@carup.dev or legal@carup.dev. See the User Data Deletion page for deletion instructions.',
       },
     ],
   }));
@@ -4125,7 +4207,7 @@ app.get('/terms', (_req, res) => {
       },
       {
         heading: 'Contact',
-        body: 'Questions about these terms can be sent to legal@carup.co.zw or support@carup.co.zw.',
+        body: 'Questions about these terms can be sent to legal@carup.dev or support@carup.dev.',
       },
     ],
   }));
@@ -4138,7 +4220,7 @@ app.get('/data-deletion', (_req, res) => {
     sections: [
       {
         heading: 'How to Request Deletion',
-        body: 'Email privacy@carup.co.zw or legal@carup.co.zw with the subject "Data Deletion Request" and include your account email, phone number, or communication channel so we can verify ownership.',
+        body: 'Email privacy@carup.dev or legal@carup.dev with the subject "Data Deletion Request" and include your account email, phone number, or communication channel so we can verify ownership.',
       },
       {
         heading: 'What We Delete',
@@ -4188,6 +4270,15 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // The raw column here is what the owner dashboard rendered as "Trust Index %", which is the
     // unattributable number in its most persuasive form: shown to the person who will repeat it.
     const withTrust = await withCanonicalTrust(data)
+    // Who last moved each listing on or off the public Marketplace, in the owner's terms — so a
+    // listing CarUp took down reads as CarUp's action, not as a mystery. Started now and awaited
+    // last: it shares no input with the two reads below, and it never throws (a failure is
+    // `not_read`). See services/marketplace/publicationLastChange.js.
+    const publicationChangesRead = readPublicationLastChange(
+      supabase,
+      withTrust.map((vehicle) => vehicle.vin),
+      req.userContext.id,
+    )
     // Garage counts come from real reads, so My Garage stops publishing `|| 0` against columns that
     // do not exist. `null` means "not read", and the surface must say so in words.
     const counts = await ownerGarageCounts(withTrust.map((vehicle) => vehicle.vin))
@@ -4195,10 +4286,12 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // uses. Without this the owner list surfaces have no media field to read at all and every card
     // falls back to the "Image unavailable" placeholder — see ownerListingMedia.
     const media = await ownerListingMedia(withTrust.map((vehicle) => vehicle.vin))
+    const publicationChanges = await publicationChangesRead
     res.json(withTrust.map((vehicle) => ({
       ...vehicle,
       counts: counts.get(vehicle.vin) ?? null,
       listing_media: media.get(vehicle.vin) ?? toListingMediaBlock(null),
+      publication_last_change: publicationChanges.get(vehicle.vin) ?? { state: 'not_read' },
     })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)

@@ -7,6 +7,7 @@
  * provider is registered with kill_switch_enabled=true and mode='not_configured'.
  */
 import { supabase } from '../../db/supabase.js';
+import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
 
 export const CALLABLE_MODES = new Set(['sandbox', 'partner_file', 'manual', 'pilot_live', 'live']);
 export const ALL_MODES = ['not_configured', 'contract_pending', 'credential_pending', 'sandbox',
@@ -56,6 +57,9 @@ export async function upsertProvider(input, actor = {}) {
 /** Transition a provider's activation mode; records append-only history. */
 export async function setActivationMode(providerId, toMode, { reason, actor } = {}) {
   if (!ALL_MODES.includes(toMode)) throw new Error(`invalid mode ${toMode}`);
+  if (isProductionLikeRuntime(process.env) && toMode === 'sandbox') {
+    throw new Error('sandbox provider mode is not permitted in a deployed CarUp runtime');
+  }
   const { data: p } = await supabase.from('provider_registry').select('*').eq('id', providerId).maybeSingle();
   if (!p) throw new Error('provider not found');
   // 'live'/'pilot_live' require a signed contract + a credential reference (no secret needed here).

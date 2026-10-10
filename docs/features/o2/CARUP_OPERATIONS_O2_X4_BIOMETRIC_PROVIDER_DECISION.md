@@ -6,9 +6,12 @@
 > `decisionPolicy.js` that can only BLOCK and is inert until an assessment exists. The consent service,
 > the assessment service, their routes and the applicant/reviewer UI are **deferred until a provider is
 > selected** — they would collect consent for processing that cannot happen and record assessments of
-> checks that never ran. Their two migrations are **candidates, not applied anywhere**:
+> checks that never ran. Their two migrations are **candidates, not promoted into the canonical lineage**:
 > `database/migration-candidates/oc5c/20261004175000_o2_x4_identity_biometric_consents.sql` and
-> `…/20261004175100_o2_x4_verification_assessments_biometrics.sql`. #208's compliance receipt is not
+> `…/20261004175100_o2_x4_verification_assessments_biometrics.sql`. They are nevertheless **present on canonical
+> staging** (applied by PR #208's runs, with no ledger row) and are held under custody exception
+> X4-BIOMETRIC-CONSENT-LEDGER in `database/convergence/oc5r-lineage-exceptions.json` (OC-5R) — provider authority
+> NOT SELECTED, production and automatic-apply authority NONE. #208's compliance receipt is not
 > ported; the activation gate below stands on its own.
 
 - **Status: NOT SELECTED.** No vendor is chosen, configured or integrated. The runtime resolves

@@ -5,6 +5,7 @@ import {
   resolveClassification,
   deriveLegacyCompatibilityType,
   isDocumentArtifactRow,
+  isPrivateByTypeRow,
   semanticClassificationLabel,
   GENERIC_COMPAT_TYPES,
   GENERIC_COMPAT_DOCUMENT_TYPE,
@@ -142,6 +143,33 @@ export function isDocumentUpload(normalized) {
 }
 
 /**
+ * OC-5R-REL-01: is this NORMALIZED upload private by type (an odometer photo)? The server derives
+ * private storage for it whatever the caller asks for — see `isPrivateByTypeRow`.
+ */
+export function isPrivateByTypeUpload(normalized) {
+  return isPrivateByTypeRow({
+    evidence_class: normalized.evidenceClass,
+    evidence_subtype: normalized.evidenceSubtype,
+    evidence_type: normalized.evidenceType,
+  });
+}
+
+/** The private bucket. Read-side privacy is decided by bucket (publicVehicleProjection). */
+export const PRIVATE_EVIDENCE_BUCKET = 'ocr-documents';
+
+const NON_PUBLIC_VISIBILITIES = Object.freeze(['private', 'restricted', 'government_only']);
+
+/**
+ * OC-5R-REL-01: the ONE bucket decision for an evidence artifact — private when it is a document, is
+ * private by type (an odometer photo), or carries a non-public visibility. The upload route uses it
+ * for the bytes it stores and for the bucket a remote create must name, so the type keeps an
+ * odometer photo private even if a visibility decision ever regressed.
+ */
+export function evidenceStorageBucket({ isDocument = false, privateByType = false, visibility = null } = {}) {
+  return (isDocument || privateByType || NON_PUBLIC_VISIBILITIES.includes(visibility)) ? PRIVATE_EVIDENCE_BUCKET : 'vehicle-images';
+}
+
+/**
  * Exposure ordering for the evidence visibility vocabulary, least to most public. `government_only`
  * is narrower than `private`: it is readable by one authority rather than by the vehicle's own
  * people.
@@ -160,8 +188,18 @@ export const EVIDENCE_VISIBILITY_EXPOSURE = Object.freeze({
  *
  * Returns the level to apply and, when a widening request was refused, what was asked for — the
  * caller records that on the row so a clamp is visible to review instead of silent.
+ *
+ * OC-5R-REL-01: evidence that is PRIVATE BY TYPE (an odometer photo) defaults to 'private' and is
+ * never public — a public request is clamped and recorded even for an actor holding the review
+ * capability. A narrower or equally private level (restricted, government_only) is still honoured.
  */
-export function resolveEvidenceVisibility({ requested = null, isDocument = false, mayPublish = false } = {}) {
+export function resolveEvidenceVisibility({ requested = null, isDocument = false, mayPublish = false, privateByType = false } = {}) {
+  if (privateByType) {
+    const exposure = EVIDENCE_VISIBILITY_EXPOSURE[requested];
+    if (!requested || exposure === undefined) return { visibility: 'private', refused: false, requested };
+    if (exposure >= EVIDENCE_VISIBILITY_EXPOSURE.public_safe) return { visibility: 'private', refused: true, requested };
+    return { visibility: requested, refused: false, requested };
+  }
   const applied = isDocument ? 'restricted' : 'public_safe';
   if (!requested || requested === applied) return { visibility: applied, refused: false, requested };
 

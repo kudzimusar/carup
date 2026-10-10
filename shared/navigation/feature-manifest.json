@@ -1729,7 +1729,7 @@
     "id": "resources.api-docs",
     "domain": "info",
     "route": "/api-docs",
-    "defaultLifecycle": "active",
+    "defaultLifecycle": "planned",
     "defaultRoles": [],
     "immutableRoles": [],
     "requiresAuth": false,

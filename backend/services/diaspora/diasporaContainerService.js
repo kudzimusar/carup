@@ -3,7 +3,6 @@ import { CONTAINER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateContainerPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
-import { emitDiasporaEvent } from './diasporaNotificationService.js';
 import { requireUserContext, assertCanManageLogistics } from './diasporaAuthorization.js';
 
 const CONTAINER_TRANSITIONS = Object.freeze({
@@ -56,7 +55,8 @@ export async function createContainerShipment(payload, userContext = {}, req = n
     .single();
   if (error) throw new DatabaseError(error.message);
   await writeDiasporaAudit({ tenantId: data.tenant_id, actorId: userContext?.id, action: 'CONTAINER_CREATED', resourceType: 'diaspora_container_shipment', resourceId: data.id, newState: data, req });
-  await emitDiasporaEvent('DIASPORA_CONTAINER_CREATED', { containerId: data.id, status: data.status }, data.tenant_id);
+  // Container creation is durable in the container row and audit log. The legacy DIASPORA_CONTAINER_CREATED
+  // outbox signal had no current consumer, so creation must not enqueue worker work merely for observability.
   return data;
 }
 
@@ -131,17 +131,9 @@ export async function transitionContainer(id, nextStatus, userContext = {}, req 
     .single();
   if (error) throw new DatabaseError(error.message);
   await writeDiasporaAudit({ tenantId: data.tenant_id, actorId: userContext?.id, action: 'CONTAINER_STATUS_CHANGED', resourceType: 'diaspora_container_shipment', resourceId: id, previousState: { status: previous.status }, newState: { status: nextStatus }, req, supabaseClient: client });
-  // Best-effort, like every other notifier in the programme — and this one had drifted.
-  //
-  // By the time we get here the status row is written and the audit is sealed. Throwing on an
-  // unreachable outbox therefore reported FAILURE for work that had already committed: the caller
-  // saw an error while the database showed the new status. Found by the positive control in
-  // trade-os-t10-legacy-loading-bypass, which could not exercise the success path at all until this
-  // was fixed. A notification never creates or unwinds domain state.
-  try {
-    await emitDiasporaEvent(`DIASPORA_CONTAINER_${nextStatus}`, { containerId: id, previousStatus: previous.status, status: nextStatus }, data.tenant_id);
-  } catch (err) {
-    console.warn(`[container-transition] outbox emit failed for ${nextStatus}:`, err.message);
-  }
+  // The container row and audit are the durable status authority. Historical DIASPORA_CONTAINER_<STATUS>
+  // events were notification-shaped but had no consumer. LOADING communication is owned by T10's
+  // governed diaspora.loading.cargo_loaded / cargo_left_behind events after actual load facts exist,
+  // so a status reflection must not create a second unconsumed worker item.
   return data;
 }

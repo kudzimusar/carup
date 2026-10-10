@@ -1,0 +1,243 @@
+{
+  "schema": "carup.staging_deployment_candidate.v1",
+  "programme": "One CarUp — OC-5R-PC01 (J-R1 owner usability convergence)",
+  "prepared_at": "2026-10-10T19:22:42Z",
+  "supersedes": [
+    {
+      "code_sha": "d18936abfda408753013e821605914134518b155",
+      "reason": "PROV-01 candidate; superseded by the OC-5R-REL-01 source remediation. Never deployed."
+    },
+    {
+      "code_sha": "e7b14a0778c755d11ec18e6f9cf550be133d6a4c",
+      "deploy_commit": "312916a6ff977c9676e2580ee896f8ea741798ae",
+      "reason": "REL-01 interim candidate; its backend preview (dpl_2ffvwVkRDtWBcF8SvMeUYNwvPjJ5) showed one database endpoint unreadable by shape. Not used for any proof."
+    },
+    {
+      "code_sha": "1737763513f36158abb954fcd49e25dc49181779",
+      "deploy_commit": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+      "reason": "REL-02 interim candidate. It WAS deployed (dpl_CFRtA9A1PPuYeUDhZG8W6WYWvgSM / dpl_8SoFtGC4wxZJUrb1qPM6shm1jQNx), runtime-verified (identity 14/14, acceptance 8/8), proved (provider proof run 37723572509 SUCCEEDED) and gate-tested (Seller gate run 37723227982 3/3 green). Its Diaspora gate (run 37723228342) found two TEST-HARNESS defects and no product defect: spec 45's seven-viewport sweep hit the 90 s suite ceiling at its seventh viewport, and spec 42 read the evidence list inside the product's own upload. No product source changed after it; it is superseded by the harness-only fixes and its evidence is kept in the release record."
+    },
+    {
+      "code_sha": "a120772d62cd6b01f9e9ff9bc8cb606ee016c24c",
+      "deploy_commit": "d13c2e7821551e8d3adfee2930a6f312f8f9ed4b",
+      "reason": "PC01-I candidate (Owner Usability Checkpoint 1). It WAS deployed (frontend dpl_6xx8XLib6uEyUQL8jq2vNfys1RQH, backend dpl_BRaaDMFZVr7wSKj6V8peiMpT8613) and runtime-verified (PC01-I 20/20; PC01-J smoke healthy). The moderator's Checkpoint 1 disposition was REMEDIATE (PC01-J-R1): the owner's Serena reopened as a browser guest draft, an unpublished vehicle's passport was served anonymously by frame number, and the public surface carried stale identity, dead-end navigation and phone-width overflow. Its evidence stands and its immutable deployment URLs remain; the PC01 named aliases move to the J-R1 pair. Its two staging gate runs (Diaspora 38056687030, Seller 38056686796) never received owner approval and are cancelled as superseded."
+    }
+  ],
+  "preserved": [
+    {
+      "code_sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "deploy_commit": "d491b5aa8778002341f1eba6e2450273546e52cb",
+      "release_record": "ce89a8fac7ad75d07e9b6d9fc4ab87e8503dbc80",
+      "reason": "OC-5R-REL-01's accepted FROZEN deployed evidence. NOT superseded as evidence and never rewritten: its receipts, release record and report stand, and its named preview aliases (…-oc5r-rel01-11-11) keep serving that exact deployment. REL-02 builds a NEW candidate on top of the branch."
+    },
+    {
+      "code_sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "deploy_commit": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "release_record": "docs/one-carup/certification/OC5R_REL02_STAGING_RELEASE_RECORD.json",
+      "reason": "OC-5R-REL-02's accepted deployed evidence. NOT superseded as evidence and never rewritten: its release record, receipts and report stand, and its named preview aliases (…-oc5r-rel02-11-11) keep serving that exact deployment. PC01 builds a NEW candidate with its own aliases (…-oc5r-pc01-11-11)."
+    }
+  ],
+  "deployment": {
+    "performed": false,
+    "statement": "This package PREPARES the OC-5R-PC01 governed staging pair — re-prepared for PC01-J-R1 (Owner Usability Checkpoint 2) on code SHA 896ee73f. The release itself — deployment ids, aliases, runtime proofs, gate runs — is recorded in the PC01 production-closure ledger and its evidence, never here."
+  },
+  "candidate": {
+    "branch": "fix/oc5r-real-runtime-source-closure",
+    "pull_request": 222,
+    "code_sha": "896ee73f753bb73ca232da04904cdd8272fbeeb1",
+    "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
+    "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
+    "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
+  },
+  "projects": {
+    "vercel_team": "team_InL2Jmsg4dbG0rFY8nxriTha",
+    "frontend": {
+      "name": "carup-staging",
+      "id": "prj_auYmL5hA2ppWA15jdTK4GAdy3AYm",
+      "target": "preview (this branch's per-branch deployment)"
+    },
+    "backend": {
+      "name": "carup-backend-staging",
+      "id": "prj_ddsVeXDxxHxyMAaZxX4v5ORya27W",
+      "target": "preview (this branch's per-branch deployment)"
+    },
+    "stable_aliases": "carup-staging.vercel.app and carup-backend-staging.vercel.app are NOT moved; the pair resolver refuses them as non-candidate origins",
+    "git_auto_deploy": "disabled (vercel.json git.deploymentEnabled:false) — deploying is an explicit, governed action",
+    "git_connection": "none — the CarUp Vercel projects have no connected Git repository (OC-P0 cost containment). Vercel therefore assigns no branch alias and injects no VERCEL_GIT_* variables; a release is a CLI upload of a clean detached worktree at the deploy commit (owner decision 2026-10-08)."
+  },
+  "database": {
+    "project_ref": "eoyenigwevnxwwhyhaer",
+    "role": "canonical staging database (OC-5R DB convergence: SOURCE PASS + DATABASE PASS)",
+    "migrations": "none introduced by OC-5R-PC01 (no file under database/migrations changed). PC01-H converged seven drifted staging definitions to this lineage by replaying three already-recorded lineage files inside one governed transaction (database/scripts/oc5r_pc01_staging_definition_convergence.mjs); the migration ledger is unchanged (265 rows). PC01-J-R1 adds none (no file under database/ changed)."
+  },
+  "expected_pairing": {
+    "frontend": {
+      "file": "web/preview-frontend-pairing.json",
+      "value": "https://carup-staging-oc5r-pc01-11-11.vercel.app",
+      "basis": "a NEW named preview alias (PC01), assigned to the frontend deployment through the Vercel API and read back. The REL-01 and REL-02 aliases are deliberately NOT moved: they keep serving their frozen deployments."
+    },
+    "backend": {
+      "file": "web/preview-backend-pairing.json",
+      "value": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app",
+      "pattern": "^https://carup-backend-staging-oc5r-pc01-11-11\\.vercel\\.app$",
+      "basis": "a NEW named preview alias (PC01), first assigned to the backend preview of code_sha (dpl_HTHm4Rtzuyk8Kj1ahws3aFDHwke6) and read back (/api/health: commit a120772d, staging database only, kill switch active)"
+    },
+    "procedure": [
+      "1. First iteration only: deploy the BACKEND preview of the code SHA first (CLI, clean detached worktree), assign the backend alias above and read it back from Vercel; its /api/health must already state the code SHA and the kill switch. The aliases are NAMED, so a later iteration inherits them: it deploys straight from its deploy commit and moves the same two aliases.",
+      "2. Commit ONLY this branch's two pairing records (values above) plus candidate documentation on top of code_sha. Verify that commit with the verify command — it must pass with pairing \"present\" the first time the records change, and with pairing \"absent\" when a later code SHA already carries the same records (the deploy commit then adds documentation only). That commit is the deploy commit.",
+      "3. From a clean detached worktree at the deploy commit (git status empty; the CLI upload set is exactly the tracked tree), deploy BOTH carup-backend-staging and carup-staging to the PREVIEW target with CARUP_BUILD_SHA / CARUP_BUILD_REF as build inputs (and, on the backend, as runtime env plus COMMUNICATION_OUTBOUND_DISABLED=true) and meta carupSourceSha=<deploy commit>. Assign the two aliases above and read them back. Never move the stable aliases or the REL-01 / REL-02 aliases.",
+      "4. Prove runtime identity before any journey: /carup-provenance.json and /api/health both serve the deploy commit, the frontend is paired to the backend alias, the database refs are the staging project only (consistent), OCR custody is canonical (cloudflare/Qwen), general AI is cloudflare/Gemma, and the outbound kill switch is active.",
+      "5. Run the deployed provider proof (label oc5r-deployed-provider-proof) and the two staging gates on the deploy commit."
+    ]
+  },
+  "environment_contract": {
+    "read_at": "2026-10-07T14:44Z (Vercel project env NAMES and targets only; no value was read or decrypted)",
+    "canonical_cloudflare_credential": {
+      "CLOUDFLARE_API_TOKEN": "PRESENT on carup-backend-staging for targets preview AND production (set by the Product Owner, updated 2026-10-07T14:25:16Z). RUNTIME-VERIFIED on the REL-01 deployed preview (d491b5aa): /api/health reports ocr cloudflare/@cf/qwen/qwen3.8-27b configured with canonical custody and ai cloudflare/@cf/google/gemma-4-26b-a4b-it configured; a deployed Qwen run through the product path answered (run 37705240258).",
+      "CLOUDFLARE_ACCOUNT_ID": "PRESENT (preview, production).",
+      "CLOUDFLARE_TOKEN": "STALE — present on the production target, read by no code in this lineage. No compatibility was added. Owner action: remove it.",
+      "runtime": "The REL-01 preview pair (d491b5aa) VERIFIED the credential at runtime. Only the STABLE staging deployment (dpl_91cteUJnAN8218aeCtUPrXHSHLa3, main@bb9d9900) still predates it and its /api/health has no `ai` block; it is not part of this release and is never moved."
+    },
+    "backend_preview_target_present": [
+      "ALLOW_OCR_MOCK",
+      "BREVO_API_KEY",
+      "BREVO_FROM_EMAIL",
+      "BREVO_WEBHOOK_SECRET",
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_ZONE_ID",
+      "CORS_ALLOWED_ORIGINS",
+      "DATABASE_URL",
+      "DIASPORA_SAFETRADE_ENABLED",
+      "DIASPORA_STAGING_DATABASE_URL",
+      "DIASPORA_TRADE_GRAPH",
+      "DIRECT_URL",
+      "ENABLE_AUTOMATION_WEBHOOKS",
+      "JWT_SECRET",
+      "OCR_MODE",
+      "POSTGRES_PRISMA_URL",
+      "POSTGRES_URL",
+      "POSTGRES_URL_NON_POOLING",
+      "RESEND_API_KEY",
+      "RESEND_AUTH_FROM_EMAIL",
+      "RESEND_FROM_EMAIL",
+      "RESEND_WEBHOOK_SECRET",
+      "SUPABASE_DB_URL",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_URL"
+    ],
+    "backend_preview_target_absent_preexisting": {
+      "names": [
+        "CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET",
+        "CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET",
+        "CARUP_EMAIL_REPLY_TOKEN_SECRET",
+        "CARUP_META_ACCESS_TOKEN",
+        "CARUP_META_APP_SECRET",
+        "CARUP_META_PHONE_NUMBER_ID",
+        "CARUP_META_WABA_ID",
+        "CARUP_META_WEBHOOK_VERIFY_TOKEN",
+        "CARUP_TELEGRAM_BOT_TOKEN",
+        "CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN",
+        "COMMUNICATION_ENGINE_ENABLED",
+        "COMMUNICATION_REAL_ADAPTERS",
+        "COMMUNICATION_WEBHOOK_BASE_URL",
+        "COMMUNICATION_WORKER_ENABLED",
+        "COMMUNICATION_WORKER_SECRET",
+        "CRON_SECRET",
+        "CARUP_PUBLIC_API_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_JWT_SECRET",
+        "NODE_ENV"
+      ],
+      "meaning": "Present on the production target (the stable staging runtime) only, so a new per-branch PREVIEW runs without them: ledger signing refuses (no ephemeral key in a deployment), Meta/Telegram adapters report provider_not_configured, the communications worker is off. Pre-existing; unchanged by this programme. No staging UAT spec signs a webhook, so the B/C hardening adds no new dependency to the two gates."
+    },
+    "now_strict_in_every_deployment": {
+      "names": [
+        "INSURANCE_WEBHOOK_SECRET",
+        "FINANCE_WEBHOOK_SECRET",
+        "ESCROW_TRUST_WEBHOOK_SECRET",
+        "ESCROW_PROVIDER_WEBHOOK_SECRET",
+        "DIASPORA_BILLING_WEBHOOK_SECRET",
+        "DIASPORA_SAFETRADE_WEBHOOK_SECRET",
+        "CARUP_CHANNEL_WEBHOOK_SECRET"
+      ],
+      "meaning": "Absent on staging. Their webhooks fail closed in a deployment (committed literals and the generic shared secret are local/CI only). Set them only when that webhook is to be exercised on staging; SafeTrade still answers 503 without an approved provider."
+    },
+    "frontend": {
+      "VITE_API_URL": "must NOT be set for branch fix/oc5r-real-runtime-source-closure on carup-staging — an explicit VITE_API_URL overrides the governed pairing file. None is set for it today.",
+      "pairing": "web/preview-frontend-pairing.json and web/preview-backend-pairing.json (see expected_pairing)"
+    },
+    "owner_actions": [
+      "Remove the stale CLOUDFLARE_TOKEN from carup-backend-staging (production target).",
+      "Optional: store CLOUDFLARE_API_TOKEN as type 'sensitive' (it is 'encrypted', i.e. decryptable by team members) for parity with the other provider credentials.",
+      "Optional, per webhook to be exercised on staging: set the now-strict webhook secrets above."
+    ],
+    "outbound_kill_switch": {
+      "variable": "COMMUNICATION_OUTBOUND_DISABLED",
+      "value_for_this_release": "true",
+      "scope": "deployment-scoped runtime env on the backend preview deployment (vercel deploy -e); the project has no connected Git repository, so a branch-scoped variable cannot be created. Never set on production.",
+      "proof": "/api/health communications.outbound.kill_switch == \"active\""
+    },
+    "build_provenance": {
+      "variables": [
+        "CARUP_BUILD_SHA",
+        "CARUP_BUILD_REF"
+      ],
+      "scope": "build env (-b) on both previews and runtime env (-e) on the backend; values = the deploy commit and the branch",
+      "why": "a Git-less CLI deployment carries no VERCEL_GIT_* variables; Vercel's own variables still win when present and a contradiction is refused"
+    },
+    "d7_worker_secret": {
+      "variable": "COMMUNICATION_WORKER_SECRET",
+      "state": "absent on the Preview target. Spec 45 D7 (two tests, now the last of the serial chain) drains the outbox with GitHub TRADEOS_WORKER_SECRET at /api/internal/events/process, which accepts only the runtime's COMMUNICATION_WORKER_SECRET or CRON_SECRET (401 \"Unauthorized communication worker request.\" otherwise).",
+      "rule": "D7 runs unchanged; where the secret is rejected the exact response is recorded (d7-drain-responses.json) and reported as one staging secret-custody blocker. This programme adds no backend secret, rotates none, and never sets TRADEOS_WORKER_SECRET as a backend authentication secret."
+    },
+    "supabase_db_url": {
+      "state": "SUPABASE_DB_URL no longer targets the Preview environment of carup-backend-staging (owner decision, 2026-10-07T23:49:06Z); its production scope is unchanged.",
+      "why": "a sensitive variable the health parser could not read by shape (database.consistent false); no runtime path reads it while DATABASE_URL is set.",
+      "rule": "must NOT be restored to Preview by this programme."
+    }
+  },
+  "provider_config": {
+    "ocr": {
+      "provider": "cloudflare",
+      "model": "@cf/qwen/qwen3.8-27b",
+      "requires": [
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN"
+      ],
+      "mock": "refused in every deployment",
+      "custody": "in a deployed runtime CARUP_OCR_MODEL must be absent or equal the canonical model, and CARUP_OCR_PROVIDER must be cloudflare — anything else fails closed (OCR_CUSTODY_REFUSED)"
+    },
+    "general_ai": {
+      "provider": "cloudflare",
+      "model": "@cf/google/gemma-4-26b-a4b-it",
+      "requires": [
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN"
+      ],
+      "authority": "advisory"
+    },
+    "reference_fx": {
+      "provider": "ECB eurofxref-daily.xml",
+      "requires": [],
+      "policy": "bounded, observed once per TTL, written only on a newer publication"
+    },
+    "billing": {
+      "provider": "none approved",
+      "behaviour": "provider routes answer 503 EXTERNAL_ACTIVATION_REQUIRED; reads work"
+    },
+    "safetrade_payments": {
+      "provider": "none approved",
+      "behaviour": "payment webhook answers 503 SAFETRADE_WEBHOOK_UNAVAILABLE; payments not activated"
+    },
+    "communications": {
+      "resend": "RESEND_API_KEY + RESEND_FROM_EMAIL (+ RESEND_WEBHOOK_SECRET inbound)",
+      "telegram": "CARUP_TELEGRAM_BOT_TOKEN (+ CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN inbound)",
+      "meta_whatsapp": "CARUP_META_ACCESS_TOKEN + CARUP_META_PHONE_NUMBER_ID (+ CARUP_META_APP_SECRET inbound, CARUP_META_WABA_ID templates)",
+      "kill_switch": "COMMUNICATION_OUTBOUND_DISABLED=true on this release (no provider is contacted; external notifications are held, not lost)"
+    },
+    "biometrics": "not activated",
+    "marketplace_valuation": "none — no approved valuation provider; valuation_status not_configured; no AI price intelligence",
+    "gemma": "cloudflare / @cf/google/gemma-4-26b-a4b-it, advisory; REL-02 E: the request body carries chat_template_kwargs.enable_thinking=false (interactive advisory calls need bounded latency); the Marketplace 12 s bound, one attempt and no fallback are unchanged"
+  }
+}

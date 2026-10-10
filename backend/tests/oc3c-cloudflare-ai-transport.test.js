@@ -13,6 +13,8 @@
  *      timeout vs caller abort, missing credentials spend nothing, fetch resolved at call time;
  *   2. both policies ride it, and send the requests they sent BEFORE the convergence — golden bodies
  *      captured from the pre-convergence implementations (OCR @ 44d283e2, Gemma @ PR #217 6c8ff6f7);
+ *      the OCR body is still byte-identical. The Gemma golden changed ONCE, intentionally, in
+ *      OC-5R-REL-02 E: #217's body plus `chat_template_kwargs: { enable_thinking: false }` (see below);
  *   3. the OCR policy keeps its wording and its model authority (Qwen; the gateway is not on the
  *      OCR path; Gemma is not selected for OCR);
  *   4. source contract: only the transport builds a Workers AI URL or reads the API token.
@@ -215,7 +217,15 @@ test('OC-3C transport: fetch is resolved at CALL time, so a runtime or test fetc
 const GOLDEN_OCR_URL = 'https://api.cloudflare.com/client/v4/accounts/acct-golden/ai/run/@cf/qwen/qwen3.8-27b';
 const GOLDEN_OCR_BODY = '{"max_tokens":2048,"temperature":0,"messages":[{"role":"system","content":"Read the document."},{"role":"user","content":[{"type":"text","text":"Return JSON."},{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJD"}}]}]}';
 const GOLDEN_GEMMA_URL = 'https://api.cloudflare.com/client/v4/accounts/acct-golden/ai/run/@cf/google/gemma-4-26b-a4b-it';
-const GOLDEN_GEMMA_BODY = '{"messages":[{"role":"system","content":"Advise."},{"role":"user","content":"Summarise.\\n\\nReturn only one valid JSON value. Do not use Markdown fences or prose outside the JSON."}],"temperature":0,"max_tokens":4096}';
+// PR #217's ORIGINAL request body, kept verbatim as history. It is no longer what the policy sends.
+const GOLDEN_GEMMA_BODY_217 = '{"messages":[{"role":"system","content":"Advise."},{"role":"user","content":"Summarise.\\n\\nReturn only one valid JSON value. Do not use Markdown fences or prose outside the JSON."}],"temperature":0,"max_tokens":4096}';
+// OC-5R-REL-02 E — the golden CHANGED, intentionally, by exactly ONE field. The first call through the
+// deployed Marketplace buyer assistant did not return inside its 12 s bound because Gemma 4 reasons by
+// default (documented `chat_template_kwargs.enable_thinking`, default true): ~16 s of hidden reasoning for a
+// ~120-token answer, vs ~2.7 s with it off. Interactive CarUp advisory calls need bounded latency, and hidden
+// model reasoning is not itself a CarUp product output or authority. The field belongs to the Gemma POLICY;
+// this transport still sends every policy's body verbatim, and the OCR/Qwen body above is untouched.
+const GOLDEN_GEMMA_BODY = '{"messages":[{"role":"system","content":"Advise."},{"role":"user","content":"Summarise.\\n\\nReturn only one valid JSON value. Do not use Markdown fences or prose outside the JSON."}],"temperature":0,"max_tokens":4096,"chat_template_kwargs":{"enable_thinking":false}}';
 const GOLDEN_ENV = { CLOUDFLARE_ACCOUNT_ID: 'acct-golden', CLOUDFLARE_API_TOKEN: 'tok-golden' };
 
 test('OC-3C policy: the certified OCR request is byte-identical to the pre-convergence request', async () => {
@@ -239,12 +249,17 @@ test('OC-3C policy: the certified OCR request is byte-identical to the pre-conve
   });
 });
 
-test('OC-3C policy: the general Gemma request is byte-identical to PR #217\'s request', async () => {
+test('OC-3C policy: the general Gemma request is PR #217\'s request plus ONE intentional field (REL-02 E)', async () => {
   const rec = recorder();
   const out = await gemma.invokeCloudflareGemma({ systemPrompt: 'Advise.', userPrompt: 'Summarise.', expectJson: true, env: GOLDEN_ENV, fetchImpl: rec.fetchImpl });
   assert.equal(rec.calls.length, 1);
   assert.equal(rec.calls[0].url, GOLDEN_GEMMA_URL);
-  assert.equal(rec.calls[0].init.body, GOLDEN_GEMMA_BODY);
+  assert.equal(rec.calls[0].init.body, GOLDEN_GEMMA_BODY, 'the golden request, byte for byte');
+  // The whole difference from #217 is the one reasoning switch — nothing else moved.
+  const sent = JSON.parse(rec.calls[0].init.body);
+  assert.deepEqual(sent.chat_template_kwargs, { enable_thinking: false });
+  delete sent.chat_template_kwargs;
+  assert.equal(JSON.stringify(sent), GOLDEN_GEMMA_BODY_217, 'minus that field the body is #217\'s, byte for byte');
   assert.deepEqual(out.provenance, { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it' });
 });
 

@@ -16,17 +16,42 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.NODE_ENV = 'test';
+process.env.SUPABASE_URL ||= 'http://127.0.0.1:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 
 const { eventWorker, MAX_OUTBOX_ATTEMPTS } = await import('../services/eventBus/eventWorker.js');
+const { memoryBroker } = await import('../services/eventBus/eventBusService.js');
 
 // ---- table-aware in-memory pg mock --------------------------------------------------
 let rows; // domain_events table
+let queryLog;
 
 function makeClient() {
   return {
     released: false,
     async query(sql, params = []) {
       const text = sql.trim();
+      queryLog.push(text);
+
+      if (/^(BEGIN;?|COMMIT;?|ROLLBACK;?)$/i.test(text)) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (/^SELECT \* FROM domain_events/i.test(text)) {
+        const maxAttempts = Number(params[0]);
+        const selected = rows
+          .filter((r) => r.status === 'pending' && r.attempts < maxAttempts)
+          .slice()
+          .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+          .slice(0, 10);
+        return { rows: selected, rowCount: selected.length };
+      }
+
+      if (/^SELECT COUNT\(\*\) as count FROM domain_events/i.test(text)) {
+        const maxAttempts = Number(params[0]);
+        const count = rows.filter((r) => r.status === 'pending' && r.attempts < maxAttempts).length;
+        return { rows: [{ count: String(count) }], rowCount: 1 };
+      }
 
       // processEvent failure path:
       // UPDATE domain_events SET status=$1, attempts=$2, error_log=$3, dead_lettered_at=NOW()|NULL WHERE id=$4
@@ -90,6 +115,7 @@ function installMockPool() {
 
 beforeEach(() => {
   rows = [];
+  queryLog = [];
   installMockPool();
   // Reset handlers map between tests.
   eventWorker.handlers = new Map();
@@ -123,6 +149,37 @@ test('failing handler keeps event pending below the attempt threshold', async ()
   assert.equal(row.dead_lettered_at, null);
 });
 
+test('zero handlers fails closed without processed status, success emission, or communication side effects', async () => {
+  const ev = seedEvent({ event_type: 'dealer.onboarding.started', attempts: 0 });
+  const successEmissions = [];
+  const listener = (record) => successEmissions.push(record);
+  memoryBroker.on(`outbox:${ev.event_type}`, listener);
+  try {
+    await eventWorker.processEvent(makeClient(), ev);
+  } finally {
+    memoryBroker.off(`outbox:${ev.event_type}`, listener);
+  }
+
+  const row = rows.find((candidate) => candidate.id === ev.id);
+  assert.equal(row.status, 'pending');
+  assert.equal(row.attempts, 1);
+  assert.match(row.error_log, /NO_CURRENT_SUBSCRIBER/);
+  assert.equal(successEmissions.length, 0);
+  assert.equal(queryLog.some((sql) => /notification_queue|\bmessages\b/i.test(sql)), false);
+});
+
+test('a subscribed event still processes normally', async () => {
+  let handled = 0;
+  eventWorker.subscribe('subscribed.event', async () => { handled += 1; });
+  const ev = seedEvent({ event_type: 'subscribed.event' });
+  await eventWorker.processEvent(makeClient(), ev);
+  const row = rows.find((candidate) => candidate.id === ev.id);
+  assert.equal(handled, 1);
+  assert.equal(row.status, 'processed');
+  assert.equal(row.attempts, 1);
+  assert.equal(row.error_log, null);
+});
+
 test('event moves to dead_letter when attempts reach MAX_OUTBOX_ATTEMPTS', async () => {
   eventWorker.subscribe('demo.event', async () => { throw new Error('persistent failure'); });
   // Start one below the max so this attempt is the final one.
@@ -150,10 +207,35 @@ test('repeated failures escalate from pending to dead_letter', async () => {
   assert.equal(final.status, 'dead_letter');
 });
 
-test('reprocessDeadLetters replays all dead-lettered events back to pending', async () => {
+test('pollEvents never selects or emits success for a quarantined event', async () => {
+  const quarantined = seedEvent({ id: 'q-poll', status: 'quarantined', event_type: 'owned.event', attempts: 0 });
+  const pending = seedEvent({ id: 'p-poll', status: 'pending', event_type: 'owned.event', attempts: 0 });
+  quarantined.created_at = '2026-09-01T00:00:00.000Z';
+  pending.created_at = '2026-09-02T00:00:00.000Z';
+
+  eventWorker.subscribe('owned.event', async () => {});
+  const emissions = [];
+  const listener = (event) => emissions.push(event.id);
+  memoryBroker.on('outbox:owned.event', listener);
+  try {
+    const result = await eventWorker.pollEvents();
+    assert.equal(result.processed, 1);
+  } finally {
+    memoryBroker.off('outbox:owned.event', listener);
+  }
+
+  assert.equal(rows.find((r) => r.id === 'q-poll').status, 'quarantined');
+  assert.equal(rows.find((r) => r.id === 'q-poll').attempts, 0);
+  assert.equal(rows.find((r) => r.id === 'p-poll').status, 'processed');
+  assert.equal(rows.find((r) => r.id === 'p-poll').attempts, 1);
+  assert.deepEqual(emissions, ['p-poll']);
+});
+
+test('reprocessDeadLetters replays all dead-lettered events back to pending and never selects quarantined', async () => {
   seedEvent({ id: 'dl-1', status: 'dead_letter', attempts: 5 });
   seedEvent({ id: 'dl-2', status: 'dead_letter', attempts: 5 });
   seedEvent({ id: 'ok-1', status: 'processed', attempts: 1 });
+  seedEvent({ id: 'q-1', status: 'quarantined', attempts: 0 });
 
   const result = await eventWorker.reprocessDeadLetters();
   assert.equal(result.replayed, 2);
@@ -165,8 +247,10 @@ test('reprocessDeadLetters replays all dead-lettered events back to pending', as
     assert.equal(row.attempts, 0);
     assert.equal(row.dead_lettered_at, null);
   }
-  // Unrelated processed row is untouched.
+  // Unrelated processed and quarantined rows are untouched.
   assert.equal(rows.find((r) => r.id === 'ok-1').status, 'processed');
+  assert.equal(rows.find((r) => r.id === 'q-1').status, 'quarantined');
+  assert.equal(rows.find((r) => r.id === 'q-1').attempts, 0);
 });
 
 test('reprocessDeadLetters honors id and eventType filters', async () => {
@@ -181,4 +265,16 @@ test('reprocessDeadLetters honors id and eventType filters', async () => {
   const byType = await eventWorker.reprocessDeadLetters({ eventType: 'type.y' });
   assert.deepEqual(byType.ids, ['b']);
   assert.equal(rows.find((r) => r.id === 'b').status, 'pending');
+});
+
+test('a dead letter can be replayed and succeed after a real subscriber is installed', async () => {
+  const ev = seedEvent({ id: 'orphan-then-owned', event_type: 'later.owned', status: 'dead_letter', attempts: MAX_OUTBOX_ATTEMPTS });
+  const replay = await eventWorker.reprocessDeadLetters({ ids: [ev.id] });
+  assert.deepEqual(replay.ids, [ev.id]);
+  eventWorker.subscribe('later.owned', async () => {});
+  await eventWorker.processEvent(makeClient(), rows.find((row) => row.id === ev.id));
+  const final = rows.find((row) => row.id === ev.id);
+  assert.equal(final.status, 'processed');
+  assert.equal(final.attempts, 1);
+  assert.equal(final.error_log, null);
 });

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, DEFAULT_STAGING_API_BASE_URL } from './apiClient'
 import { getErrorMessage } from './errorMessage'
-import { withMockFallback } from '../pages/Marketplace'
 
 // QA Round 2 — a staging/preview frontend MUST set VITE_API_URL, or it targets the production backend
 // (unseeded + missing this PR's routes -> 0 vehicles + "Route not found"). Pin the behavior.
@@ -69,16 +68,4 @@ describe('getErrorMessage never yields "[object Object]"', () => {
   })
 })
 
-// QA blocker 2/3 — staging must never render fake mock cards (they link to nonexistent detail pages).
-describe('withMockFallback (fixture gating)', () => {
-  const mock = [{ vin: 'MOCK1' }] as any[]
-  it('returns real listings when present (mock irrelevant)', () => {
-    expect(withMockFallback([{ vin: 'REAL1' }] as any[], mock, false)).toEqual([{ vin: 'REAL1' }])
-  })
-  it('returns an empty list when live is empty and mock is disabled (staging/prod)', () => {
-    expect(withMockFallback([], mock, false)).toEqual([])
-  })
-  it('returns mock only when explicitly allowed (dev/demo)', () => {
-    expect(withMockFallback([], mock, true)).toEqual(mock)
-  })
-})
+// QA blocker 2/3 is now closed structurally: Marketplace has no mock inventory import or fallback.

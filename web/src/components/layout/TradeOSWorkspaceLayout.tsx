@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { Car, Loader2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { canRoleAccessRoute } from '@/config/featureRegistry'
@@ -107,7 +108,9 @@ export default function TradeOSWorkspaceLayout() {
     return <div className="flex min-h-screen items-center justify-center bg-white text-orange-600"><Loader2 className="h-6 w-6 animate-spin" /></div>
   }
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    // PC01-J-R1: Login reads `?returnTo`, not router state — the state alone dropped the visitor on a
+    // role dashboard after signing in instead of the import page they had asked for.
+    return <Navigate to={buildLoginRedirect(`${location.pathname}${location.search}`)} replace state={{ from: location.pathname }} />
   }
 
   return (

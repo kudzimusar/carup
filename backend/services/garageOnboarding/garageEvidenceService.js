@@ -176,22 +176,37 @@ async function requireEditableOwnApplication(client, userId, applicationId) {
   return data;
 }
 
+/** Image/PDF signatures — the declared type must be what the bytes are (dealer onboarding's rule). */
+function sniffEvidenceMime(buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') return 'application/pdf';
+  return null;
+}
+
 function parseEvidencePayload(payload = {}) {
   const raw = payload.file_base64 || payload.fileBase64;
   if (!raw) throw new ValidationError('Attach the file you want to upload.');
-  const mimeType = String(payload.mime_type || payload.mimeType || '').trim().toLowerCase();
-  if (!ALLOWED_EVIDENCE_MIME.has(mimeType)) {
+  let declared = String(payload.mime_type || payload.mimeType || '').trim().toLowerCase();
+  if (declared === 'image/jpg') declared = 'image/jpeg';
+  if (!ALLOWED_EVIDENCE_MIME.has(declared)) {
     throw new ValidationError('Upload a photo (JPG, PNG or WEBP) or a PDF.');
   }
-  const base64 = String(raw).includes(',') ? String(raw).split(',').pop() : String(raw);
-  let buffer;
-  try {
-    buffer = Buffer.from(base64, 'base64');
-  } catch {
+  // Strict base64, and the bytes must be the type declared (PC01-F F3c). Buffer.from silently drops
+  // characters outside the alphabet, and the declared type used to be stored as fact — so any text
+  // could be filed, and later previewed and read, as an applicant's "utility bill".
+  const base64 = (String(raw).includes(',') ? String(raw).split(',').pop() : String(raw)).replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64) || base64.length % 4 !== 0) {
     throw new ValidationError('That file could not be read. Try uploading it again.');
   }
+  const buffer = Buffer.from(base64, 'base64');
   if (!buffer.length) throw new ValidationError('That file appears to be empty.');
   if (buffer.length > MAX_EVIDENCE_BYTES) throw new ValidationError('That file is larger than 15MB. Try a smaller photo.');
+  const mimeType = sniffEvidenceMime(buffer);
+  if (mimeType !== declared) {
+    throw new ValidationError('That file is not the type it claims to be. Upload a real JPG, PNG, WEBP photo or a PDF.');
+  }
   const extension = mimeType === 'application/pdf' ? 'pdf'
     : mimeType === 'image/png' ? 'png'
     : mimeType === 'image/webp' ? 'webp' : 'jpg';

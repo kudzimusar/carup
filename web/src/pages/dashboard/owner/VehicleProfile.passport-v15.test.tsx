@@ -151,7 +151,9 @@ describe('V15 — mobile, low-bandwidth and accessibility parity', () => {
   })
 
   it('source contract preserves compact/accessibility and low-bandwidth primitives', () => {
-    expect(SRC).toContain('aria-labelledby="vehicle-passport-title"')
+    // OC-5R-REL-02 A: the landmark is named by the visible "Vehicle Passport" label AND the vehicle
+    // heading (still the heading; now also the surface's name) — see VehicleProfile.passport-identity.test.tsx.
+    expect(SRC).toContain('aria-labelledby="vehicle-passport-label vehicle-passport-title"')
     expect(SRC).toContain('motion-reduce:animate-none')
     expect(SRC).toContain('grid-cols-2')
     expect(SRC).toContain('min-h-11')

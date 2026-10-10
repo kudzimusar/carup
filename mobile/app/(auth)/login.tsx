@@ -155,10 +155,8 @@ export default function LoginScreen() {
         />
         {errors.password && <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{errors.password.message}</Text>}
 
-        {/* Visible marker text directly above the button */}
-        <Text style={{ color: '#0F172A', fontSize: 13, fontWeight: '800', marginTop: 24, marginBottom: 8 }} testID="login-visible-marker">
-          VISIBLE LOGIN BUTTON BELOW
-        </Text>
+        {/* PC01-J-R1: a debug marker label used to be rendered here, on the customer screen. */}
+        <View style={{ height: 24 }} />
 
         {/* Visible submit CTA — directly below the password, in the same flow.
             Orange background, white text, minHeight 64, full width, solid border,
@@ -187,9 +185,29 @@ export default function LoginScreen() {
             <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: 0.5 }}>
-              SIGN IN — VISIBLE CTA
+              Sign in
             </Text>
           )}
+        </TouchableOpacity>
+
+        {/* PC01-J-R1: no screen linked to registration, so nobody could create an account in the app. */}
+        <TouchableOpacity
+          onPress={() => router.push('/(auth)/register')}
+          testID="login-create-account"
+          accessibilityRole="link"
+          style={{ minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 12 }}
+        >
+          <Text style={{ color: '#475569', fontSize: 14 }}>
+            New to CarUp? <Text style={{ color: '#EA580C', fontWeight: '700' }}>Create an account</Text>
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => router.replace('/(tabs)/marketplace')}
+          testID="login-browse-as-guest"
+          accessibilityRole="link"
+          style={{ minHeight: 48, justifyContent: 'center', alignItems: 'center' }}
+        >
+          <Text style={{ color: '#475569', fontSize: 14 }}>Browse the Marketplace without an account</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>

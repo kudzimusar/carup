@@ -61,6 +61,28 @@ const inboxProjectionMigrationSql = readFileSync(new URL('../../database/migrati
 const auditMigrationSql = readFileSync(new URL('../../database/migrations/20260705170000_communication_audit_events.sql', import.meta.url), 'utf8');
 const slaMigrationSql = readFileSync(new URL('../../database/migrations/20260705180000_communication_sla.sql', import.meta.url), 'utf8');
 
+/**
+ * OC-5R-PROV-01 G8 — a test that simulates a preview DEPLOYMENT must leave the process as it found
+ * it. Two tests set VERCEL_ENV=preview (and the diagnostics flags) and never restored them, so
+ * every later test in this file silently ran as a deployed runtime. In a deployment a Meta POST is
+ * authenticated by Meta's own HMAC, so these tests now sign the way Meta does.
+ */
+const UAT_META_APP_SECRET = 'meta-app-secret-uat-preview';
+function simulatePreviewDeployment(t) {
+  const keys = ['VERCEL_ENV', 'CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS', 'COMMUNICATION_WORKER_SECRET', 'CARUP_META_APP_SECRET'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  t.after(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
+  process.env.VERCEL_ENV = 'preview';
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  process.env.CARUP_META_APP_SECRET = UAT_META_APP_SECRET;
+}
+const metaSignature = (rawBody) => `sha256=${crypto.createHmac('sha256', UAT_META_APP_SECRET).update(rawBody).digest('hex')}`;
+
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
   const identityService = new CommunicationIdentityService({ repository });
@@ -640,7 +662,9 @@ test('Cloudflare email adapter posts authenticated Worker request and maps accep
 });
 
 test('Cloudflare email adapter uses official REST fallback when Worker credentials are incomplete', async () => {
-  const fetchImpl = jsonFetchRecorder({ status: 200, body: { success: true, result: { delivered: [], queued: ['buyer@example.test'] } }, headers: { 'cf-ray': 'ray-rest-1' } });
+  // OC-5R-REL-01: the REST answer carries Cloudflare's own message id; `cf-ray` (an edge trace header)
+  // used to stand in for one and is no longer accepted as proof of a send.
+  const fetchImpl = jsonFetchRecorder({ status: 200, body: { success: true, result: { id: 'cf-rest-msg-1', delivered: [], queued: ['buyer@example.test'] } }, headers: { 'cf-ray': 'ray-rest-1' } });
   const adapter = new CloudflareEmailAdapter({
     env: {
       CLOUDFLARE_EMAIL_FROM: 'noreply@example.test',
@@ -656,7 +680,8 @@ test('Cloudflare email adapter uses official REST fallback when Worker credentia
     content: { subject: 'REST update', body: 'REST body', data: {} },
   });
   assert.equal(result.accepted, true);
-  assert.equal(result.providerRequestId, 'ray-rest-1');
+  assert.equal(result.providerRequestId, 'cf-rest-msg-1');
+  assert.equal(result.providerMessageId, 'cf-rest-msg-1');
   assert.equal(fetchImpl.calls[0].url, 'https://api.cloudflare.com/client/v4/accounts/account-1/email/sending/send');
   assert.equal(fetchImpl.calls[0].options.headers.authorization, 'Bearer cf-api-token');
 });
@@ -1184,11 +1209,9 @@ test('communication Meta GET route rejects wrong verify token with controlled er
   }), (error) => error.statusCode === 403 && /Meta webhook verification failed/.test(error.message));
 });
 
-test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp message/thread', async () => {
+test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp message/thread', async (t) => {
   clearMetaWhatsAppWebhookReceiptsForTest();
-  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
-  process.env.VERCEL_ENV = 'preview';
-  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  simulatePreviewDeployment(t);
   const services = createHarness();
   const router = createCommunicationRouter({ services });
   const adminRouter = createAdminCommunicationRouter({ services });
@@ -1201,7 +1224,7 @@ test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp mes
     requestId: 'req-whatsapp-uat-1',
     correlationId: 'req-whatsapp-uat-1',
     headers: {
-      'x-channel-webhook-secret': 'test-channel-secret',
+      'x-hub-signature-256': metaSignature(JSON.stringify(payload)),
       'content-type': 'application/json',
       'user-agent': 'node-test',
     },
@@ -1318,11 +1341,9 @@ test('Meta WhatsApp duplicate provider message id is idempotent and does not cre
   assert.equal((await services.repository.list('channel_identities')).length, 1);
 });
 
-test('Meta WhatsApp duplicate channel identity race is recovered and receipt is processed', async () => {
+test('Meta WhatsApp duplicate channel identity race is recovered and receipt is processed', async (t) => {
   clearMetaWhatsAppWebhookReceiptsForTest();
-  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
-  process.env.VERCEL_ENV = 'preview';
-  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  simulatePreviewDeployment(t);
   class RaceyIdentityRepository extends MemoryCommunicationRepository {
     constructor(seed) {
       super(seed);
@@ -1394,10 +1415,9 @@ test('Meta WhatsApp duplicate channel identity race is recovered and receipt is 
     requestId: 'req-whatsapp-racey-identity',
     correlationId: 'req-whatsapp-racey-identity',
     headers: {
-      'x-channel-webhook-secret': 'test-channel-secret',
+      'x-hub-signature-256': metaSignature(JSON.stringify(payload)),
       'content-type': 'application/json',
       'user-agent': 'facebookexternalua',
-      'x-hub-signature-256': 'sha256=present',
     },
     query: {},
     body: payload,
@@ -2196,9 +2216,54 @@ test('assertRealTelegramAdapter is a no-op in test environment regardless of bot
     () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'staging' }),
     'must not throw when CARUP_TELEGRAM_BOT_TOKEN is not set'
   );
+});
+
+// OC-5R: fake adapters may exist only as local/test fixtures. COMMUNICATION_FAKE_ADAPTERS_ENABLED
+// once let a staging deployment run fake providers that report every send as accepted; that bypass
+// is retired, and no flag may override the deployed-runtime boundary.
+const DEPLOYED_RUNTIME_ENVS = [
+  { NODE_ENV: 'staging' },
+  { NODE_ENV: 'production' },
+  { NODE_ENV: 'test', CARUP_ENV: 'staging' },
+  { NODE_ENV: 'test', VERCEL_ENV: 'preview' },
+  { NODE_ENV: 'development', VERCEL_ENV: 'production' },
+];
+
+test('COMMUNICATION_FAKE_ADAPTERS_ENABLED cannot suppress the real-Telegram assertion in a deployed runtime', () => {
+  const fakeRegistry = { get: () => new FakeCommunicationAdapter({ channel: 'telegram' }) };
+  for (const runtime of DEPLOYED_RUNTIME_ENVS) {
+    assert.throws(
+      () => assertRealTelegramAdapter(fakeRegistry, { ...runtime, COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
+      /FATAL.*fake/i,
+      `${JSON.stringify(runtime)}: the fake-adapter flag must not silence the real-adapter assertion`,
+    );
+  }
+});
+
+test('a deployed runtime never builds fake external adapters, whatever COMMUNICATION_FAKE_ADAPTERS_ENABLED says', () => {
+  for (const runtime of DEPLOYED_RUNTIME_ENVS) {
+    const registry = createDefaultAdapterRegistry({ env: { ...runtime, COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' } });
+    for (const channel of ['whatsapp', 'telegram', 'email', 'sms', 'instagram', 'facebook', 'push']) {
+      const mode = registry.get(channel).validateConfiguration?.().mode;
+      assert.notEqual(mode, 'fake', `${JSON.stringify(runtime)}: ${channel} must not be a fake adapter`);
+    }
+    assert.throws(
+      () => createDefaultAdapterRegistry({ env: runtime, fakeAdapters: { telegram: new FakeCommunicationAdapter({ channel: 'telegram' }) } }),
+      /FATAL: fake telegram communication adapter supplied in a deployed runtime/,
+      `${JSON.stringify(runtime)}: an injected fake adapter is refused`,
+    );
+  }
+});
+
+test('a local/test fixture runtime may still use fake adapters, with or without the harness flag', () => {
+  for (const env of [{ NODE_ENV: 'test' }, { NODE_ENV: 'test', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true' }, { NODE_ENV: 'development' }]) {
+    const registry = createDefaultAdapterRegistry({ env });
+    assert.equal(registry.get('telegram').validateConfiguration?.().mode, 'fake', `${JSON.stringify(env)}: fixture fakes stay available`);
+  }
+  const fakeRegistry = { get: () => new FakeCommunicationAdapter({ channel: 'telegram' }) };
   assert.doesNotThrow(
-    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'staging', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
-    'must not throw when COMMUNICATION_FAKE_ADAPTERS_ENABLED=true'
+    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'test', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
+    'a local/test fixture runtime is not a deployment',
   );
 });
 

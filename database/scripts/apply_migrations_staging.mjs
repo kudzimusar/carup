@@ -1,23 +1,27 @@
 /**
- * Marker-aware migration runner for CarUp staging.
+ * CarUp staging migration runner (OC-5R) — plan-driven, canonical-parser-only, ledger-honest.
  *
- * Reads each migration file, extracts ONLY the -- +migrate Up section,
- * and applies it to the staging Supabase project via a direct pg connection.
- *
- * NEVER applies Down sections.
- * NEVER touches the production project (enforced by URL check).
- * All migrations use IF NOT EXISTS / OR REPLACE — naturally idempotent.
+ * Replaces the earlier hard-coded 25-file runner, which never wrote the canonical ledger, truncated an Up
+ * section at the first "-- +migrate Down" substring, and reported a rolled-back "already exists" failure
+ * as ALREADY_APPLIED. The behaviour lives in ./lib/stagingMigrationRunner.mjs (unit- and mutation-tested by
+ * backend/tests/oc5r-staging-migration-runner.test.js); this file only wires the target and the plan.
  *
  * Usage:
- *   node database/scripts/apply_migrations_staging.mjs [--dry-run]
+ *   node database/scripts/apply_migrations_staging.mjs --plan <plan.json> [--apply] [--receipt <file>]
+ *   node database/scripts/apply_migrations_staging.mjs --plan <plan.json> --rehearsal [--apply]
  *
- * Requires .env.staging to contain SUPABASE_DB_URL and SUPABASE_URL.
+ * Without --apply it is a DRY RUN: preconditions and claimed effects are probed read-only, nothing is written.
+ * Live target: SUPABASE_DB_URL from .env.staging (or STAGING_DATABASE_URL); it must positively be the
+ * staging project and never production. --rehearsal targets REHEARSAL_DATABASE_URL, which must be a
+ * loopback database named oc5r_rehearsal*.
  */
-import { readFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { createRequire } from 'module';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { assertNotSqliteDialect } from '../../backend/db/migrationParser.js';
+import { assertStagingTarget, runPlan, RunnerRefusal } from './lib/stagingMigrationRunner.mjs';
+
 const require = createRequire(import.meta.url);
 const dotenv = require('dotenv');
 const pg = require('pg');
@@ -25,161 +29,48 @@ const pg = require('pg');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIG_DIR = join(ROOT, 'database', 'migrations');
 
-dotenv.config({ path: join(ROOT, '.env.staging'), override: true });
+const args = process.argv.slice(2);
+const flag = (name) => args.includes(name);
+const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 
-const STAGING_PROJECT = 'eoyenigwevnxwwhyhaer';
-const SUPABASE_URL    = process.env.SUPABASE_URL || '';
-const DB_URL          = process.env.SUPABASE_DB_URL || '';
+async function main() {
+  const planPath = value('--plan');
+  if (!planPath) throw new RunnerRefusal('NO_PLAN', 'pass --plan <plan.json>; there is no built-in migration list');
+  const rehearsal = flag('--rehearsal');
+  const apply = flag('--apply');
+  if (!rehearsal) dotenv.config({ path: join(ROOT, '.env.staging'), override: true, quiet: true });
+  const url = rehearsal ? process.env.REHEARSAL_DATABASE_URL : (process.env.STAGING_DATABASE_URL || process.env.SUPABASE_DB_URL);
+  const target = assertStagingTarget(url, { rehearsal });
 
-if (!SUPABASE_URL.includes(STAGING_PROJECT)) {
-  throw new Error(
-    `FATAL: SUPABASE_URL does not point to staging project ${STAGING_PROJECT}.\n` +
-    `URL: ${SUPABASE_URL}\nRefusing to run against wrong project.`
-  );
-}
-if (!DB_URL) throw new Error('FATAL: SUPABASE_DB_URL is not set in .env.staging');
+  const plan = JSON.parse(readFileSync(resolve(planPath), 'utf8'));
+  for (const op of plan.operations || []) assertNotSqliteDialect(op.file); // OC-4A: never execute SQLite-era SQL
 
-const isDryRun = process.argv.includes('--dry-run');
-
-// Ordered migration files in dependency order
-const MIGRATIONS = [
-  // M1–M6 (Vehicle Life Evidence / Intelligence milestones)
-  '20260621120000_vehicle_life_evidence_taxonomy_provenance.sql',
-  '20260621130000_external_source_ingestion.sql',
-  '20260621140000_ai_temporal_disclosure_intelligence.sql',
-  '20260621150000_report_versions.sql',
-  '20260621160000_governance_disputes_corrections.sql',
-  '20260621170000_outbox_dead_letter.sql',
-  // Phase 2 — security hardening (after M1–M6 tables exist)
-  '20260624120000_vehicle_trust_security_hardening.sql',
-  // Phase 3 — OCR field-level extractions
-  '20260624130000_vehicle_document_extractions.sql',
-  // Phase 4 — publication lifecycle
-  '20260624140000_listing_publication_lifecycle.sql',
-  // Phase 6 — trust_change_log immutability
-  '20260624150000_trust_change_log_immutability.sql',
-  // WS2 — external source verification network
-  '20260626120000_source_verification_network.sql',
-  // WS9 — controlled partner API
-  '20260626130000_partner_api.sql',
-  // WS-A fraud engine, WS-B dealer compliance, WS-C/D/E eligibility, WS-F escrow
-  '20260626140000_fraud_engine.sql',
-  '20260626150000_dealer_compliance.sql',
-  '20260626160000_eligibility_framework.sql',
-  '20260626180000_escrow_trust_sessions.sql',
-  // Full Activation — shared provider platform
-  '20260703120000_provider_platform.sql',
-  // Full Activation — government source activation (config + append-only batch imports)
-  '20260703130000_government_source_activation.sql',
-  // Full Activation — licensed insurer provider (onboarding + execution)
-  '20260703140000_insurance_provider.sql',
-  // Full Activation — regulated lender (finance) provider workflow
-  '20260703150000_finance_provider.sql',
-  // Full Activation — regulated real-money escrow provider extension
-  '20260703160000_escrow_provider.sql',
-  // Full Activation — native mobile device certification ledger
-  '20260703170000_mobile_certification.sql',
-  // Full Activation — private storage buckets (PGlite-safe no-op)
-  '20260703190000_provider_storage.sql',
-  // Full Activation hardening — scope provider request idempotency to (provider_id, idempotency_key)
-  '20260710120000_provider_request_attempts_provider_scope.sql',
-  // Phase 2B.1 (ported PR #11) — governed PartSentry public-card review workflow + approval provenance
-  '20260710130000_partsentry_review_requests.sql',
-];
-
-function extractUpSection(filepath) {
-  assertNotSqliteDialect(filepath); // OC-4A: SQLite-era files are never executed against PostgreSQL
-  const raw = readFileSync(filepath, 'utf-8');
-  const downIdx = raw.indexOf('-- +migrate Down');
-  const up = (downIdx >= 0 ? raw.slice(0, downIdx) : raw)
-    .replace('-- +migrate Up', '')
-    .trim();
-  if (!up) throw new Error(`No Up section found in ${filepath}`);
-  return up;
+  const client = new pg.Client({
+    connectionString: url,
+    ssl: target.kind === 'rehearsal' ? false : { rejectUnauthorized: false },
+    application_name: 'oc5r-staging-runner',
+  });
+  await client.connect();
+  try {
+    // A dry run cannot write even by accident: the whole session is read-only.
+    if (!apply) await client.query('set default_transaction_read_only = on');
+    const ledger = await client.query("select to_regclass('supabase_migrations.schema_migrations') as t");
+    if (!ledger.rows[0].t) throw new RunnerRefusal('NO_LEDGER', 'supabase_migrations.schema_migrations is absent on the target');
+    const db = { exec: (sql) => client.query(sql), query: async (sql, params) => (await client.query(sql, params)).rows };
+    const receipt = await runPlan(db, plan, { migrationsDir: MIG_DIR, apply });
+    receipt.target = target;
+    const out = JSON.stringify(receipt, null, 2);
+    const receiptPath = value('--receipt');
+    if (receiptPath) writeFileSync(resolve(receiptPath), `${out}\n`);
+    console.log(out);
+    const failed = receipt.result === 'STOPPED' || receipt.operations.some((o) => ['BLOCKED', 'FAILED_ROLLED_BACK', 'DRIFT', 'REFUSED'].includes(o.status));
+    process.exitCode = failed ? 1 : 0;
+  } finally {
+    await client.end().catch(() => {});
+  }
 }
 
-async function run() {
-  console.log('\n🚀 CarUp Staging Migration Runner');
-  console.log(`   Project: ${STAGING_PROJECT}`);
-  console.log(`   URL:     ${SUPABASE_URL}`);
-  console.log(`   Mode:    ${isDryRun ? 'DRY RUN (no changes)' : 'LIVE APPLY'}`);
-  console.log(`   Migrations: ${MIGRATIONS.length}\n`);
-
-  if (isDryRun) {
-    for (const name of MIGRATIONS) {
-      const filepath = join(MIG_DIR, name);
-      const exists = existsSync(filepath);
-      const size = exists ? extractUpSection(filepath).length : 0;
-      console.log(`  [DRY RUN] ${exists ? '✓' : '✗ MISSING'} ${name}${exists ? ` (${size} chars Up)` : ''}`);
-    }
-    console.log('\n✅ Dry run complete — no changes made.\n');
-    return;
-  }
-
-  const pool = new pg.Pool({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
-  const results = [];
-  let aborted = null; // set to the failing migration name to STOP on first SQL error
-
-  for (const name of MIGRATIONS) {
-    const filepath = join(MIG_DIR, name);
-    if (!existsSync(filepath)) {
-      console.error(`  ✗ FILE MISSING: ${name}`);
-      results.push({ name, status: 'FILE_MISSING' });
-      aborted = name; // a missing migration is also a hard stop
-      break;
-    }
-
-    const sql = extractUpSection(filepath);
-    console.log(`  → Applying: ${name} ...`);
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(sql);
-      await client.query('COMMIT');
-      console.log(`  ✓ OK: ${name}`);
-      results.push({ name, status: 'OK' });
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      const msg = err.message || String(err);
-      // Log idempotent "already exists" results without failing
-      if (msg.includes('already exists') || msg.includes('duplicate_object')) {
-        console.log(`  ⚠  ${name}: already applied (idempotent)`);
-        results.push({ name, status: 'ALREADY_APPLIED' });
-      } else {
-        console.error(`  ✗ FAIL: ${name}\n    ${msg}`);
-        results.push({ name, status: 'FAIL', error: msg });
-        aborted = name; // STOP on first real SQL error
-      }
-    } finally {
-      client.release();
-    }
-
-    if (aborted) {
-      console.error(`\n⛔ Stopping on first error at ${aborted}. No further migrations attempted.`);
-      break;
-    }
-  }
-
-  await pool.end();
-
-  const ok = results.filter(r => r.status === 'OK' || r.status === 'ALREADY_APPLIED').length;
-  const failed = results.filter(r => r.status === 'FAIL').length;
-  const missing = results.filter(r => r.status === 'FILE_MISSING').length;
-
-  console.log(`\n${'─'.repeat(60)}`);
-  console.log(`Results: ${ok} OK | ${failed} failed | ${missing} missing\n`);
-
-  if (failed > 0 || missing > 0) {
-    results.filter(r => r.status !== 'OK' && r.status !== 'ALREADY_APPLIED').forEach(r => {
-      console.error(`  ✗ ${r.name}: ${r.error || r.status}`);
-    });
-    process.exit(1);
-  }
-  console.log('✅ All migrations applied to staging successfully.\n');
-}
-
-run().catch(err => {
-  console.error('FATAL:', err.message);
-  process.exit(1);
+main().catch((err) => {
+  console.error(err instanceof RunnerRefusal ? `REFUSED ${err.code}: ${err.message}` : `FATAL: ${err.message}`);
+  process.exitCode = 2;
 });

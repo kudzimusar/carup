@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
+import { zimbabweLocations } from '@/data/zimbabweLocations'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { MarketplaceListingSummary } from '@/types'
@@ -94,24 +94,15 @@ function MarketplaceImpression({
   return <div ref={ref}>{children}</div>
 }
 
-const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
-
 function marketplacePriceLabel(price: number | null | undefined, currency: string | null | undefined) {
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   const amount = price.toLocaleString()
   if (!currency?.trim()) return `${amount} · currency not recorded`
-  return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
-}
-
-/** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
-export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
-  if (live.length > 0) return live
-  return allowMock ? mock : []
+  return currency.toUpperCase() === 'USD' ? `$${amount}` : `${currency.toUpperCase()} ${amount}`
 }
 
 type TrustRanking = { requested?: string; applied?: string; note?: string }
 type CanonicalListing = MarketplaceListingSummary
-type MockVehicle = (typeof mockVehicles)[number]
 
 const CONDITION_LABELS: Record<string, string> = {
   brand_new: 'Brand New',
@@ -145,49 +136,6 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
     requested: typeof value.requested === 'string' ? value.requested : undefined,
     applied: typeof value.applied === 'string' ? value.applied : undefined,
     note: typeof value.note === 'string' ? value.note : undefined,
-  }
-}
-
-/**
- * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
- * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
- * rather than laundering mock `trustScore` into a public claim.
- */
-function mockVehicleToListing(vehicle: MockVehicle): CanonicalListing {
-  return {
-    vin: vehicle.vin,
-    make: vehicle.make,
-    model: vehicle.model,
-    year: vehicle.year,
-    price: vehicle.price,
-    currency: vehicle.currency,
-    mileage: vehicle.mileage,
-    fuel_type: vehicle.fuelType,
-    transmission: vehicle.transmission,
-    status: vehicle.status || 'Available',
-    condition_category: 'unknown',
-    marketplace_tags: [],
-    trust_score: null,
-    trust: null,
-    primary_image_url: vehicle.images?.[0] || null,
-    primary_image_state: vehicle.images?.[0] ? 'first_published' : 'none',
-    primary_image_unpublishable_count: 0,
-    plate_verified: false,
-    plate_status: null,
-    passport_verified: false,
-    evidence_count: 0,
-    partsentry_checked: false,
-    repair_history_count: 0,
-    verified_parts_count: 0,
-    duty_cleared: false,
-    zimra_verified: false,
-    cid_clear: false,
-    seller_type: vehicle.sellerType === 'Dealer' ? 'dealer' : 'private',
-    seller_display_label: vehicle.sellerName,
-    seller_public_profile_enabled: true,
-    location: vehicle.location,
-    location_state: 'recorded',
-    created_at: vehicle.listingDate || null,
   }
 }
 
@@ -498,14 +446,14 @@ export default function Marketplace() {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
         const listings = Array.isArray(data?.listings) ? data.listings as CanonicalListing[] : []
-        setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
+        setLiveListings(listings)
       })
       .catch(error => {
         if (cancelled) return
         console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
         setLoadError(true)
-        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
+        setLiveListings([])
       })
       .finally(() => {
         if (!cancelled) setLoadingVehicles(false)
@@ -738,25 +686,26 @@ export default function Marketplace() {
         data-testid="marketplace-compact-header"
       >
         <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.16),transparent_24%),linear-gradient(120deg,transparent_0%,transparent_58%,rgba(255,255,255,0.04)_58%,rgba(255,255,255,0.04)_59%,transparent_59%)]" />
-        <div className="section-padding relative mx-auto max-w-[1440px] pb-20 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
+        <div className="section-padding relative mx-auto max-w-[1440px] pb-12 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
           <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
               <CarFront className="h-4 w-4" /> CarUp Marketplace
             </div>
             <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-xs font-semibold sm:text-sm" aria-label="Marketplace categories">
-              <Link to="/marketplace" className="shrink-0 border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
-              <Link to="/marketplace/parts" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
-              <Link to="/marketplace/services" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
-              <Link to="/diaspora" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
+              <Link to="/marketplace" className="inline-flex min-h-11 shrink-0 items-center border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
+              <Link to="/marketplace/parts" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
+              <Link to="/marketplace/services" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
+              <Link to="/diaspora" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
               <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>
-              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Finance</Link>
+              {/* PC01-J-R1: labelled "Finance" — CarUp offers no finance; the page is Pricing. */}
+              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Pricing</Link>
             </nav>
           </div>
 
-          <div className="grid gap-8 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
+          <div className="grid gap-6 pt-6 sm:gap-8 sm:pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
             <div className="relative z-10 lg:pb-5">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
-              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.055em] text-white sm:text-6xl lg:text-7xl">
+              <h1 className="mt-4 max-w-3xl text-[2.25rem] font-black leading-[0.95] tracking-[-0.045em] text-white sm:text-6xl sm:leading-[0.9] sm:tracking-[-0.055em] lg:text-7xl">
                 Find the car.
                 <span className="mt-1 block text-orange-400">Know what stands behind it.</span>
               </h1>
@@ -933,7 +882,7 @@ export default function Marketplace() {
                     data-testid={filter.testId}
                     aria-pressed={active}
                     onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                    className={`shrink-0 border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
+                    className={`inline-flex min-h-11 shrink-0 items-center border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
                       ? 'border-orange-500 text-orange-700'
                       : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-950'}`}
                   >

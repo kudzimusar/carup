@@ -7,7 +7,8 @@
  * post-action refresh). SafeTrade is non-custodial, sandbox-only; the assurance notice is always shown.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { AlertTriangle, ArrowLeft, Loader2, Lock, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,8 @@ const REVIEWER_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'gover
 export default function DiasporaSafeTradeDetail() {
   const flagEnabled = safeTradeUiEnabled()
   const { id = '' } = useParams<{ id: string }>()
+  // PC01-J-R1: every Sign in link returns the visitor here.
+  const location = useLocation()
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
   const viewerId = user?.id || null
@@ -120,7 +123,7 @@ export default function DiasporaSafeTradeDetail() {
             {fatal.message}
             <span className="ml-2 inline-flex gap-2">
               {fatal.kind === 'error' && <Button size="sm" variant="outline" onClick={() => void load()} data-testid="safetrade-detail-retry">Retry</Button>}
-              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to="/login" data-testid="safetrade-detail-signin">Sign in</Link></Button>}
+              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to={buildLoginRedirect(`${location.pathname}${location.search}`)} data-testid="safetrade-detail-signin">Sign in</Link></Button>}
               <Button asChild size="sm" variant="ghost"><Link to="/diaspora/safetrade">Back to cases</Link></Button>
             </span>
           </AlertDescription>

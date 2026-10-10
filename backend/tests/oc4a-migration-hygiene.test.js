@@ -25,7 +25,11 @@ const read = (rel) => readFileSync(path.join(REPO, rel), 'utf8');
 const { SQLITE_DIALECT_ONLY, isSqliteDialectOnly, assertNotSqliteDialect, parseMigrationSource, MigrationIntegrityError } = await import('../db/migrationParser.js');
 const { migrationUpSql } = await import('./helpers/pgliteLedgerHarness.js');
 
-const SQLITE_FILES = ['003_add_user_sessions.sql', '004_add_tamper_proofing.sql'];
+// Detected by SQLite-only SYNTAX, and enumerated by ROLE: 001/002 are portable SQL written for the same local SQLite
+// database (OC-5R) — they parse on PostgreSQL, which is exactly why a PostgreSQL plan could select them before.
+const SQLITE_BY_SYNTAX = ['003_add_user_sessions.sql', '004_add_tamper_proofing.sql'];
+const SQLITE_BY_ROLE = ['001_add_financial_ledger.sql', '002_add_notification_queue.sql'];
+const SQLITE_FILES = [...SQLITE_BY_ROLE, ...SQLITE_BY_SYNTAX].sort();
 const opened = [];
 after(async () => { for (const db of opened) await db.close(); });
 
@@ -74,8 +78,10 @@ const stripComments = (sql) => sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\
 test('OC-4A 1.5 — every file carrying SQLite-only syntax is enumerated, and every enumerated file carries it (no stale entries)', () => {
   const carriers = readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql'))
     .filter((f) => SQLITE_SYNTAX.some((re) => re.test(stripComments(readFileSync(path.join(MIGRATIONS, f), 'utf8'))))).sort();
-  assert.deepEqual(carriers, SQLITE_FILES, 'a new SQLite-only file must be enumerated (or rewritten for PostgreSQL)');
+  assert.deepEqual(carriers, SQLITE_BY_SYNTAX, 'a new SQLite-only file must be enumerated (or rewritten for PostgreSQL)');
   for (const file of SQLITE_FILES) assert.ok(isSqliteDialectOnly(file));
+  // A role-only entry carries no SQLite syntax by definition, so it must be named here — never inferred.
+  assert.deepEqual(Object.keys(SQLITE_DIALECT_ONLY).filter((f) => !carriers.includes(f)).sort(), SQLITE_BY_ROLE);
 });
 
 test('OC-4A 1.5 pin — no PostgreSQL runner or harness lists a SQLite-only file, and each one asserts the refusal', () => {

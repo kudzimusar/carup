@@ -173,12 +173,16 @@ test('deriveEvidenceStatus and deriveSuspicionLevel', () => {
 // Pricing
 // ---------------------------------------------------------------------------
 
-test('pricing summary produces a deterministic fair band and all-in total', () => {
+// OC-5R-REL-01: this test used to pin `estimated_fair_min: 8800` / `estimated_fair_max: 11200` —
+// the asking price ±12%, published to buyers as a "fair price band". That was a valuation made
+// from nothing (CarUp has no approved valuation provider), so the pin is inverted, not deleted.
+test('pricing summary produces an all-in total and NO valuation (no fair band)', () => {
   const p = buildPricingSummary({ listingSummary: { price: 10000, currency: 'USD', condition_category: 'locally_used' }, listingType: 'vehicle' });
   assert.equal(p.estimate_basis, 'deterministic');
   assert.equal(p.price_confidence, 'low');
-  assert.equal(p.estimated_fair_min, 8800);
-  assert.equal(p.estimated_fair_max, 11200);
+  assert.equal('estimated_fair_min' in p, false);
+  assert.equal('estimated_fair_max' in p, false);
+  assert.equal(p.valuation_status, 'not_configured');
   assert.ok(p.estimated_total > 10000);
   assert.equal(p.export_import_estimate, undefined); // local listing -> no import components
 });

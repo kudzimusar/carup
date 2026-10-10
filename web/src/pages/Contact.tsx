@@ -1,135 +1,144 @@
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent } from '@/components/ui/card'
+import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare } from 'lucide-react'
-import { toast } from 'sonner'
+import { Card, CardContent } from '@/components/ui/card'
+import { Mail, MapPin, MessageSquare, Ban, LifeBuoy, ShieldCheck, HelpCircle, ArrowRight } from 'lucide-react'
+import { usePageMetadata } from '@/lib/usePageMetadata'
+import { CONTACT_PURPOSES, PUBLIC_CONTACTS, PUBLIC_IDENTITY, PUBLIC_LOCATION_LINE } from '@/config/publicIdentity'
+
+/**
+ * Contact — PC01-J-R1 (Owner Usability Checkpoint 1).
+ *
+ * This page used to publish a contact form that could not send, a "Business Hours" block nobody
+ * keeps, an email on a domain CarUp does not use (`@carup.co.zw`), a phone line that read "Not
+ * published yet", and a card sending people to Gutu — an assistant that reads account records and is
+ * not a support channel. Each was a promise with nothing behind it.
+ *
+ * What is genuinely ready, and so the only thing advertised:
+ *   · email to the certified `@carup.dev` aliases (inbound routing physically certified — see
+ *     docs/communications/EMAIL_EXPERIENCE_1_0_CONTACT_IDENTITY_MAPPING.md), one per purpose;
+ *   · in-product conversations with a seller about a listing (sign-in at the point of messaging).
+ *
+ * Everything else — telephone, WhatsApp, SMS, Telegram, social media, live chat, a contact form,
+ * opening hours, response times — does not exist yet, and the page says so rather than going quiet.
+ */
+const UNAVAILABLE_CHANNELS = [
+  { channel: 'Telephone', detail: 'CarUp has no public phone number.' },
+  { channel: 'WhatsApp, SMS and Telegram', detail: 'Not connected. A message on these channels claiming to be CarUp is not from CarUp.' },
+  { channel: 'Social media', detail: 'CarUp publishes no official Facebook, Instagram, X or LinkedIn account yet.' },
+  { channel: 'Live chat or a contact form', detail: 'Not available — email is the way to reach CarUp.' },
+  { channel: 'Opening hours and response times', detail: 'CarUp publishes none, because it measures none.' },
+]
 
 export default function Contact() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '' })
-
-  /**
-   * Nothing was ever sent.
-   *
-   * This ran a 1.5-second timer, cleared the form and announced "Message sent! We
-   * will get back to you within 24 hours." There is no contact-submission route
-   * anywhere in the backend, so every message a visitor typed was discarded while
-   * they were told it had arrived — and then told to expect a reply.
-   *
-   * There is no intake to wire this to, so the form is disabled and the page
-   * directs people to an address that genuinely reaches CarUp.
-   */
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    toast.error('This form cannot send yet. Please email support@carup.co.zw.')
-  }
+  usePageMetadata({
+    title: 'Contact CarUp | Reach the right team by email',
+    description: `How to reach CarUp: write to the address for your purpose — help with an account or listing at ${PUBLIC_CONTACTS.support}, security concerns at ${PUBLIC_CONTACTS.security}, privacy requests at ${PUBLIC_CONTACTS.privacy}.`,
+    canonicalPath: '/contact',
+  })
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white py-16">
+    <div className="min-h-screen bg-gray-50" data-testid="page-contact">
+      <div className="bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] py-12 text-white sm:py-16">
         <div className="section-padding mx-auto max-w-[1440px] text-center">
-          <Badge className="mb-4 bg-orange-500/20 text-orange-300">Contact Us</Badge>
-          <h1 className="text-3xl md:text-4xl font-bold mb-4">Get in Touch</h1>
-          <p className="text-gray-300 max-w-xl mx-auto">
-            Have questions about CarUp? Our team is here to help you with anything you need.
+          <Badge className="mb-4 bg-orange-500/20 text-orange-300">Contact</Badge>
+          <h1 className="mb-4 text-3xl font-bold md:text-4xl">Contact CarUp</h1>
+          <p className="mx-auto max-w-xl text-gray-300">
+            CarUp is reached by email. Write to the address for your purpose below, with enough detail for the team to
+            find what you mean.
           </p>
         </div>
       </div>
 
-      <div className="section-padding mx-auto max-w-[1440px] py-16">
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Contact Info */}
+      <div className="section-padding mx-auto max-w-[1440px] py-12 sm:py-16">
+        <div className="grid gap-8 lg:grid-cols-3">
+          <section aria-labelledby="contact-purposes" className="lg:col-span-2">
+            <h2 id="contact-purposes" className="mb-4 flex items-center gap-2 text-xl font-semibold text-slate-900">
+              <Mail className="h-5 w-5 text-orange-600" aria-hidden="true" /> Write to the right address
+            </h2>
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {CONTACT_PURPOSES.map(({ purpose, title, detail }) => (
+                <li key={purpose} data-testid={`contact-purpose-${purpose}`}>
+                  <Card className="h-full border-slate-200 py-0">
+                    <CardContent className="p-5">
+                      <p className="font-semibold text-slate-900">{title}</p>
+                      <a
+                        className="mt-2 inline-flex min-h-11 items-center break-all font-medium text-orange-700 underline"
+                        href={`mailto:${PUBLIC_CONTACTS[purpose]}`}
+                      >
+                        {PUBLIC_CONTACTS[purpose]}
+                      </a>
+                      <p className="mt-1 text-sm leading-relaxed text-slate-600">{detail}</p>
+                    </CardContent>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          </section>
+
           <div className="space-y-6">
-            <Card className="border-0 card-shadow">
-              <CardContent className="p-6 space-y-4">
-                <h2 className="font-semibold text-lg">Contact Information</h2>
-                <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <Phone className="w-5 h-5 text-orange-500 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-sm">Phone</p>
-                      <p className="text-sm text-gray-600">Not published yet</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <Mail className="w-5 h-5 text-orange-500 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-sm">Email</p>
-                      <p className="text-sm text-gray-600">info@carup.co.zw</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-5 h-5 text-orange-500 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-sm">Address</p>
-                      <p className="text-sm text-gray-600">Harare, Zimbabwe<br />No public office address yet</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <Clock className="w-5 h-5 text-orange-500 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-sm">Business Hours</p>
-                      <p className="text-sm text-gray-600">Mon-Fri: 8AM - 5PM<br />Sat: 9AM - 1PM</p>
-                    </div>
-                  </div>
-                </div>
+            <Card className="border-slate-200 py-0" data-testid="contact-listing-conversations">
+              <CardContent className="p-6">
+                <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+                  <MessageSquare className="h-5 w-5 text-orange-600" aria-hidden="true" /> About a specific vehicle?
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Message the seller from the listing. The conversation stays on CarUp, and you are asked to sign in
+                  only when you send your first message — browsing never needs an account.
+                </p>
+                <Link
+                  to="/marketplace"
+                  className="mt-3 inline-flex min-h-11 items-center gap-1.5 font-medium text-orange-700 underline"
+                >
+                  Browse the Marketplace <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
               </CardContent>
             </Card>
 
-            <Card className="border-0 card-shadow bg-gradient-to-br from-orange-500 to-amber-500 text-white">
+            <Card className="border-slate-200 py-0" data-testid="contact-location">
               <CardContent className="p-6">
-                <MessageSquare className="w-8 h-8 mb-3" />
-                <h3 className="font-semibold text-lg mb-2">Need Immediate Help?</h3>
-                <p className="text-sm opacity-90 mb-4">Gutu shows you what CarUp records about your account. It is not a support channel and makes no availability promise.</p>
-                <Button variant="secondary" className="w-full" asChild>
-                  <a href="/dashboard/ai">Chat with Gutu AI</a>
-                </Button>
+                <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+                  <MapPin className="h-5 w-5 text-orange-600" aria-hidden="true" /> Where CarUp is
+                </h2>
+                <p className="mt-2 text-sm text-slate-700">{PUBLIC_LOCATION_LINE}</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {PUBLIC_IDENTITY.legalEntity} has no public office or street address to visit.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 py-0" data-testid="contact-unavailable-channels">
+              <CardContent className="p-6">
+                <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+                  <Ban className="h-5 w-5 text-slate-500" aria-hidden="true" /> Not offered yet
+                </h2>
+                <dl className="mt-3 space-y-3 text-sm">
+                  {UNAVAILABLE_CHANNELS.map(({ channel, detail }) => (
+                    <div key={channel}>
+                      <dt className="font-medium text-slate-900">{channel}</dt>
+                      <dd className="text-slate-600">{detail}</dd>
+                    </div>
+                  ))}
+                </dl>
               </CardContent>
             </Card>
           </div>
-
-          {/* Contact Form */}
-          <Card className="lg:col-span-2 border-0 card-shadow">
-            <CardContent className="p-8">
-              <h2 className="text-xl font-semibold mb-6">Send us a Message</h2>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Full Name</label>
-                    <Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Your name" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Email</label>
-                    <Input type="email" required value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="your@email.com" />
-                  </div>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Phone</label>
-                    <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+263 7XX XXX XXX" />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Subject</label>
-                    <Input required value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="How can we help?" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Message</label>
-                  <Textarea required value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder="Tell us more about your inquiry..." rows={5} />
-                </div>
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="contact-unavailable">
-                  This form cannot send yet — nothing typed here is stored or delivered. Please email{' '}
-                  <a href="mailto:support@carup.co.zw" className="font-semibold underline">support@carup.co.zw</a>.
-                </div>
-                <Button type="submit" disabled aria-disabled="true" data-testid="contact-submit" className="gap-2 bg-gray-200 text-gray-500 cursor-not-allowed">
-                  <Send className="w-4 h-4" /> Sending unavailable
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
         </div>
+
+        <nav aria-label="More help" className="mt-10 grid gap-3 sm:grid-cols-3">
+          {[
+            { to: '/support', label: 'CarUp Support', icon: LifeBuoy },
+            { to: '/help', label: 'Help Center', icon: HelpCircle },
+            { to: '/security', label: 'Security and suspicious messages', icon: ShieldCheck },
+          ].map(({ to, label, icon: Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 font-medium text-slate-800 hover:border-orange-300"
+            >
+              <Icon className="h-4 w-4 text-orange-600" aria-hidden="true" /> {label}
+            </Link>
+          ))}
+        </nav>
       </div>
     </div>
   )
