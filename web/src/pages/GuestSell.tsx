@@ -400,7 +400,7 @@ export default function GuestSell() {
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-400/25 bg-orange-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-orange-300">
                 <Sparkles className="h-3.5 w-3.5" /> Seller studio · {sellerIntent === 'known_vehicle' ? 'known CarUp vehicle' : sellerIntent === 'new_vehicle' ? 'vehicle new to CarUp' : 'resume draft'}
               </div>
-              <h1 className="mt-5 max-w-4xl text-[2.65rem] font-black leading-[0.96] tracking-[-0.055em] text-white sm:text-6xl">
+              <h1 className="mt-5 max-w-4xl text-[2.15rem] font-black leading-[0.98] tracking-[-0.045em] text-white sm:text-6xl sm:leading-[0.96] sm:tracking-[-0.055em]">
                 Tell the car story.
                 <span className="block text-orange-400">Prove what matters. Sell with confidence.</span>
               </h1>

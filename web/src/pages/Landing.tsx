@@ -232,7 +232,7 @@ export default function Landing() {
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
                 <Sparkles className="h-4 w-4" /> One CarUp · one vehicle thread
               </div>
-              <h1 className="mt-4 max-w-4xl text-[2.55rem] font-black leading-[0.92] tracking-[-0.05em] sm:mt-5 sm:text-6xl sm:leading-[0.88] sm:tracking-[-0.06em] lg:text-[5.25rem] lg:leading-none">
+              <h1 className="mt-4 max-w-4xl text-[2.2rem] font-black leading-[0.95] tracking-[-0.045em] sm:mt-5 sm:text-6xl sm:leading-[0.88] sm:tracking-[-0.06em] lg:text-[5.25rem] lg:leading-none">
                 Buy. Sell. Verify.
                 <span className="mt-2 block text-orange-400">Keep the whole car journey connected.</span>
               </h1>
@@ -284,10 +284,10 @@ export default function Landing() {
               </form>
 
               <div className="mt-5 flex flex-wrap items-center gap-4">
-                <a href="#talk-to-carup" className="inline-flex items-center gap-2 border-b border-orange-400 pb-1 text-xs font-black text-orange-200 hover:text-white">
+                <a href="#talk-to-carup" className="inline-flex min-h-11 items-center gap-2 border-b border-orange-400 pb-1 text-xs font-black text-orange-200 hover:text-white">
                   <MessageCircle className="h-4 w-4 text-orange-400" /> Ask CarUp what to do next
                 </a>
-                <Link to="/contact" className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white">
+                <Link to="/contact" className="inline-flex min-h-11 items-center gap-2 text-xs font-bold text-slate-400 hover:text-white">
                   Human help <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
@@ -425,7 +425,7 @@ export default function Landing() {
                 The same published vehicle stories used in Marketplace — not a second homepage-only card system.
               </p>
             </div>
-            <Link to="/marketplace" className="inline-flex items-center gap-2 border-b border-slate-950 pb-1 text-sm font-black hover:text-orange-700">
+            <Link to="/marketplace" className="inline-flex min-h-11 items-center gap-2 border-b border-slate-950 pb-1 text-sm font-black hover:text-orange-700">
               Browse all published vehicles <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -494,7 +494,7 @@ export default function Landing() {
                 Open Passport
               </Button>
             </form>
-            <Link to="/search" className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-orange-300 hover:text-orange-200">
+            <Link to="/search" className="mt-4 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-orange-300 hover:text-orange-200">
               Need protected identifier lookup? Open Verify <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -515,7 +515,7 @@ export default function Landing() {
               <Link
                 key={chip.label}
                 to={chip.href}
-                className="border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-600 transition hover:border-orange-500 hover:text-slate-950"
+                className="inline-flex min-h-11 items-center border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-600 transition hover:border-orange-500 hover:text-slate-950"
                 data-testid="popular-search-chip"
               >
                 {chip.label}

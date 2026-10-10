@@ -118,7 +118,7 @@ export default function Blog() {
   }
 
   return (
-    <div className="min-h-screen bg-[hsl(222,47%,8%)] text-white">
+    <div className="relative min-h-screen overflow-clip bg-[hsl(222,47%,8%)] text-white">
       {/* Background Glow effects */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-orange-500/5 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute top-1/3 right-1/4 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-[120px] pointer-events-none" />
@@ -128,7 +128,7 @@ export default function Blog() {
         
         {/* Breadcrumbs */}
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
-          <Link to="/" className="hover:text-orange-400 transition-colors">Home</Link>
+          <Link to="/" className="inline-flex min-h-11 min-w-11 items-center hover:text-orange-400 transition-colors">Home</Link>
           <ChevronRight className="w-3.5 h-3.5" />
           <span className="text-orange-400 font-medium">The CarUp Drive</span>
         </div>
@@ -251,7 +251,7 @@ export default function Blog() {
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`text-xs md:text-sm font-semibold px-3 py-1.5 rounded-md transition-all whitespace-nowrap ${
+                  className={`min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 text-xs md:text-sm font-semibold px-3 py-1.5 rounded-md transition-all whitespace-nowrap ${
                     selectedCategory === cat
                       ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
                       : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -352,7 +352,7 @@ export default function Blog() {
 
                     <button 
                       onClick={() => setSelectedArticle(article)}
-                      className="text-xs font-bold text-orange-400 group-hover:text-orange-300 flex items-center gap-1 transition-colors outline-none focus-visible:underline"
+                      className="min-h-11 text-xs font-bold text-orange-400 group-hover:text-orange-300 flex items-center gap-1 transition-colors outline-none focus-visible:underline"
                     >
                       Read More
                       <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />

@@ -242,7 +242,7 @@ export function MarketplaceListingCard({
                 aria-pressed={isCompared}
                 onClick={onCompare}
                 data-testid="marketplace-compare-toggle"
-                className={`flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
+                className={`flex h-9 w-9 max-sm:h-11 max-sm:w-11 items-center justify-center rounded-full border shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
                   isCompared
                     ? 'border-orange-500 bg-orange-500 text-white'
                     : 'border-white/80 bg-white/95 text-slate-700 hover:bg-white'
@@ -257,7 +257,7 @@ export function MarketplaceListingCard({
                 aria-label="Share listing"
                 onClick={onShare}
                 data-testid="marketplace-share-button"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                className="flex h-9 w-9 max-sm:h-11 max-sm:w-11 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
               >
                 <Share2 className="h-4 w-4" />
               </button>
@@ -269,7 +269,7 @@ export function MarketplaceListingCard({
                 aria-pressed={isFavorite}
                 onClick={onFavorite}
                 data-testid="marketplace-save-toggle"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                className="flex h-9 w-9 max-sm:h-11 max-sm:w-11 items-center justify-center rounded-full border border-white/80 bg-white/95 text-slate-700 shadow-sm transition hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
               >
                 <Heart className={`h-4 w-4 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
               </button>
@@ -340,7 +340,7 @@ export function MarketplaceListingCard({
         <div className="mt-auto pt-5">
           {previewMode ? (
             <div
-              className="flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950"
+              className="flex min-h-11 items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950"
               data-testid="marketplace-draft-preview-cta"
             >
               <span>{ctaLabel}</span>
@@ -349,7 +349,7 @@ export function MarketplaceListingCard({
           ) : (
             <Link
               to={href}
-              className="group/link flex items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
+              className="group/link flex min-h-11 items-center justify-between border-t border-slate-950 pt-3 text-sm font-black text-slate-950 transition-colors hover:text-orange-700"
             >
               <span>{ctaLabel}</span>
               <ArrowUpRight className="h-4 w-4 transition-transform group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5" />

@@ -87,7 +87,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-6">
+          <Link to="/" className="inline-flex min-h-11 items-center gap-2 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
               <Car className="w-6 h-6 text-white" />
             </div>
@@ -136,7 +136,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center text-gray-400"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -148,11 +148,9 @@ export default function Login() {
                   </p>
                 )}
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" /> Remember me
-                </label>
-                <Link to="/auth/forgot-password" className="text-orange-600 hover:underline">Forgot password?</Link>
+              {/* PC01-J-R1: a "Remember me" checkbox stood here, bound to nothing — a control that did nothing. */}
+              <div className="flex items-center justify-end text-sm">
+                <Link to="/auth/forgot-password" className="inline-flex min-h-11 items-center text-orange-600 hover:underline">Forgot password?</Link>
               </div>
               <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading} data-testid="login-button">
                 {loading ? 'Signing in...' : 'Sign In'} <ArrowRight className="w-4 h-4 ml-2" />

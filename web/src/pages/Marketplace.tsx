@@ -686,25 +686,26 @@ export default function Marketplace() {
         data-testid="marketplace-compact-header"
       >
         <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.16),transparent_24%),linear-gradient(120deg,transparent_0%,transparent_58%,rgba(255,255,255,0.04)_58%,rgba(255,255,255,0.04)_59%,transparent_59%)]" />
-        <div className="section-padding relative mx-auto max-w-[1440px] pb-20 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
+        <div className="section-padding relative mx-auto max-w-[1440px] pb-12 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
           <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
               <CarFront className="h-4 w-4" /> CarUp Marketplace
             </div>
             <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-xs font-semibold sm:text-sm" aria-label="Marketplace categories">
-              <Link to="/marketplace" className="shrink-0 border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
-              <Link to="/marketplace/parts" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
-              <Link to="/marketplace/services" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
-              <Link to="/diaspora" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
+              <Link to="/marketplace" className="inline-flex min-h-11 shrink-0 items-center border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
+              <Link to="/marketplace/parts" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
+              <Link to="/marketplace/services" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
+              <Link to="/diaspora" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
               <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>
-              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Finance</Link>
+              {/* PC01-J-R1: labelled "Finance" — CarUp offers no finance; the page is Pricing. */}
+              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Pricing</Link>
             </nav>
           </div>
 
-          <div className="grid gap-8 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
+          <div className="grid gap-6 pt-6 sm:gap-8 sm:pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
             <div className="relative z-10 lg:pb-5">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
-              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.055em] text-white sm:text-6xl lg:text-7xl">
+              <h1 className="mt-4 max-w-3xl text-[2.25rem] font-black leading-[0.95] tracking-[-0.045em] text-white sm:text-6xl sm:leading-[0.9] sm:tracking-[-0.055em] lg:text-7xl">
                 Find the car.
                 <span className="mt-1 block text-orange-400">Know what stands behind it.</span>
               </h1>
@@ -881,7 +882,7 @@ export default function Marketplace() {
                     data-testid={filter.testId}
                     aria-pressed={active}
                     onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                    className={`shrink-0 border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
+                    className={`inline-flex min-h-11 shrink-0 items-center border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
                       ? 'border-orange-500 text-orange-700'
                       : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-950'}`}
                   >
