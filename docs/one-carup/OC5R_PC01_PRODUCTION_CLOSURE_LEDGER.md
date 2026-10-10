@@ -297,10 +297,31 @@ Commit counts were not used as evidence. The most consequential new claims were 
 | Upload-idempotency candidate migration | Concurrent dedupe absent until it is promoted | **Owner decision** |
 | Stale documentation | `CARUP_AI_CONSUMER_MATRIX.md`: the #217 "byte-identical" line (Gemma now differs by `enable_thinking`) and the price-estimate row (no inference since `5b55db00`) | **PC01-G** docs correction |
 
-## PC01-G — Final source candidate — **source items F1–F7 implemented; certification in progress**
+## PC01-G — Final source candidate — **PUSHED: code SHA `a120772d62cd6b01f9e9ff9bc8cb606ee016c24c`, exact-head certified**
 
-The work is built on a local branch from `bcd7076a`, one commit per item. It is pushed only after the closure-evidence
-commit, rebased onto it, so the closure run's exact head is never moved. Final SHAs are recorded when pushed.
+Rebased, not recreated: the 11-commit stack was rebased from `bcd7076a` onto the closure-evidence commit `de41c4d5`. Its
+combined diff is **byte-identical** before and after. One commit was added on top (H step-4 tooling), and the result was
+pushed 2026-10-10T13:30:05Z. PR #222 is open, Draft and unmerged.
+
+| Commit | Item |
+|---|---|
+| `de41c4d5` | evidence: PC01-B–E recustody (docs only) |
+| `0fa825cc` | F1 |
+| `cae43ff3` | F2 |
+| `4dba44d5` | F3 |
+| `76e4853f` | F3c |
+| `a78fae7a` | F4 |
+| `ce58746a` | F5 |
+| `ffc45922` | F6 |
+| `7b92838f` | F7 |
+| `e10d0fbd` | DF2 |
+| `c5e3aa26` | DF3 |
+| `b79f3f91` | H tooling |
+| `a120772d` | **H tooling: the transaction proves its result equals the clean source** (added for PC01-H step 4, "prove dry-run equals clean-source schema") |
+
+Count corrections:
+- Earlier reports said "12 local commits". The stack was **11**, and it is 12 with the step-4 commit.
+- "31 PGlite checks" was arithmetic: `ci.yml` invokes **19** `database/test` checks plus the 11 `diaspora_*` harnesses, so 30. No check was dropped.
 
 | # | Outcome | Deviation from the PC01-F plan, and why | Proof |
 |---|---|---|---|
@@ -317,22 +338,22 @@ commit, rebased onto it, so the closure run's exact head is never moved. Final S
 **New owner items from PC01-G:** F3b (upload size truth). Also the legacy `/kyc` page, beyond the existing row below: it
 prefills a fabricated identity (`Tendai Moyo`, `63-1234567A89`), and its three dropzones are not keyboard-reachable.
 
-**Certification at the local candidate head** (exact `ci.yml` environment; `ci.yml` itself does not run on PR #222).
+**Exact-head certification at `a120772d`** (2026-10-10 13:22:43Z → 13:28:58Z). Previous receipts were not relied on.
 
 | Gate | Result |
 |---|---|
-| Full backend suite (`backend/tests/*.test.js`, at `8d8de59d`) | 8,414 tests: 8,391 pass, **0 fail**, 23 skipped. This is +32 against the pre-G 8,382, which is exactly F1 7 + F2 12 + F3 11 + F3c 2 |
-| Full web suite (`vitest run` from `web/`) | 239 files, **2,267/2,267** |
+| Backend full suite (`ci.yml` environment) | 8,419 tests: 8,396 pass, **0 fail**, 23 skipped. This is +5 against 8,414: the H rehearsal file (4 tests, plus 1 for the clean-source refusal) |
+| Migration integrity (`migration-integrity.test.js`) | rc 0 |
+| Web full suite | 239 files, **2,267/2,267** (unchanged) |
 | Web typecheck (`tsconfig.app.json`) · `tsc -b` · production build | rc 0 · rc 0 · rc 0 |
-| `database/test` PGlite checks (all 20 listed in `ci.yml`, plus 11 `diaspora_*` harnesses) | all rc 0 |
-| `assert-gate-assertions-intact` · shard tripwires · CR-1 credential scan · `git diff --check` | rc 0 |
-| `assert-db-connections-released` | **rc 1 → fixed by DF2 → rc 0** |
-| Mobile: vitest · `test:static` · the other 13 `tsx` scripts · `tsc --noEmit` | **red → fixed by DF3 →** 6/66 · rc 0 · rc 0 · rc 0 |
-| The lint-baseline gate | not run locally (standing rule). Every changed web file passes eslint |
+| Production bundle carries no demo identity (`VERCEL_ENV=production` build, then scan) | rc 0 |
+| Mobile vitest · standalone `tsx` scripts · `tsc --noEmit` | 6 files / **66/66** · **18/18** · rc 0 |
+| PGlite `database/test` checks | **30/30** (`ci.yml`'s 19 plus 11 `diaspora_*`), and the other 10 run by path-filtered workflows also pass: **40/40** |
+| Guards: gate assertions intact · shard tripwires · DB clients released · CR-1 · evidence-certification · `git diff --check` | all rc 0 |
 
-The full backend suite and the CI-equivalent are re-run at the exact pushed head before PC01-I.
+The lint-baseline gate was not run locally (standing rule); every changed web file passes eslint.
 
-## PC01-H — Staging DB convergence (`eoyenigwevnxwwhyhaer` only) — **read-only recertification done; correction built, not executed**
+## PC01-H — Staging DB convergence (`eoyenigwevnxwwhyhaer` only) — **EXECUTED: converged, exact, recertified**
 
 The OC-5R pipeline was re-run against a fresh read-only capture (2026-10-10 10:56:01Z). The candidate's migrations are
 byte-identical to `bcd7076a`'s (`diff -r`): F1–F7 add none.
@@ -375,8 +396,49 @@ PGlite rehearsal: fresh lineage, then the measured drift, then converge. The res
 fresh lineage**. A fresh lineage is refused; a dry run is a no-op; a second run refuses; a non-empty table refuses and
 keeps its row; recovery restores the pre-image. 4/4 mutants are killed.
 
-**Execution:** after the G push. Dry run first, then apply, then the read-only pipeline re-run. Receipts go to
-`docs/one-carup/evidence/`.
+**Execution (2026-10-10, the moderator's order).** Staging only, through the staging-only connection helper. Production
+was never contacted.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Remeasure the seven | All seven present; **identical** to the 10:49Z measurement (FKs, CHECKs, nullability, function configuration, RLS, rows, ledger). Tables still empty |
+| 2 | No additional drift | A fresh catalog capture (13:31:23Z) is **identical** to the 10:56Z measurement in every schema section: 321 tables, 980 indexes, 143 triggers, 182 policies, 1,507 constraints, 104 functions, 4,471 columns, 3,135 table grants, 161 routine grants, 297 RLS flags. Ledger 265, cron and templates unchanged |
+| 3 | Dry run | `committed=false`; pre 13/13 (the measured drift, re-confirmed inside the transaction), post 14/14 |
+| 4 | Dry run = clean source | `clean_source.equal=true`, differences `[]` (clean-source catalog sha256 `80c7206c…`). Staging was confirmed unchanged after the rollback |
+| 5 | Apply, one transaction | `committed=true` at 13:32:54.6Z → 13:33:03.0Z; pre 13/13, post 14/14, clean_source equal, grants unchanged |
+| 6–7 | Re-read; correction exact | **20/20**. The three FKs are `RESTRICT` and validated; both CHECKs present; `dealer_id` and `tenant_id` are `NOT NULL`; both functions carry `search_path=public, pg_temp`; `activate_garage_application` is no longer the `06da4e43` body. The **live** converged catalog equals the clean source on all 11 keys. The **whole-catalog diff** is exactly +2 CHECKs, 2 nullability changes, 2 function configurations and 1 body. Nothing else |
+| 8 | Ledger recertification | Manifest unchanged: 208 RECORDED_AND_PRESENT, 7 NEVER_APPLY, 1 ONE_TIME, 1 UNPROBEABLE (template data, exact by hand). 265 rows, orphan 38 and double 17 unchanged. `activate_garage_application` is now **EXACT** (92 EXACT, 10 CANONICAL). Strict lineage: 7,709 live objects (+2 CHECKs), nothing unexplained outside custody |
+| 9–10 | FKs, orphans | **509 FKs, all validated; 0 orphans; 0 anomalies.** One authored NOT VALID CHECK, with 0 violations |
+| 11 | RLS / public truth / queue | RLS flags unchanged for all 297 tables. The 2 tables without RLS are the Issue-158 custody tables, grant-isolated by design (0 anon/authenticated privileges). Public truth: 0 retired rows, 0 synthetic objects or listing images; `u3` tombstone and escrow present. Queue: 0 / 0 / 1457 / 285, every scheduler inactive |
+
+Receipts are in `docs/one-carup/evidence/`:
+- `OC5R_PC01_H_DRY_RUN_RECEIPT.json`;
+- `OC5R_PC01_H_APPLY_RECEIPT.json`;
+- `OC5R_PC01_H_EXACTNESS.json`;
+- `OC5R_PC01_H_RECERTIFICATION.json` (cites the uncommitted raw captures by sha256).
+
+**Recovery point:** `ROLLBACK_STATEMENTS` (in the lib) restore the recorded pre-image; the PGlite rehearsal proves it. No data was involved.
+
+## PC01-I — Exact-SHA staging pair — **in progress**
+
+This follows the governed procedure in `OC5R_STAGING_DEPLOYMENT_CANDIDATE.json`:
+- CLI uploads of a clean detached worktree to the **Preview** target;
+- named PC01 aliases (`…-oc5r-pc01-11-11`); the REL-01/REL-02 aliases and the stable aliases are never moved;
+- no production target;
+- Git auto-deploy stays disabled (`git.deploymentEnabled: false` in all three `vercel.json`).
+
+1. **Backend alias seed, at code SHA `a120772d`.** `dpl_HTHm4Rtzuyk8Kj1ahws3aFDHwke6`
+   (`https://carup-backend-staging-gkk1i7ghm-11-11.vercel.app`) was aliased to
+   `https://carup-backend-staging-oc5r-pc01-11-11.vercel.app` and read back. `/api/health` reports:
+   - commit `a120772d`, `explicit_build_input`, environment `preview`;
+   - database `eoyenigwevnxwwhyhaer` only (consistent) and healthy;
+   - OCR cloudflare/Qwen canonical, configured, no mock; Gemma configured and advisory;
+   - outbound **kill switch active**;
+   - no production ref in the body.
+2. **Deploy commit** (this commit): the two pairing records → PC01 aliases, the candidate package re-pointed at
+   `a120772d` (REL-02 preserved), plus documentation.
+3. Both projects deployed from the deploy commit, the aliases assigned, then the runtime identity proved. Recorded after
+   the deployment.
 
 ## PC01-L preparation (read-only; to be re-proved on the final candidate)
 
@@ -393,9 +455,11 @@ Six security branches exist. Each was checked against the candidate by ancestry 
 
 ## Running blockers
 
-**Nothing is gating.** The owner approved the `staging` environment and closure run 38039280275 succeeded (ACCEPTED,
-recustodied above). Next: rebase the 11-commit PC01-G stack (F1, F2, F3, F3c, F4, F5, F6, F7, DF2, DF3, H tooling — earlier reported as "12" by miscount) onto this evidence commit, certify the exact head, push,
-then PC01-H → I → J smoke.
+**Nothing is gating.** The closure is accepted and recustodied, PC01-G is pushed and exact-head certified, and PC01-H is
+executed and recertified. PC01-I is in progress.
+
+**Carried to J (owner):** `COMMUNICATION_WORKER_SECRET` / `CRON_SECRET` are not available to this branch's CLI Preview
+deployments. `/api/health` names it, so a fresh D7 drain cannot be certified until the owner provides it.
 
 **Owner decisions carried to M** (none blocks a source or staging step):
 

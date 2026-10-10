@@ -1,7 +1,7 @@
 {
   "schema": "carup.staging_deployment_candidate.v1",
-  "programme": "One CarUp — OC-5R-REL-02",
-  "prepared_at": "2026-10-08T04:33:07Z",
+  "programme": "One CarUp — OC-5R-PC01",
+  "prepared_at": "2026-10-10T13:39:14Z",
   "supersedes": [
     {
       "code_sha": "d18936abfda408753013e821605914134518b155",
@@ -24,16 +24,22 @@
       "deploy_commit": "d491b5aa8778002341f1eba6e2450273546e52cb",
       "release_record": "ce89a8fac7ad75d07e9b6d9fc4ab87e8503dbc80",
       "reason": "OC-5R-REL-01's accepted FROZEN deployed evidence. NOT superseded as evidence and never rewritten: its receipts, release record and report stand, and its named preview aliases (…-oc5r-rel01-11-11) keep serving that exact deployment. REL-02 builds a NEW candidate on top of the branch."
+    },
+    {
+      "code_sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "deploy_commit": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "release_record": "docs/one-carup/certification/OC5R_REL02_STAGING_RELEASE_RECORD.json",
+      "reason": "OC-5R-REL-02's accepted deployed evidence. NOT superseded as evidence and never rewritten: its release record, receipts and report stand, and its named preview aliases (…-oc5r-rel02-11-11) keep serving that exact deployment. PC01 builds a NEW candidate with its own aliases (…-oc5r-pc01-11-11)."
     }
   ],
   "deployment": {
     "performed": false,
-    "statement": "This package PREPARES the REL-02 governed staging release. The release itself — deployment ids, aliases, runtime proofs, provider proof, gate runs — is recorded in OC5R_REL02_STAGING_RELEASE_RECORD.json, never here."
+    "statement": "This package PREPARES the OC-5R-PC01 governed staging pair (PC01-I). The release itself — deployment ids, aliases, runtime proofs, provider proof, gate runs — is recorded in the PC01 production-closure ledger and its evidence, never here."
   },
   "candidate": {
     "branch": "fix/oc5r-real-runtime-source-closure",
     "pull_request": 222,
-    "code_sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "code_sha": "a120772d62cd6b01f9e9ff9bc8cb606ee016c24c",
     "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
     "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
     "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
@@ -57,24 +63,24 @@
   "database": {
     "project_ref": "eoyenigwevnxwwhyhaer",
     "role": "canonical staging database (OC-5R DB convergence: SOURCE PASS + DATABASE PASS)",
-    "migrations": "none introduced by OC-5R-REL-02 (no file under database/ changed)"
+    "migrations": "none introduced by OC-5R-PC01 (no file under database/migrations changed). PC01-H converged seven drifted staging definitions to this lineage by replaying three already-recorded lineage files inside one governed transaction (database/scripts/oc5r_pc01_staging_definition_convergence.mjs); the migration ledger is unchanged (265 rows)."
   },
   "expected_pairing": {
     "frontend": {
       "file": "web/preview-frontend-pairing.json",
-      "value": "https://carup-staging-oc5r-rel02-11-11.vercel.app",
-      "basis": "a NEW named preview alias (REL-02), assigned to the frontend deployment through the Vercel API and read back. The REL-01 aliases are deliberately NOT moved: they keep serving the frozen REL-01 deployment."
+      "value": "https://carup-staging-oc5r-pc01-11-11.vercel.app",
+      "basis": "a NEW named preview alias (PC01), assigned to the frontend deployment through the Vercel API and read back. The REL-01 and REL-02 aliases are deliberately NOT moved: they keep serving their frozen deployments."
     },
     "backend": {
       "file": "web/preview-backend-pairing.json",
-      "value": "https://carup-backend-staging-oc5r-rel02-11-11.vercel.app",
-      "pattern": "^https://carup-backend-staging-oc5r-rel02-11-11\\.vercel\\.app$",
-      "basis": "a NEW named preview alias (REL-02), assigned to the backend deployment through the Vercel API and read back"
+      "value": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app",
+      "pattern": "^https://carup-backend-staging-oc5r-pc01-11-11\\.vercel\\.app$",
+      "basis": "a NEW named preview alias (PC01), first assigned to the backend preview of code_sha (dpl_HTHm4Rtzuyk8Kj1ahws3aFDHwke6) and read back (/api/health: commit a120772d, staging database only, kill switch active)"
     },
     "procedure": [
       "1. First iteration only: deploy the BACKEND preview of the code SHA first (CLI, clean detached worktree), assign the backend alias above and read it back from Vercel; its /api/health must already state the code SHA and the kill switch. The aliases are NAMED, so a later iteration inherits them: it deploys straight from its deploy commit and moves the same two aliases.",
       "2. Commit ONLY this branch's two pairing records (values above) plus candidate documentation on top of code_sha. Verify that commit with the verify command — it must pass with pairing \"present\" the first time the records change, and with pairing \"absent\" when a later code SHA already carries the same records (the deploy commit then adds documentation only). That commit is the deploy commit.",
-      "3. From a clean detached worktree at the deploy commit (git status empty; the CLI upload set is exactly the tracked tree), deploy BOTH carup-backend-staging and carup-staging to the PREVIEW target with CARUP_BUILD_SHA / CARUP_BUILD_REF as build inputs (and, on the backend, as runtime env plus COMMUNICATION_OUTBOUND_DISABLED=true) and meta carupSourceSha=<deploy commit>. Assign the two aliases above and read them back. Never move the stable aliases or the REL-01 aliases.",
+      "3. From a clean detached worktree at the deploy commit (git status empty; the CLI upload set is exactly the tracked tree), deploy BOTH carup-backend-staging and carup-staging to the PREVIEW target with CARUP_BUILD_SHA / CARUP_BUILD_REF as build inputs (and, on the backend, as runtime env plus COMMUNICATION_OUTBOUND_DISABLED=true) and meta carupSourceSha=<deploy commit>. Assign the two aliases above and read them back. Never move the stable aliases or the REL-01 / REL-02 aliases.",
       "4. Prove runtime identity before any journey: /carup-provenance.json and /api/health both serve the deploy commit, the frontend is paired to the backend alias, the database refs are the staging project only (consistent), OCR custody is canonical (cloudflare/Qwen), general AI is cloudflare/Gemma, and the outbound kill switch is active.",
       "5. Run the deployed provider proof (label oc5r-deployed-provider-proof) and the two staging gates on the deploy commit."
     ]
