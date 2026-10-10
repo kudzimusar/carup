@@ -65,6 +65,9 @@ export default function VehicleSearch() {
   const [loadError, setLoadError] = useState(false)
   const [passportMatch, setPassportMatch] = useState<Vehicle | null>(null)
   const [passportListed, setPassportListed] = useState(false)
+  // PC01-J-R1: a guest's plate / chassis / frame / temporary-ID lookup is refused by policy. It used
+  // to be swallowed silently — no result and no reason — so the page now says sign-in is the way in.
+  const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
   const [categoryOptions, setCategoryOptions] = useState<{ slug: string; label: string }[]>([])
 
   useEffect(() => {
@@ -94,12 +97,15 @@ export default function VehicleSearch() {
       setLoadError(false)
 
       let matched: Vehicle | null = null
+      let needsSignIn = false
       if (looksLikeIdentifier(committedQuery)) {
         try {
           const passport = await lookupVehiclePassport(committedQuery)
           if (passport?.vehicle?.vin) matched = passport.vehicle
-        } catch {
+        } catch (err) {
           // Public lookup is fail-closed. A miss is never published as proof that a vehicle does not exist.
+          // The one refusal worth naming is the policy one: it is answered by signing in.
+          if ((err as { code?: string } | null)?.code === 'LOOKUP_REQUIRES_AUTHENTICATION') needsSignIn = true
         }
       }
 
@@ -116,6 +122,7 @@ export default function VehicleSearch() {
       if (cancelled) return
       setPassportMatch(matched)
       setPassportListed(matchedListed)
+      setLookupNeedsSignIn(needsSignIn)
 
       try {
         const data = await fetchMarketplaceListings({
@@ -165,7 +172,7 @@ export default function VehicleSearch() {
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">
                 <ShieldCheck className="h-4 w-4" /> CarUp Verify
               </div>
-              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.06em] sm:text-6xl">
+              <h1 className="mt-4 max-w-3xl text-[2.25rem] font-black leading-[0.95] tracking-[-0.045em] sm:text-6xl sm:leading-[0.9] sm:tracking-[-0.06em]">
                 Verify before commitment.
                 <span className="mt-2 block text-orange-400">Silence is not evidence.</span>
               </h1>
@@ -248,6 +255,19 @@ export default function VehicleSearch() {
           Signed out, plate/chassis/temporary-ID searches return the same outcome whether or not a matching
           vehicle exists. An empty result therefore must not be read as proof that the identifier is unknown.
         </p>
+
+        {lookupNeedsSignIn && !passportMatch && (
+          <div className="mt-6 border-y border-orange-200 bg-orange-50 px-5 py-4 text-sm text-orange-950" data-testid="vehicle-search-signin-required">
+            <p className="font-semibold">Sign in to look this vehicle up</p>
+            <p className="mt-1">
+              Searching by plate, chassis or frame number, or temporary identifier needs a CarUp account. An exact
+              17-character VIN can be checked without one.
+            </p>
+            <Link to={`/login?returnTo=${encodeURIComponent('/search')}`} className="mt-1 inline-flex min-h-11 items-center font-semibold underline">
+              Sign in
+            </Link>
+          </div>
+        )}
 
         {passportMatch && passportListed && (
           <Link

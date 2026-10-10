@@ -215,3 +215,26 @@ describe('looksLikeIdentifier heuristic', () => {
     expect(looksLikeIdentifier('')).toBe(false)
   })
 })
+
+describe('PC01-J-R1 — a refused restricted lookup is answered, not swallowed', () => {
+  it('tells a guest that a frame-number search needs sign-in, with a way back here', async () => {
+    lookupVehiclePassport.mockRejectedValue(Object.assign(new Error('Sign in to look up a vehicle by plate…'), { status: 401, code: 'LOOKUP_REQUIRES_AUTHENTICATION' }))
+    renderSearch()
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
+
+    fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'GFC27-027051' } })
+
+    const prompt = await screen.findByTestId('vehicle-search-signin-required', {}, SETTLE)
+    expect(prompt).toHaveTextContent('needs a CarUp account')
+    expect(prompt.querySelector('a')?.getAttribute('href')).toBe('/login?returnTo=%2Fsearch')
+  })
+
+  it('says nothing about sign-in when a lookup simply finds no record', async () => {
+    renderSearch()
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled(), SETTLE)
+    fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'JH4KA8260MC000009' } })
+    await waitFor(() => expect(lookupVehiclePassport).toHaveBeenCalledWith('JH4KA8260MC000009'), SETTLE)
+    await waitFor(() => expect(fetchMarketplaceListings.mock.calls.length).toBeGreaterThan(1), SETTLE)
+    expect(screen.queryByTestId('vehicle-search-signin-required')).toBeNull()
+  })
+})

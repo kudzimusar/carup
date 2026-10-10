@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
@@ -1147,6 +1147,7 @@ function governedPrice(price: unknown, currency: unknown): string {
 export default function VehicleDetail() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
@@ -1575,14 +1576,20 @@ export default function VehicleDetail() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center max-w-md px-4" data-testid="lookup-requires-signin">
           <Lock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">Sign in to look up by plate</h1>
+          {/*
+            PC01-J-R1: this panel said "look up by plate" for every restricted identifier, including the
+            chassis and frame numbers seller intake stores as a vehicle's key, and its sign-in link
+            dropped the visitor back on a dashboard instead of this vehicle.
+          */}
+          <h1 className="text-2xl font-bold mb-2">Sign in to see this vehicle</h1>
           <p className="text-gray-500 mb-6">
-            Searching by number plate or temporary identifier needs a CarUp account. Looking up an exact
-            VIN is open to everyone.
+            This vehicle was opened by a plate, chassis or frame number, or temporary identifier, and it is
+            not publicly listed — so CarUp shows its record to signed-in users only. Looking up an exact
+            17-character VIN is open to everyone.
           </p>
           <div className="flex gap-3 justify-center">
             <Button className="bg-orange-500 hover:bg-orange-600" asChild>
-              <Link to="/login">Sign in</Link>
+              <Link to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} data-testid="lookup-signin-link">Sign in</Link>
             </Button>
             <Button variant="outline" asChild>
               <Link to="/marketplace">Back to Marketplace</Link>
@@ -2084,8 +2091,28 @@ export default function VehicleDetail() {
           <div className="mb-6 grid gap-4 lg:grid-cols-3" data-testid="marketplace-detail-panels">
             <div className="space-y-4 lg:col-span-2">
               <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
-              {(vehicle?.vin || id) && <TrustDecisionPanel vin={(vehicle?.vin || id) as string} />}
-              {(vehicle?.vin || id) && <SourceCoveragePanel vin={(vehicle?.vin || id) as string} />}
+              {/*
+                PC01-J-R1: both panels read session-only routes (trust-decision, sources/coverage). They
+                used to render for guests too, so every public listing fired two 401s and the coverage
+                panel turned that refusal into five "Not yet checked" rows — an auth failure published
+                as a fact about the car. Guests now get a sign-in note instead of the calls.
+              */}
+              {(vehicle?.vin || id) && isAuthenticated && <TrustDecisionPanel vin={(vehicle?.vin || id) as string} />}
+              {(vehicle?.vin || id) && isAuthenticated && <SourceCoveragePanel vin={(vehicle?.vin || id) as string} />}
+              {(vehicle?.vin || id) && !authLoading && !isAuthenticated && (
+                <Card className="border-0 card-shadow py-0" data-testid="trust-detail-signin">
+                  <CardContent className="p-5 text-sm leading-relaxed text-gray-600">
+                    Sign in to see what this vehicle&apos;s Trust position is based on and which government and
+                    partner sources CarUp has checked.{' '}
+                    <Link
+                      to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
+                      className="font-semibold text-orange-600 underline"
+                    >
+                      Sign in
+                    </Link>
+                  </CardContent>
+                </Card>
+              )}
               <SafetyWarnings warnings={detail.safety_warnings} />
             </div>
             <div className="space-y-4">

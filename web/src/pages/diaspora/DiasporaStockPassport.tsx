@@ -12,7 +12,8 @@
  * schema exists yet).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { AlertTriangle, ArrowLeft, Loader2, PackageSearch, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -97,6 +98,8 @@ function UnavailableNote({ testId, children }: { testId: string; children: React
 
 export default function DiasporaStockPassport() {
   const { id = '' } = useParams<{ id: string }>()
+  // PC01-J-R1: every Sign in link returns the visitor here.
+  const location = useLocation()
   const { isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
 
@@ -160,7 +163,7 @@ export default function DiasporaStockPassport() {
           <AlertTitle>Sign in required</AlertTitle>
           <AlertDescription>
             Please sign in to view this stock passport.
-            <Button asChild size="sm" variant="default" className="ml-2"><Link to="/login">Sign in</Link></Button>
+            <Button asChild size="sm" variant="default" className="ml-2"><Link to={buildLoginRedirect(`${location.pathname}${location.search}`)}>Sign in</Link></Button>
           </AlertDescription>
         </Alert>
       </main>
@@ -177,7 +180,7 @@ export default function DiasporaStockPassport() {
             {fatal.message}
             <span className="ml-2 inline-flex gap-2">
               {fatal.kind === 'error' && <Button size="sm" variant="outline" onClick={() => void load()} data-testid="stock-passport-retry">Retry</Button>}
-              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to="/login" data-testid="stock-passport-signin">Sign in</Link></Button>}
+              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to={buildLoginRedirect(`${location.pathname}${location.search}`)} data-testid="stock-passport-signin">Sign in</Link></Button>}
               <Button asChild size="sm" variant="ghost"><Link to="/diaspora/stock" data-testid="stock-passport-back">Back to stock</Link></Button>
             </span>
           </AlertDescription>
