@@ -706,12 +706,12 @@ export default function GuestSell() {
                 <div className="space-y-6" data-testid="guest-sell-photos-step">
                   <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
                     <div>
-                      <label className="group block cursor-pointer rounded-[2rem] border-2 border-dashed border-orange-200 bg-gradient-to-br from-orange-50 to-white p-10 text-center transition hover:border-orange-400 hover:shadow-[0_18px_45px_rgba(249,115,22,0.10)]">
+                      <label className="group block cursor-pointer rounded-[2rem] border-2 border-dashed border-orange-200 bg-gradient-to-br from-orange-50 to-white p-10 text-center transition hover:border-orange-400 hover:shadow-[0_18px_45px_rgba(249,115,22,0.10)] focus-within:ring-2 focus-within:ring-orange-500 focus-within:ring-offset-2">
                         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/20"><UploadCloud className="h-7 w-7" /></div>
                         <p className="mt-4 text-base font-black">Drop in the vehicle story</p>
                         <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-slate-500">Add up to {LISTING_IMAGE_LIMIT} listing photos now. They stay in the browser draft until you authenticate and save.</p>
                         <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-600 shadow-sm">Choose JPG / PNG photos</span>
-                        <input type="file" accept="image/*" multiple className="hidden" onChange={addImages} />
+                        <input type="file" accept="image/*" multiple className="sr-only" onChange={addImages} />
                       </label>
                     </div>
 

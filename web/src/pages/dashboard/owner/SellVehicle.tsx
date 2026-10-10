@@ -1512,7 +1512,7 @@ export default function SellVehicle() {
                     ))}
                   </ul>
                 </div>
-                <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${form.images.length >= LISTING_IMAGE_LIMIT ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
+                <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-orange-500 focus-within:ring-offset-2 ${form.images.length >= LISTING_IMAGE_LIMIT ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
                   <Upload className="w-8 h-8 text-orange-400 mx-auto mb-2" />
                   <p className="text-sm text-gray-600 font-medium">Click to upload photos</p>
                   <p className="text-xs text-gray-400 mt-1">JPG, PNG up to 15 images</p>
@@ -1520,7 +1520,7 @@ export default function SellVehicle() {
                     type="file"
                     accept="image/*"
                     multiple
-                    className="hidden"
+                    className="sr-only"
                     onChange={handleImageUpload}
                     disabled={form.images.length >= LISTING_IMAGE_LIMIT}
                   />

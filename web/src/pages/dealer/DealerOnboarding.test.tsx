@@ -11,6 +11,8 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import DealerOnboarding from './DealerOnboarding'
+import userEvent from '@testing-library/user-event'
+import { installTailwindVisibility, tabTo } from '@/test/keyboardReach'
 
 const fetchDealerOnboardingOverview = vi.fn()
 const saveDealerOnboardingProfile = vi.fn()
@@ -204,5 +206,19 @@ describe('DealerOnboarding', () => {
     renderPage()
     await waitFor(() => expect(screen.getByTestId('dealer-onboarding-denied')).toBeTruthy())
     expect(screen.getByText(/Go to registration/)).toBeTruthy()
+  })
+
+  it('PC01-F F4: the document upload and the workbook picker are reachable by keyboard (WCAG 2.1.1)', async () => {
+    const restore = installTailwindVisibility()
+    try {
+      const user = userEvent.setup()
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('upload-evidence')).toBeTruthy())
+      const evidence = screen.getByTestId('upload-evidence').querySelector('input[type="file"]')!
+      expect(await tabTo(user, evidence), 'Tab never reaches the document upload').toBe(true)
+      expect(await tabTo(user, screen.getByTestId('workbook-file')), 'Tab never reaches the workbook picker').toBe(true)
+    } finally {
+      restore()
+    }
   })
 })

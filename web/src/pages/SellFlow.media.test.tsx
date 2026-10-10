@@ -21,6 +21,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
+import { installTailwindVisibility, tabTo } from '@/test/keyboardReach'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -202,6 +204,18 @@ describe('S4 seller-chosen cover photo', () => {
     // Guidance must not read as a requirement, and must never imply CarUp verified any of it.
     expect(guidance).toContain('All optional')
     expect(guidance.toLowerCase()).not.toMatch(/verified|required|proof|certified/)
+  })
+
+  it('PC01-F F4: the photo picker itself is reachable by keyboard — Tab lands on its file input (WCAG 2.1.1)', async () => {
+    const restore = installTailwindVisibility()
+    try {
+      const user = userEvent.setup()
+      await advanceToMediaStep()
+      const picker = screen.getByText('Click to upload photos').closest('label')!.querySelector('input[type="file"]')!
+      expect(await tabTo(user, picker), 'Tab never reaches the photo picker').toBe(true)
+    } finally {
+      restore()
+    }
   })
 
   it('reorders photos with keyboard-operable controls, not mouse-only drag', async () => {

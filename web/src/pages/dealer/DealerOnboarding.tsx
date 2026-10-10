@@ -322,9 +322,9 @@ export default function DealerOnboarding() {
                     {overview.document_types.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                   </select>
                 </label>
-                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm" data-testid="upload-evidence">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2" data-testid="upload-evidence">
                   <Upload className="h-4 w-4" aria-hidden />{uploading ? 'Uploading…' : 'Upload document'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
+                  <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only"
                     onChange={(e) => uploadEvidence(e.target.files?.[0])} />
                 </label>
               </div>
@@ -362,9 +362,9 @@ export default function DealerOnboarding() {
                 CarUp suggests how your columns map; you decide. Nothing is imported here — the import engine runs a dry run you review first.
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
                   <Upload className="h-4 w-4" aria-hidden />{workbookFile ? workbookFile.name : 'Choose .xlsx file'}
-                  <input type="file" accept=".xlsx" className="hidden" onChange={(e) => pickWorkbook(e.target.files?.[0])} data-testid="workbook-file" />
+                  <input type="file" accept=".xlsx" className="sr-only" onChange={(e) => pickWorkbook(e.target.files?.[0])} data-testid="workbook-file" />
                 </label>
                 <Button size="sm" onClick={inspectWorkbook} disabled={!workbookFile || inspecting} data-testid="inspect-workbook">
                   {inspecting ? 'Inspecting…' : 'Inspect & suggest mapping'}

@@ -638,8 +638,13 @@ export default function TrustSafety() {
                     <div className="space-y-3">
                       <label className="text-xs font-semibold text-gray-300">Evidence Attachments (Logbook scans, chat history, physical damage proofs)</label>
                       <div
+                        role="button"
+                        tabIndex={0}
                         onClick={triggerFileInput}
-                        className="border-2 border-dashed border-[hsl(222,47%,18%)] hover:border-orange-500/50 rounded-xl p-6 text-center cursor-pointer transition-colors group bg-[hsl(222,47%,9%)]"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); triggerFileInput() }
+                        }}
+                        className="border-2 border-dashed border-[hsl(222,47%,18%)] hover:border-orange-500/50 rounded-xl p-6 text-center cursor-pointer transition-colors group bg-[hsl(222,47%,9%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                       >
                         <input
                           type="file"
