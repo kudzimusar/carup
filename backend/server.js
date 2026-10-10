@@ -188,9 +188,11 @@ import {
   classifyLookupIdentifier,
   resolveLookupAccess,
   resolveSellerLookupOptIn,
+  resolvePassportKeyAccess,
   lookupColumnsForKind,
 } from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { readPublicationLastChange } from './services/marketplace/publicationLastChange.js';
 import { resolveDealerListingSubject, hasGovernedDealerVehicleAuthority } from './services/dealer/dealerListingAuthority.js';
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
@@ -1836,12 +1838,50 @@ async function buildVehiclePassport(
   };
 }
 
+/**
+ * Whether `key` is the key of a publicly listed vehicle — the exact predicate the public details
+ * route above applies. A failed or empty read is "not listed", which makes the passport route refuse:
+ * the fail-closed direction.
+ */
+async function isPubliclyListedVehicleKey(key) {
+  try {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('status, publication_status')
+      .eq('vin', key)
+      .maybeSingle();
+    if (error || !data) return false;
+    return isPublicVehicleStatus(data.status) && isPubliclyVisiblePublication(data.publication_status);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PC01-J-R1 — the lookup policy's answer for the per-key passport route (utils/passportLookupPolicy.js,
+ * resolvePassportKeyAccess), decided BEFORE any passport is built. An ISO VIN resolves for everyone and
+ * a signed-in caller resolves every key, so the durable record stays reachable after a listing is
+ * withdrawn (R27). The single listing-dependent case is the one the owner decision of 2026-08-17
+ * restricts: an ANONYMOUS caller using a plate/chassis/frame-shaped key, who is answered only while the
+ * vehicle is publicly listed — when that key is already the public listing's own URL.
+ */
+async function passportKeyAllowed(vin, actor) {
+  const first = resolvePassportKeyAccess({ key: vin, actor });
+  if (first.decision !== LOOKUP_DECISIONS.REQUIRE_AUTHENTICATION) return first.decision === LOOKUP_DECISIONS.ALLOW;
+  const listed = await isPubliclyListedVehicleKey(vin);
+  return resolvePassportKeyAccess({ key: vin, actor, publiclyListed: listed }).decision === LOOKUP_DECISIONS.ALLOW;
+}
+
 // Canonical VIN passport lookup.
 // optionalAuth() resolves identity when one is genuinely present and never blocks:
 // the passport stays publicly reachable, only its audience changes.
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
+    // PC01-J-R1: the lookup policy decides first (passportKeyAllowed, above).
+    if (!(await passportKeyAllowed(vin, req.userContext || null))) {
+      return res.status(NON_ENUMERABLE_LOOKUP_RESPONSE.status).json(NON_ENUMERABLE_LOOKUP_RESPONSE.body);
+    }
     const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia, buildCanonicalVehicleLifecycle, toVehicleHistoryDisclosures, projectFinanceObligationForVehicle);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
@@ -4073,6 +4113,11 @@ app.get('/api/compliance/reports', authorizeRole(['government', 'admin']), async
 
 // --- ADMIN TELEMETRY & USER SERVICES MOVED TO MODULAR ROUTER ---
 
+// PC01-J-R1: these public legal pages named "CarUp Automotive Intelligence Private Limited" and
+// `@carup.co.zw` contacts — a domain CarUp does not use. Contacts now follow the owner-approved
+// functional mapping (docs/communications/EMAIL_EXPERIENCE_1_0_CONTACT_IDENTITY_MAPPING.md §3.1,
+// MIGRATE_SHIPPED_CARUP_CO_ZW_CONTACTS = YES) and the entity is the frozen "CarUp Technologies".
+// Only the identity strings changed; no obligation, right, retention period or jurisdiction did.
 function renderPublicLegalPage({ title, description, sections }) {
   const sectionHtml = sections.map((section) => `
     <section>
@@ -4113,7 +4158,7 @@ function renderPublicLegalPage({ title, description, sections }) {
     </div>
   </header>
   <main>${sectionHtml}</main>
-  <footer>CarUp Automotive Intelligence Private Limited - legal@carup.co.zw</footer>
+  <footer>CarUp Technologies - legal@carup.dev</footer>
 </body>
 </html>`;
 }
@@ -4137,7 +4182,7 @@ app.get('/privacy-policy', (_req, res) => {
       },
       {
         heading: 'Your Choices',
-        body: 'Users can request access, correction, or deletion of eligible personal data by contacting privacy@carup.co.zw or legal@carup.co.zw. See the User Data Deletion page for deletion instructions.',
+        body: 'Users can request access, correction, or deletion of eligible personal data by contacting privacy@carup.dev or legal@carup.dev. See the User Data Deletion page for deletion instructions.',
       },
     ],
   }));
@@ -4162,7 +4207,7 @@ app.get('/terms', (_req, res) => {
       },
       {
         heading: 'Contact',
-        body: 'Questions about these terms can be sent to legal@carup.co.zw or support@carup.co.zw.',
+        body: 'Questions about these terms can be sent to legal@carup.dev or support@carup.dev.',
       },
     ],
   }));
@@ -4175,7 +4220,7 @@ app.get('/data-deletion', (_req, res) => {
     sections: [
       {
         heading: 'How to Request Deletion',
-        body: 'Email privacy@carup.co.zw or legal@carup.co.zw with the subject "Data Deletion Request" and include your account email, phone number, or communication channel so we can verify ownership.',
+        body: 'Email privacy@carup.dev or legal@carup.dev with the subject "Data Deletion Request" and include your account email, phone number, or communication channel so we can verify ownership.',
       },
       {
         heading: 'What We Delete',
@@ -4225,6 +4270,15 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // The raw column here is what the owner dashboard rendered as "Trust Index %", which is the
     // unattributable number in its most persuasive form: shown to the person who will repeat it.
     const withTrust = await withCanonicalTrust(data)
+    // Who last moved each listing on or off the public Marketplace, in the owner's terms — so a
+    // listing CarUp took down reads as CarUp's action, not as a mystery. Started now and awaited
+    // last: it shares no input with the two reads below, and it never throws (a failure is
+    // `not_read`). See services/marketplace/publicationLastChange.js.
+    const publicationChangesRead = readPublicationLastChange(
+      supabase,
+      withTrust.map((vehicle) => vehicle.vin),
+      req.userContext.id,
+    )
     // Garage counts come from real reads, so My Garage stops publishing `|| 0` against columns that
     // do not exist. `null` means "not read", and the surface must say so in words.
     const counts = await ownerGarageCounts(withTrust.map((vehicle) => vehicle.vin))
@@ -4232,10 +4286,12 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // uses. Without this the owner list surfaces have no media field to read at all and every card
     // falls back to the "Image unavailable" placeholder — see ownerListingMedia.
     const media = await ownerListingMedia(withTrust.map((vehicle) => vehicle.vin))
+    const publicationChanges = await publicationChangesRead
     res.json(withTrust.map((vehicle) => ({
       ...vehicle,
       counts: counts.get(vehicle.vin) ?? null,
       listing_media: media.get(vehicle.vin) ?? toListingMediaBlock(null),
+      publication_last_change: publicationChanges.get(vehicle.vin) ?? { state: 'not_read' },
     })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)
