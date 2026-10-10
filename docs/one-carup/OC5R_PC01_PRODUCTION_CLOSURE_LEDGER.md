@@ -466,6 +466,35 @@ branch's CLI Preview deployments. The existing Preview entries are scoped to oth
 
 Evidence: `docs/one-carup/evidence/OC5R_PC01_J_SMOKE.json`.
 
+## PC01-J-R1 — Owner usability convergence — **remediated, exact-head certified; new pair to deploy**
+
+The moderator's disposition on Checkpoint 1 was **OWNER USABILITY CHECKPOINT 1 — REMEDIATE**. The brief was also given
+to a second agent (ChatGPT Codex), which opened a worktree at `d13c2e78`. The Product Owner assigned J-R1 to this lane.
+That worktree was left untouched.
+
+| | |
+|---|---|
+| Start | `d13c2e78` (PR head) + local docs `b0e094d1` |
+| Code head | **`896ee73f753bb73ca232da04904cdd8272fbeeb1`**: 7 commits, 81 files, no migration, workflow or package file |
+| Exact-head certification | green. The one red is environmental: a 130-request rate-limit test died with `fetch failed` under swap exhaustion and passes 4 of 4 in isolation. Lint: 0 new messages. Responsive audit at the head: 0 overflow and 0 sub-44 px controls |
+| Kingston / Serena | Sign-in proven read-only. The Serena exists once and is owned by the account. It is `publishable` because DB2B-1 quarantined all 88 published listings (2026-10-06T23:32:43Z, system actor); the account's last action had published it. **Defects fixed:** the Sell deep link reopened it as a browser guest draft (K1); "publishable" was unexplained (K2); its passport was served anonymously by frame number (K3) |
+| Public surface | Identity: 23 → 1 shipped `@carup.co.zw` lines; phones, addresses, unverified claims, hours and demo people removed. Contact offers only certified email. Navigation: guest 119 items, 0 broken, 0 into a private workspace. One guest-access policy is held to the router |
+| Responsive | 11 → 0 overflow rows; 1,095 → 0 sub-44 px controls |
+| Native | blockers fixed: guests browse; accounts can be created; garage actions carry CSRF; the lock screen no longer traps. Installable builds stay blocked by `newArchEnabled:false` (Expo Go unaffected) |
+
+The full record is `docs/one-carup/OC5R_PC01_J_R1_OWNER_USABILITY_CONVERGENCE.md` (sections A–J), with evidence in
+`docs/one-carup/evidence/OC5R_PC01_J_R1_*.json`.
+
+**Superseded as the candidate:**
+- The Checkpoint 1 pair (`d13c2e78`). Its evidence stands.
+- Its two gate runs (38056687030, 38056686796). They never received owner approval and are cancelled before the J-R1 push.
+
+**New owner decisions** (recorded, not taken):
+- Guest marketplace inquiries and parts quotes stay open by product design; the J-R1 rule would ask for an account.
+- D10: guest "find me a garage" versus signed-in "request this garage".
+- The auth email footer wording sits under Email X2.
+- The native build mode (New Architecture).
+
 ## PC01-L preparation (read-only; to be re-proved on the final candidate)
 
 Six security branches exist. Each was checked against the candidate by ancestry and content:
@@ -481,12 +510,14 @@ Six security branches exist. Each was checked against the candidate by ancestry 
 
 ## Running blockers
 
-**Owner Usability Checkpoint 1.**
-- The exact pair `d13c2e78` is deployed, verified and smoke-healthy.
-- Owner actions: approve the two queued `staging` gates (then re-add the provider-proof label); provide the worker secret
-  for a fresh D7; run the usability test.
-- This ledger update is committed **locally and not pushed** until the gates finish, so the PR head stays the deployed SHA
-  under them.
+**Owner Usability Checkpoint 1 — REMEDIATE → PC01-J-R1.**
+- Remediated and exact-head certified at `896ee73f`.
+- The Checkpoint 1 pair `d13c2e78` is superseded as the candidate, and its unapproved gate runs are cancelled.
+- The J-R1 pair, its runtime proof and the Checkpoint 2 itinerary are recorded in the J-R1 section after deployment.
+- Owner actions:
+  - approve the `staging` gates on the J-R1 deploy commit (then re-add the provider-proof label);
+  - provide the worker secret for a fresh D7;
+  - run Checkpoint 2.
 
 **Owner decisions carried to M** (none blocks a source or staging step):
 
