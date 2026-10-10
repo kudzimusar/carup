@@ -419,26 +419,52 @@ Receipts are in `docs/one-carup/evidence/`:
 
 **Recovery point:** `ROLLBACK_STATEMENTS` (in the lib) restore the recorded pre-image; the PGlite rehearsal proves it. No data was involved.
 
-## PC01-I — Exact-SHA staging pair — **in progress**
+## PC01-I — Exact-SHA staging pair — **DEPLOYED RUNTIME VERIFIED (20/20)**
 
 This follows the governed procedure in `OC5R_STAGING_DEPLOYMENT_CANDIDATE.json`:
-- CLI uploads of a clean detached worktree to the **Preview** target;
-- named PC01 aliases (`…-oc5r-pc01-11-11`); the REL-01/REL-02 aliases and the stable aliases are never moved;
-- no production target;
-- Git auto-deploy stays disabled (`git.deploymentEnabled: false` in all three `vercel.json`).
+- CLI uploads of clean detached worktrees to the **Preview** target;
+- named PC01 aliases; no production target;
+- Git auto-deploy disabled (`git.deploymentEnabled: false` in all three `vercel.json`);
+- the stable aliases and the REL-01/REL-02 aliases were never moved.
 
-1. **Backend alias seed, at code SHA `a120772d`.** `dpl_HTHm4Rtzuyk8Kj1ahws3aFDHwke6`
-   (`https://carup-backend-staging-gkk1i7ghm-11-11.vercel.app`) was aliased to
-   `https://carup-backend-staging-oc5r-pc01-11-11.vercel.app` and read back. `/api/health` reports:
-   - commit `a120772d`, `explicit_build_input`, environment `preview`;
-   - database `eoyenigwevnxwwhyhaer` only (consistent) and healthy;
-   - OCR cloudflare/Qwen canonical, configured, no mock; Gemma configured and advisory;
-   - outbound **kill switch active**;
-   - no production ref in the body.
-2. **Deploy commit** (this commit): the two pairing records → PC01 aliases, the candidate package re-pointed at
-   `a120772d` (REL-02 preserved), plus documentation.
-3. Both projects deployed from the deploy commit, the aliases assigned, then the runtime identity proved. Recorded after
-   the deployment.
+| | |
+|---|---|
+| Code SHA | `a120772d62cd6b01f9e9ff9bc8cb606ee016c24c` |
+| **Shared source SHA (deploy commit)** | **`d13c2e7821551e8d3adfee2930a6f312f8f9ed4b`** = the code SHA plus the two pairing records, the candidate package and docs. `verify-deployment-candidate`: `ok`, no refusals, pairing `present`. It is the PR #222 head |
+| **Frontend** | `dpl_6xx8XLib6uEyUQL8jq2vNfys1RQH`; immutable `https://carup-staging-bmfqxyatp-11-11.vercel.app`; alias **`https://carup-staging-oc5r-pc01-11-11.vercel.app`** |
+| **Backend** | `dpl_BRaaDMFZVr7wSKj6V8peiMpT8613`; immutable `https://carup-backend-staging-jhqfn19ja-11-11.vercel.app`; alias **`https://carup-backend-staging-oc5r-pc01-11-11.vercel.app`** |
+| Backend alias seed (superseded) | `dpl_HTHm4Rtzuyk8Kj1ahws3aFDHwke6` at the code SHA (the procedure's first step; the alias then moved to the deploy-commit build) |
+| Frontend runtime SHA | `d13c2e78…` (`/carup-provenance.json`, `explicit_build_input`; `api_base_url` paired from `preview-backend-pairing.json` to the PC01 backend alias; `unpaired: false`) |
+| Backend runtime SHA | `d13c2e78…` (`/api/health`: `explicit_build_input`, environment `preview`, deployment `dpl_BRaa…`) |
+| Staging DB identity | `eoyenigwevnxwwhyhaer` only (Supabase and Postgres refs consistent, 0 unrecognised endpoints); healthy |
+| Provider / config readiness | OCR cloudflare/`@cf/qwen/qwen3.8-27b` configured, custody canonical, no mock. General AI cloudflare/`@cf/google/gemma-4-26b-a4b-it` configured, advisory. **Outbound kill switch active** (external sends disabled, in-app enabled). Communications report `BLOCKED` only for the worker secret and the external provider credentials, which is expected under the kill switch; the worker secret is the owner item below |
+| Served bundle | 3 JS files (main 3.8 MB plus 2 lazy chunks). Calls the PC01 backend alias and not REL-02's. Names the staging project. Contains **no production ref**, and neither does the health body |
+| Stable aliases | still serve their own build (`bb9d9900`); nothing moved onto PC01 |
+
+Evidence: `docs/one-carup/evidence/OC5R_PC01_I_RUNTIME_IDENTITY.json`.
+
+## PC01-J — Smoke certification — **healthy; Owner Usability Checkpoint 1 reached**
+
+| Check | Result |
+|---|---|
+| Backend API (anonymous) | `/api/health` 200 at `d13c2e78`; categories 200; CSRF token 200; `/api/auth/me` **401**; `verify-ledger` **401** (P0L containment holds on the deployed pair) |
+| Marketplace | **0 public listings — truthful.** Staging holds 17 `published` rows, all **Sold** gate fixtures owned by `carup-staging.test`, which the eligibility contract keeps off the public marketplace. There is no real listing on staging |
+| Browser (Chromium, real network, desktop 1440 and phone 393) | 34 page loads over 17 routes: every document 200; **0 page errors, 0 console errors, 0 5xx, 0 failed requests**; every API call goes to the PC01 backend alias; the only writes are anonymous `POST /api/analytics/navigation` |
+| Gated surfaces | `/onboarding`, `/dealer/onboarding` and `/dashboard` redirect to `/login`. `/diaspora` is the public `DiasporaLanding` page |
+| F5 on the deployed pair | the phone Home shows Buy / Sell / Verify and the search box on the first screen |
+
+**Governed gates on the deploy commit: queued, awaiting owner approval** of the protected `staging` environment.
+- Diaspora Deployed Staging UAT **38056687030** is waiting for approval.
+- Seller Home & Lifecycle **38056686796** (re-run) is queued behind it in the `staging-preview-<branch>` concurrency group.
+- A stale Diaspora gate from `7e1bb395` (37863300464, waiting since 2026-10-09) held that group. It was cancelled, because it must never be approved.
+
+The deployed provider proof (re-add the label `oc5r-deployed-provider-proof`) shares the group. It is triggered **after** the
+gates, because a new pending run would cancel the queued Seller gate.
+
+**Fresh D7: not certifiable** until the owner makes `COMMUNICATION_WORKER_SECRET` (or `CRON_SECRET`) available to this
+branch's CLI Preview deployments. The existing Preview entries are scoped to other branches.
+
+Evidence: `docs/one-carup/evidence/OC5R_PC01_J_SMOKE.json`.
 
 ## PC01-L preparation (read-only; to be re-proved on the final candidate)
 
@@ -455,11 +481,12 @@ Six security branches exist. Each was checked against the candidate by ancestry 
 
 ## Running blockers
 
-**Nothing is gating.** The closure is accepted and recustodied, PC01-G is pushed and exact-head certified, and PC01-H is
-executed and recertified. PC01-I is in progress.
-
-**Carried to J (owner):** `COMMUNICATION_WORKER_SECRET` / `CRON_SECRET` are not available to this branch's CLI Preview
-deployments. `/api/health` names it, so a fresh D7 drain cannot be certified until the owner provides it.
+**Owner Usability Checkpoint 1.**
+- The exact pair `d13c2e78` is deployed, verified and smoke-healthy.
+- Owner actions: approve the two queued `staging` gates (then re-add the provider-proof label); provide the worker secret
+  for a fresh D7; run the usability test.
+- This ledger update is committed **locally and not pushed** until the gates finish, so the PR head stays the deployed SHA
+  under them.
 
 **Owner decisions carried to M** (none blocks a source or staging step):
 
