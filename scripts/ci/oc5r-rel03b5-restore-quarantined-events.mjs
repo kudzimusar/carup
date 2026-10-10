@@ -46,7 +46,7 @@ const client = new pg.Client({
   ssl: { rejectUnauthorized: false },
 });
 
-await client.connect();
+try { await client.connect(); } catch (e) { await client.end().catch(() => {}); throw e; }
 let committed = false;
 try {
   await client.query('BEGIN');

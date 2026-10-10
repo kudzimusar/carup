@@ -1,11 +1,9 @@
 name: OC-5R REL-03B-6 Safe Prefix Worker Drain
 
+# RETIRED after use (REL-03B6 safe-prefix worker): a one-shot staging mutation must never re-run because a file it
+# watches was edited. Dispatch-only workflows cannot be dispatched from this branch, so this is inert.
 on:
-  push:
-    branches:
-      - fix/oc5r-real-runtime-source-closure
-    paths:
-      - .github/workflows/oc5r-rel03b6-safe-prefix-worker.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -127,7 +125,7 @@ jobs:
 
           const cleaned = databaseUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+          try { await client.connect(); } catch (e) { await client.end().catch(() => {}); throw e; }
 
           const { eventWorker } = await import('./backend/services/eventBus/eventWorker.js');
           const { registerCommunicationListeners } = await import('./backend/services/communication/communicationEventListeners.js');

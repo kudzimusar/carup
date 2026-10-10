@@ -188,7 +188,7 @@ export async function runProof(env = process.env) {
   const { bootstrapIdentities, cleanConnectionString } = await import('./bootstrap-staging-uat-identities.mjs');
   await bootstrapIdentities({ databaseUrl: env.DIASPORA_STAGING_DATABASE_URL, expectedRef, password: env.STAGING_UAT_PASSWORD, identities: [], goldenSellers: [identity] });
   const db = new pg.Client({ connectionString: cleanConnectionString(env.DIASPORA_STAGING_DATABASE_URL), ssl: { rejectUnauthorized: false } });
-  await db.connect();
+  try { await db.connect(); } catch (e) { await db.end().catch(() => {}); throw e; }
   try {
     const guestCsrf = await csrfFor(api, null);
     const login = await http(api, '/auth/login', { method: 'POST', csrf: guestCsrf, body: { email: identity.email, password: env.STAGING_UAT_PASSWORD } });

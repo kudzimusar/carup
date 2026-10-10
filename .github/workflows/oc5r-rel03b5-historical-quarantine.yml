@@ -1,11 +1,9 @@
 name: OC-5R REL-03B-5 Historical Quarantine
 
+# RETIRED after use (REL-03B5 historical quarantine): a one-shot staging mutation must never re-run because a file it
+# watches was edited. Dispatch-only workflows cannot be dispatched from this branch, so this is inert.
 on:
-  push:
-    branches:
-      - fix/oc5r-real-runtime-source-closure
-    paths:
-      - .github/workflows/oc5r-rel03b5-historical-quarantine.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -68,7 +66,7 @@ jobs:
           assertRel03b5StagingTarget(identifyDatabaseTarget(raw));
           const connectionString = raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
-          await client.connect();
+          try { await client.connect(); } catch (e) { await client.end().catch(() => {}); throw e; }
           try {
             await client.query('BEGIN READ ONLY');
             const result = await client.query(
@@ -131,7 +129,7 @@ jobs:
           const connectionString = raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
           const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
           const types = Object.keys(REL03B5_FAMILY_COUNTS);
-          await client.connect();
+          try { await client.connect(); } catch (e) { await client.end().catch(() => {}); throw e; }
           try {
             await client.query('BEGIN READ ONLY');
             const truth = await client.query(

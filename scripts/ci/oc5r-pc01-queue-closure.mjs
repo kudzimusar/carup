@@ -56,7 +56,7 @@ for (const name of ['SUPABASE_POOLER_DB_URL', 'SUPABASE_TRANSACTION_POOLER_URL',
 
 const cleaned = databaseUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
 const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
-await client.connect();
+try { await client.connect(); } catch (e) { await client.end().catch(() => {}); throw e; }
 await client.query("SET TIME ZONE 'UTC'");
 
 const { eventWorker } = await import('../../backend/services/eventBus/eventWorker.js');

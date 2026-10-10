@@ -3,15 +3,10 @@ name: OC-5R PC01 Governed Queue Closure
 # PC01 B–E: continues REL-03B-6 (run 38016065906 @ 98158b51, stop_reason d7_authority_boundary).
 # One governed run, five fail-closed segments, every id/fingerprint/total frozen in
 # scripts/ci/lib/oc5r-pc01-frozen-sets.json. Staging only; outbound disabled; no scheduler.
+# RETIRED after use (PC01 queue closure (run 38039280275 at bcd7076a)): a one-shot staging mutation must never re-run because a file it
+# watches was edited. Dispatch-only workflows cannot be dispatched from this branch, so this is inert.
 on:
-  push:
-    branches:
-      - fix/oc5r-real-runtime-source-closure
-    paths:
-      - .github/workflows/oc5r-pc01-queue-closure.yml
-      - scripts/ci/oc5r-pc01-queue-closure.mjs
-      - scripts/ci/lib/oc5r-pc01-queue-closure-contract.mjs
-      - scripts/ci/lib/oc5r-pc01-frozen-sets.json
+  workflow_dispatch:
 
 permissions:
   contents: read
