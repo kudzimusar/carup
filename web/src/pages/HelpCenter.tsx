@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,12 +8,8 @@ import {
   Search, 
   ChevronDown, 
   MessageSquare, 
-  Send, 
   ArrowRight, 
-  Phone, 
   Mail, 
-  MapPin, 
-  Clock, 
   ShieldCheck, 
   ShoppingBag, 
   Tag, 
@@ -25,6 +21,7 @@ import {
   Sparkles,
   RefreshCw
 } from 'lucide-react'
+import { PUBLIC_CONTACTS, PUBLIC_LOCATION_LINE } from '@/config/publicIdentity'
 
 // Realistic Zimbabwe-focused FAQ database
 interface FAQ {
@@ -176,42 +173,43 @@ const CATEGORIES = [
   }
 ];
 
-interface ChatMessage {
-  id: string;
-  sender: 'gutu' | 'user';
-  text: string;
-  time: string;
-}
+
+/**
+ * The answers the old keyword "chat" gave, kept because they are accurate — but presented as what
+ * they are: fixed text, not an assistant that is online.
+ */
+const STRAIGHT_ANSWERS: ReadonlyArray<{ question: string; answer: string }> = [
+  {
+    question: 'Can CarUp check road tax or registration with ZINARA or the CVR?',
+    answer: 'No. CarUp is not connected to ZINARA or the CVR, so it cannot look up road tax arrears, take a payment, or register anything with them. Please deal with ZINARA directly.',
+  },
+  {
+    question: 'How do I list a vehicle that is still in transit from Japan?',
+    answer: 'Transit vehicles can be listed under the "In Transit" tag, and you should attach the export certificate and auction sheets so buyers can read them. CarUp does not scan those documents to confirm mileage and cannot detect an odometer rollback.',
+  },
+  {
+    question: 'What does PartSentry record?',
+    answer: 'PartSentry records a part change against a vehicle — what was replaced, by whom, and at what odometer reading. It records what a mechanic entered; it does not inspect or authenticate the part, and it guarantees nothing about whether a component is genuine.',
+  },
+  {
+    question: 'Where does a Trust position come from?',
+    answer: 'A Trust position reflects the evidence CarUp holds about a vehicle — the documents supplied and CarUp\u2019s own review of them. It is not derived from ZINARA or any registry, because CarUp is connected to none, and CarUp makes no claim that records held here are legally binding.',
+  },
+  {
+    question: 'Can I pay through CarUp?',
+    answer: 'Not yet. CarUp prices its plans and reports in USD and ZiG, but no online payment method — card, EcoCash, InnBucks, ZIPIT or RTGS — is live, so nothing can be paid through CarUp today. Vehicle deals are settled directly between buyer and seller, and CarUp holds no funds.',
+  },
+  {
+    question: 'How does a dealership join CarUp?',
+    answer: 'Create an account, then upload your company documents in the dealer onboarding flow. CarUp does not visit premises and has no bank financing integration, so registration creates an account rather than an endorsement.',
+  },
+]
 
 export default function HelpCenter() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
   
-  // Chat Simulator State
-  const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm1',
-      sender: 'gutu',
-      text: "Mhoro! Salibonani! Welcome to CarUp's premium support hub. I am Gutu AI, your real-time automotive intelligence assistant.",
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    },
-    {
-      id: 'm2',
-      sender: 'gutu',
-      text: "Ask about the records CarUp holds for a vehicle, imports, PartSentry entries, or how a Trust position is arrived at.",
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
-  const [isTyping, setIsTyping] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll chat to bottom
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, isTyping]);
-
   // Filter FAQs based on search and selected category
   const filteredFaqs = useMemo(() => {
     return FAQS.filter(faq => {
@@ -242,63 +240,6 @@ export default function HelpCenter() {
     setSearchQuery('');
     setSelectedCategory(null);
     setOpenFaqId(null);
-  };
-
-  // Gutu AI Smart Responses for Chat Simulator
-  const triggerGutuReply = (userMsg: string) => {
-    setIsTyping(true);
-    const cleanedMsg = userMsg.toLowerCase();
-    
-    setTimeout(() => {
-      let replyText = "";
-      
-      if (cleanedMsg.includes('zinara') || cleanedMsg.includes('road tax') || cleanedMsg.includes('arrears') || cleanedMsg.includes('license')) {
-        replyText = "CarUp is not connected to ZINARA or the CVR, so it cannot look up road tax arrears, take a payment, or register anything with them. Please deal with ZINARA directly.";
-      } else if (cleanedMsg.includes('import') || cleanedMsg.includes('japan') || cleanedMsg.includes('transit') || cleanedMsg.includes('beira') || cleanedMsg.includes('durban')) {
-        replyText = "Transit vehicles can be listed under the 'In Transit' tag, and you should attach the export certificate and auction sheets so buyers can read them. CarUp does not scan those documents to confirm mileage and cannot detect an odometer rollback.";
-      } else if (cleanedMsg.includes('partsentry') || cleanedMsg.includes('ledger') || cleanedMsg.includes('parts') || cleanedMsg.includes('repair') || cleanedMsg.includes('mechanic')) {
-        replyText = "PartSentry records a part change against a vehicle — what was replaced, by whom, and at what odometer reading. It records what a mechanic entered; it does not inspect or authenticate the part, and it guarantees nothing about whether a component is genuine.";
-      } else if (cleanedMsg.includes('trust') || cleanedMsg.includes('score') || cleanedMsg.includes('binding') || cleanedMsg.includes('verify')) {
-        replyText = "A Trust position reflects the evidence CarUp holds about a vehicle — the documents supplied and CarUp's own review of them. It is not derived from ZINARA or any registry, because CarUp is connected to none, and CarUp makes no claim that records held here are legally binding.";
-      } else if (cleanedMsg.includes('zig') || cleanedMsg.includes('usd') || cleanedMsg.includes('payment') || cleanedMsg.includes('ecocash') || cleanedMsg.includes('innbucks') || cleanedMsg.includes('zipit') || cleanedMsg.includes('rtgs') || cleanedMsg.includes('fee')) {
-        replyText = "Gutu AI: CarUp prices its plans and reports in USD and ZiG, but no online payment method — card, EcoCash, InnBucks, ZIPIT or RTGS — is live yet, so nothing can be paid through CarUp today. Vehicle deals are settled directly between buyer and seller, and CarUp holds no funds.";
-      } else if (cleanedMsg.includes('dealer') || cleanedMsg.includes('register') || cleanedMsg.includes('showroom') || cleanedMsg.includes('cr14')) {
-        replyText = "You can register a dealership by uploading your company documents in the Dealer portal. CarUp does not visit premises and has no bank financing integration, so registration creates an account rather than an endorsement.";
-      } else if (cleanedMsg.includes('mhoro') || cleanedMsg.includes('salibonani') || cleanedMsg.includes('hello') || cleanedMsg.includes('hi') || cleanedMsg.includes('hey')) {
-        replyText = "Gutu AI: Mhoro! Salibonani! Hello there! I'm here and ready to help. What aspect of CarUp (ZINARA, PartSentry, Trust Scores, or imports) would you like to explore today?";
-      } else {
-        replyText = "Gutu AI: That's a great question! For detailed issues or specific account queries, I recommend checking out our dedicated '" + (selectedCategory ? selectedCategory : "Buyers/Sellers") + "' category guides. You can also open a support ticket to chat directly with our Harare support squad!";
-      }
-
-      setChatMessages(prev => [
-        ...prev,
-        {
-          id: 'gutu-' + Date.now(),
-          sender: 'gutu',
-          text: replyText,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
-      setIsTyping(false);
-    }, 1200);
-  };
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    const userMessage = chatInput;
-    setChatMessages(prev => [
-      ...prev,
-      {
-        id: 'user-' + Date.now(),
-        sender: 'user',
-        text: userMessage,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-    ]);
-    setChatInput('');
-    triggerGutuReply(userMessage);
   };
 
   return (
@@ -364,7 +305,7 @@ export default function HelpCenter() {
               <button
                 key={tag}
                 onClick={() => handleTagClick(tag)}
-                className="px-3 py-1.5 rounded-full bg-[hsl(222,47%,12%)] border border-[hsl(222,47%,20%)] text-xs text-gray-300 hover:text-orange-400 hover:border-orange-500/30 transition-all duration-200"
+                className="min-h-11 sm:min-h-0 px-3 py-1.5 rounded-full bg-[hsl(222,47%,12%)] border border-[hsl(222,47%,20%)] text-xs text-gray-300 hover:text-orange-400 hover:border-orange-500/30 transition-all duration-200"
               >
                 {tag}
               </button>
@@ -558,171 +499,90 @@ export default function HelpCenter() {
         </div>
       </section>
 
-      {/* Still need help call to action & Chat Simulator */}
-      <section className="py-20 bg-[hsl(222,47%,6%)] relative z-10">
+      {/*
+        Still need help — PC01-J-R1. This section used to present a keyword-matching simulator as
+        "Gutu AI Support Assistant — Online & Ready to Guide", promise a support ticket and a "Harare
+        support squad", and publish a "CarUp Zimbabwe HQ" card with a hotline, a showroom and opening
+        hours. None of those exists. The simulator's answers were accurate, so they are kept — as fixed
+        answers that say what they are — and the contact card now carries only real addresses.
+      */}
+      <section className="py-16 sm:py-20 bg-[hsl(222,47%,6%)] relative z-10" data-testid="help-still-need-help">
         <div className="section-padding mx-auto max-w-[1440px] px-6">
           <div className="grid lg:grid-cols-12 gap-8 items-start">
-            
-            {/* Left Column: Support info CTAs */}
+
             <div className="lg:col-span-5 space-y-6">
               <div>
                 <Badge className="bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-4">
-                  Support Desk
+                  Support
                 </Badge>
-                <h2 className="text-3xl font-bold leading-tight mb-4">
-                  Still Have Unresolved Automotive Questions?
-                </h2>
+                <h2 className="text-3xl font-bold leading-tight mb-4">Still need help?</h2>
                 <p className="text-gray-400 leading-relaxed text-sm md:text-base">
-                  Whether you are dealing with complicated customs clearances, bank collateral logistics, or specialized engine diagnostic codes, our Zimbabwe-based premium specialists are here.
+                  Write to CarUp Support with what you were trying to do and what happened instead — a listing
+                  link, an order reference or the email address on your account helps the team find it. CarUp
+                  publishes no telephone line, opening hours or response time.
                 </p>
               </div>
 
-              {/* Harare HQ Card */}
-              <Card className="border border-[hsl(222,47%,16%)] bg-[hsl(222,47%,10%)] text-gray-200">
+              <Card className="border border-[hsl(222,47%,16%)] bg-[hsl(222,47%,10%)] text-gray-200 py-0" data-testid="help-contact-card">
                 <CardContent className="p-6 space-y-4">
                   <h3 className="font-bold text-lg text-white border-b border-[hsl(222,47%,20%)] pb-2 flex items-center gap-2">
-                    <Building className="w-5 h-5 text-orange-400" /> CarUp Zimbabwe HQ
+                    <Mail className="w-5 h-5 text-orange-400" aria-hidden="true" /> How to reach CarUp
                   </h3>
-                  
-                  <div className="space-y-3.5 text-sm">
-                    <div className="flex items-start gap-3.5">
-                      <Phone className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-semibold text-gray-300">Harare HQ Hotline</p>
-                        <p className="text-gray-400">Not published yet</p>
-                      </div>
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <p className="font-semibold text-gray-300">Help with an account, a listing or an order</p>
+                      <a className="inline-flex min-h-11 items-center break-all text-orange-300 underline" href={`mailto:${PUBLIC_CONTACTS.support}`}>
+                        {PUBLIC_CONTACTS.support}
+                      </a>
                     </div>
-                    
-                    <div className="flex items-start gap-3.5">
-                      <Mail className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-semibold text-gray-300">Corporate Enquiries</p>
-                        <p className="text-gray-400">support@carup.co.zw</p>
-                      </div>
+                    <div>
+                      <p className="font-semibold text-gray-300">A suspicious message or a security concern</p>
+                      <a className="inline-flex min-h-11 items-center break-all text-orange-300 underline" href={`mailto:${PUBLIC_CONTACTS.security}`}>
+                        {PUBLIC_CONTACTS.security}
+                      </a>
                     </div>
-                    
-                    <div className="flex items-start gap-3.5">
-                      <MapPin className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-semibold text-gray-300">Physical Showroom</p>
-                        <p className="text-gray-400">No public office address yet</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-start gap-3.5">
-                      <Clock className="w-5 h-5 text-orange-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-semibold text-gray-300">Operational Hours</p>
-                        <p className="text-gray-400">Mon - Fri: 8:00 AM - 5:00 PM | Sat: 8:00 AM - 1:00 PM</p>
-                      </div>
+                    <div>
+                      <p className="font-semibold text-gray-300">Where CarUp is</p>
+                      <p className="text-gray-400">{PUBLIC_LOCATION_LINE}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Open ticket Call to Action */}
               <div className="p-6 rounded-xl bg-gradient-to-br from-orange-500/10 via-amber-500/5 to-transparent border border-orange-500/20 shadow-xl flex items-start gap-4">
                 <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center shrink-0">
-                  <MessageSquare className="w-5 h-5 text-orange-400" />
+                  <MessageSquare className="w-5 h-5 text-orange-400" aria-hidden="true" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-white mb-1">Open a Premium Support Ticket</h4>
+                  <h4 className="font-bold text-white mb-1">Every contact address, by purpose</h4>
                   <p className="text-xs text-gray-400 leading-relaxed mb-3">
-                    Track the work records and billing CarUp holds for you from your dashboard. CarUp publishes no turnaround time, because it measures none.
+                    Privacy requests, legal questions, press and general correspondence each have their own address.
                   </p>
-                  <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white font-semibold flex items-center gap-1.5" asChild>
+                  <Button size="sm" className="min-h-11 sm:min-h-9 bg-orange-500 hover:bg-orange-600 text-white font-semibold flex items-center gap-1.5" asChild>
                     <Link to="/contact">
-                      Contact Team <ArrowRight className="w-3.5 h-3.5" />
+                      Contact CarUp <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                     </Link>
                   </Button>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Interactive Gutu AI Live Chat Simulator */}
             <div className="lg:col-span-7">
-              <Card className="border border-[hsl(222,47%,16%)] bg-[hsl(222,47%,10%)] overflow-hidden shadow-2xl relative">
-                
-                {/* Chat Widget Header */}
-                <div className="bg-[hsl(222,47%,12%)] px-6 py-4 border-b border-[hsl(222,47%,18%)] flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center ring-2 ring-orange-500/30">
-                        <Sparkles className="w-5 h-5 text-white" />
-                      </div>
-                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[hsl(222,47%,10%)] rounded-full animate-pulse" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                        Gutu AI Support Assistant
-                      </h3>
-                      <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
-                        Online & Ready to Guide
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px]">
-                      Assistant
-                    </Badge>
-                  </div>
+              <Card className="border border-[hsl(222,47%,16%)] bg-[hsl(222,47%,10%)] overflow-hidden shadow-2xl py-0 gap-0" data-testid="help-straight-answers">
+                <div className="bg-[hsl(222,47%,12%)] px-6 py-4 border-b border-[hsl(222,47%,18%)]">
+                  <h3 className="font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-orange-400" aria-hidden="true" /> Straight answers
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">Fixed answers written by CarUp. This is not a live chat.</p>
                 </div>
-
-                {/* Chat Widget Messages Body */}
-                <div className="p-6 h-[320px] overflow-y-auto space-y-4 flex flex-col scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
-                  {chatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col max-w-[85%] ${
-                        msg.sender === 'user' ? 'self-end items-end ml-auto' : 'self-start items-start mr-auto'
-                      }`}
-                    >
-                      <span className="text-[10px] text-gray-500 mb-1 px-1">{msg.sender === 'gutu' ? 'Gutu AI' : 'You'} • {msg.time}</span>
-                      <div
-                        className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                          msg.sender === 'user'
-                            ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-tr-none shadow-md shadow-orange-500/10'
-                            : 'bg-[hsl(222,47%,14%)] border border-[hsl(222,47%,20%)] text-gray-200 rounded-tl-none'
-                        }`}
-                      >
-                        {msg.text}
-                      </div>
+                <dl className="divide-y divide-[hsl(222,47%,16%)]">
+                  {STRAIGHT_ANSWERS.map(({ question, answer }) => (
+                    <div key={question} className="px-6 py-4">
+                      <dt className="text-sm font-semibold text-white">{question}</dt>
+                      <dd className="mt-1.5 text-sm leading-relaxed text-gray-300">{answer}</dd>
                     </div>
                   ))}
-                  
-                  {isTyping && (
-                    <div className="self-start mr-auto flex flex-col items-start max-w-[85%]">
-                      <span className="text-[10px] text-gray-500 mb-1 px-1">Gutu AI is typing...</span>
-                      <div className="rounded-2xl rounded-tl-none px-4 py-3 bg-[hsl(222,47%,14%)] border border-[hsl(222,47%,20%)] flex items-center gap-1">
-                        <span className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* Chat Widget Input Bar */}
-                <form onSubmit={handleSendMessage} className="p-4 bg-[hsl(222,47%,12%)] border-t border-[hsl(222,47%,18%)]">
-                  <div className="relative flex items-center rounded-lg bg-[hsl(222,47%)] border border-[hsl(222,47%,20%)] focus-within:border-orange-500/50 focus-within:ring-1 focus-within:ring-orange-500/20 transition-all">
-                    <Input
-                      type="text"
-                      placeholder="Ask Gutu AI: 'how to verify ZINARA?' or 'what is PartSentry?'..."
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      className="bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-sm h-12 w-full pr-12 text-gray-200 placeholder:text-gray-500"
-                    />
-                    <Button
-                      type="submit"
-                      disabled={!chatInput.trim() || isTyping}
-                      className="absolute right-1.5 top-1.5 bottom-1.5 h-9 w-9 bg-orange-500 hover:bg-orange-600 text-white rounded-md flex items-center justify-center p-0 shrink-0 shadow-lg shadow-orange-500/20 disabled:bg-gray-800 disabled:text-gray-600 disabled:shadow-none transition-all"
-                    >
-                      <Send className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </form>
+                </dl>
               </Card>
             </div>
 

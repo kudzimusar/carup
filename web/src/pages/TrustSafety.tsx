@@ -126,7 +126,7 @@ const faqsList = [
   },
   {
     question: 'How do I report a suspicious listing?',
-    answer: 'By email, to support@carup.co.zw. CarUp does not yet have an in-product reporting queue, so the form on this page cannot submit and says so rather than pretending otherwise. CarUp has no arrangement with the ZRP or any other authority to escalate on your behalf — if a vehicle may be stolen, report it to the police directly.'
+    answer: 'By email, to support@carup.dev. CarUp does not yet have an in-product reporting queue, so the form on this page cannot submit and says so rather than pretending otherwise. CarUp has no arrangement with the ZRP or any other authority to escalate on your behalf — if a vehicle may be stolen, report it to the police directly.'
   },
   {
     question: 'Does CarUp hold my money in escrow?',
@@ -134,7 +134,7 @@ const faqsList = [
   },
   {
     question: 'What happens to the information in a report?',
-    answer: 'There is no in-product report to submit yet, so CarUp stores nothing from the form on this page. An email you send to support@carup.co.zw is handled by CarUp staff. CarUp makes no claim about credentialed security officers, because it does not operate such a team.'
+    answer: 'There is no in-product report to submit yet, so CarUp stores nothing from the form on this page. An email you send to support@carup.dev is handled by CarUp staff. CarUp makes no claim about credentialed security officers, because it does not operate such a team.'
   }
 ]
 
@@ -198,7 +198,7 @@ export default function TrustSafety() {
    */
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    toast.error('In-product reporting is not available yet. Please email support@carup.co.zw.')
+    toast.error('In-product reporting is not available yet. Please email support@carup.dev.')
   }
 
 
@@ -207,7 +207,7 @@ export default function TrustSafety() {
   }
 
   return (
-    <div className="min-h-screen bg-[hsl(222,47%,8%)] text-white overflow-hidden selection:bg-orange-500 selection:text-white">
+    <div className="relative min-h-screen bg-[hsl(222,47%,8%)] text-white overflow-clip selection:bg-orange-500 selection:text-white">
       {/* Decorative Glow Elements */}
       <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-orange-500/5 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute top-1/3 right-1/4 w-[600px] h-[600px] bg-amber-500/5 rounded-full blur-[150px] pointer-events-none" />
@@ -405,7 +405,8 @@ export default function TrustSafety() {
 
         {/* Custom Guidelines Switcher */}
         <div className="flex justify-center mb-12">
-          <div className="bg-[hsl(222,47%,11%)] p-1.5 rounded-xl border border-[hsl(222,47%,16%)] inline-flex gap-2">
+          {/* PC01-J-R1: stacked on phones — side by side it was 421 px wide on a 390 px screen. */}
+          <div className="bg-[hsl(222,47%,11%)] p-1.5 rounded-xl border border-[hsl(222,47%,16%)] flex w-full flex-col gap-2 sm:inline-flex sm:w-auto sm:flex-row">
             <Button
               onClick={() => setActiveTab('buyer')}
               className={`rounded-lg px-6 py-2 transition-all font-semibold ${
@@ -460,7 +461,7 @@ export default function TrustSafety() {
             <p className="text-gray-300 text-base leading-relaxed font-light">
               CarUp has no monitoring team watching the platform around the clock, and no in-product
               reporting queue yet. If you see a cloned listing, a rolled-back odometer, a fake dealership
-              profile or a scam, email the details to support@carup.co.zw — and contact the police
+              profile or a scam, email the details to support@carup.dev — and contact the police
               directly if you believe a vehicle is stolen.
             </p>
 
@@ -519,7 +520,7 @@ export default function TrustSafety() {
                         <div className="space-y-2">
                           <label className="text-xs font-semibold text-gray-300">Your Full Name *</label>
                           <Input
-                            placeholder="Tendai Moyo"
+                            placeholder="Your name"
                             className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                             value={reporterName}
                             onChange={(e) => setReporterName(e.target.value)}
@@ -530,7 +531,7 @@ export default function TrustSafety() {
                           <label className="text-xs font-semibold text-gray-300">Your Email Address *</label>
                           <Input
                             type="email"
-                            placeholder="you@example.co.zw"
+                            placeholder="you@example.com"
                             className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                             value={reporterEmail}
                             onChange={(e) => setReporterEmail(e.target.value)}
@@ -541,7 +542,7 @@ export default function TrustSafety() {
                       <div className="space-y-2">
                         <label className="text-xs font-semibold text-gray-300 font-light">Your Phone Number (Optional)</label>
                         <Input
-                          placeholder="+263 773 345 678"
+                          placeholder="Your mobile number"
                           className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                           value={reporterPhone}
                           onChange={(e) => setReporterPhone(e.target.value)}
@@ -596,7 +597,7 @@ export default function TrustSafety() {
                         <div className="space-y-2">
                           <label className="text-xs font-semibold text-gray-300">User / Dealership Name *</label>
                           <Input
-                            placeholder="e.g. Harare Elite Autos or Tafadzwa M."
+                            placeholder="The seller or dealer name shown on CarUp"
                             className="bg-[hsl(222,47%,12%)] border-[hsl(222,47%,18%)] text-white focus-visible:border-orange-500/50"
                             value={dealerName}
                             onChange={(e) => setDealerName(e.target.value)}
@@ -608,7 +609,7 @@ export default function TrustSafety() {
                       <div className="space-y-2">
                         <label className="text-xs font-semibold text-gray-300">Incident Category *</label>
                         <select
-                          className="w-full bg-[hsl(222,47%,12%)] border border-[hsl(222,47%,18%)] text-white rounded-md h-9 px-3 text-sm focus-visible:border-orange-500/50 outline-none"
+                          className="w-full bg-[hsl(222,47%,12%)] border border-[hsl(222,47%,18%)] text-white rounded-md h-9 max-sm:h-11 px-3 text-sm focus-visible:border-orange-500/50 outline-none"
                           value={issueType}
                           onChange={(e) => setIssueType(e.target.value)}
                         >
@@ -691,8 +692,8 @@ export default function TrustSafety() {
                       <p className="mt-1 font-light leading-relaxed text-amber-200/80">
                         CarUp has no reporting queue behind this form, so nothing you type here is
                         stored or sent. Please email{' '}
-                        <a href="mailto:support@carup.co.zw" className="font-semibold underline">
-                          support@carup.co.zw
+                        <a href="mailto:support@carup.dev" className="font-semibold underline">
+                          support@carup.dev
                         </a>{' '}
                         instead, and contact the police directly if a vehicle may be stolen.
                       </p>

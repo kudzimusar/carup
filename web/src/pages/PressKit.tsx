@@ -1,9 +1,7 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Link } from 'react-router-dom'
 import { 
   Download, 
@@ -17,7 +15,6 @@ import {
   Sparkles,
   Info,
   Clock,
-  Send,
   Palette,
   Image,
   Award,
@@ -26,6 +23,7 @@ import {
   Share2
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { PUBLIC_CONTACTS, PUBLIC_IDENTITY, PUBLIC_LOCATION_LINE } from '@/config/publicIdentity'
 
 // Press Releases Data with Full Text for high fidelity detail viewing
 interface PressRelease {
@@ -50,18 +48,6 @@ export default function PressKit() {
   const [copiedColor, setCopiedColor] = useState<string | null>(null)
   const [selectedPR, setSelectedPR] = useState<PressRelease | null>(null)
   
-  // Inquiry Form State
-  const [formSubmitted, setFormSubmitted] = useState(false)
-  const formLoading = false
-  const [formData, setFormData] = useState({
-    name: '',
-    outlet: '',
-    email: '',
-    phone: '',
-    subject: '',
-    message: ''
-  })
-
   // Mock download states
   const downloadingAsset: string | null = null
 
@@ -78,22 +64,19 @@ export default function PressKit() {
   // have shipped that file believing it held CarUp's logo pack. Until real assets are published, the
   // vault shows them and says the download is not ready.
   const handleDownload = (assetName: string) => {
-    toast.info(`${assetName} is not available for download yet. Email press@carup.co.zw for assets.`)
+    toast.info(`${assetName} is not available for download yet. Email ${PUBLIC_CONTACTS.press} for assets.`)
   }
 
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    toast.info('This form is not connected yet — nothing was sent. Please email press@carup.co.zw.')
-  }
-
+  // PC01-J-R1: the contact this copies used to carry two phone numbers and an office address nobody
+  // approved; it now carries only the certified press alias and the approved location.
   const handleCopyContact = () => {
-    const contactText = `CarUp PR Office\nEmail: press@carup.co.zw\nPhone: +263 242 755 889 / +263 772 400 121\nAddress: Office 402, Batanai Gardens, Jason Moyo Ave, Harare, Zimbabwe`
+    const contactText = `CarUp Press Office\nEmail: ${PUBLIC_CONTACTS.press}\n${PUBLIC_LOCATION_LINE}`
     navigator.clipboard.writeText(contactText)
-    toast.success('PR Team contact details copied to clipboard!')
+    toast.success('Press office contact copied to clipboard.')
   }
 
   return (
-    <div className="min-h-screen bg-[hsl(222,47%,6%)] text-slate-100 font-sans selection:bg-orange-500 selection:text-white">
+    <div className="relative min-h-screen overflow-clip bg-[hsl(222,47%,6%)] text-slate-100 font-sans selection:bg-orange-500 selection:text-white">
       {/* Decorative Top Mesh/Glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[500px] pointer-events-none overflow-hidden z-0 opacity-20">
         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[80%] rounded-full bg-gradient-to-br from-orange-500/30 to-amber-500/0 blur-[120px]" />
@@ -228,11 +211,11 @@ export default function PressKit() {
                   <div className="space-y-4">
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Company Name</span>
-                      <p className="text-base text-slate-200">CarUp (Pvt) Ltd</p>
+                      <p className="text-base text-slate-200">{PUBLIC_IDENTITY.legalEntity}</p>
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Tagline</span>
-                      <p className="text-base text-slate-200 font-medium italic">"One vehicle. One truth. One public contract."</p>
+                      <p className="text-base text-slate-200 font-medium italic" data-testid="press-tagline">"{PUBLIC_IDENTITY.tagline}"</p>
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Core Pillars</span>
@@ -250,7 +233,7 @@ export default function PressKit() {
                     <span>Press Package Version 2.4</span>
                     <button 
                       onClick={() => handleDownload('Full PR Pitch Kit')}
-                      className="text-orange-400 hover:text-orange-300 flex items-center gap-1 hover:underline font-semibold"
+                      className="min-h-11 text-orange-400 hover:text-orange-300 flex items-center gap-1 hover:underline font-semibold"
                     >
                       <Download className="w-3.5 h-3.5" /> Download Pitch Kit
                     </button>
@@ -266,30 +249,29 @@ export default function PressKit() {
         <section id="fast-facts" className="mb-24 scroll-mt-20">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <Badge className="bg-orange-500/10 border-orange-500/20 text-orange-400 px-3 py-0.5 rounded-full mb-3 text-xs tracking-wider uppercase">
-              Key Metrics
+              At a glance
             </Badge>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">CarUp Fast Facts</h2>
+            <h2 className="text-3xl sm:text-4xl font-bold text-white">Where CarUp is</h2>
             <p className="text-slate-400 mt-3 text-base">
-              A quick numerical guide to our market traction, localized presence, and ecosystem density.
+              CarUp publishes no traction figure it has not measured, so this section carries location only.
             </p>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
+              // PC01-J-R1: "Founded 2024 / Launched in Harare" and a "Corporate Headquarters" on Samora
+              // Machel Avenue were unapproved claims; the approved location is HQ Tokyo, regional office
+              // Harare, and no street address is published.
               {
-                value: '2024',
-                label: 'Founded',
-                desc: 'Launched in Harare, Zimbabwe to solve vehicle registry friction.',
-                icon: Clock
+                value: PUBLIC_IDENTITY.headquarters,
+                label: 'Headquarters',
+                desc: `${PUBLIC_IDENTITY.legalEntity} is headquartered in ${PUBLIC_IDENTITY.headquarters}.`,
+                icon: Globe
               },
-              // Removed: fabricated scale and partnership metrics ("12,000+ verified cars",
-              // "85,000+ active users", a "98.7% fraud detection rate", and a "1,170+ partner
-              // ecosystem" said to include ZINARA validators, 850+ dealers and 320+ mechanics).
-              // None was measured, and the partner figure asserted relationships that do not exist.
               {
-                value: 'Harare, ZW',
-                label: 'Corporate Headquarters',
-                desc: 'PR, Engineering, and Operations based on Samora Machel Avenue.',
+                value: PUBLIC_IDENTITY.regionalOffice,
+                label: 'Regional office',
+                desc: 'CarUp\u2019s regional office for the Zimbabwe market. No public street address is published.',
                 icon: MapPin
               }
             ].map((fact, index) => (
@@ -331,10 +313,10 @@ export default function PressKit() {
             </div>
             
             {/* Interactive Tab Selectors */}
-            <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-lg gap-1.5 mt-6 md:mt-0 max-w-fit">
+            <div className="flex flex-wrap bg-slate-900 border border-slate-800 p-1.5 rounded-lg gap-1.5 mt-6 md:mt-0 max-w-fit">
               <button
                 onClick={() => setActiveTab('logos')}
-                className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+                className={`flex min-h-11 items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
                   activeTab === 'logos' 
                     ? 'bg-orange-500 text-white shadow-md' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -344,7 +326,7 @@ export default function PressKit() {
               </button>
               <button
                 onClick={() => setActiveTab('colors')}
-                className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+                className={`flex min-h-11 items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
                   activeTab === 'colors' 
                     ? 'bg-orange-500 text-white shadow-md' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -354,7 +336,7 @@ export default function PressKit() {
               </button>
               <button
                 onClick={() => setActiveTab('mockups')}
-                className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+                className={`flex min-h-11 items-center gap-2 px-4 py-2 text-xs font-semibold rounded-md transition-all ${
                   activeTab === 'mockups' 
                     ? 'bg-orange-500 text-white shadow-md' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -759,8 +741,8 @@ export default function PressKit() {
                     <div className="space-y-1.5 text-xs text-slate-400 pt-2 border-t border-slate-800/50">
                       <div className="flex items-center gap-2">
                         <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                        <a href="mailto:press@carup.co.zw" className="hover:text-orange-400 transition-colors">
-                          press@carup.co.zw
+                        <a href={`mailto:${PUBLIC_CONTACTS.press}`} className="inline-flex min-h-11 sm:min-h-0 items-center break-all hover:text-orange-400 transition-colors">
+                          {PUBLIC_CONTACTS.press}
                         </a>
                       </div>
                     </div>
@@ -779,12 +761,12 @@ export default function PressKit() {
                     <MapPin className="w-5 h-5" />
                   </div>
                   <div className="space-y-1">
-                    <h4 className="font-bold text-white text-sm">CarUp PR Head Office</h4>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Office 402, Batanai Gardens, Jason Moyo Ave, Harare, Zimbabwe
+                    <h4 className="font-bold text-white text-sm">Where CarUp is</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed" data-testid="press-location">
+                      {PUBLIC_LOCATION_LINE}
                     </p>
                     <span className="text-[10px] text-slate-500 block pt-1">
-                      Business Hours: 08:00 - 17:00 (CAT), Monday to Friday
+                      No public office address or opening hours are published.
                     </span>
                   </div>
                 </CardContent>
@@ -795,143 +777,32 @@ export default function PressKit() {
                 className="w-full bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-xs font-bold py-3 flex items-center justify-center gap-2"
               >
                 <Copy className="w-4 h-4" />
-                Copy PR Team Contacts
+                Copy press office contact
               </Button>
             </div>
 
-            {/* Inquiry Form */}
+            {/*
+              PC01-J-R1: a media-inquiry form lived here. It could not send — its submit handler only
+              said so — and its unreachable success state was headed "Media Inquiry Received". The
+              press office is reached by email, so that is what this column offers.
+            */}
             <div className="lg:col-span-7">
-              <Card className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 shadow-2xl relative overflow-hidden rounded-2xl">
+              <Card className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 shadow-2xl relative overflow-hidden rounded-2xl py-0 gap-0" data-testid="press-write-to-us">
                 <div className="h-2 bg-gradient-to-r from-orange-500 to-amber-500" />
-                <CardContent className="p-8">
-                  {formSubmitted ? (
-                    <div className="py-12 text-center space-y-6 animate-fadeIn">
-                      <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-400 mx-auto">
-                        <Check className="w-8 h-8" />
-                      </div>
-                      <div className="space-y-2">
-                        <h3 className="text-2xl font-bold text-white">Media Inquiry Received</h3>
-                        <p className="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-                          This form is not connected yet, so nothing was sent. Please email press@carup.co.zw and a member of the communications team will pick it up.
-                        </p>
-                      </div>
-                      <Button
-                        onClick={() => {
-                          setFormSubmitted(false)
-                          setFormData({ name: '', outlet: '', email: '', phone: '', subject: '', message: '' })
-                        }}
-                        variant="outline"
-                        className="border-slate-800 hover:bg-slate-900 text-slate-300 hover:text-white font-semibold text-xs px-6"
-                      >
-                        Submit Another Query
-                      </Button>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleFormSubmit} className="space-y-6">
-                      <div className="space-y-2">
-                        <h3 className="text-xl font-bold text-white">Direct PR Inquiry Form</h3>
-                        <p className="text-slate-400 text-xs sm:text-sm">
-                          Submit your press query or interview request directly into our triage queue.
-                        </p>
-                      </div>
-                      
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                            Full Name <span className="text-orange-500">*</span>
-                          </label>
-                          <Input 
-                            value={formData.name}
-                            onChange={(e) => setFormData({...formData, name: e.target.value})}
-                            placeholder="Tendai Moyo" 
-                            className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg text-sm"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                            Media Publication / Outlet
-                          </label>
-                          <Input 
-                            value={formData.outlet}
-                            onChange={(e) => setFormData({...formData, outlet: e.target.value})}
-                            placeholder="The Herald / TechCabal" 
-                            className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg text-sm"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                            Corporate Email <span className="text-orange-500">*</span>
-                          </label>
-                          <Input 
-                            type="email"
-                            value={formData.email}
-                            onChange={(e) => setFormData({...formData, email: e.target.value})}
-                            placeholder="reporter@herald.co.zw" 
-                            className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg text-sm"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                            Phone Number
-                          </label>
-                          <Input 
-                            value={formData.phone}
-                            onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                            placeholder="+263 772 123 456" 
-                            className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg text-sm"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                          Inquiry Subject
-                        </label>
-                        <Input 
-                          value={formData.subject}
-                          onChange={(e) => setFormData({...formData, subject: e.target.value})}
-                          placeholder="Interview Request with CEO / Data Query" 
-                          className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg text-sm"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                          Your Inquiry / Message <span className="text-orange-500">*</span>
-                        </label>
-                        <Textarea 
-                          value={formData.message}
-                          onChange={(e) => setFormData({...formData, message: e.target.value})}
-                          placeholder="Please type your editorial questions or interview logistics details..." 
-                          className="bg-slate-950/80 border-slate-800 text-slate-200 focus-visible:border-orange-500/50 focus-visible:ring-orange-500/10 placeholder:text-slate-600 rounded-lg min-h-[140px] text-sm resize-none"
-                          required
-                        />
-                      </div>
-
-                      <Button 
-                        type="submit"
-                        disabled={formLoading}
-                        className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 flex items-center justify-center gap-2 shadow-lg shadow-orange-500/10 rounded-lg text-sm tracking-wide transition-all"
-                      >
-                        {formLoading ? (
-                          <>
-                            <Clock className="w-4 h-4 animate-spin" />
-                            Transmitting Inquiry...
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-4 h-4" />
-                            Submit Press Inquiry
-                          </>
-                        )}
-                      </Button>
-                    </form>
-                  )}
+                <CardContent className="p-8 space-y-4">
+                  <h3 className="text-2xl font-bold text-white">Write to the press office</h3>
+                  <p className="text-slate-400 text-sm leading-relaxed">
+                    Email your name, your outlet, what you are working on and your deadline. CarUp does not publish a
+                    response time it cannot commit to.
+                  </p>
+                  <Button asChild className="min-h-11 bg-orange-500 hover:bg-orange-600 text-white font-semibold">
+                    <a href={`mailto:${PUBLIC_CONTACTS.press}`}>
+                      <Mail className="w-4 h-4 mr-2" aria-hidden="true" /> Email {PUBLIC_CONTACTS.press}
+                    </a>
+                  </Button>
+                  <p className="text-xs text-slate-500">
+                    Not a journalist? Customer questions go to <Link to="/contact" className="underline hover:text-slate-300">Contact CarUp</Link>.
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -944,12 +815,11 @@ export default function PressKit() {
       {/* FOOTER ACCENT NOTE */}
       <footer className="border-t border-slate-800/80 bg-slate-950 py-12 relative z-10">
         <div className="mx-auto max-w-[1280px] px-6 md:px-8 text-center text-xs text-slate-500 space-y-4">
-          <p>© 2026 CarUp (Pvt) Ltd. All brand marks, patents, and system screenshots displayed are official protected assets.</p>
+          <p>© 2026 {PUBLIC_IDENTITY.legalEntity}. All rights reserved.</p>
           <div className="flex justify-center gap-6">
-            <Link to="/" className="hover:text-slate-300 transition-colors">Platform Home</Link>
-            <Link to="/about" className="hover:text-slate-300 transition-colors">Our Story</Link>
-            <Link to="/contact" className="hover:text-slate-300 transition-colors">Contact Sales</Link>
-            <Link to="/api-docs" className="hover:text-slate-300 transition-colors">Developer Portal</Link>
+            <Link to="/" className="inline-flex min-h-11 items-center hover:text-slate-300 transition-colors">Platform Home</Link>
+            <Link to="/about" className="inline-flex min-h-11 items-center hover:text-slate-300 transition-colors">Our Story</Link>
+            <Link to="/contact" className="inline-flex min-h-11 items-center hover:text-slate-300 transition-colors">Contact CarUp</Link>
           </div>
         </div>
       </footer>
@@ -996,7 +866,7 @@ export default function PressKit() {
               
               <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row gap-4 items-center justify-between">
                 <div className="text-xs text-slate-500">
-                  Published by CarUp Public Relations Department, Harare Office.
+                  Published by {PUBLIC_IDENTITY.legalEntity}.
                 </div>
                 <div className="flex gap-2">
                   <Button
