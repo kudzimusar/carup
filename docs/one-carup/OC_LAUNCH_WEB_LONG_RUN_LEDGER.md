@@ -781,3 +781,43 @@ Not lost:
 - The worktree was recreated at the persistent, space-free path `/Users/shadreckmusarurwa/carup-oc-launch-web-lr1` (local = remote `8a5a920d`).
 - New evidence directory: `/Users/shadreckmusarurwa/carup-launch-evidence`.
 - The harness and proof scripts are rebuilt from this ledger's specification when needed.
+
+## R8-D — final deployed SEO/share and performance/low-data proof (exact pushed SHA 8a5a920d)
+
+Release pair: frontend `carup-staging-oc-launch-lr1-11-11` → `dpl_9u5WkxkS…` (provenance 8a5a920d, paired to the release backend, `unpaired:false`); backend → `dpl_9526K6rK…` (8a5a920d, DB eoyenigwevnxwwhyhaer consistent, kill switch active). Evidence in `/Users/shadreckmusarurwa/carup-launch-evidence/` (`release-8a5a920d-crawler.json`, `final-8a5a920d-*`).
+
+**Crawler / SEO / share (direct HTTP, no JavaScript):**
+- 16 HTML routes (`/`, `/marketplace`, `/contact`, `/about`, `/trust`, `/help`, `/dealers`, `/garages`, `/support`, `/security`, `/search`, `/sell`, `/careers`, `/privacy`, `/pricing`, `/dashboard/garage`) each carry:
+  - a `https://carup.dev/…` canonical;
+  - OG and Twitter metadata;
+  - staging `noindex, nofollow` (X-Robots-Tag header and meta);
+  - no preview host in metadata, and no private fixture text (Kingston / Serena).
+- `/not-a-carup-route` **404**; unpublished `/marketplace/GFC27-027051` **404** (noindex).
+- `robots.txt` = `User-agent: * / Disallow: /` (staging, not the carup.dev production project).
+- `sitemap.xml`: 13 URLs, all `https://carup.dev`.
+- Production indexability is proven by the source tests (R1-B); it cannot be proven on staging by design.
+
+**Live performance** (390px, ~1.6 Mbps, 150 ms, CPU 4x, cache off, live staging API, zero public inventory):
+
+| Page | LCP | CLS | TBT proxy | Initial JS | Transfer | Requests |
+| --- | --- | --- | --- | --- | --- | --- |
+| Home | 3,488 ms (H1) | 0.0001 | 285 ms | 382,082 B, one entry chunk | 471,884 B | 16 |
+| Marketplace | 3,544 ms | 0 | 250 ms | 382,141 B | 468,588 B | 12 |
+
+Baseline exact 40621751 shipped 962,675 B of initial JS. The be2a779a live run measured 3,060 / 3,464 ms; the difference is network variance. Initial JS falls about 60% against baseline.
+
+**Low data** (360px; API intercepted per scenario). All four defects found on old code are **fixed live**:
+
+| Page and scenario | Now |
+| --- | --- |
+| Vehicle Detail, 503 | "We couldn't load this vehicle" + retry, not "Vehicle Not Found" |
+| Vehicle Detail, hang | "This vehicle is taking a while to load" + retry, not an endless spinner |
+| Search, 503 | No count (no false zero) + retry |
+| Search, hang | Not busy + retry, not endless |
+
+Across all 20 cases:
+- Home and Marketplace keep explicit retry under 503 and hang.
+- Every H1 renders in about 2.8–3.1 s under slow, failed or hung API (Vehicle Detail is slower by design: sequential lookups or the stall screen).
+- Images blocked never hides text; zero overflow in all 20 cases.
+- "0 found" appears only when the API truly returned zero (staging has no public listings).
+- Contact's "unavailable" text is its truthful channel state.
