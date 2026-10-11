@@ -12,6 +12,8 @@ import {
 import { getCommunicationPreferences, updateCommunicationPreferences } from '../../utils/communicationApi';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import { useAuthStore } from '../../store/authStore';
+import { useFeatureGovernanceStore } from '../../store/featureGovernanceStore';
+import { evaluateNativeRouteAccess } from '../../navigation/evaluateNativeRouteAccess';
 
 const CHANNELS = [
   { key: 'push_enabled', label: 'Push', note: 'Device notifications' },
@@ -28,6 +30,8 @@ export default function AccountScreen() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const effectiveStates = useFeatureGovernanceStore((state) => state.effectiveStates);
+  const governanceLoading = useFeatureGovernanceStore((state) => state.loading);
   const [preferenceError, setPreferenceError] = useState<string | null>(null);
   const [savingChannel, setSavingChannel] = useState<string | null>(null);
 
@@ -60,6 +64,24 @@ export default function AccountScreen() {
   }
 
   const preferences = preferenceQuery.data?.preferences || {};
+
+  const canUse = (route: string, featureId: string): boolean => {
+    if (governanceLoading) return false;
+    const decision = evaluateNativeRouteAccess({
+      route,
+      featureId,
+      isBootstrapping: false,
+      isAuthenticated,
+      role: user?.role ?? null,
+      effectiveStates,
+      hasNativeScreen: true,
+    });
+    return decision.kind === 'render' || decision.kind === 'render-beta';
+  };
+
+  const canUseGarage = canUse('/dashboard/garage', 'owner.garage');
+  const canUseSafePay = canUse('/dashboard/escrow', 'owner.listings');
+  const canUseReferrals = canUse('/dashboard/referral', 'owner.referrals');
 
   const saveChannel = async (key: string, value: boolean) => {
     if (savingChannel) return;
@@ -102,10 +124,10 @@ export default function AccountScreen() {
         <View style={{ gap: spacing[3] }}>
           {user?.role === 'owner' ? (
             <>
-              <Button label="My vehicles" variant="secondary" onPress={() => router.push('/(tabs)/garage' as never)} />
+              {canUseGarage ? <Button label="My vehicles" variant="secondary" onPress={() => router.push('/(tabs)/garage' as never)} /> : null}
               <Button label="Selling" variant="secondary" onPress={() => router.push('/sell' as never)} />
-              <Button label="SafePay" variant="secondary" onPress={() => router.push('/(tabs)/escrow' as never)} />
-              <Button label="Referrals" variant="secondary" onPress={() => router.push('/(tabs)/referral' as never)} />
+              {canUseSafePay ? <Button label="SafePay" variant="secondary" onPress={() => router.push('/(tabs)/escrow' as never)} /> : null}
+              {canUseReferrals ? <Button label="Referrals" variant="secondary" onPress={() => router.push('/(tabs)/referral' as never)} /> : null}
             </>
           ) : null}
           <Button label="Verification" variant="secondary" onPress={() => router.push('/(auth)/verification/intro' as never)} />
