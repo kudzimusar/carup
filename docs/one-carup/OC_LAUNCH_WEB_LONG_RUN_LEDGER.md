@@ -219,3 +219,99 @@ Exact-candidate physical activation needs an owner choice. No option changes a p
 1. Deploy the pushed SHA to the staging project's **production target with `--skip-domain`**. It inherits the accepted staging credentials and moves no alias. Outbound proof runs through provider-smoke on its immutable URL. Inbound replies and lifecycle webhooks still land on stable staging (bb9d9900, same DB): canonical reconciliation is observable, but inbound is *not* exact-candidate.
 2. Option 1, plus temporarily pointing `carup-backend-staging.vercel.app` and `api-staging.carup.dev` at that deployment for the proof window, with rollback to `dpl_91cteUJn…`. Inbound and lifecycle webhooks then reach the exact candidate without touching Meta, Telegram, Resend or Brevo. This displaces the stable staging runtime.
 3. The owner adds Preview-scoped copies of the Meta/Telegram credentials for this branch, or repoints provider webhooks in the provider consoles.
+
+## R1-B — owner-independent product work (local-only commit `36ac6712`, recorded 2026-10-11T06:57:43Z)
+
+### Read-only public-truth sweep
+
+Delegated a sweep of `web/src`, `web/public`, `web/api` and `web/build`.
+
+Clean:
+- No carup.co.zw, carup.app, localhost or preview host appears in public metadata.
+- No placeholder phone, street address or hours; no demo inventory or people on launch pages.
+- SendGrid appears only in an admin comment.
+- No "WhatsApp/Telegram does not exist" copy. The only such sentence (Security) refers to credential requests.
+- Privacy and Terms say "Draft — owner/legal approval required" and are noindex (LEGAL_GATE).
+
+Defects fixed in `36ac6712`:
+
+| Route / surface | Old | Class | New truth / authority |
+| --- | --- | --- | --- |
+| /marketplace/:id Verification tab | "ZIMRA Customs Cleared", "CVR Ownership Registration", "ZRP Police Clearance" each with a green **Verified** badge when evidence is merely recorded | FALSE_CLAIM | "Customs duty / Registration / Police-clearance evidence (ZIMRA/CVR/ZRP)" with a **Recorded** badge. The detail line already said CarUp does not query those authorities. |
+| same | "No active stolen vehicle alert" = **Verified** | FALSE_CLAIM | "None recorded": no alert is recorded in this Passport, and CarUp does not check police databases. |
+| /marketplace/:id guest sign-in note | "which government and partner sources CarUp has checked" | FALSE_CLAIM | "which evidence is recorded in its Passport, and what has not been checked yet" |
+| /marketplace/:id plate advisory | "marked … by the registry authority" | FALSE_CLAIM | The Passport records the plate as Flagged/Suspended; confirm with the relevant authority. |
+| /marketplace/:id seller actions | Latent raw `tel:` + `wa.me/<sellerPhone>` links (generic chat icon); `tenant.phone` shown as a tel link | GOVERNANCE (LR1 §20.6/§28, R1 §15) | Always the governed CarUp inquiry. A WhatsApp-logo "Ask about this car on WhatsApp" entry opens the same inquiry with WhatsApp preselected, only when WhatsApp is available. No phone is ever rendered. Public projections never carried a seller phone (only tenant join: name/type/status), so the old branch was unreachable. |
+| Inquiry dialog | Guest default WhatsApp even when unavailable; submit then failed with "Sign in to continue" (dead end on staging, where WhatsApp and email are both paused) | DEAD CTA | Unavailable channels are never the effective choice. A guest with no deliverable channel is told why and offered `/login?returnTo=…`. Shared time-bounded health read. 13px text floor. |
+| Home/Contact channel block | "Connected; current delivery certification is pending" / generic unavailable; loading shown as failure | STATE CONFLATION | Available / Temporarily unavailable / Setup pending / Not currently offered / Checking / Could not check, with WhatsApp, Telegram (brand marks) and Email rows. |
+| /marketplace/:id low data | Spinner with no deadline (stalled read = endless); any read failure shown as "Vehicle Not Found" | LOW-DATA P0 | 15 s stall cap with Try again. Only 404/410/401/403 means "not found"; other failures say "We couldn't load this vehicle" with retry. |
+| /search low data | No deadline; failure still showed "0 vehicles found"; no retry | FALSE ZERO | 10 s deadline, retry keeps the query, no count after a failure |
+| /blog (HIDDEN, reachable) | "Comment added successfully!" for a comment stored nowhere | FALSE_CLAIM | Audience Discussions kept (editorial rule: governance, not deletion); "Comments are not open yet". |
+| /blog | WhatsApp share and copy-link used `window.location.origin` plus a nonexistent `/blog/:id` route (preview-host leak, 404) | SHARE DEFECT | Canonical `https://carup.dev/blog`, WhatsApp mark. |
+| /blog reference grid | Unsourced regulatory timings and payment claims | OWNER_DECISION (editorial) | Labelled "General guidance, not verified by CarUp…". Content itself left to the owner. |
+| /press (HIDDEN) | "Registry Trust" pillar contradicting "not connected to any government registry" | FALSE_CLAIM | "Vehicle Passport" |
+
+Recorded but not changed (owner decisions):
+- About: "Built with input from … insurers across Zimbabwe".
+- Press: "Founded in Harare in 2024" against identity HQ Tokyo.
+- Pricing: "Enterprise — Government, banks…" (direct URL only, OWNER_DECISION route).
+- APIDocs fixtures: unreachable, feature planned.
+
+### Indexing authority (defect found and fixed)
+
+`VERCEL_ENV === 'production'` alone decided indexing. The stable staging frontend (`staging.carup.dev` / `carup-staging.vercel.app`, `dpl_4LzS7ioR…`) is the **production target of project `carup-staging`**. Once this code reached it, staging would have become indexable. Real production `carup.dev` is the separate project `carup` (domains: carup.dev, carup.vercel.app).
+
+The fix is one rule, `isIndexableDeployment`: indexable iff `VERCEL_ENV=production` **and** `VERCEL_PROJECT_PRODUCTION_URL` is carup.dev or www.carup.dev. It is applied to the build HTML, robots.txt, the server document function (`X-Robots-Tag`, cache) and the client (`VITE_SEARCH_INDEXABLE`). Client robots now default to the launch policy, so Careers and other hidden pages no longer contradict the server.
+
+The production branch is now tested:
+- robots.txt allows crawling and lists the sitemap; the sitemap holds carup.dev launch routes only.
+- Root HTML is `index, follow` with the carup.dev canonical.
+- The server function returns `index, follow` plus `s-maxage`.
+- Careers, Privacy, Pricing and dashboard stay noindex even on production; unknown routes return 404.
+
+Launch checklist: confirm the production deploy exposes Vercel system env (`VERCEL_PROJECT_PRODUCTION_URL`). If it does not, production fails *closed* to noindex.
+
+### Authority supersessions (explicit, reversible by owner)
+
+- **OBS-06 / Seller Phase L/M** asserted direct Call/WhatsApp links "conditional on an actually published number". This is superseded by moderator LR1-R1 §15 ("Do not use a raw seller phone-number link. Canonical conversation remains authoritative") and LR1 §28. Two tests (`MyListings.responsive`, `VehicleDetail.parity`) were updated to assert the stricter governed-only rule: no `tel:`, no `wa.me/${…}`, and the governed WhatsApp entry present. Their legibility assertions are kept.
+- **Editorial contentIntegrity**: the "comment store must initialise empty" proxy now asserts that any comment store starts empty *and* that no "comment added" claim exists. The local-only store was removed; "Audience Discussions" is kept.
+
+### Tests and gates
+
+New tests:
+- channel states (4)
+- PublicCommunicationChannels (3)
+- InquiryModal channels (5)
+- populated listing card from canonical data (3)
+- Vehicle Detail low-data, contact and badges (5)
+- Search failure/retry (1)
+- production robots/sitemap/server function (2 + 5)
+- client robots (2)
+- Blog truth (3)
+
+Mutation-checked:
+- Reverting the indexing rule to VERCEL_ENV-only fails 3 tests.
+- Disabling the guest-channel guard fails 2 tests.
+
+Gates:
+- **Node 20.20.2 arm64** (official build, checksum-verified, scratchpad): full web 257 files / 2,382 tests PASS.
+- Production build PASS: initial gzip 379,224 B, forbidden modules 0, deferred chunks 180.
+- Function typecheck PASS.
+- Browser launch suite 15/15 (retries 0).
+- Critical responsive 72/72, zero overflow.
+
+Lint: no new diagnostics in the changed files. The remaining errors there are pre-existing (`types/index.ts` ×4; VehicleDetail's existing `setDetailLoading` in effect). New effect state was refactored to derived/keyed state rather than suppressed.
+
+Node 20 note: the earlier local gap was the nvm Node 20 being an **x86_64** binary on an arm64 machine with arm64-only rollup natives. The official arm64 Node 20.20.2 runs everything green. Remote CI (Node 20) remains the authoritative gate after push. No `engines`/`.nvmrc` exists anywhere; CI pins Node 20 (one workflow pins 24). No application change was made for Node 26.
+
+### Zero inventory (re-proven, read-only)
+
+- Public listings API total is 0. Staging has 20 `publication_status=published` vehicles, all `status=Sold` (12 are Golden Seller UAT fixtures), so the public filter correctly excludes them.
+- Kingston's Serena `GFC27-027051`: `publication_status=publishable`, status Available, price 12,800, Harare. It is ready for the owner's Publish decision and was not touched.
+
+### Event/delivery processing gate for the Kingston journey (read-only finding)
+
+- An inquiry writes `marketplace.inquiry.created` to `domain_events` (pending). The canonical conversation and any WhatsApp notification are produced only when that outbox is processed, then by the delivery worker.
+- On staging, both `pg_cron` processors (events outbox, communication worker) are **inactive** and no Vercel cron exists.
+- `domain_events` now: pending **3** (accepted baseline 0), processed 1,457, quarantined 285. The 3 pending are `evidence.review.decided`, created 2026-10-10 19:31–19:34Z by another lane, attempts 0; untouched.
+- So "second-account inquiry → canonical conversation → WhatsApp" cannot complete on staging without bounded event and delivery processing. That would also process those 3 foreign events and touch the 1,056-row queued internal-notification backlog. **OWNER/MODERATOR queue-governance gate**; not done here.
