@@ -1,601 +1,82 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  ArrowRight,
-  ArrowUpRight,
-  BadgeDollarSign,
-  BookOpen,
-  CarFront,
-  CheckCircle2,
-  ClipboardCheck,
-  FileSearch,
-  Gauge,
-  Globe2,
-  Headphones,
-  KeyRound,
-  Lock,
-  MapPin,
-  MessageCircle,
-  Package,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Wrench,
-} from 'lucide-react'
+import { Search, ArrowRight, CarFront, ShieldCheck, Globe2, Wrench, Package } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { ListingImage } from '@/components/marketplace/ListingImage'
 import { MarketplaceListingCard } from '@/components/marketplace/MarketplaceListingCard'
 import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
-import { JourneyMediaStory, type JourneyScene } from '@/components/home/JourneyMediaStory'
-import { canRenderMarketplacePrimaryImage } from '@/lib/marketplacePresentation'
-import { summaryLocationLine } from '@/lib/governedLocation'
+import { PublicCommunicationChannels } from '@/components/communications/PublicCommunicationChannels'
+import { PUBLIC_IDENTITY } from '@/config/publicIdentity'
+import { usePageMetadata } from '@/lib/usePageMetadata'
 import type { MarketplaceListingSummary } from '@/types'
-import { canonicalMake, canonicalModel, makeTaxon, modelsForMake, resolveFuelType, resolveTransmission } from '@/data/vehicleTaxonomy'
 
-function taxonomyVehicleHref(make: string, model: string) {
-  const makeEntry = makeTaxon(make)
-  if (!makeEntry) return '/marketplace'
-  const canonical = canonicalMake(make)
-  const modelLabel = canonicalModel(canonical, model)
-  if (!modelsForMake(canonical).some(item => item.name === modelLabel)) return '/marketplace'
-  return `/marketplace?make=${encodeURIComponent(canonical)}&model=${encodeURIComponent(modelLabel)}`
-}
-
-function taxonomyFacetHref(kind: 'fuel' | 'transmission', value: string) {
-  const resolved = kind === 'fuel' ? resolveFuelType(value) : resolveTransmission(value)
-  if (resolved.state !== 'canonical' && resolved.state !== 'alias_match') return '/marketplace'
-  return `/marketplace?${kind}=${encodeURIComponent(String(resolved.value))}`
-}
-
-const popularSearches = [
-  { label: 'Brand New', href: '/marketplace?category=brand_new' },
-  { label: 'Recently Imported', href: '/marketplace?category=recently_imported' },
-  { label: 'Fresh Imports', href: '/marketplace?tag=fresh_import' },
-  { label: 'Locally Used', href: '/marketplace?category=locally_used' },
-  { label: 'Second Hand', href: '/marketplace?category=second_hand' },
-  { label: 'Low Mileage', href: '/marketplace?tag=low_mileage' },
-  { label: 'Toyota Hilux', href: taxonomyVehicleHref('Toyota', 'Hilux') },
-  { label: 'Honda Fit', href: taxonomyVehicleHref('Honda', 'Fit') },
-  { label: 'Mazda Demio', href: taxonomyVehicleHref('Mazda', 'Demio') },
-  { label: 'Passport Verified', href: '/marketplace?tag=passport_verified' },
-  { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
-  { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
-  { label: 'Dealer Verified', href: '/marketplace?tag=dealer_verified' },
-  { label: 'Parts & Accessories', href: '/marketplace/parts' },
+const POPULAR_SEARCHES = [
   { label: 'Harare', href: '/marketplace?location=Harare' },
   { label: 'Bulawayo', href: '/marketplace?location=Bulawayo' },
-  { label: 'Diesel', href: taxonomyFacetHref('fuel', 'Diesel') },
-  { label: 'Automatic', href: taxonomyFacetHref('transmission', 'Automatic') },
-  { label: 'PartSentry Checked', href: '/marketplace?tag=partsentry_checked' },
+  { label: 'Low mileage', href: '/marketplace?tag=low_mileage' },
+  { label: 'Under $10k', href: '/marketplace?maxPrice=10000' },
+  { label: 'Recently imported', href: '/marketplace?category=recently_imported' },
+  { label: 'Locally used', href: '/marketplace?category=locally_used' },
 ]
-
-const trustStrip = [
-  { label: 'Plate Check', icon: FileSearch },
-  { label: 'Evidence Timeline', icon: ClipboardCheck },
-  { label: 'Owner Privacy', icon: Lock },
-  { label: 'Canonical Trust', icon: Gauge },
-  { label: 'SafePay routes', icon: KeyRound },
-  { label: 'PartSentry', icon: Package, testId: 'home-partsentry-trust-signal' },
-]
-
-const ecosystemJourneys = [
-  {
-    eyebrow: 'Buy',
-    title: 'Find the right car',
-    copy: 'Search published inventory, compare vehicles and open the Passport before the next decision.',
-    href: '/marketplace',
-    icon: CarFront,
-    scene: 'buy' as JourneyScene,
-  },
-  {
-    eyebrow: 'Sell',
-    title: 'Turn your car into a credible listing',
-    copy: 'Build the vehicle, listing and photos first. Authenticate when you reach the commitment boundary.',
-    href: '/sell',
-    icon: ArrowUpRight,
-    scene: 'sell' as JourneyScene,
-  },
-  {
-    eyebrow: 'Verify',
-    title: 'Found a car somewhere else?',
-    copy: 'Use the public VIN route or sign in for protected identifier lookups before you treat silence as evidence.',
-    href: '/search',
-    icon: ShieldCheck,
-    scene: 'verify' as JourneyScene,
-  },
-  {
-    eyebrow: 'Diaspora',
-    title: 'Source and move a vehicle',
-    copy: 'Connect import orders, documents, shipment context and the vehicle record instead of losing the trail.',
-    href: '/diaspora',
-    icon: Globe2,
-    scene: 'diaspora' as JourneyScene,
-  },
-  {
-    eyebrow: 'Finance',
-    title: 'Explore how to fund the deal',
-    copy: 'Move from vehicle discovery into the finance routes CarUp can actually support.',
-    href: '/pricing',
-    icon: BadgeDollarSign,
-    scene: 'finance' as JourneyScene,
-  },
-  {
-    eyebrow: 'Protect',
-    title: 'Connect insurance to the vehicle',
-    copy: 'Keep protection choices beside the same vehicle identity and buying context.',
-    href: '/insurance',
-    icon: ShieldCheck,
-    scene: 'protect' as JourneyScene,
-  },
-  {
-    eyebrow: 'Maintain',
-    title: 'Find garages and service context',
-    copy: 'Connect service work, mechanics and the lifecycle record instead of treating maintenance as a separate app.',
-    href: '/garages',
-    icon: Wrench,
-    scene: 'maintain' as JourneyScene,
-  },
-  {
-    eyebrow: 'Parts',
-    title: 'Match parts to the vehicle',
-    copy: 'Use normalized fitment and PartSentry context without fabricating availability.',
-    href: '/marketplace/parts',
-    icon: Package,
-    scene: 'parts' as JourneyScene,
-  },
-]
-
-const dealFlow = [
-  ['01', 'Discover', 'Search live inventory or start from a vehicle you already found.'],
-  ['02', 'Understand', 'Read seller-stated facts beside governed Trust, evidence and lifecycle context.'],
-  ['03', 'Act', 'Inquire, inspect, compare, finance or sell without breaking the vehicle thread.'],
-  ['04', 'Keep the record', 'Service, parts, protection and ownership activity continue around the same identity.'],
+const SHORTCUTS = [
+  { href: '/diaspora', label: 'Import a vehicle', detail: 'Explore the import journey', icon: Globe2 },
+  { href: '/garages', label: 'Find a garage', detail: 'Browse published profiles', icon: Wrench },
+  { href: '/marketplace/parts', label: 'Find parts', detail: 'Search parts and fitment', icon: Package },
 ]
 
 export default function Landing() {
+  usePageMetadata({ title: 'CarUp | Find your next car', description: 'Browse published cars, compare prices and locations, and read the Vehicle Passport. Know the car. Trust the journey.', canonicalPath: '/' })
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const fixtureScope = searchParams.get('fixture_scope') || undefined
   const { fetchMarketplaceListings } = useCarUpApi()
-  const [buyQuery, setBuyQuery] = useState('')
-  const [verifyQuery, setVerifyQuery] = useState('')
-  const [featuredVehicles, setFeaturedVehicles] = useState<MarketplaceListingSummary[]>([])
-  const [featuredState, setFeaturedState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
-
+  const [query, setQuery] = useState('')
+  const [vehicles, setVehicles] = useState<MarketplaceListingSummary[]>([])
+  const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [retry, setRetry] = useState(0)
   useEffect(() => {
     let cancelled = false
-    fetchMarketplaceListings({
-      limit: 6,
-      sort: 'newest',
-      ...(fixtureScope ? { fixture_scope: fixtureScope } : {}),
-    })
-      .then(res => {
-        if (cancelled) return
-        setFeaturedVehicles(Array.isArray(res?.listings) ? res.listings : [])
-        setFeaturedState('ready')
-      })
-      .catch(() => {
-        if (cancelled) return
-        setFeaturedVehicles([])
-        setFeaturedState('unavailable')
-      })
-    return () => { cancelled = true }
-  }, [fetchMarketplaceListings, fixtureScope])
-
-  // This is a live showroom, not an editorial "featured" award. Prefer the newest published
-  // listing whose seller media is actually renderable; if none has usable media, keep the newest
-  // listing identity but render the deliberate visual fallback below. Automated fixtures are also
-  // retired by the Seller staging harness and must never be allowed to define this surface.
-  const heroVehicle = featuredVehicles.find(vehicle =>
-    canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
-  ) ?? featuredVehicles[0] ?? null
-  const heroImage = heroVehicle && canRenderMarketplacePrimaryImage(heroVehicle.primary_image_state, heroVehicle.primary_image_url)
-    ? heroVehicle.primary_image_url
-    : null
-
-  const journeyMediaAt = (index: number) => {
-    if (featuredVehicles.length === 0) return { src: null, alt: 'CarUp vehicle journey' }
-    const vehicle = featuredVehicles[index % featuredVehicles.length]
-    const src = canRenderMarketplacePrimaryImage(vehicle.primary_image_state, vehicle.primary_image_url)
-      ? vehicle.primary_image_url
-      : null
-    const alt = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'CarUp Marketplace vehicle'
-    return { src, alt }
-  }
-
-  const submitBuy = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const q = buyQuery.trim()
-    navigate(q ? `/marketplace?q=${encodeURIComponent(q)}` : '/marketplace')
-  }
-
-  const submitVerify = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const vin = verifyQuery.trim()
-    navigate(vin ? `/marketplace/${encodeURIComponent(vin)}` : '/search')
-  }
-
-  return (
-    <div className="min-h-screen bg-white text-slate-950">
-      <section
-        className="relative overflow-hidden bg-[#060a11] text-white"
-        data-testid="home-hero"
-      >
-        <div className="pointer-events-none absolute inset-0 [background-image:radial-gradient(circle_at_15%_15%,rgba(249,115,22,0.18),transparent_24%),linear-gradient(118deg,transparent_0%,transparent_61%,rgba(255,255,255,0.045)_61%,rgba(255,255,255,0.045)_62%,transparent_62%)]" />
-
-        <div className="section-padding relative mx-auto max-w-[1440px] pb-10 pt-6 sm:pb-20 sm:pt-8 lg:pb-24 lg:pt-12">
-          <div className="grid gap-6 sm:gap-10 lg:grid-cols-[0.88fr_1.12fr] lg:items-end lg:gap-14">
-            <div className="relative z-10 lg:pb-8">
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
-                <Sparkles className="h-4 w-4" /> One CarUp · one vehicle thread
-              </div>
-              <h1 className="mt-4 max-w-4xl text-[2.2rem] font-black leading-[0.95] tracking-[-0.045em] sm:mt-5 sm:text-6xl sm:leading-[0.88] sm:tracking-[-0.06em] lg:text-[5.25rem] lg:leading-none">
-                Buy. Sell. Verify.
-                <span className="mt-2 block text-orange-400">Keep the whole car journey connected.</span>
-              </h1>
-              <p className="mt-5 max-w-2xl text-base leading-6 text-slate-300 sm:mt-7 sm:text-lg sm:leading-7">
-                CarUp brings the marketplace, Vehicle Passport, evidence, parts, garages, finance,
-                insurance, imports and transaction routes around the same vehicle identity.
-              </p>
-
-              <div className="mt-6 grid grid-cols-2 gap-2 sm:mt-8 sm:flex sm:flex-wrap">
-                <Button asChild className="col-span-2 h-12 w-full rounded-none bg-orange-500 px-6 font-black text-white hover:bg-orange-600 sm:w-auto">
-                  <Link to="/marketplace">Buy Cars <ArrowRight className="ml-2 h-4 w-4" /></Link>
-                </Button>
-                <Button asChild variant="outline" className="h-11 w-full rounded-none border-white/25 bg-transparent px-3 font-bold text-white hover:bg-white/10 hover:text-white sm:h-12 sm:w-auto sm:px-6">
-                  <Link to="/sell">Sell Cars</Link>
-                </Button>
-                <Button asChild variant="outline" className="h-11 w-full rounded-none border-white/25 bg-transparent px-3 font-bold text-white hover:bg-white/10 hover:text-white sm:h-12 sm:w-auto sm:px-6">
-                  <Link to="/search">Verify Cars</Link>
-                </Button>
-              </div>
-
-              <form
-                onSubmit={submitBuy}
-                className="mt-6 max-w-3xl bg-white shadow-[0_28px_80px_rgba(0,0,0,0.34)] sm:mt-9"
-                data-testid="home-primary-search"
-              >
-                <div className="border-b border-slate-200 px-4 py-3 sm:px-5">
-                  <p className="text-[9px] font-black uppercase tracking-[0.18em] text-orange-600">Start with the car</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Search make, model, location, seller or a vehicle identifier.</p>
-                </div>
-                <div className="grid sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <div className="relative">
-                    <Search className="absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-orange-500" />
-                    <Input
-                      value={buyQuery}
-                      onChange={event => setBuyQuery(event.target.value)}
-                      placeholder="Try “Hilux diesel”, “Harare” or a VIN…"
-                      className="h-14 rounded-none border-0 bg-white pl-12 text-base font-semibold text-slate-950 shadow-none placeholder:font-normal focus-visible:ring-0 sm:h-16 sm:pl-14"
-                      data-testid="home-buy-search"
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="h-12 w-full rounded-none bg-slate-950 px-5 font-black text-white hover:bg-orange-600 sm:h-16 sm:w-auto sm:px-7"
-                    data-testid="home-search-submit"
-                  >
-                    Search Marketplace
-                  </Button>
-                </div>
-              </form>
-
-              <div className="mt-5 flex flex-wrap items-center gap-4">
-                <a href="#talk-to-carup" className="inline-flex min-h-11 items-center gap-2 border-b border-orange-400 pb-1 text-xs font-black text-orange-200 hover:text-white">
-                  <MessageCircle className="h-4 w-4 text-orange-400" /> Ask CarUp what to do next
-                </a>
-                <Link to="/contact" className="inline-flex min-h-11 items-center gap-2 text-xs font-bold text-slate-400 hover:text-white">
-                  Human help <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-            </div>
-
-            <div className="relative aspect-[4/3] min-h-0 sm:aspect-auto sm:min-h-[520px] lg:min-h-[610px]" data-testid="home-live-showroom">
-              <div className="absolute -right-8 top-0 hidden h-[90%] w-[94%] border border-white/10 [clip-path:polygon(10%_0,100%_0,100%_87%,82%_100%,0_91%,0_14%)] lg:block" />
-              {heroVehicle ? (
-                <Link
-                  to={`/marketplace/${encodeURIComponent(heroVehicle.vin)}`}
-                  className="group absolute inset-0 block overflow-hidden rounded-lg bg-slate-900 shadow-[0_28px_70px_rgba(0,0,0,0.45)] lg:shadow-[0_40px_110px_rgba(0,0,0,0.58)] sm:inset-x-0 sm:top-5 sm:h-[84%] sm:rounded-none lg:[clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]"
-                  data-testid="featured-view-passport"
-                >
-                  {heroImage ? (
-                    <ListingImage
-                      src={heroImage}
-                      alt={[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Live marketplace vehicle'}
-                      className="h-full w-full"
-                      imgClassName="transition duration-700 ease-out group-hover:scale-[1.035]"
-                      loading="eager"
-                    />
-                  ) : (
-                    <div
-                      className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_65%_30%,rgba(249,115,22,0.22),transparent_28%),linear-gradient(145deg,#172033,#080d16)]"
-                      data-testid="home-live-showroom-media-fallback"
-                      role="img"
-                      aria-label="Seller listing media is not available for this live vehicle"
-                    >
-                      <CarFront className="h-36 w-36 stroke-[1.05] text-white/35" aria-hidden="true" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/5 to-black/10" />
-                  <div className="absolute left-3 top-3 max-w-[calc(100%-1.5rem)] border border-white/20 bg-black/50 px-2 py-1 lg:bg-black/35 text-[9px] font-black uppercase tracking-[0.12em] backdrop-blur-sm sm:left-5 sm:top-5 sm:px-3 sm:py-1.5 sm:text-[10px] sm:tracking-[0.16em]">
-                    Live from Marketplace · published inventory
-                  </div>
-                  <div className="absolute inset-x-0 bottom-0 p-4 sm:p-8">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-300">Start with a real vehicle</p>
-                    <p className="mt-1.5 text-xl font-black tracking-[-0.035em] sm:mt-2 sm:text-4xl sm:tracking-[-0.045em]">
-                      {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ')}
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-300">
-                      <span className="inline-flex items-center gap-1.5">
-                        <MapPin className="h-4 w-4 text-orange-400" />
-                        {summaryLocationLine(heroVehicle.location, heroVehicle.location_state).label}
-                      </span>
-                      <span className="inline-flex items-center gap-2 font-bold text-white">
-                        Open vehicle <ArrowRight className="h-4 w-4 text-orange-400" />
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-900 text-sm text-slate-500 sm:inset-x-0 sm:top-5 sm:h-[84%] sm:rounded-none lg:[clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
-                  {featuredState === 'loading' ? 'Loading the live showroom…' : 'Live showroom unavailable'}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-slate-200 bg-white" data-testid="home-trust-strip">
-        <div className="section-padding mx-auto grid max-w-[1440px] grid-cols-2 gap-2 py-3 sm:grid-cols-3 lg:flex lg:items-center lg:justify-between lg:gap-x-6 lg:py-4">
-          {trustStrip.map((item, index) => (
-            <div
-              key={item.label}
-              className={`flex min-w-0 items-center gap-2 rounded-md bg-slate-50 px-2 py-2 lg:rounded-none lg:bg-transparent lg:px-0 lg:py-0 ${index > 0 ? 'lg:border-l lg:border-slate-200 lg:pl-6' : ''}`}
-              data-testid={item.testId}
-            >
-              <item.icon className="h-4 w-4 text-orange-500" />
-              <span className="text-xs font-bold text-slate-700">{item.label}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="bg-[#f5f6f8] py-10 sm:py-20" data-testid="home-ecosystem-promotions">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr] lg:items-end">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">What are you trying to do?</p>
-              <h2 className="mt-3 text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em] lg:leading-none">
-                One front door.
-                <span className="block text-slate-400">Eight useful next moves.</span>
-              </h2>
-            </div>
-            <p className="max-w-2xl text-sm leading-6 text-slate-600 lg:justify-self-end">
-              Home should not make you learn CarUp’s org chart. Start with your intention and CarUp
-              routes you into the right marketplace, trust, transaction or ownership surface.
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-4 sm:mt-10 sm:gap-5 xl:grid-cols-2" data-testid="home-journey-grid">
-            {ecosystemJourneys.map((journey, index) => {
-              // Buy/Sell may use real Marketplace photography because the vehicle itself is the
-              // subject. Conceptual journeys must remain communicative when live inventory media
-              // is absent, so Verify/Diaspora/Finance/Protection/Service/Parts use their own
-              // process illustrations instead of borrowing a random listing photo.
-              const media = journey.scene === 'buy' || journey.scene === 'sell'
-                ? journeyMediaAt(index)
-                : { src: null, alt: `CarUp ${journey.eyebrow} journey` }
-              return (
-                <Link
-                  key={journey.title}
-                  to={journey.href}
-                  className="group grid overflow-hidden border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)] transition duration-300 motion-safe:hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_28px_70px_rgba(15,23,42,0.10)] md:grid-cols-[0.88fr_1.12fr]"
-                  data-testid="home-journey-card"
-                >
-                  <div className="relative flex min-h-0 flex-col p-4 sm:min-h-[260px] sm:p-7">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">{journey.eyebrow}</span>
-                      <span className="text-[10px] font-black tabular-nums text-slate-300">{String(index + 1).padStart(2, '0')}</span>
-                    </div>
-                    <h3 className="mt-4 max-w-[18rem] text-xl font-black leading-tight tracking-[-0.03em] text-slate-950 sm:mt-8 sm:text-3xl sm:leading-[0.98] sm:tracking-[-0.045em]">{journey.title}</h3>
-                    <p className="mt-2 max-w-sm text-sm leading-5 text-slate-500 sm:mt-4 sm:leading-6">{journey.copy}</p>
-                    <span className="mt-auto inline-flex items-center gap-2 pt-4 lg:pt-8 text-xs font-black text-slate-950 transition group-hover:text-orange-700">
-                      Go there <ArrowUpRight className="h-4 w-4 transition-transform motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:translate-x-0.5" />
-                    </span>
-                  </div>
-                  <JourneyMediaStory scene={journey.scene} image={media.src} alt={media.alt} />
-                </Link>
-              )
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white py-10 sm:py-20" data-testid="home-live-inventory">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="flex flex-col gap-5 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">Live Marketplace</p>
-              <h2 className="mt-2 text-3xl font-black tracking-[-0.04em] sm:text-5xl sm:tracking-[-0.05em]">Published vehicles to explore.</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                The same published vehicle stories used in Marketplace — not a second homepage-only card system.
-              </p>
-            </div>
-            <Link to="/marketplace" className="inline-flex min-h-11 items-center gap-2 border-b border-slate-950 pb-1 text-sm font-black hover:text-orange-700">
-              Browse all published vehicles <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-
-          {featuredState === 'loading' && (
-            <p className="py-12 text-sm text-slate-500" data-testid="featured-loading">Loading live Marketplace vehicles…</p>
-          )}
-          {featuredState === 'unavailable' && (
-            <p className="py-12 text-sm text-amber-700" data-testid="featured-unavailable">
-              Live Marketplace vehicles are unavailable right now. CarUp has not substituted demo inventory.
-            </p>
-          )}
-          {featuredState === 'ready' && featuredVehicles.length === 0 && (
-            <p className="py-12 text-sm text-slate-500" data-testid="featured-empty">No published listings are available for the live showroom.</p>
-          )}
-
-          {featuredVehicles.length > 0 && (
-            <div className="mt-9 grid gap-x-7 gap-y-12 md:grid-cols-2 xl:grid-cols-3">
-              {featuredVehicles.slice(0, 6).map(vehicle => (
-                <MarketplaceListingCard
-                  key={vehicle.vin}
-                  vehicle={marketplaceListingToCardModel(vehicle)}
-                  href={`/marketplace/${encodeURIComponent(vehicle.vin)}`}
-                  dataTestId="featured-verified-car"
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="overflow-hidden bg-[#08111f] text-white" data-testid="home-conversion-studio">
-        <div className="section-padding mx-auto grid max-w-[1440px] lg:grid-cols-2">
-          <div className="relative border-b border-white/10 py-10 pr-0 sm:py-16 lg:border-b-0 lg:border-r lg:pr-12">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Sell with context</p>
-            <h2 className="mt-3 max-w-xl text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em] lg:leading-none">
-              Your listing should carry more than a photo and a price.
-            </h2>
-            <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">
-              Start the vehicle, listing and photos before authentication. When you are ready to publish,
-              CarUp can connect the sale to the vehicle record rather than creating a disposable advert.
-            </p>
-            <Button asChild className="mt-7 h-12 rounded-none bg-orange-500 px-6 font-black text-white hover:bg-orange-600">
-              <Link to="/sell">Start selling <ArrowRight className="ml-2 h-4 w-4" /></Link>
-            </Button>
-          </div>
-
-          <div className="py-10 pl-0 sm:py-16 lg:pl-12">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Verify before commitment</p>
-            <h2 className="mt-3 max-w-xl text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em] lg:leading-none">
-              Already found the car somewhere else?
-            </h2>
-            <p className="mt-5 max-w-xl text-sm leading-6 text-slate-300">
-              Exact VIN lookup is public. Protected identifiers require an account, and an empty protected
-              lookup is never presented as proof that a vehicle does not exist.
-            </p>
-            <form onSubmit={submitVerify} className="mt-6 grid max-w-xl gap-2 sm:mt-7 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-0">
-              <Input
-                value={verifyQuery}
-                onChange={event => setVerifyQuery(event.target.value)}
-                placeholder="Enter exact VIN"
-                className="h-12 rounded-none border-white/20 bg-white/10 font-mono text-white placeholder:text-slate-500"
-                data-testid="verify-before-buy-input"
-              />
-              <Button type="submit" className="h-12 w-full rounded-none bg-white px-6 font-black text-slate-950 hover:bg-orange-500 hover:text-white sm:w-auto">
-                Open Passport
-              </Button>
-            </form>
-            <Link to="/search" className="mt-4 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-orange-300 hover:text-orange-200">
-              Need protected identifier lookup? Open Verify <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white py-14 sm:py-16">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">Explore the market</p>
-              <h2 className="mt-2 text-3xl font-black tracking-[-0.04em]">Start with what buyers ask for most.</h2>
-            </div>
-            <p className="max-w-lg text-sm leading-6 text-slate-500">Each shortcut hands the query to the live Marketplace.</p>
-          </div>
-          <div className="mt-7 flex flex-wrap gap-x-1 gap-y-2 border-y border-slate-200 py-4">
-            {popularSearches.map(chip => (
-              <Link
-                key={chip.label}
-                to={chip.href}
-                className="inline-flex min-h-11 items-center border-b-2 border-transparent px-3 py-2 text-sm font-bold text-slate-600 transition hover:border-orange-500 hover:text-slate-950"
-                data-testid="popular-search-chip"
-              >
-                {chip.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-[#f5f6f8] py-10 sm:py-20">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="max-w-3xl">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-600">One vehicle thread</p>
-            <h2 className="mt-3 text-4xl font-black leading-[0.95] tracking-[-0.05em] sm:text-5xl">
-              The deal moves. The context should move with it.
-            </h2>
-          </div>
-          <div className="mt-10 grid border-t border-slate-300 md:grid-cols-4">
-            {dealFlow.map(([number, title, copy], index) => (
-              <div key={title} className={`min-h-0 border-b border-slate-300 py-5 sm:min-h-[230px] sm:py-6 md:border-r md:px-6 ${index === 0 ? 'md:pl-0' : ''} ${index === 3 ? 'md:border-r-0' : ''}`}>
-                <p className="text-xs font-black text-orange-600">{number}</p>
-                <h3 className="mt-8 text-xl font-black tracking-[-0.025em]">{title}</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-500">{copy}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="talk-to-carup" className="relative scroll-mt-20 overflow-hidden bg-orange-500 text-slate-950" data-testid="home-communications">
-        <div className="pointer-events-none absolute right-[-5%] top-[-40%] text-[22rem] font-black leading-none text-black/[0.045]">C</div>
-        <div className="section-padding relative mx-auto grid max-w-[1440px] gap-10 py-14 sm:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+    const timeout = setTimeout(() => { cancelled = true; setState('unavailable') }, 10000)
+    fetchMarketplaceListings({ limit: 6, sort: 'newest', ...(fixtureScope ? { fixture_scope: fixtureScope } : {}) })
+      .then(result => { if (!cancelled) { setVehicles(Array.isArray(result?.listings) ? result.listings : []); setState('ready') } })
+      .catch(() => { if (!cancelled) { setVehicles([]); setState('unavailable') } })
+      .finally(() => clearTimeout(timeout))
+    return () => { cancelled = true; clearTimeout(timeout) }
+  }, [fetchMarketplaceListings, fixtureScope, retry])
+  const tryAgain = () => { setState('loading'); setRetry(value => value + 1) }
+  return <div className="bg-slate-50 text-slate-950" data-testid="launch-home">
+    <section className="bg-[#0b1628] text-white" data-testid="home-hero">
+      <div className="section-padding mx-auto max-w-[1440px] py-8 sm:py-12 lg:py-16">
+        <div className="grid gap-6 lg:grid-cols-[1fr_1.15fr] lg:items-end lg:gap-12">
           <div>
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em]">
-              <MessageCircle className="h-4 w-4" /> CarUp communication layer
+            <p className="text-sm font-semibold text-amber-400">{PUBLIC_IDENTITY.tagline}</p>
+            <h1 className="mt-3 text-[2rem] font-bold leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl">Your next car.<br />A clearer picture.</h1>
+            <p className="mt-4 max-w-lg text-base leading-7 text-slate-300">Find cars. Compare the price. Read the Passport before you decide.</p>
+          </div>
+          <form className="rounded-xl bg-white p-3 text-slate-950 sm:p-5" onSubmit={event => { event.preventDefault(); navigate(query.trim() ? `/marketplace?q=${encodeURIComponent(query.trim())}` : '/marketplace') }} data-testid="home-primary-search">
+            <label htmlFor="home-query" className="block pb-2 text-sm font-semibold">What are you looking for?</label>
+            <div className="flex gap-2">
+              <input id="home-query" value={query} onChange={event => setQuery(event.target.value)} placeholder="Make, model or vehicle identifier" className="min-h-12 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-base" data-testid="home-buy-search" />
+              <button type="submit" aria-label="Search cars" className="flex min-h-12 min-w-12 items-center justify-center gap-2 rounded-lg bg-amber-400 px-3 font-semibold text-slate-950 hover:bg-amber-300 sm:px-5" data-testid="home-search-submit"><Search className="h-5 w-5" aria-hidden /><span className="hidden sm:inline">Search cars</span></button>
             </div>
-            <h2 className="mt-4 max-w-3xl text-3xl font-black leading-[0.95] tracking-[-0.04em] sm:text-6xl sm:leading-[0.88] sm:tracking-[-0.06em] lg:leading-none">
-              Need a car, an answer, or simply the next move?
-            </h2>
-            <p className="mt-6 max-w-2xl text-sm font-medium leading-6 text-slate-900/75">
-              Start with Gutu AI for guided discovery, use Help for self-service answers, or contact CarUp when the journey needs a human handoff.
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
-            <BuyerAssistantDrawer
-              triggerLabel="Ask Gutu AI"
-              triggerClassName="h-14 w-full justify-between rounded-none border-0 bg-slate-950 px-5 font-black text-white hover:bg-slate-900 hover:text-white"
-            />
-            <Link to="/help" className="flex h-14 items-center justify-between bg-white px-5 text-sm font-black transition hover:bg-slate-100">
-              <span className="inline-flex items-center gap-2"><BookOpen className="h-4 w-4" /> Help centre</span>
-              <ArrowUpRight className="h-4 w-4" />
-            </Link>
-            <Link to="/contact" className="flex h-14 items-center justify-between border border-slate-950 px-5 text-sm font-black transition hover:bg-slate-950 hover:text-white">
-              <span className="inline-flex items-center gap-2"><Headphones className="h-4 w-4" /> Contact CarUp</span>
-              <ArrowUpRight className="h-4 w-4" />
-            </Link>
-          </div>
+          </form>
         </div>
-      </section>
-
-      <section className="bg-[#060a11] py-14 text-white">
-        <div className="section-padding mx-auto flex max-w-[1440px] flex-col gap-7 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">
-              <CheckCircle2 className="h-4 w-4" /> Start where you are
-            </div>
-            <h2 className="mt-3 max-w-3xl text-3xl font-black leading-[0.98] tracking-[-0.04em] sm:text-5xl sm:leading-[0.95] sm:tracking-[-0.05em] lg:leading-none">
-              Search the car. Verify what is known. Keep the next step connected.
-            </h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild className="h-12 rounded-none bg-orange-500 px-6 font-black text-white hover:bg-orange-600">
-              <Link to="/marketplace">Browse Marketplace</Link>
-            </Button>
-            <Button asChild variant="outline" className="h-12 rounded-none border-white/20 bg-transparent px-6 font-bold text-white hover:bg-white/10 hover:text-white">
-              <Link to="/sell">Sell your car</Link>
-            </Button>
-          </div>
-        </div>
-      </section>
-    </div>
-  )
+        <nav aria-label="Popular Marketplace searches" className="mt-6 flex flex-wrap gap-2">{POPULAR_SEARCHES.map(({ label, href }) => <Link key={label} to={href} className="inline-flex min-h-11 items-center rounded-full border border-slate-600 px-4 py-2 text-sm font-medium hover:border-amber-400 hover:text-amber-300">{label}</Link>)}</nav>
+      </div>
+    </section>
+    <section className="section-padding mx-auto max-w-[1440px] py-8 sm:py-12" data-testid="home-live-inventory">
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-bold sm:text-3xl">Latest cars</h2><Link to="/marketplace" className="inline-flex min-h-11 items-center gap-2 font-semibold text-amber-800">View all cars <ArrowRight className="h-4 w-4" aria-hidden /></Link></div>
+      {state === 'loading' && <div className="mt-5 rounded-xl border border-slate-200 bg-white p-6" role="status" data-testid="featured-loading"><p>Loading published listings…</p><p className="mt-2 text-sm text-slate-500">Search, Sell and Verify are ready while the cars load.</p></div>}
+      {state === 'unavailable' && <div className="mt-5 rounded-xl border border-amber-200 bg-white p-6" role="status" data-testid="featured-unavailable"><h3 className="text-lg font-semibold">We could not load the cars</h3><p className="mt-2 leading-7 text-slate-600">Check your connection and try again. We will not show an old listing as current.</p><button type="button" onClick={tryAgain} className="mt-4 min-h-11 rounded-lg border border-slate-300 px-5 py-2 font-semibold">Try again</button></div>}
+      {state === 'ready' && vehicles.length === 0 && <div className="mt-5 rounded-xl border border-slate-200 bg-white p-6 sm:p-8" data-testid="featured-empty"><CarFront className="h-8 w-8 text-amber-700" aria-hidden /><h3 className="mt-4 text-xl font-bold">Be part of the opening Marketplace</h3><p className="mt-3 max-w-xl leading-7 text-slate-600">There are no published cars to browse right now. Have a car to sell? Build your listing and choose when to publish it.</p><Link to="/sell" className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-amber-400 px-5 py-3 font-semibold">Start your listing <ArrowRight className="h-4 w-4" aria-hidden /></Link></div>}
+      {state === 'ready' && vehicles.length > 0 && <div className="mt-5 grid gap-6 md:grid-cols-2 xl:grid-cols-3" data-testid="home-live-showroom">{vehicles.map(vehicle => <MarketplaceListingCard key={vehicle.vin} vehicle={marketplaceListingToCardModel(vehicle)} href={`/marketplace/${encodeURIComponent(vehicle.vin)}`} dataTestId="featured-verified-car" ctaLabel="View car & Passport" />)}</div>}
+    </section>
+    <section className="section-padding mx-auto grid max-w-[1440px] gap-5 pb-10 md:grid-cols-2" aria-label="Sell or verify">
+      <article className="rounded-xl bg-[#0b1628] p-6 text-white sm:p-8"><CarFront className="h-7 w-7 text-amber-400" aria-hidden /><h2 className="mt-4 text-2xl font-bold">Your car. Your next chapter.</h2><p className="mt-3 leading-7 text-slate-300">Start with the vehicle, photos and price. Save to your account when you are ready. Publishing is your choice.</p><Link to="/sell" className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg bg-amber-400 px-5 py-3 font-semibold text-slate-950">Sell a car <ArrowRight className="h-4 w-4" aria-hidden /></Link></article>
+      <article className="rounded-xl border border-slate-200 bg-white p-6 sm:p-8"><ShieldCheck className="h-7 w-7 text-amber-700" aria-hidden /><h2 className="mt-4 text-2xl font-bold">Already found a car?</h2><p className="mt-3 leading-7 text-slate-600">Look up its Vehicle Passport. See the recorded facts and gaps before you take the next step.</p><Link to="/search" className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-5 py-3 font-semibold">Verify a vehicle <ArrowRight className="h-4 w-4" aria-hidden /></Link></article>
+    </section>
+    <nav className="section-padding mx-auto grid max-w-[1440px] gap-3 pb-10 sm:grid-cols-3" aria-label="More for your car">{SHORTCUTS.map(({ href, label, detail, icon: Icon }) => <Link key={href} to={href} className="flex min-h-24 items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 hover:border-amber-400"><Icon className="h-6 w-6 shrink-0 text-amber-700" aria-hidden /><div><p className="font-semibold">{label}</p><p className="mt-1 text-sm text-slate-600">{detail}</p></div></Link>)}</nav>
+    <section className="border-y border-slate-200 bg-white" data-testid="home-trust-strip"><div className="section-padding mx-auto max-w-[1440px] py-8 sm:flex sm:items-center sm:justify-between sm:gap-8"><div><h2 className="text-xl font-bold">A Passport for the facts. Space for the gaps.</h2><p className="mt-3 max-w-2xl leading-7 text-slate-600">Ownership, evidence and service history where recorded. CarUp shows what it knows and what it does not. An independent inspection still matters.</p></div><Link to="/trust" className="mt-3 inline-flex min-h-11 shrink-0 items-center gap-2 font-semibold text-amber-800 sm:mt-0">How Trust works <ArrowRight className="h-4 w-4" aria-hidden /></Link></div></section>
+    <section className="section-padding mx-auto grid max-w-[1440px] gap-5 py-10 lg:grid-cols-2" data-testid="home-communications"><PublicCommunicationChannels /><div className="rounded-xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-bold">Help with the next step</h2><p className="mt-3 leading-7 text-slate-600">Find product help, reach the CarUp team, or ask Gutu for guidance. Gutu is an assistant; it does not replace customer support.</p><div className="mt-4 flex flex-wrap gap-3"><Link className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 font-semibold" to="/support">Get help</Link><Link className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 font-semibold" to="/contact">Contact CarUp</Link><BuyerAssistantDrawer /></div></div></section>
+  </div>
 }

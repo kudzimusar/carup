@@ -56,3 +56,11 @@ Phase-01 additionally removes direct government-registry/police-check claims fro
 ### Existing staging owner continuity (read-only)
 
 Owner browser retains an authenticated Kingston Musarurwa session. After refreshing the existing staging frontend, its stale footer assets updated to approved carup.dev identity. Seller Studio at `/dashboard/sell-vehicle?vin=GFC27-027051` loads the existing 2016 Nissan Serena Highway Star, 10 listing photos, 5 verified documents, and explicitly labels it `Draft workspace — not public` / `Buyer Preview — not public`. Canonical facts are locked and the existing Passport is reused. No fresh login, publication transition or final-candidate UAT is claimed. No save/publish action was taken.
+
+### Phase-02 certification progress
+
+Web unit run: 248 files / 2,326 tests passed. A later focused Vehicle Detail truth run passed 26 tests after the copy-only registry-claim correction. Full production build passed. Backend affected suites: 178 passed.
+
+The committed Home browser regression covers eight widths, approved footer visibility, no horizontal overflow, search navigation, 44px search targets, truthful empty inventory and failed-request recovery. Provider/API responses in this regression are controlled local fixtures; no live delivery or staging inventory claim is made.
+
+Phase-03 current evidence state: WhatsApp/Telegram implemented and historically physically certified, current Preview configuration blocked; transactional Resend and marketing Brevo implementation present, current Preview webhook base incomplete. Branch-scoped Vercel Preview metadata returned no environment entries. Owner-approved sessions and one Brevo marketing consent are available. Exact candidate deployment/configuration and physical proof remain required. No production scopes or global provider webhooks have been changed.

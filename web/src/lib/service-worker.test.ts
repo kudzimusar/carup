@@ -166,4 +166,34 @@ describe('service worker cache and fetch behavior', () => {
     expect(await response.text()).toBe('new deployment shell')
     expect(await caches.keys()).not.toContain('carup-offline-cache-v1')
   })
+  it('never stores a private HTML response as the offline public shell', async () => {
+    const caches = createCaches()
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response('public shell'))
+      .mockResolvedValueOnce(new Response('public shell'))
+      .mockResolvedValueOnce(new Response('private account details'))
+      .mockRejectedValueOnce(new Error('offline')) as unknown as typeof fetch
+    const { listeners } = loadWorker(fetchImpl, caches)
+    await dispatchLifecycle(listeners.install)
+    const privatePage = await dispatchFetch(listeners.fetch,
+      new Request('https://carup.test/dashboard', { headers: { accept: 'text/html' } }))
+    expect(await privatePage.text()).toBe('private account details')
+    const offline = await dispatchFetch(listeners.fetch,
+      new Request('https://carup.test/', { headers: { accept: 'text/html' } }))
+    expect(await offline.text()).toBe('public shell')
+    expect(fetchImpl.mock.calls[0][1]).toEqual(expect.objectContaining({ credentials: 'omit' }))
+  })
+  it('never caches account/API JSON responses', async () => {
+    const caches = createCaches()
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response('{"private":true}'))
+      .mockRejectedValueOnce(new Error('offline')) as unknown as typeof fetch
+    const { listeners } = loadWorker(fetchImpl, caches)
+    await dispatchFetch(listeners.fetch, new Request('https://carup.test/api/account'))
+    const offline = await dispatchFetch(listeners.fetch,
+      new Request('https://carup.test/api/account', { headers: { accept: 'application/json' } }))
+    expect(offline.status).toBe(503)
+    expect(await caches.keys()).toEqual([])
+    expect(await offline.text()).not.toContain('private')
+  })
+
 })

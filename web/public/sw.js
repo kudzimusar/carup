@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-06-18-marketplace-v1';
+const CACHE_VERSION = '2026-10-launch-public-shell-v2';
 const APP_CACHE = `carup-app-shell-cache-${CACHE_VERSION}`;
 const ASSET_CACHE = `carup-asset-cache-${CACHE_VERSION}`;
 const CURRENT_CACHES = new Set([APP_CACHE, ASSET_CACHE]);
@@ -38,7 +38,7 @@ async function cacheAppShell() {
   const cache = await caches.open(APP_CACHE);
   await Promise.all(APP_SHELL_URLS.map(async (url) => {
     try {
-      const response = await fetch(url, { cache: 'reload' });
+      const response = await fetch(url, { cache: 'reload', credentials: 'omit' });
       if (isCacheable(response)) {
         await cache.put(url, response.clone());
       }
@@ -51,10 +51,8 @@ async function cacheAppShell() {
 async function handleNavigation(request) {
   try {
     const response = await fetch(request, { cache: 'no-store' });
-    if (isCacheable(response)) {
-      const cache = await caches.open(APP_CACHE);
-      await cache.put('/index.html', response.clone());
-    }
+    // Offline shell comes only from the credential-free install fetch.
+    // Navigation responses may contain private or personalised data.
     return response;
   } catch {
     return (

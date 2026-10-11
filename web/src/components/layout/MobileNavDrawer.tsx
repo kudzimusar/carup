@@ -104,7 +104,7 @@ export default function MobileNavDrawer() {
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden"
+          className="xl:hidden"
           data-testid="mobile-menu-button"
           aria-label="Open menu"
         >

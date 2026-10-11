@@ -97,18 +97,18 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
         <div className="absolute inset-y-0 left-0 w-1 bg-orange-500" />
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-orange-300">
+            <div className="flex items-center gap-1.5 text-[13px] font-black uppercase tracking-[0.18em] text-orange-300">
               <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
             </div>
             <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-lg font-black">{score}<span className="text-xs font-semibold text-slate-400">/100</span></span>
-              <span className="text-xs font-semibold text-slate-300">{titleCase(trust?.band) || 'Evaluated'}</span>
+              <span className="text-lg font-black">{score}<span className="text-sm font-semibold text-slate-400">/100</span></span>
+              <span className="text-sm font-semibold text-slate-300">{titleCase(trust?.band) || 'Evaluated'}</span>
             </div>
           </div>
           {trust?.confidence && (
             <div className="border-l border-white/10 pl-4 text-right">
-              <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Confidence</div>
-              <div className="mt-0.5 text-xs font-bold text-white">{titleCase(trust.confidence)}</div>
+              <div className="text-[13px] uppercase tracking-[0.14em] text-slate-500">Confidence</div>
+              <div className="mt-0.5 text-sm font-bold text-white">{titleCase(trust.confidence)}</div>
             </div>
           )}
         </div>
@@ -129,12 +129,12 @@ function TrustPreview({ trust }: { trust?: MarketplaceCardTrust | null }) {
       className="border-y border-slate-200 bg-slate-50 px-4 py-3"
       data-testid="marketplace-card-trust"
     >
-      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">
+      <div className="flex items-center gap-1.5 text-[13px] font-black uppercase tracking-[0.18em] text-slate-500">
         <ShieldCheck className="h-3.5 w-3.5" /> CarUp Trust lens
       </div>
       <div className="mt-1 flex items-end justify-between gap-3">
         <p className="text-sm font-bold text-slate-900">{copy}</p>
-        <p className="text-[10px] text-slate-500">No legacy score is substituted</p>
+        <p className="text-[13px] text-slate-500">Read the evidence and gaps</p>
       </div>
     </div>
   )
@@ -209,25 +209,25 @@ export function MarketplaceListingCard({
 
         <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap gap-1.5">
           {vehicle.carupGold && (
-            <Badge className="rounded-none border border-amber-300 bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-950" data-testid="carup-gold-badge">
+            <Badge className="rounded-none border border-amber-300 bg-amber-400 px-2.5 py-1 text-[13px] font-black uppercase tracking-[0.12em] text-slate-950" data-testid="carup-gold-badge">
               ★ CarUp Gold
             </Badge>
           )}
           {vehicle.syntheticDemo && (
-            <Badge className="rounded-none border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800" data-testid="synthetic-demo-media-badge">
+            <Badge className="rounded-none border border-sky-200 bg-sky-50 px-2 py-1 text-[13px] font-semibold text-sky-800" data-testid="synthetic-demo-media-badge">
               Demo media
             </Badge>
           )}
           {vehicle.plateVerified && (
-            <Badge className="rounded-none border-0 bg-emerald-700 text-[10px] text-white" data-testid="marketplace-plate-confirmed-badge">
+            <Badge className="rounded-none border-0 bg-emerald-700 text-[13px] text-white" data-testid="marketplace-plate-confirmed-badge">
               <CheckCircle2 className="mr-1 h-3 w-3" /> Plate confirmed
             </Badge>
           )}
           {vehicle.reserved && (
-            <Badge className="rounded-none border-0 bg-amber-500 text-[10px] text-white">Reserved</Badge>
+            <Badge className="rounded-none border-0 bg-amber-500 text-[13px] text-white">Reserved</Badge>
           )}
           {vehicle.partSentryChecked && (
-            <Badge className="rounded-none border-0 bg-slate-950 text-[10px] text-white" data-testid="marketplace-partsentry-badge">
+            <Badge className="rounded-none border-0 bg-slate-950 text-[13px] text-white" data-testid="marketplace-partsentry-badge">
               PartSentry checked
             </Badge>
           )}
@@ -299,7 +299,7 @@ export function MarketplaceListingCard({
           {formatMarketplacePrice(vehicle.price, vehicle.currency)}
         </p>
 
-        <div className="mt-4 grid grid-cols-3 border-y border-slate-200 text-xs text-slate-600">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 border-y border-slate-200 text-sm text-slate-600">
           {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) ? (
             <span data-testid={mileageTestId} className="flex min-h-12 items-center gap-1.5 border-r border-slate-200 pr-2"><Gauge className="h-3.5 w-3.5 text-orange-500" />{vehicle.mileage.toLocaleString()} km</span>
           ) : showMissingMileage ? (
@@ -313,7 +313,7 @@ export function MarketplaceListingCard({
           )}
         </div>
 
-        <div className="mt-3 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+        <div className="mt-3 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-bold uppercase tracking-[0.1em] text-slate-500">
           {vehicle.labels.slice(0, 3).map((label, index) => (
             <span key={label} className="inline-flex items-center gap-2" data-testid="marketplace-condition-tag">
               {index > 0 && <span className="h-1 w-1 bg-orange-500" aria-hidden="true" />}
@@ -326,7 +326,7 @@ export function MarketplaceListingCard({
           <TrustPreview trust={vehicle.trust} />
         </div>
 
-        <div className="mt-4 grid gap-2 text-xs text-slate-500">
+        <div className="mt-4 grid gap-2 text-sm text-slate-500">
           <div className="flex min-w-0 items-center gap-1.5">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate" data-testid={locationTestId}>{vehicle.locationLabel}</span>
