@@ -545,3 +545,23 @@ SMS, Push, Messenger and Instagram are **not broken**; they are not activated. N
 **UI truth for deferred channels: no change needed.**
 - Public surfaces offer only WhatsApp, Telegram and Email with runtime state.
 - Admin `providerStatus` derives from live adapter health, so SMS, Push, Messenger and Instagram show "not configured". The registry's static `availability` only distinguishes planned LINE/X and is never shown as available.
+
+## R4 — fresh D7 certification in progress; head certification (local)
+
+**Backend full suite at `83d29bed`** (Node 20.20.2 arm64, exact `ci.yml` env): 8,443 tests, **8,411 pass, 0 fail**, 9 cancelled, 23 skipped. The 9 cancelled are the pre-existing `oc5r-prov01-fx-observation-policy` C1 group, identical on frozen 40621751.
+
+**CI topology (moderator R4):** PR #222 does **not** receive the full `ci.yml` gate, because it triggers only on PRs into `main`. For PR #222 the required evidence is:
+- the local exact-head Node 20 full suites;
+- the applicable remote path-triggered workflows;
+- deployed staging certification.
+
+**Full `ci.yml` is deferred to the later main-targeting integration PR.** This is the actual workflow topology, not a waiver.
+
+**Resend correction status:** IMPLEMENTED LOCALLY / NOT YET SOURCE-CERTIFIED (`a56f43c8`). After rebase and push it must still be proven that:
+- the operational smoke email carries `classification: 'service'`;
+- it routes only to Resend, never Brevo;
+- the provider call is reachable and tests pass.
+
+Physical proof then uses a controlled address.
+
+**Brevo:** no physical delivery until the owner provides an authorized admin session, an explicit opt-in test recipient and permission for bounded staging delivery processing. Queue-only behaviour is not physical certification.
