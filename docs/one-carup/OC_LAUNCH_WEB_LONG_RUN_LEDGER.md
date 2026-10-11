@@ -821,3 +821,32 @@ Across all 20 cases:
 - Images blocked never hides text; zero overflow in all 20 cases.
 - "0 found" appears only when the API truly returned zero (staging has no public listings).
 - Contact's "unavailable" text is its truthful channel state.
+
+## R9 — provider physical proof: authority, decisions and procedure (prepared during release run 38140785360)
+
+**Release run 38140785360** (head 8a5a920d): Bootstrap **success** (14:19:40Z); Chromium in progress. Tablet acceptance is NOT inherited from 38130702563 — this run must prove the remediated candidate.
+
+**Provider authorities (no secret values recorded):**
+
+| Provider | Authority |
+| --- | --- |
+| WhatsApp | Staging sender is the **Meta test number +1 (555) 087-7562**, read from valid-signature Meta webhook metadata (`display_phone_number`); not the owner's handset. A test number delivers only to the Meta app's **allowed-recipient list**, so the owner's handset must be on it. The owner's number is not disclosed in chat. |
+| Telegram | Staging bot **@CarUpStagingBot**, from the owner's BotFather evidence. **The bot token was visually exposed in that screenshot and is treated as DISCLOSED.** It must be rotated after this run terminates and never written to chat, Git, logs or ledger. The backend has no `getMe`/`setWebhook` management code, so rotation and webhook verification are owner-side with the owner-held token. CarUp verifies by redeploying the runtimes that read the token and proving a real inbound plus outbound. |
+| Resend | Controlled inbox `eleven.eleven.testing@gmail.com`, one **service**-classified send. Possible only since `a56f43c8` (smoke email classification). |
+| Brevo | Marketing class only. **OWNER/CONSENT GATE** until an admin session, an explicit opt-in recipient and bounded delivery processing exist. It does not block service communications. |
+
+**Owner decisions (2026-10-11):**
+1. **Proof authentication:** rotate the staging worker secret again *after* this run terminates. The reboot removed the plaintext; the release pair is mid-certification with the current value.
+2. **Reply leg: smoke reply, no queue drain.**
+   - Inbound: owner handset → provider → staging webhook → persisted canonical conversation, proven from the DB.
+   - Outbound: governed `provider-smoke` (same engine, real adapter, synchronous single-row delivery, fake adapters refused) from the **exact candidate** to the same handset.
+   - `recordAdminThreadReply` (Command Center reply) only **queues**, and the worker claims oldest-first behind about 1,100 historical internal notifications. There is no governed single-notification delivery path (dead-letter retry re-queues). **Same-thread Command Center reply delivery is therefore recorded as a queue-governance gate**, not claimed.
+3. Webhooks keep landing on the stable staging runtime (`dpl_91cteUJn…`, shared DB). Exact-candidate *inbound* is not claimed (decision R1-3).
+
+**Procedure after the run terminates:**
+1. Rotate the staging worker secret: generate locally (0600, persistent private dir outside any repo), write GitHub `staging`, never print.
+2. **Owner:** revoke and rotate the @CarUpStagingBot token in BotFather; set the new value in Vercel `carup-backend-staging` → Production target `CARUP_TELEGRAM_BOT_TOKEN` (sensitive); confirm the webhook URL still targets `carup-backend-staging.vercel.app/api/communications/webhooks/telegram/telegram` with the existing secret token.
+3. CarUp: redeploy the stable staging runtime from its own source (bb9d9900) so it reads the new token. This is required for inbound; it is a credential pickup, not a code change.
+4. CarUp: deploy the proof backend (exact SHA, staging project **production target `--skip-domain`**, no alias move, outbound enabled, deployment-scoped worker secret).
+5. Resend smoke → `WHATSAPP GO` (owner sends `CARUP-WA-LIVE-20261011-<marker>`) → WhatsApp smoke reply → `TELEGRAM GO` (owner `/start`, then marker) → Telegram smoke reply.
+6. Record provider IDs, canonical IDs, delivery states and timestamps against the exact SHA and deployment.
