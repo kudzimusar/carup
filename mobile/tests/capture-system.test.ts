@@ -27,6 +27,7 @@ for (const component of [
   'CaptureShell',
   'DocumentTypePicker',
   'CaptureGuide',
+  'CarUpCameraViewfinder',
   'CapturePreview',
   'UploadProgress',
   'ExtractionField',
@@ -37,6 +38,9 @@ for (const component of [
   assert.match(system, new RegExp(`export function ${component}\\b`), `missing capture primitive ${component}`);
 }
 
+assert.match(system, /<CameraView\b/, 'capture system must render the Expo live camera viewfinder');
+assert.match(system, /takePictureAsync\(/, 'capture system must use a real shutter capture');
+assert.match(system, /information-circle-outline/, 'capture instructions must not look like completed automated checks');
 assert.doesNotMatch(system, /Perfect lighting|Aligned|Sharp|Document detected/i, 'fake quality signals are prohibited');
 
 console.log('capture-system.test: PASS');
