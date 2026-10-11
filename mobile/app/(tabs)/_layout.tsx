@@ -1,15 +1,23 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NATIVE_SHELL_TABS } from '../../navigation/nativeShell';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
+import { useAuthStore } from '../../store/authStore';
+import { useFeatureGovernanceStore } from '../../store/featureGovernanceStore';
 
 const iconByName = new Map(NATIVE_SHELL_TABS.map((tab) => [tab.name, tab.icon]));
 
 export default function TabLayout() {
   const theme = useNativeTheme();
   const insets = useSafeAreaInsets();
+  const userId = useAuthStore((state) => state.user?.id);
+  const token = useAuthStore((state) => state.token);
+
+  useEffect(() => {
+    void useFeatureGovernanceStore.getState().refresh();
+  }, [userId, token]);
 
   const stableOptions = (name: 'index' | 'marketplace' | 'inbox' | 'account', title: string) => ({
     title,
