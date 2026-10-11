@@ -77,7 +77,7 @@ export function EvidenceThumbnail({
         <Image source={{ uri }} resizeMode="cover" accessibilityLabel={label} style={{ width: '100%', height: '100%' }} />
       ) : (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name={privateMedia ? 'document-lock-outline' : 'image-outline'} size={24} color={theme.text.muted} />
+          <Ionicons name={privateMedia ? 'lock-closed-outline' : 'image-outline'} size={24} color={theme.text.muted} />
         </View>
       )}
     </View>
