@@ -157,14 +157,21 @@ async function main() {
     assert.doesNotMatch(queued.body, /evidence/, 'nothing is claimed stored server-side before it is');
   });
 
-  await test('source guard: the garage screen uses the governed path — no retired route, no AI endpoint, no mileage write', () => {
-    assert.ok(!GARAGE.replace(/\/\/.*$/gm, '').includes(CONTRACT.retiredRoute), 'the retired /api/ai/ocr is not called');
-    assert.doesNotMatch(GARAGE.replace(/\/\/.*$/gm, ''), /\/api\/ai\//, 'no AI endpoint is called from the garage');
+  await test('source guard: Garage previews evidence before the governed OCR path and never writes mileage', () => {
+    const shipped = GARAGE.replace(/\/\/.*$/gm, '');
+    assert.ok(!shipped.includes(CONTRACT.retiredRoute), 'the retired /api/ai/ocr is not called');
+    assert.doesNotMatch(shipped, /\/api\/ai\//, 'no AI endpoint is called from Garage');
     assert.doesNotMatch(GARAGE, /base64Data/);
-    assert.doesNotMatch(GARAGE, /method:\s*'(PATCH|PUT)'/, 'the garage screen writes no vehicle field');
-    const handler = GARAGE.slice(GARAGE.indexOf('const handleOdometerScan'), GARAGE.indexOf('const handleKycScan'));
+    assert.doesNotMatch(GARAGE, /method:\s*'(PATCH|PUT)'/, 'Garage writes no vehicle field');
+    assert.match(GARAGE, /captureOdometerPhotoWithStatus\(/, 'odometer capture uses the truthful camera-state helper');
+    assert.match(GARAGE, /<CapturePreview/, 'the owner must review the actual odometer photo before upload');
+
+    const handlerStart = GARAGE.indexOf('const useOdometerPhoto');
+    const handlerEnd = GARAGE.indexOf('const vehicles =', handlerStart);
+    const handler = GARAGE.slice(handlerStart, handlerEnd);
+    assert.ok(handlerStart > 0 && handlerEnd > handlerStart, 'useOdometerPhoto handler is present');
     assert.ok(handler.indexOf('enqueueUpload(') > 0 && handler.indexOf('enqueueUpload(') < handler.indexOf('drainUploadQueue('),
-      'capture-first: the photo is queued durably before any network call');
+      'accepted photo is queued durably before the first upload attempt');
     assert.match(handler, /requestOdometerReading\(/);
     assert.match(handler, /odometerOutcomeMessage\(/);
   });
