@@ -25,9 +25,10 @@ const governed: Array<{ file: string; featureId: string }> = [
 for (const item of governed) {
   const src = source(item.file);
   assert.match(src, /NativeFeatureBoundary/, item.file + ' must retain a governed route boundary');
-  assert.match(
-    src,
-    new RegExp('featureId=["\\\']' + item.featureId.replace(/\\./g, '\\\\.') + '["\\\']'),
+  const doubleQuoted = 'featureId="' + item.featureId + '"';
+  const singleQuoted = "featureId='" + item.featureId + "'";
+  assert.ok(
+    src.includes(doubleQuoted) || src.includes(singleQuoted),
     item.file + ' must remain owned by ' + item.featureId,
   );
 }
@@ -37,18 +38,15 @@ assert.doesNotMatch(home, /NativeFeatureBoundary|role\.overview|resolveDashboard
 
 const inbox = source('app/(tabs)/inbox.tsx');
 assert.match(inbox, /!isAuthenticated/, 'Inbox must handle anonymous access explicitly');
-assert.match(inbox, /user\?\.role\s*!==\s*['\"]owner['\"]/, 'Inbox must refuse unsupported workspace roles');
+assert.match(inbox, /user\?\.role\s*!==\s*['"]owner['"]/, 'Inbox must refuse unsupported workspace roles');
 
 const account = source('app/(tabs)/account.tsx');
 assert.match(account, /!isAuthenticated/, 'Account must handle anonymous access explicitly');
 
 const shell = source('app/(tabs)/_layout.tsx');
 for (const legacy of ['garage', 'escrow', 'referral', 'communications', 'more']) {
-  assert.match(
-    shell,
-    new RegExp('name=["\\\']' + legacy + '["\\\'][\\\\s\\\\S]*?href:\\s*null'),
-    legacy + ' must stay hidden from the stable bottom shell',
-  );
+  const screenPattern = new RegExp('name=["\\\']' + legacy + '["\\\'][\\s\\S]*?href:\\s*null');
+  assert.match(shell, screenPattern, legacy + ' must stay hidden from the stable bottom shell');
 }
 
 console.log('native-boundary-audit.test: PASS');
