@@ -1,12 +1,12 @@
 # OC-NATIVE-LR1 — Cumulative Native Ledger
 
-**Programme start authority:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`  
-**Branch:** `feat/oc-native01-product-foundation`  
-**Draft PR:** #223  
-**Lane:** native iOS / Android only  
-**Product candidate before evidence-only closure docs:** `ef20035c9ee85b94257ab8bee8cfa44f2c882e54`  
-**Product-candidate divergence from programme start:** 109 ahead / 0 behind  
-**Product-candidate changed files:** 58  
+**Programme start authority:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`
+**Branch:** `feat/oc-native01-product-foundation`
+**Draft PR:** #223
+**Lane:** native iOS / Android only
+**Product candidate before evidence-only closure docs:** `ef20035c9ee85b94257ab8bee8cfa44f2c882e54`
+**Product-candidate divergence from programme start:** 109 ahead / 0 behind
+**Product-candidate changed files:** 58
 **Write-scope audit:** PASS — every changed file is under `mobile/**` or `docs/one-carup/native/**`.
 
 > This ledger distinguishes implementation from certification. Source-level guards and GitHub checks are recorded only for the exact SHA they actually exercised. Device, simulator, EAS build and fresh exact-head mobile test/typecheck evidence are not inferred from code shape.
