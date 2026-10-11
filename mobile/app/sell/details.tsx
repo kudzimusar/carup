@@ -109,7 +109,7 @@ export default function SellDetailsScreen() {
       <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center', padding: spacing[5] }}>
         <Notice
           title="Draft saved"
-          body="Your seller draft is saved. It is not published. Seller authority and publication requirements still apply."
+          body="Your seller draft is saved. It is not published. CarUp still needs to complete the required checks before it can go live."
           tone="success"
         />
         <View style={{ marginTop: spacing[5], gap: spacing[2] }}>
