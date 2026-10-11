@@ -172,7 +172,7 @@ export default function AccountScreen() {
         <View style={{ marginTop: spacing[7] }}>
           <Notice
             title="Professional workspace"
-            body="CarUp will show native professional tools only when a native workspace exists for your current role. Your underlying permissions are unchanged."
+            body="CarUp will show professional tools here only when that workspace is available on mobile. Your account access does not change."
             tone="info"
           />
         </View>
