@@ -314,6 +314,19 @@ export async function unsaveMarketplaceListing(vin: string): Promise<{ saved: fa
   );
 }
 
+export interface MobileSellerInquiry {
+  id: string;
+  listing_id?: string | null;
+  inquiry_type?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+}
+
+export async function getSellerMarketplaceInquiries(): Promise<{ inquiries: MobileSellerInquiry[] }> {
+  return requestJson<{ inquiries: MobileSellerInquiry[] }>('/api/marketplace/my-listings/inquiries');
+}
+
 export interface MobileServiceListing {
   slug?: string;
   name?: string;
