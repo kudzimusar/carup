@@ -96,10 +96,14 @@ export default function HomeScreen() {
   });
 
   const firstOwnedVehicle = vehiclesQuery.data?.[0] ?? null;
+  const publishedOwnedVehicle =
+    (vehiclesQuery.data || []).find((vehicle) =>
+      String(vehicle.publication_status || vehicle.status || '').toLowerCase() === 'published',
+    ) || null;
   const sellerListingQuery = useQuery({
-    queryKey: ['native-home-owner-public-listing', firstOwnedVehicle?.vin],
-    queryFn: () => getMarketplaceListingDetail(firstOwnedVehicle!.vin),
-    enabled: Boolean(isOwner && firstOwnedVehicle?.vin),
+    queryKey: ['native-home-owner-public-listing', publishedOwnedVehicle?.vin],
+    queryFn: () => getMarketplaceListingDetail(publishedOwnedVehicle!.vin),
+    enabled: Boolean(isOwner && publishedOwnedVehicle?.vin),
     retry: false,
   });
 
