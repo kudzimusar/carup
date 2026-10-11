@@ -1,6 +1,7 @@
 import type { OwnerServiceHistoryEntry } from '@shared/types';
 import { apiUrl } from './apiBase';
 import { useAuthStore } from '../store/authStore';
+import { nativeNow, recordNetworkResponse } from './nativePerformance';
 
 export interface NativeOwnedVehicle {
   vin: string;
@@ -29,9 +30,11 @@ async function ownerHeaders(): Promise<Record<string, string>> {
 }
 
 export async function getMyVehicles(): Promise<NativeOwnedVehicle[]> {
+  const startedAt = nativeNow();
   const response = await fetch(apiUrl('/api/vehicles/me'), {
     headers: await ownerHeaders(),
   });
+  recordNetworkResponse('api.owner_vehicles', startedAt, response);
   if (!response.ok) throw new Error('Could not load your vehicles.');
   const body = await response.json();
   return Array.isArray(body) ? body : [];
@@ -39,9 +42,11 @@ export async function getMyVehicles(): Promise<NativeOwnedVehicle[]> {
 
 
 export async function getMyServiceHistory(): Promise<OwnerServiceHistoryEntry[]> {
+  const startedAt = nativeNow();
   const response = await fetch(apiUrl('/api/service-history/me'), {
     headers: await ownerHeaders(),
   });
+  recordNetworkResponse('api.owner_service_history', startedAt, response);
   if (!response.ok) throw new Error('Could not load your service history.');
   const body = await response.json();
   return Array.isArray(body) ? body : [];
