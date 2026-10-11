@@ -1,54 +1,199 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl, ScrollView, Alert } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
-import { captureOdometerPhoto } from '../../utils/camera';
-import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
+import { Ionicons } from '@expo/vector-icons';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import {
+  CapturePreview,
+  PermissionPanel,
+} from '../../components/capture/CaptureSystem';
+import {
+  Button,
+  EmptyState,
+  Notice,
+  Price,
+  SectionHeader,
+  StatusPill,
+} from '../../components/ui/NativePrimitives';
+import { useAuthStore } from '../../store/authStore';
 import { useUploadQueueStore } from '../../store/uploadQueueStore';
+import { captureOdometerPhotoWithStatus, openCameraSettings, type CameraPermissionState, type CapturedAsset } from '../../utils/camera';
+import { getMyServiceHistory, getMyVehicles, type NativeOwnedVehicle } from '../../utils/ownerGarageApi';
+import { resolveApiBaseUrl } from '../../utils/apiBase';
 import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
-import type { OwnerServiceHistoryEntry } from '@shared/types';
-import { toServiceLogView } from '../../utils/serviceHistoryView';
 import {
   ODOMETER_NATIVE_EVIDENCE_TYPE,
   odometerOutcomeMessage,
   requestOdometerReading,
   type OdometerReadingOutcome,
 } from '../../utils/odometerCapture';
+import { toServiceLogView } from '../../utils/serviceHistoryView';
+import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
+import type { OwnerServiceHistoryEntry } from '@shared/types';
 
-interface Vehicle {
-  vin: string;
-  make: string;
-  model: string;
-  year: number;
-  color: string;
-  mileage: number;
-  fuel_type: string;
-  transmission: string;
-  status: string;
-  trust_score: number;
-  price: number;
-  currency: string;
+function listingState(status?: string | null): { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' } {
+  const value = String(status || '').toLowerCase();
+  if (value === 'published') return { label: 'Published on Marketplace', tone: 'success' };
+  if (value === 'publishable') return { label: 'Ready to publish — not public', tone: 'warning' };
+  if (value === 'draft') return { label: 'Draft', tone: 'neutral' };
+  if (value === 'pending' || value === 'pending_review') return { label: 'Pending review', tone: 'warning' };
+  return { label: status ? status.replace(/[_-]+/g, ' ') : 'Listing state not recorded', tone: 'neutral' };
 }
 
-// OC-5D (P6): GET /api/service-history/me, held to shared/contracts/owner-service-history.v1.contract.json.
-type ServiceLog = OwnerServiceHistoryEntry;
+function OwnerVehicleCard({
+  vehicle,
+  onPassport,
+  onOdometer,
+  capturing,
+}: {
+  vehicle: NativeOwnedVehicle;
+  onPassport: () => void;
+  onOdometer: () => void;
+  capturing: boolean;
+}) {
+  const theme = useNativeTheme();
+  const state = listingState(vehicle.status);
+  const title = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: theme.border.default,
+        backgroundColor: theme.background.surface,
+        padding: spacing[4],
+        gap: spacing[3],
+      }}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing[3] }}>
+        <View style={{ flex: 1 }}>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }} numberOfLines={1}>
+            VIN {vehicle.vin}
+          </Text>
+          <Text allowFontScaling style={{ ...typeScale.headline, color: theme.text.primary, marginTop: spacing[1] }}>
+            {title || vehicle.vin}
+          </Text>
+          {[vehicle.color, vehicle.transmission].filter(Boolean).length ? (
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[1] }}>
+              {[vehicle.color, vehicle.transmission].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
+        </View>
+        <StatusPill label={state.label} tone={state.tone} />
+      </View>
+
+      <View style={{ height: 1, backgroundColor: theme.border.default }} />
+
+      <View style={{ gap: spacing[2] }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
+          <Ionicons name="key-outline" size={18} color={theme.text.secondary} />
+          <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary }}>Owned vehicle in My Garage</Text>
+        </View>
+        {typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
+            <Ionicons name="speedometer-outline" size={18} color={theme.text.secondary} />
+            <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary }}>{vehicle.mileage.toLocaleString()} km recorded</Text>
+          </View>
+        ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={theme.text.secondary} />
+          <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary }}>Vehicle Passport available</Text>
+        </View>
+      </View>
+
+      {typeof vehicle.price === 'number' && Number.isFinite(vehicle.price) ? (
+        <View>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>Recorded listing price</Text>
+          <Price amount={vehicle.price} currency={vehicle.currency || null} compact />
+        </View>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', gap: spacing[2] }}>
+        <Button label="Vehicle Passport" variant="secondary" onPress={onPassport} style={{ flex: 1 }} />
+        <Button label={capturing ? 'Opening camera' : 'Odometer photo'} onPress={onOdometer} loading={capturing} style={{ flex: 1 }} />
+      </View>
+    </View>
+  );
+}
+
+function ServiceHistoryCard({ item }: { item: OwnerServiceHistoryEntry }) {
+  const theme = useNativeTheme();
+  const view = toServiceLogView(item);
+  return (
+    <View
+      style={{
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: theme.border.default,
+        backgroundColor: theme.background.surface,
+        padding: spacing[4],
+        marginBottom: spacing[3],
+      }}
+    >
+      <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>{view.vinLabel}</Text>
+      <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary, marginTop: 2 }}>{view.title}</Text>
+      <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>{view.dateLabel}</Text>
+      <View style={{ marginTop: spacing[3], gap: spacing[2] }}>
+        {view.detail ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing[3] }}>
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>{view.detail.label}</Text>
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.secondary, flex: 1, textAlign: 'right' }}>{view.detail.value}</Text>
+          </View>
+        ) : null}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing[3] }}>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>Status</Text>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.secondary }}>{view.statusLabel}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing[3] }}>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>Cost</Text>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.secondary }}>{view.costLabel}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 function GarageScreenInner() {
+  const theme = useNativeTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const columns = width >= 700 ? 2 : 1;
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const enqueueUpload = useUploadQueueStore((state) => state.enqueue);
   const hydrateQueue = useUploadQueueStore((state) => state.hydrate);
-  const [activeTab, setActiveTab] = useState<'vehicles' | 'history'>('vehicles');
-  const [scanningVin, setScanningVin] = useState<string | null>(null);
 
-  // Restore any durable offline queue on mount, then attempt to drain it (best-effort). A queued
-  // odometer capture that uploads now also gets its governed OCR read (OC-4C).
+  const [section, setSection] = useState<'vehicles' | 'history'>('vehicles');
+  const [capturingVin, setCapturingVin] = useState<string | null>(null);
+  const [pendingCapture, setPendingCapture] = useState<{ vin: string; asset: CapturedAsset } | null>(null);
+  const [permission, setPermission] = useState<CameraPermissionState | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<{ title: string; body: string; tone: 'info' | 'success' | 'warning' | 'danger' } | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const vehiclesQuery = useQuery({
+    queryKey: ['native-my-garage-vehicles', user?.id],
+    queryFn: getMyVehicles,
+  });
+  const historyQuery = useQuery({
+    queryKey: ['native-my-garage-history', user?.id],
+    queryFn: getMyServiceHistory,
+    enabled: section === 'history',
+  });
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       await hydrateQueue();
       if (cancelled || !user?.id) return;
       try {
@@ -57,333 +202,229 @@ function GarageScreenInner() {
           resolvePayload: async (item) => item.localFileRef || null,
           uploadOne: makeHttpUploader(base, token),
           onUploaded: async (item, evidenceId) => {
-            if (item.evidenceType === ODOMETER_NATIVE_EVIDENCE_TYPE) await requestOdometerReading(base, token, item.vin, evidenceId);
-          },
-        });
-      } catch { /* offline / unconfigured — items remain queued for the next attempt */ }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrateQueue]);
-
-  // Fetch owned vehicles
-  const { data: vehicles = [], isLoading: isLoadingVehicles, error: vehiclesError, refetch: refetchVehicles } = useQuery<Vehicle[]>({
-    queryKey: ['my-vehicles'],
-    queryFn: async () => {
-      const response = await fetch(apiUrl('/api/vehicles/me'), {
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          ...(token ? { 'x-session-token': token } : {}),
-        },
-      });
-      if (!response.ok) {
-        throw new Error('Failed to retrieve garage vehicles');
-      }
-      return response.json();
-    },
-  });
-
-  // Fetch service history logs
-  const { data: serviceHistory = [], isLoading: isLoadingHistory, error: historyError, refetch: refetchHistory } = useQuery<ServiceLog[]>({
-    queryKey: ['my-service-history'],
-    queryFn: async () => {
-      const response = await fetch(apiUrl('/api/service-history/me'), {
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-          ...(token ? { 'x-session-token': token } : {}),
-        },
-      });
-      if (!response.ok) {
-        throw new Error('Failed to retrieve service history');
-      }
-      return response.json();
-    },
-    enabled: activeTab === 'history',
-  });
-
-  const handleRefresh = async () => {
-    if (activeTab === 'vehicles') {
-      await refetchVehicles();
-    } else {
-      await refetchHistory();
-    }
-  };
-
-  // OC-4C: capture → durable queue FIRST → idempotent evidence upload → governed vehicle-evidence OCR
-  // (Document Intelligence → Qwen) → a candidate reading pending review. It used to POST the photo to the
-  // retired /api/ai/ocr (a 410) and then tell the owner the image had been "saved for manual review",
-  // which it had not. The reading never changes the vehicle's mileage; the app never calls a model.
-  const handleOdometerScan = useCallback(async (vin: string) => {
-    if (scanningVin) return; // Prevent double-tap
-
-    setScanningVin(vin);
-
-    try {
-      // Launch native camera with 16:9 aspect for dashboard instrument cluster framing
-      const asset = await captureOdometerPhoto();
-
-      if (!asset) {
-        // User cancelled camera
-        setScanningVin(null);
-        return;
-      }
-
-      if (!user?.id) {
-        Alert.alert('Sign in required', 'Sign in to save an odometer photo to your vehicle.', [{ text: 'OK' }]);
-        return;
-      }
-
-      // Capture-first: the photo is queued durably BEFORE any network call, so it survives a failed
-      // request, an app restart or no signal at all. The queue dedupes the same capture.
-      const queued = enqueueUpload({
-        userId: user.id,
-        tenantId: (user as { tenantId?: string }).tenantId || 'default',
-        vin,
-        evidenceType: ODOMETER_NATIVE_EVIDENCE_TYPE,
-        localFileRef: asset.dataUri,
-        checksum: `${asset.fileSizeBytes}:${(asset.dataUri || '').slice(-32)}`,
-      });
-
-      let outcome: OdometerReadingOutcome = { kind: 'queued' };
-      try {
-        const base = resolveApiBaseUrl();
-        await drainUploadQueue({
-          resolvePayload: async (item) => item.localFileRef || null,
-          uploadOne: makeHttpUploader(base, token),
-          onUploaded: async (item, evidenceId) => {
-            if (item.evidenceType !== ODOMETER_NATIVE_EVIDENCE_TYPE) return;
-            const read = await requestOdometerReading(base, token, item.vin, evidenceId);
-            if (item.localId === queued.localId) outcome = read;
+            if (item.evidenceType === ODOMETER_NATIVE_EVIDENCE_TYPE) {
+              await requestOdometerReading(base, token, item.vin, evidenceId);
+            }
           },
         });
       } catch {
-        // Offline or unconfigured: the capture stays queued and uploads on the next drain.
+        // Existing queued evidence remains durable for a later retry.
       }
+    })();
+    return () => { cancelled = true; };
+  }, [hydrateQueue, token, user?.id]);
 
-      const message = odometerOutcomeMessage(outcome);
-      Alert.alert(message.title, `VIN: ${vin}\n${message.body}`, [
-        { text: 'View Trust Passport', onPress: () => router.push(`/vehicle/${vin}`) },
-        { text: 'Done', style: 'cancel' },
-      ]);
-    } catch (err) {
-      console.error('[Garage] Odometer scan error:', err);
-      Alert.alert('Camera Error', 'Could not launch camera. Please try again.', [{ text: 'OK' }]);
-    } finally {
-      setScanningVin(null);
+  const captureOdometer = useCallback(async (vin: string) => {
+    if (capturingVin || uploading) return;
+    setCapturingVin(vin);
+    setPermission(null);
+    setUploadMessage(null);
+    const result = await captureOdometerPhotoWithStatus();
+    setCapturingVin(null);
+
+    if (result.kind === 'captured') {
+      setPendingCapture({ vin, asset: result.asset });
+      return;
     }
-  }, [scanningVin, token, router, user, enqueueUpload]);
+    if (result.kind === 'permission') {
+      setPermission(result.state);
+      return;
+    }
+    if (result.kind === 'error') {
+      setUploadMessage({ title: 'Camera unavailable', body: result.message, tone: 'danger' });
+    }
+  }, [capturingVin, uploading]);
 
-  const handleKycScan = () => {
-    // Navigate to introductory KYC flow
-    router.push('/(auth)/verification/intro');
-  };
+  const useOdometerPhoto = useCallback(async () => {
+    if (!pendingCapture || !user?.id) return;
+    setUploading(true);
+    setUploadMessage(null);
 
-  const renderVehicleCard = ({ item }: { item: Vehicle }) => {
-    return (
-      <View className="bg-white border border-slate-100 rounded-2xl p-5 mb-5 shadow-sm">
-        {/* Header Block */}
-        <View className="flex-row justify-between items-start">
-          <View>
-            <Text className="text-slate-400 text-xxs font-semibold uppercase tracking-wider">{item.vin}</Text>
-            <Text className="text-slate-900 text-lg font-bold mt-0.5">{item.year} {item.make} {item.model}</Text>
-            <Text className="text-slate-500 text-xs mt-0.5">{item.color} • {item.transmission}</Text>
-          </View>
-          
-          <View className="bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full">
-            <Text className="text-emerald-600 text-xxs font-extrabold uppercase tracking-wider">Active</Text>
-          </View>
-        </View>
+    const queued = enqueueUpload({
+      userId: user.id,
+      tenantId: user.active_tenant_id || 'default',
+      vin: pendingCapture.vin,
+      evidenceType: ODOMETER_NATIVE_EVIDENCE_TYPE,
+      localFileRef: pendingCapture.asset.dataUri,
+      checksum: `${pendingCapture.asset.fileSizeBytes}:${pendingCapture.asset.dataUri.slice(-32)}`,
+    });
 
-        {/* Separator */}
-        <View className="h-px bg-slate-100 my-4" />
+    let outcome: OdometerReadingOutcome = { kind: 'queued' };
+    try {
+      const base = resolveApiBaseUrl();
+      await drainUploadQueue({
+        resolvePayload: async (item) => item.localFileRef || null,
+        uploadOne: makeHttpUploader(base, token),
+        onUploaded: async (item, evidenceId) => {
+          if (item.evidenceType !== ODOMETER_NATIVE_EVIDENCE_TYPE) return;
+          const read = await requestOdometerReading(base, token, item.vin, evidenceId);
+          if (item.localId === queued.localId) outcome = read;
+        },
+      });
+    } catch {
+      outcome = { kind: 'queued' };
+    }
 
-        {/* Stats Panel */}
-        <View className="flex-row justify-between mb-5">
-          <View>
-            <Text className="text-slate-400 text-xxs uppercase tracking-wider">Current Mileage</Text>
-            <Text className="text-slate-900 text-sm font-extrabold mt-0.5">{item.mileage.toLocaleString()} km</Text>
-          </View>
-          <View>
-            <Text className="text-slate-400 text-xxs uppercase tracking-wider">Ecosystem Trust</Text>
-            <Text className="text-orange-500 text-sm font-extrabold mt-0.5">{item.trust_score}%</Text>
-          </View>
-          <View>
-            <Text className="text-slate-400 text-xxs uppercase tracking-wider">Equity Value</Text>
-            <Text className="text-slate-900 text-sm font-extrabold mt-0.5">
-              ${item.price.toLocaleString()} {item.currency}
-            </Text>
-          </View>
-        </View>
+    const copy = odometerOutcomeMessage(outcome);
+    setPendingCapture(null);
+    setUploading(false);
+    setUploadMessage({
+      title: copy.title,
+      body: copy.body,
+      tone: outcome.kind === 'queued' ? 'warning' : 'info',
+    });
+  }, [enqueueUpload, pendingCapture, token, user?.active_tenant_id, user?.id]);
 
-        {/* Action Panel */}
-        <View className="flex-row gap-3 pt-3 border-t border-slate-50">
-          <Pressable
-            onPress={() => handleOdometerScan(item.vin)}
-            disabled={scanningVin === item.vin}
-            className={`flex-1 rounded-xl min-h-[44px] items-center justify-center border active:opacity-90 ${
-              scanningVin === item.vin ? 'bg-amber-600 border-amber-700' : 'bg-slate-950 border-slate-900'
-            }`}
-            style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
-          >
-            {scanningVin === item.vin ? (
-              <View className="flex-row items-center space-x-2">
-                <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text className="text-white text-xs font-semibold">Scanning...</Text>
-              </View>
-            ) : (
-              <Text className="text-white text-xs font-semibold">Scan Odometer</Text>
-            )}
-          </Pressable>
-          
-          <Pressable
-            onPress={() => router.push(`/vehicle/${item.vin}`)}
-            className="flex-1 bg-slate-50 rounded-xl min-h-[44px] items-center justify-center border border-slate-100 active:opacity-90"
-            style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
-          >
-            <Text className="text-slate-700 text-xs font-semibold">Trust Passport</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  };
-
-  const renderServiceLog = ({ item }: { item: ServiceLog }) => {
-    // Everything shown comes from the contract through one null-safe view (F1: `item.cost` never existed).
-    const view = toServiceLogView(item);
-    return (
-      <View className="bg-white border border-slate-100 rounded-2xl p-5 mb-4 shadow-sm">
-        <View className="flex-row justify-between items-start">
-          <View className="flex-1 pr-4">
-            <Text className="text-slate-400 text-xxs font-bold uppercase">{view.vinLabel}</Text>
-            <Text className="text-slate-900 text-base font-bold mt-0.5">{view.title}</Text>
-            <Text className="text-slate-400 text-xxs mt-0.5">{view.dateLabel}</Text>
-          </View>
-          <View className={view.costRecorded ? 'bg-slate-900 px-3 py-1 rounded-full' : 'bg-slate-100 px-3 py-1 rounded-full'}>
-            <Text className={view.costRecorded ? 'text-white text-xxs font-bold' : 'text-slate-500 text-xxs font-semibold'}>{view.costLabel}</Text>
-          </View>
-        </View>
-
-        <View className="h-px bg-slate-100 my-3" />
-
-        <View className="space-y-1.5 bg-slate-50 p-3 rounded-xl">
-          {view.detail ? (
-            <View className="flex-row justify-between">
-              <Text className="text-slate-400 text-xxs font-semibold">{view.detail.label}</Text>
-              <Text className="text-slate-700 text-xs font-medium">{view.detail.value}</Text>
-            </View>
-          ) : null}
-          <View className="flex-row justify-between mt-1">
-            <Text className="text-slate-400 text-xxs font-semibold">Status</Text>
-            <Text className="text-slate-700 text-xs font-bold uppercase tracking-wider">{view.statusLabel}</Text>
-          </View>
-          {view.authorizationLabel ? (
-            <View className="flex-row justify-between mt-1">
-              <Text className="text-slate-400 text-xxs font-semibold">Authorization</Text>
-              <Text className="text-slate-700 text-xs font-medium">{view.authorizationLabel}</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
-    );
-  };
-
-  const isLoading = activeTab === 'vehicles' ? isLoadingVehicles : isLoadingHistory;
-  const hasError = activeTab === 'vehicles' ? vehiclesError : historyError;
+  const vehicles = vehiclesQuery.data || [];
+  const history = historyQuery.data || [];
+  const refreshing = section === 'vehicles' ? vehiclesQuery.isRefetching : historyQuery.isRefetching;
 
   return (
-    <View className="flex-1 bg-slate-50">
-      {/* Tab Switcher Headers */}
-      <View className="bg-slate-900 px-6 pt-4 pb-2 border-b border-slate-800 flex-row">
-        <Pressable
-          onPress={() => setActiveTab('vehicles')}
-          className={`pb-3 mr-6 border-b-2 min-h-[44px] justify-center ${activeTab === 'vehicles' ? 'border-orange-500' : 'border-transparent'}`}
-        >
-          <Text className={`text-sm font-bold ${activeTab === 'vehicles' ? 'text-white' : 'text-slate-400'}`}>My Fleet</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setActiveTab('history')}
-          className={`pb-3 border-b-2 min-h-[44px] justify-center ${activeTab === 'history' ? 'border-orange-500' : 'border-transparent'}`}
-        >
-          <Text className={`text-sm font-bold ${activeTab === 'history' ? 'text-white' : 'text-slate-400'}`}>Maintenance Logs</Text>
-        </Pressable>
+    <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
+      <View style={{ paddingHorizontal: spacing[5], paddingTop: spacing[6], paddingBottom: spacing[3] }}>
+        <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary }}>My Garage</Text>
+        <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
+          Your vehicles, Vehicle Passports and service history.
+        </Text>
+
+        <View style={{ flexDirection: 'row', gap: spacing[2], marginTop: spacing[4] }}>
+          <Button label="My vehicles" variant={section === 'vehicles' ? 'primary' : 'secondary'} onPress={() => setSection('vehicles')} style={{ flex: 1 }} />
+          <Button label="Service history" variant={section === 'history' ? 'primary' : 'secondary'} onPress={() => setSection('history')} style={{ flex: 1 }} />
+        </View>
+
+        {permission && permission !== 'granted' ? (
+          <View style={{ marginTop: spacing[4] }}>
+            <PermissionPanel
+              title={permission === 'blocked' ? 'Camera access is blocked' : permission === 'unavailable' ? 'Camera is unavailable' : 'Camera access is needed'}
+              body={permission === 'blocked'
+                ? 'Enable camera access for CarUp in device Settings, then return to My Garage.'
+                : permission === 'unavailable'
+                  ? 'The camera could not be opened on this device.'
+                  : 'Allow camera access so you can photograph the odometer.'}
+              onOpenSettings={permission === 'blocked' ? () => void openCameraSettings() : undefined}
+              onRetry={permission === 'denied' || permission === 'not_requested'
+                ? () => { if (capturingVin) void captureOdometer(capturingVin); }
+                : undefined}
+            />
+          </View>
+        ) : null}
+
+        {pendingCapture ? (
+          <View style={{ marginTop: spacing[4] }}>
+            <CapturePreview
+              uri={pendingCapture.asset.uri}
+              label={`Odometer photo for ${pendingCapture.vin}`}
+              onRetake={() => {
+                const vin = pendingCapture.vin;
+                setPendingCapture(null);
+                void captureOdometer(vin);
+              }}
+              onUse={() => void useOdometerPhoto()}
+              useLabel={uploading ? 'Uploading' : 'Use odometer photo'}
+            />
+          </View>
+        ) : null}
+
+        {uploadMessage ? (
+          <View style={{ marginTop: spacing[4] }}>
+            <Notice title={uploadMessage.title} body={uploadMessage.body} tone={uploadMessage.tone} />
+          </View>
+        ) : null}
       </View>
 
-      {/* Main Container */}
-      {isLoading ? (
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#f97316" />
-        </View>
-      ) : hasError ? (
-        <View className="flex-1 justify-center items-center px-6">
-          <View className="bg-red-50 p-4 rounded-full mb-4">
-            <Text className="text-red-500 text-3xl">⚠️</Text>
+      {section === 'vehicles' ? (
+        vehiclesQuery.isLoading ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading your vehicles" />
           </View>
-          <Text className="text-slate-800 text-lg font-bold text-center mb-2">Unable to load data</Text>
-          <Text className="text-slate-500 text-sm text-center mb-8">We could not reach the server. Please check your connection and try again.</Text>
-          <Pressable onPress={handleRefresh} className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl active:opacity-90">
-            <Text className="text-white text-sm font-semibold">Retry Fetch</Text>
-          </Pressable>
+        ) : vehiclesQuery.isError ? (
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="My Garage could not refresh"
+              body="Check your connection and try again. Your vehicle state will not be replaced with cached assumptions."
+              actionLabel="Try again"
+              onAction={() => void vehiclesQuery.refetch()}
+            />
+          </View>
+        ) : vehicles.length === 0 ? (
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <EmptyState
+              icon="car-outline"
+              title="No vehicles in My Garage yet"
+              body="Vehicles you own will appear here after CarUp's ownership process associates them with your account."
+              actionLabel="Browse Market"
+              onAction={() => router.push('/(tabs)/marketplace' as never)}
+              secondaryLabel="Verify identity"
+              onSecondary={() => router.push('/(auth)/verification/intro' as never)}
+            />
+          </View>
+        ) : (
+          <FlatList
+            key={`vehicles-${columns}`}
+            data={vehicles}
+            numColumns={columns}
+            keyExtractor={(item) => item.vin}
+            renderItem={({ item, index }) => (
+              <View
+                style={{
+                  flex: 1,
+                  marginHorizontal: columns === 2 ? spacing[1] : 0,
+                  marginBottom: spacing[3],
+                  maxWidth: columns === 2 ? '50%' : '100%',
+                }}
+              >
+                <OwnerVehicleCard
+                  vehicle={item}
+                  capturing={capturingVin === item.vin}
+                  onPassport={() => router.push(`/vehicle/${item.vin}` as never)}
+                  onOdometer={() => void captureOdometer(item.vin)}
+                />
+              </View>
+            )}
+            contentContainerStyle={{ paddingHorizontal: spacing[5], paddingBottom: spacing[10] }}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void vehiclesQuery.refetch()} />}
+          />
+        )
+      ) : historyQuery.isLoading ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading service history" />
         </View>
-      ) : activeTab === 'vehicles' && vehicles.length === 0 ? (
-        <View className="flex-1 justify-center items-center px-6">
-          <Text className="text-slate-400 text-sm font-medium text-center">No vehicles registered in your fleet yet.</Text>
-          <Text className="text-slate-400 text-xxs mt-2 text-center leading-relaxed">
-            Register or acquire a vehicle under the Marketplace tab. Keep your identity verified to establish trust keys.
-          </Text>
-          
-          <Pressable
-            onPress={handleKycScan}
-            className="bg-orange-500 px-6 py-3.5 rounded-xl shadow-md mt-6 active:opacity-90"
-            style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
-          >
-            <Text className="text-white text-xs font-bold">Start KYC Identity Verification</Text>
-          </Pressable>
+      ) : historyQuery.isError ? (
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Service history could not refresh"
+            body="Check your connection and try again."
+            actionLabel="Try again"
+            onAction={() => void historyQuery.refetch()}
+          />
         </View>
-      ) : activeTab === 'history' && serviceHistory.length === 0 ? (
-        <ScrollView 
-          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor="#f97316" />}
+      ) : history.length === 0 ? (
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void historyQuery.refetch()} />}
         >
-          <Text className="text-slate-400 text-sm font-medium text-center">No service logs found for your fleet.</Text>
-          <Text className="text-slate-400 text-xxs mt-2 text-center leading-relaxed">
-            Certified mechanics will mint immutable log proofs directly to your garage once work orders are signed off.
-          </Text>
+          <EmptyState
+            icon="construct-outline"
+            title="No service records yet"
+            body="Service records associated with your vehicles will appear here when CarUp has them."
+          />
         </ScrollView>
-      ) : activeTab === 'vehicles' ? (
-        <FlatList
-          data={vehicles}
-          renderItem={renderVehicleCard}
-          keyExtractor={(item: Vehicle) => item.vin}
-          contentContainerStyle={{ padding: 24 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor="#f97316" />
-          }
-        />
       ) : (
         <FlatList
-          data={serviceHistory}
-          renderItem={renderServiceLog}
-          keyExtractor={(item: ServiceLog) => item.id}
-          contentContainerStyle={{ padding: 24 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor="#f97316" />
-          }
+          data={history}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <ServiceHistoryCard item={item} />}
+          ListHeaderComponent={<SectionHeader title="Service history" />}
+          contentContainerStyle={{ paddingHorizontal: spacing[5], paddingBottom: spacing[10] }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void historyQuery.refetch()} />}
         />
       )}
     </View>
   );
 }
 
-/**
- * Owner-protected route boundary (Milestone C). A deep link / direct nav to the
- * Garage screen is gated by the SAME governed decision that hides the tab for
- * non-owners (owner.garage: owner-only, requiresAuth). Anonymous → sign-in,
- * wrong-role → own dashboard, disabled/planned/hidden → safe state screen.
- */
 export default function GarageScreen() {
   return (
     <NativeFeatureBoundary route="/dashboard/garage" featureId="owner.garage">
