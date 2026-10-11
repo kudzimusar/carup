@@ -611,3 +611,29 @@ The web certification at `36ac6712` is therefore **INHERITED BY BYTE-IDENTICAL W
 | `docs/one-carup/OC_LAUNCH_WEB_LONG_RUN_LEDGER.md` | Ledger | No |
 
 After rebase, the full Node 20 backend suite will be rerun on the post-rebase exact head; the current pass is not a substitute.
+
+## R4-C — fresh run Tablet shard: new first defect (classified, not D7)
+
+**Fresh run 38130702563 state at 11:36Z:**
+
+| Job | Result |
+| --- | --- |
+| Bootstrap | success |
+| Chromium | success (D7 certified, R4-B) |
+| Tablet (job 114450684788) | **failure**: 49 passed / 1 failed / 30 skipped |
+| Mobile | awaiting owner approval |
+
+The failing test is `tests/agents/42-seller-media-lifecycle-staging.spec.ts:218`, "the seller-selected cover survives publish, unpublish, republish and sold" (tablet-chromium). It fails at the REPUBLISH step: "Republish must be reachable", expected `ready`, received `outside-viewport(top=1350)` for 15 s.
+
+**Evidence** (run artifact `diaspora-deployed-staging-uat-tablet-chromium-38130702563`: screenshot and ARIA snapshot):
+- The test runs as the shared UAT seller, whose My Listings page now reads "225 vehicle listings · **122 conversations · 122 unread**" (bell: 296 unread).
+- `MyListings.tsx:253` renders `<SellerInquiriesCard>` **above** the listing cards (`:307`). It fetches inquiries asynchronously (`SellerInquiriesCard.tsx:136-143`) and grows from a loading block to the full inquiries list.
+- After the reload, `press()` (`:127-144`) scrolls the target to mid-viewport **once**, then polls 15 s without re-scrolling. The late-arriving inquiries block pushed the card about 760 px down (top ≈ 590 → 1350).
+
+**Classification:**
+- **NOT D7, NOT the secret custody fix, NOT the launch stack.** The run tests frozen 40621751 front and back end; the old run's Tablet passed the same test on the same code.
+- **First real defect: a layout shift on the seller dashboard.** An async inquiries block sits above the listing cards with no reserved geometry. It is exposed only now, because the repaired worker finally creates the conversations the block exists to show (the data-dependent latent defect behind D7's 401).
+- **Contributing: harness fragility.** `press()` scrolls once and does not re-scroll inside its poll. Re-scrolling inside the poll keeps the overlay/hit-target guard fully intact; it does not weaken the test.
+- **Expected impact:** the same failure is likely on Mobile (persisting data, narrow layout). Chromium passed; desktop layout does not stack the block above the cards at that offset.
+
+No rerun was made. No test was changed. Ruling requested (moderator R4: "a shard exposes a new defect").
