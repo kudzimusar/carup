@@ -175,7 +175,7 @@ export default function SellDetailsScreen() {
         <Button label="Save draft" onPress={() => void save()} loading={saving} />
         <Notice
           title="Nothing is published yet"
-          body="Saving records the seller's draft. Publication is a separate governed action after required facts, evidence and seller authority are satisfied."
+          body="Saving records your draft. Publication is a separate step after CarUp checks the required facts, evidence and your eligibility to sell."
           tone="info"
         />
       </View>
