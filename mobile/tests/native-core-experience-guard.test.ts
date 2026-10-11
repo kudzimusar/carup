@@ -37,6 +37,9 @@ for (const phrase of [
   'AI gateway',
   'CarUp Kimi',
   'ZIMBABWE RESUMABLE NETWORK BUFFER',
+  'system of record',
+  'seller authority',
+  'governed channel',
 ]) {
   assert.equal(
     source.toLowerCase().includes(phrase.toLowerCase()),
