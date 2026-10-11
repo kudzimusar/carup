@@ -120,3 +120,40 @@ Final source gates: 252 web test files / 2,347 tests passed; production TypeScri
 Direct HTTP verification of the e787f338 Preview found `/support` and `/security` incorrectly returning 404 because they are approved public launch routes outside the feature registry. The document handler now recognises explicit launch-route authority, preserves authentication/noindex rules, and supplies accurate Support/Security metadata. A regression exercises all declared static launch routes and rejects the wildcard as a real destination. Frozen e787f338 failed direct-route receipt remains outside source. Full web unit suite: 252 files / 2,348 tests passed; focused document/distribution tests: 20 passed; dedicated function typecheck and production build passed.
 
 The broad `npm test` wrapper stopped at inherited lint errors before its later gates. Frozen baseline has 130 errors/10 warnings. Comparison found exactly three added diagnostics (control-character regex and two generic Function test signatures); all three were corrected without disabling rules. Focused lint for those new document/build files passes. The broad lint baseline is not green and is not represented as a passing gate. No unrelated baseline lint remediation attempted.
+
+## Final candidate — Contact inquiry truth and exact staging pair
+
+Recorded 2026-10-11T06:06:05Z (UTC clock). Live Contact read-back on the e94f897d pair showed "you are asked to sign in only when you send your first message". The existing inquiry path also accepts a guest inquiry carrying an email or phone (`InquiryModal` guest_name/guest_email/guest_phone; documented deviation in `publicAccessPolicy`). Copy-only correction `be2a779a` states both paths, without changing access rules and without promising external reply delivery while outbound is disabled.
+
+Certification at `be2a779a4f89365538eab4b82178f186c7a516b9`:
+- Web unit suite under Node 22.23.2 (same runtime as all earlier ledger runs): 252 files / 2,348 tests passed. Production TypeScript/Vite build and dedicated `web/api` function typecheck passed.
+- Preserved nonfinal run: the same suite under Node 26.8.2 (the shell default) failed 26 tests in 8 files, all `localStorage`/`sessionStorage` undefined. Node 25+ ships its own Web Storage global, which shadows jsdom storage. This is environmental and independent of the copy change. CI pins Node 20. A local Node 20 cross-check could not run: the installed nvm Node 20 is an x64 binary and the workspace has arm64-only rollup natives. Node 20 is not claimed.
+- Production-browser regression (`web/e2e/launch-home-responsive.spec.ts`, local production preview, retries 0): 15/15 passed.
+
+Final exact staging Preview pair (manual CLI, Git integration stays disconnected, no stable/production alias movement):
+
+| | Deployment | Immutable URL | Evidence alias |
+| --- | --- | --- | --- |
+| Backend | `dpl_2B5WkBHG4hQKhGSq1VvsJ5dQbjH1` | https://carup-backend-staging-p6fptn534-11-11.vercel.app | https://carup-backend-staging-oc-launch-lr1-be2a779a.vercel.app |
+| Frontend | `dpl_9sQrLmLUrZMqETqSqTtYSdDdKvCe` | https://carup-staging-kz65v2568-11-11.vercel.app | https://carup-staging-oc-launch-lr1-be2a779a.vercel.app |
+
+Runtime read-back:
+- Backend health: commit `be2a779a…`, staging DB `eoyenigwevnxwwhyhaer`, consistent.
+- Communications: scheduler READY, fake adapters disabled, outbound kill switch active, external sends disabled. Resend READY; Brevo marketing READY. WhatsApp, Telegram, Messenger, Instagram, SMS and Push BLOCKED on current-scope credentials.
+- Frontend: `carup-provenance.json` is paired to the be2a779a backend alias (`unpaired: false`). The frontend deploy log contains 0 TypeScript errors.
+- Live browser capture of `/`, `/marketplace` and `/contact`: every `/api` request went to the be2a779a backend (health, nav-coverage, listings, features/effective). The single shared-staging hostname in the bundle is the `resolveApiBaseUrl` host table; it was not used at runtime.
+- Direct HTTP:
+  - 200 with carup.dev canonical, noindex, OG and Twitter metadata: `/`, `/marketplace`, `/contact`, `/about`, `/trust`, `/help`, `/dealers`, `/garages`, `/support`, `/security`.
+  - `/dashboard/garage`: noindex shell.
+  - 404: `/not-a-carup-route` and unpublished `/marketplace/GFC27-027051`.
+  - Served: robots.txt, sitemap.xml, provenance.
+  - No Kingston or Serena text appears in any public document.
+- Public listings: HTTP 200, total 0.
+
+Superseded (evidence only, not final): e94f897d pair, frontend `dpl_8w4esCojqbVDutz8aqsPgAfZ5cXV`, backend `dpl_3AXYArtRqo11mFi1NrYe62on8HSd`.
+
+Custody re-read at the same timestamp: PR #222 remote is still `40621751`. Local is 11 ahead / 0 behind; all commits are LOCAL-ONLY / NOT REVIEWED. Diaspora run 38079945430 is still `waiting` at 40621751 and was not approved, cancelled or replaced. `mobile/` is unchanged. 54 files changed against the starting source.
+
+Not done: provider sends, worker invocations, DB writes, publication, production access, webhook changes, pushes.
+
+Disposition: web launch source, local certification and exact staging pair are complete. The current-candidate physical WhatsApp/Telegram/Resend/Brevo proof, Kingston fresh-login UAT, Serena publication and legal approval remain owner or account-custody blockers. OWNER USABILITY CHECKPOINT READY on the be2a779a pair, with those blockers explicit.
