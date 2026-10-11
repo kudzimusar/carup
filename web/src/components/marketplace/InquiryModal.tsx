@@ -106,6 +106,10 @@ export function InquiryModal({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (preferredContact !== 'carup' && channelStatus(capability, preferredContact) !== 'available') {
+      toast.error('That delivery channel is not ready in this environment. Sign in to continue in CarUp.')
+      return
+    }
     if (!user && !email && !phone) {
       toast.error('Please add an email or phone so the conversation can continue.')
       return
@@ -193,15 +197,15 @@ export function InquiryModal({
                 {user && <SelectItem value="carup">CarUp</SelectItem>}
                 {/* A channel CarUp cannot currently send through is offered as unavailable rather
                     than silently accepted — choosing it would promise a delivery that cannot occur. */}
-                <SelectItem value="whatsapp" disabled={channelStatus(capability, 'whatsapp') === 'unavailable'}>
-                  WhatsApp{channelStatus(capability, 'whatsapp') === 'unavailable' ? ' — unavailable' : ''}
+                <SelectItem value="whatsapp" disabled={channelStatus(capability, 'whatsapp') !== 'available'}>
+                  WhatsApp{channelStatus(capability, 'whatsapp') !== 'available' ? ' — unavailable' : ''}
                 </SelectItem>
-                <SelectItem value="email" disabled={channelStatus(capability, 'email') === 'unavailable'}>
-                  Email{channelStatus(capability, 'email') === 'unavailable' ? ' — unavailable' : ''}
+                <SelectItem value="email" disabled={channelStatus(capability, 'email') !== 'available'}>
+                  Email{channelStatus(capability, 'email') !== 'available' ? ' — unavailable' : ''}
                 </SelectItem>
               </SelectContent>
             </Select>
-            {(channelStatus(capability, 'whatsapp') === 'unavailable' || channelStatus(capability, 'email') === 'unavailable') && (
+            {(channelStatus(capability, 'whatsapp') !== 'available' || channelStatus(capability, 'email') !== 'available') && (
               <p className="mt-1 text-[11px] text-amber-700" data-testid="channel-degraded-note">
                 Some delivery channels are unavailable right now. Your message is still recorded and
                 replies stay in CarUp.

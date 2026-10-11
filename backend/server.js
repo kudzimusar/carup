@@ -438,6 +438,10 @@ app.get('/api/health', async (req, res) => {
       status: communicationConfiguration.status,
       ready: communicationConfiguration.ready,
       explanations: communicationConfiguration.explanations,
+      // Readiness metadata from the existing validator; never secret values. Provider
+      // configuration alone cannot prove that this runtime can dispatch a message.
+      scheduler: { status: communicationConfiguration.scheduler.status },
+      fakeAdapters: communicationConfiguration.fakeAdapters,
       providers: communicationConfiguration.providers.map((provider) => ({
         channel: provider.channel,
         provider: provider.provider,

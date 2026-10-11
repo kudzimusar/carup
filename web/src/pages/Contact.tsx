@@ -1,3 +1,4 @@
+import { PublicCommunicationChannels } from '@/components/communications/PublicCommunicationChannels'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -18,12 +19,11 @@ import { CONTACT_PURPOSES, PUBLIC_CONTACTS, PUBLIC_IDENTITY, PUBLIC_LOCATION_LIN
  *     docs/communications/EMAIL_EXPERIENCE_1_0_CONTACT_IDENTITY_MAPPING.md), one per purpose;
  *   · in-product conversations with a seller about a listing (sign-in at the point of messaging).
  *
- * Everything else — telephone, WhatsApp, SMS, Telegram, social media, live chat, a contact form,
- * opening hours, response times — does not exist yet, and the page says so rather than going quiet.
+ * External transports exist; their current configuration and physical evidence are distinct.
+ * PublicCommunicationChannels reads runtime truth rather than denying accepted capability.
  */
 const UNAVAILABLE_CHANNELS = [
   { channel: 'Telephone', detail: 'CarUp has no public phone number.' },
-  { channel: 'WhatsApp, SMS and Telegram', detail: 'Not connected. A message on these channels claiming to be CarUp is not from CarUp.' },
   { channel: 'Social media', detail: 'CarUp publishes no official Facebook, Instagram, X or LinkedIn account yet.' },
   { channel: 'Live chat or a contact form', detail: 'Not available — email is the way to reach CarUp.' },
   { channel: 'Opening hours and response times', detail: 'CarUp publishes none, because it measures none.' },
@@ -76,6 +76,7 @@ export default function Contact() {
           </section>
 
           <div className="space-y-6">
+            <PublicCommunicationChannels />
             <Card className="border-slate-200 py-0" data-testid="contact-listing-conversations">
               <CardContent className="p-6">
                 <h2 className="flex items-center gap-2 font-semibold text-slate-900">
