@@ -15,9 +15,10 @@ const customerFiles = [
   'app/(auth)/verification/result.tsx',
 ];
 
-const source = customerFiles
-  .map((file) => fs.readFileSync(path.join(root, file), 'utf8'))
-  .join('\n');
+const source = [
+  ...customerFiles.map((file) => fs.readFileSync(path.join(root, file), 'utf8')),
+  fs.readFileSync(path.join(root, 'components/capture/CaptureSystem.tsx'), 'utf8'),
+].join('\n');
 
 for (const phrase of [
   'Backend OCR Verified',
@@ -39,6 +40,9 @@ for (const phrase of [
 for (const fakeMeasuredSignal of [
   'Perfect lighting',
   'Document detected',
+  'Perfect lighting',
+  'Aligned',
+  'Sharp',
   'frameAligned',
   'isAligned',
   'isWellLit',
