@@ -45,8 +45,12 @@ assert.match(account, /!isAuthenticated/, 'Account must handle anonymous access 
 
 const shell = source('app/(tabs)/_layout.tsx');
 for (const legacy of ['garage', 'escrow', 'referral', 'communications', 'more']) {
-  const screenPattern = new RegExp('name=["\\\']' + legacy + '["\\\'][\\s\\S]*?href:\\s*null');
-  assert.match(shell, screenPattern, legacy + ' must stay hidden from the stable bottom shell');
+  const doubleQuoted = 'name="' + legacy + '"';
+  const singleQuoted = "name='" + legacy + "'";
+  const start = Math.max(shell.indexOf(doubleQuoted), shell.indexOf(singleQuoted));
+  assert.ok(start >= 0, legacy + ' screen declaration must exist');
+  const block = shell.slice(start, start + 160);
+  assert.match(block, /href:\s*null/, legacy + ' must stay hidden from the stable bottom shell');
 }
 
 console.log('native-boundary-audit.test: PASS');
