@@ -52,10 +52,10 @@ describe('Footer navigation (Milestone 3)', () => {
     const override = (id: string, state: 'hidden' | 'disabled' | 'planned'): NavigationContext => ({
       effectiveStates: { [id]: { featureId: id, state, enabled: state !== 'disabled', visible: false, accessible: false, beta: false } },
     })
-    expect(getFooterNavigation('product').map(i => i.id)).toContain('product.insurance')
+    expect(getFooterNavigation('product').map(i => i.id)).toContain('product.diaspora')
     for (const state of ['hidden', 'disabled', 'planned'] as const) {
-      expect(getFooterNavigation('product', override('product.insurance', state)).map(i => i.id))
-        .not.toContain('product.insurance')
+      expect(getFooterNavigation('product', override('product.diaspora', state)).map(i => i.id))
+        .not.toContain('product.diaspora')
     }
   })
 

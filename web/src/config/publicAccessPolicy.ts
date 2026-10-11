@@ -79,7 +79,7 @@ export const PUBLIC_ACCESS_POLICY: ReadonlyArray<SurfaceAccessPolicy> = Object.f
   },
   {
     surface: 'Contact', routes: ['/contact'], access: 'PUBLIC',
-    guestCan: ['see every contact address by purpose', 'see which channels CarUp does not offer'],
+    guestCan: ['see every contact address by purpose', 'see supported channels and their current environment readiness'],
     accountAskedAt: ['messaging a seller about a listing'],
   },
   {

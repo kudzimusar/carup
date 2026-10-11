@@ -868,22 +868,22 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
       label: 'ZIMRA Customs Cleared',
       status: m.zimra_duty ? 'verified' : 'not_verified',
       detail: m.zimra_duty
-        ? 'Import duty paid and confirmed via ZIMRA registry'
-        : 'No ZIMRA customs declaration found',
+        ? 'Customs duty evidence is recorded in this Passport; confirm the current position directly with ZIMRA'
+        : 'Customs duty evidence is not recorded in this Passport',
     },
     {
       label: 'CVR Ownership Registration',
       status: m.cvr_synced ? 'verified' : 'not_verified',
       detail: m.cvr_synced
-        ? 'Vehicle registered in Central Vehicle Registry'
-        : 'CVR record not yet linked',
+        ? 'Registration evidence is recorded in this Passport; CarUp does not query the Central Vehicle Registry'
+        : 'Registration evidence is not recorded in this Passport',
     },
     {
       label: 'ZRP Police Clearance',
       status: m.zrp_police_cleared ? 'verified' : 'not_verified',
       detail: m.zrp_police_cleared
-        ? 'CID check passed — not flagged as stolen'
-        : 'CID police clearance not yet recorded',
+        ? 'Police-clearance evidence is recorded in this Passport; CarUp does not perform a police database check'
+        : 'Police-clearance evidence is not recorded in this Passport',
     },
     {
       label: 'Odometer Consistency',
@@ -2202,7 +2202,7 @@ export default function VehicleDetail() {
                       <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="font-bold text-sm">Confidence Advisory: Unverified Number Plate</p>
-                        <p className="text-xs mt-0.5">A number plate is assigned but has not yet been verified against the Central Vehicle Registry (CVR). Trust score confidence has been reduced.</p>
+                        <p className="text-xs mt-0.5">A number plate is recorded, but its evidence review is not complete. Confirm registration directly with the relevant authority; CarUp does not query the CVR.</p>
                       </div>
                     </div>
                   );

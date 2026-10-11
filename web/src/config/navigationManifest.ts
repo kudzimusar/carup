@@ -1,3 +1,4 @@
+import { isPublicLaunchNavigationRoute } from './publicLaunchPolicy'
 /**
  * CarUp Navigation Manifest — registry-backed navigation placement model.
  *
@@ -464,6 +465,7 @@ export function getDesktopMegaMenu(surface: NavigationSurface, ctx: NavigationCo
     // primary/secondary surfaces. Footer + mobile role items already resolve
     // through resolveFeatureVisibility, which applies the same rule.
     if (isNodeBackendBlocked(node, ctx)) continue
+    if (!isPublicLaunchNavigationRoute(resolveNavItem(node, ctx).href)) continue
     const title = node.section ?? 'More'
     if (!sections.has(title)) {
       sections.set(title, { title, order: node.sectionOrder ?? 999, items: [] })
@@ -557,7 +559,7 @@ export function getFooterNavigation(column: FooterColumn, ctx: NavigationContext
     })
     .map(f => ({ f, vis: resolveFeatureVisibility(f, ctx) }))
     // Only render lifecycle-visible items (active/beta); hidden/disabled/planned excluded.
-    .filter(({ vis }) => vis.visible)
+    .filter(({ f, vis }) => vis.visible && isPublicLaunchNavigationRoute(f.route))
     .map(({ f, vis }) => ({
       id: f.id,
       label: f.label,

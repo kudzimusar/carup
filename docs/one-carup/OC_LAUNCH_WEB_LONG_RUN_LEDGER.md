@@ -46,3 +46,13 @@ Not certified. Current provider configuration, explicit physical delivery, Previ
 ### Additional phase-02 source evidence
 
 Full web production build passed after correcting the buyer-guidance prop. Main entry remains 3,766.41 kB / 952.92 kB gzip: performance work remains required. Home layout with controlled empty-inventory API responses: zero horizontal overflow at 320/360/375/390/430/768/1024/1440 after moving the dense desktop menu breakpoint to 1280px. This is local layout evidence only, not live inventory/UAT. Screenshots: `/private/tmp/carup-launch-evidence/home-{width}.png`. Mobile footer is now rendered; no core footer capability is hidden for phone layout. Offline cache tests: 8 passed; navigation HTML and account JSON are not persisted. Manifest added with existing approved CarUp icon, no native-app claim.
+
+### Phase-00 local commit and phase-01 follow-up
+
+Phase-00 local commit: `49c550d1` (not pushed). Affected backend communications engine/event coverage/public-truth suites: 178 passed using explicit local test-only environment inputs; no staging DB connection. First invocation failed because static imports evaluated before the test file's environment setup; rerun supplied the existing test-only defaults before module loading.
+
+Phase-01 additionally removes direct government-registry/police-check claims from Vehicle Detail signal descriptions. It retains the existing signal data and status logic, describes recorded Passport evidence, and says CarUp does not query those authorities. Vehicle Detail Trust regressions: 26 passed. Source exposure and keyboard tests cover unavailable incident reporting, approved support email, and launch-hidden insurance/pricing links.
+
+### Existing staging owner continuity (read-only)
+
+Owner browser retains an authenticated Kingston Musarurwa session. After refreshing the existing staging frontend, its stale footer assets updated to approved carup.dev identity. Seller Studio at `/dashboard/sell-vehicle?vin=GFC27-027051` loads the existing 2016 Nissan Serena Highway Star, 10 listing photos, 5 verified documents, and explicitly labels it `Draft workspace — not public` / `Buyer Preview — not public`. Canonical facts are locked and the existing Passport is reused. No fresh login, publication transition or final-candidate UAT is claimed. No save/publish action was taken.

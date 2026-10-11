@@ -523,7 +523,10 @@ describe('VehicleDetail — absent passport signals claim nothing in either dire
     })
     const container = await openVerificationTab()
 
-    expect(container.textContent || '').toContain('Vehicle registered in Central Vehicle Registry')
+    expect(container.textContent || '').toContain('Registration evidence is recorded in this Passport')
+    expect(container.textContent || '').toContain('CarUp does not query the Central Vehicle Registry')
+    expect(container.textContent || '').not.toContain('confirmed via ZIMRA registry')
+    expect(container.textContent || '').not.toContain('CID check passed')
   })
 })
 

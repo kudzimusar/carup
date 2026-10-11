@@ -15,7 +15,8 @@ describe('Mobile navigation (Milestone 4)', () => {
     expect(nav.roleItems).toEqual([])
     expect(nav.dashboardRoot).toBeUndefined()
     // Secondary mirrors the public "More" links
-    expect(nav.secondary.map(i => i.id)).toContain('more.insurance')
+    expect(nav.secondary.map(i => i.id)).toContain('more.diaspora')
+    expect(nav.secondary.map(i => i.id)).not.toContain('more.insurance')
   })
 
   it('mobile Sell uses guest vs authenticated destination', () => {
