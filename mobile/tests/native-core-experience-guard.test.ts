@@ -92,7 +92,9 @@ assert.match(results, /unsaveMarketplaceListing/, 'Market cards must unsave thro
 assert.match(results, /FlashList/, 'Marketplace results must retain the performant native list');
 
 const primitives = fs.readFileSync(path.join(root, 'components/ui/NativePrimitives.tsx'), 'utf8');
-assert.match(primitives, /minimum:\s*48/, 'shared touch-target floor must remain 48dp');
+const tokens = fs.readFileSync(path.join(root, 'theme/tokens.ts'), 'utf8');
+assert.match(tokens, /minimum:\s*48/, 'shared touch-target floor must remain 48dp');
+assert.match(primitives, /touchTarget\.minimum/, 'shared primitives must consume the touch-target floor');
 
 const shell = fs.readFileSync(path.join(root, 'app/(tabs)/_layout.tsx'), 'utf8');
 assert.match(shell, /minHeight:\s*48/, 'bottom navigation targets must remain at least 48dp');
