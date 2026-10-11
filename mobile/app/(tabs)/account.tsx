@@ -1,9 +1,24 @@
-import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, ScrollView, Switch, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Button, EmptyState, StatusPill } from '../../components/ui/NativePrimitives';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Button,
+  EmptyState,
+  Notice,
+  SectionHeader,
+  StatusPill,
+} from '../../components/ui/NativePrimitives';
+import { getCommunicationPreferences, updateCommunicationPreferences } from '../../utils/communicationApi';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import { useAuthStore } from '../../store/authStore';
+
+const CHANNELS = [
+  { key: 'push_enabled', label: 'Push', note: 'Device notifications' },
+  { key: 'whatsapp_enabled', label: 'WhatsApp', note: 'Delivery when the governed channel is available' },
+  { key: 'telegram_enabled', label: 'Telegram', note: 'Delivery when the governed channel is available' },
+  { key: 'email_enabled', label: 'Email', note: 'Email delivery' },
+] as const;
 
 export default function AccountScreen() {
   const theme = useNativeTheme();
@@ -12,14 +27,30 @@ export default function AccountScreen() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const [preferenceError, setPreferenceError] = useState<string | null>(null);
+  const [savingChannel, setSavingChannel] = useState<string | null>(null);
 
-  if (!loading && !isAuthenticated) {
+  const preferenceQuery = useQuery({
+    queryKey: ['native-communication-preferences', user?.id],
+    queryFn: getCommunicationPreferences,
+    enabled: !loading && isAuthenticated && user?.role === 'owner',
+  });
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading account" />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center' }}>
         <EmptyState
           icon="person-circle-outline"
           title="Your CarUp account"
-          body="Sign in to see your vehicles and account tools."
+          body="Sign in to see your vehicles, selling tools and account settings."
           actionLabel="Sign in"
           onAction={() => router.push('/(auth)/login' as never)}
         />
@@ -27,31 +58,132 @@ export default function AccountScreen() {
     );
   }
 
+  const preferences = preferenceQuery.data?.preferences || {};
+
+  const saveChannel = async (key: string, value: boolean) => {
+    if (savingChannel) return;
+    setPreferenceError(null);
+    setSavingChannel(key);
+    try {
+      const result = await updateCommunicationPreferences({ ...preferences, [key]: value });
+      preferenceQuery.setData(result);
+    } catch (error) {
+      setPreferenceError(error instanceof Error ? error.message : 'CarUp could not save that preference.');
+    } finally {
+      setSavingChannel(null);
+    }
+  };
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.background.canvas }}
       contentContainerStyle={{ padding: spacing[5], paddingTop: spacing[6], paddingBottom: spacing[10] }}
     >
       <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary }}>Account</Text>
-      {user?.name ? <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary, marginTop: spacing[2] }}>{user.name}</Text> : null}
-      {user?.email ? <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>{user.email}</Text> : null}
-      {user?.role ? <View style={{ marginTop: spacing[3] }}><StatusPill label={user.role === 'owner' ? 'Personal' : user.role} /></View> : null}
+      {user?.name ? (
+        <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary, marginTop: spacing[2] }}>
+          {user.name}
+        </Text>
+      ) : null}
+      {user?.email ? (
+        <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
+          {user.email}
+        </Text>
+      ) : null}
+      {user?.role ? (
+        <View style={{ marginTop: spacing[3] }}>
+          <StatusPill label={user.role === 'owner' ? 'Personal account' : user.role.replace(/[_-]+/g, ' ')} />
+        </View>
+      ) : null}
 
-      <View style={{ gap: spacing[3], marginTop: spacing[6] }}>
-        {user?.role === 'owner' ? (
-          <>
-            <Button label="My vehicles" variant="secondary" onPress={() => router.push('/(tabs)/garage' as never)} />
-            <Button label="Selling" variant="secondary" onPress={() => router.push('/sell' as never)} />
-          </>
-        ) : null}
-        <Button label="Identity" variant="secondary" onPress={() => router.push('/(auth)/verification/intro' as never)} />
+      <View style={{ marginTop: spacing[7] }}>
+        <SectionHeader title="My CarUp" />
+        <View style={{ gap: spacing[3] }}>
+          {user?.role === 'owner' ? (
+            <>
+              <Button label="My vehicles" variant="secondary" onPress={() => router.push('/(tabs)/garage' as never)} />
+              <Button label="Selling" variant="secondary" onPress={() => router.push('/sell' as never)} />
+              <Button label="SafePay" variant="secondary" onPress={() => router.push('/(tabs)/escrow' as never)} />
+              <Button label="Referrals" variant="secondary" onPress={() => router.push('/(tabs)/referral' as never)} />
+            </>
+          ) : null}
+          <Button label="Verification" variant="secondary" onPress={() => router.push('/(auth)/verification/intro' as never)} />
+        </View>
       </View>
+
+      {user?.role === 'owner' ? (
+        <View style={{ marginTop: spacing[7] }}>
+          <SectionHeader title="Messages & delivery" />
+          <Notice
+            title="CarUp Inbox is the record"
+            body="Your CarUp conversation remains the system of record. These settings control delivery around that conversation; they do not move the conversation into another app."
+            tone="info"
+          />
+
+          {preferenceQuery.isLoading ? (
+            <View style={{ paddingVertical: spacing[6], alignItems: 'center' }}>
+              <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading delivery preferences" />
+            </View>
+          ) : preferenceQuery.isError ? (
+            <View style={{ marginTop: spacing[3] }}>
+              <Notice title="Preferences unavailable" body="CarUp could not load your current delivery preferences." tone="danger" />
+              <Button label="Try again" variant="secondary" onPress={() => void preferenceQuery.refetch()} style={{ marginTop: spacing[3] }} />
+            </View>
+          ) : (
+            <View style={{ marginTop: spacing[3] }}>
+              {CHANNELS.map((channel) => (
+                <View
+                  key={channel.key}
+                  style={{
+                    minHeight: 64,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: spacing[4],
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.border.default,
+                    paddingVertical: spacing[2],
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>{channel.label}</Text>
+                    <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>{channel.note}</Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel={`${channel.label} delivery`}
+                    accessibilityState={{ disabled: Boolean(savingChannel), checked: Boolean(preferences?.[channel.key]) }}
+                    disabled={Boolean(savingChannel)}
+                    value={Boolean(preferences?.[channel.key])}
+                    onValueChange={(value) => void saveChannel(channel.key, value)}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+
+          {preferenceError ? (
+            <View style={{ marginTop: spacing[3] }}>
+              <Notice title="Preference not saved" body={preferenceError} tone="danger" />
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <View style={{ marginTop: spacing[7] }}>
+          <Notice
+            title="Professional workspace"
+            body="CarUp will show native professional tools only when a native workspace exists for your current role. Your underlying permissions are unchanged."
+            tone="info"
+          />
+        </View>
+      )}
 
       <View style={{ marginTop: spacing[8] }}>
         <Button
           label="Sign out"
           variant="tertiary"
-          onPress={() => { void logout().then(() => router.replace('/(tabs)' as never)); }}
+          onPress={() => {
+            void logout().then(() => router.replace('/(tabs)' as never));
+          }}
         />
       </View>
     </ScrollView>
