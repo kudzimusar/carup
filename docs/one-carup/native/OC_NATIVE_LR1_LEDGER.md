@@ -1,9 +1,9 @@
 # OC-NATIVE-LR1 — Cumulative Native Ledger
 
-**Programme start authority:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`  
-**Branch:** `feat/oc-native01-product-foundation`  
-**Draft PR:** #223  
-**Lane:** native iOS / Android only  
+**Programme start authority:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`
+**Branch:** `feat/oc-native01-product-foundation`
+**Draft PR:** #223
+**Lane:** native iOS / Android only
 **Write scope:** `mobile/**`, `docs/one-carup/native/**`
 
 ## OC-NATIVE-00 — recustody / baseline
