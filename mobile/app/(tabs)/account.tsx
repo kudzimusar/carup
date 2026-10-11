@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, Switch, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   EmptyState,
@@ -23,6 +23,7 @@ const CHANNELS = [
 export default function AccountScreen() {
   const theme = useNativeTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const loading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
@@ -66,7 +67,7 @@ export default function AccountScreen() {
     setSavingChannel(key);
     try {
       const result = await updateCommunicationPreferences({ ...preferences, [key]: value });
-      preferenceQuery.setData(result);
+      queryClient.setQueryData(['native-communication-preferences', user?.id], result);
     } catch (error) {
       setPreferenceError(error instanceof Error ? error.message : 'CarUp could not save that preference.');
     } finally {
@@ -151,7 +152,7 @@ export default function AccountScreen() {
                   </View>
                   <Switch
                     accessibilityLabel={`${channel.label} delivery`}
-                    accessibilityState={{ disabled: Boolean(savingChannel), checked: Boolean(preferences?.[channel.key]) }}
+                    accessibilityState={{ disabled: Boolean(savingChannel) }}
                     disabled={Boolean(savingChannel)}
                     value={Boolean(preferences?.[channel.key])}
                     onValueChange={(value) => void saveChannel(channel.key, value)}
