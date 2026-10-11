@@ -431,3 +431,119 @@ The camera product remediation and every certification step executable without c
 The programme is not owner-checkpoint ready because the committed workspace dependency graph cannot clean-install under the current authorized source, and installable EAS builds cannot start without Expo authentication.
 
 **OC-NATIVE REMEDIATE — PROVEN DEVICE/RUNTIME DEFECT**
+
+
+---
+
+# OC-NATIVE-LR1-R2 checkpoint update
+
+## Source-certified candidate
+
+Lock-corrected source candidate:
+
+`3708a5572996f416a410a052c90e43bafb9bc3e4`
+
+Accepted product implementation remains:
+
+`d344f54513c934b89d00324f399ddb08432c5714`
+
+R2 did not change native product source.
+
+## Root lock closure
+
+The prior clean-install defect is closed.
+
+Final lock delta from `42a02e44...` is exactly:
+
+- `package-lock.json`;
+- 21 insertions;
+- 0 deletions;
+- mobile workspace → `expo-camera ~17.0.10`;
+- resolved package → `expo-camera 17.0.10`.
+
+No root `package.json` or frozen product file changed.
+
+An incomplete intermediate lock commit `1ef2aedb...` was immediately superseded and was never accepted or used as certification authority.
+
+## Node 20 exact-head receipt
+
+Environment:
+
+- Node `v20.20.2`;
+- npm `10.8.2`;
+- Expo `54.0.37`;
+- React Native `0.81.5`;
+- Expo Camera `17.0.10`;
+- New Architecture enabled.
+
+| Gate | Result | Duration |
+|---|---|---:|
+| root `npm ci` | **PASS** | 27.354 s |
+| mobile Vitest | **PASS — 6 files / 66 tests** | 2.028 s |
+| `npm run test:native` | **PASS** | 7.412 s |
+| `npm run test:static` | **PASS — verification smoke 59/59** | 3.697 s |
+| mobile `tsc --noEmit` | **PASS** | 6.052 s |
+| `expo install --check` | **PASS** | 0.757 s |
+| Android Expo prebuild | **PASS** | 0.752 s |
+| iOS Expo prebuild | **PASS** | 1.076 s |
+| `git diff --check` | **PASS** | 0.016 s |
+
+The sandbox was restored to a clean worktree after transient prebuild outputs were removed.
+
+## Remote exact-head results
+
+At `3708a557...`:
+
+- OC-5R REL-03A Source Certification `38140431921`: **SUCCESS**.
+- Communication Command Center CI `38140431917`: **SUCCESS**.
+- Referral Engine CI `38140431923`: **SUCCESS**.
+
+The lock remediation is therefore independently closed by the actual Node 20 Source Certification workflow.
+
+## Node 20-specific runtime/toolchain defect
+
+Node 20 clean install exposes:
+
+`EBADENGINE @prisma/streams-local@0.1.2 requires node >=22.0.0`.
+
+The same warning is independently present in successful Source Certification run `38140431921`.
+
+The warning is non-fatal today, but R2 authority requires a Node 20/22 behavior difference to be classified rather than dismissed. This is therefore a proven toolchain/runtime custody defect. Correcting the dependency or CI runtime requires authority beyond this R2 lock exception.
+
+## EAS authentication result
+
+After Source Certification passed, the agent executed:
+
+`npx eas-cli@24.12.1 whoami`
+
+Result:
+
+`Not logged in`.
+
+No Expo authentication credential is currently available in the build environment. No credential was requested in chat, printed to logs, or committed.
+
+Required secure owner/account action:
+
+> Authenticate the build environment with the owner's Expo account or provision an appropriately scoped Expo access token through secure environment/secret custody.
+
+Because the gate occurs before build creation, Apple signing, provisioning and device registration were not reached and are not classified.
+
+## Certification ladder
+
+| Level | Status | Evidence |
+|---|---|---|
+| SOURCE-CERTIFIED | **YES** | Node 20 local suite + Source Certification `38140431921` |
+| BUILD-CERTIFIED | **NO** | EAS authentication gate occurs before build creation |
+| SIMULATOR/EMULATOR-CERTIFIED | **NO** | no installable artifact exists yet |
+| PHYSICAL-DEVICE-CERTIFIED | **NO** | no device artifact/install exists yet |
+| OWNER-UAT-CERTIFIED | **NO** | runtime/device UAT remains downstream |
+
+Once cloud artifacts exist, the remaining runtime itinerary is physical Android APK install/camera/TalkBack, iOS Simulator install/run, physical iPhone install, VoiceOver, large-text checks, real camera capture and degraded-network runtime.
+
+## R2 disposition
+
+The root lock and Source Certification are complete.
+
+Cloud build certification cannot begin until secure Expo authentication is supplied. Separately, Node 20 has now proven an engine-contract mismatch with `@prisma/streams-local@0.1.2`.
+
+**OC-NATIVE REMEDIATE — PROVEN BUILD/RUNTIME DEFECT**
