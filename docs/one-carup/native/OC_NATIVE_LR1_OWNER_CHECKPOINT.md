@@ -1,11 +1,11 @@
 # OC-NATIVE-LR1 — Native Product Foundation / Owner Checkpoint Report
 
-**Repository:** `kudzimusar/carup`  
-**Programme start:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`  
-**Branch:** `feat/oc-native01-product-foundation`  
-**Draft PR:** #223  
-**Product candidate:** `ef20035c9ee85b94257ab8bee8cfa44f2c882e54`  
-**Candidate shape before evidence-only closure docs:** 109 ahead / 0 behind, 58 changed files  
+**Repository:** `kudzimusar/carup`
+**Programme start:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`
+**Branch:** `feat/oc-native01-product-foundation`
+**Draft PR:** #223
+**Product candidate:** `ef20035c9ee85b94257ab8bee8cfa44f2c882e54`
+**Candidate shape before evidence-only closure docs:** 109 ahead / 0 behind, 58 changed files
 **Scope:** native iOS / Android only
 
 This report is deliberately fail-closed. It records implemented product state separately from test, visual, build and physical-device evidence.
