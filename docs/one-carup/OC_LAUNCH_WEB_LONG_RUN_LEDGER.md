@@ -342,3 +342,10 @@ Already correct on the old code:
 - Blocked images never hide text; zero overflow in all 20 cases.
 
 The final run must show all four Vehicle Detail and Search cases fixed on the pushed SHA.
+
+## R1 owner decisions (2026-10-11T07:04:53Z, via the operator)
+
+1. **Diaspora gate:** the owner approves run 38079945430 in GitHub. This lane watches the same run (same ID, SHA 40621751, attempt 1) and requires SUCCESS before recustody and push.
+2. **a13d25ff:** push the launch stack only. The PC01 docs commit stays with the PC01 lane, which rebases it (no file overlap).
+3. **Providers:** deploy the pushed SHA to the staging project's **production target with `--skip-domain`** (no alias movement). Exact-candidate *outbound* proofs only; inbound/webhook traffic still lands on stable staging `dpl_91cteUJn…` (same DB). Exact-candidate inbound therefore remains an owner provider gate.
+4. **UAT queue:** event/delivery processing stays **off**. The Kingston inquiry leg ends at the recorded inquiry row; canonical conversation and WhatsApp delivery are an owner/moderator queue-governance gate.
