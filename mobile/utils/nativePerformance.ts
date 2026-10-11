@@ -22,7 +22,7 @@ const MAX_SAMPLES = 120;
 const samples: NativePerformanceSample[] = [];
 const processStartedAt = Date.now();
 let coldStartRecorded = false;
-let lastBackgroundAt: number | null = null;
+let warmResumeStartedAt: number | null = null;
 
 export function nativeNow(): number {
   const perf = globalThis.performance;
@@ -67,16 +67,16 @@ export function markColdStartUsable(): void {
   });
 }
 
-export function markBackgrounded(): void {
-  lastBackgroundAt = Date.now();
+export function markWarmResumeStart(): void {
+  warmResumeStartedAt = nativeNow();
 }
 
-export function markWarmResume(): void {
-  if (lastBackgroundAt === null) return;
+export function markWarmResumeUsable(): void {
+  if (warmResumeStartedAt === null) return;
   recordNativeMetric('app.warm_resume', {
-    durationMs: Math.max(0, Date.now() - lastBackgroundAt),
+    durationMs: Math.max(0, nativeNow() - warmResumeStartedAt),
   });
-  lastBackgroundAt = null;
+  warmResumeStartedAt = null;
 }
 
 /**
@@ -90,5 +90,5 @@ export function getNativePerformanceSnapshot(): NativePerformanceSample[] {
 export function resetNativePerformanceSnapshot(): void {
   samples.splice(0, samples.length);
   coldStartRecorded = false;
-  lastBackgroundAt = null;
+  warmResumeStartedAt = null;
 }
