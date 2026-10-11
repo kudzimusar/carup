@@ -26,6 +26,14 @@ for (const width of [320, 360, 375, 390, 430, 768, 1024, 1440]) {
     const box = await search.boundingBox()
     expect(box!.height).toBeGreaterThanOrEqual(44)
     expect(box!.width).toBeGreaterThanOrEqual(44)
+    if (width <= 430) {
+      const undersized = await page.locator('#root a, #root button, #root input').evaluateAll(elements => elements
+        .filter(element => !element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true')
+        .map(element => ({ label: element.getAttribute('aria-label') || element.textContent?.trim(), box: element.getBoundingClientRect() }))
+        .filter(({ box }) => box.width > 0 && box.height > 0 && (box.width < 44 || box.height < 44))
+        .map(({ label, box }) => ({ label, width: box.width, height: box.height })))
+      expect(undersized).toEqual([])
+    }
     await page.screenshot({ path: testInfo.outputPath(`home-${width}.png`), fullPage: true })
     await page.getByTestId('home-buy-search').fill('Nissan Serena')
     await search.click()
