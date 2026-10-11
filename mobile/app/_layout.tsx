@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, AppState, View } from 'react-native';
+import { ActivityIndicator, AppState, InteractionManager, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,9 +8,9 @@ import { useAuthStore } from '../store/authStore';
 import { SecureSessionProvider } from '../providers/SecureSessionProvider';
 import { ensurePushRegistration } from '../utils/pushRegistration';
 import {
-  markBackgrounded,
   markColdStartUsable,
-  markWarmResume,
+  markWarmResumeStart,
+  markWarmResumeUsable,
 } from '../utils/nativePerformance';
 import { useNativeTheme } from '../theme/tokens';
 import '../global.css';
@@ -43,8 +43,10 @@ export default function RootLayout() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const previous = appState.current;
-      if (previous === 'active' && nextState !== 'active') markBackgrounded();
-      if (previous !== 'active' && nextState === 'active') markWarmResume();
+      if (previous !== 'active' && nextState === 'active') {
+        markWarmResumeStart();
+        InteractionManager.runAfterInteractions(() => markWarmResumeUsable());
+      }
       appState.current = nextState;
     });
     return () => subscription.remove();
