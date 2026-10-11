@@ -70,3 +70,34 @@ export async function createSellerDraft(input: NativeSellerDraftInput): Promise<
   }
   return body as NativeSellerDraftReceipt;
 }
+
+
+export interface NativeSellerDraftUpdate {
+  description?: string;
+  price?: number;
+  currency?: 'USD' | 'ZiG';
+  location?: string;
+  province?: string;
+  location_visibility?: 'withheld' | 'province_only' | 'public';
+  public_seller_display_enabled?: boolean;
+}
+
+export async function updateSellerDraft(
+  vin: string,
+  input: NativeSellerDraftUpdate,
+): Promise<NativeSellerDraftReceipt> {
+  const response = await fetch(apiUrl(`/api/vehicles/${encodeURIComponent(vin)}/seller-draft`), {
+    method: 'PATCH',
+    headers: await mutationHeaders(),
+    body: JSON.stringify(input),
+  });
+  const body = await response.json().catch(() => ({} as Record<string, unknown>));
+  if (!response.ok) {
+    const message =
+      typeof body?.error === 'string'
+        ? body.error
+        : 'CarUp could not update this listing draft.';
+    throw new Error(message);
+  }
+  return body as NativeSellerDraftReceipt;
+}
