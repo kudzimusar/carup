@@ -417,3 +417,56 @@ Steps pending, held so the old run's **Mobile shard (114423391477, still awaitin
 3. Dispatch a fresh Diaspora Deployed Staging UAT run on 40621751 (`workflow_dispatch`; same concurrency group, so it queues and never cancels).
 
 Rollback (if needed): `vercel alias set https://carup-backend-staging-klbmb7c7j-11-11.vercel.app carup-backend-staging-oc5r-pc01-11-11.vercel.app --scope 11-11` (restores `dpl_Cx9js7Ntwwcy9azQHUTVpywNHibU`).
+
+# R3 — complete old evidence, converge staging worker secret, fresh D7
+
+## R3-A — old run 38079945430: final, immutable evidence (recorded 2026-10-11T10:04:35Z)
+
+Head 40621751, attempt 1. Conclusion **failure**, aggregate job 114443754166 finished 10:03:24Z.
+
+| Job | ID | Result | Class |
+| --- | --- | --- | --- |
+| Bootstrap | 114296121431 | success | — |
+| Chromium / shard | 114418317169 | failure: 69 passed / 1 failed / 9 skipped / 1 did not run | D7 = **shared runtime secret-custody defect** (drain 401 ×22). Not a viewport or product defect. |
+| Tablet / shard | 114421598384 | success: 50 passed / 30 skipped | viewport/product PASS |
+| Mobile / shard | 114423391477 | success: 50 passed / 30 skipped (10:02:48Z) | viewport/product PASS; tested the unchanged runtime (no alias moved before completion) |
+
+D7 runs only on chromium ("full journey runs once on desktop"). The only failure in the whole run is the shared runtime defect.
+
+## R3-B — pre-change baselines (read-only)
+
+**External-send baseline** (`/private/tmp/carup-launch-evidence/r3-external-send-baseline.json`):
+- Latest external provider delivery attempt: 2026-09-07T09:31:54Z (email).
+- External attempt totals: email 159, WhatsApp 24, Telegram 6, push 16.
+
+**Failed-run residue in `domain_events`:** 25 pending, all attempts 0.
+
+| Event type | Count |
+| --- | --- |
+| evidence.review.decided (3 from 2026-10-10 19:31–19:34Z, 4 during the run) | 7 |
+| marketplace.inquiry.created | 4 |
+| diaspora.container_booking.reservation_requested | 4 |
+| diaspora.container_booking.reservation_received | 4 |
+| diaspora.container_booking.reservation_approved | 1 |
+| diaspora.container_booking.reservation_rejected | 1 |
+| diaspora.container_booking.reservation_cancelled | 1 |
+| diaspora.rfq.quote_submitted | 1 |
+| diaspora.rfq.quote_accepted | 1 |
+
+Not deleted, not marked, not quarantined. The canonical worker processes them normally once the drain authenticates.
+
+**Provider credentials across all CarUp Vercel projects** (names/targets only):
+- `carup`, `carup-staging` and `carup-backend` (production backend) hold **none** of the Meta/Telegram/Twilio/Expo/Resend/Brevo/worker variables.
+- So Twilio (SMS), Expo (Push) and `CARUP_META_PAGE_ID` (Messenger/Instagram) are **genuinely absent everywhere** (class E).
+- WhatsApp and Telegram exist only on the `carup-backend-staging` production target (class C).
+
+## R3-C — rollback record (written before any mutation)
+
+| Field | Value |
+| --- | --- |
+| Alias to move | `carup-backend-staging-oc5r-pc01-11-11.vercel.app` (this alias only) |
+| Previous | `dpl_Cx9js7Ntwwcy9azQHUTVpywNHibU`, `https://carup-backend-staging-klbmb7c7j-11-11.vercel.app` |
+| New | `dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC`, `https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app` |
+| Rollback | `vercel alias set https://carup-backend-staging-klbmb7c7j-11-11.vercel.app carup-backend-staging-oc5r-pc01-11-11.vercel.app --scope 11-11` |
+
+No database rollback exists, because nothing in the DB is migrated or changed. The GitHub secret change is not reversible to the old (unknown) value. If needed, it can be rotated again under owner authority.
