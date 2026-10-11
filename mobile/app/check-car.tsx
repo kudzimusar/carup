@@ -40,7 +40,7 @@ export default function CheckCarScreen() {
         <EmptyState
           icon="shield-checkmark-outline"
           title="Check a car"
-          body="This native checkpoint can open a current public CarUp vehicle record by VIN or chassis identifier. Plate and document lookup are not exposed until a governed native lookup contract is available."
+          body="Enter a VIN or chassis identifier to open the vehicle information CarUp can currently show. Plate and document scanning will appear here only when those checks are available in the app."
         />
         <Field
           label="VIN or chassis identifier"
@@ -55,7 +55,7 @@ export default function CheckCarScreen() {
         <Button label="Back" variant="tertiary" onPress={() => router.back()} />
         <Notice
           title="What this check means"
-          body="Opening a CarUp record does not create ownership, registration or verification authority. The vehicle page only shows evidence and decisions the current domain records support."
+          body="Opening a CarUp record does not prove ownership or government registration. The vehicle page shows only the evidence and status CarUp currently has for that vehicle."
           tone="info"
         />
       </View>
