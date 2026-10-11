@@ -4,8 +4,8 @@
 **Programme start:** `40621751d4b74c59324fe6601aa5ddbdc7769b08`
 **Branch:** `feat/oc-native01-product-foundation`
 **Draft PR:** #223
-**Product candidate:** `ef20035c9ee85b94257ab8bee8cfa44f2c882e54`
-**Candidate shape before evidence-only closure docs:** 109 ahead / 0 behind, 58 changed files
+**R1 exact product candidate:** `d344f54513c934b89d00324f399ddb08432c5714`
+**R1 candidate source scope:** 63 changed files from programme start, all within authorized native/docs paths
 **Scope:** native iOS / Android only
 
 This report is deliberately fail-closed. It records implemented product state separately from test, visual, build and physical-device evidence.
@@ -15,9 +15,8 @@ This report is deliberately fail-closed. It records implemented product state se
 - Frozen programme start: `40621751d4b74c59324fe6601aa5ddbdc7769b08`.
 - Dedicated branch created from that SHA.
 - Draft PR #223 remains open, unmerged and based on the frozen source branch.
-- Product candidate: `ef20035c9ee85b94257ab8bee8cfa44f2c882e54`.
-- Product implementation commits from start: 109.
-- Changed files at product candidate: 58.
+- R1 exact product candidate: `d344f54513c934b89d00324f399ddb08432c5714`.
+- At the R1 product candidate, 63 files differ from programme start and all remain inside authorized `mobile/**` or `docs/one-carup/native/**`.
 - Scope audit: all changed files are in `mobile/**` or `docs/one-carup/native/**`.
 - No web, backend, shared, database, Supabase or workflow file was modified.
 - No production access or deployment was used.
@@ -275,4 +274,160 @@ Return to Home. Decide whether the app feels like one product rather than a set 
 
 The product foundation and vertical slice are implemented, but exact-head test, visual, installable-build and physical-device evidence are still missing. The checkpoint cannot be self-accepted.
 
-**OC-NATIVE REMEDIATION BLOCKED — EXACT BLOCKERS RECORDED**
+**OC-NATIVE REMEDIATE — PROVEN DEVICE/RUNTIME DEFECT**
+
+
+---
+
+# OC-NATIVE-LR1-R1 certification update
+
+## Camera-viewfinder closure
+
+The first R1 product gap is closed at product candidate `d344f54513c934b89d00324f399ddb08432c5714`.
+
+The former operating-system camera handoff has been replaced by a reusable Expo Camera viewfinder inside CarUp for:
+
+- document front/back;
+- selfie;
+- odometer evidence.
+
+It provides the real live feed, CarUp header/back treatment, capture guide, neutral instructions, shutter, rear-camera flash, permission/request/settings states, actual captured preview, Retake and Use photo.
+
+No blur, glare, edge, face, document or liveness detection is claimed.
+
+The Identity backend exposes no extracted-field confirmation/correction mutation, so the app does not invent one. Identity renders extracted values read-only and does not mark them `USER_CONFIRMED`.
+
+**OC-NATIVE-01B COMPLETE**
+
+## Exact product-candidate test receipt
+
+Environment:
+
+- SHA: `d344f54513c934b89d00324f399ddb08432c5714`
+- Node: `v22.22.2`
+- Expo: `54.0.37`
+- React Native: `0.81.5`
+- Expo Camera: `17.0.10`
+- New Architecture: enabled
+
+| Command | Result | Pass | Fail | Skip/cancel | Wall duration |
+|---|---:|---:|---:|---:|---:|
+| `npm test --workspace=mobile` | PASS | 6 files / 66 tests | 0 | 0 | 1.856 s |
+| `npm run test:native --workspace=mobile` | PASS | 19 chained native guards | 0 | 0 | 5.716 s |
+| `npm run test:static --workspace=mobile` | PASS | 5 chained scripts; verification smoke 59/59 | 0 | 0 | 3.409 s |
+| `cd mobile && npx tsc --noEmit --pretty false` | PASS | typecheck | 0 | 0 | 5.682 s |
+| `cd mobile && npx expo install --check` | PASS | SDK dependency check | 0 | 0 | 1.023 s |
+| offline-resilience certification | PASS | 7 checks | 0 | 0 | 0.702 s |
+| large/edge-case certification | PASS | 7 checks | 0 | 0 | 0.652 s |
+| Android Expo prebuild | PASS | native project generation | 0 | 0 | 0.947 s |
+| iOS Expo prebuild | PASS | native project generation | 0 | 0 | 1.266 s |
+| Android Expo JS export | PASS | bundle/export | 0 | 0 | 56.286 s |
+| iOS Expo JS export | PASS | bundle/export | 0 | 0 | 53.122 s |
+
+`git diff --check` from programme start to the R1 product candidate also passes.
+
+## Expo Doctor
+
+`npx expo-doctor` passed 16 of 18 checks.
+
+The two findings are the inherited custom monorepo Metro resolver configuration and separate root-web/mobile React versions. Both platform prebuilds and both platform JS exports pass. No native runtime failure has proved that replacing the accepted Metro custody is warranted inside this bounded R1 task.
+
+## Immutable staging pairing
+
+The certification backend is pinned to:
+
+- native candidate: `d344f54513c934b89d00324f399ddb08432c5714`;
+- backend deployment: `dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC`;
+- immutable backend URL: `https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app`;
+- backend source SHA: `40621751d4b74c59324fe6601aa5ddbdc7769b08`;
+- Supabase project: `eoyenigwevnxwwhyhaer`;
+- health: UP;
+- database project consistency: true;
+- external sends: disabled;
+- communications outbound kill switch: active.
+
+No production database or production communications path was used.
+
+## Exact proven install-chain defect
+
+A clean exact-candidate install fails before native build:
+
+`npm ci --ignore-scripts`
+
+Result:
+
+- EXIT: 1
+- duration: 0.933 s
+- exact reason: `Missing: expo-camera@17.0.10 from lock file`.
+
+The new camera dependency lives in workspace file `mobile/package.json`, while npm workspace custody requires the repository root `package-lock.json` to be refreshed.
+
+GitHub Actions independently reproduces the same defect:
+
+- workflow: OC-5R REL-03A Source Certification
+- run: `38136590487`
+- failing step: **Install dependencies**
+- error: missing `expo-camera@17.0.10` from the lock file.
+
+R1 is not authorized to modify root `package-lock.json`.
+
+A sandbox-only lock refresh was performed without committing it. It changes only root `package-lock.json` (21 insertions / 12 deletions), records `expo-camera@17.0.10`, and makes `npm ci` pass in 20.113 s. The lock was then reverted.
+
+This proves both the defect and the smallest deterministic remediation.
+
+## Build attempts
+
+EAS CLI `24.12.1` was invoked with the immutable staging API pairing.
+
+- Android `android-device`: build command attempted; stopped at Expo authentication.
+- iOS `ios-simulator`: build command attempted; stopped at Expo authentication.
+- iOS `ios-device`: build command attempted; stopped at Expo authentication.
+
+The execution environment reports **Not logged in** and no `EXPO_TOKEN`.
+
+This run therefore did not reach Apple signing, provisioning or device registration, and none of those are claimed as the current blocker.
+
+The available Linux execution environment also has:
+
+- no Java;
+- no Android SDK;
+- no ADB/emulator;
+- no Xcode.
+
+Therefore it cannot perform the missing Android/iOS runtime screenshots locally.
+
+## Runtime evidence still not certified
+
+The following remain unclaimed:
+
+- compact iPhone Simulator visual pass;
+- Android emulator/device visual pass;
+- expanded Android/foldable-width runtime;
+- live camera on simulator/device;
+- VoiceOver / TalkBack;
+- runtime large-text and keyboard behavior;
+- degraded-network UI timings;
+- Android APK installation;
+- physical Android run;
+- iOS Simulator installable build;
+- physical iPhone build/install.
+
+The source and offline queue guards passed, but they are not relabelled as physical evidence.
+
+## Required remediation authority
+
+Before installable-device certification can resume, authorize the smallest repository custody change:
+
+1. refresh root `package-lock.json` for `mobile/package.json` → `expo-camera@17.0.10`;
+2. rerun exact-head clean install and source certification;
+3. provide an authenticated Expo/EAS execution context (logged-in EAS session or appropriate `EXPO_TOKEN`) for remote Android/iOS builds.
+
+Only after the build reaches Apple signing should any Apple signing/device-registration action be classified.
+
+## R1 disposition
+
+The camera product remediation and every certification step executable without crossing current source/account/device authority have been completed.
+
+The programme is not owner-checkpoint ready because the committed workspace dependency graph cannot clean-install under the current authorized source, and installable EAS builds cannot start without Expo authentication.
+
+**OC-NATIVE REMEDIATE — PROVEN DEVICE/RUNTIME DEFECT**
