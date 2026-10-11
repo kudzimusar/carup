@@ -83,6 +83,12 @@ assert.match(
   'My Garage must consume owner vehicle truth',
 );
 
+const results = fs.readFileSync(path.join(root, 'app/market/results.tsx'), 'utf8');
+assert.match(results, /getSavedMarketplaceListings/, 'Market results must support authenticated saved discovery');
+assert.match(results, /saveMarketplaceListing/, 'Market cards must save through the Marketplace API');
+assert.match(results, /unsaveMarketplaceListing/, 'Market cards must unsave through the Marketplace API');
+assert.match(results, /FlashList/, 'Marketplace results must retain the performant native list');
+
 const primitives = fs.readFileSync(path.join(root, 'components/ui/NativePrimitives.tsx'), 'utf8');
 assert.match(primitives, /minimum:\s*48/, 'shared touch-target floor must remain 48dp');
 
