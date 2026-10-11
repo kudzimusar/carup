@@ -1,323 +1,442 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert, Image } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import { VehicleImage } from '../../components/media/NativeMedia';
+import {
+  Button,
+  EmptyState,
+  Notice,
+  Price,
+  SectionHeader,
+  StatusPill,
+  StickyActionBar,
+  TrustSignal,
+} from '../../components/ui/NativePrimitives';
 import { useAuthStore } from '../../store/authStore';
 import {
+  createMarketplaceInquiry,
   getMarketplaceListingDetail,
   getOwnerVehiclePassport,
   MarketplaceApiError,
-  createMarketplaceInquiry,
   resolveMarketplacePrimaryImage,
   type MobileListingDetail,
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
-import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import { createCommunicationShare } from '../../utils/communicationApi';
+import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
-function titleCase(value: string | null | undefined) {
+function titleCase(value: string | null | undefined): string | null {
   if (!value) return null;
-  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function vehicleTitle(vehicle: MobileListingDetail) {
+function vehicleTitle(vehicle: Pick<MobileListingDetail, 'year' | 'make' | 'model'>): string {
   return [vehicle.year, vehicle.make, vehicle.model]
-    .filter(value => value !== null && value !== undefined && value !== '')
+    .filter((value) => value !== null && value !== undefined && value !== '')
     .join(' ');
 }
 
-function formatPrice(price: number | null, currency: string | null) {
-  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded';
-  if (!currency?.trim()) return `${price.toLocaleString()} · currency not recorded`;
-  const normalized = currency.trim().toUpperCase();
-  if (normalized === 'USD') return `$${price.toLocaleString()}`;
-  return `${normalized} ${price.toLocaleString()}`;
-}
-
-function formatMileage(mileage: number | null) {
-  return typeof mileage === 'number' && Number.isFinite(mileage)
-    ? `${mileage.toLocaleString()} km`
-    : 'Mileage not recorded';
-}
-
-function formatEvaluationDate(value: string | null | undefined) {
+function formatDate(value: string | null | undefined): string | null {
   const timestamp = Date.parse(value || '');
   return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : null;
 }
 
-function TrustCard({ trust }: { trust?: MobilePublicTrust | null }) {
-  const evaluatedDate = formatEvaluationDate(trust?.evaluated_at);
-  const evaluatedScore = trust?.evaluation_state === 'evaluated'
-    && typeof trust.score === 'number'
-    && Number.isFinite(trust.score)
-    ? trust.score
-    : null;
+function TrustEvidence({ trust }: { trust?: MobilePublicTrust | null }) {
+  const theme = useNativeTheme();
+  const evaluated =
+    trust?.evaluation_state === 'evaluated' &&
+    typeof trust.score === 'number' &&
+    Number.isFinite(trust.score);
+  const basis = trust?.evidence_basis;
+  const evaluatedAt = formatDate(trust?.evaluated_at);
 
-  if (evaluatedScore !== null) {
+  if (!evaluated) {
+    const title =
+      trust?.evaluation_state === 'stale'
+        ? 'Trust evaluation update pending'
+        : trust?.evaluation_state === 'unavailable'
+          ? 'Trust information is temporarily unavailable'
+          : trust?.evaluation_state === 'not_evaluated'
+            ? 'Not evaluated yet'
+            : 'Trust information not loaded';
     return (
-      <View className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
-        <View className="flex-row items-start justify-between gap-4">
-          <View className="min-w-0 flex-1">
-            <Text className="text-[10px] font-bold uppercase tracking-widest text-orange-700">CarUp Trust</Text>
-            <Text className="mt-1 text-xl font-extrabold text-slate-950">
-              {titleCase(trust?.band) || 'Evaluated'}
-            </Text>
-            <Text className="mt-1 text-xs leading-5 text-slate-600">
-              Canonical evaluation{trust?.confidence ? ` · ${titleCase(trust.confidence)} confidence` : ''}
-            </Text>
-          </View>
-          <View className="h-20 w-20 items-center justify-center rounded-2xl bg-slate-950">
-            <Text className="text-2xl font-extrabold text-white">{evaluatedScore}</Text>
-            <Text className="mt-0.5 text-[9px] font-semibold uppercase tracking-wider text-orange-400">of 100</Text>
-          </View>
-        </View>
-        {evaluatedDate ? (
-          <Text className="mt-3 text-[10px] text-slate-500">Evaluated {evaluatedDate}</Text>
+      <View
+        style={{
+          borderRadius: radius.card,
+          borderWidth: 1,
+          borderColor: theme.border.default,
+          backgroundColor: theme.background.surface,
+          padding: spacing[5],
+        }}
+      >
+        <Text allowFontScaling style={{ ...typeScale.headline, color: theme.text.primary }}>{title}</Text>
+        <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[2] }}>
+          CarUp does not substitute an old or guessed score when current evidence is unavailable.
+        </Text>
+        {trust?.known_limitations?.[0] ? (
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[3] }}>
+            {trust.known_limitations[0]}
+          </Text>
         ) : null}
       </View>
     );
   }
 
-  const stateLabel = trust?.evaluation_state === 'not_evaluated'
-    ? 'Not evaluated yet'
-    : trust?.evaluation_state === 'stale'
-      ? 'Evaluation update pending'
-      : trust?.evaluation_state === 'unavailable'
-        ? 'Trust temporarily unavailable'
-        : 'Trust not loaded';
-
   return (
-    <View className="rounded-2xl border border-slate-200 bg-white p-5">
-      <Text className="text-[10px] font-bold uppercase tracking-widest text-slate-500">CarUp Trust</Text>
-      <Text className="mt-1 text-lg font-bold text-slate-900">{stateLabel}</Text>
-      <Text className="mt-1 text-xs leading-5 text-slate-500">
-        No numerical score is shown unless the canonical Trust authority reports a current evaluation.
-      </Text>
+    <View
+      style={{
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: theme.border.default,
+        backgroundColor: theme.background.surface,
+        padding: spacing[5],
+        gap: spacing[4],
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing[4] }}>
+        <View style={{ flex: 1 }}>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>CarUp Trust</Text>
+          <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary, marginTop: spacing[1] }}>
+            {titleCase(trust?.band) || 'Evaluated'}
+          </Text>
+          {evaluatedAt ? (
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[1] }}>
+              Evaluated {evaluatedAt}
+            </Text>
+          ) : null}
+        </View>
+        <View
+          accessibilityLabel={`CarUp Trust score ${trust!.score} out of 100`}
+          style={{
+            minWidth: 82,
+            minHeight: 82,
+            borderRadius: radius.card,
+            backgroundColor: theme.background.surfaceSunken,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: spacing[2],
+          }}
+        >
+          <Text allowFontScaling style={{ ...typeScale.priceLarge, color: theme.text.primary }}>{trust!.score}</Text>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>of 100</Text>
+        </View>
+      </View>
+
+      {basis ? (
+        <View style={{ gap: spacing[2] }}>
+          {typeof basis.governed_facts_substantiated === 'number' ? (
+            <TrustSignal
+              label={`${basis.governed_facts_substantiated} evidence-backed fact${basis.governed_facts_substantiated === 1 ? '' : 's'}`}
+              detail={typeof basis.governed_facts_total === 'number' ? `out of ${basis.governed_facts_total} facts considered` : undefined}
+              tone="success"
+            />
+          ) : null}
+          {typeof basis.connected_sources === 'number' ? (
+            <TrustSignal
+              label={`${basis.connected_sources} connected evidence source${basis.connected_sources === 1 ? '' : 's'}`}
+              detail="CarUp uses the evidence it can currently connect to this vehicle."
+            />
+          ) : null}
+          {typeof basis.governed_facts_adverse === 'number' && basis.governed_facts_adverse > 0 ? (
+            <TrustSignal
+              label={`${basis.governed_facts_adverse} item${basis.governed_facts_adverse === 1 ? '' : 's'} need attention`}
+              detail="Open the evidence sections below for the available context."
+              tone="warning"
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      <Notice
+        title="What CarUp is claiming"
+        body="This Trust evaluation describes evidence CarUp currently holds. It is not a government registry, title deed or guarantee of future condition."
+        tone="info"
+      />
+
       {trust?.known_limitations?.length ? (
-        <Text className="mt-3 text-[10px] leading-4 text-slate-500">{trust.known_limitations[0]}</Text>
+        <View style={{ gap: spacing[1] }}>
+          <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.primary }}>Known limits</Text>
+          {trust.known_limitations.slice(0, 3).map((limitation) => (
+            <Text key={limitation} allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
+              • {limitation}
+            </Text>
+          ))}
+        </View>
       ) : null}
     </View>
   );
 }
 
-function VehicleDetailScreenInner() {
+function FactRow({ label, value }: { label: string; value: string }) {
+  const theme = useNativeTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing[4], paddingVertical: spacing[2] }}>
+      <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>{label}</Text>
+      <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.secondary, flex: 1, textAlign: 'right' }}>{value}</Text>
+    </View>
+  );
+}
+
+function OwnerPassportFallback({ vin, passport }: { vin: string; passport: Awaited<ReturnType<typeof getOwnerVehiclePassport>> }) {
+  const theme = useNativeTheme();
   const router = useRouter();
-  const { vin } = useLocalSearchParams();
+  const vehicle = passport.vehicle ?? {};
+  const title = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || vin;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
+      <ScrollView contentContainerStyle={{ padding: spacing[5], paddingBottom: spacing[10] }}>
+        <Button label="Back" variant="tertiary" onPress={() => router.back()} />
+        <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[4] }}>Your vehicle · VIN {vin}</Text>
+        <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary, marginTop: spacing[1] }}>{title}</Text>
+
+        <View style={{ marginTop: spacing[5] }}>
+          <Notice
+            title="Not on the public Marketplace"
+            body="This vehicle belongs in your private My Garage view. Buyers cannot see it unless you complete a separate governed publication action."
+            tone="warning"
+          />
+        </View>
+
+        <View style={{ marginTop: spacing[6] }}>
+          <SectionHeader title="Vehicle Passport" />
+          <TrustEvidence trust={passport.trustReport ?? null} />
+        </View>
+
+        {typeof vehicle.mileage === 'number' ? (
+          <View style={{ marginTop: spacing[5], borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, padding: spacing[4] }}>
+            <FactRow label="Recorded mileage" value={`${vehicle.mileage.toLocaleString()} km`} />
+          </View>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+function VehicleDetailScreenInner() {
+  const theme = useNativeTheme();
+  const router = useRouter();
+  const { vin } = useLocalSearchParams<{ vin?: string }>();
   const token = useAuthStore((state) => state.token);
-  const { data: marketplaceDetail, isLoading, error, refetch } = useQuery<MobileListingDetail>({
+  const [messaging, setMessaging] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  const detailQuery = useQuery<MobileListingDetail>({
     queryKey: ['marketplace-detail', vin],
     queryFn: () => getMarketplaceListingDetail(String(vin)),
-    enabled: !!vin,
-    retry: (count, err) => !(err instanceof MarketplaceApiError && err.statusCode === 404) && count < 2,
-  });
-  // PC01-J-R1: a vehicle that is not publicly listed answers 404 here. For its signed-in owner (the
-  // Garage "Trust Passport" path) read their own Vehicle Passport instead of dead-ending.
-  const notPubliclyListed = error instanceof MarketplaceApiError && error.statusCode === 404;
-  const { data: ownerPassport, isLoading: ownerPassportLoading } = useQuery({
-    queryKey: ['owner-passport', vin],
-    queryFn: () => getOwnerVehiclePassport(String(vin)),
-    enabled: !!vin && !!token && notPubliclyListed,
+    enabled: Boolean(vin),
+    retry: (count, error) => !(error instanceof MarketplaceApiError && error.statusCode === 404) && count < 2,
   });
 
-  const [inquiring, setInquiring] = useState(false);
-  const handleInquire = async () => {
+  const notPublic = detailQuery.error instanceof MarketplaceApiError && detailQuery.error.statusCode === 404;
+  const ownerPassportQuery = useQuery({
+    queryKey: ['owner-passport', vin],
+    queryFn: () => getOwnerVehiclePassport(String(vin)),
+    enabled: Boolean(vin && token && notPublic),
+  });
+
+  const messageSeller = async () => {
     if (!token) {
-      // PC01-J-R1: the alert only had OK, so a guest who wanted to ask had nowhere to go.
-      Alert.alert('Sign in to ask the seller', 'Browsing needs no account, but messaging a seller does, so they can reply to you safely. Never pay outside CarUp.', [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Sign in', onPress: () => router.push('/(auth)/login') },
-      ]);
+      Alert.alert(
+        'Sign in to message the seller',
+        'You can browse without an account. Messaging starts a CarUp conversation so the seller can reply safely.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign in', onPress: () => router.push('/(auth)/login' as never) },
+        ],
+      );
       return;
     }
-    setInquiring(true);
+
+    setMessaging(true);
     try {
-      await createMarketplaceInquiry({ listing_id: String(vin), inquiry_type: 'vehicle_purchase_interest' });
-      Alert.alert('Inquiry sent', 'Your inquiry is now in CarUp. Keep the conversation and any payment steps inside CarUp.');
-    } catch (e) {
-      Alert.alert('Could not send inquiry', e instanceof Error ? e.message : 'Please try again.');
+      await createMarketplaceInquiry({
+        listing_id: String(vin),
+        inquiry_type: 'vehicle_purchase_interest',
+        message: 'I am interested in this vehicle.',
+      });
+      Alert.alert(
+        'Message sent through CarUp',
+        'Keep the conversation and any transaction steps inside CarUp.',
+        [
+          { text: 'Stay here', style: 'cancel' },
+          { text: 'Open Inbox', onPress: () => router.push('/(tabs)/inbox' as never) },
+        ],
+      );
+    } catch (error) {
+      Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
     } finally {
-      setInquiring(false);
+      setMessaging(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-slate-50">
-        <ActivityIndicator size="large" color="#f97316" />
-      </View>
-    );
-  }
-
-  if (notPubliclyListed && token && (ownerPassportLoading || ownerPassport)) {
-    if (ownerPassportLoading || !ownerPassport) {
-      return (
-        <View className="flex-1 items-center justify-center bg-slate-50">
-          <ActivityIndicator size="large" color="#f97316" />
-        </View>
-      );
+  const shareToWhatsApp = async () => {
+    setSharing(true);
+    try {
+      const result = await createCommunicationShare({
+        channel: 'whatsapp',
+        listing_id: String(vin),
+      });
+      const url = result.share_url || result.listing_url;
+      if (!url || typeof url !== 'string') throw new Error('CarUp did not return a share link.');
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert('Could not open WhatsApp share', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSharing(false);
     }
-    const v = ownerPassport.vehicle ?? {};
-    const trust = ownerPassport.trustReport ?? null;
-    const ownerTitle = [v.year, v.make, v.model].filter((part) => part !== null && part !== undefined && part !== '').join(' ') || String(vin);
-    return (
-      <ScrollView className="flex-1 bg-slate-50" contentContainerStyle={{ padding: 20, paddingBottom: 48 }} testID="owner-passport-fallback">
-        <Pressable onPress={() => router.back()} className="min-h-[44px] justify-center" accessibilityRole="button">
-          <Text className="text-sm font-semibold text-orange-600">← Back</Text>
-        </Pressable>
-        <Text className="mt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Your vehicle · {String(vin)}</Text>
-        <Text className="mt-1 text-2xl font-bold text-slate-900">{ownerTitle}</Text>
-        <View className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <Text className="text-sm font-semibold text-amber-900">Not on the public Marketplace</Text>
-          <Text className="mt-1 text-sm leading-5 text-amber-900">
-            Buyers cannot see this vehicle until it is published. Publishing is not in the app yet — it is done on CarUp's website, where CarUp checks its publication requirements first.
-          </Text>
-        </View>
-        <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-          <Text className="text-xs font-semibold uppercase tracking-wider text-slate-400">Trust position</Text>
-          <Text className="mt-1 text-base font-bold text-slate-900">
-            {typeof trust?.score === 'number' ? `${trust.score} / 100${trust.band ? ` · ${titleCase(trust.band)}` : ''}` : 'Not yet evaluated'}
-          </Text>
-          {typeof v.mileage === 'number' ? (
-            <Text className="mt-3 text-sm text-slate-600">Recorded mileage: {v.mileage.toLocaleString()} km</Text>
-          ) : null}
-        </View>
-      </ScrollView>
-    );
-  }
+  };
 
-  if (error || !marketplaceDetail) {
+  if (detailQuery.isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-slate-50 px-6">
-        <Text className="mb-2 text-center text-lg font-bold text-slate-900">Vehicle details unavailable</Text>
-        <Text className="mb-6 text-center text-sm leading-5 text-slate-500">
-          CarUp could not load the canonical Marketplace record for this vehicle.
-        </Text>
-        <View className="flex-row gap-3">
-          <Pressable onPress={() => refetch()} className="rounded-xl bg-orange-500 px-5 py-3">
-            <Text className="text-xs font-semibold text-white">Try Again</Text>
-          </Pressable>
-          <Pressable onPress={() => router.back()} className="rounded-xl border border-slate-300 bg-white px-5 py-3">
-            <Text className="text-xs font-semibold text-slate-700">Go Back</Text>
-          </Pressable>
-        </View>
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading vehicle details" />
       </View>
     );
   }
 
-  const vehicle = marketplaceDetail;
-  const trustSummary = marketplaceDetail.trust_summary;
-  const title = vehicleTitle(vehicle) || `${vehicle.make} ${vehicle.model}`;
-  // The backend has already elected the canonical primary. Re-electing items[0] here can
-  // contradict the seller's is_primary choice and bypass primary_image_state on inconsistent payloads.
-  const heroUrl = resolveMarketplacePrimaryImage(vehicle);
-  const reservation = vehicle.reservation_summary;
-  const isReserved = reservation?.reserved === true;
-  const locationLabel = vehicle.location?.trim()
-    || (vehicle.location_state === 'withheld' ? 'Location withheld' : 'Location not recorded');
+  if (notPublic && token && ownerPassportQuery.isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading your Vehicle Passport" />
+      </View>
+    );
+  }
+
+  if (notPublic && token && ownerPassportQuery.data) {
+    return <OwnerPassportFallback vin={String(vin)} passport={ownerPassportQuery.data} />;
+  }
+
+  if (detailQuery.isError || !detailQuery.data) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center' }}>
+        <EmptyState
+          icon="car-outline"
+          title="Vehicle details unavailable"
+          body="CarUp could not load a current Marketplace record for this vehicle."
+          actionLabel="Try again"
+          onAction={() => void detailQuery.refetch()}
+          secondaryLabel="Back to Market"
+          onSecondary={() => router.replace('/(tabs)/marketplace' as never)}
+        />
+      </View>
+    );
+  }
+
+  const vehicle = detailQuery.data;
+  const title = vehicleTitle(vehicle) || [vehicle.make, vehicle.model].filter(Boolean).join(' ');
+  const location =
+    vehicle.location?.trim() ||
+    (vehicle.location_state === 'withheld' ? 'Location withheld' : 'Location not recorded');
+  const image = resolveMarketplacePrimaryImage(vehicle);
+  const trustSummary = vehicle.trust_summary;
+  const evidenceSignals = useMemo(
+    () => [
+      ...(trustSummary?.public_badge_copy || []),
+      ...(trustSummary?.trust_badges || []),
+    ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index),
+    [trustSummary?.public_badge_copy, trustSummary?.trust_badges],
+  );
 
   return (
-    <View className="flex-1 bg-slate-50">
-      <View className="flex-row items-center justify-between bg-slate-950 px-5 pb-4 pt-12">
-        <Pressable onPress={() => router.back()} className="min-h-[44px] justify-center pr-4" accessibilityRole="button">
-          <Text className="text-sm font-semibold text-white">← Marketplace</Text>
-        </Pressable>
-        <Text className="text-sm font-bold text-white">Vehicle & Passport</Text>
-        <View className="w-20" />
-      </View>
+    <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={{ paddingHorizontal: spacing[5], paddingTop: spacing[5], paddingBottom: spacing[3] }}>
+          <Button label="Back to Market" variant="tertiary" onPress={() => router.back()} />
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
-        <View className="bg-slate-100">
-          {heroUrl ? (
-            <Image source={{ uri: heroUrl }} resizeMode="cover" className="aspect-[16/10] w-full" accessibilityLabel={`${title} listing photo`} />
-          ) : (
-            <View className="aspect-[16/10] items-center justify-center px-6">
-              <Text className="text-5xl">🚙</Text>
-              <Text className="mt-3 text-center text-xs font-medium text-slate-500">
-                {vehicle.primary_image_state === 'not_loaded' ? 'Listing media not loaded' : 'No published listing photo'}
-              </Text>
-            </View>
-          )}
-          {isReserved ? (
-            <View className="absolute left-4 top-4 rounded-full bg-amber-500 px-3 py-1.5">
-              <Text className="text-[10px] font-bold text-white">Reserved</Text>
+        <View style={{ position: 'relative', backgroundColor: theme.background.surfaceSunken }}>
+          <VehicleImage uri={image} label={`${title || 'Vehicle'} listing photo`} />
+          {vehicle.reservation_summary?.reserved === true ? (
+            <View style={{ position: 'absolute', top: spacing[3], left: spacing[3] }}>
+              <StatusPill label="Reserved" tone="warning" />
             </View>
           ) : null}
         </View>
 
-        <View className="px-5 py-6">
-          <Text className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">VIN {vehicle.vin}</Text>
-          <Text className="mt-1 text-3xl font-extrabold leading-9 text-slate-950">{title}</Text>
-          <Text className="mt-2 text-2xl font-extrabold text-slate-950">{formatPrice(vehicle.price, vehicle.currency)}</Text>
-
-          <View className="mt-3 flex-row flex-wrap gap-2">
-            <View className="rounded-full bg-white px-3 py-1.5"><Text className="text-xs text-slate-600">{formatMileage(vehicle.mileage)}</Text></View>
-            {vehicle.fuel_type ? <View className="rounded-full bg-white px-3 py-1.5"><Text className="text-xs text-slate-600">{vehicle.fuel_type}</Text></View> : null}
-            {vehicle.transmission ? <View className="rounded-full bg-white px-3 py-1.5"><Text className="text-xs text-slate-600">{vehicle.transmission}</Text></View> : null}
+        <View style={{ paddingHorizontal: spacing[5], paddingTop: spacing[5], paddingBottom: spacing[10] }}>
+          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>VIN {vehicle.vin}</Text>
+          <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary, marginTop: spacing[1] }}>{title}</Text>
+          <View style={{ marginTop: spacing[2] }}>
+            <Price amount={vehicle.price} currency={vehicle.currency} />
           </View>
 
-          <View className="mt-6">
-            <TrustCard trust={vehicle.trust} />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], marginTop: spacing[4] }}>
+            {typeof vehicle.mileage === 'number' ? <StatusPill label={`${vehicle.mileage.toLocaleString()} km`} /> : null}
+            {vehicle.fuel_type ? <StatusPill label={vehicle.fuel_type} /> : null}
+            {vehicle.transmission ? <StatusPill label={vehicle.transmission} /> : null}
           </View>
 
-          <View className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
-            <Text className="text-sm font-bold text-slate-900">Listing facts</Text>
-            <View className="mt-4 gap-3">
-              <View className="flex-row items-start justify-between gap-4">
-                <Text className="text-xs text-slate-500">Seller</Text>
-                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{vehicle.seller_display_label || 'Seller not disclosed'}</Text>
-              </View>
-              <View className="flex-row items-start justify-between gap-4">
-                <Text className="text-xs text-slate-500">Location</Text>
-                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{locationLabel}</Text>
-              </View>
-              <View className="flex-row items-start justify-between gap-4">
-                <Text className="text-xs text-slate-500">Reservation</Text>
-                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{titleCase(reservation?.state) || 'Unavailable'}</Text>
-              </View>
-              <View className="flex-row items-start justify-between gap-4">
-                <Text className="text-xs text-slate-500">Evidence</Text>
-                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{titleCase(trustSummary?.evidence_status) || 'Not loaded'}</Text>
-              </View>
-              <View className="flex-row items-start justify-between gap-4">
-                <Text className="text-xs text-slate-500">PartSentry</Text>
-                <Text className="max-w-[65%] text-right text-xs font-semibold text-slate-800">{titleCase(trustSummary?.partsentry_public_status) || 'Not loaded'}</Text>
-              </View>
+          <View style={{ marginTop: spacing[6] }}>
+            <SectionHeader title="Listing" />
+            <View style={{ borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, paddingHorizontal: spacing[4], paddingVertical: spacing[2] }}>
+              <FactRow label="Seller" value={vehicle.seller_display_label || 'Seller not disclosed'} />
+              <FactRow label="Location" value={location} />
+              <FactRow label="Reservation" value={titleCase(vehicle.reservation_summary?.state) || 'Not recorded'} />
             </View>
           </View>
 
-          {trustSummary?.safe_public_copy ? (
-            <View className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
-              <Text className="text-sm font-bold text-slate-900">CarUp public safety note</Text>
-              <Text className="mt-2 text-xs leading-5 text-slate-600">{trustSummary.safe_public_copy}</Text>
-            </View>
-          ) : null}
+          <View style={{ marginTop: spacing[6] }}>
+            <SectionHeader title="Vehicle Passport & Trust" />
+            <TrustEvidence trust={vehicle.trust} />
+          </View>
 
-          {vehicle.safety_warnings?.length ? (
-            <View className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <Text className="text-sm font-bold text-amber-900">Safety information</Text>
-              {vehicle.safety_warnings.map(warning => (
-                <Text key={warning} className="mt-2 text-xs leading-5 text-amber-800">• {warning}</Text>
+          {evidenceSignals.length ? (
+            <View style={{ marginTop: spacing[5], borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, padding: spacing[4], gap: spacing[3] }}>
+              <Text allowFontScaling style={{ ...typeScale.headline, color: theme.text.primary }}>Evidence available</Text>
+              {evidenceSignals.slice(0, 6).map((signal) => (
+                <TrustSignal key={signal} label={signal} />
               ))}
             </View>
           ) : null}
 
-          <View className="h-8" />
+          <View style={{ marginTop: spacing[5], borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, paddingHorizontal: spacing[4], paddingVertical: spacing[2] }}>
+            <FactRow label="Evidence status" value={titleCase(trustSummary?.evidence_status) || 'Not loaded'} />
+            <FactRow label="Service / parts evidence" value={titleCase(trustSummary?.partsentry_public_status) || 'Not loaded'} />
+          </View>
+
+          {trustSummary?.safe_public_copy ? (
+            <View style={{ marginTop: spacing[5] }}>
+              <Notice title="Safety note" body={trustSummary.safe_public_copy} tone="info" />
+            </View>
+          ) : null}
+
+          {vehicle.safety_warnings?.length ? (
+            <View style={{ marginTop: spacing[4], gap: spacing[2] }}>
+              {vehicle.safety_warnings.map((warning) => (
+                <Notice key={warning} title="Needs attention" body={warning} tone="warning" />
+              ))}
+            </View>
+          ) : null}
+
+          <View style={{ marginTop: spacing[6] }}>
+            <Button
+              label="Share listing on WhatsApp"
+              variant="provider"
+              providerColor="#128C7E"
+              onPress={() => void shareToWhatsApp()}
+              loading={sharing}
+              icon={<Ionicons name="logo-whatsapp" size={21} color="#FFFFFF" />}
+            />
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[2], textAlign: 'center' }}>
+              Sharing sends the listing link. WhatsApp is not the CarUp conversation record.
+            </Text>
+          </View>
         </View>
       </ScrollView>
 
-      <View className="flex-row items-center justify-between gap-4 border-t border-slate-200 bg-white px-5 pb-8 pt-4">
-        <View className="min-w-0 flex-1">
-          <Text className="text-[10px] uppercase tracking-wider text-slate-400">Listing price</Text>
-          <Text numberOfLines={1} className="mt-0.5 text-lg font-extrabold text-slate-950">{formatPrice(vehicle.price, vehicle.currency)}</Text>
+      <StickyActionBar>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[4] }}>
+          <View style={{ flex: 1 }}>
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>Listing price</Text>
+            <Price amount={vehicle.price} currency={vehicle.currency} compact />
+          </View>
+          <Button label="Message seller" onPress={() => void messageSeller()} loading={messaging} />
         </View>
-        <Pressable
-          onPress={handleInquire}
-          disabled={inquiring}
-          className="min-h-[48px] justify-center rounded-xl bg-orange-500 px-6 active:opacity-90"
-          accessibilityRole="button"
-        >
-          <Text className="text-sm font-bold text-white">{inquiring ? 'Sending…' : 'Ask Seller'}</Text>
-        </Pressable>
-      </View>
+      </StickyActionBar>
     </View>
   );
 }
