@@ -850,3 +850,26 @@ Across all 20 cases:
 4. CarUp: deploy the proof backend (exact SHA, staging project **production target `--skip-domain`**, no alias move, outbound enabled, deployment-scoped worker secret).
 5. Resend smoke → `WHATSAPP GO` (owner sends `CARUP-WA-LIVE-20261011-<marker>`) → WhatsApp smoke reply → `TELEGRAM GO` (owner `/start`, then marker) → Telegram smoke reply.
 6. Record provider IDs, canonical IDs, delivery states and timestamps against the exact SHA and deployment.
+
+## R9-B — release run 38140785360 on 8a5a920d: results and the guest-inquiry regression
+
+| Job | ID | Result |
+| --- | --- | --- |
+| Bootstrap | — | success (14:19:40Z) |
+| Chromium / shard | 114491499902 | **failure**: 69 passed / 1 failed / 10 skipped. D7 drains not 401 (client-side 20 s timeouts while the server drained). |
+| Tablet / shard | 114496958488 | **failure**: 48 passed / 1 failed / 31 skipped. **Spec 42 (Seller media lifecycle) PASSED on tablet** (3.0 m), the first deployed proof of the My Listings remediation (`eabea731`). |
+| Mobile / shard | — | awaiting owner approval (authorized) |
+
+**The single failure on both shards is the same first real defect: a launch-induced product regression.**
+- Golden Dynamic Seller spec 38 (`38-seller-staging-browser-golden.spec.ts:562/565`): a **guest** buyer cannot submit a Marketplace inquiry. `marketplace-inquiry-submit` was rendered `disabled`.
+- The launch stack blocked guest submission whenever no external channel (WhatsApp/email) could deliver: Codex `49c550d1` blocked by toast, and R1-B `36ac6712` disabled the button. Staging outbound is disabled, so a guest could never submit.
+- This contradicts product authority. `publicAccessPolicy` says a guest inquiry with an email or phone is accepted by design, and the seller's inquiries card shows those contact details, so the inquiry reaches the seller even when CarUp delivery is paused. The pre-launch dialog at 40621751 never blocked.
+- **Moderator:** accepted as a product regression; fix pending deployed recertification.
+
+**Fix `8a13bdbb`** (`web/src/components/marketplace/InquiryModal.tsx` and its test):
+- Guests can always submit again (email or phone still required).
+- When CarUp delivery is paused, the dialog says so truthfully ("…still reaches the seller with the contact details you leave here") and offers sign-in to follow it in the CarUp inbox. Signed-in buyers still fall back to the CarUp inbox.
+- The R1-B tests that encoded the wrong rule were rewritten to assert the authority: the guest submit is enabled and `createMarketplaceInquiry` is called with the guest phone. **Mutation:** re-blocking fails that test.
+- Gates on Node 20.20.2 arm64 (re-downloaded, SHA-256 verified, into the persistent evidence directory): web 258 files / **2,383 tests PASS**, build PASS, lint clean.
+
+`8a13bdbb` stays unpushed and undeployed until run 38140785360 terminates (moderator).
