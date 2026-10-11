@@ -157,3 +157,65 @@ Custody re-read at the same timestamp: PR #222 remote is still `40621751`. Local
 Not done: provider sends, worker invocations, DB writes, publication, production access, webhook changes, pushes.
 
 Disposition: web launch source, local certification and exact staging pair are complete. The current-candidate physical WhatsApp/Telegram/Resend/Brevo proof, Kingston fresh-login UAT, Serena publication and legal approval remain owner or account-custody blockers. OWNER USABILITY CHECKPOINT READY on the be2a779a pair, with those blockers explicit.
+
+# OC-LAUNCH-WEB-LR1-R1 — continuation (moderator: not complete until remotely custodied)
+
+## R1-A — local candidate custody audit (2026-10-11T06:27:58Z)
+
+- Remote base: `40621751d4b74c59324fe6601aa5ddbdc7769b08`; PR #222 OPEN, Draft, unmerged.
+- Merge-base of local stack and remote: `40621751`. The stack is linear (0 merge commits). Each commit's parent is the previous commit:
+  `49c550d1 → a39b0de7 → 607c52c7 → 6f054f7c → edb50b16 → 23a2b247 → 832acb29 → 8d533d52 → e787f338 → e94f897d → be2a779a → d17c207c` (12 commits).
+- Parent of `be2a779a` is `e94f897d`. `d17c207c` descends from `be2a779a`.
+- Working tree clean; 0 untracked files. The worktree was on a detached HEAD, so the stack is now pinned to local branch `launch/oc-launch-web-lr1` (no upstream; never pushed).
+- **Competing local commit:** `a13d25ff` ("docs(pc01): PC01-J-R1 pair deployed…") sits on the local branch `fix/oc5r-real-runtime-source-closure` in worktree `carup-pc01-jr1`, 1 ahead of remote and unpushed.
+  - It is docs/evidence only, with zero file overlap with the launch stack.
+  - It is not part of this lane. Whether it is pushed before the launch stack is a custody decision recorded for the owner/moderator. It is neither silently included nor discarded.
+- Diaspora run 38079945430: `waiting`, attempt 1, head 40621751. Seller run 38079945232: `success`, attempt 1, head 40621751.
+
+## R1-H(prep) — communications custody classification (read-only; no values read)
+
+Sources:
+- Vercel env metadata for `carup-backend-staging` (prj_ddsVeXDx…): names, targets, branch, type only. Every provider variable has type `sensitive` (write-only), so no tool can read or copy a value.
+- Health of the stable staging runtime `dpl_91cteUJnAN8218aeCtUPrXHSHLa3` (code bb9d9900). It is the production target of the *staging* project and serves both `carup-backend-staging.vercel.app` and `api-staging.carup.dev`.
+- `webhook_logs` on staging DB `eoyenigwevnxwwhyhaer`.
+- GitHub secret names.
+
+| Channel | Implemented | Historical physical | Secret/config custody | Class | Exact-candidate configured |
+| --- | --- | --- | --- | --- | --- |
+| WhatsApp (Meta Cloud API) | yes | accepted | `CARUP_META_ACCESS_TOKEN/PHONE_NUMBER_ID/APP_SECRET/WEBHOOK_VERIFY_TOKEN/WABA_ID` present in staging-project **Production target** (stable staging reports READY) and in Preview scoped only to `feature/agent-8-omnichannel-communication-engine` | **C** (+D for webhook) | no — Preview of this branch has none; branch-scoping is rejected while Git is disconnected; sensitive values cannot be copied |
+| Telegram (Bot API) | yes | accepted | `CARUP_TELEGRAM_BOT_TOKEN/WEBHOOK_SECRET_TOKEN` in staging Production target (stable staging READY) and Preview scoped to two historical branches | **C** (+D: one global webhook per bot) | no |
+| Resend | yes | accepted | `RESEND_*` Preview+Production, unscoped | **A** | yes — READY |
+| Brevo marketing | yes | 7 signed webhooks to 2026-08-17 (lifecycle only, not carried as physical proof) | `BREVO_*` Preview+Production, unscoped | **A** | yes — READY |
+| SMS (Twilio) | yes | separate | no `TWILIO_*` variable in the project at all | **E** | no |
+| Push (Expo) | yes | separate (device-registration certification model) | no `EXPO_ACCESS_TOKEN` in the project | **E** | no |
+| Messenger / Instagram | yes | no | `CARUP_META_PAGE_ID` absent everywhere | **E** | no |
+
+Webhook targets, from the latest *valid-signature* rows in `webhook_logs`:
+
+| Provider | Last valid webhook | Host |
+| --- | --- | --- |
+| Resend | 2026-09-03 | `api-staging.carup.dev` |
+| Brevo | 2026-08-17 | `api-staging.carup.dev` |
+| Meta | 2026-08-16 | `carup-backend-staging.vercel.app` |
+| Telegram | 2026-08-13 | `carup-backend-staging.vercel.app` |
+
+Both hosts resolve to `dpl_91cteUJn…` (bb9d9900). No provider points at any branch Preview.
+
+Queue safety:
+- notification_queue has 0 queued external-channel rows: 888 queued `in_app` and 168 queued null-channel rows. The worker treats a null channel as `in_app`.
+- All three `pg_cron` jobs, including `carup-communication-worker-every-minute`, are **inactive**. There are no Vercel crons.
+- `processDueNotifications` claims rows oldest-first, so a controlled message cannot reach the head of the queue without draining 1,056 historical rows. That would be queue mutation outside this lane.
+- The governed path that avoids this is `POST /api/admin/communications/test/provider-smoke` (admin or worker secret). It creates canonical identity, thread, message and queue rows, defers the row and caps attempts at 1, then delivers that one row synchronously through the same delivery worker. It refuses fake adapters and push.
+
+Negative webhook probes against the provisional be2a779a backend, all fail-closed **403** (provisional; to repeat on the pushed SHA):
+- Resend: no signature, and bogus svix signature.
+- Brevo: bogus auth.
+- Meta: bogus `x-hub-signature-256`, and GET with a wrong verify token.
+- Telegram: bogus secret token.
+
+Side effect: these probes wrote `signature_valid=false` audit rows to `webhook_logs` attributed to the be2a779a host at 06:26Z. This is normal audit behaviour; no other DB write occurred.
+
+Exact-candidate physical activation needs an owner choice. No option changes a provider console unless chosen.
+1. Deploy the pushed SHA to the staging project's **production target with `--skip-domain`**. It inherits the accepted staging credentials and moves no alias. Outbound proof runs through provider-smoke on its immutable URL. Inbound replies and lifecycle webhooks still land on stable staging (bb9d9900, same DB): canonical reconciliation is observable, but inbound is *not* exact-candidate.
+2. Option 1, plus temporarily pointing `carup-backend-staging.vercel.app` and `api-staging.carup.dev` at that deployment for the proof window, with rollback to `dpl_91cteUJn…`. Inbound and lifecycle webhooks then reach the exact candidate without touching Meta, Telegram, Resend or Brevo. This displaces the stable staging runtime.
+3. The owner adds Preview-scoped copies of the Meta/Telegram credentials for this branch, or repoints provider webhooks in the provider consoles.
