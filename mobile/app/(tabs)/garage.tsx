@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -240,7 +240,7 @@ function GarageScreenInner() {
   }, [capturingVin, uploading]);
 
   const useOdometerPhoto = useCallback(async () => {
-    if (!pendingCapture || !user?.id) return;
+    if (!pendingCapture || !user?.id || uploading) return;
     setUploading(true);
     setUploadMessage(null);
 
@@ -370,7 +370,7 @@ function GarageScreenInner() {
             data={vehicles}
             numColumns={columns}
             keyExtractor={(item) => item.vin}
-            renderItem={({ item, index }) => (
+            renderItem={({ item }) => (
               <View
                 style={{
                   flex: 1,
