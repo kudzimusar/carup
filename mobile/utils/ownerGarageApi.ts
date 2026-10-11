@@ -1,3 +1,4 @@
+import type { OwnerServiceHistoryEntry } from '@shared/types';
 import { apiUrl } from './apiBase';
 import { useAuthStore } from '../store/authStore';
 
@@ -32,6 +33,16 @@ export async function getMyVehicles(): Promise<NativeOwnedVehicle[]> {
     headers: await ownerHeaders(),
   });
   if (!response.ok) throw new Error('Could not load your vehicles.');
+  const body = await response.json();
+  return Array.isArray(body) ? body : [];
+}
+
+
+export async function getMyServiceHistory(): Promise<OwnerServiceHistoryEntry[]> {
+  const response = await fetch(apiUrl('/api/service-history/me'), {
+    headers: await ownerHeaders(),
+  });
+  if (!response.ok) throw new Error('Could not load your service history.');
   const body = await response.json();
   return Array.isArray(body) ? body : [];
 }
