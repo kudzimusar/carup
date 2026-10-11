@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const root = path.resolve(process.cwd());
 const primitives = fs.readFileSync(path.join(root, 'components/ui/NativePrimitives.tsx'), 'utf8');
+const tokens = fs.readFileSync(path.join(root, 'theme/tokens.ts'), 'utf8');
 const capture = fs.readFileSync(path.join(root, 'components/capture/CaptureSystem.tsx'), 'utf8');
 const shell = fs.readFileSync(path.join(root, 'app/(tabs)/_layout.tsx'), 'utf8');
 
@@ -14,7 +15,8 @@ assert.match(primitives, /accessibilityRole=["']button["']/, 'button primitives 
 assert.match(primitives, /accessibilityLabel=/, 'interactive primitives need accessible labels');
 assert.match(primitives, /accessibilityState=\{\{ selected:/, 'selected filter state must be exposed');
 assert.match(primitives, /accessibilityLiveRegion=["']polite["']/, 'field errors should be announcable');
-assert.match(primitives, /minimum:\s*48/, 'shared touch-target token must remain 48dp');
+assert.match(tokens, /minimum:\s*48/, 'shared touch-target token must remain 48dp');
+assert.match(primitives, /touchTarget\.minimum/, 'shared primitives must consume the touch-target token');
 assert.match(shell, /minHeight:\s*48/, 'bottom shell items must remain at least 48dp');
 
 assert.match(capture, /accessibilityLabel=["']Go back["']/, 'capture back action must be labelled');
