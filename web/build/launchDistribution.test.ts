@@ -7,7 +7,7 @@ function inspect(code: string, module: string, dynamic = false) {
   const privateChunk = { ...entry, isEntry: false, fileName: 'private.js', modules: { '/repo/src/pages/dashboard/Private.tsx': { renderedLength: 12 } } }
   const bundle = dynamic ? { 'entry.js': entry, 'private.js': privateChunk } : { 'entry.js': entry }
   const plugin = launchDistribution()
-  const hook = plugin.generateBundle as Function
+  const hook = plugin.generateBundle as (this: { error: (message: string) => never; emitFile: ReturnType<typeof vi.fn> }, options: Record<string, never>, output: typeof bundle) => void
   const emitFile = vi.fn()
   hook.call({ error: (message: string) => { throw new Error(message) }, emitFile }, {}, bundle)
   return emitFile
@@ -15,7 +15,7 @@ function inspect(code: string, module: string, dynamic = false) {
 describe('public entry distribution guard', () => {
   it('renders Home canonical and social identity in the physical root document', () => {
     const plugin = launchDistribution()
-    const transform = plugin.transformIndexHtml as Function
+    const transform = plugin.transformIndexHtml as (html: string) => string
     const html = transform('<html><head><title>Generic shell</title><meta name="description" content="old"></head></html>')
     expect(html).toContain('https://carup.dev/')
     expect(html).toContain('property="og:title"')

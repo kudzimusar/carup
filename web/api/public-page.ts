@@ -43,7 +43,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const request = new URL(req.url || '/', 'https://carup.dev')
   const raw = request.searchParams.get('path') || ''
   const path = `/${raw.replace(/^\/+/, '')}`
-  if (path.length > 2048 || /[\x00-\x1f\\]/.test(path)) { res.writeHead(400); res.end(); return }
+  if (path.length > 2048 || Array.from(path).some(character => character.charCodeAt(0) < 32 || character === '\\')) { res.writeHead(400); res.end(); return }
   const staging = process.env.VERCEL_ENV !== 'production'
   const metadata = await resolveDocument(path, process.env.CARUP_PUBLIC_API_BASE_URL, staging)
   const shell = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8')

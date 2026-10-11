@@ -6,6 +6,8 @@ export type PublicPageMetadata = { title: string; description: string; canonical
 const DISCOVERY: Record<string, [string, string]> = {
   '/': ['Find your next car | CarUp', 'Browse published cars, compare prices and locations, and read the Vehicle Passport. Know the car. Trust the journey.'],
   '/marketplace': ['Cars for sale | CarUp', 'Browse published vehicle listings. Compare seller-stated facts, price and location, then read the available evidence.'],
+  '/support': ['CarUp Support | CarUp', 'Find current account and listing guidance and approved CarUp support contact information.'],
+  '/security': ['Security guidance | CarUp', 'Read current CarUp security guidance and the approved address for reporting a security concern.'],
   '/dealers': ['Find a dealer | CarUp', 'Browse current dealer profiles and their published listings.'],
   '/garages': ['Find a garage | CarUp', 'Discover published garage profiles and available service information.'],
   '/marketplace/parts': ['Find vehicle parts | CarUp', 'Browse current parts listings and recorded fitment information.'],
@@ -17,15 +19,15 @@ export const SITEMAP_PATHS = PUBLIC_LAUNCH_ROUTES.filter(row =>
 
 export function pageMetadata(path: string, staging = true): PublicPageMetadata {
   const feature = getFeatureByRoute(path)
-  const exposure = PUBLIC_LAUNCH_ROUTES.find(row => row.route === path)
-  const publicActive = feature && !feature.requiresAuth && exposure
+  const exposure = PUBLIC_LAUNCH_ROUTES.find(row => row.route === path && row.route !== '*')
+  const publicActive = !feature?.requiresAuth && exposure
     && ['LAUNCH_ACTIVE', 'LAUNCH_ACTIVE_WITH_LIMIT'].includes(exposure.state)
     && !['/search', '/sell'].includes(path)
   const [title, description] = DISCOVERY[path] ?? (feature?.requiresAuth
     ? ['Your account | CarUp', 'Sign in to access your private CarUp workspace.']
     : feature ? [`${feature.label} | CarUp`, 'Know the car. Trust the journey. Explore current CarUp information.']
       : ['Page not found | CarUp', 'This page is not available. Browse Marketplace or return to CarUp Home.'])
-  return { title, description, canonicalPath: path, robots: staging || !publicActive ? 'noindex, nofollow' : 'index, follow', status: feature ? 200 : 404 }
+  return { title, description, canonicalPath: path, robots: staging || !publicActive ? 'noindex, nofollow' : 'index, follow', status: feature || exposure ? 200 : 404 }
 }
 export function canonicalListingUrl(id: string): string {
   return `${CANONICAL_ORIGIN}/marketplace/${encodeURIComponent(id)}`

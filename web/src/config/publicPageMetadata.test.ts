@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { pageMetadata, publicListingMetadata, renderMetadata, SITEMAP_PATHS, canonicalListingUrl } from './publicPageMetadata'
+import { PUBLIC_LAUNCH_ROUTES } from './publicLaunchPolicy'
 import { resolveDocument, documentHtml } from '../../api/public-page'
 
 const listing = { vin: 'TEST-123', public_status: 'public', year: 2016, make: 'Nissan', model: 'Serena', price: 9000, currency: 'USD' }
@@ -16,6 +17,16 @@ describe('crawler-visible public identity and fail-closed listing projection', (
     expect(html).not.toContain('<script>alert')
     expect(html).not.toContain('<title>Old')
     expect(html).not.toContain('vercel.app')
+  })
+  it('serves every declared static launch route directly, including support and security outside the feature registry', async () => {
+    for (const row of PUBLIC_LAUNCH_ROUTES.filter(row => !row.route.includes(':') && row.route !== '*')) {
+      const metadata = await resolveDocument(row.route, 'https://api-staging.carup.dev', true)
+      expect(metadata.status, row.route).toBe(200)
+      expect(metadata.robots, row.route).toBe('noindex, nofollow')
+    }
+    expect(pageMetadata('/support', false).title).toBe('CarUp Support | CarUp')
+    expect(pageMetadata('/security', false).title).toBe('Security guidance | CarUp')
+    expect(pageMetadata('*', false).status).toBe(404)
   })
   it('never indexes private, auth, legal-draft, planned or absent routes', () => {
     for (const path of ['/dashboard', '/admin/communications', '/login', '/terms', '/privacy', '/api-docs', '/insurance', '/does-not-exist']) {
