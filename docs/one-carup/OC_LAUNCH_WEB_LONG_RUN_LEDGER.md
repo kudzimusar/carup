@@ -470,3 +470,48 @@ Not deleted, not marked, not quarantined. The canonical worker processes them no
 | Rollback | `vercel alias set https://carup-backend-staging-klbmb7c7j-11-11.vercel.app carup-backend-staging-oc5r-pc01-11-11.vercel.app --scope 11-11` |
 
 No database rollback exists, because nothing in the DB is migrated or changed. The GitHub secret change is not reversible to the old (unknown) value. If needed, it can be rotated again under owner authority.
+
+## R3-D — staging-only worker-secret convergence (moderator-authorized, owner-approved rotation)
+
+1. **GitHub custody.** `kudzimusar/carup` → environment `staging` → `COMMUNICATION_WORKER_SECRET` was written by stdin from the private file. That file holds the same value that built `dpl_9Q85zjgd…`; no new value was generated.
+   - Write succeeded; nothing echoed.
+   - Secret timestamp moved 2026-10-08T23:17:50Z → **2026-10-11T10:04:46Z**.
+   - No other GitHub secret changed (repo-level unchanged). No Production secret exists or was touched.
+   - Preconditions held: file outside both repositories, untracked, mode 0600, 64 bytes, never printed.
+2. **Alias.** `carup-backend-staging-oc5r-pc01-11-11.vercel.app` moved `dpl_Cx9js7Nt…` → **`dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC`** (`https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app`) at 10:05Z. The `vercel alias set` success line is in `r3-alias-move.log`. Read back afterwards:
+
+   | Alias | Target | Status |
+   | --- | --- | --- |
+   | PC01 frontend `carup-staging-oc5r-pc01-11-11` | `dpl_GrfRSYSi…` | unchanged |
+   | `carup-backend-staging.vercel.app` | `dpl_91cteUJn…` | unchanged |
+   | `api-staging.carup.dev` | `dpl_91cteUJn…` | unchanged |
+   | `carup.dev` | `dpl_HGxdcEsX…` | unchanged |
+
+   No REL-01, REL-02 or production alias was touched.
+3. **Post-alias runtime proof, through the alias:**
+   - `/api/health`: commit 40621751; DB eoyenigwevnxwwhyhaer consistent; kill switch **active**, external sends **disabled**, internal channels enabled; the worker secret is **configured** (the "secret is missing" explanation is absent).
+   - `POST /api/internal/events/process`: no secret → **401**; wrong secret → **401**. Auth rejects before any work.
+   - PC01 frontend provenance still pairs to the alias (`unpaired:false`, SHA 40621751).
+   - Acceptance of the *governed* GitHub secret is proven by the fresh run's own drain log, never by displaying the secret.
+4. **Fresh certification run:** **38130702563**. Event `workflow_dispatch`, ref `fix/oc5r-real-runtime-source-closure`, head **40621751**, attempt 1, created 2026-10-11T10:05:29Z. It is a new run, not a rerun of 38079945430. No source was moved to trigger it. Backend `dpl_9Q85zjgd…` via the PC01 alias; frontend `dpl_GrfRSYSi…`; staging project eoyenigwevnxwwhyhaer.
+
+PR #222 remained frozen at 40621751 throughout R2/R3. The local launch stack remains unpushed.
+
+## R3-E — moderator-accepted communications classification (2026-10-11)
+
+Terminology: "**production target**" below means the *production environment target inside the staging Vercel project `carup-backend-staging`* (the stable staging runtime `dpl_91cteUJn…`). It does **not** mean the real production backend `carup-backend`, which holds **none** of these credentials.
+
+| Channel | Classification | Launch tier |
+| --- | --- | --- |
+| CarUp in-app | IMPLEMENTED / CANONICAL_CONVERSATION_AUTHORITY | **LAUNCH-CRITICAL** |
+| WhatsApp | IMPLEMENTED + HISTORICALLY_PHYSICAL + STAGING_CONFIG_EXISTS + CURRENT_PREVIEW_RESCOPING_REQUIRED | **LAUNCH-CRITICAL** |
+| Resend | IMPLEMENTED + PREVIEW_CONFIGURED + CURRENT_PHYSICAL_RECERTIFICATION_REQUIRED | **LAUNCH-CRITICAL** (transactional) |
+| Telegram | IMPLEMENTED + HISTORICALLY_PHYSICAL + STAGING_CONFIG_EXISTS + CURRENT_PREVIEW_RESCOPING_REQUIRED | LAUNCH-HIGH-VALUE |
+| Brevo | IMPLEMENTED + PREVIEW_CONFIGURED + CURRENT_PHYSICAL_RECERTIFICATION_REQUIRED | MARKETING (does not block marketplace operation) |
+| Twilio / SMS | ABSENT_PROVIDER_CREDENTIALS / DEFERRED | DEFERRED, not a release blocker |
+| Expo Push | ABSENT_PROVIDER_CREDENTIALS / DEFERRED | DEFERRED |
+| Messenger / Instagram | ABSENT_PROVIDER_IDENTITY / DEFERRED | DEFERRED |
+
+SMS, Push, Messenger and Instagram are **not broken**; they are not activated. No credentials are fabricated for them.
+
+**PRODUCTION COMMUNICATIONS ACTIVATION REMAINS A FUTURE EXPLICIT PROMOTION GATE.** No staging credential is copied to Production in this task.
