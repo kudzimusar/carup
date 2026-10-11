@@ -29,7 +29,7 @@ export default function SellStartScreen() {
         <EmptyState
           icon="pricetag-outline"
           title="Start selling"
-          body="Sign in before CarUp can connect a listing to your identity and seller authority."
+          body="Sign in so CarUp can connect the listing to your account and confirm you can sell the vehicle."
           actionLabel="Sign in"
           onAction={() => router.push('/(auth)/login' as never)}
           secondaryLabel="Back"
