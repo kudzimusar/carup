@@ -1,333 +1,248 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView, SafeAreaView } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Text, View } from 'react-native';
 import { router } from 'expo-router';
+import {
+  CaptureShell,
+  EvidenceStatus,
+  ExtractionField,
+  RetryPanel,
+} from '../../../components/capture/CaptureSystem';
+import { Button, Notice } from '../../../components/ui/NativePrimitives';
+import { spacing, typeScale, useNativeTheme } from '../../../theme/tokens';
+import type { CaptureStage } from '../../../utils/captureState';
 import { useVerificationStore } from '../../../store/verificationStore';
 import {
   getVerificationSession,
   mapSessionToVerificationOutcome,
   VerificationApiError,
 } from '../../../utils/verificationApi';
-import { getVerificationStatusMeta } from '@shared/types';
+
+function toEvidenceStage(status: string): CaptureStage {
+  switch (status) {
+    case 'verified':
+      return 'DOMAIN_VERIFIED';
+    case 'backend_pending':
+      return 'NETWORK_FAILED';
+    case 'retry_requested':
+    case 'incomplete':
+      return 'RETRY_REQUIRED';
+    case 'rejected':
+      return 'REJECTED';
+    case 'ocr_failed':
+      return 'NEEDS_REVIEW';
+    case 'needs_review':
+      return 'UNDER_REVIEW';
+    default:
+      return 'UNDER_REVIEW';
+  }
+}
+
+function statusTitle(status: string): string {
+  switch (status) {
+    case 'verified':
+      return 'Identity verified';
+    case 'backend_pending':
+      return 'Upload not finished';
+    case 'retry_requested':
+    case 'incomplete':
+      return 'We need new photos';
+    case 'rejected':
+      return 'Identity not approved';
+    case 'ocr_failed':
+      return 'Your submission needs review';
+    case 'needs_review':
+      return "We're reviewing your submission";
+    default:
+      return 'Verification status';
+  }
+}
 
 export default function VerificationResult() {
-  const ocrResult = useVerificationStore(state => state.ocrResult);
-  const processingError = useVerificationStore(state => state.processingError);
-  const verificationStatus = useVerificationStore(state => state.verificationStatus);
-  const verificationSessionId = useVerificationStore(state => state.verificationSessionId);
-  const verificationSessionStatus = useVerificationStore(state => state.verificationSessionStatus);
-  const isRefreshing = useVerificationStore(state => state.isRefreshing);
-  const setVerificationOutcome = useVerificationStore(state => state.setVerificationOutcome);
-  const setOcrResult = useVerificationStore(state => state.setOcrResult);
-  const setRefreshing = useVerificationStore(state => state.setRefreshing);
-  const clearVerificationStore = useVerificationStore(state => state.clear);
+  const theme = useNativeTheme();
+  const ocrResult = useVerificationStore((state) => state.ocrResult);
+  const processingError = useVerificationStore((state) => state.processingError);
+  const verificationStatus = useVerificationStore((state) => state.verificationStatus);
+  const verificationSessionId = useVerificationStore((state) => state.verificationSessionId);
+  const isRefreshing = useVerificationStore((state) => state.isRefreshing);
+  const setVerificationOutcome = useVerificationStore((state) => state.setVerificationOutcome);
+  const setOcrResult = useVerificationStore((state) => state.setOcrResult);
+  const setRefreshing = useVerificationStore((state) => state.setRefreshing);
+  const clearVerificationStore = useVerificationStore((state) => state.clear);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
-  const firstName = ocrResult?.first_name || null;
-  const lastName = ocrResult?.last_name || null;
-  const idNumber = ocrResult?.national_id_number || null;
-  const country = ocrResult?.country || null;
-
-  // Shared status copy keyed by the backend status (source of truth). Falls
-  // back to local pre-submit states (idle/incomplete) that have no backend row.
-  const sharedMeta = verificationSessionStatus
-    ? getVerificationStatusMeta(verificationSessionStatus)
-    : null;
-
-  // Restart is offered only when the user can act: a reviewer asked for a
-  // retry, OCR failed, the session was rejected, capture was incomplete, or the
-  // backend was unreachable so nothing was submitted.
-  // RETRY POLICY A (deliberate): rejection is TERMINAL for the applicant.
-  // Restart is offered only for actionable, non-terminal states; a rejected
-  // case reopens ONLY via a reviewer requesting resubmission (or support).
-  const allowsRestart =
+  const evidenceStage = toEvidenceStage(verificationStatus);
+  const canRestart =
     verificationStatus === 'retry_requested' ||
     verificationStatus === 'ocr_failed' ||
     verificationStatus === 'incomplete' ||
     verificationStatus === 'backend_pending';
 
-  // The verified UI (success glyph, verified copy, unlocked capabilities) may
-  // ONLY render when the backend itself reports verified. Every other state —
-  // including a backend-unreachable failure — must read as not-verified.
-  const isBackendVerified = verificationStatus === 'verified';
+  const extractedFields = useMemo(
+    () =>
+      [
+        { label: 'Full name', value: [ocrResult?.first_name, ocrResult?.last_name].filter(Boolean).join(' ') || null },
+        { label: 'ID number', value: ocrResult?.national_id_number || null },
+        { label: 'Date of birth', value: ocrResult?.date_of_birth || null },
+        { label: 'Issuing country', value: ocrResult?.country || null },
+      ].filter((field) => field.value),
+    [ocrResult],
+  );
 
-  const statusCopy = {
-    verified: {
-      title: 'Identity Verified',
-      badge: 'Backend OCR Verified',
-      accent: '#34d399',
-      panel: 'rgba(16,185,129,0.1)',
-    },
-    backend_pending: {
-      title: 'Verification Could Not Be Completed',
-      badge: 'Backend Unreachable — Please Retry',
-      accent: '#f87171',
-      panel: 'rgba(248,113,113,0.1)',
-    },
-    ocr_failed: {
-      title: 'Verification Needs Review',
-      badge: 'OCR Review Required',
-      accent: '#fbbf24',
-      panel: 'rgba(245,158,11,0.1)',
-    },
-    needs_review: {
-      title: 'Verification Needs Review',
-      badge: 'Manual Review Required',
-      accent: '#fbbf24',
-      panel: 'rgba(245,158,11,0.1)',
-    },
-    retry_requested: {
-      title: 'Retake Required',
-      badge: 'Reviewer Requested a Retry',
-      accent: '#fbbf24',
-      panel: 'rgba(245,158,11,0.1)',
-    },
-    incomplete: {
-      title: 'Verification Incomplete',
-      badge: 'Retake Required',
-      accent: '#f87171',
-      panel: 'rgba(248,113,113,0.1)',
-    },
-    rejected: {
-      title: 'Verification Failed',
-      badge: 'Rejected',
-      accent: '#f87171',
-      panel: 'rgba(248,113,113,0.1)',
-    },
-    idle: {
-      title: 'Verification Status Unavailable',
-      badge: 'No Active Session',
-      accent: '#94a3b8',
-      panel: 'rgba(148,163,184,0.1)',
-    },
-  }[verificationStatus];
-
-  const handleFinish = useCallback(() => {
-    clearVerificationStore();
-    router.replace('/(tabs)');
-  }, [clearVerificationStore]);
-
-  // Re-fetch the session so the screen reflects an admin decision after manual
-  // review. The mapped status comes straight from the backend — never invented.
-  const handleRefresh = useCallback(async () => {
+  const refresh = useCallback(async () => {
     if (!verificationSessionId) return;
     setRefreshError(null);
     setRefreshing(true);
     try {
       const session = await getVerificationSession(verificationSessionId);
       const outcome = mapSessionToVerificationOutcome(session);
-      setVerificationOutcome(outcome.status, outcome.sessionId, outcome.processingError, outcome.sessionStatus);
-      if (outcome.ocrResult) {
-        setOcrResult(outcome.ocrResult);
-      }
+      setVerificationOutcome(
+        outcome.status,
+        outcome.sessionId,
+        outcome.processingError,
+        outcome.sessionStatus,
+      );
+      if (outcome.ocrResult) setOcrResult(outcome.ocrResult);
     } catch (error) {
-      const message =
+      setRefreshError(
         error instanceof VerificationApiError
           ? error.message
-          : 'Could not refresh status. Check your connection and try again.';
-      setRefreshError(message);
+          : 'We could not refresh this status. Check your connection and try again.',
+      );
     } finally {
       setRefreshing(false);
     }
-  }, [verificationSessionId, setRefreshing, setVerificationOutcome, setOcrResult]);
+  }, [
+    verificationSessionId,
+    setRefreshing,
+    setVerificationOutcome,
+    setOcrResult,
+  ]);
 
-  // Restart routes back to the start of the verification flow with a clean store.
-  const handleRestart = useCallback(() => {
+  const restart = useCallback(() => {
     clearVerificationStore();
     router.replace('/(auth)/verification/intro');
   }, [clearVerificationStore]);
 
+  const finish = useCallback(() => {
+    clearVerificationStore();
+    router.replace('/(tabs)');
+  }, [clearVerificationStore]);
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
-        
-        <View style={{ marginTop: 32, alignItems: 'center' }}>
-          
-          <View style={{
-            width: 96, height: 96,
-            backgroundColor: statusCopy.panel,
-            borderRadius: 48, justifyContent: 'center', alignItems: 'center',
-            marginBottom: 24, borderWidth: 1, borderColor: statusCopy.accent,
-          }}>
-            <Text style={{ fontSize: 36, color: statusCopy.accent, fontWeight: 'bold' }}>
-              {verificationStatus === 'verified' ? '✓' : '!'}
-            </Text>
-          </View>
-
-          <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', letterSpacing: -0.5, textAlign: 'center', marginBottom: 12 }}>
-            {statusCopy.title}
-          </Text>
-          <Text style={{ color: statusCopy.accent, fontSize: 11, letterSpacing: 2, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 32, textAlign: 'center' }}>
-            {statusCopy.badge}
-          </Text>
-
-          {(processingError || verificationSessionId) && (
-            <View style={{
-              width: '100%', padding: 16, marginBottom: 24,
-              backgroundColor: statusCopy.panel, borderWidth: 1, borderColor: statusCopy.accent,
-              borderRadius: 16,
-            }}>
-              <Text style={{ color: statusCopy.accent, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
-                Verification Status
-              </Text>
-              {sharedMeta && (
-                <Text style={{ color: '#cbd5e1', fontSize: 11, lineHeight: 16, marginBottom: processingError ? 6 : 0 }}>
-                  {sharedMeta.description}
-                </Text>
-              )}
-              <Text style={{ color: '#94a3b8', fontSize: 11, lineHeight: 16 }}>
-                {processingError || `Session ${verificationSessionId} was processed by the backend.`}
-              </Text>
-            </View>
-          )}
-
-          {isBackendVerified ? (
-            <View style={{
-              width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
-              borderRadius: 24, padding: 24, marginBottom: 32,
-            }}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b', paddingBottom: 8 }}>
-                Secure KYC Register Record
-              </Text>
-
-              <View style={{ gap: 16 }}>
-                {firstName || lastName ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>Full Legal Name</Text>
-                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{[firstName, lastName].filter(Boolean).join(' ')}</Text>
-                  </View>
-                ) : null}
-
-                {idNumber ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>National ID Number</Text>
-                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 1 }}>{idNumber}</Text>
-                  </View>
-                ) : null}
-
-                {country ? (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>Issuing Country</Text>
-                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{country}</Text>
-                  </View>
-                ) : null}
-
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>Selfie Capture</Text>
-                  <Text style={{ color: statusCopy.accent, fontSize: 11, fontWeight: 'bold' }}>
-                    Submitted with verified session
-                  </Text>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <View style={{
-              width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
-              borderRadius: 24, padding: 24, marginBottom: 32,
-            }}>
-              <Text
-                style={{
-                  color: verificationStatus === 'rejected' ? '#f87171' : '#fbbf24',
-                  fontWeight: 'bold', fontSize: 14, marginBottom: 8,
-                }}
-              >
-                {verificationStatus === 'rejected'
-                  ? 'Verification Closed — Not Approved'
-                  : verificationStatus === 'retry_requested'
-                    ? 'Retake Required — Photos Did Not Pass Review'
-                    : 'Verification Under Review'}
-              </Text>
-              <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
-                {verificationStatus === 'rejected'
-                  ? 'A reviewer examined your submission and closed this verification. This decision is final in the app. If you believe this is a mistake, contact CarUp support — a reviewer can reopen the case by requesting a new submission.'
-                  : verificationStatus === 'retry_requested'
-                    ? 'A reviewer found issues with your submitted documents. Please retake and resubmit clear photos of your identity document and selfie.'
-                    : 'Your verification has been submitted for manual review. OCR-extracted identity fields are not confirmed until a reviewer approves your documents.'}
-              </Text>
-              {processingError ? (
-                <Text style={{ color: '#f87171', fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                  {processingError}
-                </Text>
-              ) : null}
-            </View>
-          )}
-
-          {isBackendVerified && (<View style={{ width: '100%', gap: 12, marginBottom: 16 }}>
-            <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, paddingLeft: 4 }}>
-              Unlocked Capabilities
-            </Text>
-            
-            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.3)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.3)', borderRadius: 16 }}>
-              <Text style={{ fontSize: 20, marginRight: 12 }}>🚘</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 11, marginBottom: 2 }}>Post Unlimited Marketplace Listings</Text>
-                <Text style={{ color: '#64748b', fontSize: 10 }}>Verified seller labels appear only after backend approval</Text>
-              </View>
-            </View>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.3)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.3)', borderRadius: 16 }}>
-              <Text style={{ fontSize: 20, marginRight: 12 }}>💼</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 11, marginBottom: 2 }}>SafePay Escrow Integration</Text>
-                <Text style={{ color: '#64748b', fontSize: 10 }}>Escrow access remains subject to backend eligibility checks</Text>
-              </View>
-            </View>
-          </View>)}
+    <CaptureShell
+      step="Step 9 of 9"
+      title={statusTitle(verificationStatus)}
+      subtitle="CarUp shows the verification decision separately from document reading and upload status."
+      footer={
+        <View style={{ gap: spacing[2] }}>
+          {verificationSessionId ? (
+            <Button
+              label={isRefreshing ? 'Refreshing status' : 'Refresh status'}
+              onPress={() => void refresh()}
+              loading={isRefreshing}
+              variant="secondary"
+            />
+          ) : null}
+          {canRestart ? <Button label="Try again" onPress={restart} /> : null}
+          <Button
+            label="Back to CarUp"
+            onPress={finish}
+            variant={canRestart ? 'tertiary' : 'primary'}
+          />
         </View>
+      }
+    >
+      <EvidenceStatus stage={evidenceStage} />
 
-        <View style={{ marginTop: 32, gap: 12 }}>
-          {refreshError && (
-            <Text style={{ color: '#f87171', fontSize: 11, textAlign: 'center' }}>{refreshError}</Text>
-          )}
+      {processingError ? (
+        <View style={{ marginTop: spacing[4] }}>
+          <Notice
+            title={verificationStatus === 'backend_pending' ? 'Connection problem' : 'What happened'}
+            body={processingError}
+            tone={verificationStatus === 'rejected' ? 'danger' : 'warning'}
+          />
+        </View>
+      ) : null}
 
-          {/* Manual status refresh — reflects an admin decision after review. */}
-          {verificationSessionId && (
-            <TouchableOpacity
-              onPress={handleRefresh}
-              disabled={isRefreshing}
-              activeOpacity={0.8}
-              testID="refresh-verification-status"
-              style={{
-                width: '100%', height: 52, backgroundColor: '#1e293b', borderRadius: 16,
-                borderWidth: 1, borderColor: '#2B3552',
-                justifyContent: 'center', alignItems: 'center', opacity: isRefreshing ? 0.7 : 1,
-              }}
-            >
-              {isRefreshing ? (
-                <ActivityIndicator color="#cbd5e1" />
-              ) : (
-                <Text style={{ color: '#cbd5e1', fontWeight: '600', fontSize: 15 }}>Refresh status</Text>
-              )}
-            </TouchableOpacity>
-          )}
+      {refreshError ? (
+        <View style={{ marginTop: spacing[4] }}>
+          <Notice title="Could not refresh" body={refreshError} tone="danger" />
+        </View>
+      ) : null}
 
-          {/* Restart verification when a retry is needed. */}
-          {allowsRestart && (
-            <TouchableOpacity
-              onPress={handleRestart}
-              activeOpacity={0.8}
-              testID="restart-verification"
-              style={{ width: '100%', height: 56, backgroundColor: '#f97316', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Restart Verification</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            onPress={handleFinish}
-            activeOpacity={0.8}
+      {extractedFields.length > 0 ? (
+        <View
+          style={{
+            marginTop: spacing[5],
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: theme.border.default,
+            backgroundColor: theme.background.surface,
+            paddingHorizontal: spacing[4],
+          }}
+        >
+          <Text
+            allowFontScaling
             style={{
-              width: '100%', height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center',
-              backgroundColor: allowsRestart ? 'transparent' : '#2563eb',
-              borderWidth: allowsRestart ? 1 : 0, borderColor: '#2B3552',
+              ...typeScale.headline,
+              color: theme.text.primary,
+              paddingTop: spacing[4],
+              paddingBottom: spacing[2],
             }}
           >
-            <Text style={{ color: allowsRestart ? '#94a3b8' : '#fff', fontWeight: '600', fontSize: 16 }}>
-              {allowsRestart ? 'Back to Dashboard' : 'Enter CarUp Marketplace'}
-            </Text>
-          </TouchableOpacity>
+            Details read from your document
+          </Text>
+          <Text
+            allowFontScaling
+            style={{
+              ...typeScale.body,
+              color: theme.text.muted,
+              paddingBottom: spacing[2],
+            }}
+          >
+            These details came from the submitted evidence. They are shown for transparency and do not create verification authority by themselves.
+          </Text>
+          {extractedFields.map((field) => (
+            <ExtractionField
+              key={field.label}
+              label={field.label}
+              value={field.value}
+              state="read"
+            />
+          ))}
         </View>
+      ) : null}
 
-      </ScrollView>
-    </SafeAreaView>
+      {verificationStatus === 'verified' ? (
+        <View style={{ marginTop: spacing[4] }}>
+          <Notice
+            title="Verification decision"
+            body="The responsible CarUp identity process accepted your submitted identity evidence."
+            tone="success"
+          />
+        </View>
+      ) : null}
+
+      {verificationStatus === 'rejected' ? (
+        <View style={{ marginTop: spacing[4] }}>
+          <Notice
+            title="What you can do"
+            body="This submission is closed in the app. If you believe the decision is incorrect, contact CarUp support. A new submission is available only if the review process permits it."
+            tone="danger"
+          />
+        </View>
+      ) : null}
+
+      {verificationStatus === 'retry_requested' ? (
+        <View style={{ marginTop: spacing[4] }}>
+          <RetryPanel
+            title="Retake requested"
+            body={processingError || 'CarUp needs clearer or corrected evidence before review can continue.'}
+            actionLabel="Retake photos"
+            onRetry={restart}
+          />
+        </View>
+      ) : null}
+    </CaptureShell>
   );
 }
