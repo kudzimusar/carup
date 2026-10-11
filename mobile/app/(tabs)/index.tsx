@@ -14,6 +14,7 @@ import {
 import {
   getMarketplaceListingDetail,
   getMarketplaceListings,
+  getSellerMarketplaceInquiries,
 } from '../../utils/marketplaceApi';
 import { getMyVehicles } from '../../utils/ownerGarageApi';
 import { listCommunicationThreads } from '../../utils/communicationApi';
@@ -113,6 +114,12 @@ export default function HomeScreen() {
     enabled: isOwner,
   });
 
+  const sellerInquiriesQuery = useQuery({
+    queryKey: ['native-home-seller-inquiries', user?.id],
+    queryFn: getSellerMarketplaceInquiries,
+    enabled: Boolean(isOwner && publishedOwnedVehicle),
+  });
+
   const unreadCount = useMemo(
     () =>
       (threadsQuery.data?.threads || []).reduce(
@@ -123,6 +130,9 @@ export default function HomeScreen() {
   );
 
   const listings = marketplaceQuery.data?.listings || [];
+  const newSellerInquiryCount = (sellerInquiriesQuery.data?.inquiries || []).filter(
+    (inquiry) => String(inquiry.status || '').toLowerCase() === 'new',
+  ).length;
   const submitSearch = () => {
     const query = search.trim();
     router.push((query ? `/market/results?q=${encodeURIComponent(query)}` : '/market/results') as never);
@@ -274,6 +284,32 @@ export default function HomeScreen() {
             item={sellerListingQuery.data}
             onPress={() => router.push(`/vehicle/${sellerListingQuery.data!.vin}` as never)}
           />
+          {newSellerInquiryCount > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open Inbox. ${newSellerInquiryCount} new seller inquir${newSellerInquiryCount === 1 ? 'y' : 'ies'}`}
+              onPress={() => router.push('/(tabs)/inbox' as never)}
+              style={({ pressed }) => ({
+                minHeight: touchTarget.minimum,
+                marginTop: spacing[3],
+                borderRadius: radius.control,
+                borderWidth: 1,
+                borderColor: theme.border.default,
+                backgroundColor: theme.background.surface,
+                paddingHorizontal: spacing[4],
+                paddingVertical: spacing[3],
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
+                {newSellerInquiryCount} new seller inquir{newSellerInquiryCount === 1 ? 'y' : 'ies'}
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.text.muted} />
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
