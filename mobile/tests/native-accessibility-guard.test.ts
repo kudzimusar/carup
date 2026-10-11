@@ -18,6 +18,9 @@ assert.match(primitives, /minimum:\s*48/, 'shared touch-target token must remain
 assert.match(shell, /minHeight:\s*48/, 'bottom shell items must remain at least 48dp');
 
 assert.match(capture, /accessibilityLabel=["']Go back["']/, 'capture back action must be labelled');
+assert.match(capture, /accessibilityLabel=["']Go back from camera["']/, 'live camera back action must be labelled');
+assert.match(capture, /accessibilityLabel=\{taking \? 'Capturing photo' : 'Take photo'\}/, 'camera shutter must expose an accessible label');
+assert.match(capture, /Turn flash on|Turn flash off/, 'rear-camera flash control must be labelled');
 assert.match(capture, /accessibilityLiveRegion=["']polite["']/, 'capture progress changes must be announcable');
 assert.match(capture, /Retake/, 'capture flow must expose an explicit retake action');
 assert.match(capture, /Use photo/, 'capture flow must expose an explicit use-photo action');
