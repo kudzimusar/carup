@@ -277,7 +277,7 @@ export default function HomeScreen() {
         <View style={{ marginTop: spacing[3] }}>
           <QuickAction
             title="Find a garage"
-            subtitle="Open the governed service directory"
+            subtitle="Browse service providers"
             icon="construct-outline"
             onPress={() => router.push('/find-garage' as never)}
           />
