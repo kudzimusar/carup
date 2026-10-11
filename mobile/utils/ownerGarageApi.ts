@@ -1,4 +1,5 @@
-import type { OwnerServiceHistoryEntry } from '@shared/types';
+import type { OwnerServiceHistoryEntry, MarketplacePublicTrust } from '@shared/types';
+import type { MobileListingMediaBlock } from './marketplaceApi';
 import { apiUrl } from './apiBase';
 import { useAuthStore } from '../store/authStore';
 import { nativeNow, recordNetworkResponse } from './nativePerformance';
@@ -13,7 +14,17 @@ export interface NativeOwnedVehicle {
   fuel_type?: string | null;
   transmission?: string | null;
   status?: string | null;
+  publication_status?: string | null;
   trust_score?: number | null;
+  trust?: MarketplacePublicTrust | null;
+  listing_media?: MobileListingMediaBlock | null;
+  counts?: {
+    documents?: number | null;
+    services?: number | null;
+    parts?: number | null;
+    insurance?: number | null;
+    [key: string]: unknown;
+  } | null;
   price?: number | null;
   currency?: string | null;
 }
