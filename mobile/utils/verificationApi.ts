@@ -314,8 +314,15 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
   };
 }
 
-export async function runVerificationSessionFlow(input: VerificationFlowInput): Promise<VerificationOutcome> {
+export type VerificationFlowStage = 'UPLOADING' | 'UPLOADED' | 'OCR_READING';
+
+export async function runVerificationSessionFlow(
+  input: VerificationFlowInput,
+  onStage?: (stage: VerificationFlowStage) => void,
+): Promise<VerificationOutcome> {
   const session = await createVerificationSession(input.docType, input.doubleSided);
+  onStage?.('UPLOADING');
+
   let latest = await uploadVerificationImage(session.id, 'front', input.capturedFront);
 
   if (input.doubleSided && input.capturedBack) {
@@ -323,6 +330,11 @@ export async function runVerificationSessionFlow(input: VerificationFlowInput): 
   }
 
   latest = await uploadVerificationImage(session.id, 'selfie', input.capturedSelfie);
+  onStage?.('UPLOADED');
+
+  // Submission is the first point at which the backend may invoke extraction/review.
+  // This stage describes observation work only; it does not imply verification.
+  onStage?.('OCR_READING');
   latest = await submitVerificationSession(latest.id);
 
   return mapSessionToVerificationOutcome(latest);
