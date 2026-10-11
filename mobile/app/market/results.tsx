@@ -12,21 +12,35 @@ import {
   FilterChip,
   SearchField,
 } from '../../components/ui/NativePrimitives';
-import { getMarketplaceListings, type MobileListingSummary } from '../../utils/marketplaceApi';
+import {
+  getMarketplaceListings,
+  getSavedMarketplaceListings,
+  saveMarketplaceListing,
+  unsaveMarketplaceListing,
+  type MobileListingSummary,
+} from '../../utils/marketplaceApi';
+import { useAuthStore } from '../../store/authStore';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function ResultsInner() {
   const theme = useNativeTheme();
   const router = useRouter();
-  const params = useLocalSearchParams<{ q?: string; make?: string }>();
+  const params = useLocalSearchParams<{ q?: string; make?: string; saved?: string }>();
   const [search, setSearch] = useState(typeof params.q === 'string' ? params.q : '');
   const [committedSearch, setCommittedSearch] = useState(typeof params.q === 'string' ? params.q : '');
   const [selectedMake, setSelectedMake] = useState<string | null>(
     typeof params.make === 'string' && params.make ? params.make : null,
   );
+  const [saveBusyVin, setSaveBusyVin] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const expanded = width >= 700;
   const columns = expanded ? 2 : 1;
+
+  const authLoading = useAuthStore((state) => state.loading);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
+  const canSave = !authLoading && isAuthenticated && user?.role === 'owner';
+  const savedMode = params.saved === 'true';
 
   const filters = useMemo(() => {
     const next: Record<string, string> = {};
@@ -35,14 +49,81 @@ function ResultsInner() {
     return Object.keys(next).length ? next : undefined;
   }, [committedSearch, selectedMake]);
 
-  const query = useQuery({
+  const marketplaceQuery = useQuery({
     queryKey: ['marketplace-results-native', committedSearch, selectedMake],
     queryFn: () => getMarketplaceListings(filters),
+    enabled: !savedMode,
   });
 
-  const listings = query.data?.listings || [];
+  const savedQuery = useQuery({
+    queryKey: ['marketplace-saved-native', user?.id],
+    queryFn: getSavedMarketplaceListings,
+    enabled: canSave,
+  });
+
+  const savedVins = useMemo(
+    () => new Set((savedQuery.data?.listings || []).map((item) => item.vin)),
+    [savedQuery.data],
+  );
+
+  const listings = useMemo(() => {
+    const base = savedMode ? (savedQuery.data?.listings || []) : (marketplaceQuery.data?.listings || []);
+    if (!savedMode) return base;
+    const query = committedSearch.trim().toLowerCase();
+    return base.filter((item) => {
+      if (selectedMake && item.make !== selectedMake) return false;
+      if (!query) return true;
+      return [item.make, item.model, item.year, item.location]
+        .some((value) => String(value || '').toLowerCase().includes(query));
+    });
+  }, [committedSearch, marketplaceQuery.data, savedMode, savedQuery.data, selectedMake]);
 
   const submitSearch = () => setCommittedSearch(search.trim());
+
+  const toggleSave = async (item: MobileListingSummary) => {
+    if (!canSave || saveBusyVin) return;
+    const wasSaved = savedVins.has(item.vin);
+    setSaveBusyVin(item.vin);
+    try {
+      if (wasSaved) {
+        await unsaveMarketplaceListing(item.vin);
+      } else {
+        await saveMarketplaceListing(item.vin);
+      }
+      await savedQuery.refetch();
+    } finally {
+      setSaveBusyVin(null);
+    }
+  };
+
+  const activeQuery = savedMode ? savedQuery : marketplaceQuery;
+  const resultCount = savedMode ? listings.length : (marketplaceQuery.data?.total ?? listings.length);
+
+  if (savedMode && authLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading saved cars" />
+      </View>
+    );
+  }
+
+  if (savedMode && !canSave) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center' }}>
+        <EmptyState
+          icon="bookmark-outline"
+          title={isAuthenticated ? 'Saved cars are not available here' : 'Sign in to see saved cars'}
+          body={isAuthenticated
+            ? 'Saved Marketplace discovery is available from a personal CarUp account.'
+            : 'Your saved Marketplace cars are tied to your CarUp account.'}
+          actionLabel={isAuthenticated ? 'Back to Market' : 'Sign in'}
+          onAction={() => isAuthenticated
+            ? router.replace('/(tabs)/marketplace' as never)
+            : router.push('/(auth)/login' as never)}
+        />
+      </View>
+    );
+  }
 
   const renderItem = ({ item, index }: { item: MobileListingSummary; index: number }) => (
     <View
@@ -53,7 +134,14 @@ function ResultsInner() {
         marginLeft: expanded && index % 2 === 1 ? spacing[2] : 0,
       }}
     >
-      <VehicleCard item={item} onPress={() => router.push(`/vehicle/${item.vin}` as never)} compact={expanded} />
+      <VehicleCard
+        item={item}
+        onPress={() => router.push(`/vehicle/${item.vin}` as never)}
+        compact={expanded}
+        saved={savedVins.has(item.vin)}
+        saveBusy={saveBusyVin === item.vin}
+        onToggleSave={canSave ? () => void toggleSave(item) : undefined}
+      />
     </View>
   );
 
@@ -71,23 +159,30 @@ function ResultsInner() {
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[3] }}>
           <Button label="Back" variant="tertiary" onPress={() => router.back()} />
-          <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary, flex: 1 }}>Marketplace</Text>
+          <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary, flex: 1 }}>
+            {savedMode ? 'Saved cars' : 'Marketplace'}
+          </Text>
         </View>
+
         <View style={{ marginTop: spacing[3] }}>
           <SearchField
             value={search}
             onChangeText={setSearch}
             placeholder="Search make, model or keyword"
-            accessibilityLabel="Search Marketplace results"
+            accessibilityLabel={savedMode ? 'Search your saved cars' : 'Search Marketplace results'}
             onSubmitEditing={submitSearch}
           />
         </View>
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: spacing[2], paddingTop: spacing[3] }}
         >
           <FilterChip label="All makes" selected={selectedMake === null} onPress={() => setSelectedMake(null)} />
+          {canSave && !savedMode ? (
+            <FilterChip label="Saved" onPress={() => router.push('/market/results?saved=true' as never)} />
+          ) : null}
           {VEHICLE_MAKES.map((make) => (
             <FilterChip
               key={make}
@@ -99,26 +194,26 @@ function ResultsInner() {
         </ScrollView>
       </View>
 
-      {!query.isLoading && !query.isError ? (
+      {!activeQuery.isLoading && !activeQuery.isError ? (
         <View style={{ paddingHorizontal: spacing[5], paddingVertical: spacing[3] }}>
           <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.secondary }}>
-            {query.data?.total ?? listings.length} matching vehicle{(query.data?.total ?? listings.length) === 1 ? '' : 's'}
+            {resultCount} {savedMode ? 'saved' : 'matching'} vehicle{resultCount === 1 ? '' : 's'}
           </Text>
         </View>
       ) : null}
 
-      {query.isLoading ? (
+      {activeQuery.isLoading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading vehicle results" />
+          <ActivityIndicator color={theme.brand.primary} accessibilityLabel={savedMode ? 'Loading saved cars' : 'Loading vehicle results'} />
         </View>
-      ) : query.isError ? (
+      ) : activeQuery.isError ? (
         <View style={{ flex: 1, justifyContent: 'center' }}>
           <EmptyState
             icon="cloud-offline-outline"
-            title="Results are unavailable"
-            body="CarUp could not load current Marketplace results. Check your connection and try again."
+            title={savedMode ? 'Saved cars are unavailable' : 'Results are unavailable'}
+            body="CarUp could not load current Marketplace data. Check your connection and try again."
             actionLabel="Try again"
-            onAction={() => void query.refetch()}
+            onAction={() => void activeQuery.refetch()}
             secondaryLabel="Back to search"
             onSecondary={() => router.back()}
           />
@@ -126,17 +221,21 @@ function ResultsInner() {
       ) : listings.length === 0 ? (
         <View style={{ flex: 1, justifyContent: 'center' }}>
           <EmptyState
-            icon="search-outline"
-            title="No cars match this search"
-            body="Try another make or keyword. CarUp will not substitute unrelated or demo listings."
+            icon={savedMode ? 'bookmark-outline' : 'search-outline'}
+            title={savedMode ? 'No saved cars match' : 'No cars match this search'}
+            body={savedMode
+              ? 'Save a Marketplace car to keep it here, or clear your current filters.'
+              : 'Try another make or keyword. CarUp will not substitute unrelated or demo listings.'}
             actionLabel="Clear filters"
             onAction={() => {
               setSearch('');
               setCommittedSearch('');
               setSelectedMake(null);
             }}
-            secondaryLabel="Start a listing"
-            onSecondary={() => router.push('/sell' as never)}
+            secondaryLabel={savedMode ? 'Browse Market' : 'Start a listing'}
+            onSecondary={() => savedMode
+              ? router.replace('/(tabs)/marketplace' as never)
+              : router.push('/sell' as never)}
           />
         </View>
       ) : (
@@ -147,8 +246,8 @@ function ResultsInner() {
           renderItem={renderItem}
           keyExtractor={(item) => item.vin}
           showsVerticalScrollIndicator={false}
-          onRefresh={() => void query.refetch()}
-          refreshing={query.isRefetching}
+          onRefresh={() => void activeQuery.refetch()}
+          refreshing={activeQuery.isRefetching}
           contentContainerStyle={{ paddingHorizontal: spacing[5], paddingBottom: spacing[10] }}
         />
       )}
