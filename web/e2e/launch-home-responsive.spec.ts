@@ -67,3 +67,25 @@ for (const width of [320, 390, 430, 1440]) {
     }
   })
 }
+
+test('Marketplace secondary menu follows launch exposure and empty inventory offers seller entry', async ({ page }) => {
+  await page.goto('/marketplace')
+  const categories = page.getByRole('navigation', { name: 'Marketplace categories' })
+  await expect(categories.getByRole('link', { name: 'Insurance', exact: true })).toHaveCount(0)
+  await expect(categories.getByRole('link', { name: 'Pricing', exact: true })).toHaveCount(0)
+  await expect(categories.getByRole('link', { name: 'Services', exact: true })).toHaveAttribute('href', '/marketplace/services')
+  await expect(page.getByTestId('marketplace-empty-state').getByRole('link', { name: 'Start a listing' })).toHaveAttribute('href', '/sell')
+})
+
+test('Marketplace failure is not an empty result and retry preserves the query', async ({ page }) => {
+  let fail = true
+  await page.route('**/api/marketplace/listings**', route => route.fulfill({ status: fail ? 503 : 200, contentType: 'application/json', body: JSON.stringify(fail ? { error: 'Unavailable' } : { listings: [], total: 0 }) }))
+  await page.goto('/marketplace?q=Nissan%20Serena')
+  await expect(page.getByTestId('marketplace-error-state')).toBeVisible()
+  await expect(page.getByTestId('marketplace-empty-state')).toHaveCount(0)
+  await expect(page.getByTestId('marketplace-results-count')).toHaveText('Count unavailable')
+  fail = false
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByTestId('marketplace-empty-state')).toBeVisible()
+  await expect(page).toHaveURL(/q=Nissan%20Serena/)
+})
