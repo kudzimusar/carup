@@ -12,6 +12,7 @@ import {
   SectionHeader,
 } from '../../components/ui/NativePrimitives';
 import { getMarketplaceListings } from '../../utils/marketplaceApi';
+import { useAuthStore } from '../../store/authStore';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function MarketplaceSearchInner() {
@@ -19,6 +20,10 @@ function MarketplaceSearchInner() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [selectedMake, setSelectedMake] = useState<string | null>(null);
+  const authLoading = useAuthStore((state) => state.loading);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
+  const canSave = !authLoading && isAuthenticated && user?.role === 'owner';
 
   const freshQuery = useQuery({
     queryKey: ['marketplace-fresh-native'],
@@ -65,6 +70,12 @@ function MarketplaceSearchInner() {
         contentContainerStyle={{ gap: spacing[2], paddingTop: spacing[3], paddingBottom: spacing[2] }}
       >
         <FilterChip label="All cars" selected={selectedMake === null} onPress={() => { setSelectedMake(null); openResults(null); }} />
+        {canSave ? (
+          <FilterChip
+            label="Saved"
+            onPress={() => router.push('/market/results?saved=true' as never)}
+          />
+        ) : null}
         {makes.map((make) => (
           <FilterChip
             key={make}
