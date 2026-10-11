@@ -248,12 +248,12 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      {isOwner && sellerListingQuery.isSuccess && sellerListingQuery.data?.listing ? (
+      {isOwner && sellerListingQuery.isSuccess && sellerListingQuery.data ? (
         <View style={{ marginTop: spacing[6] }}>
           <SectionHeader title="Your listing" />
           <VehicleCard
-            item={sellerListingQuery.data.listing}
-            onPress={() => router.push(`/vehicle/${sellerListingQuery.data!.listing.vin}` as never)}
+            item={sellerListingQuery.data}
+            onPress={() => router.push(`/vehicle/${sellerListingQuery.data!.vin}` as never)}
           />
         </View>
       ) : null}
