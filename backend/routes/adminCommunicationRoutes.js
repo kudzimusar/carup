@@ -304,6 +304,10 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
       phone_number: recipient,
       to: recipient,
       address: recipient,
+      // G2: an Email producer must declare its canonical classification, or the renderer refuses it
+      // before any provider call. A provider smoke test is an operational SERVICE message, so it
+      // routes to Resend and can never ride the marketing transport (Brevo).
+      ...(normalizedChannel === 'email' ? { classification: 'service' } : {}),
     },
   });
 
