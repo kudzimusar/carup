@@ -31,7 +31,7 @@ export type CameraCaptureResult =
   | { kind: 'permission'; state: Exclude<CameraPermissionState, 'granted'> }
   | { kind: 'error'; message: string };
 
-function permissionState(permission: ImagePicker.MediaLibraryPermissionResponse | ImagePicker.CameraPermissionResponse): CameraPermissionState {
+function permissionState(permission: { status: 'granted' | 'denied' | 'undetermined'; canAskAgain: boolean }): CameraPermissionState {
   if (permission.status === 'granted') return 'granted';
   if (permission.status === 'undetermined') return 'not_requested';
   return permission.canAskAgain ? 'denied' : 'blocked';
