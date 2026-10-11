@@ -292,3 +292,17 @@ export async function getMarketplaceCategories(): Promise<{ listing_types: { slu
 export async function createMarketplaceInquiry(payload: MobileInquiryInput): Promise<{ inquiry: { id: string; status: string; referral_attributed: boolean } }> {
   return requestJson(`/api/marketplace/inquiries`, { method: 'POST', body: JSON.stringify({ ...payload, source_channel: 'mobile' }) });
 }
+
+export interface MobileServiceListing {
+  slug?: string;
+  name?: string;
+  location?: string | null;
+  service_categories?: string[];
+  [key: string]: unknown;
+}
+
+export async function getMarketplaceServices(
+  filters?: Record<string, string | number | undefined>,
+): Promise<{ listings: MobileServiceListing[]; total: number; governed: boolean; listing_type: 'service'; note?: string }> {
+  return requestJson(`/api/marketplace/services${toQuery(filters)}`);
+}
