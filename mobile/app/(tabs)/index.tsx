@@ -1,246 +1,289 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { VehicleCard } from '../../components/marketplace/VehicleCard';
+import {
+  EmptyState,
+  SearchField,
+  SectionHeader,
+  StatusPill,
+} from '../../components/ui/NativePrimitives';
+import {
+  getMarketplaceListingDetail,
+  getMarketplaceListings,
+} from '../../utils/marketplaceApi';
+import { getMyVehicles } from '../../utils/ownerGarageApi';
+import { listCommunicationThreads } from '../../utils/communicationApi';
 import { useAuthStore } from '../../store/authStore';
-import { Redirect, useRouter } from 'expo-router';
-import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
-import { getFeatureById } from '../../navigation/featureManifest';
-import { resolveDashboardGate } from '../../navigation/dashboardGate';
+import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
-function DashboardScreenInner() {
-  const router = useRouter();
-  const user = useAuthStore((state) => state.user);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const loading = useAuthStore((state) => state.loading);
-  const logout = useAuthStore((state) => state.logout);
-  const switchRole = useAuthStore((state) => state.switchRole);
-  const [roleSwitchWarning, setRoleSwitchWarning] = useState<string | null>(null);
-
-  const goToLogin = () => router.replace('/(auth)/login');
-
-  const handleLogout = async () => {
-    await logout();
-    router.replace('/(auth)/login');
-  };
-
-  // Role switching is optional convenience. A failure shows a non-blocking
-  // warning and NEVER disables Start Verification Flow (which depends only on
-  // being authenticated).
-  const handleRoleSwitch = async (role: 'owner' | 'dealer' | 'mechanic') => {
-    setRoleSwitchWarning(null);
-    const result = await switchRole(role);
-    if (!result.ok) {
-      setRoleSwitchWarning(result.error || 'Role switch is unavailable right now. You can still continue.');
-    }
-  };
-
-  // While the secure store hydrates we must NOT flash a signed-in-looking
-  // header before auth state is known.
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color="#F97316" />
-      </View>
-    );
-  }
-
-  // ---- Signed-out state: never imply an authenticated session -------------
-  if (!isAuthenticated) {
-    return (
-      <ScrollView
-        contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'center' }}
-        style={{ backgroundColor: '#F8FAFC' }}
-      >
-        <View style={{ backgroundColor: '#0F172A', padding: 24, borderRadius: 16, marginBottom: 24 }}>
-          <Text style={{ color: '#F97316', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>CarUp</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '700', marginTop: 6 }} testID="dashboard-signed-out-title">You're signed out</Text>
-          <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 6 }}>Sign in to access your dashboard and identity verification.</Text>
-        </View>
-
-        <Pressable
-          onPress={goToLogin}
-          testID="sign-in-to-carup"
-          style={({ pressed }) => ({
-            width: '100%', backgroundColor: '#0F172A', borderRadius: 12,
-            paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-            marginBottom: 16, opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In to CarUp</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={goToLogin}
-          testID="verification-requires-login"
-          style={({ pressed }) => ({
-            width: '100%', backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA',
-            borderRadius: 12, paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ color: '#EA580C', fontSize: 15, fontWeight: '600' }}>Sign in to start verification</Text>
-        </Pressable>
-      </ScrollView>
-    );
-  }
-
-  // ---- Authenticated state ------------------------------------------------
+function QuickAction({
+  title,
+  subtitle,
+  icon,
+  onPress,
+  disabled,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const theme = useNativeTheme();
   return (
-    <ScrollView contentContainerStyle={{ padding: 24 }} style={{ backgroundColor: '#F8FAFC' }}>
-      {/* Welcome Block */}
-      <View style={{ backgroundColor: '#0F172A', padding: 24, borderRadius: 16, marginBottom: 24 }}>
-        <Text style={{ color: '#F97316', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Welcome Back</Text>
-        <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700', marginTop: 4 }}>{user?.name || 'CarUp Stakeholder'}</Text>
-        {user?.email ? <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 4 }}>{user.email}</Text> : null}
-        {user?.role ? (
-          <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(249,115,22,0.2)', borderWidth: 1, borderColor: 'rgba(249,115,22,0.3)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, marginTop: 16 }}>
-            <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Active Role: {user.role}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* Multi-Tenant Stakeholder Switcher */}
-      <View style={{ backgroundColor: '#FFFFFF', padding: 20, borderRadius: 16, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 24 }}>
-        <Text style={{ color: '#0F172A', fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Stakeholder Portal Switching</Text>
-        <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 16 }}>Shift your authorization context across multi-tenant ledger systems.</Text>
-        <View>
-          {([
-            { role: 'owner' as const, title: 'Vehicle Owner Portal', subtitle: 'Manage private garages, service logs, and listings.' },
-            { role: 'dealer' as const, title: 'Dealership Portal', subtitle: 'Review showroom inventories, active sales, and buyer leads.' },
-            { role: 'mechanic' as const, title: 'Certified Mechanic Portal', subtitle: 'Mint immutable Partsentry logs and authorize inspection hashes.' },
-          ]).map((portal, idx) => {
-            const active = user?.role === portal.role;
-            return (
-              <Pressable
-                key={portal.role}
-                onPress={() => handleRoleSwitch(portal.role)}
-                testID={`switch-role-${portal.role}`}
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel={`Switch to ${portal.title}`}
-                accessibilityHint={portal.subtitle}
-                accessibilityState={{ selected: active }}
-                style={({ pressed }) => ({
-                  padding: 16,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  // Min 44px touch target for accessibility.
-                  minHeight: 44,
-                  marginTop: idx === 0 ? 0 : 12,
-                  backgroundColor: active ? '#FFF7ED' : '#F8FAFC',
-                  borderColor: active ? '#F97316' : '#E2E8F0',
-                  opacity: pressed ? 0.8 : 1,
-                })}
-              >
-                <Text style={{ fontWeight: '600', fontSize: 15, color: active ? '#EA580C' : '#1E293B' }}>{portal.title}</Text>
-                <Text style={{ color: '#94A3B8', fontSize: 11, marginTop: 4 }}>{portal.subtitle}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* Non-blocking notice if an optional role switch failed. Does NOT gate
-          verification — Start Verification Flow stays enabled while signed in. */}
-      {roleSwitchWarning && (
-        <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 12, marginBottom: 16 }}>
-          <Text style={{ color: '#92400E', fontSize: 12, fontWeight: '600', marginBottom: 2 }}>Role switch unavailable</Text>
-          <Text style={{ color: '#B45309', fontSize: 11 }} testID="role-switch-warning">{roleSwitchWarning}</Text>
-        </View>
-      )}
-
-      {/* Identity verification entry point — enabled because the user is
-          authenticated (independent of any role-switch outcome). Uses a STATIC
-          inline style (same pattern as the dark welcome card that renders
-          reliably) on a TouchableOpacity, not a function-style Pressable, so the
-          high-contrast background always paints on iPhone. */}
-      <TouchableOpacity
-        onPress={() => router.push('/(auth)/verification/intro')}
-        testID="start-verification-flow"
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityLabel="Start Verification Flow"
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityHint={subtitle}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flex: 1,
+        minHeight: 132,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: theme.border.default,
+        backgroundColor: theme.background.surface,
+        padding: spacing[4],
+        opacity: disabled ? 0.55 : pressed ? 0.78 : 1,
+      })}
+    >
+      <View
         style={{
-          width: '100%',
-          minHeight: 60,
-          backgroundColor: '#0F172A',
-          borderWidth: 2,
-          borderColor: '#F97316',
-          borderRadius: 14,
-          justifyContent: 'center',
+          width: touchTarget.minimum,
+          height: touchTarget.minimum,
+          borderRadius: radius.control,
           alignItems: 'center',
-          paddingVertical: 16,
-          marginBottom: 16,
+          justifyContent: 'center',
+          backgroundColor: theme.background.surfaceSunken,
         }}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800' }}>Start Verification Flow</Text>
-        <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '700', marginTop: 2 }}>Tap to verify your identity →</Text>
-      </TouchableOpacity>
-
-      {/* Account actions */}
-      <Pressable
-        onPress={handleLogout}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel="Sign out session"
-        testID="sign-out-session"
-        style={({ pressed }) => ({
-          width: '100%', backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA',
-          borderRadius: 12, paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-          marginBottom: 40, opacity: pressed ? 0.8 : 1,
-        })}
-      >
-        <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600' }}>Sign Out Session</Text>
-      </Pressable>
-    </ScrollView>
+        <Ionicons name={icon} size={23} color={theme.text.primary} />
+      </View>
+      <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary, marginTop: spacing[3] }}>
+        {title}
+      </Text>
+      <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 3 }}>
+        {subtitle}
+      </Text>
+    </Pressable>
   );
 }
 
-/**
- * Governed route boundary (Milestone C). The dashboard tab is role-resolved: it
- * is owned by the active role's `${role}.overview` feature (owner.overview,
- * dealer.overview, …), so a direct / deep-link / initial navigation is gated by
- * the SAME governed decision per role. The route is resolved from the manifest
- * (never fabricated), defaulting to `/dashboard`.
- *
- * Anonymous (no role): every `*.overview` feature is `requiresAuth`, so there is
- * no role-owned feature to gate against. We short-circuit to the sign-in route
- * so an unauthenticated deep link to the dashboard redirects to auth instead of
- * rendering. (Once signed in, role resolves and the overview boundary governs.)
- */
-export default function DashboardScreen() {
-  // Read the auth bootstrap flag FIRST: the store starts loading:true while
-  // initialize() restores a saved SecureStore session, so user/role are briefly
-  // null on a cold launch / direct deep link. Deciding before bootstrap finishes
-  // would eject an already-signed-in user. Ordering is enforced by the gate:
-  // 1. loading → safe loading state; 2. confirmed anon → /login; 3. role boundary.
-  const isBootstrapping = useAuthStore((s) => s.loading);
-  const role = useAuthStore((s) => s.user?.role ?? null);
-  const gate = resolveDashboardGate({ loading: isBootstrapping, role });
+export default function HomeScreen() {
+  const theme = useNativeTheme();
+  const router = useRouter();
+  const [search, setSearch] = useState('');
+  const authLoading = useAuthStore((state) => state.loading);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
+  const isOwner = !authLoading && isAuthenticated && user?.role === 'owner';
 
-  // 1. Auth bootstrap — wait, never redirect mid-restore.
-  if (gate.kind === 'loading') {
-    return (
-      <View
-        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' }}
-        accessibilityRole="progressbar"
-        accessibilityLabel="Restoring your session"
-      >
-        <ActivityIndicator size="large" color="#f97316" />
-      </View>
-    );
-  }
+  const marketplaceQuery = useQuery({
+    queryKey: ['native-home-marketplace'],
+    queryFn: () => getMarketplaceListings({ limit: 4 }),
+  });
 
-  // 2. Confirmed anonymous (init finished, still no role) → the public Marketplace (dashboardGate.ts).
-  if (gate.kind === 'redirect') {
-    return <Redirect href={gate.to} />;
-  }
+  const vehiclesQuery = useQuery({
+    queryKey: ['native-home-owner-vehicles', user?.id],
+    queryFn: getMyVehicles,
+    enabled: isOwner,
+  });
 
-  // 3. Role-owned governed boundary (role is known here — never a fabricated owner).
-  const featureId = `${role}.overview`;
-  const route = getFeatureById(featureId)?.route ?? '/dashboard';
+  const firstOwnedVehicle = vehiclesQuery.data?.[0] ?? null;
+  const sellerListingQuery = useQuery({
+    queryKey: ['native-home-owner-public-listing', firstOwnedVehicle?.vin],
+    queryFn: () => getMarketplaceListingDetail(firstOwnedVehicle!.vin),
+    enabled: Boolean(isOwner && firstOwnedVehicle?.vin),
+    retry: false,
+  });
+
+  const threadsQuery = useQuery({
+    queryKey: ['native-home-owner-threads', user?.id],
+    queryFn: () => listCommunicationThreads(),
+    enabled: isOwner,
+  });
+
+  const unreadCount = useMemo(
+    () =>
+      (threadsQuery.data?.threads || []).reduce(
+        (sum: number, thread: any) => sum + Number(thread?.unread_count || 0),
+        0,
+      ),
+    [threadsQuery.data],
+  );
+
+  const listings = marketplaceQuery.data?.listings || [];
+  const submitSearch = () => {
+    const query = search.trim();
+    router.push((query ? `/market/results?q=${encodeURIComponent(query)}` : '/market/results') as never);
+  };
+
   return (
-    <NativeFeatureBoundary route={route} featureId={featureId} hasNativeScreen>
-      <DashboardScreenInner />
-    </NativeFeatureBoundary>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: theme.background.canvas }}
+      contentContainerStyle={{ paddingHorizontal: spacing[5], paddingTop: spacing[5], paddingBottom: spacing[10] }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: touchTarget.minimum }}>
+        <View>
+          <Text allowFontScaling style={{ ...typeScale.headline, color: theme.text.primary }}>CarUp</Text>
+          {isAuthenticated && user?.name ? (
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>
+              {user.name}
+            </Text>
+          ) : null}
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open Inbox"
+          onPress={() => router.push('/(tabs)/inbox' as never)}
+          style={{
+            width: touchTarget.minimum,
+            height: touchTarget.minimum,
+            borderRadius: 24,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: theme.background.surface,
+            borderWidth: 1,
+            borderColor: theme.border.default,
+          }}
+        >
+          <Ionicons name="notifications-outline" size={22} color={theme.text.primary} />
+          {unreadCount > 0 ? (
+            <View style={{ position: 'absolute', top: 5, right: 5 }}>
+              <StatusPill label={unreadCount > 99 ? '99+' : String(unreadCount)} tone="info" />
+            </View>
+          ) : null}
+        </Pressable>
+      </View>
+
+      <Text allowFontScaling style={{ ...typeScale.display, color: theme.text.primary, marginTop: spacing[6] }}>
+        Find your next car
+      </Text>
+      <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[2] }}>
+        Search current CarUp Marketplace listings.
+      </Text>
+
+      <View style={{ marginTop: spacing[5] }}>
+        <SearchField
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search make, model or keyword"
+          accessibilityLabel="Search the CarUp Marketplace"
+          onSubmitEditing={submitSearch}
+        />
+      </View>
+
+      <View style={{ marginTop: spacing[6] }}>
+        <SectionHeader title="Fresh on CarUp" actionLabel="See all" onAction={() => router.push('/market/results' as never)} />
+      </View>
+
+      {marketplaceQuery.isLoading ? (
+        <View style={{ paddingVertical: spacing[8], alignItems: 'center' }}>
+          <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading Marketplace vehicles" />
+        </View>
+      ) : marketplaceQuery.isError ? (
+        <EmptyState
+          icon="cloud-offline-outline"
+          title="Marketplace could not refresh"
+          body="Check your connection and try again. CarUp will not show invented vehicle data."
+          actionLabel="Try again"
+          onAction={() => void marketplaceQuery.refetch()}
+        />
+      ) : listings.length === 0 ? (
+        <EmptyState
+          icon="car-outline"
+          title="No published vehicles right now"
+          body="There are no current Marketplace listings to show. If you're selling, you can start a listing."
+          actionLabel="Start selling"
+          onAction={() => router.push('/sell' as never)}
+          secondaryLabel="Search Marketplace"
+          onSecondary={() => router.push('/(tabs)/marketplace' as never)}
+        />
+      ) : (
+        <View style={{ gap: spacing[4] }}>
+          {listings.slice(0, 3).map((item) => (
+            <VehicleCard
+              key={item.vin}
+              item={item}
+              onPress={() => router.push(`/vehicle/${item.vin}` as never)}
+            />
+          ))}
+        </View>
+      )}
+
+      {isOwner && firstOwnedVehicle ? (
+        <View style={{ marginTop: spacing[7] }}>
+          <SectionHeader title="Your Garage" actionLabel="Open" onAction={() => router.push('/(tabs)/garage' as never)} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${firstOwnedVehicle.make} ${firstOwnedVehicle.model} in My Garage`}
+            onPress={() => router.push('/(tabs)/garage' as never)}
+            style={({ pressed }) => ({
+              borderRadius: radius.card,
+              borderWidth: 1,
+              borderColor: theme.border.default,
+              backgroundColor: theme.background.surface,
+              padding: spacing[4],
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Text allowFontScaling style={{ ...typeScale.headline, color: theme.text.primary }}>
+              {[firstOwnedVehicle.year, firstOwnedVehicle.make, firstOwnedVehicle.model].filter(Boolean).join(' ')}
+            </Text>
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[2] }}>
+              VIN {firstOwnedVehicle.vin}
+            </Text>
+            {typeof firstOwnedVehicle.mileage === 'number' ? (
+              <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary, marginTop: spacing[2] }}>
+                {firstOwnedVehicle.mileage.toLocaleString()} km
+              </Text>
+            ) : null}
+          </Pressable>
+        </View>
+      ) : null}
+
+      {isOwner && sellerListingQuery.isSuccess && sellerListingQuery.data?.listing ? (
+        <View style={{ marginTop: spacing[6] }}>
+          <SectionHeader title="Your listing" />
+          <VehicleCard
+            item={sellerListingQuery.data.listing}
+            onPress={() => router.push(`/vehicle/${sellerListingQuery.data!.listing.vin}` as never)}
+          />
+        </View>
+      ) : null}
+
+      <View style={{ marginTop: spacing[7] }}>
+        <SectionHeader title="What would you like to do?" />
+        <View style={{ flexDirection: 'row', gap: spacing[3] }}>
+          <QuickAction
+            title="Sell a car"
+            subtitle="Start with your vehicle"
+            icon="pricetag-outline"
+            onPress={() => router.push('/sell' as never)}
+          />
+          <QuickAction
+            title="Check a car"
+            subtitle="Use a vehicle identifier"
+            icon="shield-checkmark-outline"
+            onPress={() => router.push('/check-car' as never)}
+          />
+        </View>
+        <View style={{ marginTop: spacing[3] }}>
+          <QuickAction
+            title="Find a garage"
+            subtitle="Service-network discovery is not yet available in this native build"
+            icon="construct-outline"
+            disabled
+            onPress={() => undefined}
+          />
+        </View>
+      </View>
+    </ScrollView>
   );
 }
