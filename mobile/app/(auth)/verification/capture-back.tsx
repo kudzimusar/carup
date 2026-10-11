@@ -1,193 +1,104 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
-import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, Image, InteractionManager, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { captureDocumentPhoto, formatFileSize, type CapturedAsset } from '../../../utils/camera';
+import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
+import {
+  CaptureGuide,
+  CapturePreview,
+  CaptureShell,
+  PermissionPanel,
+} from '../../../components/capture/CaptureSystem';
+import { Notice } from '../../../components/ui/NativePrimitives';
+import {
+  captureDocumentPhotoWithStatus,
+  openCameraSettings,
+  type CameraPermissionState,
+  type CapturedAsset,
+} from '../../../utils/camera';
 import { useVerificationStore } from '../../../store/verificationStore';
 
-const { width } = Dimensions.get('window');
-
 function CaptureBack() {
-  const { docType, doubleSided } = useLocalSearchParams<{
-    docType: string;
-    doubleSided: string;
-  }>();
-
-  const setCapturedBack = useVerificationStore(state => state.setCapturedBack);
-  const [capturedAsset, setCapturedAsset] = useState<CapturedAsset | null>(null);
-  const [isAligned, setIsAligned] = useState<boolean>(false);
-  const [capturing, setCapturing] = useState<boolean>(false);
-  const [statusText, setStatusText] = useState<string>('Tap the shutter to capture back of document');
-
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => { mountedRef.current = false; };
-  }, []);
+  const { docType, doubleSided } = useLocalSearchParams<{ docType: string; doubleSided: string }>();
+  const setCapturedBack = useVerificationStore((state) => state.setCapturedBack);
+  const [asset, setAsset] = useState<CapturedAsset | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const [permission, setPermission] = useState<CameraPermissionState | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
 
   const handleCapture = useCallback(async () => {
     if (capturing) return;
-
     setCapturing(true);
-    setStatusText('Launching camera...');
+    setCaptureError(null);
+    setPermission(null);
+    const result = await captureDocumentPhotoWithStatus();
+    setCapturing(false);
 
-    try {
-      const asset = await captureDocumentPhoto();
-
-      if (!asset) {
-        if (mountedRef.current) {
-          setCapturing(false);
-          setStatusText('Capture cancelled. Tap shutter to retry.');
-        }
-        return;
-      }
-
-      setCapturedAsset(asset);
-      setCapturedBack(asset.dataUri);
-      setIsAligned(true);
-      setStatusText(`Captured back! Compressed to ${formatFileSize(asset.fileSizeBytes)}`);
-
-      InteractionManager.runAfterInteractions(() => {
-        if (!mountedRef.current) return;
-        setCapturing(false);
-        router.push({
-          pathname: '/(auth)/verification/selfie',
-          params: { docType, doubleSided },
-        });
-      });
-    } catch (err) {
-      console.error('[CaptureBack] Camera error:', err);
-      if (mountedRef.current) {
-        setCapturing(false);
-        setStatusText('Camera error. Please try again.');
-      }
+    if (result.kind === 'captured') {
+      setAsset(result.asset);
+      return;
     }
-  }, [capturing, docType, doubleSided, setCapturedBack]);
+    if (result.kind === 'permission') {
+      setPermission(result.state);
+      return;
+    }
+    if (result.kind === 'error') setCaptureError(result.message);
+  }, [capturing]);
 
-  const handleBack = useCallback(() => {
-    router.back();
-  }, []);
+  const handleRetake = useCallback(() => {
+    setCapturedBack(null);
+    setAsset(null);
+    setCaptureError(null);
+  }, [setCapturedBack]);
+
+  const handleUse = useCallback(() => {
+    if (!asset) return;
+    setCapturedBack(asset.dataUri);
+    router.push({
+      pathname: '/(auth)/verification/selfie',
+      params: { docType, doubleSided },
+    });
+  }, [asset, docType, doubleSided, setCapturedBack]);
 
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-      <View style={styles.container}>
-
-        <View style={styles.topBar}>
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Text style={styles.backArrow}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.stepLabel}>Step 4 of 9: BACK</Text>
-        </View>
-
-        <View style={styles.viewfinderArea}>
-          <View 
-            style={[
-              styles.documentFrame,
-              { width: width * 0.85, height: width * 0.85 * 0.63 },
-              isAligned ? styles.frameAligned : styles.frameDefault,
-            ]}
-          >
-            {capturedAsset ? (
-              <Image
-                source={{ uri: capturedAsset.uri }}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="cover"
-              />
-            ) : capturing ? (
-              <ActivityIndicator size="large" color="#10B981" />
-            ) : (
-              <Text style={styles.placeholderText}>
-                Position Back of Document here
-              </Text>
-            )}
-
-            <View style={[styles.corner, styles.cornerTL]} />
-            <View style={[styles.corner, styles.cornerTR]} />
-            <View style={[styles.corner, styles.cornerBL]} />
-            <View style={[styles.corner, styles.cornerBR]} />
-          </View>
-        </View>
-
-        <View style={styles.actionPanel}>
-          <View style={styles.statusContainer}>
-            <Text style={[styles.statusText, capturedAsset ? styles.statusOk : styles.statusNeutral]}>
-              {statusText}
-            </Text>
-            {capturedAsset && (
-              <Text style={styles.assetInfo}>
-                {capturedAsset.width}x{capturedAsset.height}px - {formatFileSize(capturedAsset.fileSizeBytes)}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.shutterRow}>
-            <TouchableOpacity
-              onPress={handleCapture}
-              disabled={capturing}
-              style={styles.shutterButton}
-            >
-              <View style={[styles.shutterInner, capturing ? styles.shutterActive : styles.shutterReady]} />
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.helpText}>
-            Ensure barcodes or back details are clean, readable, and fit within the guideline marks.
-          </Text>
-        </View>
-
-      </View>
-    </SafeAreaView>
+    <CaptureShell
+      step="Step 4 of 9 · Back"
+      title="Back of your document"
+      subtitle="Capture the required reverse side, then check the actual photo before continuing."
+      onBack={() => router.back()}
+    >
+      {permission && permission !== 'granted' ? (
+        <PermissionPanel
+          title={permission === 'blocked' ? 'Camera access is blocked' : permission === 'unavailable' ? 'Camera is unavailable' : 'Camera access is needed'}
+          body={permission === 'blocked'
+            ? 'Enable camera access for CarUp in your device Settings, then return here.'
+            : permission === 'unavailable'
+              ? 'This device could not open the camera. Go back and try again later.'
+              : 'Allow camera access when your device asks so you can photograph the document.'}
+          onRetry={permission === 'denied' || permission === 'not_requested' ? handleCapture : undefined}
+          onOpenSettings={permission === 'blocked' ? () => void openCameraSettings() : undefined}
+        />
+      ) : asset ? (
+        <CapturePreview
+          uri={asset.uri}
+          label="Back of identity document"
+          onRetake={handleRetake}
+          onUse={handleUse}
+        />
+      ) : (
+        <>
+          {captureError ? <Notice title="Photo not captured" body={captureError} tone="danger" /> : null}
+          <CaptureGuide
+            title="Back of document"
+            instructions={['Keep the whole reverse side visible', 'Avoid reflections over numbers or barcodes', 'Hold the phone still so details are readable']}
+            actionLabel="Open camera"
+            onCapture={handleCapture}
+            busy={capturing}
+          />
+        </>
+      )}
+    </CaptureShell>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0A0E1A' },
-  container: { flex: 1, justifyContent: 'space-between', padding: 24 },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 },
-  backButton: {
-    width: 40, height: 40,
-    backgroundColor: 'rgba(22,28,44,0.8)',
-    borderWidth: 1, borderColor: '#2B3552',
-    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-  },
-  backArrow: { color: '#fff', fontSize: 18 },
-  stepLabel: { color: '#94a3b8', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' },
-  viewfinderArea: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 24 },
-  documentFrame: {
-    borderWidth: 2, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  frameDefault: { borderColor: '#3b82f6', borderStyle: 'dashed', backgroundColor: 'rgba(15,23,42,0.1)' },
-  frameAligned: { borderColor: '#10b981', backgroundColor: 'rgba(15,23,42,0.1)' },
-  placeholderText: { color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', paddingHorizontal: 16 },
-  corner: { position: 'absolute', width: 24, height: 24 },
-  cornerTL: { top: -4, left: -4, borderTopWidth: 4, borderLeftWidth: 4, borderColor: '#3b82f6', borderTopLeftRadius: 8 },
-  cornerTR: { top: -4, right: -4, borderTopWidth: 4, borderRightWidth: 4, borderColor: '#3b82f6', borderTopRightRadius: 8 },
-  cornerBL: { bottom: -4, left: -4, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: '#3b82f6', borderBottomLeftRadius: 8 },
-  cornerBR: { bottom: -4, right: -4, borderBottomWidth: 4, borderRightWidth: 4, borderColor: '#3b82f6', borderBottomRightRadius: 8 },
-  actionPanel: { gap: 16 },
-  statusContainer: { alignItems: 'center' },
-  statusText: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  statusOk: { color: '#34d399' },
-  statusNeutral: { color: '#cbd5e1' },
-  assetInfo: { color: '#10b981', fontSize: 11, marginTop: 4 },
-  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  shutterButton: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: '#fff', borderWidth: 4, borderColor: '#1e293b',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  shutterInner: { width: 44, height: 44, borderRadius: 22 },
-  shutterActive: { backgroundColor: '#f59e0b' },
-  shutterReady: { backgroundColor: '#2563eb' },
-  helpText: { fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 16 },
-});
-
-// ENTRY PREFLIGHT (device Gate 2 round 3): a terminally-rejected applicant is
-// stopped BEFORE this screen mounts — including deep links — so no document
-// selection or camera capture is possible until a reviewer reopens the case.
 export default function GuardedCaptureBack(): React.ReactElement {
   return (
     <VerificationEntryGuard>
