@@ -4,8 +4,13 @@
   },
   "rewrites": [
     {
-      "source": "/((?!email-assets/).*)",
-      "destination": "/index.html"
+      "source": "/((?!assets/|email-assets/|api/|sw\\.js$|favicon\\.svg$|manifest\\.webmanifest$|robots\\.txt$|sitemap\\.xml$|carup-provenance\\.json$).*)",
+      "destination": "/api/public-page?path=$1"
     }
-  ]
+  ],
+  "functions": {
+    "api/public-page.ts": {
+      "includeFiles": "dist/index.html"
+    }
+  }
 }

@@ -73,7 +73,7 @@ describe('App route convergence after the post-#194 reconciliation', () => {
       .then((m) => (m as unknown as { default: string }).default)
       .catch(() => null)
     if (app) {
-      expect(app).toMatch(/import\s+GarageDetail\s+from/)
+      expect(app).toMatch(/const GarageDetail = lazy\(\(\) => import\('\.\/pages\/GarageDetail'\)\)/)
       expect(app).toMatch(/path="\/garages\/:slug"/)
     }
     // The load-bearing assertion is the runtime one; the source check above is a readable

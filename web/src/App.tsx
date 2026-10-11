@@ -1,17 +1,18 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useState, createContext, useContext, useEffect, lazy, Suspense } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './context/AuthContext'
+import { RouteMetadata } from './components/routing/RouteMetadata'
 import { WifiOff } from 'lucide-react'
 import type { AuthUser, Notification } from '@shared/types'
 
 // Layout
 import MainLayout from './components/layout/MainLayout'
 import TradeOSWorkspaceLayout from './components/layout/TradeOSWorkspaceLayout'
-import TradeRequestQuotes from './pages/diaspora/TradeRequestQuotes'
-import TradeMyRequests from './pages/diaspora/TradeMyRequests'
-import TradeRequestDetail from './pages/diaspora/TradeRequestDetail'
-import TradeBuyerRequests from './pages/diaspora/TradeBuyerRequests'
+const TradeRequestQuotes = lazy(() => import('./pages/diaspora/TradeRequestQuotes'))
+const TradeMyRequests = lazy(() => import('./pages/diaspora/TradeMyRequests'))
+const TradeRequestDetail = lazy(() => import('./pages/diaspora/TradeRequestDetail'))
+const TradeBuyerRequests = lazy(() => import('./pages/diaspora/TradeBuyerRequests'))
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
@@ -20,133 +21,131 @@ import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 
 // Public Pages
 import Landing from './pages/Landing'
-import GuestSell from './pages/GuestSell'
+const GuestSell = lazy(() => import('./pages/GuestSell'))
 import Marketplace from './pages/Marketplace'
-import MarketplaceCompare from './pages/MarketplaceCompare'
-import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
-import VehicleDetail from './pages/VehicleDetail'
-import VehicleSearch from './pages/VehicleSearch'
-import SharedReport from './pages/SharedReport'
-import DealerDirectory from './pages/DealerDirectory'
-import GarageDirectory from './pages/GarageDirectory'
-import GarageDetail from './pages/GarageDetail'
-import ServiceLink from './pages/ServiceLink'
-import InsuranceDirectory from './pages/InsuranceDirectory'
-import Pricing from './pages/Pricing'
-import About from './pages/About'
-import Contact from './pages/Contact'
+const MarketplaceCompare = lazy(() => import('./pages/MarketplaceCompare'))
+const MarketplaceCategoryPage = lazy(() => import('./pages/MarketplaceCategoryPage'))
+const VehicleDetail = lazy(() => import('./pages/VehicleDetail'))
+const VehicleSearch = lazy(() => import('./pages/VehicleSearch'))
+const SharedReport = lazy(() => import('./pages/SharedReport'))
+const DealerDirectory = lazy(() => import('./pages/DealerDirectory'))
+const GarageDirectory = lazy(() => import('./pages/GarageDirectory'))
+const GarageDetail = lazy(() => import('./pages/GarageDetail'))
+const ServiceLink = lazy(() => import('./pages/ServiceLink'))
+const InsuranceDirectory = lazy(() => import('./pages/InsuranceDirectory'))
+const Pricing = lazy(() => import('./pages/Pricing'))
+const About = lazy(() => import('./pages/About'))
+const Contact = lazy(() => import('./pages/Contact'))
 import ScrollToTop from './components/layout/ScrollToTop'
 import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
 // New Footer Pages
-import Careers from './pages/Careers'
-import PressKit from './pages/PressKit'
-import Blog from './pages/Blog'
-import HelpCenter from './pages/HelpCenter'
-import TrustSafety from './pages/TrustSafety'
-import PrivacyPolicy from './pages/PrivacyPolicy'
-import TermsOfService from './pages/TermsOfService'
-import Support from './pages/Support'
-import Security from './pages/Security'
-import APIDocs from './pages/APIDocs'
-import {
-  DiasporaComplianceAdmin,
-  DiasporaImportDetail,
-  DiasporaImportDocuments,
-  DiasporaImportList,
-  DiasporaImportShipment,
-  DiasporaLanding,
-  NewDiasporaImportOrder,
-} from './pages/diaspora/DiasporaTrade'
-import DiasporaOrderPassport from './pages/diaspora/DiasporaOrderPassport'
-import TradeTransactionPassport from './pages/diaspora/TradeTransactionPassport'
-import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
-import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
-import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
-import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
-import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
-import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
-import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
-import TradeRateResearch from './pages/diaspora/TradeRateResearch'
-import TradeDocumentsWorkspace from './pages/diaspora/TradeDocumentsWorkspace'
-import WarehouseIntakeWorkspace from './pages/diaspora/WarehouseIntakeWorkspace'
-import MyCargoIntake from './pages/diaspora/MyCargoIntake'
-import ContainerLoadingWorkspace from './pages/diaspora/ContainerLoadingWorkspace'
-import MyCargoLoading from './pages/diaspora/MyCargoLoading'
-import ShipmentTimelineWorkspace from './pages/diaspora/ShipmentTimelineWorkspace'
-import MyShipmentTracking from './pages/diaspora/MyShipmentTracking'
-import CustomsDestinationWorkspace from './pages/diaspora/CustomsDestinationWorkspace'
-import MyCustomsDestination from './pages/diaspora/MyCustomsDestination'
-import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
-import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
-import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
-import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
-import DiasporaTradeGraph from './pages/diaspora/DiasporaTradeGraph'
-import DiasporaSafeTradeOperations from './pages/diaspora/DiasporaSafeTradeOperations'
-import DiasporaConfirmedImport from './pages/diaspora/DiasporaConfirmedImport'
+const Careers = lazy(() => import('./pages/Careers'))
+const PressKit = lazy(() => import('./pages/PressKit'))
+const Blog = lazy(() => import('./pages/Blog'))
+const HelpCenter = lazy(() => import('./pages/HelpCenter'))
+const TrustSafety = lazy(() => import('./pages/TrustSafety'))
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
+const TermsOfService = lazy(() => import('./pages/TermsOfService'))
+const Support = lazy(() => import('./pages/Support'))
+const Security = lazy(() => import('./pages/Security'))
+const APIDocs = lazy(() => import('./pages/APIDocs'))
+const DiasporaComplianceAdmin = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaComplianceAdmin })))
+const DiasporaImportDetail = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportDetail })))
+const DiasporaImportDocuments = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportDocuments })))
+const DiasporaImportList = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportList })))
+const DiasporaImportShipment = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportShipment })))
+const DiasporaLanding = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaLanding })))
+const NewDiasporaImportOrder = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.NewDiasporaImportOrder })))
+const DiasporaOrderPassport = lazy(() => import('./pages/diaspora/DiasporaOrderPassport'))
+const TradeTransactionPassport = lazy(() => import('./pages/diaspora/TradeTransactionPassport'))
+const DiasporaStockPassport = lazy(() => import('./pages/diaspora/DiasporaStockPassport'))
+const DiasporaWorkbookDryRun = lazy(() => import('./pages/diaspora/DiasporaWorkbookDryRun'))
+const DiasporaWorkbookOperatorConsole = lazy(() => import('./pages/diaspora/DiasporaWorkbookOperatorConsole'))
+const DiasporaStockManager = lazy(() => import('./pages/diaspora/DiasporaStockManager'))
+const DiasporaTradeProfile = lazy(() => import('./pages/diaspora/DiasporaTradeProfile'))
+const DiasporaAiCommandCenter = lazy(() => import('./pages/diaspora/DiasporaAiCommandCenter'))
+const DiasporaContainerMarketplace = lazy(() => import('./pages/diaspora/DiasporaContainerMarketplace'))
+const TradeRateResearch = lazy(() => import('./pages/diaspora/TradeRateResearch'))
+const TradeDocumentsWorkspace = lazy(() => import('./pages/diaspora/TradeDocumentsWorkspace'))
+const WarehouseIntakeWorkspace = lazy(() => import('./pages/diaspora/WarehouseIntakeWorkspace'))
+const MyCargoIntake = lazy(() => import('./pages/diaspora/MyCargoIntake'))
+const ContainerLoadingWorkspace = lazy(() => import('./pages/diaspora/ContainerLoadingWorkspace'))
+const MyCargoLoading = lazy(() => import('./pages/diaspora/MyCargoLoading'))
+const ShipmentTimelineWorkspace = lazy(() => import('./pages/diaspora/ShipmentTimelineWorkspace'))
+const MyShipmentTracking = lazy(() => import('./pages/diaspora/MyShipmentTracking'))
+const CustomsDestinationWorkspace = lazy(() => import('./pages/diaspora/CustomsDestinationWorkspace'))
+const MyCustomsDestination = lazy(() => import('./pages/diaspora/MyCustomsDestination'))
+const DiasporaDriveConnections = lazy(() => import('./pages/diaspora/DiasporaDriveConnections'))
+const DiasporaSubscription = lazy(() => import('./pages/diaspora/DiasporaSubscription'))
+const DiasporaSafeTrade = lazy(() => import('./pages/diaspora/DiasporaSafeTrade'))
+const DiasporaSafeTradeDetail = lazy(() => import('./pages/diaspora/DiasporaSafeTradeDetail'))
+const DiasporaTradeGraph = lazy(() => import('./pages/diaspora/DiasporaTradeGraph'))
+const DiasporaSafeTradeOperations = lazy(() => import('./pages/diaspora/DiasporaSafeTradeOperations'))
+const DiasporaConfirmedImport = lazy(() => import('./pages/diaspora/DiasporaConfirmedImport'))
 
 // Auth Pages
-import Login from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import ForgotPassword from './pages/auth/ForgotPassword'
-import ResetPassword from './pages/auth/ResetPassword'
-import VerifyEmail from './pages/auth/VerifyEmail'
-import KYCVerification from './pages/auth/KYCVerification'
-import RegistrationJourney from './pages/onboarding/RegistrationJourney'
-import DealerOnboarding from './pages/dealer/DealerOnboarding'
+const Login = lazy(() => import('./pages/auth/Login'))
+const Register = lazy(() => import('./pages/auth/Register'))
+const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'))
+const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'))
+const VerifyEmail = lazy(() => import('./pages/auth/VerifyEmail'))
+const KYCVerification = lazy(() => import('./pages/auth/KYCVerification'))
+const RegistrationJourney = lazy(() => import('./pages/onboarding/RegistrationJourney'))
+const DealerOnboarding = lazy(() => import('./pages/dealer/DealerOnboarding'))
 
 // Owner Dashboard
-import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
-import MyGarage from './pages/dashboard/owner/MyGarage'
-import GarageSetup from './pages/dashboard/garage/GarageSetup'
-import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
-import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
-import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
-import ServiceRequests from './pages/dashboard/owner/ServiceRequests'
-import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
-import PartSentry from './pages/dashboard/owner/PartSentry'
-import MyListings from './pages/dashboard/owner/MyListings'
-import SavedCars from './pages/dashboard/owner/SavedCars'
-import SellVehicle from './pages/dashboard/owner/SellVehicle'
+const OwnerDashboard = lazy(() => import('./pages/dashboard/owner/OwnerDashboard'))
+const MyGarage = lazy(() => import('./pages/dashboard/owner/MyGarage'))
+const GarageSetup = lazy(() => import('./pages/dashboard/garage/GarageSetup'))
+const EvidenceVault = lazy(() => import('./pages/dashboard/owner/EvidenceVault'))
+const VehicleProfile = lazy(() => import('./pages/dashboard/owner/VehicleProfile'))
+const ServiceHistory = lazy(() => import('./pages/dashboard/owner/ServiceHistory'))
+const ServiceRequests = lazy(() => import('./pages/dashboard/owner/ServiceRequests'))
+const InsuranceRecords = lazy(() => import('./pages/dashboard/owner/InsuranceRecords'))
+const PartSentry = lazy(() => import('./pages/dashboard/owner/PartSentry'))
+const MyListings = lazy(() => import('./pages/dashboard/owner/MyListings'))
+const SavedCars = lazy(() => import('./pages/dashboard/owner/SavedCars'))
+const SellVehicle = lazy(() => import('./pages/dashboard/owner/SellVehicle'))
 import { SellerRouteErrorBoundary } from './components/sell/SellerRouteErrorBoundary'
-import AIDashboard from './pages/dashboard/owner/AIDashboard'
-import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
-import Communications from './pages/dashboard/owner/Communications'
-import SellerIntelligence from './pages/dashboard/owner/SellerIntelligence'
+const AIDashboard = lazy(() => import('./pages/dashboard/owner/AIDashboard'))
+const ReferralWallet = lazy(() => import('./pages/dashboard/owner/ReferralWallet'))
+const Communications = lazy(() => import('./pages/dashboard/owner/Communications'))
+const SellerIntelligence = lazy(() => import('./pages/dashboard/owner/SellerIntelligence'))
 
 // Dealer Dashboard
-import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
-import Inventory from './pages/dashboard/dealer/Inventory'
-import Leads from './pages/dashboard/dealer/Leads'
-import Promotions from './pages/dashboard/dealer/Promotions'
-import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
+const DealerDashboard = lazy(() => import('./pages/dashboard/dealer/DealerDashboard'))
+const Inventory = lazy(() => import('./pages/dashboard/dealer/Inventory'))
+const Leads = lazy(() => import('./pages/dashboard/dealer/Leads'))
+const Promotions = lazy(() => import('./pages/dashboard/dealer/Promotions'))
+const SalesAnalytics = lazy(() => import('./pages/dashboard/dealer/SalesAnalytics'))
 
 // Mechanic Dashboard
-import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
+const MechanicDashboard = lazy(() => import('./pages/dashboard/mechanic/MechanicDashboard'))
 // Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
 // that were certified in Foundation 1.0 and had no product surface at all.
-import GarageWorkspace from './pages/dashboard/garage/GarageWorkspace'
-import GarageCaseDetail from './pages/dashboard/garage/GarageCaseDetail'
-import GarageCustomers from './pages/dashboard/garage/GarageCustomers'
-import GarageProfileEditor from './pages/dashboard/garage/GarageProfileEditor'
-import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
-import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
-import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
-import CustomerRecords from './pages/dashboard/mechanic/CustomerRecords'
+const GarageWorkspace = lazy(() => import('./pages/dashboard/garage/GarageWorkspace'))
+const GarageCaseDetail = lazy(() => import('./pages/dashboard/garage/GarageCaseDetail'))
+const GarageCustomers = lazy(() => import('./pages/dashboard/garage/GarageCustomers'))
+const GarageProfileEditor = lazy(() => import('./pages/dashboard/garage/GarageProfileEditor'))
+const WorkOrders = lazy(() => import('./pages/dashboard/mechanic/WorkOrders'))
+const ServiceLogs = lazy(() => import('./pages/dashboard/mechanic/ServiceLogs'))
+const PartsTracking = lazy(() => import('./pages/dashboard/mechanic/PartsTracking'))
+const CustomerRecords = lazy(() => import('./pages/dashboard/mechanic/CustomerRecords'))
 
 // Insurance Dashboard
-import InsuranceDashboard from './pages/dashboard/insurance/InsuranceDashboard'
-import Claims from './pages/dashboard/insurance/Claims'
-import RiskAnalysis from './pages/dashboard/insurance/RiskAnalysis'
-import FraudAlerts from './pages/dashboard/insurance/FraudAlerts'
+const InsuranceDashboard = lazy(() => import('./pages/dashboard/insurance/InsuranceDashboard'))
+const Claims = lazy(() => import('./pages/dashboard/insurance/Claims'))
+const RiskAnalysis = lazy(() => import('./pages/dashboard/insurance/RiskAnalysis'))
+const FraudAlerts = lazy(() => import('./pages/dashboard/insurance/FraudAlerts'))
 
 // Government Dashboard
-import GovernmentDashboard from './pages/dashboard/government/GovernmentDashboard'
-import RegistryVerification from './pages/dashboard/government/RegistryVerification'
-import ComplianceReports from './pages/dashboard/government/ComplianceReports'
+const GovernmentDashboard = lazy(() => import('./pages/dashboard/government/GovernmentDashboard'))
+const RegistryVerification = lazy(() => import('./pages/dashboard/government/RegistryVerification'))
+const ComplianceReports = lazy(() => import('./pages/dashboard/government/ComplianceReports'))
 
 // Admin Dashboard
-import AdminDashboard from './pages/dashboard/admin/AdminDashboard'
+const AdminDashboard = lazy(() => import('./pages/dashboard/admin/AdminDashboard'))
 // Feature Governance Console is route-level lazy-loaded (Milestone D): it is a
 // heavy admin-only surface, so it ships as a SEPARATE chunk fetched on demand
 // rather than bloating the main entry bundle. The single dynamic import below is
@@ -167,33 +166,33 @@ function preloadFeatureGovernanceConsole() {
        (with Suspense + LazyRouteBoundary) handles errors and retries. */
   })
 }
-import UserManagement from './pages/dashboard/admin/UserManagement'
-import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
-import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
-import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
-import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
-import PeopleComplianceReview from './pages/dashboard/admin/PeopleComplianceReview'
-import FraudQueue from './pages/dashboard/admin/FraudQueue'
-import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
-import GarageApplications from './pages/dashboard/admin/GarageApplications'
-import GarageTeam from './pages/dashboard/garage/GarageTeam'
-import JoinGarage from './pages/JoinGarage'
-import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
-import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
-import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
-import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
-import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
-import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
-import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
-import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
-import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
-import AdminCommunications from './pages/dashboard/admin/Communications'
+const UserManagement = lazy(() => import('./pages/dashboard/admin/UserManagement'))
+const AIMonitoring = lazy(() => import('./pages/dashboard/admin/AIMonitoring'))
+const MarketplaceModeration = lazy(() => import('./pages/dashboard/admin/MarketplaceModeration'))
+const EvidenceReview = lazy(() => import('./pages/dashboard/admin/EvidenceReview'))
+const VehicleOperationsReview = lazy(() => import('./pages/dashboard/admin/VehicleOperationsReview'))
+const PeopleComplianceReview = lazy(() => import('./pages/dashboard/admin/PeopleComplianceReview'))
+const FraudQueue = lazy(() => import('./pages/dashboard/admin/FraudQueue'))
+const DealerCompliance = lazy(() => import('./pages/dashboard/admin/DealerCompliance'))
+const GarageApplications = lazy(() => import('./pages/dashboard/admin/GarageApplications'))
+const GarageTeam = lazy(() => import('./pages/dashboard/garage/GarageTeam'))
+const JoinGarage = lazy(() => import('./pages/JoinGarage'))
+const IdentityVerificationCaseManagement = lazy(() => import('./pages/dashboard/admin/IdentityVerificationCaseManagement'))
+const TrustReviewQueue = lazy(() => import('./pages/dashboard/shared/TrustReviewQueue'))
+const GovernanceReviewQueue = lazy(() => import('./pages/dashboard/shared/GovernanceReviewQueue'))
+const ReferralCampaigns = lazy(() => import('./pages/dashboard/admin/ReferralCampaigns'))
+const ReferralCodes = lazy(() => import('./pages/dashboard/admin/ReferralCodes'))
+const ReferralLocalLeads = lazy(() => import('./pages/dashboard/admin/ReferralLocalLeads'))
+const ReferralImportRoutes = lazy(() => import('./pages/dashboard/admin/ReferralImportRoutes'))
+const ReferralMarketing = lazy(() => import('./pages/dashboard/admin/ReferralMarketing'))
+const ReferralTrustReview = lazy(() => import('./pages/dashboard/admin/ReferralTrustReview'))
+const AdminCommunications = lazy(() => import('./pages/dashboard/admin/Communications'))
 
 // Bank Dashboard
-import BankDashboard from './pages/dashboard/bank/BankDashboard'
-import LendingQueue from './pages/dashboard/bank/LendingQueue'
-import CollateralMap from './pages/dashboard/bank/CollateralMap'
-import CreditRiskAnalysis from './pages/dashboard/bank/CreditRiskAnalysis'
+const BankDashboard = lazy(() => import('./pages/dashboard/bank/BankDashboard'))
+const LendingQueue = lazy(() => import('./pages/dashboard/bank/LendingQueue'))
+const CollateralMap = lazy(() => import('./pages/dashboard/bank/CollateralMap'))
+const CreditRiskAnalysis = lazy(() => import('./pages/dashboard/bank/CreditRiskAnalysis'))
 
 // Context
 interface AppContextType {
@@ -217,6 +216,7 @@ export const AppContext = createContext<AppContextType>({
 export const useApp = () => useContext(AppContext)
 
 export default function App() {
+  const location = useLocation()
   const [currency, setCurrency] = useState<'USD' | 'ZiG' | 'ZAR' | 'BWP'>('USD')
   const { user, isAuthenticated } = useAuth()
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -266,13 +266,16 @@ export default function App() {
       {isOffline && (
         <div id="offline-banner" className="fixed top-0 left-0 right-0 z-50 bg-red-600/95 backdrop-blur-md text-white text-center py-2.5 text-xs font-semibold tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg border-b border-red-500/50 animate-in fade-in slide-in-from-top duration-300">
           <WifiOff className="w-4 h-4 animate-pulse text-red-100" />
-          <span>You are currently offline. CarUp is running in offline local sync mode.</span>
+          <span>You are offline. Saved app screens may open, but current records and actions need a connection.</span>
         </div>
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
+      <RouteMetadata />
       <ActivityInstrumentation />
       <FeatureGovernanceLoader>
+      <LazyRouteBoundary key={location.pathname} onRetry={() => window.location.reload()}>
+      <Suspense fallback={<AuthBootstrapLoading />}>
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
@@ -550,6 +553,8 @@ export default function App() {
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </Suspense>
+      </LazyRouteBoundary>
       </FeatureGovernanceLoader>
     </AppContext.Provider>
   )

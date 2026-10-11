@@ -1,4 +1,5 @@
 import path from "path"
+import { launchDistribution } from "./build/launchDistribution"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 import { loadPairingFile, resolveBuildIdentity, resolvePreviewApiUrl } from "./build/previewPairing"
@@ -33,6 +34,7 @@ if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 // cannot say what it is — gets '' and the demo identities are folded out of the bundle.
 process.env.VITE_ALLOW_DEMO_LOGINS =
   process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? 'true' : ''
+process.env.VITE_DEPLOYMENT_ENV = process.env.VERCEL_ENV || 'development'
 process.env.VITE_COMMIT_SHA = build.sha
 process.env.VITE_GIT_REF = build.ref
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.
@@ -80,7 +82,7 @@ function provenanceManifest() {
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
-  plugins: [react(), provenanceManifest()],
+  plugins: [react(), provenanceManifest(), launchDistribution()],
   server: {
     port: 5173,
   },

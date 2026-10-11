@@ -1,3 +1,4 @@
+import { canonicalListingUrl } from '@/config/publicPageMetadata'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -140,7 +141,7 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
 }
 
 async function shareListing(vin: string, name: string) {
-  const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
+  const url = canonicalListingUrl(vin)
   try {
     if (navigator.share) await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
     else {

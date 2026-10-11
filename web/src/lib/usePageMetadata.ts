@@ -1,16 +1,9 @@
 import { useEffect } from 'react'
 
 /**
- * Runtime page identity for a real browser route.
- *
- * CarUp is a Vite SPA behind a catch-all rewrite, so `index.html` ships one static `<title>` and no
- * per-route canonical link. Every route therefore looked identical to anything reading the document
- * before hydration, and a browser tab said the same thing on `/support` as on `/marketplace`.
- *
- * This sets title, description and canonical after hydration. It is deliberately NOT a claim to
- * solve SSR, prerendering, crawler-specific OG previews or social preview architecture — a crawler
- * that does not execute JavaScript still sees the shell. It fixes the identity of the page a human
- * is actually looking at, which is what Email links land on.
+ * Browser metadata stays coherent during client navigation. The public document
+ * function separately supplies metadata before hydration; this hook does not
+ * render private data or replace that server-side public projection.
  */
 export const CANONICAL_PUBLIC_ORIGIN = 'https://carup.dev'
 
@@ -39,16 +32,34 @@ export interface PageMetadata {
   description: string
   /** Path only, e.g. `/support`. The origin is always CarUp canonical — never a deployment host. */
   canonicalPath: string
+  robots?: string
+  image?: string
 }
 
-export function usePageMetadata({ title, description, canonicalPath }: PageMetadata) {
+export function usePageMetadata({ title, description, canonicalPath, robots, image }: PageMetadata) {
   useEffect(() => {
     document.title = title
     upsertMeta('description', description)
     // Always the canonical CarUp origin, never `window.location.origin`: a preview deployment or a
     // *.vercel.app alias must never publish itself as the canonical address of a CarUp page.
-    upsertCanonical(`${CANONICAL_PUBLIC_ORIGIN}${canonicalPath}`)
-  }, [title, description, canonicalPath])
+    const url = `${CANONICAL_PUBLIC_ORIGIN}${canonicalPath}`
+    upsertCanonical(url)
+    upsertMeta('robots', import.meta.env.VITE_DEPLOYMENT_ENV !== 'production' ? 'noindex, nofollow' : robots || 'index, follow')
+    for (const [property, content] of Object.entries({ 'og:type': 'website', 'og:title': title, 'og:description': description, 'og:url': url })) {
+      let tag = document.querySelector<HTMLMetaElement>(`meta[property="${property}"]`)
+      if (!tag) { tag = document.createElement('meta'); tag.setAttribute('property', property); document.head.appendChild(tag) }
+      tag.content = content
+    }
+    upsertMeta('twitter:card', image ? 'summary_large_image' : 'summary')
+    upsertMeta('twitter:title', title)
+    upsertMeta('twitter:description', description)
+    for (const [attribute, name] of [['property', 'og:image'], ['name', 'twitter:image']]) {
+      let tag = document.querySelector<HTMLMetaElement>(`meta[${attribute}="${name}"]`)
+      if (!image) { tag?.remove(); continue }
+      if (!tag) { tag = document.createElement('meta'); tag.setAttribute(attribute, name); document.head.appendChild(tag) }
+      tag.content = image
+    }
+  }, [title, description, canonicalPath, robots, image])
 }
 
 export default usePageMetadata

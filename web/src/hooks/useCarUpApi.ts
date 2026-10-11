@@ -1,5 +1,4 @@
 import { useState, useCallback, useMemo } from 'react'
-import { toComponentPayload } from '@/pages/diaspora/commercialFormat'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
@@ -1755,6 +1754,7 @@ export function useCarUpApi() {
     components: DraftComponent[],
     breakdownComplete = false,
   ): Promise<unknown[]> => {
+    const { toComponentPayload } = await import('@/pages/diaspora/commercialFormat')
     const response = await request<{ data: unknown[] }>(
       `/diaspora/${kind}/${encodeURIComponent(quoteId)}/charge-components`,
       { method: 'POST', body: JSON.stringify({ components: toComponentPayload(components), breakdown_complete: breakdownComplete }) },

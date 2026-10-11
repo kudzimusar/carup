@@ -1,3 +1,5 @@
+import { canonicalListingUrl, publicListingMetadata, pageMetadata } from '@/config/publicPageMetadata'
+import { usePageMetadata } from '@/lib/usePageMetadata'
 import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
@@ -1531,10 +1533,14 @@ export default function VehicleDetail() {
   }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing])
 
   const [shareOpen, setShareOpen] = useState(false)
+  const metadata = !isSellerPreview && detail && id
+    ? publicListingMetadata(detail as unknown as Record<string, unknown>, id, import.meta.env.VITE_DEPLOYMENT_ENV !== 'production') : null
+  usePageMetadata(metadata ?? pageMetadata(`/marketplace/${encodeURIComponent(id || '')}`, true))
 
   const handleShare = useCallback(() => {
+    if (detail?.public_status !== 'public') { toast.error('Only a published listing can be shared publicly.'); return }
     setShareOpen(true)
-  }, [])
+  }, [detail])
 
   const compareHref = vehicle?.vin
     ? `/marketplace/compare?vins=${encodeURIComponent(vehicle.vin)}`
@@ -1981,7 +1987,7 @@ export default function VehicleDetail() {
                   >
                     <GitCompare className="w-5 h-5 text-gray-600" />
                   </Link>
-                  <button onClick={handleShare} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
+                  <button onClick={handleShare} disabled={detail?.public_status !== 'public'} aria-label="Share this listing" data-testid="vehicle-detail-share" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 transition hover:scale-105 hover:bg-white">
                     <Share2 className="w-5 h-5 text-gray-600" />
                   </button>
                 </div>
@@ -3157,7 +3163,7 @@ export default function VehicleDetail() {
         open={shareOpen}
         onOpenChange={setShareOpen}
         title={`${vehicle.year ?? ''} ${vehicle.make ?? ''} ${vehicle.model ?? ''}`.trim()}
-        url={typeof window !== 'undefined' ? window.location.href : ''}
+        url={detail?.public_status === 'public' && id ? canonicalListingUrl(id) : ''}
       />
 
     </div>

@@ -9,9 +9,8 @@
  * *outside* this boundary (guard → LazyRouteBoundary → Suspense → lazy page),
  * so protected content can never appear before the guard has admitted it.
  *
- * Retry works by bumping a `resetKey` on the boundary's own subtree: this
- * unmounts the failed Suspense child and remounts it, which re-attempts the
- * dynamic import. If the chunk is now reachable, the page loads normally.
+ * The application supplies a document reload for cached rejected imports.
+ * Embedded sections may instead reset their subtree through the legacy retry path.
  */
 import { Component, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
@@ -40,6 +39,8 @@ interface LazyRouteBoundaryProps {
   children: ReactNode
   /** Optional override for the retry shell title. */
   title?: string
+  /** Reload the document when the browser has cached a rejected module import. */
+  onRetry?: () => void
 }
 
 interface LazyRouteBoundaryState {
@@ -68,6 +69,7 @@ export class LazyRouteBoundary extends Component<
   }
 
   private handleRetry = () => {
+    if (this.props.onRetry) { this.props.onRetry(); return }
     // Clear the error and bump the reset key: this remounts the Suspense child,
     // which re-attempts the deferred dynamic import.
     this.setState((s) => ({ hasError: false, resetKey: s.resetKey + 1 }))
