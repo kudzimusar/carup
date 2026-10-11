@@ -392,3 +392,28 @@ Pairing note: the PC01 frontend `dpl_GrfRSYSi…` reaches the backend **through 
 Safe proof probe available at 40621751: `POST /api/admin/communications/test/provider-smoke {channel:"push"}` with the worker secret returns 400 (refused by name *after* auth, before any write), and 401 without.
 
 Remote custody: PR #222 stayed frozen at 40621751 throughout.
+
+## R2-D — remediation (owner-authorized staging rotation; in progress at 2026-10-11T09:30:32Z)
+
+Owner decision: **authorize staging worker-secret rotation.**
+- No existing value can be transferred without disclosure (see R2-C).
+- Production is untouched, and so is the Vercel project env: no variable is created, re-scoped or edited.
+- The GitHub workflows read `secrets.COMMUNICATION_WORKER_SECRET` from environment `staging` (`diaspora-deployed-staging-uat.yml:91`, `diaspora-deployed-staging-shard.yml:46`). The PC01 contract's mention of `TRADEOS_WORKER_SECRET` is stale prose.
+
+Steps completed:
+1. New staging worker secret generated locally: 64 bytes base64, mode 0600, in `/private/tmp/carup-launch-private/`. Never printed or logged; deploy log redacted.
+2. The **frozen `40621751` backend** was redeployed from the clean detached worktree `/private/tmp/carup-oc-launch-baseline` per the PC01 procedure.
+   - Inputs: preview target; `CARUP_BUILD_SHA`/`CARUP_BUILD_REF` as build and runtime env; `COMMUNICATION_OUTBOUND_DISABLED=true`; the secret as a **deployment-scoped** runtime env.
+   - Meta: `carupSourceSha`, `carupProgramme=OC-LAUNCH-WEB-LR1-R2`, `carupStage=d7-worker-secret-custody`.
+   - Result: **`dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC`**, `https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app`, READY. **No alias moved.**
+3. Verified, without mutation:
+   - `/api/health`: commit 40621751, DB eoyenigwevnxwwhyhaer consistent; kill switch active and external sends disabled; the "worker secret is missing" explanation is **gone**.
+   - Read-only `GET /api/admin/communications/provider-template-status` (requireAdminOrWorkerSecret): no secret → 401, wrong secret → 401, governed secret → **200** (`ok:false`, because Preview has no Meta token, so no provider call was possible).
+   - The POST provider-smoke probe is unusable: unauthenticated POSTs to admin routes are stopped by CSRF (403) before auth.
+
+Steps pending, held so the old run's **Mobile shard (114423391477, still awaiting owner approval)** tests the unchanged runtime:
+1. `gh secret set COMMUNICATION_WORKER_SECRET --env staging` from the same file (stdin, no echo).
+2. Repoint **only** `carup-backend-staging-oc5r-pc01-11-11.vercel.app` from `dpl_Cx9js7Nt…` to `dpl_9Q85zjgd…`, then read it back. The frontend reaches the backend through this alias, so pairing is unchanged.
+3. Dispatch a fresh Diaspora Deployed Staging UAT run on 40621751 (`workflow_dispatch`; same concurrency group, so it queues and never cancels).
+
+Rollback (if needed): `vercel alias set https://carup-backend-staging-klbmb7c7j-11-11.vercel.app carup-backend-staging-oc5r-pc01-11-11.vercel.app --scope 11-11` (restores `dpl_Cx9js7Ntwwcy9azQHUTVpywNHibU`).
