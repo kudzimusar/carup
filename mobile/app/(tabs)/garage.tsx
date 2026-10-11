@@ -178,6 +178,7 @@ function GarageScreenInner() {
   const [capturingVin, setCapturingVin] = useState<string | null>(null);
   const [pendingCapture, setPendingCapture] = useState<{ vin: string; asset: CapturedAsset } | null>(null);
   const [permission, setPermission] = useState<CameraPermissionState | null>(null);
+  const [permissionVin, setPermissionVin] = useState<string | null>(null);
   const [uploadMessage, setUploadMessage] = useState<{ title: string; body: string; tone: 'info' | 'success' | 'warning' | 'danger' } | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -218,6 +219,7 @@ function GarageScreenInner() {
     if (capturingVin || uploading) return;
     setCapturingVin(vin);
     setPermission(null);
+    setPermissionVin(null);
     setUploadMessage(null);
     const result = await captureOdometerPhotoWithStatus();
     setCapturingVin(null);
@@ -228,6 +230,7 @@ function GarageScreenInner() {
     }
     if (result.kind === 'permission') {
       setPermission(result.state);
+      setPermissionVin(vin);
       return;
     }
     if (result.kind === 'error') {
@@ -303,7 +306,7 @@ function GarageScreenInner() {
                   : 'Allow camera access so you can photograph the odometer.'}
               onOpenSettings={permission === 'blocked' ? () => void openCameraSettings() : undefined}
               onRetry={permission === 'denied' || permission === 'not_requested'
-                ? () => { if (capturingVin) void captureOdometer(capturingVin); }
+                ? () => { if (permissionVin) void captureOdometer(permissionVin); }
                 : undefined}
             />
           </View>
