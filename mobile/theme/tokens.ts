@@ -118,6 +118,7 @@ export const spacing = {
   4: 16,
   5: 20,
   6: 24,
+  7: 28,
   8: 32,
   10: 40,
   12: 48,
@@ -143,7 +144,7 @@ export const typeScale = {
   bodyStrong: { fontSize: 16, lineHeight: 23, fontWeight: '600' as const },
   label: { fontSize: 14, lineHeight: 19, fontWeight: '600' as const },
   metadata: { fontSize: 13, lineHeight: 18, fontWeight: '500' as const },
-  priceLarge: { fontSize: 26, lineHeight: 31, fontWeight: '800' as const, fontVariant: ['tabular-nums'] as const },
+  priceLarge: { fontSize: 26, lineHeight: 31, fontWeight: '800' as const, fontVariant: ['tabular-nums'] as ['tabular-nums'] },
   priceCompact: { fontSize: 20, lineHeight: 25, fontWeight: '800' as const, fontVariant: ['tabular-nums'] as const },
   button: { fontSize: 16, lineHeight: 20, fontWeight: '700' as const },
 } as const;
