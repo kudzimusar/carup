@@ -713,3 +713,110 @@ The camera-viewfinder product gap is closed and all executable source certificat
 The programme cannot proceed to exact installable-device certification on the current authorized source because the root workspace lock is stale and outside the R1 write scope. EAS additionally requires an authenticated Expo account once the lock is corrected.
 
 **OC-NATIVE REMEDIATE — PROVEN DEVICE/RUNTIME DEFECT**
+
+
+---
+
+## OC-NATIVE-LR1-R2 — root lock recustody / Node 20 certification
+
+### R2 authority
+
+- Starting authority: `42a02e44f9d6be082a845646a092ccd19e569fab`.
+- Accepted product candidate remains `d344f54513c934b89d00324f399ddb08432c5714`.
+- Product source remained frozen.
+- R2 write exception was limited to root `package-lock.json` and native evidence docs.
+
+### Lockfile closure
+
+The stale npm workspace lock was recustodied for the existing `mobile/package.json` declaration `expo-camera: ~17.0.10`.
+
+Final accepted lock candidate:
+
+`3708a5572996f416a410a052c90e43bafb9bc3e4`
+
+Final diff from the R2 start authority is only:
+
+- `package-lock.json`;
+- 21 insertions;
+- 0 deletions;
+- mobile workspace → `expo-camera ~17.0.10`;
+- resolved package → `expo-camera 17.0.10`.
+
+No root `package.json`, mobile product source, web, backend, shared, database, Supabase or workflow file changed.
+
+An incomplete intermediate lock commit `1ef2aedb1b049f47139e813b46268a2cc8a054e5` was immediately superseded and was never accepted or certified.
+
+### Exact Node 20 receipt
+
+At `3708a557...`:
+
+- Node: `v20.20.2`
+- npm: `10.8.2`
+- Expo: `54.0.37`
+- React Native: `0.81.5`
+- Expo Camera: `17.0.10`
+
+| Gate | Result | Duration |
+|---|---|---:|
+| root `npm ci` | PASS | 27.354 s |
+| mobile Vitest | PASS — 6 files / 66 tests | 2.028 s |
+| `npm run test:native` | PASS | 7.412 s |
+| `npm run test:static` | PASS — verification smoke 59/59 | 3.697 s |
+| mobile `tsc --noEmit` | PASS | 6.052 s |
+| `expo install --check` | PASS | 0.757 s |
+| Android Expo prebuild | PASS | 0.752 s |
+| iOS Expo prebuild | PASS | 1.076 s |
+| `git diff --check` | PASS | 0.016 s |
+
+Prebuild outputs were generated only in the certification sandbox and then removed; transient prebuild edits were reset.
+
+### Remote exact-head gates
+
+At `3708a557...`:
+
+- OC-5R REL-03A Source Certification run `38140431921`: **SUCCESS**.
+- Communication Command Center CI run `38140431917`: **SUCCESS**.
+- Referral Engine CI run `38140431923`: **SUCCESS**.
+
+The R1 clean-install failure is therefore closed both locally and remotely.
+
+### Node 20 engine-contract finding
+
+Node 20 reveals a dependency-engine mismatch not present under the prior Node 22 run:
+
+`@prisma/streams-local@0.1.2` declares `node >=22.0.0`.
+
+Both local Node 20 `npm ci` and remote Source Certification report `EBADENGINE`. The install and certification remain green, but this is recorded as a proven toolchain/runtime custody defect rather than dismissed as environment noise.
+
+No dependency/toolchain mutation is made in R2 because that would exceed the authorized lock-only scope.
+
+### EAS custody
+
+After remote Source Certification became green, EAS identity was checked with `eas-cli@24.12.1 whoami`.
+
+Result:
+
+`Not logged in`.
+
+The available CarUp build environment does not currently expose an Expo authentication credential. No credential was requested, printed or committed.
+
+Exact owner/account gate:
+
+> Authenticate the build environment with the owner's Expo account or provide an appropriately scoped Expo access token through secure secret custody.
+
+Because authentication fails before build creation:
+
+- Android `android-device`: not BUILD-CERTIFIED.
+- iOS `ios-simulator`: not BUILD-CERTIFIED.
+- iOS `ios-device`: not BUILD-CERTIFIED.
+- Apple signing/device registration: not reached and not classified.
+
+### Certification ladder
+
+- **SOURCE-CERTIFIED:** YES — `3708a557...`.
+- **BUILD-CERTIFIED:** NO.
+- **SIMULATOR/EMULATOR-CERTIFIED:** NO.
+- **PHYSICAL-DEVICE-CERTIFIED:** NO.
+- **OWNER-UAT-CERTIFIED:** NO.
+
+R2 ends in remediation because the Node 20 engine contract is inconsistent with the configured CI runtime, while cloud build execution additionally requires secure owner Expo authentication.
