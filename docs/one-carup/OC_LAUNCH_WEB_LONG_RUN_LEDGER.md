@@ -740,3 +740,44 @@ Backend Preview deployed from the clean detached worktree `/private/tmp/carup-oc
 **Certification carried to the superseding head:**
 - `web/` tree = `5be6ad59…` and `backend/` tree = `3ac3bf31…`, both identical to `fde129f6` and `4c431a96`.
 - Web unit 258/2,383 (INHERITED BY BYTE-IDENTICAL WEB TREE), browser 15/15, backend 8,411/0/9-cancelled. These are not rerun at the new SHA, because nothing they test changed.
+
+## R8-C — superseding push results, and a machine reboot (2026-10-11T13:13:52Z)
+
+**Push 2:** `fde129f6..8a5a920d` (fast-forward) at 12:50:08Z. Superseded run 38139962590 ended `cancelled` (Bootstrap cancelled before running; shards skipped; Aggregate failure — never certified anything).
+
+**Workflows on `8a5a920d`:**
+
+| Workflow | Run | Result |
+| --- | --- | --- |
+| **Seller Home & Lifecycle Staging UAT** | **38140784999** | **success** (spec 48 launch-Home adaptation proven on chromium, tablet and mobile) |
+| Vehicle Finance Obligation Authority CI | 38140784894 | success |
+| Communication Command Center CI | 38140785031 | success |
+| OC-5R REL-03A Source Certification | 38140784924 | success |
+| OC-5R REL-03A Source Certification | 38140781229 | success |
+| Diaspora Phases 3-7 Validation | 38140784899 | success |
+| Referral Engine CI | 38140784971 | success |
+| Vehicle Passport Foundation CI | 38140784878 | success |
+| O2 OCR Offline Hardening | 38140781233 | success |
+| **Diaspora Deployed Staging UAT (release evidence)** | **38140785360** | Bootstrap awaiting owner approval at 2026-10-11T13:13:52Z |
+
+**Machine reboot (about 12:58Z; uptime 15 min at 13:13Z) cleared `/private/tmp`.**
+
+Lost:
+- the three local worktrees (`carup-oc-launch-web-lr1`, `-baseline`, `-deploy`);
+- the local evidence directory `/private/tmp/carup-launch-evidence` (logs, screenshots, `r1-live-performance.mjs`, `r1-provider-proof.py`, deploy scripts);
+- the private directory holding the plaintext staging worker secret.
+
+Not lost:
+- every commit, which was pushed, and the local branch `launch/oc-launch-web-lr1` (`8a5a920d`);
+- this ledger, which carries the receipts the lost files backed;
+- the GitHub Actions artifacts of every run.
+
+**Worker-secret custody consequence:**
+- The plaintext copy no longer exists on disk. It was removed by the reboot's `/private/tmp` clear, not by a deliberate secure delete; it was never tracked or committed.
+- The value now exists only in GitHub `staging` `COMMUNICATION_WORKER_SECRET` and in the deployed backends that carry it: PC01 `dpl_9Q85zjgd…` and the release backend `dpl_9526K6rK…` behind `carup-backend-staging-oc-launch-lr1`.
+- Owner ruling 2 (keep until the final pair passes) is moot: the release pair is already deployed with it. **Any further backend Preview redeploy will need another owner-authorized staging rotation.**
+
+**Recovery:**
+- The worktree was recreated at the persistent, space-free path `/Users/shadreckmusarurwa/carup-oc-launch-web-lr1` (local = remote `8a5a920d`).
+- New evidence directory: `/Users/shadreckmusarurwa/carup-launch-evidence`.
+- The harness and proof scripts are rebuilt from this ledger's specification when needed.
