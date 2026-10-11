@@ -52,7 +52,7 @@ function StateView({
         accessibilityRole="button"
         onPress={() => router.replace('/')}
       >
-        <Text style={styles.actionText}>Go to Dashboard</Text>
+        <Text style={styles.actionText}>Go Home</Text>
       </Pressable>
     </View>
   );
@@ -205,7 +205,7 @@ export function NativeFeatureBoundary({
       return <Redirect href="/login" />;
 
     case 'redirect-role':
-      // The wrong-role target is always the role's own dashboard (the tabs
+      // The wrong-role target is always the role's safe Home destination (the tabs
       // index, which expo-router exposes as `/`).
       return <Redirect href="/" />;
 
