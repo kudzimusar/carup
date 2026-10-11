@@ -277,10 +277,9 @@ export default function HomeScreen() {
         <View style={{ marginTop: spacing[3] }}>
           <QuickAction
             title="Find a garage"
-            subtitle="Service-network discovery is not yet available in this native build"
+            subtitle="Open the governed service directory"
             icon="construct-outline"
-            disabled
-            onPress={() => undefined}
+            onPress={() => router.push('/find-garage' as never)}
           />
         </View>
       </View>
