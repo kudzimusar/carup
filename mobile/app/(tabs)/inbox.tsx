@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -144,11 +144,13 @@ export default function InboxScreen() {
             const context = conversationContext(thread);
             const unread = Number(thread?.unread_count || 0);
             return (
-              <View
+              <Pressable
                 key={String(thread.id)}
-                accessible
-                accessibilityRole="summary"
-                style={{
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${conversationTitle(thread)}`}
+                accessibilityHint={context ? `Vehicle context: ${context}` : 'Open this CarUp conversation'}
+                onPress={() => router.push(`/inbox/${thread.id}` as never)}
+                style={({ pressed }) => ({
                   borderRadius: radius.card,
                   borderWidth: 1,
                   borderColor: theme.border.default,
@@ -157,7 +159,8 @@ export default function InboxScreen() {
                   flexDirection: 'row',
                   alignItems: 'flex-start',
                   gap: spacing[3],
-                }}
+                  opacity: pressed ? 0.8 : 1,
+                })}
               >
                 <View
                   style={{
@@ -185,7 +188,8 @@ export default function InboxScreen() {
                     {unread > 0 ? <StatusPill label={`${unread} unread`} tone="info" /> : null}
                   </View>
                 </View>
-              </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.text.muted} />
+              </Pressable>
             );
           })}
         </View>
