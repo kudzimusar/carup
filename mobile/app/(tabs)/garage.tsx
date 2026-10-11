@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import { VehicleImage } from '../../components/media/NativeMedia';
 import {
   CapturePreview,
   PermissionPanel,
@@ -28,6 +29,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUploadQueueStore } from '../../store/uploadQueueStore';
 import { captureOdometerPhotoWithStatus, openCameraSettings, type CameraPermissionState, type CapturedAsset } from '../../utils/camera';
 import { getMyServiceHistory, getMyVehicles, type NativeOwnedVehicle } from '../../utils/ownerGarageApi';
+import { resolveMarketplaceMediaUrl } from '../../utils/marketplaceApi';
 import { resolveApiBaseUrl } from '../../utils/apiBase';
 import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
 import {
@@ -62,8 +64,18 @@ function OwnerVehicleCard({
   capturing: boolean;
 }) {
   const theme = useNativeTheme();
-  const state = listingState(vehicle.status);
+  const state = listingState(vehicle.publication_status || vehicle.status);
   const title = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
+  const ownerImage = vehicle.listing_media?.items?.[0]
+    ? resolveMarketplaceMediaUrl(
+        vehicle.listing_media.items[0].url,
+        vehicle.listing_media.items[0].url_form,
+      )
+    : null;
+  const trustEvaluated =
+    vehicle.trust?.evaluation_state === 'evaluated' &&
+    typeof vehicle.trust.score === 'number' &&
+    Number.isFinite(vehicle.trust.score);
 
   return (
     <View
@@ -77,6 +89,10 @@ function OwnerVehicleCard({
         gap: spacing[3],
       }}
     >
+      <View style={{ marginHorizontal: -spacing[4], marginTop: -spacing[4], marginBottom: spacing[4], overflow: 'hidden', borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card }}>
+        <VehicleImage uri={ownerImage} label={`${title || vehicle.vin} owner vehicle photo`} aspectRatio={16 / 9} />
+      </View>
+
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing[3] }}>
         <View style={{ flex: 1 }}>
           <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }} numberOfLines={1}>
@@ -111,6 +127,14 @@ function OwnerVehicleCard({
           <Ionicons name="shield-checkmark-outline" size={18} color={theme.text.secondary} />
           <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary }}>Vehicle Passport available</Text>
         </View>
+        {trustEvaluated ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}>
+            <Ionicons name="checkmark-circle-outline" size={18} color={theme.state.success} />
+            <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary }}>
+              CarUp Trust: {String(vehicle.trust?.band || 'evaluated').replace(/[_-]+/g, ' ')}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {typeof vehicle.price === 'number' && Number.isFinite(vehicle.price) ? (
