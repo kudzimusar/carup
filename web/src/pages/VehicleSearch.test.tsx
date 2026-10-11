@@ -147,6 +147,21 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     expect(screen.queryAllByTestId('vehicle-search-result')).toHaveLength(0)
   })
 
+  it('never reports a failed search as zero results, and retries the same search (OC-LAUNCH R1)', async () => {
+    fetchMarketplaceListings.mockRejectedValueOnce(new Error('backend down'))
+    renderSearch()
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-error')).toBeTruthy(), SETTLE)
+    expect(document.body.textContent || '').not.toMatch(/\b0 vehicles found/)
+    expect(screen.queryByTestId('vehicle-search-empty')).toBeNull()
+    const firstQuery = fetchMarketplaceListings.mock.calls.at(-1)?.[0]
+
+    fetchMarketplaceListings.mockResolvedValue({ listings: [liveListing], total: 1, limit: 60 })
+    fireEvent.click(screen.getByTestId('vehicle-search-retry'))
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-result')).toBeTruthy(), SETTLE)
+    expect(fetchMarketplaceListings.mock.calls.at(-1)?.[0]).toEqual(firstQuery)
+    expect(screen.queryByTestId('vehicle-search-error')).toBeNull()
+  })
+
   it('tries the passport lookup for identifier-shaped queries and deep-links a publicly listed match', async () => {
     lookupVehiclePassport.mockResolvedValue({
       vehicle: { vin: 'JH4KA8260MC000000', make: 'Honda', model: 'Legend', year: 1991 },

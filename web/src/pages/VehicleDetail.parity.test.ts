@@ -81,7 +81,8 @@ describe('Seller master Phase L/M — shared detail parity and semantic separati
   it('keeps privacy a governed projection rather than a Seller Preview-only convention', () => {
     expect(detail).toContain('identifiersRedacted')
     expect(detail).toContain('Not shown publicly')
-    expect(detail).toContain('The seller has not published a direct number')
+    // LR1-R1: a seller's phone number is never published on the buyer page; contact is the CarUp inquiry.
+    expect(detail).toContain('phone number is never shown')
     expect(studio).toContain("locationVisibility: 'withheld'")
     expect(studio).toContain('publicSellerDisplay: false')
     expect(studio).toContain("value=\"province_only\"")

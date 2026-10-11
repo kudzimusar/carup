@@ -2203,7 +2203,7 @@ export interface ChainVerification {
 // 26. PassportVerificationSource — UI model for the Verification tab
 export interface PassportVerificationSource {
   label: string;
-  status: 'verified' | 'not_verified' | 'warning' | 'unknown';
+  status: 'verified' | 'recorded' | 'none_recorded' | 'not_verified' | 'warning' | 'unknown';
   detail?: string;
 }
 

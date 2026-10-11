@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CHANNEL_IMPLEMENTATION, readCommunicationCapability } from './communicationChannels'
+import { CHANNEL_AVAILABILITY_LABEL, CHANNEL_IMPLEMENTATION, UNKNOWN_CAPABILITY, channelAvailability, readCommunicationCapability } from './communicationChannels'
 
 function health(overrides: Record<string, unknown> = {}) {
   return { communications: {
@@ -41,5 +41,30 @@ describe('launch capability evidence', () => {
     expect(readCommunicationCapability(null).unknown).toBe(true)
     expect(CHANNEL_IMPLEMENTATION.telegram.historicalPhysical).toBe(true)
     expect(CHANNEL_IMPLEMENTATION.line.implemented).toBe(false)
+  })
+})
+
+describe('customer-facing channel availability (OC-LAUNCH R1)', () => {
+  const paused = { outbound: { kill_switch: 'active', external_sends: 'disabled', internal_channels: 'enabled' } }
+  it('says Available only when the current runtime can deliver', () => {
+    expect(channelAvailability(readCommunicationCapability(health()), 'whatsapp')).toBe('available')
+  })
+  it('distinguishes a configured-but-paused channel from one not connected here', () => {
+    const capability = readCommunicationCapability(health(paused))
+    expect(channelAvailability(capability, 'whatsapp')).toBe('temporarily_unavailable')
+    expect(channelAvailability(capability, 'telegram')).toBe('setup_pending')
+  })
+  it('never says a supported channel is not offered, and never says an unbuilt one is pending', () => {
+    const capability = readCommunicationCapability(health(paused))
+    for (const channel of ['whatsapp', 'telegram', 'email'] as const) {
+      expect(channelAvailability(capability, channel)).not.toBe('not_offered')
+    }
+    expect(channelAvailability(capability, 'line')).toBe('not_offered')
+    expect(channelAvailability(capability, 'not-a-channel')).toBe('not_offered')
+  })
+  it('keeps loading and failure distinct from absence', () => {
+    expect(channelAvailability(UNKNOWN_CAPABILITY, 'whatsapp', { checking: true })).toBe('checking')
+    expect(channelAvailability(UNKNOWN_CAPABILITY, 'whatsapp')).toBe('unknown')
+    expect(CHANNEL_AVAILABILITY_LABEL.unknown).toBe('Could not check')
   })
 })

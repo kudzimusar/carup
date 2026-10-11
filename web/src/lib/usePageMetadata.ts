@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { pageMetadata } from '@/config/publicPageMetadata'
 
 /**
  * Browser metadata stays coherent during client navigation. The public document
@@ -44,7 +45,10 @@ export function usePageMetadata({ title, description, canonicalPath, robots, ima
     // *.vercel.app alias must never publish itself as the canonical address of a CarUp page.
     const url = `${CANONICAL_PUBLIC_ORIGIN}${canonicalPath}`
     upsertCanonical(url)
-    upsertMeta('robots', import.meta.env.VITE_DEPLOYMENT_ENV !== 'production' ? 'noindex, nofollow' : robots || 'index, follow')
+    // One indexing authority: a page that does not state its robots inherits the launch policy for
+    // its path (hidden/planned/legal-blocked → noindex), so client and server never disagree.
+    const indexable = import.meta.env.VITE_SEARCH_INDEXABLE === 'true'
+    upsertMeta('robots', indexable ? robots || pageMetadata(canonicalPath, false).robots : 'noindex, nofollow')
     for (const [property, content] of Object.entries({ 'og:type': 'website', 'og:title': title, 'og:description': description, 'og:url': url })) {
       let tag = document.querySelector<HTMLMetaElement>(`meta[property="${property}"]`)
       if (!tag) { tag = document.createElement('meta'); tag.setAttribute('property', property); document.head.appendChild(tag) }

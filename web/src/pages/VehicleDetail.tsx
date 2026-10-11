@@ -16,7 +16,7 @@ import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import {
   Car, CheckCircle, Shield, ShieldCheck, Gauge, Fuel, Settings2, MapPin, Calendar,
-  Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
+  Phone, Heart, Share2, ArrowLeft, AlertTriangle, Search,
   FileCheck, Star, Loader2, Lock, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
   Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy, GitCompare
@@ -48,6 +48,8 @@ import { TrustDecisionPanel } from '@/components/TrustDecisionPanel'
 import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
 import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
+import { useCommunicationCapability } from '@/hooks/useCommunicationCapability'
+import { channelStatus } from '@/lib/communicationChannels'
 import DisputePanel from '@/components/DisputePanel'
 import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShareSheet'
 import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntelligenceStory'
@@ -867,22 +869,23 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
   return [
     ...sources,
     {
-      label: 'ZIMRA Customs Cleared',
-      status: m.zimra_duty ? 'verified' : 'not_verified',
+      // Recorded evidence, not an authority check: the badge says "Recorded", never "Verified".
+      label: 'Customs duty evidence (ZIMRA)',
+      status: m.zimra_duty ? 'recorded' : 'not_verified',
       detail: m.zimra_duty
         ? 'Customs duty evidence is recorded in this Passport; confirm the current position directly with ZIMRA'
         : 'Customs duty evidence is not recorded in this Passport',
     },
     {
-      label: 'CVR Ownership Registration',
-      status: m.cvr_synced ? 'verified' : 'not_verified',
+      label: 'Registration evidence (CVR)',
+      status: m.cvr_synced ? 'recorded' : 'not_verified',
       detail: m.cvr_synced
         ? 'Registration evidence is recorded in this Passport; CarUp does not query the Central Vehicle Registry'
         : 'Registration evidence is not recorded in this Passport',
     },
     {
-      label: 'ZRP Police Clearance',
-      status: m.zrp_police_cleared ? 'verified' : 'not_verified',
+      label: 'Police-clearance evidence (ZRP)',
+      status: m.zrp_police_cleared ? 'recorded' : 'not_verified',
       detail: m.zrp_police_cleared
         ? 'Police-clearance evidence is recorded in this Passport; CarUp does not perform a police database check'
         : 'Police-clearance evidence is not recorded in this Passport',
@@ -895,11 +898,11 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
         : 'Potential mileage discrepancy detected — inspect service history',
     },
     {
-      label: 'Active Stolen Alert',
-      status: m.stolen_alert_active ? 'warning' : 'verified',
+      label: 'Stolen-vehicle alert',
+      status: m.stolen_alert_active ? 'warning' : 'none_recorded',
       detail: m.stolen_alert_active
-        ? '⚠️ Active police alert on this VIN — do not purchase'
-        : 'No active stolen vehicle alert',
+        ? '⚠️ A stolen-vehicle alert is recorded in this Passport — do not purchase, and report it to the ZRP'
+        : 'No stolen-vehicle alert is recorded in this Passport. CarUp does not check police databases',
     },
     {
       label: 'Service Records',
@@ -915,12 +918,14 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
 function VerificationBadge({ status }: { status: PassportVerificationSource['status'] }) {
   const map = {
     verified:     { label: 'Verified',   cls: 'bg-green-500 text-white' },
+    recorded:     { label: 'Recorded',   cls: 'bg-sky-600 text-white' },
+    none_recorded: { label: 'None recorded', cls: 'bg-gray-300 text-gray-800' },
     not_verified: { label: 'Unverified', cls: 'bg-gray-400 text-white' },
     warning:      { label: 'Warning',    cls: 'bg-amber-500 text-white' },
     unknown:      { label: 'Unknown',    cls: 'bg-gray-300 text-gray-700' },
   }
   const { label, cls } = map[status]
-  return <Badge className={`${cls} text-[10px]`}>{label}</Badge>
+  return <Badge className={`${cls} text-[12px]`}>{label}</Badge>
 }
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
@@ -1153,6 +1158,7 @@ export default function VehicleDetail() {
   const navigate = useNavigate()
   const { fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, fetchOwnedVehicles, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
+  const communicationCapability = useCommunicationCapability()
   const presentationMode = searchParams.get('mode') === 'seller_preview'
     ? 'seller_preview'
     : 'marketplace_public'
@@ -1169,6 +1175,15 @@ export default function VehicleDetail() {
   const [detail, setDetail]     = useState<MarketplaceListingDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(true)
   const [loading, setLoading]   = useState(true)
+  // Low-data truth: a failed or stalled read is "could not load", never "does not exist".
+  // Each outcome is keyed to the read that produced it, so a new id or a retry starts clean without
+  // resetting state inside an effect.
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const loadKey = `${id ?? ''}#${loadAttempt}`
+  const [detailFailureFor, setDetailFailureFor] = useState<{ key: string; kind: 'not_found' | 'unavailable' } | null>(null)
+  const detailFailure = detailFailureFor?.key === loadKey ? detailFailureFor.kind : 'none'
+  const [stalledKey, setStalledKey] = useState<string | null>(null)
+  const loadStalled = stalledKey === loadKey
   const [sellerPreviewAuthorization, setSellerPreviewAuthorization] = useState<'idle' | 'checking' | 'allowed' | 'denied' | 'error'>('idle')
   // A plate / temporary-identifier lookup is refused for signed-out visitors by design. That is a
   // statement about the caller, not about the vehicle, so it must not render as "Vehicle Not Found".
@@ -1443,7 +1458,14 @@ export default function VehicleDetail() {
 
     load()
     return () => { mounted = false }
-  }, [id, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport])
+  }, [id, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, loadAttempt])
+
+  // A slow network must never leave an endless spinner: after the deadline the page offers a retry.
+  useEffect(() => {
+    if (!id) return
+    const timer = setTimeout(() => setStalledKey(loadKey), 15000)
+    return () => clearTimeout(timer)
+  }, [id, loadKey])
 
   // Backend-governed marketplace detail (trust/verification/pricing summaries). Best-effort: if the
   // listing is not a public marketplace listing this stays null and the page renders the passport view.
@@ -1475,10 +1497,22 @@ export default function VehicleDetail() {
 
         setLoading(false)
       })
-      .catch(() => { if (mounted) setDetail(null) })
+      .catch((err) => {
+        if (!mounted) return
+        setDetail(null)
+        // Not public / not found is a fact about the listing; anything else (network, timeout, 5xx)
+        // is a fact about the connection and must not be presented as the car not existing.
+        const status = (err as { status?: number } | null)?.status
+        setDetailFailureFor({ key: loadKey, kind: status === 404 || status === 410 || status === 401 || status === 403 ? 'not_found' : 'unavailable' })
+      })
       .finally(() => { if (mounted) setDetailLoading(false) })
     return () => { mounted = false }
-  }, [id, isSellerPreview, searchParams, fetchMarketplaceListingDetail])
+  }, [id, isSellerPreview, searchParams, fetchMarketplaceListingDetail, loadKey])
+
+  const retryLoad = () => {
+    setLoading(true)
+    setLoadAttempt(attempt => attempt + 1)
+  }
 
   // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
   // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
@@ -1534,7 +1568,7 @@ export default function VehicleDetail() {
 
   const [shareOpen, setShareOpen] = useState(false)
   const metadata = !isSellerPreview && detail && id
-    ? publicListingMetadata(detail as unknown as Record<string, unknown>, id, import.meta.env.VITE_DEPLOYMENT_ENV !== 'production') : null
+    ? publicListingMetadata(detail as unknown as Record<string, unknown>, id, import.meta.env.VITE_SEARCH_INDEXABLE !== 'true') : null
   usePageMetadata(metadata ?? pageMetadata(`/marketplace/${encodeURIComponent(id || '')}`, true))
 
   const handleShare = useCallback(() => {
@@ -1553,9 +1587,25 @@ export default function VehicleDetail() {
     || (isSellerPreview && (authLoading || sellerPreviewAuthorization === 'idle' || sellerPreviewAuthorization === 'checking'))
     || (!isSellerPreview && detailLoading)
   ) {
+    if (loadStalled) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center max-w-md px-4" data-testid="vehicle-load-stalled" role="status">
+            <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">This vehicle is taking a while to load</h1>
+            <p className="text-gray-500 mb-6">Your connection may be slow. Try again, or browse other cars meanwhile.</p>
+            <div className="flex gap-3 justify-center">
+              <Button className="min-h-11 bg-orange-500 hover:bg-orange-600" onClick={retryLoad} data-testid="vehicle-load-retry">Try again</Button>
+              <Button variant="outline" className="min-h-11" asChild><Link to="/marketplace">Back to Marketplace</Link></Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center" role="status" aria-busy="true">
+        <Loader2 className="w-8 h-8 animate-spin text-orange-500" aria-hidden />
+        <span className="sr-only">Loading vehicle</span>
       </div>
     )
   }
@@ -1606,10 +1656,26 @@ export default function VehicleDetail() {
     )
   }
 
+  if (!vehicle && detailFailure === 'unavailable') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md px-4" data-testid="vehicle-load-failed">
+          <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-2">We couldn&rsquo;t load this vehicle</h1>
+          <p className="text-gray-500 mb-6">This is a connection problem, not a missing listing. Check your connection and try again.</p>
+          <div className="flex gap-3 justify-center">
+            <Button className="min-h-11 bg-orange-500 hover:bg-orange-600" onClick={retryLoad} data-testid="vehicle-load-retry">Try again</Button>
+            <Button variant="outline" className="min-h-11" asChild><Link to="/marketplace">Back to Marketplace</Link></Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (!vehicle) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md px-4">
+        <div className="text-center max-w-md px-4" data-testid="vehicle-not-found">
           <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Vehicle Not Found</h1>
           <p className="text-gray-500 mb-6">The vehicle you're looking for doesn't exist or has been removed.</p>
@@ -1715,12 +1781,11 @@ export default function VehicleDetail() {
   const sellerFeatures = (vehicle.seller_features ?? vehicle.features ?? [])
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
 
-  // Direct contact exists only when the listing carries a real number. There is no fallback
-  // number — an unknown contact stays unknown and the buyer is routed to the governed inquiry flow.
-  const sellerContactNumber = vehicle.sellerPhone && /[0-9]/.test(vehicle.sellerPhone) ? vehicle.sellerPhone : null
-  const sellerWhatsAppLink  = sellerContactNumber
-    ? `https://wa.me/${sellerContactNumber.replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
-    : null
+  // Buyer contact is ALWAYS the governed CarUp inquiry (canonical conversation; WhatsApp is a
+  // delivery transport for it, never an unmanaged wa.me/tel: link to a seller's number). No public
+  // projection carries a seller phone today; this keeps a future one from silently becoming a
+  // direct, untracked contact path.
+  const whatsappDeliveryAvailable = channelStatus(communicationCapability, 'whatsapp') === 'available'
 
   // Reservation truth is server-owned and time-sensitive. The listing `status` field is a
   // materialized compatibility cache and can lag reservation expiry/provider state, so it must
@@ -2108,8 +2173,8 @@ export default function VehicleDetail() {
               {(vehicle?.vin || id) && !authLoading && !isAuthenticated && (
                 <Card className="border-0 card-shadow py-0" data-testid="trust-detail-signin">
                   <CardContent className="p-5 text-sm leading-relaxed text-gray-600">
-                    Sign in to see what this vehicle&apos;s Trust position is based on and which government and
-                    partner sources CarUp has checked.{' '}
+                    Sign in to see what this vehicle&apos;s Trust position is based on, which evidence is
+                    recorded in its Passport, and what has not been checked yet.{' '}
                     <Link
                       to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`}
                       className="font-semibold text-orange-600 underline"
@@ -2178,7 +2243,7 @@ export default function VehicleDetail() {
                       <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="font-bold text-sm">SECURITY WARNING: Plate Flagged/Suspended</p>
-                        <p className="text-xs mt-0.5">The registration plate registered to this vehicle has been marked as Flagged or Suspended by the registry authority. Proceed with caution.</p>
+                        <p className="text-xs mt-0.5">This vehicle&rsquo;s Passport records its registration plate as Flagged or Suspended. Confirm the plate&rsquo;s status with the relevant authority before you proceed.</p>
                       </div>
                     </div>
                   );
@@ -2664,10 +2729,12 @@ export default function VehicleDetail() {
                       <div className="space-y-2" data-testid="verification-list">
                         {verificationSources.map((src: PassportVerificationSource) => {
                           const Icon = src.status === 'verified' ? CheckCircle
+                            : src.status === 'recorded' ? FileCheck
                             : src.status === 'warning' ? AlertTriangle
                             : src.status === 'not_verified' ? XCircle
                             : HelpCircle
                           const iconColor = src.status === 'verified' ? 'text-green-600'
+                            : src.status === 'recorded' ? 'text-sky-600'
                             : src.status === 'warning' ? 'text-amber-600'
                             : 'text-gray-400'
 
@@ -2781,31 +2848,34 @@ export default function VehicleDetail() {
                   </div>
                 ) : detail ? (
                   <>
-                    {sellerContactNumber && sellerWhatsAppLink ? (
-                      <div className="flex gap-2 mt-6">
-                        <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
-                          <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
-                        </a>
-                        <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
-                          <Button variant="outline" className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
-                        </a>
-                      </div>
-                    ) : (
-                      <div className="mt-6" data-testid="seller-contact-unavailable">
+                    <div className="mt-6 space-y-2" data-testid="seller-contact-unavailable">
+                      <InquiryModal
+                        listingId={detail.vin}
+                        inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                        defaultInquiryType="vehicle_purchase_interest"
+                        triggerLabel="Contact through CarUp"
+                        triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
+                        defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
+                        intentMetadata={{ buyer_intent: 'seller_contact' }}
+                      />
+                      {whatsappDeliveryAvailable && (
                         <InquiryModal
                           listingId={detail.vin}
                           inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
                           defaultInquiryType="vehicle_purchase_interest"
-                          triggerLabel="Contact through CarUp"
-                          triggerClassName="w-full bg-orange-500 text-white hover:bg-orange-400"
-                          defaultMessage="I am interested in this vehicle. Please connect me with the seller through CarUp."
-                          intentMetadata={{ buyer_intent: 'seller_contact' }}
+                          defaultPreferredContact="whatsapp"
+                          triggerIcon="whatsapp"
+                          triggerLabel="Ask about this car on WhatsApp"
+                          triggerVariant="outline"
+                          triggerClassName="w-full border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                          defaultMessage="I am interested in this vehicle. Please reply on WhatsApp."
+                          intentMetadata={{ buyer_intent: 'seller_contact', entry_channel: 'whatsapp' }}
                         />
-                        <p className="mt-2 text-xs text-gray-400">
-                          The seller has not published a direct number. CarUp can route your inquiry without exposing private contact details.
-                        </p>
-                      </div>
-                    )}
+                      )}
+                      <p className="text-xs text-gray-400" data-testid="seller-contact-governed-note">
+                        Your inquiry opens a CarUp conversation. The seller&rsquo;s phone number is never shown.
+                      </p>
+                    </div>
                     <Separator className="my-4 border-white/20" />
                     {isReservedOnServer ? (
                       <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
@@ -2893,13 +2963,7 @@ export default function VehicleDetail() {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-gray-400" />
-                    {sellerContactNumber ? (
-                      isSellerPreview
-                        ? <span data-testid="seller-phone-preview">{sellerContactNumber}</span>
-                        : <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-500">{sellerContactNumber}</a>
-                    ) : (
-                      <span className="text-gray-500" data-testid="seller-phone-unavailable">No contact number published</span>
-                    )}
+                    <span className="text-gray-500" data-testid="seller-phone-unavailable">Contact through CarUp. Phone numbers are not shown.</span>
                   </div>
                 </div>
                 <Button variant="outline" className="w-full mt-4" asChild>

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from '@/components/ui/dialog'
@@ -9,16 +10,12 @@ import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Loader2, MessageSquare, ShieldCheck } from 'lucide-react'
+import { Loader2, Mail, MessageSquare, ShieldCheck } from 'lucide-react'
+import { SiWhatsapp } from 'react-icons/si'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { resolveApiBaseUrl } from '@/lib/apiClient'
-import {
-  type CommunicationCapability,
-  UNKNOWN_CAPABILITY,
-  channelStatus,
-  readCommunicationCapability,
-} from '@/lib/communicationChannels'
+import { channelStatus } from '@/lib/communicationChannels'
+import { useCommunicationCapabilityState } from '@/hooks/useCommunicationCapability'
 import { useAuth } from '@/context/AuthContext'
 import { inquiryAttributionFields } from '@/lib/marketplaceReferral'
 import { track as trackActivity } from '@/lib/intelligenceActivity'
@@ -41,6 +38,8 @@ const INQUIRY_TYPE_LABELS: Record<string, string> = {
 const DEFAULT_TYPES: MarketplaceInquiryType[] = ['vehicle_purchase_interest', 'vehicle_inspection_request']
 
 type PreferredContact = 'carup' | 'whatsapp' | 'email'
+type ExternalContact = Exclude<PreferredContact, 'carup'>
+const EXTERNAL_CONTACTS: ExternalContact[] = ['whatsapp', 'email']
 
 export function InquiryModal({
   listingId,
@@ -53,6 +52,8 @@ export function InquiryModal({
   intentMetadata,
   onSubmitted,
   sourceSurface = 'marketplace_detail',
+  defaultPreferredContact,
+  triggerIcon = 'message',
 }: {
   listingId?: string
   inquiryTypes?: MarketplaceInquiryType[]
@@ -64,23 +65,19 @@ export function InquiryModal({
   intentMetadata?: Record<string, unknown>
   onSubmitted?: (inquiryId: string) => void
   sourceSurface?: 'marketplace_detail' | 'marketplace_list' | 'marketplace_compare' | 'dashboard' | 'saved' | 'search' | 'other'
+  /** Preselects an external delivery channel (e.g. a WhatsApp-branded entry point). Applied only while that channel is available. */
+  defaultPreferredContact?: ExternalContact
+  triggerIcon?: 'message' | 'whatsapp'
 }) {
   const { user } = useAuth()
   const { createMarketplaceInquiry } = useCarUpApi()
-  // R10 — offer only channels CarUp can actually deliver through.
-  const [capability, setCapability] = useState<CommunicationCapability>(UNKNOWN_CAPABILITY)
-  useEffect(() => {
-    let mounted = true
-    const base = resolveApiBaseUrl(
-      import.meta.env.VITE_API_URL,
-      typeof window !== 'undefined' ? window.location.hostname : undefined,
-    )
-    fetch(`${base}/health`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((h) => { if (mounted) setCapability(readCommunicationCapability(h)) })
-      .catch(() => { if (mounted) setCapability(UNKNOWN_CAPABILITY) })
-    return () => { mounted = false }
-  }, [])
+  const location = useLocation()
+  // R10 — offer only channels CarUp can actually deliver through (shared, time-bounded health read).
+  const { capability, checking } = useCommunicationCapabilityState()
+  const isAvailable = (channel: ExternalContact) => channelStatus(capability, channel) === 'available'
+  const firstAvailable = EXTERNAL_CONTACTS.find(isAvailable)
+  // A guest has no CarUp inbox, so a reply can only reach them through an external channel.
+  const guestWithoutChannel = !user && !checking && !firstAvailable
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [inquiryType, setInquiryType] = useState<MarketplaceInquiryType>(defaultInquiryType || inquiryTypes[0])
@@ -102,12 +99,21 @@ export function InquiryModal({
   const [email, setEmail] = useState(user?.email || '')
   const [phone, setPhone] = useState(user?.phone || '')
   const [message, setMessage] = useState(defaultMessage)
-  const [preferredContact, setPreferredContact] = useState<PreferredContact>(user ? 'carup' : 'whatsapp')
+  const [chosenContact, setPreferredContact] = useState<PreferredContact>(
+    defaultPreferredContact ?? (user ? 'carup' : 'whatsapp'),
+  )
+  // Once availability is known, an unavailable channel is never the effective choice: it falls back
+  // to the CarUp inbox for a signed-in buyer, or to the first working external channel for a guest.
+  const preferredContact: PreferredContact = !checking && chosenContact !== 'carup' && !isAvailable(chosenContact)
+    ? (user ? 'carup' : firstAvailable ?? chosenContact)
+    : chosenContact
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (preferredContact !== 'carup' && channelStatus(capability, preferredContact) !== 'available') {
-      toast.error('That delivery channel is not ready in this environment. Sign in to continue in CarUp.')
+    if (preferredContact !== 'carup' && !isAvailable(preferredContact)) {
+      toast.error(user
+        ? 'That delivery channel is not available right now. Choose CarUp to keep the conversation in your inbox.'
+        : 'Replies cannot be delivered to a guest right now. Sign in to keep the conversation in your CarUp inbox.')
       return
     }
     if (!user && !email && !phone) {
@@ -150,7 +156,9 @@ export function InquiryModal({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant={triggerVariant} className={triggerClassName} data-testid="marketplace-inquiry-open">
-          <MessageSquare className="mr-2 h-4 w-4" />
+          {triggerIcon === 'whatsapp'
+            ? <SiWhatsapp className="mr-2 h-4 w-4 text-[#25D366]" aria-hidden />
+            : <MessageSquare className="mr-2 h-4 w-4" aria-hidden />}
           {triggerLabel}
         </Button>
       </DialogTrigger>
@@ -192,26 +200,35 @@ export function InquiryModal({
           <div>
             <Label className="mb-1 block text-xs">Deliver seller replies through</Label>
             <Select value={preferredContact} onValueChange={(v) => setPreferredContact(v as PreferredContact)}>
-              <SelectTrigger data-testid="marketplace-inquiry-preferred-contact"><SelectValue /></SelectTrigger>
+              <SelectTrigger data-testid="marketplace-inquiry-preferred-contact" data-preferred-contact={preferredContact}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {user && <SelectItem value="carup">CarUp</SelectItem>}
                 {/* A channel CarUp cannot currently send through is offered as unavailable rather
                     than silently accepted — choosing it would promise a delivery that cannot occur. */}
-                <SelectItem value="whatsapp" disabled={channelStatus(capability, 'whatsapp') !== 'available'}>
-                  WhatsApp{channelStatus(capability, 'whatsapp') !== 'available' ? ' — unavailable' : ''}
+                <SelectItem value="whatsapp" disabled={!isAvailable('whatsapp')}>
+                  <span className="inline-flex items-center gap-2"><SiWhatsapp className="h-4 w-4 text-[#25D366]" aria-hidden />
+                    WhatsApp{checking ? ' — checking…' : !isAvailable('whatsapp') ? ' — unavailable' : ''}</span>
                 </SelectItem>
-                <SelectItem value="email" disabled={channelStatus(capability, 'email') !== 'available'}>
-                  Email{channelStatus(capability, 'email') !== 'available' ? ' — unavailable' : ''}
+                <SelectItem value="email" disabled={!isAvailable('email')}>
+                  <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" aria-hidden />
+                    Email{checking ? ' — checking…' : !isAvailable('email') ? ' — unavailable' : ''}</span>
                 </SelectItem>
               </SelectContent>
             </Select>
-            {(channelStatus(capability, 'whatsapp') !== 'available' || channelStatus(capability, 'email') !== 'available') && (
-              <p className="mt-1 text-[11px] text-amber-700" data-testid="channel-degraded-note">
+            {guestWithoutChannel ? (
+              <p className="mt-1 text-[13px] text-amber-800" data-testid="guest-no-delivery-channel">
+                WhatsApp and email replies are not available right now, so a seller could not reach you as a guest.{' '}
+                <Link className="font-medium underline" to={`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`}>
+                  Sign in
+                </Link>{' '}to keep the conversation in your CarUp inbox.
+              </p>
+            ) : !checking && (!isAvailable('whatsapp') || !isAvailable('email')) && (
+              <p className="mt-1 text-[13px] text-amber-800" data-testid="channel-degraded-note">
                 Some delivery channels are unavailable right now. Your message is still recorded and
                 replies stay in CarUp.
               </p>
             )}
-            <p className="mt-1 text-[11px] text-gray-500">
+            <p className="mt-1 text-[13px] text-gray-500">
               This grants transactional contact for this inquiry only. It does not opt you into marketing.
             </p>
           </div>
@@ -225,11 +242,11 @@ export function InquiryModal({
               data-testid="marketplace-inquiry-message"
             />
           </div>
-          <p className="flex items-center gap-1 text-[11px] text-gray-500">
+          <p className="flex items-center gap-1 text-[13px] text-gray-500">
             <ShieldCheck className="h-3 w-3 text-emerald-500" /> Stay on CarUp — never pay outside the verified flow.
           </p>
           <DialogFooter>
-            <Button type="submit" disabled={submitting} className="w-full" data-testid="marketplace-inquiry-submit">
+            <Button type="submit" disabled={submitting || guestWithoutChannel} className="w-full" data-testid="marketplace-inquiry-submit">
               {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…</> : 'Send inquiry'}
             </Button>
           </DialogFooter>

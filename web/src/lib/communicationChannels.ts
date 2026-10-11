@@ -80,3 +80,33 @@ export function channelStatus(capability: CommunicationCapability, channel: stri
 export function unavailableChannelNote(channel: string): string {
   return `${channel} is supported by CarUp but delivery is temporarily unavailable in this environment. Replies stay in CarUp.`
 }
+
+/**
+ * Customer-facing availability for one channel. Five honest states, never a bare boolean:
+ * the channel can be offered and working, offered but paused here, supported but not yet
+ * connected here, not offered by CarUp at all, or simply not yet known.
+ */
+export type ChannelAvailability = 'available' | 'temporarily_unavailable' | 'setup_pending' | 'not_offered' | 'checking' | 'unknown'
+export const CHANNEL_AVAILABILITY_LABEL: Record<ChannelAvailability, string> = {
+  available: 'Available',
+  temporarily_unavailable: 'Temporarily unavailable',
+  setup_pending: 'Setup pending',
+  not_offered: 'Not currently offered',
+  checking: 'Checking…',
+  unknown: 'Could not check',
+}
+export function channelAvailability(
+  capability: CommunicationCapability,
+  channel: string,
+  { checking = false }: { checking?: boolean } = {},
+): ChannelAvailability {
+  const source = (CHANNEL_IMPLEMENTATION as Record<string, { implemented: boolean }>)[channel]
+  if (!source?.implemented) return 'not_offered'
+  if (checking) return 'checking'
+  if (capability.unknown) return 'unknown'
+  const evidence = capability.evidence?.[channel]
+  if (evidence?.currentRuntimeReady) return 'available'
+  // Configured but held (outbound paused, worker not ready): the connection exists, delivery is paused.
+  if (evidence?.currentRuntimeConfigured) return 'temporarily_unavailable'
+  return 'setup_pending'
+}

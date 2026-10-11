@@ -4,6 +4,6 @@ import { usePageMetadata } from '@/lib/usePageMetadata'
 /** Client navigation mirrors server document indexing policy; private routes never retain public metadata. */
 export function RouteMetadata() {
   const { pathname } = useLocation()
-  usePageMetadata(pageMetadata(pathname, import.meta.env.VITE_DEPLOYMENT_ENV !== 'production'))
+  usePageMetadata(pageMetadata(pathname, import.meta.env.VITE_SEARCH_INDEXABLE !== 'true'))
   return null
 }

@@ -26,6 +26,8 @@ import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
 import { VEHICLE_MAKES } from '@/data/vehicleTaxonomy'
 
+const SEARCH_DEADLINE_MS = 10000
+
 function labelize(slug: string): string {
   return slug
     .split(/[-_]/)
@@ -63,6 +65,7 @@ export default function VehicleSearch() {
   const [listings, setListings] = useState<MarketplaceListingSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [searchAttempt, setSearchAttempt] = useState(0)
   const [passportMatch, setPassportMatch] = useState<Vehicle | null>(null)
   const [passportListed, setPassportListed] = useState(false)
   // PC01-J-R1: a guest's plate / chassis / frame / temporary-ID lookup is refused by policy. It used
@@ -125,11 +128,15 @@ export default function VehicleSearch() {
       setLookupNeedsSignIn(needsSignIn)
 
       try {
-        const data = await fetchMarketplaceListings({
-          q: committedQuery || undefined,
-          make: make !== 'All' ? make : undefined,
-          category: category !== 'All' ? category : undefined,
-        })
+        // A slow network gets an explicit failure + retry, never an endless "Searching…".
+        const data = await Promise.race([
+          fetchMarketplaceListings({
+            q: committedQuery || undefined,
+            make: make !== 'All' ? make : undefined,
+            category: category !== 'All' ? category : undefined,
+          }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('search_timeout')), SEARCH_DEADLINE_MS)),
+        ])
         if (cancelled) return
         setListings(Array.isArray(data?.listings) ? data.listings : [])
       } catch (err) {
@@ -151,6 +158,7 @@ export default function VehicleSearch() {
     fetchMarketplaceListings,
     lookupVehiclePassport,
     fetchMarketplaceListingDetail,
+    searchAttempt,
   ])
 
   const makes = ['All', ...VEHICLE_MAKES]
@@ -311,7 +319,15 @@ export default function VehicleSearch() {
         {loadError && (
           <div className="mt-8 flex items-center gap-2 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="vehicle-search-error">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            Live marketplace results could not be loaded. CarUp has not substituted fabricated inventory.
+            <span className="flex-1">Live marketplace results could not be loaded. CarUp has not substituted fabricated inventory.</span>
+            <button
+              type="button"
+              className="min-h-11 shrink-0 rounded-md border border-amber-300 bg-white px-3 font-semibold text-amber-900 hover:bg-amber-100"
+              onClick={() => setSearchAttempt(attempt => attempt + 1)}
+              data-testid="vehicle-search-retry"
+            >
+              Try again
+            </button>
           </div>
         )}
 
@@ -320,7 +336,7 @@ export default function VehicleSearch() {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Published Marketplace</p>
             <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] sm:text-4xl">Vehicles you can inspect now.</h2>
           </div>
-          {!loading && (
+          {!loading && !loadError && (
             <p className="text-sm text-slate-500">
               <span className="text-2xl font-black text-slate-950">{listings.length}</span> {listings.length === 1 ? 'vehicle' : 'vehicles'} found
             </p>
@@ -333,7 +349,7 @@ export default function VehicleSearch() {
           </div>
         ) : (
           <>
-            <span className="sr-only">{listings.length} vehicles found</span>
+            {!loadError && <span className="sr-only">{listings.length} vehicles found</span>}
             {listings.length === 0 && !loadError && (
               <div className="border-y border-dashed border-slate-300 px-6 py-16 text-center" data-testid="vehicle-search-empty">
                 <CarFront className="mx-auto h-10 w-10 text-slate-300" />

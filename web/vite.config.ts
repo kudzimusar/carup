@@ -1,5 +1,6 @@
 import path from "path"
 import { launchDistribution } from "./build/launchDistribution"
+import { isIndexableDeployment } from "./src/config/publicPageMetadata"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 import { loadPairingFile, resolveBuildIdentity, resolvePreviewApiUrl } from "./build/previewPairing"
@@ -35,6 +36,8 @@ if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 process.env.VITE_ALLOW_DEMO_LOGINS =
   process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' ? 'true' : ''
 process.env.VITE_DEPLOYMENT_ENV = process.env.VERCEL_ENV || 'development'
+// The single indexing rule (CarUp production project only) — the client reads the same answer.
+process.env.VITE_SEARCH_INDEXABLE = isIndexableDeployment(process.env) ? 'true' : ''
 process.env.VITE_COMMIT_SHA = build.sha
 process.env.VITE_GIT_REF = build.ref
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.

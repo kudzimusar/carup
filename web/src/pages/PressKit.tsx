@@ -220,7 +220,7 @@ export default function PressKit() {
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Core Pillars</span>
                       <div className="flex flex-wrap gap-1.5 mt-2">
-                        {['Registry Trust', 'Gutu AI Intelligence', 'PartSentry Lifecycle', 'Marketplace Security', 'Cross-Border Traceability'].map((pillar) => (
+                        {['Vehicle Passport', 'Gutu AI Intelligence', 'PartSentry Lifecycle', 'Marketplace Security', 'Cross-Border Traceability'].map((pillar) => (
                           <Badge key={pillar} className="bg-slate-900 border-slate-800 text-slate-300 text-[10px] py-0.5 px-2 hover:bg-slate-800">
                             {pillar}
                           </Badge>

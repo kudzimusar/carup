@@ -101,8 +101,11 @@ describe('/blog publishes no fabricated engagement or personas', () => {
   it('seeds no reader comments', () => {
     // Three invented comments attributed to named individuals were hardcoded into useState.
     expect(BLOG_CODE).not.toMatch(/zinara-guide-2026'\s*:\s*\[/)
-    expect(BLOG_CODE, 'the comment store must initialise empty')
-      .toMatch(/setComments\] = useState<[\s\S]*?>\(\{\}\)/)
+    // OC-LAUNCH R1: the local-only comment store (which "posted" nothing yet toasted success) was
+    // retired. Any store that returns must start empty, and no surface may claim a comment was posted.
+    const store = BLOG_CODE.match(/setComments\] = useState<[\s\S]*?>\(([\s\S]*?)\)/)
+    if (store) expect(store[1].trim(), 'the comment store must initialise empty').toBe('{}')
+    expect(BLOG_CODE).not.toMatch(/comment added successfully/i)
   })
 
   it('claims no subscriber count and no unexplained compliance standard', () => {

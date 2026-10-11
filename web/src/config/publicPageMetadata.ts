@@ -2,6 +2,19 @@ import { getFeatureByRoute } from './featureRegistry.js'
 import { PUBLIC_LAUNCH_ROUTES } from './publicLaunchPolicy.js'
 
 export const CANONICAL_ORIGIN = 'https://carup.dev'
+/**
+ * Search indexing is allowed ONLY on the CarUp production project, whose production domain is
+ * carup.dev. `VERCEL_ENV === 'production'` alone is not enough: the staging project's own
+ * production target (staging.carup.dev / carup-staging.vercel.app) is also "production" to Vercel
+ * and must stay noindex. `VERCEL_PROJECT_PRODUCTION_URL` is Vercel's per-project production domain.
+ */
+export const INDEXABLE_PRODUCTION_HOST = 'carup.dev'
+export function isIndexableDeployment(env: { VERCEL_ENV?: string; VERCEL_PROJECT_PRODUCTION_URL?: string }): boolean {
+  if (env.VERCEL_ENV !== 'production') return false
+  const host = String(env.VERCEL_PROJECT_PRODUCTION_URL ?? '').trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/[/:].*$/, '')
+  return host === INDEXABLE_PRODUCTION_HOST || host === `www.${INDEXABLE_PRODUCTION_HOST}`
+}
 export type PublicPageMetadata = { title: string; description: string; canonicalPath: string; robots: string; status: number; image?: string }
 const DISCOVERY: Record<string, [string, string]> = {
   '/': ['Find your next car | CarUp', 'Browse published cars, compare prices and locations, and read the Vehicle Passport. Know the car. Trust the journey.'],

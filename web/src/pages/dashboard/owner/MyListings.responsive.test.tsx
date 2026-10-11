@@ -47,10 +47,16 @@ describe('OBS-06 — unavailable direct actions must become legible governed nex
     expect(VEHICLE_DETAIL).toContain("intentMetadata={{ buyer_intent: 'seller_contact' }}")
   })
 
-  it('direct call and WhatsApp links are conditional on an actually published number', () => {
-    expect(VEHICLE_DETAIL).toContain('sellerContactNumber && sellerWhatsAppLink ?')
-    expect(VEHICLE_DETAIL).toContain('tel:${sellerContactNumber}')
-    expect(VEHICLE_DETAIL).toContain('href={sellerWhatsAppLink}')
+  // OC-LAUNCH-WEB-LR1-R1 §15/§28 supersedes the OBS-06 direct Call/WhatsApp links: buyer contact is
+  // ALWAYS the governed CarUp inquiry, and WhatsApp is a delivery choice inside it — never a raw
+  // tel:/wa.me link to a seller's number. (No public projection carried a seller phone, so the old
+  // conditional branch was unreachable; the owner may reinstate direct contact as a product decision.)
+  it('buyer contact never uses a raw seller tel: or wa.me link; WhatsApp is a governed, legible entry', () => {
+    expect(VEHICLE_DETAIL).not.toMatch(/href=\{`tel:\$\{/)
+    expect(VEHICLE_DETAIL).not.toContain('https://wa.me/${')
+    expect(VEHICLE_DETAIL).not.toContain('sellerWhatsAppLink')
+    expect(VEHICLE_DETAIL).toContain('defaultPreferredContact="whatsapp"')
+    expect(VEHICLE_DETAIL).toContain('triggerIcon="whatsapp"')
     expect(VEHICLE_DETAIL).toContain('border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white')
   })
 

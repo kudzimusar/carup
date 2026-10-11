@@ -13,7 +13,6 @@ import {
   Share2,
   Bookmark,
   MessageSquare,
-  Send,
   Calculator,
   AlertCircle,
   Filter,
@@ -24,6 +23,8 @@ import {
   BookOpen
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { SiWhatsapp } from 'react-icons/si'
+import { CANONICAL_ORIGIN } from '@/config/publicPageMetadata'
 import { EDITORIAL_ARTICLES, UNAVAILABLE_BODY, type EditorialArticle } from '@/content/editorial/articles'
 import { bylineName, bylineRole, bylineInitials, classificationLabel } from '@/content/editorial/governance'
 
@@ -53,12 +54,6 @@ export default function Blog() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null)
   
-  // Interactive Comments State
-  // Seeded with nothing. Three invented reader comments attributed to named individuals used to be
-  // hardcoded here, in a comment system that stores nothing beyond this component's state.
-  const [comments, setComments] = useState<{ [key: string]: { name: string; text: string; date: string }[] }>({})
-  const [newCommentName, setNewCommentName] = useState('')
-  const [newCommentText, setNewCommentText] = useState('')
 
   // The fee table that lived here — four hardcoded USD/ZiG amounts presented as official 2026 rates —
   // is gone with the calculator it fed. It had no source and no effective date.
@@ -81,26 +76,6 @@ export default function Blog() {
     })
   }, [selectedCategory, searchQuery])
 
-  // Handle Comment Submission
-  const handleAddComment = (articleId: string) => {
-    if (!newCommentName.trim() || !newCommentText.trim()) {
-      toast.error('Please fill in both name and comment fields')
-      return
-    }
-    const newComment = {
-      name: newCommentName,
-      text: newCommentText,
-      date: 'Just now'
-    }
-    setComments(prev => ({
-      ...prev,
-      [articleId]: [newComment, ...(prev[articleId] || [])]
-    }))
-    setNewCommentName('')
-    setNewCommentText('')
-    toast.success('Comment added successfully!')
-  }
-
   // Handle newsletter submit
   // The form transmits nothing — there is no subscription endpoint behind it. It used to call
   // setIsSubscribed(true) and toast "Successfully subscribed", so a reader's address was collected
@@ -112,9 +87,10 @@ export default function Blog() {
   }
 
   // Copy article link to clipboard
-  const copyLink = (articleId: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/blog/${articleId}`)
-    toast.success('Article link copied to clipboard!')
+  // Articles have no individual pages yet, so the shareable link is the canonical blog page.
+  const copyLink = () => {
+    navigator.clipboard.writeText(`${CANONICAL_ORIGIN}/blog`)
+    toast.success('Link to the CarUp blog copied.')
   }
 
   return (
@@ -457,7 +433,7 @@ export default function Blog() {
                       Save Article
                     </button>
                     <button 
-                      onClick={() => copyLink(selectedArticle.id)}
+                      onClick={() => copyLink()}
                       className="flex items-center gap-1.5 text-xs font-semibold bg-white/5 hover:bg-orange-500/10 hover:text-orange-400 px-3.5 py-2 rounded-lg border border-white/10 hover:border-orange-500/20 transition-all duration-300"
                     >
                       <Share2 className="w-4 h-4 text-orange-400" />
@@ -465,52 +441,14 @@ export default function Blog() {
                     </button>
                   </div>
 
-                  {/* Comments Section */}
-                  <div className="mt-12 pt-8 border-t border-white/10">
-                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+                  {/* Comments: there is no comment service behind this page. Nothing is posted or stored,
+                      so no form is offered and no success is claimed. */}
+                  <div className="mt-12 pt-8 border-t border-white/10" data-testid="blog-comments-closed">
+                    <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
                       <MessageSquare className="w-4 h-4 text-orange-400" />
-                      Audience Discussions ({(comments[selectedArticle.id] || []).length})
+                      Audience Discussions
                     </h3>
-
-                    {/* New Comment Form */}
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
-                      <p className="text-xs font-bold uppercase tracking-wider text-orange-400 mb-3">Add Your Contribution</p>
-                      <div className="space-y-3">
-                        <Input
-                          type="text"
-                          placeholder="Your name or organization..."
-                          value={newCommentName}
-                          onChange={(e) => setNewCommentName(e.target.value)}
-                          className="bg-black/20 border-white/10 text-white text-xs"
-                        />
-                        <textarea
-                          placeholder="Share your thoughts or ask compliance questions..."
-                          value={newCommentText}
-                          onChange={(e) => setNewCommentText(e.target.value)}
-                          rows={3}
-                          className="w-full bg-black/20 border border-white/10 text-white rounded-md p-2.5 text-xs placeholder-gray-400 focus:outline-none focus:border-orange-500"
-                        />
-                        <Button 
-                          onClick={() => handleAddComment(selectedArticle.id)}
-                          className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs py-2 rounded-lg gap-2"
-                        >
-                          <Send className="w-3.5 h-3.5" /> Submit Comment
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* List comments */}
-                    <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
-                      {(comments[selectedArticle.id] || []).map((cmt, idx) => (
-                        <div key={idx} className="bg-white/5 border border-white/5 rounded-lg p-3">
-                          <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-bold text-orange-300">{cmt.name}</span>
-                            <span className="text-gray-400">{cmt.date}</span>
-                          </div>
-                          <p className="text-gray-300 text-xs leading-relaxed">{cmt.text}</p>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-sm text-gray-300">Comments are not open yet. Questions about a vehicle or import can go through the CarUp contact page.</p>
                   </div>
                 </div>
 
@@ -566,12 +504,12 @@ export default function Blog() {
                       Share this crucial automotive guide with your local neighborhood, family, or commuter group instantly.
                     </p>
                     <a 
-                      href={`https://wa.me/?text=Check%20out%20this%20article%20on%20CarUp:%20${encodeURIComponent(selectedArticle.title)}%20${encodeURIComponent(window.location.origin + '/blog/' + selectedArticle.id)}`}
+                      href={`https://wa.me/?text=${encodeURIComponent(`Check out this guide on CarUp: ${selectedArticle.title} ${CANONICAL_ORIGIN}/blog`)}`}
                       target="_blank" 
                       rel="noreferrer"
                       className="inline-flex w-full items-center justify-center bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 px-3 rounded-lg gap-1.5 transition-colors"
                     >
-                      Share on WhatsApp
+                      <SiWhatsapp className="h-4 w-4" aria-hidden /> Share on WhatsApp
                     </a>
                   </div>
                 </div>
@@ -591,6 +529,7 @@ export default function Blog() {
               <div>
                 <Badge className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-xs px-2.5 mb-2">Automotive Directory</Badge>
                 <h3 className="text-xl md:text-2xl font-bold">Zimbabwean Auto Reference Index</h3>
+                <p className="mt-2 text-sm text-gray-300" data-testid="reference-index-disclaimer">General guidance, not verified by CarUp. Confirm current requirements, timings and payment options with ZIMRA, ZINARA or the operator before you rely on them.</p>
               </div>
               <BookOpen className="w-8 h-8 text-orange-400/40" />
             </div>

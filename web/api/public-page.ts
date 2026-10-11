@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { pageMetadata, publicListingMetadata, renderMetadata, escapeHtml, type PublicPageMetadata } from '../src/config/publicPageMetadata.js'
+import { isIndexableDeployment, pageMetadata, publicListingMetadata, renderMetadata, escapeHtml, type PublicPageMetadata } from '../src/config/publicPageMetadata.js'
 
 /** Same HTML for people and crawlers. Only an unauthenticated public projection is fetched. */
 export async function resolveDocument(path: string, apiBase: string | undefined, staging: boolean, fetcher: typeof fetch = fetch): Promise<PublicPageMetadata> {
@@ -44,7 +44,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const raw = request.searchParams.get('path') || ''
   const path = `/${raw.replace(/^\/+/, '')}`
   if (path.length > 2048 || Array.from(path).some(character => character.charCodeAt(0) < 32 || character === '\\')) { res.writeHead(400); res.end(); return }
-  const staging = process.env.VERCEL_ENV !== 'production'
+  const staging = !isIndexableDeployment(process.env)
   const metadata = await resolveDocument(path, process.env.CARUP_PUBLIC_API_BASE_URL, staging)
   const shell = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8')
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
