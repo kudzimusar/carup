@@ -37,6 +37,7 @@ import {
   type OdometerReadingOutcome,
 } from '../../utils/odometerCapture';
 import { toServiceLogView } from '../../utils/serviceHistoryView';
+import { recordNativeMetric } from '../../utils/nativePerformance';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import type { OwnerServiceHistoryEntry } from '@shared/types';
 
@@ -251,6 +252,7 @@ function GarageScreenInner() {
       localFileRef: pendingCapture.asset.dataUri,
       checksum: `${pendingCapture.asset.fileSizeBytes}:${pendingCapture.asset.dataUri.slice(-32)}`,
     });
+    recordNativeMetric('upload.odometer_queued');
 
     let outcome: OdometerReadingOutcome = { kind: 'queued' };
     try {
