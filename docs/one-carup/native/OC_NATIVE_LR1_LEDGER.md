@@ -120,7 +120,7 @@ with separate `RETRY_REQUIRED`, `REJECTED` and `NETWORK_FAILED` states.
 Capture now provides:
 
 - explicit permission states;
-- operating-system camera launch;
+- reusable in-app CarUp live camera viewfinder backed by Expo Camera;
 - real captured-photo preview;
 - Retake / Use photo;
 - private evidence thumbnails;
@@ -137,9 +137,19 @@ Verification processing now separates upload, OCR observation and the final iden
 
 **Document Intelligence observes. Domain authorities decide.**
 
+### R1 closure
+
+OC-NATIVE-LR1-R1 replaced the operating-system camera handoff with a reusable in-app `CarUpCameraViewfinder` for document, selfie and odometer capture. The viewfinder has real `CameraView` output, permission states, shutter, rear-camera flash, framing guides and actual preview/Retake/Use selection.
+
+Identity exposes no backend extracted-field confirmation/correction mutation, so `USER_CONFIRMED` remains reserved for compatible domain flows and Identity does not fabricate it.
+
+Exact R1 product candidate: `d344f54513c934b89d00324f399ddb08432c5714`.
+
+Camera/source gates on that candidate passed inside the full native certification commands documented below.
+
 ### Disposition
 
-**IMPLEMENTED / awaiting exact-head runtime camera and device certification.**
+**OC-NATIVE-01B COMPLETE — source contract closed; physical camera evidence remains part of device certification.**
 
 ---
 
@@ -581,3 +591,125 @@ Outstanding blockers are **certification/runtime gates**, not permission to rewr
 Product implementation has reached the intended LR1 vertical slice and build-path preparation. The programme is **not yet entitled to claim OWNER USABILITY CHECKPOINT READY** because the required exact-head test, visual and installable-device evidence has not been produced.
 
 The final checkpoint report must therefore remain fail-closed until those gates are satisfied.
+
+
+---
+
+## OC-NATIVE-LR1-R1 — exact-head certification receipt
+
+### Product candidate
+
+`d344f54513c934b89d00324f399ddb08432c5714`
+
+Environment:
+
+- Node: `v22.22.2`
+- Expo: `54.0.37`
+- React Native: `0.81.5`
+- Expo Camera resolved: `17.0.10`
+- New Architecture: `true`
+- `supportsTablet`: `false`
+
+### Required source suites
+
+| Command | Result | Pass | Fail | Skip/cancel | Duration |
+|---|---:|---:|---:|---:|---:|
+| `npm test --workspace=mobile` | PASS | 6 files / 66 tests | 0 | 0 | 1.856 s wall |
+| `npm run test:native --workspace=mobile` | PASS | 19 chained scripts | 0 | 0 | 5.716 s |
+| `npm run test:static --workspace=mobile` | PASS | 5 chained scripts; verification smoke 59/59 | 0 | 0 | 3.409 s |
+| `cd mobile && npx tsc --noEmit --pretty false` | PASS | typecheck | 0 | 0 | 5.682 s |
+| `cd mobile && npx expo install --check` | PASS | dependencies current for SDK 54 | 0 | 0 | 1.023 s |
+
+Additional certification:
+
+- offline-resilience certification: 7/7 PASS in 0.702 s;
+- large/edge-case certification: 7/7 PASS in 0.652 s;
+- Android Expo prebuild: PASS in 0.947 s;
+- iOS Expo prebuild: PASS in 1.266 s;
+- Android Expo JS export paired to immutable staging: PASS in 56.286 s;
+- iOS Expo JS export paired to immutable staging: PASS in 53.122 s;
+- `git diff --check 40621751... d344f545...`: PASS;
+- scope audit: 63 changed files at product candidate, all within `mobile/**` or `docs/one-carup/native/**`.
+
+### Expo Doctor classification
+
+`npx expo-doctor` completed 16/18 checks and reported two monorepo advisories:
+
+1. the existing custom Metro monorepo configuration differs from Expo defaults;
+2. root web React/React-DOM and mobile React/React-DOM are separate workspace versions.
+
+The Android/iOS JS exports and both platform prebuilds pass with the current configuration. No native build failure has proved that changing the accepted Metro custody is safer than retaining it, so R1 does not rewrite Metro solely to silence the advisory.
+
+### Immutable staging backend pairing
+
+The native certification target is:
+
+- backend deployment ID: `dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC`;
+- immutable URL: `https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app`;
+- backend source SHA: `40621751d4b74c59324fe6601aa5ddbdc7769b08`;
+- database project: `eoyenigwevnxwwhyhaer`;
+- health: UP;
+- database consistency: true;
+- external communications sends: disabled;
+- outbound kill switch: active.
+
+Production was not used.
+
+### Proven clean-install defect
+
+The exact candidate fails a clean repository install:
+
+`npm ci --ignore-scripts` → EXIT 1 in 0.933 s.
+
+Exact error:
+
+`Missing: expo-camera@17.0.10 from lock file`.
+
+Cause: `mobile/package.json` is a workspace package and the repository's root `package-lock.json` must record the new native dependency. The authorized R1 write scope excludes root `package-lock.json`.
+
+This is independently reproduced by GitHub Actions: exact-candidate OC-5R REL-03A Source Certification run `38136590487` fails specifically in **Install dependencies** with the same missing `expo-camera@17.0.10` error.
+
+A sandbox-only lock refresh proves the remediation is deterministic:
+
+- only root `package-lock.json` changes;
+- diff size: 21 insertions / 12 deletions;
+- it records the mobile workspace dependency plus `node_modules/expo-camera@17.0.10`;
+- with that uncommitted refreshed lock, `npm ci` succeeds in 20.113 s;
+- the lock mutation was then reverted and was **not committed** because it is outside authorized scope.
+
+### Installable-build attempts
+
+EAS CLI `24.12.1` was executed against the exact source with the immutable staging API URL.
+
+Attempts:
+
+- Android `android-device`: stopped before build creation because the execution environment has no authenticated Expo account / `EXPO_TOKEN`;
+- iOS `ios-simulator`: same authenticated Expo-account gate;
+- iOS `ios-device`: same authenticated Expo-account gate.
+
+The local execution environment also has no Java, Android SDK/ADB/emulator, or Xcode, so it cannot substitute local Android/iOS native compilation or device execution for EAS.
+
+Apple signing was **not** classified as a blocker because the run did not reach Apple signing.
+
+### Runtime gates not claimed
+
+No physical/simulator evidence is claimed for:
+
+- compact iPhone Simulator screenshots;
+- representative Android runtime;
+- expanded Android/foldable viewport;
+- VoiceOver / TalkBack;
+- physical camera permission/capture;
+- degraded-network UI timings;
+- Android physical install;
+- physical iPhone install.
+
+Source-level accessibility and offline tests passed, but they are not relabelled as device evidence.
+
+### R1 disposition
+
+The camera-viewfinder product gap is closed and all executable source certification available to the agent was run.
+
+The programme cannot proceed to exact installable-device certification on the current authorized source because the root workspace lock is stale and outside the R1 write scope. EAS additionally requires an authenticated Expo account once the lock is corrected.
+
+**OC-NATIVE REMEDIATE — PROVEN DEVICE/RUNTIME DEFECT**
