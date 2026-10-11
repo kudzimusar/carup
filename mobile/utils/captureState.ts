@@ -48,7 +48,7 @@ export const CAPTURE_STAGE_META: Record<CaptureStage, CaptureStageMeta> = {
   },
   USER_CONFIRMED: {
     label: 'Details confirmed',
-    description: 'Your confirmation is recorded as input, not as independent proof.',
+    description: 'A compatible flow recorded the user confirmation as input, not as independent proof.',
     tone: 'neutral',
   },
   NEEDS_REVIEW: {
