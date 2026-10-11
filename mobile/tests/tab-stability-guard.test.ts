@@ -76,7 +76,10 @@ function sendsNgrokHeader(call: string, carriers: Set<string>): boolean {
 }
 
 const TABS = ['garage', 'escrow', 'marketplace'] as const;
-const DELEGATED: Record<string, string | undefined> = { marketplace: 'marketplaceApi' };
+const DELEGATED: Record<string, string | undefined> = {
+  garage: 'ownerGarageApi',
+  marketplace: 'marketplaceApi',
+};
 
 console.log('\n=== MOBILE TAB STABILITY STATIC GUARD (Blocker 3) ===\n');
 
@@ -124,16 +127,16 @@ for (const tab of TABS) {
   });
 }
 
-// The canonical util backing delegated tabs must itself be ngrok-safe and
-// free of hardcoded hosts — this closes the loop for the delegated pattern.
-{
-  const utilFile = path.resolve(process.cwd(), 'utils/marketplaceApi.ts');
+// Canonical API utilities backing delegated tabs must be ngrok-safe and free
+// of hardcoded hosts.
+for (const utilName of ['marketplaceApi', 'ownerGarageApi']) {
+  const utilFile = path.resolve(process.cwd(), `utils/${utilName}.ts`);
   const utilSrc = fs.readFileSync(utilFile, 'utf-8');
-  test('marketplaceApi util: sends ngrok-skip-browser-warning', () => {
-    assert.ok(utilSrc.includes('ngrok-skip-browser-warning'), 'marketplaceApi sends the ngrok-skip header');
+  test(`${utilName} util: sends ngrok-skip-browser-warning`, () => {
+    assert.ok(utilSrc.includes('ngrok-skip-browser-warning'), `${utilName} sends the ngrok-skip header`);
   });
-  test('marketplaceApi util: no hardcoded localhost / loopback / raw IP host', () => {
-    assert.ok(!/localhost|127\.0\.0\.1|0\.0\.0\.0|http:\/\/\d{1,3}(\.\d{1,3}){3}/.test(utilSrc), 'marketplaceApi has no hardcoded host');
+  test(`${utilName} util: no hardcoded localhost / loopback / raw IP host`, () => {
+    assert.ok(!/localhost|127\.0\.0\.1|0\.0\.0\.0|http:\/\/\d{1,3}(\.\d{1,3}){3}/.test(utilSrc), `${utilName} has no hardcoded host`);
   });
 }
 
