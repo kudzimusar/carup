@@ -349,3 +349,46 @@ The final run must show all four Vehicle Detail and Search cases fixed on the pu
 2. **a13d25ff:** push the launch stack only. The PC01 docs commit stays with the PC01 lane, which rebases it (no file overlap).
 3. **Providers:** deploy the pushed SHA to the staging project's **production target with `--skip-domain`** (no alias movement). Exact-candidate *outbound* proofs only; inbound/webhook traffic still lands on stable staging `dpl_91cteUJn…` (same DB). Exact-candidate inbound therefore remains an owner provider gate.
 4. **UAT queue:** event/delivery processing stays **off**. The Kingston inquiry leg ends at the recorded inquiry row; canonical conversation and WhatsApp delivery are an owner/moderator queue-governance gate.
+
+# OC-LAUNCH-WEB-LR1-R2 — D7 runtime secret custody (bounded interruption)
+
+## R2-A — failed evidence (preserved)
+
+Diaspora Deployed Staging UAT run **38079945430**, head `40621751`, attempt 1. Approvals were given by the owner in GitHub; this lane approved nothing.
+
+| Job | ID | Result |
+| --- | --- | --- |
+| Bootstrap | 114296121431 | success (07:36:41Z) |
+| Chromium / shard | 114418317169 | **failure** (07:56:19Z): 69 passed / **1 failed** / 9 skipped / 1 did not run |
+| Tablet / shard | 114421598384 | success (08:06:36Z) |
+| Mobile / shard | 114423391477 | awaiting owner approval at 2026-10-11T09:12:58Z |
+
+The failing test is `45-trade-os-container-demo-staging.spec.ts:543`, "participant A: current-run APPROVED container_booking notification exists and is visible in Communications (D7)". It expected `present`, received `absent`, after a 45 s poll.
+
+The spec's own drain log: `[spec45] /internal/events/process answered 22×: 401 {"error":"Unauthorized communication worker request."}`. The run's events stayed `pending` with `attempts=0`, including `diaspora.container_booking.reservation_approved` at 07:48:47Z.
+
+## R2-C — root cause (proven, no secret read)
+
+The diagnosis is **A: the backend Preview has no worker secret.** This follows from C/D: the value exists only under other scopes, and the manual deployment received none.
+
+- The frozen backend `carup-backend-staging-oc5r-pc01-11-11.vercel.app` → `dpl_Cx9js7Ntwwcy9azQHUTVpywNHibU` (preview, created 2026-10-10T19:25:54Z; SHA 40621751; DB eoyenigwevnxwwhyhaer). Its own `/api/health` reports: *"Communication scheduler/worker secret is missing. Set COMMUNICATION_WORKER_SECRET or CRON_SECRET."*
+- At 40621751, `requireWorkerSecret` accepts `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET` from env. With neither set, **every** caller gets 401, whatever it sends. The GitHub staging secret is not wrong; there is nothing to match.
+- Vercel `carup-backend-staging` holds `COMMUNICATION_WORKER_SECRET` only as:
+  - Preview scoped to `feat/trade-os-client-demo-convergence` and to `feature/agent-8-omnichannel-communication-engine`;
+  - Production target.
+
+  There is no unscoped Preview entry and none for `fix/oc5r-real-runtime-source-closure`, which confirms the moderator's query. The project is Git-disconnected, so branch scoping is rejected. The PC01 manual deploy passed no deployment-scoped secret.
+- E (a different variable name) is ruled out: route and validator read the same keys. F applies only in the sense that the deployment was built without the secret.
+
+Why it cannot be converged without disclosure using the available tooling:
+- The GitHub staging secret (set 2026-10-08T23:17:50Z) is write-only.
+- The Vercel values are type `sensitive` (unreadable).
+- No local copy remains: it was generated and piped by a script.
+- **No Vercel token exists in GitHub** (repo or staging env), so no Actions job can deploy or write a Vercel variable.
+- A new dispatch-only workflow would need a push to `main`, or would move PR #222.
+
+Pairing note: the PC01 frontend `dpl_GrfRSYSi…` reaches the backend **through the alias** (provenance `api_base_url` = PC01 backend alias, `unpaired:false`). A backend redeploy plus alias repoint keeps the frontend pairing unchanged.
+
+Safe proof probe available at 40621751: `POST /api/admin/communications/test/provider-smoke {channel:"push"}` with the worker secret returns 400 (refused by name *after* auth, before any write), and 401 without.
+
+Remote custody: PR #222 stayed frozen at 40621751 throughout.
