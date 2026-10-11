@@ -14,6 +14,8 @@ const CORE = [
   'app/(tabs)/inbox.tsx',
   'app/inbox/[threadId].tsx',
   'app/(tabs)/account.tsx',
+  'app/check-car.tsx',
+  'app/find-garage.tsx',
 ];
 
 function stripComments(source: string): string {
