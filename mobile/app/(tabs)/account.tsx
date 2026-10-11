@@ -18,7 +18,7 @@ import { evaluateNativeRouteAccess } from '../../navigation/evaluateNativeRouteA
 const CHANNELS = [
   { key: 'push_enabled', label: 'Push', note: 'Device notifications' },
   { key: 'whatsapp_enabled', label: 'WhatsApp', note: 'Delivery when this channel is available' },
-  { key: 'telegram_enabled', label: 'Telegram', note: 'Delivery when the governed channel is available' },
+  { key: 'telegram_enabled', label: 'Telegram', note: 'Delivery when this channel is available' },
   { key: 'email_enabled', label: 'Email', note: 'Email delivery' },
 ] as const;
 
