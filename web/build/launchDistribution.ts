@@ -1,13 +1,18 @@
 import { gzipSync } from 'node:zlib'
 import type { Plugin } from 'vite'
 import type { OutputChunk } from 'rollup'
-import { CANONICAL_ORIGIN, SITEMAP_PATHS } from '../src/config/publicPageMetadata'
+import { CANONICAL_ORIGIN, SITEMAP_PATHS, pageMetadata, renderMetadata } from '../src/config/publicPageMetadata'
 
 /** Quantitative public-entry guard: baseline main gzip 962.68 kB; budget includes static dependencies. */
 export const PUBLIC_INITIAL_GZIP_BUDGET = 550_000
 export function launchDistribution(): Plugin {
   return {
     name: 'carup-launch-distribution',
+    transformIndexHtml(html) {
+      // Vercel serves the physical root index before fallback rewrites.
+      return html.replace(/<title>[\s\S]*?<\/title>|<meta\s+name="(?:description|robots)"[^>]*>/g, '')
+        .replace('</head>', `${renderMetadata(pageMetadata('/', process.env.VERCEL_ENV !== 'production'))}</head>`)
+    },
     generateBundle(_options, bundle) {
       const entry = Object.values(bundle).find(item => item.type === 'chunk' && item.isEntry) as OutputChunk | undefined
       if (!entry) this.error('Public application entry is missing')

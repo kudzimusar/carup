@@ -1,5 +1,5 @@
-import { getFeatureByRoute } from './featureRegistry'
-import { PUBLIC_LAUNCH_ROUTES } from './publicLaunchPolicy'
+import { getFeatureByRoute } from './featureRegistry.js'
+import { PUBLIC_LAUNCH_ROUTES } from './publicLaunchPolicy.js'
 
 export const CANONICAL_ORIGIN = 'https://carup.dev'
 export type PublicPageMetadata = { title: string; description: string; canonicalPath: string; robots: string; status: number; image?: string }

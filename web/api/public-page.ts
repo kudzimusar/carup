@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { pageMetadata, publicListingMetadata, renderMetadata, escapeHtml, type PublicPageMetadata } from '../src/config/publicPageMetadata'
+import { pageMetadata, publicListingMetadata, renderMetadata, escapeHtml, type PublicPageMetadata } from '../src/config/publicPageMetadata.js'
 
 /** Same HTML for people and crawlers. Only an unauthenticated public projection is fetched. */
 export async function resolveDocument(path: string, apiBase: string | undefined, staging: boolean, fetcher: typeof fetch = fetch): Promise<PublicPageMetadata> {
@@ -47,7 +46,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   if (path.length > 2048 || /[\x00-\x1f\\]/.test(path)) { res.writeHead(400); res.end(); return }
   const staging = process.env.VERCEL_ENV !== 'production'
   const metadata = await resolveDocument(path, process.env.CARUP_PUBLIC_API_BASE_URL, staging)
-  const shell = readFileSync(join(process.cwd(), 'dist/index.html'), 'utf8')
+  const shell = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8')
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.setHeader('X-Robots-Tag', metadata.robots)
   res.setHeader('Cache-Control', metadata.robots.startsWith('noindex') ? 'private, no-store' : 'public, max-age=0, s-maxage=60, stale-while-revalidate=300')

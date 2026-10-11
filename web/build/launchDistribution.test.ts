@@ -13,6 +13,16 @@ function inspect(code: string, module: string, dynamic = false) {
   return emitFile
 }
 describe('public entry distribution guard', () => {
+  it('renders Home canonical and social identity in the physical root document', () => {
+    const plugin = launchDistribution()
+    const transform = plugin.transformIndexHtml as Function
+    const html = transform('<html><head><title>Generic shell</title><meta name="description" content="old"></head></html>')
+    expect(html).toContain('https://carup.dev/')
+    expect(html).toContain('property="og:title"')
+    expect(html).toContain('noindex, nofollow')
+    expect(html).not.toContain('Generic shell')
+    expect(html.match(/<title>/g)).toHaveLength(1)
+  })
   it('rejects an eager private/operator page', () => {
     expect(() => inspect('private()', '/repo/src/pages/dashboard/Private.tsx')).toThrow('Private/operator pages')
     expect(() => inspect('operator()', '/repo/src/pages/diaspora/Private.tsx')).toThrow('Private/operator pages')
