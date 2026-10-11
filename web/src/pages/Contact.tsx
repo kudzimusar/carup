@@ -83,8 +83,8 @@ export default function Contact() {
                   <MessageSquare className="h-5 w-5 text-orange-600" aria-hidden="true" /> About a specific vehicle?
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                  Message the seller from the listing. The conversation stays on CarUp, and you are asked to sign in
-                  only when you send your first message — browsing never needs an account.
+                  Open the listing to see its available inquiry options. In-app account messaging requires sign-in.
+                  Where a guest inquiry is offered, you provide your contact details. Browsing never needs an account.
                 </p>
                 <Link
                   to="/marketplace"
