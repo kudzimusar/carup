@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { VehicleCard } from '../../components/marketplace/VehicleCard';
 import {
   EmptyState,
+  FilterChip,
   SearchField,
   SectionHeader,
   StatusPill,
@@ -178,6 +179,20 @@ export default function HomeScreen() {
           onSubmitEditing={submitSearch}
         />
       </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: spacing[2], paddingTop: spacing[3], paddingBottom: spacing[1] }}
+      >
+        {['Toyota', 'Nissan', 'Honda'].map((make) => (
+          <FilterChip
+            key={make}
+            label={make}
+            onPress={() => router.push(`/market/results?make=${encodeURIComponent(make)}` as never)}
+          />
+        ))}
+      </ScrollView>
 
       <View style={{ marginTop: spacing[6] }}>
         <SectionHeader title="Fresh on CarUp" actionLabel="See all" onAction={() => router.push('/market/results' as never)} />
