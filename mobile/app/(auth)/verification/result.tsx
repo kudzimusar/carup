@@ -200,7 +200,7 @@ export default function VerificationResult() {
               paddingBottom: spacing[2],
             }}
           >
-            These details came from the submitted evidence. They are shown for transparency and do not create verification authority by themselves.
+            These details came from the submitted evidence. They are shown so you can understand what CarUp read; they do not prove your identity by themselves.
           </Text>
           {extractedFields.map((field) => (
             <ExtractionField
