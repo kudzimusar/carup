@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { VehicleImage } from '../media/NativeMedia';
 import { Price, StatusPill, TrustSignal } from '../ui/NativePrimitives';
-import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
+import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 import { resolveMarketplacePrimaryImage, type MobileListingSummary } from '../../utils/marketplaceApi';
 
 export function vehicleName(item: MobileListingSummary): string {
@@ -24,10 +24,16 @@ export function VehicleCard({
   item,
   onPress,
   compact = false,
+  saved = false,
+  onToggleSave,
+  saveBusy = false,
 }: {
   item: MobileListingSummary;
   onPress: () => void;
   compact?: boolean;
+  saved?: boolean;
+  onToggleSave?: () => void;
+  saveBusy?: boolean;
 }) {
   const theme = useNativeTheme();
   const name = vehicleName(item);
@@ -58,6 +64,38 @@ export function VehicleCard({
           <View style={{ position: 'absolute', top: spacing[3], left: spacing[3] }}>
             <StatusPill label="Reserved" tone="warning" />
           </View>
+        ) : null}
+        {onToggleSave ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={saved ? `Remove ${name || 'vehicle'} from saved cars` : `Save ${name || 'vehicle'}`}
+            accessibilityState={{ selected: saved, busy: saveBusy, disabled: saveBusy }}
+            disabled={saveBusy}
+            onPress={(event) => {
+              event.stopPropagation();
+              onToggleSave();
+            }}
+            style={({ pressed }) => ({
+              position: 'absolute',
+              top: spacing[3],
+              right: spacing[3],
+              width: touchTarget.minimum,
+              height: touchTarget.minimum,
+              borderRadius: touchTarget.minimum / 2,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.background.surface,
+              borderWidth: 1,
+              borderColor: saved ? theme.brand.primary : theme.border.default,
+              opacity: saveBusy ? 0.55 : pressed ? 0.78 : 0.96,
+            })}
+          >
+            <Ionicons
+              name={saved ? 'bookmark' : 'bookmark-outline'}
+              size={22}
+              color={saved ? theme.brand.primaryPressed : theme.text.primary}
+            />
+          </Pressable>
         ) : null}
       </View>
 
