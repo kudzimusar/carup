@@ -97,7 +97,7 @@ export default function SellStartScreen() {
       <View style={{ marginTop: spacing[6] }}>
         <Notice
           title="Before publication"
-          body="Seller authority, required vehicle facts and any required evidence remain governed by the existing CarUp process. Starting a draft does not publish the vehicle."
+          body="CarUp checks that you can sell the vehicle, that required vehicle facts are complete, and that any required evidence is available before publication. Starting a draft does not publish the vehicle."
           tone="info"
         />
       </View>
