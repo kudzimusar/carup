@@ -163,7 +163,8 @@ async function main() {
     assert.doesNotMatch(shipped, /\/api\/ai\//, 'no AI endpoint is called from Garage');
     assert.doesNotMatch(GARAGE, /base64Data/);
     assert.doesNotMatch(GARAGE, /method:\s*'(PATCH|PUT)'/, 'Garage writes no vehicle field');
-    assert.match(GARAGE, /captureOdometerPhotoWithStatus\(/, 'odometer capture uses the truthful camera-state helper');
+    assert.match(GARAGE, /<CarUpCameraViewfinder/, 'odometer capture uses the shared CarUp live viewfinder');
+    assert.match(GARAGE, /mode="odometer"/, 'odometer capture uses the rear-camera odometer configuration');
     assert.match(GARAGE, /<CapturePreview/, 'the owner must review the actual odometer photo before upload');
 
     const handlerStart = GARAGE.indexOf('const useOdometerPhoto');
