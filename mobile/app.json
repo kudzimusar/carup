@@ -38,6 +38,13 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "CarUp needs camera access to capture documents, selfies and vehicle evidence.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-local-authentication",
         {
           "faceIDPermission": "Allow CarUp to use Face ID for authentication."
