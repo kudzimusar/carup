@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Linking, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -333,13 +333,10 @@ function VehicleDetailScreenInner() {
     (vehicle.location_state === 'withheld' ? 'Location withheld' : 'Location not recorded');
   const image = resolveMarketplacePrimaryImage(vehicle);
   const trustSummary = vehicle.trust_summary;
-  const evidenceSignals = useMemo(
-    () => [
-      ...(trustSummary?.public_badge_copy || []),
-      ...(trustSummary?.trust_badges || []),
-    ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index),
-    [trustSummary?.public_badge_copy, trustSummary?.trust_badges],
-  );
+  const evidenceSignals = [
+    ...(trustSummary?.public_badge_copy || []),
+    ...(trustSummary?.trust_badges || []),
+  ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
