@@ -315,3 +315,30 @@ Node 20 note: the earlier local gap was the nvm Node 20 being an **x86_64** bina
 - On staging, both `pg_cron` processors (events outbox, communication worker) are **inactive** and no Vercel cron exists.
 - `domain_events` now: pending **3** (accepted baseline 0), processed 1,457, quarantined 285. The 3 pending are `evidence.review.decided`, created 2026-10-10 19:31–19:34Z by another lane, attempts 0; untouched.
 - So "second-account inquiry → canonical conversation → WhatsApp" cannot complete on staging without bounded event and delivery processing. That would also process those 3 foreign events and touch the 1,056-row queued internal-notification backlog. **OWNER/MODERATOR queue-governance gate**; not done here.
+
+### Deployed performance / low-data harness (validated on provisional be2a779a; final run reserved for the pushed SHA)
+
+Harness: `/private/tmp/carup-launch-evidence/r1-live-performance.mjs <frontend> <label>`. It measures the deployed build (real CDN, live staging API; 390px, ~1.6 Mbps, 150 ms, CPU 4x, cache off), then runs four degraded scenarios on Home, Marketplace, Vehicle Detail, Contact and Search: API slow 6 s, API 503, API hang, images blocked.
+
+Live deployed baseline on be2a779a:
+
+| Page | LCP | CLS | TBT proxy | Initial JS | Transfer | Requests | Images |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Home | 3,060 ms (H1) | 0.0001 | 322 ms | 381,263 B (one entry chunk) | 470,933 B | 16 | 0 B (zero inventory) |
+| Marketplace | 3,464 ms | 0 | 274 ms | 381,240 B | 467,637 B | 12 | — |
+
+The harness reproduced, on the *old* code, exactly the four defects fixed in `36ac6712`:
+
+| Page | Scenario | Old behaviour |
+| --- | --- | --- |
+| Vehicle Detail | 503 | "Vehicle Not Found" |
+| Vehicle Detail | hang | Endless spinner (still busy at 25 s) |
+| Search | 503 | False "0 vehicles found" |
+| Search | hang | Endless "Searching…" |
+
+Already correct on the old code:
+- Home and Marketplace show explicit retry and no false zero under 503 and hang.
+- Every page puts its H1 on screen in about 3 s under slow, failed or hung API.
+- Blocked images never hide text; zero overflow in all 20 cases.
+
+The final run must show all four Vehicle Detail and Search cases fixed on the pushed SHA.
