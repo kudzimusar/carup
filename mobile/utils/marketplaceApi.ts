@@ -296,6 +296,24 @@ export async function createMarketplaceInquiry(payload: MobileInquiryInput): Pro
   return requestJson(`/api/marketplace/inquiries`, { method: 'POST', body: JSON.stringify({ ...payload, source_channel: 'mobile' }) });
 }
 
+export async function getSavedMarketplaceListings(): Promise<MobileListingsResponse> {
+  return requestJson<MobileListingsResponse>('/api/marketplace/saved');
+}
+
+export async function saveMarketplaceListing(vin: string): Promise<{ saved: true; vin: string }> {
+  return requestJson<{ saved: true; vin: string }>(
+    `/api/marketplace/listings/${encodeURIComponent(vin)}/save`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function unsaveMarketplaceListing(vin: string): Promise<{ saved: false; vin: string }> {
+  return requestJson<{ saved: false; vin: string }>(
+    `/api/marketplace/listings/${encodeURIComponent(vin)}/save`,
+    { method: 'DELETE' },
+  );
+}
+
 export interface MobileServiceListing {
   slug?: string;
   name?: string;
