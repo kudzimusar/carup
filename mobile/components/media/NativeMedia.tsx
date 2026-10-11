@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
+import { recordNativeMetric } from '../../utils/nativePerformance';
 
 export function VehicleImage({
   uri,
@@ -37,6 +38,13 @@ export function VehicleImage({
       source={{ uri }}
       resizeMode="cover"
       onError={() => setFailed(true)}
+      onLoad={(event) => {
+        const source = event.nativeEvent.source;
+        recordNativeMetric('image.vehicle_loaded', {
+          width: typeof source?.width === 'number' ? source.width : undefined,
+          height: typeof source?.height === 'number' ? source.height : undefined,
+        });
+      }}
       accessibilityLabel={label}
       style={{ width: '100%', aspectRatio, backgroundColor: theme.background.surfaceSunken }}
     />
