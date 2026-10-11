@@ -152,13 +152,25 @@ export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps)
           <h3 className="font-semibold">Marketplace inquiries</h3>
           {!loading && <Badge variant="secondary">{inquiries.length}</Badge>}
         </div>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
-        ) : inquiries.length === 0 ? (
-          <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>
-        ) : (
-          <SellerInquiryList inquiries={inquiries} ownedListings={ownedListings} />
-        )}
+        {/* One fixed-height region for every state. The card sits above the listing cards, and its
+            inquiries arrive after the page renders; a body that grew with the result pushed every
+            listing (and its actions) down after the seller had already scrolled to it. Loading,
+            empty and any number of inquiries now occupy the same space; long lists scroll here. */}
+        <div
+          className="h-72 overflow-y-auto overscroll-contain pr-1"
+          data-testid="seller-inquiries-body"
+          role="region"
+          aria-label="Marketplace inquiries"
+          tabIndex={0}
+        >
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+          ) : inquiries.length === 0 ? (
+            <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>
+          ) : (
+            <SellerInquiryList inquiries={inquiries} ownedListings={ownedListings} />
+          )}
+        </div>
       </CardContent>
     </Card>
   )

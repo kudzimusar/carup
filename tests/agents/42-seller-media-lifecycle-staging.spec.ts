@@ -133,7 +133,14 @@ async function press(page: Page, locator: ReturnType<Page['locator']>, what: str
   });
   await expect.poll(async () => locator.evaluate((el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    if (r.bottom > innerHeight || r.top < 0) return `outside-viewport(top=${Math.round(r.top)})`;
+    if (r.bottom > innerHeight || r.top < 0) {
+      // Content above can still be settling (the seller's inquiries arrive after render). Re-centre
+      // and measure again on the next poll; the hit-target guard below is unchanged, so a control
+      // that is genuinely covered still never converges and the failure names what is on top.
+      const se = document.scrollingElement!;
+      se.scrollTop = Math.max(0, se.scrollTop + r.top - se.clientHeight / 2);
+      return `outside-viewport(top=${Math.round(r.top)})`;
+    }
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     if (!hit) return 'nothing-at-centre';
     if (hit === el || el.contains(hit)) return 'ready';
