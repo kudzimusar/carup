@@ -14,8 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { VehicleImage } from '../../components/media/NativeMedia';
 import {
+  CarUpCameraViewfinder,
   CapturePreview,
-  PermissionPanel,
 } from '../../components/capture/CaptureSystem';
 import {
   Button,
@@ -27,7 +27,7 @@ import {
 } from '../../components/ui/NativePrimitives';
 import { useAuthStore } from '../../store/authStore';
 import { useUploadQueueStore } from '../../store/uploadQueueStore';
-import { captureOdometerPhotoWithStatus, openCameraSettings, type CameraPermissionState, type CapturedAsset } from '../../utils/camera';
+import type { CapturedAsset } from '../../utils/camera';
 import { getMyServiceHistory, getMyVehicles, type NativeOwnedVehicle } from '../../utils/ownerGarageApi';
 import { resolveMarketplaceMediaUrl } from '../../utils/marketplaceApi';
 import { resolveApiBaseUrl } from '../../utils/apiBase';
@@ -200,10 +200,9 @@ function GarageScreenInner() {
   const hydrateQueue = useUploadQueueStore((state) => state.hydrate);
 
   const [section, setSection] = useState<'vehicles' | 'history'>('vehicles');
-  const [capturingVin, setCapturingVin] = useState<string | null>(null);
+  const [cameraVin, setCameraVin] = useState<string | null>(null);
   const [pendingCapture, setPendingCapture] = useState<{ vin: string; asset: CapturedAsset } | null>(null);
-  const [permission, setPermission] = useState<CameraPermissionState | null>(null);
-  const [permissionVin, setPermissionVin] = useState<string | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
   const [uploadMessage, setUploadMessage] = useState<{ title: string; body: string; tone: 'info' | 'success' | 'warning' | 'danger' } | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -240,28 +239,13 @@ function GarageScreenInner() {
     return () => { cancelled = true; };
   }, [hydrateQueue, token, user?.id]);
 
-  const captureOdometer = useCallback(async (vin: string) => {
-    if (capturingVin || uploading) return;
-    setCapturingVin(vin);
-    setPermission(null);
-    setPermissionVin(null);
+  const captureOdometer = useCallback((vin: string) => {
+    if (uploading) return;
+    setPendingCapture(null);
+    setCaptureError(null);
     setUploadMessage(null);
-    const result = await captureOdometerPhotoWithStatus();
-    setCapturingVin(null);
-
-    if (result.kind === 'captured') {
-      setPendingCapture({ vin, asset: result.asset });
-      return;
-    }
-    if (result.kind === 'permission') {
-      setPermission(result.state);
-      setPermissionVin(vin);
-      return;
-    }
-    if (result.kind === 'error') {
-      setUploadMessage({ title: 'Camera unavailable', body: result.message, tone: 'danger' });
-    }
-  }, [capturingVin, uploading]);
+    setCameraVin(vin);
+  }, [uploading]);
 
   const useOdometerPhoto = useCallback(async () => {
     if (!pendingCapture || !user?.id || uploading) return;
@@ -321,19 +305,23 @@ function GarageScreenInner() {
           <Button label="Service history" variant={section === 'history' ? 'primary' : 'secondary'} onPress={() => setSection('history')} style={{ flex: 1 }} />
         </View>
 
-        {permission && permission !== 'granted' ? (
+        {cameraVin && !pendingCapture ? (
           <View style={{ marginTop: spacing[4] }}>
-            <PermissionPanel
-              title={permission === 'blocked' ? 'Camera access is blocked' : permission === 'unavailable' ? 'Camera is unavailable' : 'Camera access is needed'}
-              body={permission === 'blocked'
-                ? 'Enable camera access for CarUp in device Settings, then return to My Garage.'
-                : permission === 'unavailable'
-                  ? 'The camera could not be opened on this device.'
-                  : 'Allow camera access so you can photograph the odometer.'}
-              onOpenSettings={permission === 'blocked' ? () => void openCameraSettings() : undefined}
-              onRetry={permission === 'denied' || permission === 'not_requested'
-                ? () => { if (permissionVin) void captureOdometer(permissionVin); }
-                : undefined}
+            {captureError ? <Notice title="Photo not captured" body={captureError} tone="danger" /> : null}
+            <CarUpCameraViewfinder
+              mode="odometer"
+              title="Odometer evidence"
+              instruction="Keep the full odometer display inside the frame"
+              onCaptured={(asset) => {
+                setCaptureError(null);
+                setPendingCapture({ vin: cameraVin, asset });
+                setCameraVin(null);
+              }}
+              onClose={() => {
+                setCameraVin(null);
+                setCaptureError(null);
+              }}
+              onError={setCaptureError}
             />
           </View>
         ) : null}
@@ -346,10 +334,11 @@ function GarageScreenInner() {
               onRetake={() => {
                 const vin = pendingCapture.vin;
                 setPendingCapture(null);
-                void captureOdometer(vin);
+                captureOdometer(vin);
               }}
               onUse={() => void useOdometerPhoto()}
               useLabel={uploading ? 'Uploading' : 'Use odometer photo'}
+              checkBody="Make sure the full odometer display is visible and the digits are readable before using this photo."
             />
           </View>
         ) : null}
@@ -405,9 +394,9 @@ function GarageScreenInner() {
               >
                 <OwnerVehicleCard
                   vehicle={item}
-                  capturing={capturingVin === item.vin}
+                  capturing={cameraVin === item.vin}
                   onPassport={() => router.push(`/vehicle/${item.vin}` as never)}
-                  onOdometer={() => void captureOdometer(item.vin)}
+                  onOdometer={() => captureOdometer(item.vin)}
                 />
               </View>
             )}
