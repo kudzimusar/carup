@@ -50,9 +50,10 @@ test('failed inventory is truthful and retry can recover to the acquisition stat
 for (const width of [320, 390, 430, 1440]) {
   test(`guest discovery and contact routes remain readable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
-    for (const path of ['/marketplace', '/dealers', '/garages', '/marketplace/parts', '/marketplace/services', '/trust-safety', '/help', '/contact', '/verify', '/sell']) {
+    for (const path of ['/marketplace', '/dealers', '/garages', '/marketplace/parts', '/marketplace/services', '/trust', '/help', '/contact', '/search', '/sell']) {
       await page.goto(path)
       await expect(page.locator('h1').first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: /404|page not found/i })).toHaveCount(0)
       expect(await page.evaluate(() => document.documentElement.scrollWidth), path).toBeLessThanOrEqual(width)
       await expect(page.getByTestId('lazy-route-error')).toHaveCount(0)
     }
