@@ -1,152 +1,51 @@
 import React from 'react';
-import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import { View } from 'react-native';
 import { router } from 'expo-router';
-
-const benefitCardStyle = {
-  flexDirection: 'row' as const,
-  alignItems: 'flex-start' as const,
-  padding: 16,
-  backgroundColor: 'rgba(22, 28, 44, 0.5)',
-  borderWidth: 1,
-  borderColor: 'rgba(43, 53, 82, 0.4)',
-  borderRadius: 16,
-};
-
-const benefitIconStyle = {
-  width: 40,
-  height: 40,
-  borderRadius: 12,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
-  marginRight: 16,
-  borderWidth: 1,
-};
-
-const benefitTitleStyle = {
-  color: '#FFFFFF',
-  fontWeight: '600' as const,
-  fontSize: 14,
-  marginBottom: 4,
-};
-
-const benefitBodyStyle = {
-  color: '#94A3B8',
-  fontSize: 12,
-  lineHeight: 19,
-};
+import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
+import { CaptureShell } from '../../../components/capture/CaptureSystem';
+import { Button, Notice, TrustSignal } from '../../../components/ui/NativePrimitives';
+import { spacing } from '../../../theme/tokens';
 
 function VerificationIntro() {
-
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
+    <CaptureShell
+      step="Step 1 of 9"
+      title="Verify your identity"
+      subtitle="CarUp may require an identity check before sensitive actions such as selling a vehicle."
+      onBack={() => router.back()}
+      footer={
+        <Button
+          label="Choose a document"
+          onPress={() => router.push('/(auth)/verification/document-select')}
+        />
+      }
+    >
+      <View style={{ gap: spacing[5] }}>
+        <TrustSignal
+          label="Your evidence stays private"
+          detail="Document photos are submitted for review and are not shown as Marketplace media."
+        />
+        <TrustSignal
+          label="You review every photo"
+          detail="After capture, you can retake the image before it is submitted."
+        />
+        <TrustSignal
+          label="Reading is not approval"
+          detail="CarUp may read details from your document, but that reading does not make the final decision."
+        />
+      </View>
 
-        {/* Header & Title */}
-        <View style={{ marginTop: 32 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{
-                width: 40,
-                height: 40,
-                backgroundColor: '#161C2C',
-                borderWidth: 1,
-                borderColor: '#2B3552',
-                borderRadius: 12,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text style={{ color: '#FFFFFF', fontSize: 18 }}>←</Text>
-            </TouchableOpacity>
-            <Text style={{ color: '#64748B', fontWeight: '600', fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase' }}>
-              Step 1 of 9
-            </Text>
-          </View>
-
-          <Text style={{ color: '#FFFFFF', fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16, lineHeight: 38 }}>
-            Trust & Identity Verification
-          </Text>
-          <Text style={{ color: '#94A3B8', fontSize: 14, lineHeight: 22, marginBottom: 32 }}>
-            To protect buyers and sellers from fraud, CarUp verifies your identity before some actions, such as listing a vehicle.
-          </Text>
-
-          {/* Benefits Grid */}
-          <View>
-            <View style={benefitCardStyle}>
-              <View style={[benefitIconStyle, { backgroundColor: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.2)' }]}>
-                <Text style={{ color: '#3B82F6', fontWeight: '700' }}>✓</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={benefitTitleStyle}>List & Sell Vehicles</Text>
-                <Text style={benefitBodyStyle}>
-                  Only verified owners and dealerships can post vehicle listings onto the CarUp network.
-                </Text>
-              </View>
-            </View>
-
-            <View style={[benefitCardStyle, { marginTop: 16 }]}>
-              <View style={[benefitIconStyle, { backgroundColor: 'rgba(34, 197, 94, 0.1)', borderColor: 'rgba(34, 197, 94, 0.2)' }]}>
-                <Text style={{ color: '#22C55E', fontWeight: '700' }}>$</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                {/* PC01-J-R1: this card named a real bank (CBZ) and promised bank transfers and loan
-                    pre-approval. CarUp has no bank integration and no live payment, so it promises nothing. */}
-                <Text style={benefitTitleStyle}>Kept private</Text>
-                <Text style={benefitBodyStyle}>
-                  Your identity documents are used to verify you. They are not shown to other CarUp users.
-                </Text>
-              </View>
-            </View>
-
-            <View style={[benefitCardStyle, { marginTop: 16 }]}>
-              <View style={[benefitIconStyle, { backgroundColor: 'rgba(99, 102, 241, 0.1)', borderColor: 'rgba(99, 102, 241, 0.2)' }]}>
-                <Text style={{ color: '#6366F1', fontWeight: '700' }}>🔒</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={benefitTitleStyle}>Secure & Compliant</Text>
-                <Text style={benefitBodyStyle}>
-                  Your document images are fully encrypted locally before being transmitted via secure channels.
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Action Button & Time Estimate */}
-        <View style={{ marginTop: 32 }}>
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '500' }}>
-              Requires National ID, Passport or License • Takes ~2 mins
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => router.push('/(auth)/verification/document-select')}
-            activeOpacity={0.8}
-            testID="start-identity-verification"
-            style={{
-              width: '100%',
-              height: 56,
-              backgroundColor: '#2563EB',
-              borderRadius: 16,
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 16 }}>Start Identity Verification</Text>
-          </TouchableOpacity>
-        </View>
-
-      </ScrollView>
-    </SafeAreaView>
+      <View style={{ marginTop: spacing[6] }}>
+        <Notice
+          title="Have a document ready"
+          body="You can use a supported National ID, passport, driver's licence or residence permit. Some documents require both sides."
+          tone="info"
+        />
+      </View>
+    </CaptureShell>
   );
 }
 
-// ENTRY PREFLIGHT (device Gate 2 round 3): a terminally-rejected applicant is
-// stopped BEFORE this screen mounts — including deep links — so no document
-// selection or camera capture is possible until a reviewer reopens the case.
 export default function GuardedVerificationIntro(): React.ReactElement {
   return (
     <VerificationEntryGuard>
