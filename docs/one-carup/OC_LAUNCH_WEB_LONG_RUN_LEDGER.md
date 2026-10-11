@@ -703,3 +703,40 @@ Backend Preview deployed from the clean detached worktree `/private/tmp/carup-oc
 - Candidate manifest: `code_sha` = `eabea731ca4f41ad27df557f311847dc48fc266a`; expected pairing names the new aliases; PC01's 40621751 pair is added to `preserved`.
 - No PC01, REL-01, REL-02, stable or production alias is moved.
 - Step 3 deploys both projects from this commit; the push follows runtime-identity proof.
+
+## R8-B — first push fde129f6: results, and a superseding head (2026-10-11T12:46:35Z)
+
+**Push 1:** `40621751..fde129f6` (fast-forward) at 12:37:19Z, with the pair pre-deployed (R8). Workflows on `fde129f6`:
+
+| Workflow | Run | Result |
+| --- | --- | --- |
+| Vehicle Finance Obligation Authority CI | 38139962426 | success |
+| Communication Command Center CI | 38139962407 | success |
+| OC-5R REL-03A Source Certification | 38139962470 | success |
+| OC-5R REL-03A Source Certification | 38139960914 | success |
+| Vehicle Passport Foundation CI | 38139962371 | success |
+| Diaspora Phases 3-7 Validation | 38139962419 | success |
+| Referral Engine CI | 38139962356 | success |
+| O2 OCR Offline Hardening | 38139960886 | success |
+| **Seller Home & Lifecycle Staging UAT** | **38139962386** | **failure** (job 114471608353; chromium, tablet and mobile) |
+| Diaspora Deployed Staging UAT | 38139962590 | pending owner approval; **superseded before start** (owner decision) |
+
+**Seller failure, first real defect: a launch-induced gate pin.**
+- `48-seller-home-comms-lifecycle-staging.spec.ts:410` waited 20 s (`locator.getAttribute`) for `featured-view-passport`, the old Home's separate listing hero. OC-LAUNCH-02 removed it; the launch Home renders every published listing as a `featured-verified-car` card in `home-live-showroom`.
+- Every assertion before line 410 passed on all three viewports, including the listing reaching Home inside its run scope **with its cover**.
+
+**Fix `c58daf47` (test-only; `web/` and `backend/` trees byte-identical to `fde129f6`):**
+- The hero step now asserts the hero's **absence** and that no showroom media fallback replaced real media.
+- Card and cover proofs are unchanged, as is every unpublish, republish and sold assertion. Not weakened.
+- `settledHome` IDs (`home-live-inventory`, `featured-loading`, `featured-unavailable`) and Marketplace `marketplace-results-count` ("N published listing(s)") were confirmed present.
+- Compiles and lists 6 tests under `playwright.staging.seller-home.config.ts`.
+- Stale `web/e2e/homepage.spec.ts` also references the old hero. It is run by no workflow and was recorded earlier as stale.
+
+**Owner decision: supersede the fde129f6 staging runs.**
+- 38139962590 is cancelled before any job ran, so it cannot hold the branch's non-cancelling `staging-preview-<branch>` concurrency lock while awaiting approval.
+- The superseding head's Seller and Diaspora runs are the release evidence.
+- The fde129f6 pair (`dpl_FrrGtsNh…` / `dpl_GCWRodXx…`) is recorded and will be replaced on the same oc-launch-lr1 aliases.
+
+**Certification carried to the superseding head:**
+- `web/` tree = `5be6ad59…` and `backend/` tree = `3ac3bf31…`, both identical to `fde129f6` and `4c431a96`.
+- Web unit 258/2,383 (INHERITED BY BYTE-IDENTICAL WEB TREE), browser 15/15, backend 8,411/0/9-cancelled. These are not rerun at the new SHA, because nothing they test changed.

@@ -1,7 +1,7 @@
 {
   "schema": "carup.staging_deployment_candidate.v1",
   "programme": "One CarUp — OC-5R-PC01 (J-R1 owner usability convergence)",
-  "prepared_at": "2026-10-11T12:40Z",
+  "prepared_at": "2026-10-11T12:55Z",
   "supersedes": [
     {
       "code_sha": "d18936abfda408753013e821605914134518b155",
@@ -43,12 +43,12 @@
   ],
   "deployment": {
     "performed": false,
-    "statement": "This package PREPARES the OC-LAUNCH-WEB-LR1 governed staging pair on launch code SHA eabea731. The release itself — deployment ids, aliases, runtime proofs, gate runs — is recorded in docs/one-carup/OC_LAUNCH_WEB_LONG_RUN_LEDGER.md and its evidence, never here."
+    "statement": "This package PREPARES the OC-LAUNCH-WEB-LR1 governed staging pair on launch code SHA c58daf47 (supersedes eabea731/fde129f6: spec 48 adapted to the launch Home). The release itself — deployment ids, aliases, runtime proofs, gate runs — is recorded in docs/one-carup/OC_LAUNCH_WEB_LONG_RUN_LEDGER.md and its evidence, never here."
   },
   "candidate": {
     "branch": "fix/oc5r-real-runtime-source-closure",
     "pull_request": 222,
-    "code_sha": "eabea731ca4f41ad27df557f311847dc48fc266a",
+    "code_sha": "c58daf47cd8a3f1f0cf46321b715403c866bcf44",
     "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
     "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
     "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
