@@ -196,7 +196,7 @@ function OwnerPassportFallback({ vin, passport }: { vin: string; passport: Await
         <View style={{ marginTop: spacing[5] }}>
           <Notice
             title="Not on the public Marketplace"
-            body="This vehicle belongs in your private My Garage view. Buyers cannot see it unless you complete a separate governed publication action."
+            body="This vehicle belongs in your private My Garage view. Buyers cannot see it until you complete a separate publication step."
             tone="warning"
           />
         </View>
