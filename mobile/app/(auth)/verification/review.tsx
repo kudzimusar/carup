@@ -1,134 +1,85 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import React from 'react';
+import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { CaptureShell } from '../../../components/capture/CaptureSystem';
+import { EvidenceThumbnail } from '../../../components/media/NativeMedia';
+import { Button, Notice, StatusPill } from '../../../components/ui/NativePrimitives';
+import { spacing, typeScale, useNativeTheme } from '../../../theme/tokens';
 import { useVerificationStore } from '../../../store/verificationStore';
 
 export default function VerificationReview() {
-  const params = useLocalSearchParams<{
-    docType: string;
-    doubleSided: string;
-    livenessVerified: string;
-  }>();
+  const theme = useNativeTheme();
+  const params = useLocalSearchParams<{ docType: string; doubleSided: string; livenessMode?: string }>();
+  const front = useVerificationStore((state) => state.capturedFront);
+  const back = useVerificationStore((state) => state.capturedBack);
+  const selfie = useVerificationStore((state) => state.capturedSelfie);
 
-  const [checkingQuality, setCheckingQuality] = useState<boolean>(false);
+  const rows = [
+    { key: 'front', label: 'Document front', uri: front },
+    ...(params.doubleSided === 'true' ? [{ key: 'back', label: 'Document back', uri: back }] : []),
+    { key: 'selfie', label: 'Selfie', uri: selfie },
+  ];
 
-  const handleSubmit = useCallback(() => {
+  const submit = () => {
     router.push({
       pathname: '/(auth)/verification/processing',
-      params: { docType: params.docType, doubleSided: params.doubleSided }
+      params: { docType: params.docType, doubleSided: params.doubleSided },
     });
-  }, [params.docType, params.doubleSided]);
+  };
 
-  const handleRetake = useCallback(() => {
+  const retake = () => {
     useVerificationStore.getState().clear();
     router.replace('/(auth)/verification/document-select');
-  }, []);
-
-  const handleBack = useCallback(() => {
-    router.back();
-  }, []);
+  };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
-        
-        <View style={{ marginTop: 32 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
-            <TouchableOpacity 
-              onPress={handleBack}
-              style={{
-                width: 40, height: 40,
-                backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
-                borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              <Text style={{ color: '#fff', fontSize: 18 }}>←</Text>
-            </TouchableOpacity>
-            <Text style={{ color: '#64748b', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' }}>
-              Step 7 of 9: REVIEW
-            </Text>
-          </View>
-
-          <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 }}>
-            Review Captures
-          </Text>
-          <Text style={{ color: '#94a3b8', fontSize: 14, lineHeight: 20, marginBottom: 24 }}>
-            Please confirm all details are readable before upload.
-          </Text>
-
-          <View style={{ padding: 20, backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552', borderRadius: 16, marginBottom: 32 }}>
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 12 }}>Manual Quality Checklist</Text>
-
-            <View style={{ gap: 12 }}>
-              {[
-                { label: 'Document fully in frame', value: 'Confirm below' },
-                { label: 'Text is sharp, not blurred', value: 'Confirm below' },
-                { label: 'No reflective glare', value: 'Confirm below' },
-                { label: 'Photo is well-lit', value: 'Confirm below' },
-              ].map((item) => (
-                <View key={item.label} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' }}>
-                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>{item.label}</Text>
-                  <Text style={{ color: '#34d399', fontSize: 11, fontWeight: '600' }}>{item.value}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14, marginBottom: 12 }}>Captured Assets</Text>
-          <View style={{ gap: 12 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.5)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.4)', borderRadius: 16 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ width: 40, height: 40, backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                  <Text style={{ fontSize: 16 }}>📄</Text>
-                </View>
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Front Document Image</Text>
-              </View>
-              <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
-            </View>
-
-            {params.doubleSided === 'true' && (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.5)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.4)', borderRadius: 16 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={{ width: 40, height: 40, backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                    <Text style={{ fontSize: 16 }}>📄</Text>
-                  </View>
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Back Document Image</Text>
-                </View>
-                <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
-              </View>
-            )}
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.5)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.4)', borderRadius: 16 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ width: 40, height: 40, backgroundColor: 'rgba(99,102,241,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                  <Text style={{ fontSize: 16 }}>👤</Text>
-                </View>
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Selfie (liveness deferred)</Text>
-              </View>
-              <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
-            </View>
-          </View>
+    <CaptureShell
+      step="Step 7 of 9"
+      title="Review your photos"
+      subtitle="Captured means the photo is ready to send. It does not mean the document has been verified."
+      onBack={() => router.back()}
+      footer={
+        <View style={{ gap: spacing[2] }}>
+          <Button label="Submit" onPress={submit} disabled={rows.some((row) => !row.uri)} />
+          <Button label="Retake photos" onPress={retake} variant="secondary" />
         </View>
-
-        <View style={{ marginTop: 32, gap: 12 }}>
-          <TouchableOpacity
-            onPress={handleSubmit}
-            activeOpacity={0.8}
-            style={{ width: '100%', height: 56, backgroundColor: '#2563eb', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
+      }
+    >
+      <View style={{ gap: spacing[3] }}>
+        {rows.map((row) => (
+          <View
+            key={row.key}
+            style={{
+              minHeight: 88,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: theme.border.default,
+              backgroundColor: theme.background.surface,
+              padding: spacing[3],
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing[4],
+            }}
           >
-            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Submit Documents</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleRetake}
-            activeOpacity={0.8}
-            style={{ width: '100%', height: 48, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#334155', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
-          >
-            <Text style={{ color: '#94a3b8', fontWeight: '500', fontSize: 14 }}>Retake Photos</Text>
-          </TouchableOpacity>
+            <EvidenceThumbnail uri={row.uri} label={row.label} privateMedia />
+            <View style={{ flex: 1 }}>
+              <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>{row.label}</Text>
+              <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 3 }}>
+                {row.uri ? 'Captured on this device' : 'Missing'}
+              </Text>
+            </View>
+            <StatusPill label={row.uri ? 'Captured' : 'Missing'} tone={row.uri ? 'neutral' : 'warning'} />
+          </View>
+        ))}
+      </View>
+      <View style={{ marginTop: spacing[5] }}>
+        <Notice title="Before you submit" body="Check that the whole document is visible and important text is readable." tone="info" />
+      </View>
+      {params.livenessMode === 'simulated_not_authoritative' ? (
+        <View style={{ marginTop: spacing[3] }}>
+          <Notice title="Liveness not active" body="This development build did not perform biometric liveness detection." tone="warning" />
         </View>
-
-      </ScrollView>
-    </SafeAreaView>
+      ) : null}
+    </CaptureShell>
   );
 }
