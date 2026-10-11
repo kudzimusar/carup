@@ -2,10 +2,14 @@
  * CarUp native camera utilities.
  *
  * Camera capture is transport, not authority. These helpers expose truthful
- * permission/cancellation/error states and strip EXIF before private evidence
- * is sent to governed backend endpoints.
+ * permission/cancellation/error states and normalize an actual expo-camera
+ * picture into the private-evidence shape used by existing CarUp flows.
  */
-import * as ImagePicker from 'expo-image-picker';
+import {
+  getCameraPermissionsAsync,
+  requestCameraPermissionsAsync,
+  type CameraCapturedPicture,
+} from 'expo-camera';
 import { Linking, Platform } from 'react-native';
 
 export interface CapturedAsset {
@@ -25,13 +29,48 @@ export type CameraPermissionState =
   | 'blocked'
   | 'unavailable';
 
-export type CameraCaptureResult =
-  | { kind: 'captured'; asset: CapturedAsset }
-  | { kind: 'cancelled' }
-  | { kind: 'permission'; state: Exclude<CameraPermissionState, 'granted'> }
-  | { kind: 'error'; message: string };
+export type CameraCaptureMode = 'document' | 'selfie' | 'odometer';
 
-function permissionState(permission: { status: 'granted' | 'denied' | 'undetermined'; canAskAgain: boolean }): CameraPermissionState {
+export interface CameraCaptureConfiguration {
+  mode: CameraCaptureMode;
+  facing: 'front' | 'back';
+  aspectRatio: number;
+  quality: number;
+  frame: 'document' | 'face' | 'odometer';
+  instruction: string;
+}
+
+export const CAMERA_CAPTURE_CONFIG: Record<CameraCaptureMode, CameraCaptureConfiguration> = {
+  document: {
+    mode: 'document',
+    facing: 'back',
+    aspectRatio: 4 / 3,
+    quality: 0.7,
+    frame: 'document',
+    instruction: 'Keep all four corners inside the frame',
+  },
+  selfie: {
+    mode: 'selfie',
+    facing: 'front',
+    aspectRatio: 1,
+    quality: 0.8,
+    frame: 'face',
+    instruction: 'Center your face inside the guide',
+  },
+  odometer: {
+    mode: 'odometer',
+    facing: 'back',
+    aspectRatio: 16 / 9,
+    quality: 0.75,
+    frame: 'odometer',
+    instruction: 'Keep the full odometer display inside the frame',
+  },
+};
+
+function permissionState(permission: {
+  status: 'granted' | 'denied' | 'undetermined';
+  canAskAgain: boolean;
+}): CameraPermissionState {
   if (permission.status === 'granted') return 'granted';
   if (permission.status === 'undetermined') return 'not_requested';
   return permission.canAskAgain ? 'denied' : 'blocked';
@@ -39,7 +78,7 @@ function permissionState(permission: { status: 'granted' | 'denied' | 'undetermi
 
 export async function getCameraPermissionState(): Promise<CameraPermissionState> {
   try {
-    return permissionState(await ImagePicker.getCameraPermissionsAsync());
+    return permissionState(await getCameraPermissionsAsync());
   } catch {
     return 'unavailable';
   }
@@ -47,10 +86,10 @@ export async function getCameraPermissionState(): Promise<CameraPermissionState>
 
 export async function requestCameraPermissionState(): Promise<CameraPermissionState> {
   try {
-    const existing = await ImagePicker.getCameraPermissionsAsync();
+    const existing = await getCameraPermissionsAsync();
     if (existing.status === 'granted') return 'granted';
     if (existing.status === 'denied' && !existing.canAskAgain) return 'blocked';
-    return permissionState(await ImagePicker.requestCameraPermissionsAsync());
+    return permissionState(await requestCameraPermissionsAsync());
   } catch {
     return 'unavailable';
   }
@@ -65,110 +104,31 @@ export async function openCameraSettings(): Promise<void> {
 }
 
 /**
- * Legacy boolean helper retained for existing callers.
- * New capture UI should use requestCameraPermissionState() so denied/blocked
- * states remain distinguishable.
+ * Legacy boolean helper retained for callers that only need permission state.
+ * New capture UI should preserve denied/blocked distinction.
  */
 export async function requestCameraPermissions(): Promise<boolean> {
   return (await requestCameraPermissionState()) === 'granted';
 }
 
-export async function capturePhotoWithStatus(
-  options?: Partial<ImagePicker.ImagePickerOptions>
-): Promise<CameraCaptureResult> {
-  const permission = await requestCameraPermissionState();
-  if (permission !== 'granted') return { kind: 'permission', state: permission };
+export function capturedPictureToAsset(
+  picture: CameraCapturedPicture | undefined,
+): CapturedAsset | null {
+  if (!picture?.uri || !picture.base64) return null;
 
-  try {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-      allowsEditing: true,
-      base64: true,
-      exif: false,
-      ...options,
-    });
+  const mimeType = 'image/jpeg';
+  const dataUri = `data:${mimeType};base64,${picture.base64}`;
+  const fileSizeBytes = Math.ceil((picture.base64.length * 3) / 4);
 
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      return { kind: 'cancelled' };
-    }
-
-    const asset = result.assets[0];
-    if (!asset.base64) {
-      return { kind: 'error', message: 'The photo could not be prepared. Please take it again.' };
-    }
-
-    const mimeType = asset.mimeType || (asset.uri.endsWith('.png') ? 'image/png' : 'image/jpeg');
-    const dataUri = `data:${mimeType};base64,${asset.base64}`;
-    const fileSizeBytes = Math.ceil((asset.base64.length * 3) / 4);
-
-    return {
-      kind: 'captured',
-      asset: {
-        uri: asset.uri,
-        base64: asset.base64,
-        dataUri,
-        width: asset.width,
-        height: asset.height,
-        mimeType,
-        fileSizeBytes,
-      },
-    };
-  } catch {
-    return {
-      kind: 'error',
-      message: 'The camera is unavailable right now. Please try again.',
-    };
-  }
-}
-
-/**
- * Compatibility wrapper for existing Garage and other callers.
- */
-export async function capturePhotoFromCamera(
-  options?: Partial<ImagePicker.ImagePickerOptions>
-): Promise<CapturedAsset | null> {
-  const result = await capturePhotoWithStatus(options);
-  return result.kind === 'captured' ? result.asset : null;
-}
-
-export function captureDocumentPhotoWithStatus(): Promise<CameraCaptureResult> {
-  return capturePhotoWithStatus({
-    cameraType: ImagePicker.CameraType.back,
-    aspect: [4, 3],
-    quality: 0.7,
-  });
-}
-
-export async function captureDocumentPhoto(): Promise<CapturedAsset | null> {
-  const result = await captureDocumentPhotoWithStatus();
-  return result.kind === 'captured' ? result.asset : null;
-}
-
-export function captureSelfiePhotoWithStatus(): Promise<CameraCaptureResult> {
-  return capturePhotoWithStatus({
-    cameraType: ImagePicker.CameraType.front,
-    aspect: [1, 1],
-    quality: 0.8,
-  });
-}
-
-export async function captureSelfiePhoto(): Promise<CapturedAsset | null> {
-  const result = await captureSelfiePhotoWithStatus();
-  return result.kind === 'captured' ? result.asset : null;
-}
-
-export function captureOdometerPhotoWithStatus(): Promise<CameraCaptureResult> {
-  return capturePhotoWithStatus({
-    cameraType: ImagePicker.CameraType.back,
-    aspect: [16, 9],
-    quality: 0.75,
-  });
-}
-
-export async function captureOdometerPhoto(): Promise<CapturedAsset | null> {
-  const result = await captureOdometerPhotoWithStatus();
-  return result.kind === 'captured' ? result.asset : null;
+  return {
+    uri: picture.uri,
+    base64: picture.base64,
+    dataUri,
+    width: picture.width,
+    height: picture.height,
+    mimeType,
+    fileSizeBytes,
+  };
 }
 
 /** Kept for debug/telemetry surfaces; primary customer UI should not foreground bytes. */
