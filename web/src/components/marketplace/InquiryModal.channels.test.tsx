@@ -5,7 +5,8 @@ import { resetCommunicationCapabilityCache } from '@/hooks/useCommunicationCapab
 
 const auth = vi.hoisted(() => ({ user: null as null | { name: string; email: string; phone?: string } }))
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: auth.user }) }))
-vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ createMarketplaceInquiry: vi.fn() }) }))
+const api = vi.hoisted(() => ({ createMarketplaceInquiry: vi.fn(async () => ({ inquiry: { id: 'inq-1' } })) }))
+vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ createMarketplaceInquiry: api.createMarketplaceInquiry }) }))
 vi.mock('@/lib/intelligenceActivity', () => ({ track: vi.fn() }))
 
 const { InquiryModal } = await import('./InquiryModal')
@@ -38,13 +39,22 @@ beforeEach(() => { resetCommunicationCapabilityCache(); auth.user = null })
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('inquiry delivery channels follow runtime truth (OC-LAUNCH R1)', () => {
-  it('does not dead-end a guest: with no deliverable channel it says so and offers sign-in', async () => {
+  // Product authority (publicAccessPolicy): a guest inquiry with an email or phone is accepted and the
+  // seller sees those contact details. Paused CarUp delivery is explained, never a reason to block it
+  // (Golden Dynamic Seller spec 38 caught the earlier block on release head 8a5a920d).
+  it('accepts a guest inquiry while CarUp delivery is paused, and says so truthfully', async () => {
+    api.createMarketplaceInquiry.mockClear()
     serve(health())
     open()
-    const note = await screen.findByTestId('guest-no-delivery-channel')
-    expect(note.textContent).toMatch(/not available right now/i)
+    const note = await screen.findByTestId('guest-delivery-paused')
+    expect(note.textContent).toMatch(/still reaches the\s+seller with the contact details/i)
     expect(note.querySelector('a')?.getAttribute('href')).toBe('/login?returnTo=%2Fmarketplace%2FVIN123')
-    expect((screen.getByTestId('marketplace-inquiry-submit') as HTMLButtonElement).disabled).toBe(true)
+    const submit = screen.getByTestId('marketplace-inquiry-submit') as HTMLButtonElement
+    expect(submit.disabled).toBe(false)
+    fireEvent.change(screen.getByTestId('marketplace-inquiry-phone'), { target: { value: '+263771234567' } })
+    fireEvent.click(submit)
+    await waitFor(() => expect(api.createMarketplaceInquiry).toHaveBeenCalledTimes(1))
+    expect(api.createMarketplaceInquiry.mock.calls[0][0]).toMatchObject({ listing_id: 'VIN123', guest_phone: '+263771234567' })
   })
   it('moves a guest off an unavailable WhatsApp default onto a working channel', async () => {
     serve(health({ email: true }))
@@ -71,6 +81,8 @@ describe('inquiry delivery channels follow runtime truth (OC-LAUNCH R1)', () => 
   it('treats a failed health read as unknown, never as available', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
     open()
-    expect(await screen.findByTestId('guest-no-delivery-channel')).toBeTruthy()
+    // Unknown is not available: the guest sees the paused-delivery note, and no channel is offered as live.
+    expect(await screen.findByTestId('guest-delivery-paused')).toBeTruthy()
+    expect(picker().textContent).not.toMatch(/^WhatsApp$|^Email$/)
   })
 })

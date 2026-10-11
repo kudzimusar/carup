@@ -76,8 +76,10 @@ export function InquiryModal({
   const { capability, checking } = useCommunicationCapabilityState()
   const isAvailable = (channel: ExternalContact) => channelStatus(capability, channel) === 'available'
   const firstAvailable = EXTERNAL_CONTACTS.find(isAvailable)
-  // A guest has no CarUp inbox, so a reply can only reach them through an external channel.
-  const guestWithoutChannel = !user && !checking && !firstAvailable
+  // A guest has no CarUp inbox. When CarUp cannot deliver by WhatsApp or email, the inquiry is still
+  // accepted (product authority: a guest inquiry with an email or phone reaches the seller, who sees
+  // those contact details) — the guest is told so, never blocked.
+  const guestDeliveryPaused = !user && !checking && !firstAvailable
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [inquiryType, setInquiryType] = useState<MarketplaceInquiryType>(defaultInquiryType || inquiryTypes[0])
@@ -110,12 +112,6 @@ export function InquiryModal({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (preferredContact !== 'carup' && !isAvailable(preferredContact)) {
-      toast.error(user
-        ? 'That delivery channel is not available right now. Choose CarUp to keep the conversation in your inbox.'
-        : 'Replies cannot be delivered to a guest right now. Sign in to keep the conversation in your CarUp inbox.')
-      return
-    }
     if (!user && !email && !phone) {
       toast.error('Please add an email or phone so the conversation can continue.')
       return
@@ -215,12 +211,13 @@ export function InquiryModal({
                 </SelectItem>
               </SelectContent>
             </Select>
-            {guestWithoutChannel ? (
-              <p className="mt-1 text-[13px] text-amber-800" data-testid="guest-no-delivery-channel">
-                WhatsApp and email replies are not available right now, so a seller could not reach you as a guest.{' '}
+            {guestDeliveryPaused ? (
+              <p className="mt-1 text-[13px] text-amber-800" data-testid="guest-delivery-paused">
+                CarUp can&rsquo;t deliver replies by WhatsApp or email right now. Your inquiry still reaches the
+                seller with the contact details you leave here.{' '}
                 <Link className="font-medium underline" to={`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`}>
                   Sign in
-                </Link>{' '}to keep the conversation in your CarUp inbox.
+                </Link>{' '}to follow it in your CarUp inbox.
               </p>
             ) : !checking && (!isAvailable('whatsapp') || !isAvailable('email')) && (
               <p className="mt-1 text-[13px] text-amber-800" data-testid="channel-degraded-note">
@@ -246,7 +243,7 @@ export function InquiryModal({
             <ShieldCheck className="h-3 w-3 text-emerald-500" /> Stay on CarUp — never pay outside the verified flow.
           </p>
           <DialogFooter>
-            <Button type="submit" disabled={submitting || guestWithoutChannel} className="w-full" data-testid="marketplace-inquiry-submit">
+            <Button type="submit" disabled={submitting} className="w-full" data-testid="marketplace-inquiry-submit">
               {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…</> : 'Send inquiry'}
             </Button>
           </DialogFooter>
