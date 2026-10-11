@@ -663,3 +663,43 @@ Reason: the staging Vercel project is Git-disconnected (no branch-scoped Preview
   6. **Push** (deploy before push), so PR #222's Seller and Diaspora gates resolve an exact-head pair.
 
 The manifest at present pins code `896ee73f` and the PC01 aliases. No workflow runs the verifier; it is the manual deployment procedure.
+
+## R8 — final exact-SHA launch candidate (recorded 2026-10-11T12:33:05Z)
+
+### Fresh run 38130702563: final, preserved evidence (no rerun)
+
+| Job | ID | Result |
+| --- | --- | --- |
+| Bootstrap | 114444240172 | success |
+| Chromium / shard | 114447132710 | success, **D7 certified** (R4-B) |
+| Tablet / shard | 114450684788 | failure: My Listings layout shift (R4-C), fixed forward in `eabea731` |
+| Mobile / shard | 114460394652 | **success**: 50 passed / 30 skipped (12:27:33Z); spec 42 passed on the mobile viewport |
+| Aggregate | 114469741100 | failure (expected, inherited from Tablet) |
+
+### Recustody and rebase
+
+- PR #222 head `40621751`: OPEN, Draft, MERGEABLE. The remote branch is unchanged.
+- Local stack merge-base = `40621751`; 0 behind / 28 ahead.
+- **Rebase is a no-op.** The stack already sits directly on the current remote head, so no commit was rewritten.
+
+### Post-rebase exact-head certification (head `4c431a96`, Node 20.20.2 arm64)
+
+- **Web:** tree `5be6ad59…` is identical at `eabea731` and `4c431a96`. Unit results are **INHERITED BY BYTE-IDENTICAL WEB TREE** from `eabea731`: 258 files / 2,383 tests, production build PASS.
+- **Browser launch suite:** rerun at `4c431a96` (local production preview, retries 0) — **15/15**.
+- **Backend full suite** (exact `ci.yml` env and command, rerun on this head): 8,443 tests; **8,411 pass, 0 fail, 9 cancelled** (pre-existing FX C1 signature, identical on 40621751), 23 skipped; 178.7 s.
+
+### Governed pair, step 1 (code SHA `eabea731`)
+
+Backend Preview deployed from the clean detached worktree `/private/tmp/carup-oc-launch-deploy` at `eabea731`:
+- Inputs: `CARUP_BUILD_SHA`/`REF` (build and runtime), `COMMUNICATION_OUTBOUND_DISABLED=true`, the deployment-scoped governed worker secret.
+- Result: **`dpl_8sLHGcghZzRqdxNLpxmtq1GyMrLj`**, `https://carup-backend-staging-daoobrl3a-11-11.vercel.app`.
+- Alias **`carup-backend-staging-oc-launch-lr1-11-11.vercel.app`** assigned and read back.
+- `/api/health`: commit eabea731; DB eoyenigwevnxwwhyhaer consistent; kill switch active, external sends disabled; scheduler READY (worker secret present); fake adapters disabled.
+- Unauthenticated `POST /api/internal/events/process` → 401.
+
+### Governed pair, step 2 (this deploy commit)
+
+- `web/preview-backend-pairing.json` and `web/preview-frontend-pairing.json`: only `fix/oc5r-real-runtime-source-closure` changes, from the PC01 aliases to the OC-LAUNCH-LR1 aliases.
+- Candidate manifest: `code_sha` = `eabea731ca4f41ad27df557f311847dc48fc266a`; expected pairing names the new aliases; PC01's 40621751 pair is added to `preserved`.
+- No PC01, REL-01, REL-02, stable or production alias is moved.
+- Step 3 deploys both projects from this commit; the push follows runtime-identity proof.

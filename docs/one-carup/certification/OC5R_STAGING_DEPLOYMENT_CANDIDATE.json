@@ -1,7 +1,7 @@
 {
   "schema": "carup.staging_deployment_candidate.v1",
   "programme": "One CarUp — OC-5R-PC01 (J-R1 owner usability convergence)",
-  "prepared_at": "2026-10-10T19:22:42Z",
+  "prepared_at": "2026-10-11T12:40Z",
   "supersedes": [
     {
       "code_sha": "d18936abfda408753013e821605914134518b155",
@@ -35,16 +35,20 @@
       "deploy_commit": "24a149334beb25932ebcafdb829463a65fce17f1",
       "release_record": "docs/one-carup/certification/OC5R_REL02_STAGING_RELEASE_RECORD.json",
       "reason": "OC-5R-REL-02's accepted deployed evidence. NOT superseded as evidence and never rewritten: its release record, receipts and report stand, and its named preview aliases (…-oc5r-rel02-11-11) keep serving that exact deployment. PC01 builds a NEW candidate with its own aliases (…-oc5r-pc01-11-11)."
+    },
+    {
+      "deploy_commit": "40621751d4b74c59324fe6601aa5ddbdc7769b08",
+      "reason": "OC-5R-PC01-J-R1 deployed pair (PC01 aliases …-oc5r-pc01-11-11). NOT superseded as evidence and never rewritten: Diaspora runs 38079945430 (worker-secret custody defect, preserved) and 38130702563 (fresh D7 certified on Chromium; Tablet exposed the My Listings layout shift fixed forward in OC-LAUNCH) stand. The PC01 backend alias was moved once, owner-authorized, to dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC (same SHA, deployment-scoped worker secret) — see the OC-LAUNCH ledger R3. The PC01 aliases keep serving 40621751 and are not moved by this package."
     }
   ],
   "deployment": {
     "performed": false,
-    "statement": "This package PREPARES the OC-5R-PC01 governed staging pair — re-prepared for PC01-J-R1 (Owner Usability Checkpoint 2) on code SHA 896ee73f. The release itself — deployment ids, aliases, runtime proofs, gate runs — is recorded in the PC01 production-closure ledger and its evidence, never here."
+    "statement": "This package PREPARES the OC-LAUNCH-WEB-LR1 governed staging pair on launch code SHA eabea731. The release itself — deployment ids, aliases, runtime proofs, gate runs — is recorded in docs/one-carup/OC_LAUNCH_WEB_LONG_RUN_LEDGER.md and its evidence, never here."
   },
   "candidate": {
     "branch": "fix/oc5r-real-runtime-source-closure",
     "pull_request": 222,
-    "code_sha": "896ee73f753bb73ca232da04904cdd8272fbeeb1",
+    "code_sha": "eabea731ca4f41ad27df557f311847dc48fc266a",
     "frontend_sha": "the deploy commit — code_sha itself, or a descendant that changes only docs/** and this branch's two governed pairing records",
     "backend_sha": "the same deploy commit as the frontend (one monorepo commit; the gates require frontend == backend == candidate head)",
     "verify": "node scripts/ci/verify-deployment-candidate.mjs --manifest docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json --deployed-sha <deploy commit>"
@@ -73,14 +77,14 @@
   "expected_pairing": {
     "frontend": {
       "file": "web/preview-frontend-pairing.json",
-      "value": "https://carup-staging-oc5r-pc01-11-11.vercel.app",
-      "basis": "a NEW named preview alias (PC01), assigned to the frontend deployment through the Vercel API and read back. The REL-01 and REL-02 aliases are deliberately NOT moved: they keep serving their frozen deployments."
+      "value": "https://carup-staging-oc-launch-lr1-11-11.vercel.app",
+      "basis": "a NEW named preview alias (OC-LAUNCH-LR1), assigned to the frontend deployment through the Vercel CLI and read back. The REL-01, REL-02 and PC01 aliases are deliberately NOT moved: they keep serving their frozen deployments."
     },
     "backend": {
       "file": "web/preview-backend-pairing.json",
-      "value": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app",
-      "pattern": "^https://carup-backend-staging-oc5r-pc01-11-11\\.vercel\\.app$",
-      "basis": "a NEW named preview alias (PC01), first assigned to the backend preview of code_sha (dpl_HTHm4Rtzuyk8Kj1ahws3aFDHwke6) and read back (/api/health: commit a120772d, staging database only, kill switch active)"
+      "value": "https://carup-backend-staging-oc-launch-lr1-11-11.vercel.app",
+      "pattern": "^https://carup-backend-staging-oc-launch-lr1-11-11\\.vercel\\.app$",
+      "basis": "a NEW named preview alias (OC-LAUNCH-LR1), first assigned to the backend preview of code_sha (dpl_8sLHGcghZzRqdxNLpxmtq1GyMrLj, https://carup-backend-staging-daoobrl3a-11-11.vercel.app) and read back (/api/health: commit eabea731, staging database eoyenigwevnxwwhyhaer consistent, kill switch active, worker scheduler READY, fake adapters off)"
     },
     "procedure": [
       "1. First iteration only: deploy the BACKEND preview of the code SHA first (CLI, clean detached worktree), assign the backend alias above and read it back from Vercel; its /api/health must already state the code SHA and the kill switch. The aliases are NAMED, so a later iteration inherits them: it deploys straight from its deploy commit and moves the same two aliases.",
