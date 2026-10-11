@@ -15,7 +15,7 @@ import { useAuthStore } from '../../store/authStore';
 
 const CHANNELS = [
   { key: 'push_enabled', label: 'Push', note: 'Device notifications' },
-  { key: 'whatsapp_enabled', label: 'WhatsApp', note: 'Delivery when the governed channel is available' },
+  { key: 'whatsapp_enabled', label: 'WhatsApp', note: 'Delivery when this channel is available' },
   { key: 'telegram_enabled', label: 'Telegram', note: 'Delivery when the governed channel is available' },
   { key: 'email_enabled', label: 'Email', note: 'Email delivery' },
 ] as const;
@@ -66,7 +66,7 @@ export default function AccountScreen() {
     setPreferenceError(null);
     setSavingChannel(key);
     try {
-      const result = await updateCommunicationPreferences({ ...preferences, [key]: value });
+      const result = await updateCommunicationPreferences({ [key]: value });
       queryClient.setQueryData(['native-communication-preferences', user?.id], result);
     } catch (error) {
       setPreferenceError(error instanceof Error ? error.message : 'CarUp could not save that preference.');
@@ -117,7 +117,7 @@ export default function AccountScreen() {
           <SectionHeader title="Messages & delivery" />
           <Notice
             title="CarUp Inbox is the record"
-            body="Your CarUp conversation remains the system of record. These settings control delivery around that conversation; they do not move the conversation into another app."
+            body="Your CarUp conversation history stays in CarUp. These settings choose how CarUp may deliver updates around that conversation."
             tone="info"
           />
 
