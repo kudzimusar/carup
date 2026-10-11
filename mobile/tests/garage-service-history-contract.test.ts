@@ -44,15 +44,15 @@ describe('the renderer reads only the contract', () => {
   })
 
   it('garage.tsx renders a service log only through the view (no raw item.<field>)', () => {
-    const start = GARAGE.indexOf('const renderServiceLog')
-    const end = GARAGE.indexOf('const isLoading', start)
+    const start = GARAGE.indexOf('function ServiceHistoryCard')
+    const end = GARAGE.indexOf('function GarageScreenInner', start)
     expect(start).toBeGreaterThan(-1)
     const body = GARAGE.slice(start, end)
     expect(body).toContain('toServiceLogView(item)')
     // Past the signature and the one hand-off to the view, the entry is not touched at all — so no
     // `item.cost`, `item['cost']` or `(item as any).cost` can come back.
     const rest = body
-      .replace(/\(\{\s*item\s*\}\s*:\s*\{\s*item\s*:\s*ServiceLog\s*\}\)/, '')
+      .replace(/function\s+ServiceHistoryCard\s*\(\{\s*item\s*\}\s*:\s*\{\s*item\s*:\s*OwnerServiceHistoryEntry\s*\}\)/, '')
       .replace('toServiceLogView(item)', '')
     expect(rest).not.toMatch(/\bitem\b/)
     for (const key of CONTRACT.entry.forbidden) expect(GARAGE).not.toMatch(new RegExp(`ServiceLog[\\s\\S]{0,40}\\b${key}\\b`))
