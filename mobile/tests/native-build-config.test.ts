@@ -20,5 +20,7 @@ assert.equal(Boolean(pkg.dependencies?.['expo-dev-client']), false, 'this bounde
 assert.equal(pkg.dependencies?.['react-native-reanimated'], '~4.1.1');
 assert.equal(pkg.dependencies?.['react-native-worklets'], '0.5.1');
 assert.equal(pkg.dependencies?.['@shopify/flash-list'], '2.0.2');
+assert.equal(pkg.dependencies?.['expo-camera'], '~17.0.10', 'Expo SDK 54 camera package must stay on the resolver-compatible line');
+assert.ok(app.expo.plugins.some((entry: unknown) => Array.isArray(entry) && entry[0] === 'expo-camera'), 'expo-camera config plugin must remain active');
 
 console.log('native-build-config.test: PASS');
