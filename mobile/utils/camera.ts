@@ -6,8 +6,7 @@
  * picture into the private-evidence shape used by existing CarUp flows.
  */
 import {
-  getCameraPermissionsAsync,
-  requestCameraPermissionsAsync,
+  Camera,
   type CameraCapturedPicture,
 } from 'expo-camera';
 import { Linking, Platform } from 'react-native';
@@ -78,7 +77,7 @@ function permissionState(permission: {
 
 export async function getCameraPermissionState(): Promise<CameraPermissionState> {
   try {
-    return permissionState(await getCameraPermissionsAsync());
+    return permissionState(await Camera.getCameraPermissionsAsync());
   } catch {
     return 'unavailable';
   }
@@ -86,10 +85,10 @@ export async function getCameraPermissionState(): Promise<CameraPermissionState>
 
 export async function requestCameraPermissionState(): Promise<CameraPermissionState> {
   try {
-    const existing = await getCameraPermissionsAsync();
+    const existing = await Camera.getCameraPermissionsAsync();
     if (existing.status === 'granted') return 'granted';
     if (existing.status === 'denied' && !existing.canAskAgain) return 'blocked';
-    return permissionState(await requestCameraPermissionsAsync());
+    return permissionState(await Camera.requestCameraPermissionsAsync());
   } catch {
     return 'unavailable';
   }
