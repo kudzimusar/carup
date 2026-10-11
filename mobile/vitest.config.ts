@@ -21,6 +21,14 @@ export default defineConfig({
       // Full Activation device-certification checks: standalone tsx assertion
       // scripts with their own runner (scripts/mobile-cert/*, `npx tsx`).
       'tests/certification/**',
+      'tests/camera-viewfinder.test.ts',
+      'tests/capture-system.test.ts',
+      'tests/native-accessibility-guard.test.ts',
+      'tests/native-build-config.test.ts',
+      'tests/native-core-experience-guard.test.ts',
+      'tests/native-customer-language-guard.test.ts',
+      'tests/native-design-system.test.ts',
+      'tests/native-shell.test.ts',
       'tests/communication-api.test.ts',
       'tests/garage-odometer-ocr.test.ts',
       'tests/login-submit-button.test.ts',
