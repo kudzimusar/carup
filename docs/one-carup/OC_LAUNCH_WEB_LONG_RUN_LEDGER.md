@@ -565,3 +565,49 @@ SMS, Push, Messenger and Instagram are **not broken**; they are not activated. N
 Physical proof then uses a controlled address.
 
 **Brevo:** no physical delivery until the owner provides an authorized admin session, an explicit opt-in test recipient and permission for bounded staging delivery processing. Queue-only behaviour is not physical certification.
+
+## R4-B — fresh D7 current-run receipt (run 38130702563, Chromium job 114447132710)
+
+| Item | Result |
+| --- | --- |
+| Run | 38130702563 — `workflow_dispatch`, head 40621751, attempt 1. Bootstrap success; **Chromium success**: 71 passed / 9 skipped / 0 failed (18.9 m). |
+| D7 tests | `45-…:543` participant A APPROVED notification exists and is visible in Communications — **✓**. `45-…:585` operator receives organiser-directed REQUESTED notification (direction) — **✓**. |
+| Worker auth | **No 401** in this run. The spec logged 15 drain calls ending in a client-side `transport_error: Timeout 20000ms exceeded`: the authenticated server-side drain ran longer than the spec's 20 s client timeout while working through the backlog. Server-side completion is proven by the DB rows below. |
+| Current-run event | `diaspora.container_booking.reservation_approved` **`cc1b25f9-99ff-4913-a2ae-9ae95045d307`**, created 10:33:58Z → `processed`, attempts 1. Its sibling requested/received/rejected/cancelled events (10:32:34–10:35:41Z) are all `processed`. |
+| Current-run notification | `notification_queue` **#1809** (`event_id` = cc1b25f9…): channel `in_app`, type `container_booking`, template `container_booking_update`, real recipient, title "Container booking **RES-0A7D6C94**", created 10:35:28Z. The spec matched it on exact reservation, recipient, APPROVED and post-mutation timestamp, then found the same RES reference in `/dashboard/communications`. |
+| Residue disposition | The 25 pending events from the failed run plus the 3 from 2026-10-10 were **processed normally by the canonical worker** (attempts 1). None was deleted, raw-updated or quarantined. 43 events since 2026-10-10T19:00Z are now `processed`. 2 events created at 10:40Z (later tests) remain pending. |
+| External sends | **Zero.** `message_delivery_attempts` has **no row on any channel** after the 2026-09-07T09:31:55Z baseline. Kill switch active on the backend. |
+
+The old runtime-custody defect is **closed** for Chromium. Tablet and Mobile still need owner approval on this same run.
+
+## R5 — inheritance evidence (deterministic)
+
+**`web/` tree identity:**
+- `36ac67125da997e10afb164e95b2e5d3b47fed45:web` = `341a86dbdfd1802c631041bc849f942a0e7c74e3`
+- `e3db49e77af4830aa70fe276d46260233b24ba3f:web` (current HEAD) = `341a86dbdfd1802c631041bc849f942a0e7c74e3`
+- Result: **IDENTICAL** (same tree object; `git diff --quiet 36ac6712 HEAD -- web` exits 0).
+
+The web certification at `36ac6712` is therefore **INHERITED BY BYTE-IDENTICAL WEB TREE**, not newly rerun:
+- Node 20.20.2: 257 files / 2,382 tests;
+- production build and server-function typecheck;
+- browser 15/15 (retries 0);
+- responsive 72/72, zero overflow.
+
+**Backend full suite at exact SHA `83d29bed`:**
+- Backend tree `3ac3bf312a071813e25186af48e04dcd3452ced0` is identical at HEAD `e3db49e7`, which only adds a ledger commit.
+- Node v20.20.2 (official darwin-arm64, SHA-256 verified).
+- Command, run from the repo root: `NODE_ENV=test SUPABASE_URL=http://localhost:54321 SUPABASE_SERVICE_ROLE_KEY=test-service-role-key SUPABASE_ANON_KEY=test-anon-key JWT_SECRET=test-jwt-secret ALLOW_OCR_MOCK=true node --test backend/tests/*.test.js` (the exact `ci.yml` env and command).
+- Results: tests 8,443, **pass 8,411, fail 0, cancelled 9**, skipped 23. Duration 165.5 s.
+- The 9 cancelled are `backend/tests/oc5r-prov01-fx-observation-policy.test.js` C1 (`cancelledByParent`: "Promise resolution is still pending but the event loop has already resolved"). The same file on frozen `40621751` shows the identical signature (9 cancelled) → **PRE-EXISTING BASELINE / NOT INTRODUCED BY OC-LAUNCH**. Recorded, not hidden.
+
+**Backend files changed after 36ac6712:**
+
+| File | Purpose | Production behaviour? |
+| --- | --- | --- |
+| `backend/routes/adminCommunicationRoutes.js` | **Resend governed test-send correction**: the email provider-smoke row declares `classification:'service'` | **Yes**, only the provider-smoke email path. Directly covered by the new targeted test below, proven failing (dead-letter `email_classification_missing`) before the fix. |
+| `backend/tests/oc-launch-r3-email-smoke-classification.test.js` | New targeted test: Resend only, never Brevo; other channels unchanged | Test only |
+| `backend/tests/email-experience-public-prerequisites.test.js` | Rewrite-test compatibility correction (E3) | Test only |
+| `backend/tests/oc4d-release-only-deployments.test.js` | Rewrite-test compatibility correction (OC-4D) | Test only |
+| `docs/one-carup/OC_LAUNCH_WEB_LONG_RUN_LEDGER.md` | Ledger | No |
+
+After rebase, the full Node 20 backend suite will be rerun on the post-rebase exact head; the current pass is not a substitute.
