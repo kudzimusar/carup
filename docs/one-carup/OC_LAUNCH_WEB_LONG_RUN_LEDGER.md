@@ -637,3 +637,29 @@ The failing test is `tests/agents/42-seller-media-lifecycle-staging.spec.ts:218`
 - **Expected impact:** the same failure is likely on Mobile (persisting data, narrow layout). Chromium passed; desktop layout does not stack the block above the cards at that offset.
 
 No rerun was made. No test was changed. Ruling requested (moderator R4: "a shard exposes a new defect").
+
+## R4-D — owner rulings and fix-forward (local)
+
+**Ruling 1 — Tablet defect: fix forward in the launch stack.** Commit `eabea731`:
+- `SellerInquiriesCard` renders loading, empty and any number of inquiries inside one fixed-height (`h-72`), keyboard-focusable, scrollable region. Nothing below it moves when data arrives. The list already caps at the latest 8, which alone is about 1,600 px.
+- Spec 42 `press()` re-centres a control that drifts out of view on each poll. The hit-target overlay guard is unchanged.
+- New test `SellerInquiriesCard.stableGeometry.test.tsx`: the same body element keeps the same class from loading to 30 inquiries. It cannot pass without the fix, because the region does not exist before it.
+- Spec 42 compiles and lists on chromium, tablet and mobile (Playwright `--list`; not run against staging).
+
+`web/` changed, so the web inheritance from 36ac6712 ends here. Full web suite on Node 20.20.2 at `eabea731`: **258 files / 2,383 tests PASS**; production build PASS. Changed files are lint-clean.
+
+**Ruling 2 — worker-secret plaintext custody:** **keep** the 0600 file (outside any repo, untracked) **only until the final exact-SHA backend is deployed and its gates pass; then delete it**.
+
+Reason: the staging Vercel project is Git-disconnected (no branch-scoped Preview variables) and both secret stores are write-only. Every manual backend Preview needs the governed secret at deploy time, or D7 401s again on the new head. Any later lane needing a new backend Preview needs another owner-authorized staging rotation.
+
+**Governed pairing plan for the pushed head (no PC01 alias moves; PC01 stays on 40621751 as preserved evidence):**
+- New stable aliases, both confirmed free: `carup-backend-staging-oc-launch-lr1-11-11.vercel.app` and `carup-staging-oc-launch-lr1-11-11.vercel.app`.
+- Procedure, per `OC5R_STAGING_DEPLOYMENT_CANDIDATE.json` and `verify-deployment-candidate.mjs`:
+  1. Set the manifest `candidate.code_sha` to the launch code head and the expected pairing to the new aliases (`docs/**`).
+  2. Deploy the backend Preview of the code SHA; assign and read back the new backend alias.
+  3. Commit **only** this branch's two pairing records plus docs; verify with the verifier.
+  4. Deploy both projects from that deploy commit (`CARUP_BUILD_SHA`/`REF`; backend with `COMMUNICATION_OUTBOUND_DISABLED=true` and the deployment-scoped worker secret); assign the aliases.
+  5. Prove runtime identity.
+  6. **Push** (deploy before push), so PR #222's Seller and Diaspora gates resolve an exact-head pair.
+
+The manifest at present pins code `896ee73f` and the PC01 aliases. No workflow runs the verifier; it is the manual deployment procedure.
