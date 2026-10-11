@@ -515,3 +515,33 @@ Terminology: "**production target**" below means the *production environment tar
 SMS, Push, Messenger and Instagram are **not broken**; they are not activated. No credentials are fabricated for them.
 
 **PRODUCTION COMMUNICATIONS ACTIVATION REMAINS A FUTURE EXPLICIT PROMOTION GATE.** No staging credential is copied to Production in this task.
+
+## R3-F — parallel work while the fresh run awaits approval (commit `a56f43c8`, local-only)
+
+**Full backend suite on Node 20.20.2 arm64 with the exact `ci.yml` env:** 8,443 tests, 8,409 pass, **2 fail**, **9 cancelled**, 23 skipped.
+
+- **2 failures were caused by the launch stack.** They are now fixed.
+  - `email-experience-public-prerequisites` E3 and `oc4d-release-only-deployments` pinned the pre-launch frontend rewrite (`/index.html`). OC-LAUNCH-04 (`6f054f7c`) deliberately routes documents to `/api/public-page?path=$1`.
+  - E3 keeps every behavioural assertion (the asset namespace is never rewritten; a missing email asset is not the SPA shell; ordinary routes rewrite) and now also asserts that built `assets/` and the function itself are never rewritten. OC-4D pins the governed value.
+  - Codex's earlier evidence ran only focused backend suites; the full suite had not been run since the rewrite change.
+- **9 cancelled are pre-existing.** They are `oc5r-prov01-fx-observation-policy` C1, `cancelledByParent` ("promise still pending but the event loop has already resolved"), and are identical on the frozen baseline 40621751. They are not caused by this lane and not changed.
+
+**CI coverage gap (important for "remote Node 20 CI"):**
+- `ci.yml`, which holds the full Node 20 web and backend suites, triggers only on `pull_request` to `main` and `push` to `main`. PR #222's base is `feat/oc-expo-push-foundation`, so **ci.yml does not run on this PR**; no ci.yml run exists for 40621751.
+- On push, only the path-filtered workflows run (Communication Command Center CI, Referral Engine CI, Vehicle Passport/Finance CI, OC-5R REL-03A, the staging UATs).
+- Local Node 20 full-suite runs are therefore recorded as the full-suite evidence until the stack reaches a PR into `main`. No CI workflow was weakened or retargeted.
+
+**Provider smoke could not prove Resend (fixed):**
+- The governed `provider-smoke` email row carried no canonical classification, so the G2 renderer refused it (`email_classification_missing`) and it dead-lettered before any provider call.
+- The email smoke now declares `classification: 'service'`, which goes to Resend and never Brevo. Other channels are unchanged.
+- The new test reproduced the dead-letter before the fix; 2/2 pass after.
+
+**Brevo controlled proof: owner prerequisites (MARKETING tier, not a release blocker):**
+- Marketing email reaches Brevo only through the admin campaign path (`/api/admin/communications/campaigns` → approve → execute), which requires an **admin session**.
+- The segment must be one controlled user with recorded **marketing consent** and a **verified email identity** that is not opted out. Consent is evaluated at send time and fails closed.
+- `executeCampaign` only **queues**. Delivery needs the worker, which claims oldest-first behind 1,056 queued historical internal notifications. Owner decision 4 keeps processing off.
+- Brevo physical proof therefore needs an owner-authorized admin session, a consented controlled recipient and bounded delivery processing. The one approved Brevo test email (Codex record) remains unsent.
+
+**UI truth for deferred channels: no change needed.**
+- Public surfaces offer only WhatsApp, Telegram and Email with runtime state.
+- Admin `providerStatus` derives from live adapter health, so SMS, Push, Messenger and Instagram show "not configured". The registry's static `availability` only distinguishes planned LINE/X and is never shown as available.
