@@ -71,6 +71,17 @@ export function listCommunicationThreads(): Promise<{ threads: any[] }> {
   return requestJson('/api/communications/threads');
 }
 
+export function getCommunicationThread(threadId: string): Promise<{ thread: any; messages: any[]; participants?: any[]; read_at?: string | null }> {
+  return requestJson(`/api/communications/threads/${encodeURIComponent(threadId)}`);
+}
+
+export function markCommunicationThreadRead(threadId: string): Promise<{ ok?: boolean; thread_id?: string; last_read_at?: string | null }> {
+  return requestJson(`/api/communications/threads/${encodeURIComponent(threadId)}/read`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 export function createCommunicationThread(payload: Record<string, unknown>): Promise<{ thread: any }> {
   return requestJson('/api/communications/threads', { method: 'POST', body: JSON.stringify(payload) });
 }
