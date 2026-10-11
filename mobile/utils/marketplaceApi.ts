@@ -9,6 +9,7 @@
  * it renders backend-supplied projections and posts actions through governed endpoints.
  */
 import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
+import { nativeNow, recordNetworkResponse } from './nativePerformance';
 import type {
   MarketplacePublicTrust,
   MarketplaceTrustEvaluationState,
@@ -240,8 +241,10 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
     if (MUTATING_METHODS.has(method)) headers['x-csrf-token'] = await getCsrf(baseUrl, forceCsrf);
     return fetch(`${baseUrl}${path}`, { ...options, headers });
   };
+  const startedAt = nativeNow();
   let response = await perform(false);
   if (response.status === 403 && MUTATING_METHODS.has(method)) response = await perform(true);
+  recordNetworkResponse(method === 'GET' ? 'api.marketplace' : 'api.marketplace_action', startedAt, response);
   if (!response.ok) {
     let message = `Marketplace API returned HTTP ${response.status}`;
     try {
