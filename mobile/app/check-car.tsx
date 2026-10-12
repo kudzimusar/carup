@@ -76,7 +76,8 @@ export function CheckCarExperience({ showBack = true }: { showBack?: boolean }) 
               accessibilityRole="button"
               accessibilityLabel="Go back"
               onPress={() => router.back()}
-              style={({ pressed }) => ({
+              android_ripple={{ color: theme.brand.heroRaised, borderless: true }}
+              style={{
                 width: touchTarget.minimum,
                 height: touchTarget.minimum,
                 borderRadius: 24,
@@ -84,8 +85,9 @@ export function CheckCarExperience({ showBack = true }: { showBack?: boolean }) 
                 justifyContent: 'center',
                 borderWidth: 1,
                 borderColor: '#355A78',
-                backgroundColor: pressed ? theme.brand.heroRaised : 'rgba(255,255,255,0.07)',
-              })}
+                backgroundColor: 'rgba(255,255,255,0.07)',
+                overflow: 'hidden',
+              }}
             >
               <Ionicons name="close" size={23} color={theme.brand.onHero} />
             </Pressable>
