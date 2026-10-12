@@ -117,19 +117,21 @@ export function BrandSecondaryAction({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => ({
+      android_ripple={{ color: 'rgba(255,255,255,0.10)' }}
+      style={{
         flex: 1,
         minHeight: touchTarget.minimum,
         borderRadius: radius.button,
         borderWidth: 1,
         borderColor: '#466783',
-        backgroundColor: pressed ? theme.brand.heroRaised : 'rgba(255,255,255,0.035)',
+        backgroundColor: 'rgba(255,255,255,0.035)',
         paddingHorizontal: spacing[3],
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: spacing[2],
-      })}
+        overflow: 'hidden',
+      }}
     >
       <Ionicons name={icon} size={19} color={theme.brand.onHero} />
       <Text allowFontScaling style={{ ...typeScale.button, color: theme.brand.onHero }}>{label}</Text>
