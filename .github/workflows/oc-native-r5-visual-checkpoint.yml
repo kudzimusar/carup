@@ -1,0 +1,255 @@
+name: OC-NATIVE R5 Visual Checkpoint
+
+on:
+  push:
+    branches:
+      - feat/oc-native01-product-foundation
+    paths:
+      - 'mobile/**'
+      - 'docs/one-carup/native/**'
+      - '.github/workflows/oc-native-r5-visual-checkpoint.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-r5-visual-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app
+  R5_CURRENT_SHA: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
+  R5_BACKEND_DEPLOYMENT: dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC
+  R5_BACKEND_SHA: 40621751d4b74c59324fe6601aa5ddbdc7769b08
+  R5_SUPABASE_PROJECT: eoyenigwevnxwwhyhaer
+  R5_EXTERNAL_SENDS: disabled
+
+jobs:
+  ios-simulator:
+    name: iOS Simulator · ${{ matrix.label }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: current
+            ref: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
+          - label: r5
+            ref: ${{ github.sha }}
+    steps:
+      - name: Checkout visual authority
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          fetch-depth: 1
+
+      - name: Record source custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r5-evidence"
+          {
+            echo "platform=ios-simulator"
+            echo "label=${{ matrix.label }}"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "runner=${{ runner.os }}"
+            echo "backend_deployment=$R5_BACKEND_DEPLOYMENT"
+            echo "backend_url=$EXPO_PUBLIC_API_URL"
+            echo "backend_sha=$R5_BACKEND_SHA"
+            echo "supabase_project=$R5_SUPABASE_PROJECT"
+            echo "external_sends=$R5_EXTERNAL_SENDS"
+          } > "$RUNNER_TEMP/r5-evidence/custody.txt"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prebuild iOS project
+        working-directory: mobile
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Install CocoaPods
+        working-directory: mobile/ios
+        run: pod install
+
+      - name: Build, install and capture native iOS evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/r5-evidence"
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; xs=[v for group in d.values() for v in group if v.get("isAvailable") and v.get("name","").startswith("iPhone")]; print(xs[0]["udid"] if xs else "")')"
+          if [ -z "$UDID" ]; then
+            echo "::error::No available iPhone Simulator found"
+            exit 1
+          fi
+          DEVICE_NAME="$(xcrun simctl list devices available -j | python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))' UDID="$UDID")"
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance light
+
+          cd mobile/ios
+          WORKSPACE="$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          if [ -z "$WORKSPACE" ]; then
+            echo "::error::No iOS workspace produced by Expo prebuild"
+            exit 1
+          fi
+          SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(j["workspace"]["schemes"][0])')"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "id=$UDID" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+          APP="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator" -maxdepth 2 -name '*.app' -print -quit)"
+          if [ -z "$APP" ]; then
+            echo "::error::No built .app found"
+            exit 1
+          fi
+
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.carup.mobile
+          sleep 10
+          xcrun simctl io "$UDID" screenshot "$OUT/home.png"
+
+          xcrun simctl openurl "$UDID" "carup://check-car"
+          sleep 6
+          xcrun simctl io "$UDID" screenshot "$OUT/check-verify.png"
+
+          {
+            echo "device=$DEVICE_NAME"
+            echo "udid=$UDID"
+            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
+            echo "expo=$(node -p "require('../../node_modules/expo/package.json').version")"
+            echo "react_native=$(node -p "require('../../node_modules/react-native/package.json').version")"
+            echo "expo_camera=$(node -p "require('../../node_modules/expo-camera/package.json').version")"
+            echo "new_architecture=true"
+            echo "home_screenshot=home.png"
+            echo "check_screenshot=check-verify.png"
+          } >> "$OUT/custody.txt"
+
+      - name: Upload iOS evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-r5-ios-${{ matrix.label }}-${{ matrix.ref }}
+          path: ${{ runner.temp }}/r5-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  android-emulator:
+    name: Android Emulator · ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: current
+            ref: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
+          - label: r5
+            ref: ${{ github.sha }}
+    steps:
+      - name: Checkout visual authority
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          fetch-depth: 1
+
+      - name: Record source custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r5-evidence"
+          {
+            echo "platform=android-emulator"
+            echo "label=${{ matrix.label }}"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "runner=${{ runner.os }}"
+            echo "backend_deployment=$R5_BACKEND_DEPLOYMENT"
+            echo "backend_url=$EXPO_PUBLIC_API_URL"
+            echo "backend_sha=$R5_BACKEND_SHA"
+            echo "supabase_project=$R5_SUPABASE_PROJECT"
+            echo "external_sends=$R5_EXTERNAL_SENDS"
+          } > "$RUNNER_TEMP/r5-evidence/custody.txt"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prebuild Android project
+        working-directory: mobile
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build, install and capture native Android evidence
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/r5-evidence"
+            cd mobile/android
+            ./gradlew assembleRelease
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            if [ -z "$APK" ]; then
+              echo "::error::No release APK found"
+              exit 1
+            fi
+            adb install -r "$APK"
+            adb shell am force-stop com.carup.mobile
+            adb shell monkey -p com.carup.mobile 1
+            sleep 10
+            adb exec-out screencap -p > "$OUT/home.png"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://check-car" com.carup.mobile
+            sleep 6
+            adb exec-out screencap -p > "$OUT/check-verify.png"
+
+            {
+              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
+              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+              echo "expo=$(node -p "require('../../node_modules/expo/package.json').version")"
+              echo "react_native=$(node -p "require('../../node_modules/react-native/package.json').version")"
+              echo "expo_camera=$(node -p "require('../../node_modules/expo-camera/package.json').version")"
+              echo "new_architecture=true"
+              echo "artifact=$APK"
+              echo "home_screenshot=home.png"
+              echo "check_screenshot=check-verify.png"
+            } >> "$OUT/custody.txt"
+
+      - name: Upload Android evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-r5-android-${{ matrix.label }}-${{ matrix.ref }}
+          path: ${{ runner.temp }}/r5-evidence
+          if-no-files-found: error
+          retention-days: 30
