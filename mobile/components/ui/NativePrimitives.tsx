@@ -66,7 +66,8 @@ export function SectionHeader({
           accessibilityLabel={actionLabel}
           onPress={onAction}
           hitSlop={8}
-          style={({ pressed }) => ({ minHeight: touchTarget.minimum, justifyContent: 'center', opacity: pressed ? 0.72 : 1 })}
+          android_ripple={{ color: theme.brand.primarySubtle, borderless: false }}
+          style={{ minHeight: touchTarget.minimum, justifyContent: 'center' }}
         >
           <Text allowFontScaling style={{ ...typeScale.label, color: theme.state.info }}>{actionLabel}</Text>
         </Pressable>
@@ -115,6 +116,7 @@ export function Button({
     variant === 'destructive' ? '#FFFFFF' :
     variant === 'provider' && providerColor ? '#FFFFFF' :
     theme.text.primary;
+  const [pressed, setPressed] = React.useState(false);
 
   return (
     <Pressable
@@ -123,7 +125,10 @@ export function Button({
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       disabled={disabled || loading}
       onPress={onPress}
-      style={({ pressed }) => [
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      android_ripple={{ color: variant === 'primary' ? theme.brand.primaryPressed : theme.brand.primarySubtle }}
+      style={[
         {
           minHeight: touchTarget.minimum,
           borderRadius: radius.button,
@@ -137,6 +142,7 @@ export function Button({
           justifyContent: 'center',
           gap: spacing[2],
           opacity: disabled ? 0.48 : pressed ? 0.82 : 1,
+          overflow: 'hidden',
         },
         style,
       ]}
@@ -159,13 +165,17 @@ export function IconButton({
   selected?: boolean;
 }) {
   const theme = useNativeTheme();
+  const [pressed, setPressed] = React.useState(false);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected: Boolean(selected) }}
       onPress={onPress}
-      style={({ pressed }) => ({
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      android_ripple={{ color: theme.brand.primarySubtle }}
+      style={{
         width: touchTarget.minimum,
         height: touchTarget.minimum,
         borderRadius: radius.control,
@@ -175,7 +185,8 @@ export function IconButton({
         borderWidth: 1,
         borderColor: selected ? theme.brand.primary : theme.border.default,
         opacity: pressed ? 0.75 : 1,
-      })}
+        overflow: 'hidden',
+      }}
     >
       <Ionicons name={icon} size={22} color={theme.text.primary} />
     </Pressable>
@@ -250,6 +261,7 @@ export function FilterChip({
   disabled?: boolean;
 }) {
   const theme = useNativeTheme();
+  const [pressed, setPressed] = React.useState(false);
   return (
     <Pressable
       accessibilityRole="button"
@@ -257,7 +269,10 @@ export function FilterChip({
       accessibilityLabel={label}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => ({
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      android_ripple={{ color: theme.brand.primarySubtle }}
+      style={{
         minHeight: touchTarget.minimum,
         paddingHorizontal: spacing[4],
         borderRadius: radius.chip,
@@ -268,7 +283,8 @@ export function FilterChip({
         alignItems: 'center',
         gap: spacing[2],
         opacity: disabled ? 0.45 : pressed ? 0.78 : 1,
-      })}
+        overflow: 'hidden',
+      }}
     >
       {selected ? <Ionicons name="checkmark" size={16} color={theme.text.primary} /> : null}
       <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.primary }}>{label}</Text>
