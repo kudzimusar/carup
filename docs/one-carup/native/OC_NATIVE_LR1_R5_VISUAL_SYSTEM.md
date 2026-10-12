@@ -1,8 +1,8 @@
 # OC-NATIVE-LR1-R5 — CarUp native visual system and shell decision
 
-**Starting technical authority:** `109dfbf9d8a911e90b7adb7ff288cd7d15c03619`  
-**Programme:** One CarUp Native  
-**Scope:** Home, Check / Verify, global native shell only  
+**Starting technical authority:** `109dfbf9d8a911e90b7adb7ff288cd7d15c03619`
+**Programme:** One CarUp Native
+**Scope:** Home, Check / Verify, global native shell only
 **Product/backend authority:** frozen
 
 ## Binding visual rule
