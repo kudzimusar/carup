@@ -214,6 +214,7 @@ jobs:
           target: default
           disable-animations: true
           script: |
+            bash <<'BASH'
             set -euo pipefail
             OUT="$RUNNER_TEMP/r5-evidence"
             cd mobile/android
@@ -244,6 +245,7 @@ jobs:
               echo "home_screenshot=home.png"
               echo "check_screenshot=check-verify.png"
             } >> "$OUT/custody.txt"
+            BASH
 
       - name: Upload Android evidence
         if: always()
