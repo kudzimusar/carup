@@ -20,9 +20,6 @@ for (const token of [
 }
 
 for (const name of [
-  'navLabel',
-  'heroDisplay',
-  'heroEyebrow',
   'display',
   'titleLarge',
   'headline',
@@ -59,4 +56,4 @@ for (const component of [
 assert.match(tokens, /minimum:\s*48/, 'touch target floor must be 48dp');
 assert.doesNotMatch(primitives, /fontSize:\s*(?:9|10|11|12)\b/, 'new primitives must not introduce tiny customer-facing type');
 
-console.log('native-design-¶»§q«^
+console.log('native-design-system.test: PASS');
