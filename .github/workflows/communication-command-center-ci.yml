@@ -391,7 +391,11 @@ jobs:
             adb shell am start -W -n com.carup.mobile/.MainActivity;
             sleep 10;
             adb exec-out screencap -p > "$OUT/home.png";
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://check-car" com.carup.mobile;
+            SIZE="$(adb shell wm size | tr -d '\r' | sed -n 's/.*Physical size: \([0-9]*\)x\([0-9]*\).*/\1 \2/p')";
+            W="$(echo "$SIZE" | awk '{print $1}')";
+            H="$(echo "$SIZE" | awk '{print $2}')";
+            test -n "$W" && test -n "$H" || { echo "::error::Could not resolve emulator display size"; exit 1; };
+            adb shell input tap "$((W / 2))" "$((H * 90 / 100))";
             sleep 6;
             adb exec-out screencap -p > "$OUT/check-verify.png";
             echo "device=$(adb shell getprop ro.product.model | tr -d '\r')" >> "$OUT/custody.txt";
