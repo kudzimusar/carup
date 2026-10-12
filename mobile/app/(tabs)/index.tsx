@@ -136,16 +136,18 @@ export default function HomeScreen() {
             accessibilityRole="button"
             accessibilityLabel={unreadCount > 0 ? 'Open Inbox, ' + unreadCount + ' unread' : 'Open Inbox'}
             onPress={() => router.push('/(tabs)/inbox' as never)}
-            style={({ pressed }) => ({
+            android_ripple={{ color: theme.brand.heroRaised, borderless: true }}
+            style={{
               width: touchTarget.minimum,
               height: touchTarget.minimum,
               borderRadius: 24,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: pressed ? theme.brand.heroRaised : 'rgba(255,255,255,0.08)',
+              backgroundColor: 'rgba(255,255,255,0.08)',
               borderWidth: 1,
               borderColor: '#355A78',
-            })}
+              overflow: 'hidden',
+            }}
           >
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.brand.onHero} />
             {unreadCount > 0 ? (
@@ -309,14 +311,15 @@ export default function HomeScreen() {
               accessibilityRole="button"
               accessibilityLabel={'Open ' + firstOwnedVehicle.make + ' ' + firstOwnedVehicle.model + ' in My Garage'}
               onPress={() => router.push('/(tabs)/garage' as never)}
-              style={({ pressed }) => ({
+              android_ripple={{ color: theme.brand.primarySubtle }}
+              style={{
                 borderRadius: radius.card,
                 borderWidth: 1,
                 borderColor: theme.border.default,
                 backgroundColor: theme.background.surface,
                 padding: spacing[5],
-                opacity: pressed ? 0.8 : 1,
-              })}
+                overflow: 'hidden',
+              }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3] }}>
                 <View style={{ flex: 1 }}>
@@ -361,7 +364,8 @@ export default function HomeScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={'Open Inbox. ' + newSellerInquiryCount + ' new seller inquiries'}
                 onPress={() => router.push('/(tabs)/inbox' as never)}
-                style={({ pressed }) => ({
+                android_ripple={{ color: theme.brand.primarySubtle }}
+                style={{
                   minHeight: touchTarget.minimum,
                   marginTop: spacing[3],
                   borderRadius: radius.control,
@@ -373,8 +377,8 @@ export default function HomeScreen() {
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  opacity: pressed ? 0.8 : 1,
-                })}
+                  overflow: 'hidden',
+                }}
               >
                 <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
                   {newSellerInquiryCount} new seller {newSellerInquiryCount === 1 ? 'inquiry' : 'inquiries'}
@@ -389,7 +393,8 @@ export default function HomeScreen() {
           accessibilityRole="button"
           accessibilityLabel="Find a garage"
           onPress={() => router.push('/find-garage' as never)}
-          style={({ pressed }) => ({
+          android_ripple={{ color: theme.brand.primarySubtle }}
+          style={{
             marginTop: spacing[7],
             minHeight: 76,
             borderRadius: radius.card,
@@ -401,8 +406,8 @@ export default function HomeScreen() {
             flexDirection: 'row',
             alignItems: 'center',
             gap: spacing[3],
-            opacity: pressed ? 0.78 : 1,
-          })}
+            overflow: 'hidden',
+          }}
         >
           <View
             style={{
