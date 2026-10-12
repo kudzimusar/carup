@@ -873,3 +873,24 @@ Across all 20 cases:
 - Gates on Node 20.20.2 arm64 (re-downloaded, SHA-256 verified, into the persistent evidence directory): web 258 files / **2,383 tests PASS**, build PASS, lint clean.
 
 `8a13bdbb` stays unpushed and undeployed until run 38140785360 terminates (moderator).
+
+## R10 — old release run closed; worker secret recustodied
+
+**Run 38140785360 (head 8a5a920d) is terminal: failure.** Preserved, not rerun.
+
+| Job | ID | Result | Spec 42 (cover survives lifecycle) | Spec 38 (guest inquiry) |
+| --- | --- | --- | --- | --- |
+| Bootstrap | 114475248183 | success | — | — |
+| Chromium | 114491499902 | failure (69/1/10) | — | **defect** |
+| Tablet | 114496958488 | failure (48/1/31) | **PASS** | **defect** |
+| Mobile | 114500177345 | failure (48/1/31) | **PASS** | **defect** |
+| Aggregate | 114635425191 | failure | | |
+
+- **Old Tablet My Listings remediation: PROVEN PASS** by spec 42 on tablet and mobile.
+- **Guest-inquiry semantics: PROVEN DEFECT** on 8a5a920d by spec 38 on all three viewports. Fixed in `8a13bdbb`; must be proven on the new head.
+
+**Worker-secret recustody (the R9 plaintext was lost to the reboot):**
+- One new staging-only `COMMUNICATION_WORKER_SECRET` was generated after the run terminated: 64 bytes base64, in a persistent owner-only directory outside every repository (directory 0700, file 0600), untracked, never printed or logged.
+- Written to GitHub `kudzimusar/carup` → environment `staging` by stdin at **2026-10-12T02:14:20Z**.
+- The same value is to be deployment-scoped onto the new-head backend.
+- Earlier backends (PC01 `dpl_9Q85zjgd…`; 8a5a920d release `dpl_9526K6rK…`) now hold the previous value. They are historical evidence only and are not redeployed.
