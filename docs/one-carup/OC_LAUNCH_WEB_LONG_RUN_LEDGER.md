@@ -894,3 +894,54 @@ Across all 20 cases:
 - Written to GitHub `kudzimusar/carup` → environment `staging` by stdin at **2026-10-12T02:14:20Z**.
 - The same value is to be deployment-scoped onto the new-head backend.
 - Earlier backends (PC01 `dpl_9Q85zjgd…`; 8a5a920d release `dpl_9526K6rK…`) now hold the previous value. They are historical evidence only and are not redeployed.
+
+## R10-B — exact-head release certification: GREEN (81cea998)
+
+**Deployed pair** (deploy commit = pushed PR #222 head `81cea9984c7323e3dce717bc16f2b407e311ba2e`; docs-only over code `8a13bdbb`):
+
+| | Deployment | Immutable URL | Alias (read back) |
+| --- | --- | --- | --- |
+| Backend | `dpl_72DvH8wgiSHLHq9U4HLc4JXigggh` | `https://carup-backend-staging-hdlyu5asg-11-11.vercel.app` | `carup-backend-staging-oc-launch-lr1-11-11.vercel.app` |
+| Frontend | `dpl_4PSm6F8tsP4vR5AqdzSoREAFJ2Wr` | `https://carup-staging-fgc3q7qku-11-11.vercel.app` | `carup-staging-oc-launch-lr1-11-11.vercel.app` |
+
+- Backend health: SHA 81cea998; DB eoyenigwevnxwwhyhaer consistent; kill switch active; scheduler READY; fake adapters off.
+- **Worker-secret custody PASS** (no value): worker-guarded GET with no secret → 401, wrong → 401, rotated → **200**; unauthenticated drain POST → 401.
+- Frontend: provenance 81cea998, `api_base_url` = backend alias, `unpaired:false`; 0 TypeScript errors.
+- Gate resolver `resolve-governed-preview-pair.mjs`: `{"ok":true,…,"sha":"81cea998…","deployment_id":"dpl_72DvH8wg…"}`.
+- PC01, stable staging and carup.dev aliases unchanged.
+- **Push:** `8a5a920d..81cea998` (fast-forward) at 02:18:50Z. PR #222 head = deployed SHA. Draft, open, unmerged.
+
+**Workflows on 81cea998, all success:**
+
+| Workflow | Run |
+| --- | --- |
+| Seller Home & Lifecycle Staging UAT | 38195290259 |
+| **Diaspora Deployed Staging UAT (release evidence)** | **38195290534** |
+| Vehicle Passport Foundation CI | 38195290433 |
+| Vehicle Finance Obligation Authority CI | 38195290319 |
+| Communication Command Center CI | 38195290226 |
+| Diaspora Phases 3-7 Validation | 38195290246 |
+| Referral Engine CI | 38195290406 |
+| OC-5R REL-03A Source Certification | 38195290312, 38195287753 |
+| O2 OCR Offline Hardening | 38195287757 |
+
+**Release run 38195290534** (attempt 1, head 81cea998; owner approved each staging gate):
+
+| Job | ID | Result |
+| --- | --- | --- |
+| Bootstrap | 114637752383 | success |
+| Chromium | 114638497838 | success: 70 passed / 0 failed / 10 skipped. Spec 38 ✓; D7 ✓ (543 participant APPROVED, 585 organiser direction) |
+| Tablet | 114643068385 | success: 49 / 0 / 31. **Spec 38 ✓, spec 42 ✓** |
+| Mobile | 114646313057 | success: 49 / 0 / 31. **Spec 38 ✓, spec 42 ✓** |
+| **Aggregate** | 114648694631 | **SUCCESS** (03:18:46Z) |
+
+**Mandatory regression proofs:**
+
+| Proof | Evidence |
+| --- | --- |
+| **Spec 38: guest inquiry while outbound is paused** | Passes on all three viewports. Data level: guest `marketplace_inquiries` rows `899c4d7c…` (02:35:41Z) and `14afac95…` (02:35:44Z) for the run's Golden Seller listing `JTDKARFP0H3180708`, `buyer_id` null, contact present, status `new`. The POST occurred and was stored. |
+| **Spec 42: cover survives publish/unpublish/republish/sold** | Passes on tablet **and** mobile on the exact head. |
+| **D7 on the rotated secret** | Current-run event `diaspora.container_booking.reservation_approved` **`c1568c04-7086-4362-a7fe-d86647eb4fe9`** (02:42:44Z) → `processed`, attempt 1 → `notification_queue` **#1880** in-app `container_booking` "Container booking **RES-71892266**" with real recipient, 02:42:51Z (7 s after the event). No 401 (only the known client-side 20 s timeouts while the server drains). |
+| **External sends** | **Zero** `message_delivery_attempts` on any channel since the 2026-09-07 baseline. |
+
+First real defect on this head: **none.**
