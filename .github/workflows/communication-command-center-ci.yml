@@ -267,8 +267,19 @@ jobs:
           xcrun simctl launch "$UDID" com.carup.mobile
           sleep 10
           xcrun simctl io "$UDID" screenshot "$OUT/home.png"
-          xcrun simctl openurl "$UDID" "carup://check-car"
-          sleep 6
+
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          export PATH="$PATH:$HOME/.maestro/bin"
+          cat > "$RUNNER_TEMP/r5-verify.yaml" <<'YAML'
+          appId: com.carup.mobile
+          ---
+          - launchApp
+          - tapOn:
+              point: "50%,92%"
+          - assertVisible: "CHECK / VERIFY"
+          YAML
+          maestro test "$RUNNER_TEMP/r5-verify.yaml"
+          sleep 3
           xcrun simctl io "$UDID" screenshot "$OUT/check-verify.png"
 
           {
@@ -377,7 +388,7 @@ jobs:
             test -n "$APK" || { echo "::error::No release APK found"; exit 1; };
             adb install -r "$APK";
             adb shell am force-stop com.carup.mobile;
-            adb shell monkey -p com.carup.mobile 1;
+            adb shell am start -W -n com.carup.mobile/.MainActivity;
             sleep 10;
             adb exec-out screencap -p > "$OUT/home.png";
             adb shell am start -W -a android.intent.action.VIEW -d "carup://check-car" com.carup.mobile;
