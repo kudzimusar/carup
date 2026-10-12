@@ -114,3 +114,45 @@ At starting source authority, shared `Button` explicitly assigns the primary bac
 Therefore a runtime screenshot showing the `Check CarUp record` label with no filled primary container is **not supported by the starting source definition**. R5 will recapture the exact rebuilt candidate. If the exact candidate renders the filled orange control, the old screenshot is classified as stale artifact/build discrepancy. If the exact candidate still loses the fill, it becomes a rendering/style defect and must be debugged before owner evidence is accepted.
 
 No screenshot manipulation is permitted.
+
+
+---
+
+## OC-NATIVE-LR1-R5-R1 — visual evidence harness recustody
+
+**Frozen visual product candidate:** `f7e735eb492704068f28eb912bd83bf0567771e2`  
+**Product visual language:** moderator pass / frozen  
+**Owner visual acceptance:** not yet formally granted
+
+### Custody correction
+
+The R5 product evidence at workflow run `38212187721` is genuine native iOS Simulator / Android emulator evidence for the accepted visual direction, but its workflow custody was dirty because R5 native visual jobs had temporarily been embedded inside:
+
+`.github/workflows/communication-command-center-ci.yml`
+
+R5-R1 removes that lane contamination by restoring the Communications workflow **exactly** to the Git object present at technical authority:
+
+`109dfbf9d8a911e90b7adb7ff288cd7d15c03619`
+
+The dedicated native visual harness remains the sole R5 visual evidence lane:
+
+`.github/workflows/oc-native-r5-visual-checkpoint.yml`
+
+### Product freeze proof
+
+No `mobile/**` product source is authorized to change in R5-R1.
+
+The Home, Check / Verify, CarUp navy/orange visual language, CarUp lockup, `ONE CARUP · ONE VEHICLE THREAD`, `Buy. Sell. Verify.`, CTA hierarchy, and `Home | Market | Verify | Sell | Account` shell remain frozen exactly as accepted at `f7e735eb...`.
+
+This documentation mutation exists only to trigger the dedicated R5 visual evidence harness at the recustodied exact head. It is **not** a visual iteration.
+
+### Recertification pairing
+
+The recustodied dedicated run must continue to report:
+
+- backend deployment: `dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC`;
+- backend source: `40621751d4b74c59324fe6601aa5ddbdc7769b08`;
+- Supabase staging: `eoyenigwevnxwwhyhaer`;
+- external communications: `disabled`.
+
+The dedicated harness must recertify the unchanged product on iOS Simulator and Android emulator at the new exact PR head. Owner acceptance remains a separate subsequent gate.
