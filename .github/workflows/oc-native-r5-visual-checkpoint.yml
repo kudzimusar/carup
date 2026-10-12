@@ -207,14 +207,8 @@ jobs:
 
       - name: Build, install and capture native Android evidence
         uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_6
-          target: default
-          disable-animations: true
-          script: |
-            bash <<'BASH'
+        env:
+          R5_ANDROID_EVIDENCE_SCRIPT: |
             set -euo pipefail
             OUT="$RUNNER_TEMP/r5-evidence"
             cd mobile/android
@@ -245,7 +239,13 @@ jobs:
               echo "home_screenshot=home.png"
               echo "check_screenshot=check-verify.png"
             } >> "$OUT/custody.txt"
-            BASH
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: bash -c "$R5_ANDROID_EVIDENCE_SCRIPT"
 
       - name: Upload Android evidence
         if: always()
