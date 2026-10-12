@@ -120,8 +120,8 @@ No screenshot manipulation is permitted.
 
 ## OC-NATIVE-LR1-R5-R1 — visual evidence harness recustody
 
-**Frozen visual product candidate:** `f7e735eb492704068f28eb912bd83bf0567771e2`  
-**Product visual language:** moderator pass / frozen  
+**Frozen visual product candidate:** `f7e735eb492704068f28eb912bd83bf0567771e2`
+**Product visual language:** moderator pass / frozen
 **Owner visual acceptance:** not yet formally granted
 
 ### Custody correction
