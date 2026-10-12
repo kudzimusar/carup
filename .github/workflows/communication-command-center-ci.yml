@@ -365,7 +365,7 @@ jobs:
           target: default
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             OUT="$RUNNER_TEMP/r5-evidence"
             cd mobile/android
             ./gradlew assembleRelease
