@@ -1,6 +1,7 @@
 // Audited reply composer for the Command Center (docs §8).
-// Controlled: the page owns reply text / internal-note / status / correlation. States the exact
-// target ("Reply via <channel> to the customer"), disables duplicate submit, exposes the
+// Controlled: the page owns reply text / internal-note / status / correlation / reply channel.
+// States the exact target ("Reply via <channel> to the customer"), offers a compact selector when
+// the thread can be answered on more than one channel, disables duplicate submit, exposes the
 // idempotency key + correlation id, and preserves the draft on failure.
 
 import { Loader2, Send, ShieldAlert, XCircle } from 'lucide-react'
@@ -16,6 +17,9 @@ export type ReplyComposerStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'deli
 
 export interface ReplyComposerProps {
   channel?: string | null
+  /** Channels this thread can actually be answered on. Omitted: `channel` is the only target. */
+  channels?: string[]
+  onChannelChange?: (channel: string) => void
   reply: string
   onReplyChange: (v: string) => void
   internalNote: boolean
@@ -28,10 +32,14 @@ export interface ReplyComposerProps {
 }
 
 export function ReplyComposer({
-  channel, reply, onReplyChange, internalNote, onInternalNoteChange,
+  channel, channels, onChannelChange, reply, onReplyChange, internalNote, onInternalNoteChange,
   status, error, correlationId, idempotencyKey, onSend,
 }: ReplyComposerProps) {
   const sending = status === 'sending'
+  // An explicit empty list means the thread has no deliverable channel: a customer-visible reply
+  // has nowhere to go, but an internal note is still allowed.
+  const noTarget = !internalNote && Array.isArray(channels) && channels.length === 0
+  const selectable = !internalNote && Boolean(onChannelChange) && (channels?.length ?? 0) > 1
   return (
     <div className="space-y-2">
       <div className="text-xs">
@@ -39,12 +47,36 @@ export function ReplyComposer({
           <span className="flex items-center gap-1 text-amber-700 font-medium">
             <ShieldAlert className="w-3.5 h-3.5" aria-hidden /> Internal note · saved to the thread, not sent to the customer
           </span>
+        ) : noTarget ? (
+          <span className="flex items-center gap-1 text-amber-700" data-testid="reply-no-channel">
+            <ShieldAlert className="w-3.5 h-3.5" aria-hidden /> No reachable channel for this customer — add an internal note instead
+          </span>
         ) : (
-          <span className="flex items-center gap-1 text-gray-600">
+          <span className="flex flex-wrap items-center gap-1 text-gray-600" data-testid="reply-target" data-reply-channel={channel || ''}>
             Reply via <ChannelIcon channel={channel} size={14} decorative /> <strong>{channelLabel(channel)}</strong> to the customer
           </span>
         )}
       </div>
+      {selectable && (
+        <div role="radiogroup" aria-label="Reply channel" className="flex flex-wrap gap-1.5" data-testid="reply-channel-selector">
+          {channels!.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={option === channel}
+              data-channel-option={option}
+              disabled={sending}
+              onClick={() => onChannelChange?.(option)}
+              className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${option === channel
+                ? 'border-gray-900 bg-gray-900 text-white'
+                : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}
+            >
+              <ChannelIcon channel={option} size={12} decorative /> {channelLabel(option)}
+            </button>
+          ))}
+        </div>
+      )}
       <Textarea
         value={reply}
         onChange={(e) => onReplyChange(e.target.value)}
@@ -58,7 +90,7 @@ export function ReplyComposer({
           <Switch checked={internalNote} onCheckedChange={onInternalNoteChange} aria-label="Internal note (not sent to the user)" />
           Internal note
         </label>
-        <Button onClick={onSend} className="gap-2" disabled={!reply.trim() || sending}>
+        <Button onClick={onSend} className="gap-2" disabled={!reply.trim() || sending || noTarget}>
           {sending ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Send className="w-4 h-4" aria-hidden />}
           {sending ? 'Sending…' : internalNote ? 'Add internal note' : 'Send reply'}
         </Button>

@@ -41,6 +41,7 @@ import type { SettingsSlaPolicy } from '@/features/communications/admin/Settings
 import { DeliveryAttemptList } from '@/features/communications/admin/DeliveryAttemptList'
 import type { DeliveryAttempt } from '@/features/communications/admin/DeliveryAttemptList'
 import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
+import { deliverableReplyChannels, resolveReplyChannel } from '@/features/communications/admin/replyChannels'
 import { WorkerHealthPanel } from '@/features/communications/admin/WorkerHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -223,6 +224,8 @@ export default function AdminCommunications() {
   const [replyError, setReplyError] = useState<string | null>(null)
   const [replyCorrelationId, setReplyCorrelationId] = useState<string | null>(null)
   const [replyClientMessageId, setReplyClientMessageId] = useState(() => newClientMessageId())
+  // The agent's explicit reply-channel pick for the open thread; null = follow the derived default.
+  const [replyChannelChoice, setReplyChannelChoice] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
 
 
@@ -452,6 +455,7 @@ export default function AdminCommunications() {
       setReplyError(null)
       setReplyCorrelationId(null)
       setInternalNote(false)
+      setReplyChannelChoice(null)
     }
     const [detail, audit] = await Promise.all([
       fetchAdminCommunicationThread(thread.id).catch(() => null),
@@ -512,15 +516,30 @@ export default function AdminCommunications() {
     if (cur) await openThread(cur)
   }, [selectedIds, load, openThread])
 
+  // CC-REPLY-CHANNEL-01: a customer-visible reply goes out on a channel this thread can actually
+  // reach — the customer's latest inbound channel by default — never blindly on primary_channel.
+  const replyChannels = useMemo(
+    () => deliverableReplyChannels({ thread: selected, identities }),
+    [selected, identities],
+  )
+  const replyChannel = resolveReplyChannel({
+    choice: replyChannelChoice,
+    channels: replyChannels,
+    messages,
+    primaryChannel: selected?.primary_channel,
+  })
+
   async function sendReply() {
     if (!selected || !reply.trim() || replyStatus === 'sending') return
+    if (!internalNote && !replyChannel) return
     setReplyStatus('sending')
     setReplyError(null)
     setReplyCorrelationId(null)
     try {
       const result = await adminReplyCommunicationThread(selected.id, {
         message: reply,
-        channel: selected.primary_channel || 'in_app',
+        // An internal note is never delivered; it keeps the thread's own channel label.
+        channel: internalNote ? (selected.primary_channel || 'in_app') : replyChannel!,
         client_message_id: replyClientMessageId,
         internal: internalNote,
       })
@@ -847,7 +866,9 @@ export default function AdminCommunications() {
                   {/* Audited reply composer — sticks to the bottom so it never covers the timeline. */}
                   <div className="sticky bottom-0 bg-white pt-2 -mx-1 px-1 z-10" data-testid="reply-composer-sticky">
                     <ReplyComposer
-                      channel={selected.primary_channel}
+                      channel={replyChannel}
+                      channels={replyChannels}
+                      onChannelChange={setReplyChannelChoice}
                       reply={reply}
                       onReplyChange={setReply}
                       internalNote={internalNote}
