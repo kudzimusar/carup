@@ -1058,3 +1058,39 @@ The Telegram roundtrip is closed. The governed reply opens its own CarUp thread 
 5. **Kingston/Serena publication:** owner only.
 6. **Privacy/Terms and pricing:** owner/legal.
 7. **Earlier backends hold superseded secrets**; any new backend Preview needs another owner-authorized staging rotation.
+
+## R12 — Brevo marketing certification: GATED (owner decision); correction on docs-only pushes
+
+### Correction: docs-only pushes DO re-trigger the staging gates
+
+My R10-B/R11 statement that a docs-only push "triggers no staging gate" was **wrong**. GitHub evaluates `pull_request` path filters against the **whole PR diff**, not the pushed commit. PR #222 touches `web/**` and `backend/**`, so **every push re-triggers** Seller and Diaspora UAT.
+
+The docs-only push `81cea998..dd42e6cd` triggered:
+
+| Workflow | Run | Result |
+| --- | --- | --- |
+| Seller Home & Lifecycle Staging UAT | 38213833832 | **failure** — `Prove the governed exact-head preview pair`: `FRONTEND_STALE {"serving":"81cea998…","expected":"dd42e6cd…"}`. A correct refusal: the pair serves the certified head, not a docs head. **Not a product defect.** |
+| Diaspora Deployed Staging UAT | 38213833958 | **waiting**; deliberately **not approved** (moderator R12) |
+| Referral, Vehicle Finance, OC-5R REL-03A, Communication Command Center, Diaspora 3-7, Vehicle Passport, O2 OCR | — | success |
+
+**Release evidence remains run 38195290534 on the certified product/deployment authority `81cea998`.** This ledger entry is therefore committed **locally only**: a further push would re-trigger both gates. Pushing it is a moderator decision.
+
+### R12 — Brevo
+
+**Read-only state (no mutation), matching the moderator's description.** Staging account `eleven.eleven.testing@gmail.com` (1 user row):
+- `communication_preferences.email_enabled = true`, `marketing_enabled = false`;
+- email `channel_identities.consent_status = opted_out`, verified true.
+
+**Brevo is correctly blocked by consent.**
+
+**Technical blocker: no governed single-notification delivery path under "no product code change / no global drain":**
+- `executeCampaign` (`communicationCampaignService`) only **queues** (`queueNotification`).
+- `POST /api/communications/worker/process` → `processDueNotifications({limit})` has **no ID or channel filter**, and also runs reconciliation side effects.
+- RPC `claim_due_communication_notifications` orders **strictly by due time** (`ORDER BY COALESCE(next_attempt_at, scheduled_at, created_at) ASC`). There is no priority, so a new campaign row sits behind about 1,100 older due rows.
+- The only synchronous send (`provider-smoke`) forces email to classification `service`, which correctly can never reach Brevo.
+
+**Owner decision: record Brevo as gated.**
+- No consent change, no campaign, no send, no proof backend.
+- **BREVO — CONFIGURED, NOT PHYSICALLY CERTIFIED**: credentials present on Preview and the staging-production target; the health check reports marketing Brevo READY.
+- Certification requires either a later **bounded code change** (one governed admin route that delivers a single named campaign notification through the existing worker, with consent and suppression still enforced at send time, then a full recertification cycle) or an owner-approved backlog policy.
+- Marketing tier only; **does not block launch**.
