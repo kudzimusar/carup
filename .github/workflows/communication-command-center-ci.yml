@@ -364,30 +364,28 @@ jobs:
           profile: pixel_6
           target: default
           disable-animations: true
-          script: |
-            set -eu
-            OUT="$RUNNER_TEMP/r5-evidence"
-            cd mobile/android
-            ./gradlew assembleRelease
-            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
-            test -n "$APK" || { echo "::error::No release APK found"; exit 1; }
-            adb install -r "$APK"
-            adb shell am force-stop com.carup.mobile
-            adb shell monkey -p com.carup.mobile 1
-            sleep 10
-            adb exec-out screencap -p > "$OUT/home.png"
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://check-car" com.carup.mobile
-            sleep 6
-            adb exec-out screencap -p > "$OUT/check-verify.png"
-            {
-              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
-              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-              echo "expo=$(node -p 'require("../../node_modules/expo/package.json").version')"
-              echo "react_native=$(node -p 'require("../../node_modules/react-native/package.json").version')"
-              echo "expo_camera=$(node -p 'require("../../node_modules/expo-camera/package.json").version')"
-              echo "new_architecture=true"
-              echo "artifact=$APK"
-            } >> "$OUT/custody.txt"
+          script: >-
+            set -eu;
+            OUT="$RUNNER_TEMP/r5-evidence";
+            cd mobile/android;
+            ./gradlew assembleRelease;
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)";
+            test -n "$APK" || { echo "::error::No release APK found"; exit 1; };
+            adb install -r "$APK";
+            adb shell am force-stop com.carup.mobile;
+            adb shell monkey -p com.carup.mobile 1;
+            sleep 10;
+            adb exec-out screencap -p > "$OUT/home.png";
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://check-car" com.carup.mobile;
+            sleep 6;
+            adb exec-out screencap -p > "$OUT/check-verify.png";
+            echo "device=$(adb shell getprop ro.product.model | tr -d '\r')" >> "$OUT/custody.txt";
+            echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')" >> "$OUT/custody.txt";
+            echo "expo=$(node -p 'require("../../node_modules/expo/package.json").version')" >> "$OUT/custody.txt";
+            echo "react_native=$(node -p 'require("../../node_modules/react-native/package.json").version')" >> "$OUT/custody.txt";
+            echo "expo_camera=$(node -p 'require("../../node_modules/expo-camera/package.json").version')" >> "$OUT/custody.txt";
+            echo "new_architecture=true" >> "$OUT/custody.txt";
+            echo "artifact=$APK" >> "$OUT/custody.txt";
 
       - name: Upload Android visual evidence
         if: always()
