@@ -28,6 +28,7 @@ export default defineConfig({
       'tests/native-core-experience-guard.test.ts',
       'tests/native-customer-language-guard.test.ts',
       'tests/native-design-system.test.ts',
+      'tests/native-r5-visual-fidelity.test.ts',
       'tests/native-shell.test.ts',
       'tests/communication-api.test.ts',
       'tests/garage-odometer-ocr.test.ts',
