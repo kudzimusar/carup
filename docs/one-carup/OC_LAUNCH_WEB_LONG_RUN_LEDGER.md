@@ -945,3 +945,52 @@ Across all 20 cases:
 | **External sends** | **Zero** `message_delivery_attempts` on any channel since the 2026-09-07 baseline. |
 
 First real defect on this head: **none.**
+
+## R11 — physical communications proof on exact head 81cea998
+
+### Telegram recustody (owner + CarUp; no credential values recorded)
+
+- **Owner:** rotated the @CarUpStagingBot token in BotFather and set Vercel `carup-backend-staging` Production `CARUP_TELEGRAM_BOT_TOKEN` (updated 03:35Z). `getWebhookInfo` then showed the webhook **cleared** (url empty, pending 0).
+- **CarUp:**
+  - Generated one fresh webhook secret (hex, private 0600 file, never shown).
+  - Set only the Production `CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN` (updated 05:44Z) by stdin, through a private link directory. The historical branch-scoped Preview entries are untouched.
+- **Stable staging redeployed from its existing code** (`vercel redeploy` of `dpl_91cteUJn…`, code bb9d9900, no source or domain change) as **`dpl_AqYtVPTm7XofmPg4VWE9usBxKyCx`**:
+  - READY; both stable aliases followed; Telegram READY.
+  - The webhook rejects a bogus or missing secret with 403.
+  - Rollback is `dpl_91cteUJn…` (`https://carup-backend-staging-jey0m3qtp-11-11.vercel.app`).
+  - bb9d9900 health does not report the DB ref; its DB is proven by the inbound rows below landing in eoyenigwevnxwwhyhaer.
+- **Owner ran `~/.carup-private/register-telegram-webhook.sh` locally** (token entered hidden; secret read from the private file). Results:
+  - `getMe` ok, `username = CarUpStagingBot`, `is_bot = true`;
+  - `setWebhook` ok;
+  - `getWebhookInfo`: url = `https://carup-backend-staging.vercel.app/api/communications/webhooks/telegram/telegram`, pending 0, no last error, `allowed_updates = ['message']`.
+- Moderator: **Telegram custody ACCEPTED.**
+
+### Exact-head proof backend (bounded outbound)
+
+- **`dpl_JCsqtUYqf2rDDZW5Xuq3yZPDuZwj`** (`https://carup-backend-staging-p9eiaskyl-11-11.vercel.app`): built from exact `81cea998`, staging-project **Production target with `--skip-domain`**. Every stable and OC-LAUNCH alias was proven unchanged before and after.
+- Deployment-scoped: the rotated worker secret, `COMMUNICATION_OUTBOUND_DISABLED=false` (named proofs only), fake adapters off.
+- Health: SHA 81cea998; WhatsApp, Telegram and Resend READY; Brevo marketing READY; SMS, Push, Messenger and Instagram BLOCKED.
+- **Finding:** `database.consistent=false`, because the staging Production target carries a **`SUPABASE_DB_URL` whose project cannot be read by shape**. Every recognised ref is `eoyenigwevnxwwhyhaer`, and **no runtime code reads `SUPABASE_DB_URL`**; only the health classifier (`config/databaseTarget.js`) does. This is a stale, unused variable, not a routing risk. Owner action: repair or remove it on the staging Production target.
+- Proof sends use the governed `provider-smoke` route with a **guest CSRF token** (the same step as the accepted `oc5r-deployed-provider-proof.mjs`) plus the worker secret. The first attempt without CSRF was refused (403) **before** any provider call.
+
+### Resend — CURRENT PHYSICAL PROVIDER CERTIFIED (exact candidate)
+
+| Item | Evidence |
+| --- | --- |
+| Recipient | `eleven.eleven.testing@gmail.com` (owner-authorized) |
+| Send | One send, 06:30:13Z |
+| Queue | Row **#1893**: `provider_smoke_test`, classification **`service`**, router `carup_email_router` → **Resend** (never Brevo); status **delivered** |
+| Delivery attempt | `0f28cde6…`, provider `resend`, adapter mode `real`, **Resend id `01a12ecd-fa5a-7434-b765-c88264fee57a`**, SES `<010601a12ecdfd08-…@ap-northeast-1.amazonses.com>`, status delivered |
+| Canonical | Thread `36e35c2b…`, message `c75bd808…` |
+| Lifecycle (signed Resend webhooks, signature_valid true, processed) | `email.sent` 06:30:16Z, **`email.delivered`** 06:30:17Z |
+
+### WhatsApp — physical roundtrip (exact candidate outbound; stable runtime inbound)
+
+| Leg | Evidence |
+| --- | --- |
+| Owner handset → Meta → CarUp | Marker **`CARUP-WA-LIVE-20261012-K7Q4`** sent to the Meta test number +1 (555) 087-7562. `webhook_logs` `a28d99fa…` at 06:34:26Z: **signature_valid true**, processed; from •••1356; business 15550877562; inbound `wamid.HBgM…OUIyM0IA`. |
+| Persisted canonical inbound | Message `c8b6f3d5…`, direction inbound, `meta_whatsapp_cloud_api`, 06:34:32Z, **content contains the marker**. Joined the owner's existing open CarUp conversation `61acc236…` (16 messages) — **no duplicate thread**. |
+| Governed reply → handset | `provider-smoke` from exact candidate 81cea998: queue **#1894**, message `629266fe…`, adapter real, **Meta id `wamid.HBgM…RBAA==`**, status sent. |
+| Meta status (signed webhooks, signature_valid true) | **`sent` 06:35:43Z → `delivered` 06:35:44Z** for that message id |
+
+Per the owner reply-leg decision, the governed reply is the synchronous `provider-smoke` path, which opens its own CarUp thread `614fca5e…`. Same-thread Command Center reply delivery remains a **queue-governance gate** (the Command Center reply only queues behind the historical backlog).
