@@ -994,3 +994,67 @@ First real defect on this head: **none.**
 | Meta status (signed webhooks, signature_valid true) | **`sent` 06:35:43Z → `delivered` 06:35:44Z** for that message id |
 
 Per the owner reply-leg decision, the governed reply is the synchronous `provider-smoke` path, which opens its own CarUp thread `614fca5e…`. Same-thread Command Center reply delivery remains a **queue-governance gate** (the Command Center reply only queues behind the historical backlog).
+
+**WhatsApp handset receipt: the owner confirmed "received"** (consistent with Meta's signed `delivered`). The WhatsApp physical roundtrip is closed.
+
+### Telegram — physical roundtrip on the rotated credentials (exact candidate outbound; stable runtime inbound)
+
+| Leg | Evidence |
+| --- | --- |
+| Owner account → Telegram → CarUp | `/start` update **680699697** (06:39:11Z, webhook_logs `ff2af014…`) and marker **`CARUP-TG-LIVE-20261012-R8M2`** update **680699698** (06:39:21Z, `f02bb5ef…`). Both **signature_valid true under the NEW webhook secret**, processed; human sender; chat •••9906, derived from the inbound record, never requested from the owner. |
+| Persisted canonical inbound | Telegram messages 23 and 24 → CarUp messages `eeb880e4…` and `5ebe9b71…` (**content contains the marker**), inbound. Joined the owner's existing open conversation `dcebaf11…` (24 messages) — **no duplicate thread**. |
+| Governed reply → account | `provider-smoke` from exact candidate 81cea998: queue **#1895**, message `4bdb5ebb…`, adapter `telegram_bot_api` real, **Telegram message id 25** (same chat as 23/24), sent on attempt 1, using the **rotated** bot token. |
+| Physical receipt | Owner confirmed **"received"**. |
+
+The Telegram roundtrip is closed. The governed reply opens its own CarUp thread `8044d645…` per the reply-leg decision; same-thread Command Center delivery remains the recorded queue gate.
+
+### Posture restored, secrets disposed
+
+- **Proof backend removed:** `vercel remove dpl_JCsqtUYq…` → the URL returns 404, and Vercel no longer finds the deployment. No outbound-enabled exact-candidate runtime remains. Stable staging (`dpl_AqYtVPTm…`) and the OC-LAUNCH release backend (`dpl_72DvH8wg…`, outbound **disabled**) are unchanged. Sends made under the bounded authorization: exactly 1 Resend, 1 WhatsApp and 1 Telegram (no campaign, bulk, SMS, Push, Messenger, Instagram or queue replay).
+- **Plaintext secrets** (worker secret r10, Telegram webhook secret r11):
+  - proven absent from the evidence directory, the last 60 commits of Git history and the worktree;
+  - then deleted with `rm -P` (overwrite);
+  - the registration script and private link directory were also removed; the private directory is empty.
+  - Custody now rests only with GitHub `staging` and Vercel `carup-backend-staging`.
+- The Telegram **token** was never in CarUp custody; the owner entered it hidden in a local Terminal.
+
+### Final deployed performance / low data (exact certified head 81cea998)
+
+| Page | LCP | CLS | TBT proxy | Initial JS | Transfer | Requests |
+| --- | --- | --- | --- | --- | --- | --- |
+| Home | 3,400 ms | 0.0001 | 401 ms | 382,079 B | 472,904 B | 13 |
+| Marketplace | 3,016 ms | 0 | 248 ms | 382,079 B | 469,887 B | 12 |
+
+- Baseline 40621751 initial JS was 962,675 B.
+- Low data: **20/20 cases with no problem**:
+  - Vehicle Detail 503 → "We couldn't load this vehicle" + retry;
+  - Vehicle Detail hang → "This vehicle is taking a while to load" + retry;
+  - Search 503 and hang → retry, no false zero;
+  - no endless busy indicator; zero overflow.
+- Crawler/SEO on 81cea998: 18 HTML routes with carup.dev canonical, OG and Twitter metadata, staging noindex, no preview host, no private fixture; unknown route and unpublished Serena → 404; robots `Disallow: /`; sitemap 13 carup.dev URLs.
+
+### Communications capability: current evidence (staging; production communications NOT activated)
+
+| Channel | Implemented | Historical physical | Credential custody | Exact-candidate physical (81cea998) | Public launch state |
+| --- | --- | --- | --- | --- | --- |
+| CarUp in-app | yes | yes | n/a | **DEPLOYED-CERTIFIED** (D7 #1880, release run 38195290534) | Launch-critical; canonical conversation authority |
+| Resend (transactional/service) | yes | yes | Preview + staging-production target | **CURRENT PHYSICAL PROVIDER CERTIFIED** (#1893, `email.delivered`) | Launch-critical |
+| WhatsApp (Meta test number) | yes | yes | Staging-production target only | **CURRENT PHYSICAL PROVIDER CERTIFIED**: handset → canonical inbound; governed reply → `delivered` → owner received | Launch-critical (production activation is a future promotion gate) |
+| Telegram (@CarUpStagingBot) | yes | yes | Rotated token + webhook secret, staging-production target | **CURRENT PHYSICAL PROVIDER CERTIFIED** (rotated credentials; roundtrip; owner received) | Launch-high-value |
+| Brevo (marketing) | yes | lifecycle only | Preview + staging-production target | **NOT certified — CONSENT / MARKETING AUTHORITY GATE** | Marketing; does not block launch |
+| SMS (Twilio) | yes | — | **absent everywhere** | UNAVAILABLE / NOT CONFIGURED | Deferred |
+| Expo Push | yes | — | **absent everywhere** | UNAVAILABLE / NOT CONFIGURED | Deferred |
+| Messenger / Instagram | yes | — | Page identity **absent** | UNAVAILABLE / NOT CONFIGURED | Deferred |
+
+**Evidence ladder (kept distinct):** Resend, WhatsApp and Telegram are **LIVE-PROVIDER-CERTIFIED** on exact source 81cea998, with inbound via the stable staging runtime and the shared staging DB. The web candidate is **DEPLOYED-CERTIFIED**: release run 38195290534, all shards and the aggregate. **OWNER-UAT-CERTIFIED: not yet**, pending the owner web usability checkpoint.
+
+**Public web truth:** the OC-LAUNCH release pair runs with outbound **disabled** by governance, so its Contact, Home and inquiry surfaces correctly show WhatsApp, Telegram and Email as "Temporarily unavailable" (configured; delivery paused here). Guests can still inquire (spec 38). This is truthful for that runtime. Production will read production's runtime, where communications are not activated.
+
+**Recorded findings and gates:**
+1. **Staging Production target `SUPABASE_DB_URL` is unreadable by shape** (stale, unused by runtime) → owner repairs or removes it.
+2. **Same-thread Command Center reply delivery is a queue-governance gate** (about 1,100 queued historical internal notifications; processing off by owner decision).
+3. **Brevo consent gate.**
+4. **Production communications activation** is a future explicit promotion gate.
+5. **Kingston/Serena publication:** owner only.
+6. **Privacy/Terms and pricing:** owner/legal.
+7. **Earlier backends hold superseded secrets**; any new backend Preview needs another owner-authorized staging rotation.
