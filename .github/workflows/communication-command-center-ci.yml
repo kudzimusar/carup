@@ -13,6 +13,10 @@ on:
       - fix/issue-110-agent8-telegram-auto-delivery
   workflow_dispatch:
 
+concurrency:
+  group: communication-command-center-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   communication-unit:
     runs-on: ubuntu-latest
@@ -183,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        label: [current, r5]
+        label: [r5]
     env:
       EXPO_PUBLIC_API_URL: https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app
       R5_CURRENT_SHA: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
@@ -293,7 +297,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        label: [current, r5]
+        label: [r5]
     env:
       EXPO_PUBLIC_API_URL: https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app
       R5_CURRENT_SHA: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
