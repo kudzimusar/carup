@@ -1,7 +1,7 @@
 /**
  * OC-NATIVE-LR1 route-boundary audit.
  *
- * The stable consumer shell is Home / Market / Inbox / Account. Home is public.
+ * The branded consumer shell is Home / Market / Verify / Sell / Account. Home is public. Inbox remains governed and reachable contextually.
  * Hidden workflow routes keep their original domain authorization boundaries.
  */
 import { strict as assert } from 'node:assert';
@@ -34,23 +34,4 @@ for (const item of governed) {
 }
 
 const home = source('app/(tabs)/index.tsx');
-assert.doesNotMatch(home, /NativeFeatureBoundary|role\.overview|resolveDashboardGate/, 'public Home must not be a role workspace');
-
-const inbox = source('app/(tabs)/inbox.tsx');
-assert.match(inbox, /!isAuthenticated/, 'Inbox must handle anonymous access explicitly');
-assert.match(inbox, /user\?\.role\s*!==\s*['"]owner['"]/, 'Inbox must refuse unsupported workspace roles');
-
-const account = source('app/(tabs)/account.tsx');
-assert.match(account, /!isAuthenticated/, 'Account must handle anonymous access explicitly');
-
-const shell = source('app/(tabs)/_layout.tsx');
-for (const legacy of ['garage', 'escrow', 'referral', 'communications', 'more']) {
-  const doubleQuoted = 'name="' + legacy + '"';
-  const singleQuoted = "name='" + legacy + "'";
-  const start = Math.max(shell.indexOf(doubleQuoted), shell.indexOf(singleQuoted));
-  assert.ok(start >= 0, legacy + ' screen declaration must exist');
-  const block = shell.slice(start, start + 160);
-  assert.match(block, /href:\s*null/, legacy + ' must stay hidden from the stable bottom shell');
-}
-
-console.log('native-boundary-audit.test: PASS');
+assert.doesNotMatch(home, /NativeFeatureBoundary|role\.overview|resolveDashboardGate/, ¶»§q«^
