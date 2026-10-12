@@ -87,7 +87,7 @@ jobs:
             echo "::error::No available iPhone Simulator found"
             exit 1
           fi
-          DEVICE_NAME="$(xcrun simctl list devices available -j | python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))' UDID="$UDID")"
+          DEVICE_NAME="$(UDID="$UDID" xcrun simctl list devices available -j | UDID="$UDID" python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))')"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
           xcrun simctl bootstatus "$UDID" -b
@@ -129,9 +129,9 @@ jobs:
             echo "device=$DEVICE_NAME"
             echo "udid=$UDID"
             echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
-            echo "expo=$(node -p "require('../../node_modules/expo/package.json').version")"
-            echo "react_native=$(node -p "require('../../node_modules/react-native/package.json').version")"
-            echo "expo_camera=$(node -p "require('../../node_modules/expo-camera/package.json').version")"
+            echo "expo=$(node -p 'require("../../node_modules/expo/package.json").version')"
+            echo "react_native=$(node -p 'require("../../node_modules/react-native/package.json").version')"
+            echo "expo_camera=$(node -p 'require("../../node_modules/expo-camera/package.json").version')"
             echo "new_architecture=true"
             echo "home_screenshot=home.png"
             echo "check_screenshot=check-verify.png"
