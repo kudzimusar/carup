@@ -15,6 +15,12 @@ assert.match(tokens, /heroEyebrow/, 'brand eyebrow token must exist');
 
 assert.match(brand, /export function CarUpWordmark\b/, 'CarUp wordmark treatment must be reusable');
 assert.match(brand, /export function BrandSearchField\b/, 'branded hero search must be reusable');
+assert.match(brand, /export function BrandSecondaryAction\b/, 'branded secondary actions must remain reusable');
+assert.doesNotMatch(
+  brand,
+  /export function BrandSecondaryAction[\s\S]*?style=\{\(\{ pressed \}\) =>/,
+  'R5 secondary action containers must not rely on the runtime-broken Pressable style callback path',
+);
 
 for (const copy of ['ONE CARUP · ONE VEHICLE THREAD', 'Buy. Sell. Verify.', 'Browse cars']) {
   assert.ok(home.includes(copy), 'Home is missing binding owner copy: ' + copy);
