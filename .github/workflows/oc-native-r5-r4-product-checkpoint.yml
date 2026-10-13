@@ -7,6 +7,7 @@ on:
     paths:
       - 'mobile/**'
       - '.github/workflows/oc-native-r5-r4-product-checkpoint.yml'
+      - '.github/workflows/oc-native-r5-r4-owner-evidence.yml'
 
 permissions:
   contents: read
