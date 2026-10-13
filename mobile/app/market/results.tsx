@@ -294,7 +294,7 @@ function ResultsInner() {
               title={savedMode ? 'No saved cars match' : '0 matching vehicles'}
               body={savedMode
                 ? 'Save a Marketplace car to keep it here, or change your saved-cars search.'
-                : 'No real published listings match this query. CarUp will not substitute unrelated or demo vehicles.'}
+                : 'No real published listings match this query. CarUp will not substitute unrelated or fabricated inventory.'}
               actionLabel={savedMode ? 'Back to Buy' : 'Clear all'}
               onAction={() => savedMode ? router.replace('/(tabs)/marketplace' as never) : clearAll()}
               secondaryLabel={savedMode ? undefined : 'Refine filters'}
