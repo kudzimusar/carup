@@ -7,6 +7,7 @@ import { NATIVE_SHELL_TABS } from '../../navigation/nativeShell';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import { useAuthStore } from '../../store/authStore';
 import { useFeatureGovernanceStore } from '../../store/featureGovernanceStore';
+import { NativeSharedHeader } from '../../components/navigation/NativeSharedHeader';
 
 const tabByName = new Map(NATIVE_SHELL_TABS.map((tab) => [tab.name, tab]));
 
@@ -21,7 +22,7 @@ export default function TabLayout() {
   }, [userId, token]);
 
   const stableOptions = (
-    name: 'index' | 'marketplace' | 'verify' | 'sell' | 'account',
+    name: 'index' | 'marketplace' | 'verify' | 'sell' | 'trade',
     title: string,
   ) => ({
     title,
@@ -59,7 +60,8 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
+        header: () => <NativeSharedHeader />,
         tabBarActiveTintColor: theme.brand.primary,
         tabBarInactiveTintColor: '#C8D5E2',
         tabBarLabelStyle: {
@@ -80,10 +82,12 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" options={stableOptions('index', 'Home')} />
-      <Tabs.Screen name="marketplace" options={stableOptions('marketplace', 'Market')} />
+      <Tabs.Screen name="marketplace" options={stableOptions('marketplace', 'Buy')} />
       <Tabs.Screen name="verify" options={stableOptions('verify', 'Verify')} />
       <Tabs.Screen name="sell" options={stableOptions('sell', 'Sell')} />
-      <Tabs.Screen name="account" options={stableOptions('account', 'Account')} />
+      <Tabs.Screen name="trade" options={stableOptions('trade', 'Trade')} />
+
+      <Tabs.Screen name="account" options={{ href: null }} />
 
       <Tabs.Screen name="inbox" options={{ href: null }} />
       <Tabs.Screen name="garage" options={{ href: null }} />
