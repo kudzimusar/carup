@@ -118,39 +118,11 @@ jobs:
 
           tap_ios_primary_tab() {
             local resource_id="$1"
-            local hierarchy="$RUNNER_TEMP/ios-$resource_id-hierarchy.json"
-            local tap
-            "$MAESTRO" --device "$UDID" hierarchy > "$hierarchy"
-            tap="$(python3 - "$hierarchy" "$resource_id" <<'PY'
-          import json, re, sys
-          data = json.load(open(sys.argv[1], encoding="utf-8"))
-          wanted = sys.argv[2]
-          def walk(node):
-              attrs = node.get("attributes", {})
-              if attrs.get("resource-id") == wanted:
-                  m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
-                  if m:
-                      x1,y1,x2,y2 = map(int, m.groups())
-                      print((x1+x2)//2, y1 + max(1, (y2-y1)//3))
-                      return True
-              for child in node.get("children", []):
-                  if walk(child):
-                      return True
-              return False
-          if not walk(data):
-              raise SystemExit(1)
-          PY
-            )" || {
-              echo "::error::Could not resolve iOS primary tab bounds for $resource_id"
-              cat "$hierarchy"
-              exit 1
-            }
-            read -r tap_x tap_y <<< "$tap"
             cat > "$RUNNER_TEMP/ios-primary-tab-tap.yaml" <<YAML
           appId: com.carup.mobile
           ---
           - tapOn:
-              point: "$tap_x,$tap_y"
+              id: "$resource_id"
           YAML
             "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-primary-tab-tap.yaml"
           }
@@ -538,30 +510,14 @@ jobs:
 
             tap_android_primary_tab() {
               local resource_id="$1"
-              local xml="$RUNNER_TEMP/android-$resource_id-window.xml"
-              local tap
-              dump_ui "$xml"
-              tap="$(python3 - "$xml" "$resource_id" <<'PY'
-            import re, sys, xml.etree.ElementTree as ET
-            root = ET.parse(sys.argv[1]).getroot()
-            wanted = sys.argv[2]
-            for node in root.iter("node"):
-                if node.attrib.get("resource-id") != wanted:
-                    continue
-                m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
-                if m:
-                    x1,y1,x2,y2 = map(int, m.groups())
-                    print((x1+x2)//2, y1 + max(1, (y2-y1)//3))
-                    raise SystemExit(0)
-            raise SystemExit(1)
-            PY
-              )" || {
-                echo "::error::Could not resolve Android primary tab bounds for $resource_id"
-                cat "$xml"
-                exit 1
-              }
-              read -r tap_x tap_y <<< "$tap"
-              adb shell input tap "$tap_x" "$tap_y"
+              local file="$RUNNER_TEMP/android-primary-tab-tap.yaml"
+              {
+                echo "appId: com.carup.mobile"
+                echo "---"
+                echo "- tapOn:"
+                echo "    id: \"$resource_id\""
+              } > "$file"
+              "$MAESTRO" --device "$DEVICE_ID" test "$file"
             }
 
             reestablish_target home
