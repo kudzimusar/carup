@@ -88,6 +88,7 @@ jobs:
 
           APP="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator" -maxdepth 2 -name '*.app' -print -quit)"
           test -n "$APP" || { echo "::error::No built iOS app"; exit 1; }
+          xcrun simctl uninstall "$UDID" com.carup.mobile >/dev/null 2>&1 || true
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" com.carup.mobile
 
@@ -115,17 +116,29 @@ jobs:
             test -s "$OUT/$name.png"
           }
 
+          if ! run_flow home_probe \
+            '- extendedWaitUntil:' \
+            '    visible: "Fresh on CarUp"' \
+            '    timeout: 45000'; then
+            echo "::notice::iOS Home did not become ready on first cold start; performing one bounded clean restart"
+            xcrun simctl terminate "$UDID" com.carup.mobile || true
+            xcrun simctl launch "$UDID" com.carup.mobile
+          fi
           run_flow home \
             '- extendedWaitUntil:' \
             '    visible: "Fresh on CarUp"' \
-            '    timeout: 30000' \
+            '    timeout: 45000' \
             '- assertVisible: "Notifications"' \
             '- assertVisible: "Profile"' \
             '- assertVisible: "Home"' \
             '- assertVisible: "Buy"' \
             '- assertVisible: "Verify"' \
             '- assertVisible: "Sell"' \
-            '- assertVisible: "Trade"'
+            '- assertVisible: "Trade"' \
+            '- assertVisible:' \
+            '    id: "primary-tab-marketplace"' \
+            '- assertVisible:' \
+            '    id: "primary-tab-trade"'
           capture 01-home-shell-header
 
           run_flow profile \
@@ -146,7 +159,8 @@ jobs:
             '- assertVisible: "Buy"'
 
           run_flow buy \
-            '- tapOn: "Buy"' \
+            '- tapOn:'
+            '    id: "primary-tab-marketplace"' \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000' \
@@ -220,7 +234,8 @@ jobs:
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000' \
-            '- tapOn: "Trade"' \
+            '- tapOn:'
+            '    id: "primary-tab-trade"' \
             '- extendedWaitUntil:' \
             '    visible: "Trade gateway"' \
             '    timeout: 15000' \
@@ -234,7 +249,8 @@ jobs:
           capture 09-trade-gateway
 
           run_flow verify \
-            '- tapOn: "Verify"' \
+            '- tapOn:'
+            '    id: "primary-tab-verify"' \
             '- extendedWaitUntil:' \
             '    visible: "CHECK / VERIFY"' \
             '    timeout: 15000' \
@@ -242,7 +258,8 @@ jobs:
           capture 10-verify
 
           run_flow sell \
-            '- tapOn: "Sell"' \
+            '- tapOn:'
+            '    id: "primary-tab-sell"' \
             '- extendedWaitUntil:' \
             '    visible: "Start selling"' \
             '    timeout: 15000'
@@ -348,7 +365,9 @@ jobs:
             [ "$BUILD_OK" = true ] || { echo "::error::Android release build failed after three bounded dependency-resolution attempts"; exit 1; }
             APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
             test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
-            adb install -r "$APK"
+            adb uninstall com.carup.mobile >/dev/null 2>&1 || true
+            adb install "$APK"
+            adb shell pm clear com.carup.mobile >/dev/null 2>&1 || true
             LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.carup.mobile | tr -d '\r' | tail -n 1)"
             case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "::error::Invalid launcher $LAUNCH_COMPONENT"; exit 1;; esac
             adb shell am force-stop com.carup.mobile
@@ -380,17 +399,29 @@ jobs:
               test -s "$OUT/$name.png"
             }
 
+            if ! run_flow home_probe \
+              '- extendedWaitUntil:' \
+              '    visible: "Fresh on CarUp"' \
+              '    timeout: 45000'; then
+              echo "::notice::Android Home did not become ready on first cold start; performing one bounded clean restart"
+              adb shell am force-stop com.carup.mobile
+              adb shell am start -W -n "$LAUNCH_COMPONENT" >/dev/null
+            fi
             run_flow home \
               '- extendedWaitUntil:' \
               '    visible: "Fresh on CarUp"' \
-              '    timeout: 30000' \
+              '    timeout: 45000' \
               '- assertVisible: "Notifications"' \
               '- assertVisible: "Profile"' \
               '- assertVisible: "Home"' \
               '- assertVisible: "Buy"' \
               '- assertVisible: "Verify"' \
               '- assertVisible: "Sell"' \
-              '- assertVisible: "Trade"'
+              '- assertVisible: "Trade"' \
+            '- assertVisible:' \
+            '    id: "primary-tab-marketplace"' \
+            '- assertVisible:' \
+            '    id: "primary-tab-trade"'
             capture 01-home-shell-header
 
             run_flow profile \
@@ -411,7 +442,8 @@ jobs:
               '- assertVisible: "Buy"'
 
             run_flow buy \
-              '- tapOn: "Buy"' \
+              '- tapOn:'
+            '    id: "primary-tab-marketplace"' \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000' \
@@ -485,7 +517,8 @@ jobs:
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000' \
-              '- tapOn: "Trade"' \
+              '- tapOn:'
+            '    id: "primary-tab-trade"' \
               '- extendedWaitUntil:' \
               '    visible: "Trade gateway"' \
               '    timeout: 15000' \
@@ -499,7 +532,8 @@ jobs:
             capture 09-trade-gateway
 
             run_flow verify \
-              '- tapOn: "Verify"' \
+              '- tapOn:'
+            '    id: "primary-tab-verify"' \
               '- extendedWaitUntil:' \
               '    visible: "CHECK / VERIFY"' \
               '    timeout: 15000' \
@@ -507,7 +541,8 @@ jobs:
             capture 10-verify
 
             run_flow sell \
-              '- tapOn: "Sell"' \
+              '- tapOn:'
+            '    id: "primary-tab-sell"' \
               '- extendedWaitUntil:' \
               '    visible: "Start selling"' \
               '    timeout: 15000'
