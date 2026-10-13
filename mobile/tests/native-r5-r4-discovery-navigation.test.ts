@@ -23,6 +23,7 @@ const sheet = read('components/marketplace/MarketplaceFilterSheet.tsx');
 const header = read('components/navigation/NativeSharedHeader.tsx');
 const account = read('app/(tabs)/account.tsx');
 const trade = read('app/(tabs)/trade.tsx');
+const sellTab = read('app/(tabs)/sell.tsx');
 const tradeApi = read('utils/tradeApi.ts');
 const verify = read('app/check-car.tsx');
 
@@ -34,6 +35,8 @@ assert.match(layout, /name="account" options=\{\{ href: null \}\}/);
 assert.match(layout, /header: \(\) => <NativeSharedHeader \/>/);
 assert.doesNotMatch(layout, /stableOptions\('account'/);
 assert.doesNotMatch(layout, /stableOptions\('marketplace', 'Market'\)/);
+assert.match(sellTab, /SellStartExperience/);
+assert.doesNotMatch(sellTab, /Redirect/);
 
 assert.match(header, /notifications-outline/);
 assert.match(header, /person-outline/);
@@ -54,13 +57,16 @@ assert.match(home, /theme\.brand\.primary/);
 for (const label of [
   'Make', 'Model', 'Year', 'Colour', 'Body style', 'Location', 'Fuel', 'Transmission',
   'Minimum price', 'Maximum price', 'Condition', 'Trust / verification', 'Sort',
-  'Passport Verified', 'PartSentry Checked', 'Dealer Verified',
 ]) {
   assert.ok(sheet.includes(label), `filter sheet missing ${label}`);
 }
 assert.deepEqual(
-  MARKETPLACE_TRUST_FILTERS.map((item) => item.value),
-  ['passport_verified', 'partsentry_checked', 'dealer_verified'],
+  MARKETPLACE_TRUST_FILTERS.map((item) => [item.value, item.label]),
+  [
+    ['passport_verified', 'Passport Verified'],
+    ['partsentry_checked', 'PartSentry Checked'],
+    ['dealer_verified', 'Dealer Verified'],
+  ],
 );
 
 const full = {
