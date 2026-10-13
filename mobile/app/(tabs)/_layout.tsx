@@ -26,6 +26,8 @@ export default function TabLayout() {
     title: string,
   ) => ({
     title,
+    tabBarAccessibilityLabel: title,
+    tabBarButtonTestID: `primary-tab-${name}`,
     tabBarIcon: ({
       color,
       focused,
