@@ -33,6 +33,7 @@ assert.equal(NATIVE_SHELL_TABS.length, 5);
 assert.match(layout, /name="trade" options=\{stableOptions\('trade', 'Trade'\)\}/);
 assert.match(layout, /name="account" options=\{\{ href: null \}\}/);
 assert.match(layout, /header: \(\) => <NativeSharedHeader \/>/);
+assert.match(layout, /tabBarAccessibilityLabel: title/);
 assert.doesNotMatch(layout, /stableOptions\('account'/);
 assert.doesNotMatch(layout, /stableOptions\('marketplace', 'Market'\)/);
 assert.match(sellTab, /SellStartExperience/);
