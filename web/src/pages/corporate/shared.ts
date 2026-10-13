@@ -14,7 +14,10 @@ export const PENDING_FIN: MetricSlot = { state: 'PENDING_CA_FIN' }
 export const NO_SOURCE: MetricSlot = { state: 'UNAVAILABLE_NO_SOURCE' }
 export const UNKNOWN_AUTH: MetricSlot = { state: 'UNKNOWN_AUTHORITY' }
 
-/** The four proposed management Business Units (CA-ORG-01) — management constructs, not legal entities. */
+/**
+ * The four accepted management Business Units (CA-ORG-01, CA-BU-01): stable IDs, management constructs —
+ * not legal entities or subsidiaries. Names are the provisional management labels (OD-CABU-001).
+ */
 export const BUSINESS_UNITS = [
   { id: 'BU_MARKETPLACE', name: 'Marketplace & Vehicle Commerce', departments: ['Marketplace Operations', 'Dealer / Vehicle Commerce'] },
   { id: 'BU_SERVICE_NETWORK', name: 'Garage, Service & Parts', departments: ['Service Network', 'Garage Operations', 'Parts & Provenance / PartSentry'] },

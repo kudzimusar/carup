@@ -3,7 +3,7 @@
  * lifecycle. No report is generated or faked; no approval backend is implied. Generation is not
  * publication, and preparer, reviewer, approver and publisher may be different people.
  */
-import { ChevronRight } from 'lucide-react'
+import { Ban, ChevronRight } from 'lucide-react'
 import { CorporatePage, Section } from '@/components/corporate/CorporatePage'
 import { CompactSlotList, TruthStateBadge } from '@/components/corporate/TruthState'
 import { NO_SOURCE } from './shared'
@@ -17,7 +17,10 @@ const FAMILIES = [
   { name: 'Ad-hoc governed report', cadence: 'On request' },
 ] as const
 const LIFECYCLE = ['Draft', 'Generated', 'In Review', 'Approved', 'Published'] as const
-const EXCEPTIONS = ['Rejected', 'Superseded', 'Withdrawn', 'Generation failed'] as const
+// Accepted CA-REPORT-01 §7 exception / terminal states. Withdrawal is NOT among the available states:
+// it stays disabled while Owner decision OD-CAREPORT-038 is unresolved (§7.10, fail-closed).
+const EXCEPTIONS = ['Returned for Correction', 'Rejected', 'Superseded', 'Restated', 'Generation Failed'] as const
+const WITHDRAWAL_OWNER_DECISION = 'OD-CAREPORT-038'
 
 export default function CorporateReports() {
   return (
@@ -38,7 +41,17 @@ export default function CorporateReports() {
             </li>
           ))}
         </ol>
-        <p className="text-xs text-slate-500">Exception states: {EXCEPTIONS.join(' · ')}.</p>
+        <p className="text-xs text-slate-500" data-testid="report-exception-states">Exception and terminal states: {EXCEPTIONS.join(' · ')}.</p>
+        <p
+          className="inline-flex flex-wrap items-center gap-2 rounded border border-dashed border-slate-300 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600"
+          data-testid="report-withdrawal-policy"
+          aria-disabled="true"
+        >
+          <span className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
+            <Ban className="h-3 w-3" aria-hidden="true" /> Disabled
+          </span>
+          <span><span className="font-medium text-slate-700 line-through decoration-slate-400">Withdrawn</span> — disabled pending Owner policy ({WITHDRAWAL_OWNER_DECISION}). Withdrawal is not an available transition.</span>
+        </p>
       </Section>
       <Section title="Report families" testId="reports-families">
         <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">

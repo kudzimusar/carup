@@ -1,7 +1,8 @@
 /**
- * CA-K3-01 — Business Units landing (CA-UX-01 §12, CA-ORG-01). Four PROPOSED management units, legal
- * status unknown, compared in one matrix. Finance is blocked in every row; nothing is summed into a
- * synthetic score.
+ * CA-K3-01 — Business Units landing (CA-UX-01 §12, CA-ORG-01, CA-BU-01). The four accepted management
+ * Business Units (stable IDs), compared in one matrix. Legal status is not asserted; labels stay
+ * provisional and future splits stay open where the Owner Decision Register says so (CA-K3-01-R1).
+ * Finance is blocked in every row; nothing is summed into a synthetic score.
  */
 import { CorporatePage, OperateLinks, Section } from '@/components/corporate/CorporatePage'
 import { TruthStateBadge } from '@/components/corporate/TruthState'
@@ -22,11 +23,11 @@ export default function CorporateBusinessUnits() {
   return (
     <CorporatePage
       id="business-units"
-      intro="The four proposed management Business Units. They are management constructs for comparison — not legal entities and not P&L owners. Splits remain subject to open Owner decisions (OD-CAORG-003 to 010)."
+      intro="The four accepted management Business Units. They are management constructs for comparison — not legal entities or subsidiaries, and not P&L owners. Their management labels remain provisional (OD-CABU-001), and possible future splits remain open Owner decisions (OD-CABU-002 to 006)."
     >
       <Section
         title="Business unit comparison"
-        description="One row per proposed unit. No combined score; inquiries, work orders and trade orders are never summed as transactions."
+        description="One row per accepted management Business Unit. No combined score; inquiries, work orders and trade orders are never summed as transactions."
         testId="bu-comparison"
       >
         <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
@@ -43,7 +44,7 @@ export default function CorporateBusinessUnits() {
                 <tr key={bu.id} className="border-b border-slate-100 align-top last:border-b-0" data-testid="bu-row">
                   <th scope="row" className="px-3 py-3 text-left">
                     <span className="block font-semibold text-slate-900">{bu.name}</span>
-                    <span className="block text-[11px] font-normal text-slate-500">Proposed · legal status unknown</span>
+                    <span className="block text-[11px] font-normal text-slate-500" data-testid="bu-status">Accepted management BU · provisional label · legal status not asserted</span>
                     <span className="mt-1 block text-[11px] font-normal text-slate-500">{bu.departments.join(' · ')}</span>
                   </th>
                   {COLUMNS.map((c) => {

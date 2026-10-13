@@ -235,3 +235,46 @@ describe('O · keyboard-accessible navigation and current-page semantics', () =>
     expect(link).toHaveTextContent('Leaves Corporate Intelligence → opens in Business Operations')
   })
 })
+
+describe('CA-K3-01-R1 · Business Units are accepted management units, not proposals and not legal entities', () => {
+  it.each(['/corporate', '/corporate/business-units'])('%s states accepted management BUs and asserts no legal status', (path) => {
+    renderAt(path)
+    const main = screen.getByTestId('corporate-main')
+    const text = main.textContent ?? ''
+    expect(text).toMatch(/four accepted management Business Units/)
+    expect(text).not.toMatch(/\bpropos(ed|al)\b/i)
+    const statuses = within(main).getAllByTestId('bu-status')
+    expect(statuses).toHaveLength(4)
+    for (const s of statuses) {
+      expect(s).toHaveTextContent('Accepted management BU')
+      expect(s).toHaveTextContent('legal status not asserted')
+    }
+    expect(text).not.toMatch(/\b(subsidiary of|registered company|Ltd\b|Pvt\b|\(Pty\))/i)
+  })
+  it('keeps labels provisional and future splits open where the Owner decisions say so', () => {
+    renderAt('/corporate/business-units')
+    const intro = screen.getByTestId('corporate-page-business-units').textContent ?? ''
+    expect(intro).toMatch(/management labels remain provisional \(OD-CABU-001\)/)
+    expect(intro).toMatch(/future splits remain open Owner decisions \(OD-CABU-002 to 006\)/)
+    expect(intro).toMatch(/not legal entities or subsidiaries/)
+  })
+})
+
+describe('CA-K3-01-R1 · Reports never present withdrawal as an available transition (OD-CAREPORT-038 unresolved)', () => {
+  it('lists the accepted exception states without Withdrawn, and shows withdrawal as disabled pending Owner policy', () => {
+    renderAt('/corporate/reports')
+    const main = screen.getByTestId('corporate-main')
+    const states = within(main).getByTestId('report-exception-states')
+    for (const s of ['Returned for Correction', 'Rejected', 'Superseded', 'Restated', 'Generation Failed']) expect(states).toHaveTextContent(s)
+    expect(states.textContent).not.toMatch(/withdraw/i)
+    const policy = within(main).getByTestId('report-withdrawal-policy')
+    expect(policy).toHaveAttribute('aria-disabled', 'true')
+    expect(policy).toHaveTextContent('Withdrawn — disabled pending Owner policy (OD-CAREPORT-038)')
+    expect(policy).toHaveTextContent('Withdrawal is not an available transition')
+    // No control anywhere offers withdrawal (or any other report mutation).
+    expect(within(main).queryAllByRole('button').filter((b) => /withdraw|publish|approve|restate/i.test(b.textContent ?? ''))).toHaveLength(0)
+    expect(within(main).queryAllByRole('link').filter((a) => /withdraw/i.test(a.textContent ?? ''))).toHaveLength(0)
+    // The primary lifecycle is unchanged.
+    expect(within(within(main).getByTestId('reports-lifecycle')).getByRole('list', { name: 'Report lifecycle stages' }).textContent).toBe('DraftGeneratedIn ReviewApprovedPublished')
+  })
+})

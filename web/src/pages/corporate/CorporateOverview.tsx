@@ -42,7 +42,7 @@ export default function CorporateOverview() {
         <p className="text-xs text-slate-500">{K2B_PENDING_REASON}</p>
       </Section>
 
-      <Section label="B" title="Business unit landscape" description="The four proposed management units — management constructs, not legal entities." testId="overview-bu-landscape">
+      <Section label="B" title="Business unit landscape" description="The four accepted management Business Units — management constructs, not legal entities. Labels remain provisional." testId="overview-bu-landscape">
         <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
           <table className="w-full border-collapse text-sm">
             <caption className="sr-only">Business unit landscape by measure and truth state</caption>
@@ -57,7 +57,7 @@ export default function CorporateOverview() {
                 <tr key={bu.id} className="flex flex-col gap-1.5 border-b border-slate-100 px-3 py-2.5 last:border-b-0 sm:table-row sm:px-0 sm:py-0">
                   <th scope="row" className="text-left sm:px-3 sm:py-2.5">
                     <span className="block font-semibold text-slate-900">{bu.name}</span>
-                    <span className="block text-[11px] font-normal text-slate-500">Proposed · legal status unknown</span>
+                    <span className="block text-[11px] font-normal text-slate-500" data-testid="bu-status">Accepted management BU · legal status not asserted</span>
                   </th>
                   {BU_MEASURES.map((m) => {
                     const p = presentSlot(m.slot, `${bu.name} ${m.label}`)
