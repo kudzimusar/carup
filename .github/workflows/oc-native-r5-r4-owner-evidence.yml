@@ -130,12 +130,12 @@ jobs:
               if attrs.get("resource-id") == wanted:
                   m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", attrs.get("bounds", ""))
                   if m:
-            x1,y1,x2,y2 = map(int, m.groups())
-            print((x1+x2)//2, (y1+y2)//2)
-            return True
+                      x1,y1,x2,y2 = map(int, m.groups())
+                      print((x1+x2)//2, (y1+y2)//2)
+                      return True
               for child in node.get("children", []):
                   if walk(child):
-            return True
+                      return True
               return False
           if not walk(data):
               raise SystemExit(1)
