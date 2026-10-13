@@ -118,11 +118,20 @@ jobs:
 
           tap_ios_primary_tab() {
             local label="$1"
+            local route=""
+            case "$label" in
+              Home) route="index" ;;
+              Buy) route="marketplace" ;;
+              Verify) route="verify" ;;
+              Sell) route="sell" ;;
+              Trade) route="trade" ;;
+              *) echo "::error::Unknown iOS primary tab: $label"; exit 1 ;;
+            esac
             cat > "$RUNNER_TEMP/ios-primary-tab-tap.yaml" <<YAML
           appId: com.carup.mobile
           ---
           - tapOn:
-              text: "^$label$"
+              id: "primary-tab-$route"
           YAML
             "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-primary-tab-tap.yaml"
           }
@@ -510,12 +519,21 @@ jobs:
 
             tap_android_primary_tab() {
               local label="$1"
+              local route=""
+              case "$label" in
+                Home) route="index" ;;
+                Buy) route="marketplace" ;;
+                Verify) route="verify" ;;
+                Sell) route="sell" ;;
+                Trade) route="trade" ;;
+                *) echo "::error::Unknown Android primary tab: $label"; exit 1 ;;
+              esac
               local file="$RUNNER_TEMP/android-primary-tab-tap.yaml"
               {
                 echo "appId: com.carup.mobile"
                 echo "---"
                 echo "- tapOn:"
-                echo "    text: \"^$label$\""
+                echo "    id: \"primary-tab-$route\""
               } > "$file"
               "$MAESTRO" --device "$DEVICE_ID" test "$file"
             }
