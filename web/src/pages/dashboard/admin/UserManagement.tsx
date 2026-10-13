@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Search, Users, Shield, Wrench, Building2, Car, MoreHorizontal, Ban, UserCog } from 'lucide-react'
+import { ProvenanceNotice, ReadFailedNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -26,8 +27,10 @@ const API_BASE = resolveApiBaseUrl(
 
 export default function UserManagement() {
   const navigate = useNavigate()
-  const { fetchUsers, suspendUser } = useCarUpApi()
+  const { fetchUsers } = useCarUpApi()
   const [users, setUsers] = useState<User[]>([])
+  const [provenance, setProvenance] = useState<ProvenanceSummary | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -38,9 +41,12 @@ export default function UserManagement() {
     setLoading(true)
     try {
       const data = await fetchUsers()
-      setUsers(data)
+      setUsers(data.users)
+      setProvenance(data.provenance)
+      setLoadError(null)
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to fetch users')
+      // A failed read is not an empty directory (PC01-K2B).
+      setLoadError(err instanceof Error ? err.message : 'Failed to fetch users')
     } finally {
       setLoading(false)
     }
@@ -49,16 +55,6 @@ export default function UserManagement() {
   useEffect(() => {
     loadUsers()
   }, [fetchUsers])
-
-  const handleSuspend = async (id: string) => {
-    try {
-      await suspendUser(id)
-      toast.success('User suspended successfully')
-      loadUsers()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to suspend user')
-    }
-  }
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,6 +92,8 @@ export default function UserManagement() {
         <Button className="bg-orange-500 hover:bg-orange-600" onClick={() => setIsAddModalOpen(true)}>Add User</Button>
       </div>
 
+      <ProvenanceNotice provenance={provenance} noun="accounts" />
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
@@ -114,6 +112,8 @@ export default function UserManagement() {
               </CardContent>
             </Card>
           ))
+        ) : loadError ? (
+          <ReadFailedNotice what="Users" detail={loadError} />
         ) : filtered.length > 0 ? (
           filtered.map((user) => {
             const RoleIcon = roleIcons[user.role] || Users
@@ -130,7 +130,6 @@ export default function UserManagement() {
                           <h3 className="font-medium">{user.name}</h3>
                           <Badge variant="outline" className="text-[10px]">{user.role}</Badge>
                         </div>
-                        <Badge className={user.status === 'active' ? 'bg-green-500' : 'bg-red-500'}>{user.status}</Badge>
                       </div>
                       <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                         <span>{user.email}</span>
@@ -140,7 +139,7 @@ export default function UserManagement() {
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" aria-label={`Actions for ${user.name}`} data-testid={`user-actions-${user.id}`}><MoreHorizontal className="w-4 h-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {/* O2/P3 — the person-centered compliance workspace (identity, authority,
@@ -149,9 +148,12 @@ export default function UserManagement() {
                           <UserCog className="w-4 h-4 mr-2" />
                           Open People &amp; Compliance Review
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => handleSuspend(user.id)}>
-                          <Ban className="w-4 h-4 mr-2" />
-                          Suspend User
+                        {/* ACCOUNT SUSPENSION — PRODUCT / AUTHORITY GAP (PC01-K2B). The old action wrote a
+                            column that does not exist and always failed; there is no governed account
+                            lifecycle yet, so this is stated, not offered. */}
+                        <DropdownMenuItem disabled className="text-gray-400" data-testid={`suspension-unavailable-${user.id}`}>
+                          <Ban className="w-4 h-4 mr-2" aria-hidden="true" />
+                          Account suspension — not available yet
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -161,7 +163,9 @@ export default function UserManagement() {
             )
           })
         ) : (
-          <div className="text-center py-8 text-gray-500">No users found.</div>
+          <div className="text-center py-8 text-gray-500">
+            {search ? 'No users match this search.' : (provenance?.excluded_non_operational || provenance?.unknown_requires_review) ? 'No operational users.' : 'No users found.'}
+          </div>
         )}
       </div>
 

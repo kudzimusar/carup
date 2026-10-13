@@ -1,6 +1,9 @@
 import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
+import { readAllPages } from '../services/intelligence/rollupService.js';
+import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
 // ONE public-evidence authority. #175 shipped a deliberately self-contained
@@ -1196,29 +1199,60 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
   if (!verificationStatuses.includes(status)) {
     throw new ValidationError(`Invalid verification status: ${status}`);
   }
+  // PC01-K2B: `paged=1` is the truthful queue — every matching row is read, classified by the
+  // provenance authority, and returned as an explicit page with its total, so "the first 100 rows"
+  // can no longer pass for "all evidence". The bare array form is kept for existing callers.
+  const paged = String(req.query.paged || '') === '1';
 
-  let query = supabase
-    .from('vehicle_evidence')
-    .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
-    .eq('verification_status', status)
-    .order('uploaded_at', { ascending: false })
-    .limit(100);
-
-  // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
-  // only admin and government review globally; a dealer/mechanic session with
-  // no tenant context gets nothing (previously, omitting the tenant header
-  // skipped the filter entirely and exposed every tenant's pending evidence).
-  if (['dealer', 'mechanic'].includes(req.userContext.role)) {
-    if (!req.userContext.tenantId) {
-      return res.json([]);
+  const buildQuery = () => {
+    let query = supabase
+      .from('vehicle_evidence')
+      .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
+      .eq('verification_status', status)
+      .order('uploaded_at', { ascending: false });
+    // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
+    // only admin and government review globally; a dealer/mechanic session with
+    // no tenant context gets nothing (previously, omitting the tenant header
+    // skipped the filter entirely and exposed every tenant's pending evidence).
+    if (['dealer', 'mechanic'].includes(req.userContext.role)) {
+      query = query.eq('tenant_id', req.userContext.tenantId);
     }
-    query = query.eq('tenant_id', req.userContext.tenantId);
+    return query;
+  };
+  const tenantBlocked = ['dealer', 'mechanic'].includes(req.userContext.role) && !req.userContext.tenantId;
+
+  if (!paged) {
+    if (tenantBlocked) return res.json([]);
+    const { data, error } = await buildQuery().limit(100);
+    if (error) throw new DatabaseError(error.message);
+    return res.json((data || []).map(normalizeEvidenceRecord));
   }
 
-  const { data, error } = await query;
-  if (error) throw new DatabaseError(error.message);
-
-  res.json((data || []).map(normalizeEvidenceRecord));
+  const pageSize = Math.min(Math.max(Number.parseInt(req.query.page_size, 10) || 50, 1), 100);
+  const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+  let rows = [];
+  if (!tenantBlocked) {
+    try {
+      rows = await readAllPages(buildQuery);
+    } catch (error) {
+      throw new DatabaseError(error.message);
+    }
+  }
+  const index = await loadProvenanceIndex(supabase, { vins: rows.map((r) => r.vin) });
+  const classified = rows.map((row) => ({ row, provenance: index.vehicle(row.vin) || { class: 'unknown_requires_review', operational: false } }));
+  const showAll = req.query.view === 'all';
+  const visible = classified
+    .filter((c) => showAll || c.provenance.operational)
+    .map((c) => (showAll ? { ...normalizeEvidenceRecord(c.row), provenance_class: c.provenance.class } : normalizeEvidenceRecord(c.row)));
+  const offset = (page - 1) * pageSize;
+  res.json({
+    items: visible.slice(offset, offset + pageSize),
+    page,
+    page_size: pageSize,
+    total: visible.length,
+    has_more: offset + pageSize < visible.length,
+    provenance: { ...summarizeProvenance(classified.map((c) => c.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+  });
 }));
 
 // PATCH: Verify Evidence

@@ -13,6 +13,7 @@ import {
 } from '../services/marketplace/marketplaceModerationService.js';
 import {
   listInquiriesForAdmin,
+  listInquiriesForAdminWithProvenance,
   assignInquiry,
   updateInquiryStatus,
 } from '../services/marketplace/marketplaceInquiryService.js';
@@ -52,7 +53,8 @@ router.patch('/api/admin/marketplace/listings/:id/clear-risk', authorizeRole(REV
 // ---- Inquiry management ----------------------------------------------------
 
 router.get('/api/admin/marketplace/inquiries', authorizeRole(REVIEWER_ROLES), asyncHandler(async (req, res) => {
-  res.json({ inquiries: await listInquiriesForAdmin(supabase, req.query, req.userContext) });
+  // PC01-K2B: operational inquiries, plus how many were set aside by provenance class.
+  res.json(await listInquiriesForAdminWithProvenance(supabase, req.query, req.userContext));
 }));
 
 router.patch('/api/admin/marketplace/inquiries/:id/assign', authorizeRole(REVIEWER_ROLES), asyncHandler(async (req, res) => {

@@ -20,6 +20,9 @@
  * by the caller's userId, so a dealer can never read or mutate another dealer's full profile.
  */
 import express from 'express';
+import { supabase } from '../db/supabase.js';
+import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
 import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
 import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
@@ -116,7 +119,17 @@ router.get('/api/admin/dealers', authorizeRole(ADMIN_ROLES), async (req, res, ne
   try {
     // Tenant scoping: a tenant-scoped admin only sees dealers in their tenant.
     const dealers = await listProfiles({ tenantId: req.userContext?.tenantId || undefined });
-    res.json({ dealers });
+    // PC01-K2B: operational dealer profiles by default, judged by the person who holds the profile;
+    // profiles held by UAT / automation / certification identities are counted, not listed.
+    const index = await loadProvenanceIndex(supabase, { userIds: dealers.map((d) => d.user_id) });
+    const classified = dealers.map((d) => ({ d, provenance: index.identity(d.user_id) || { class: 'unknown_requires_review', operational: false } }));
+    const showAll = req.query.view === 'all';
+    res.json({
+      dealers: classified
+        .filter((x) => showAll || x.provenance.operational)
+        .map((x) => (showAll ? { ...x.d, provenance_class: x.provenance.class } : x.d)),
+      provenance: { ...summarizeProvenance(classified.map((x) => x.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+    });
   } catch (err) {
     next(err);
   }

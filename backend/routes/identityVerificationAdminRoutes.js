@@ -1,4 +1,7 @@
 import express from 'express';
+import { supabase } from '../db/supabase.js';
+import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
 import { authorizeRole, requireProvenIdentity } from '../middleware/authMiddleware.js';
 import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
 import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
@@ -26,7 +29,18 @@ router.get(
       status: req.query.status,
       workflow_phase: req.query.workflow_phase,
     });
-    res.json({ success: true, sessions });
+    // PC01-K2B: the review queue is operational truth by default — sessions of UAT / automation /
+    // certification identities are counted by class, not listed. Nothing is deleted.
+    const index = await loadProvenanceIndex(supabase, { userIds: sessions.map((s) => s.user_id) });
+    const classified = sessions.map((s) => ({ s, provenance: index.identity(s.user_id) || { class: 'unknown_requires_review', operational: false } }));
+    const showAll = req.query.view === 'all';
+    res.json({
+      success: true,
+      sessions: classified
+        .filter((x) => showAll || x.provenance.operational)
+        .map((x) => (showAll ? { ...x.s, provenance_class: x.provenance.class } : x.s)),
+      provenance: { ...summarizeProvenance(classified.map((x) => x.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+    });
   })
 );
 

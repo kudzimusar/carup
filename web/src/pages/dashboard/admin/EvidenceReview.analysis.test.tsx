@@ -19,7 +19,9 @@ const queue = [
   item('executed', { ai_status: 'ai_low_confidence', execution: 'provider_executed', provider: 'cloudflare', confidence: 0.82, risk_score: 0.2, recommended_action: 'inspect', reviewer_summary: 'Provider reading.' }),
 ]
 // Every other call a child panel makes (extractions, …) answers an empty list.
-const api = new Proxy({ fetchEvidenceReviewQueue: vi.fn().mockResolvedValue(queue) } as Record<string, unknown>, {
+// PC01-K2B: the queue is a page envelope — items, the operational total, and what was set aside.
+const page = { items: queue, page: 1, page_size: 50, total: queue.length, has_more: false, provenance: null }
+const api = new Proxy({ fetchEvidenceReviewQueue: vi.fn().mockResolvedValue(page) } as Record<string, unknown>, {
   get: (target, key: string) => (key in target ? target[key] : (target[key] = vi.fn().mockResolvedValue([]))),
 })
 vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => api }))

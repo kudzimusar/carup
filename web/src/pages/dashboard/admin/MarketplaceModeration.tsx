@@ -9,6 +9,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { ProvenanceNotice, ReadFailedNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 
 export interface AdminListing {
   vin: string
@@ -188,6 +189,11 @@ export default function MarketplaceModeration() {
   const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [inquiriesNote, setInquiriesNote] = useState<string | null>(null)
+  // PC01-K2B: what each read set aside, and whether it failed — a failure is never shown as zero.
+  const [listingsProvenance, setListingsProvenance] = useState<ProvenanceSummary | null>(null)
+  const [inquiriesProvenance, setInquiriesProvenance] = useState<ProvenanceSummary | null>(null)
+  const [listingsError, setListingsError] = useState<string | null>(null)
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const [updatingInquiryId, setUpdatingInquiryId] = useState<string | null>(null)
   const [aiAdvisory, setAiAdvisory] = useState<AiAdvisory | null>(null)
@@ -206,8 +212,21 @@ export default function MarketplaceModeration() {
     setLoading(true)
     try {
       const [l, a] = await Promise.allSettled([fetchAdminMarketplaceListings(), fetchMarketplaceAnalytics()])
-      if (l.status === 'fulfilled') setListings(l.value.listings || [])
-      if (a.status === 'fulfilled') setAnalytics(a.value)
+      if (l.status === 'fulfilled') {
+        setListings(l.value.listings || [])
+        setListingsProvenance(l.value.provenance ?? null)
+        setListingsError(null)
+      } else {
+        setListings([])
+        setListingsError(getErrorMessage(l.reason, 'Listings could not be read'))
+      }
+      if (a.status === 'fulfilled') {
+        setAnalytics(a.value)
+        setAnalyticsError(null)
+      } else {
+        setAnalytics(null)
+        setAnalyticsError(getErrorMessage(a.reason, 'Analytics could not be read'))
+      }
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to load moderation queue'))
     } finally {
@@ -216,9 +235,11 @@ export default function MarketplaceModeration() {
     try {
       const inq = await fetchAdminMarketplaceInquiries()
       setInquiries(inq.inquiries || [])
+      setInquiriesProvenance(inq.provenance ?? null)
       setInquiriesNote(null)
     } catch {
-      setInquiriesNote('Inquiries are unavailable until the marketplace_inquiries migration is applied.')
+      setInquiries([])
+      setInquiriesNote('Inquiries could not be loaded. This is not an empty list.')
     }
   }, [fetchAdminMarketplaceListings, fetchMarketplaceAnalytics, fetchAdminMarketplaceInquiries])
 
@@ -269,12 +290,11 @@ export default function MarketplaceModeration() {
     }
   }
 
-  const counts = analytics?.listings || {
-    total: listings.length,
-    public: listings.filter((l) => l.public_status === 'public').length,
-    suppressed: listings.filter((l) => l.public_status === 'suppressed').length,
-    rejected: listings.filter((l) => l.public_status === 'rejected').length,
-  }
+  // Stat cards come from analytics, which reads the SAME operational base as the queue. When
+  // analytics could not be read the cards say so ("—") instead of falling back to a different count.
+  const counts = analytics?.listings || null
+  const stat = (value: number | null | undefined) => (counts && value !== null && value !== undefined ? value : '—')
+  const inquiryTotal = analytics?.inquiries?.available === false || analyticsError ? '—' : (analytics?.inquiries?.total ?? '—')
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto" data-testid="marketplace-moderation-page">
@@ -284,12 +304,14 @@ export default function MarketplaceModeration() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4" data-testid="marketplace-admin-analytics">
-        <StatCard label="Total" value={counts.total} color="text-blue-600" />
-        <StatCard label="Public" value={counts.public} color="text-green-600" />
-        <StatCard label="Suppressed" value={counts.suppressed} color="text-orange-600" />
-        <StatCard label="Rejected" value={counts.rejected} color="text-red-600" />
-        <StatCard label="Inquiries" value={analytics?.inquiries?.total ?? inquiries.length} color="text-purple-600" />
+        <StatCard label="Total" value={stat(counts?.total)} color="text-blue-600" />
+        <StatCard label="Public" value={stat(counts?.public)} color="text-green-600" />
+        <StatCard label="Suppressed" value={stat(counts?.suppressed)} color="text-orange-600" />
+        <StatCard label="Rejected" value={stat(counts?.rejected)} color="text-red-600" />
+        <StatCard label="Inquiries" value={inquiryTotal} color="text-purple-600" />
       </div>
+      {analyticsError && <ReadFailedNotice what="Marketplace analytics" detail={analyticsError} />}
+      <ProvenanceNotice provenance={listingsProvenance} noun="listings" />
 
       {aiAdvisory && <AiAdvisoryPanel advisory={aiAdvisory} onDismiss={() => setAiAdvisory(null)} />}
 
@@ -304,8 +326,10 @@ export default function MarketplaceModeration() {
             Array.from({ length: 4 }).map((_, i) => (
               <Card key={i} className="border-0 card-shadow"><CardContent className="p-5"><Skeleton className="h-5 w-64" /></CardContent></Card>
             ))
+          ) : listingsError ? (
+            <ReadFailedNotice what="Listings" detail={listingsError} />
           ) : listings.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">No listings found.</div>
+            <div className="text-center py-8 text-gray-500">{listingsProvenance?.raw ? 'No operational listings.' : 'No listings found.'}</div>
           ) : listings.map((l) => (
             <Card key={l.vin} className="border-0 card-shadow" data-testid="marketplace-admin-listing">
               <CardContent className="p-5">
@@ -334,10 +358,11 @@ export default function MarketplaceModeration() {
         </TabsContent>
 
         <TabsContent value="inquiries" className="space-y-3" data-testid="marketplace-admin-inquiries">
+          <ProvenanceNotice provenance={inquiriesProvenance} noun="inquiries" />
           {inquiriesNote ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{inquiriesNote}</div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">{inquiriesNote}</div>
           ) : inquiries.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">No inquiries yet.</div>
+            <div className="text-center py-8 text-gray-500">{inquiriesProvenance?.raw ? 'No operational inquiries.' : 'No inquiries yet.'}</div>
           ) : inquiries.map((inq) => {
             const listing = listingsByVin.get(normalizeId(inq.listing_id))
             return (
@@ -356,8 +381,8 @@ export default function MarketplaceModeration() {
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
-    <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">{label}</p><p className={`text-2xl font-bold ${color}`}>{value}</p></CardContent></Card>
+    <Card className="border-0 card-shadow" data-testid={`stat-${label.toLowerCase()}`}><CardContent className="p-5"><p className="text-sm text-gray-500">{label}</p><p className={`text-2xl font-bold ${color}`}>{value}</p></CardContent></Card>
   )
 }

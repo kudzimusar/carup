@@ -639,13 +639,32 @@ test('deriveListingPublicStatus maps statuses', () => {
 // Analytics
 // ---------------------------------------------------------------------------
 
+// PC01-K2B: analytics counts a listing as operational only with creator evidence, so the store
+// carries the listings' owner as the product holds it (users row with email + name).
+const LISTING_OWNER = { id: '550e8400-e29b-41d4-a716-446655440000', email: 'chipo.seller@mail.co.zw', name: 'Chipo Seller' };
+
 test('analytics aggregates listing statuses and is resilient to a missing inquiries table', async () => {
-  const store = { vehicles: [publicVehicle(), publicVehicle({ vin: DEALER_VIN, status: 'Suspended' })] };
+  const store = { users: [LISTING_OWNER], vehicles: [publicVehicle(), publicVehicle({ vin: DEALER_VIN, status: 'Suspended' })] };
   const out = await getMarketplaceAnalytics(buildMockSupabase(store), adminActor);
   assert.equal(out.listings.total, 2);
   assert.equal(out.listings.public, 1);
   assert.equal(out.listings.suppressed, 1);
+  // An inquiries table that exists and is empty is a true zero.
+  assert.equal(out.inquiries.available, true);
   assert.equal(out.inquiries.total, 0);
+
+  // A missing / unreadable inquiries table is NOT zero: it is reported unavailable (PC01-K2B P2).
+  const base = buildMockSupabase({ users: [LISTING_OWNER], vehicles: [publicVehicle()] });
+  const missingInquiries = {
+    from(table) {
+      if (table !== 'marketplace_inquiries') return base.from(table);
+      return { select: () => Promise.resolve({ data: null, error: { code: '42P01', message: 'relation "marketplace_inquiries" does not exist' } }) };
+    },
+  };
+  const degraded = await getMarketplaceAnalytics(missingInquiries, adminActor);
+  assert.equal(degraded.listings.total, 1, 'listings still counted');
+  assert.equal(degraded.inquiries.available, false);
+  assert.equal(degraded.inquiries.total, null);
 });
 
 test('analytics requires a reviewer role', async () => {

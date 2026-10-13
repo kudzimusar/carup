@@ -35,8 +35,33 @@ import {
   AuthorizationError,
   windowDates,
 } from './intelligenceProjectionService.js';
+import { summarizeProvenance } from '../provenance/recordProvenance.js';
+import { createProvenanceIndex } from '../provenance/provenanceContext.js';
 
-export const COMMAND_CENTRE_VERSION = 'command_centre@1';
+// command_centre@2 (PC01-K2B): business figures count operational records only, each section states
+// how many records it set aside by provenance class, and Supply reads vehicles by `vin`.
+export const COMMAND_CENTRE_VERSION = 'command_centre@2';
+
+/** Activity-ledger flags that already mark an event as not customer engagement. */
+export const NON_ENGAGEMENT_EVENT_FLAGS = Object.freeze(['self_traffic', 'bot_suspect', 'staff', 'fixture', 'synthetic']);
+
+/**
+ * The records a section set aside, so an administrator sees that they exist and why they are not in
+ * the business figure. Counts only — no identities.
+ */
+function setAside(results) {
+  const s = summarizeProvenance(results);
+  return {
+    records_read: s.raw,
+    operational: s.operational,
+    excluded_non_operational: s.excluded_non_operational,
+    unknown_requires_review: s.unknown_requires_review,
+    by_class: s.by_class,
+  };
+}
+
+/** A figure that cannot be separated from test data is stated as such, never as a business number. */
+const notSeparable = (reason) => metric(null, { availability: AVAILABILITY.UNAVAILABLE, reason });
 
 const PLATFORM_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
 
@@ -129,18 +154,20 @@ function unreadableSection(source, reason) {
  * "Instrumented, nothing recorded yet" and "nobody is interested" are completely
  * different statements, and only the first is true.
  */
-export function demandSection(inquiries, activityEvents, savedVehicles) {
+export function demandSection(inquiries, activityEvents, savedVehicles, { recordedEvents = activityEvents.length } = {}) {
+  // "Nothing recorded" is decided on what the ledger RECORDED; once events exist, the figure is the
+  // engagement that survived provenance filtering — a measured number, possibly zero.
   return {
     available: true,
     source: 'marketplace_inquiries, marketplace_activity_events, saved_vehicles',
     metrics: {
       inquiries: metric(inquiries.length),
       saved_vehicles: metric(savedVehicles.length),
-      behavioural_events: activityEvents.length === 0
+      behavioural_events: recordedEvents === 0
         ? metric(null, { availability: AVAILABILITY.INSUFFICIENT_DATA, reason: 'ledger_instrumented_but_empty' })
         : metric(activityEvents.length),
     },
-    note: activityEvents.length === 0
+    note: recordedEvents === 0
       ? 'The activity ledger is instrumented but holds no events for this period. That is not an absence of interest — it is an absence of recorded events.'
       : null,
   };
@@ -163,102 +190,182 @@ export async function getCommandCentre(client = defaultClient, actor = null, { w
     }
   };
 
-  await load('overview', 'users, organizations', async () => {
-    const users = await readAllPages(() => client.from('users').select('id, created_at'));
-    const orgs = await readAllPages(() => client.from('organizations').select('id, created_at'));
-    return {
-      available: true,
-      metrics: {
-        users_total: metric(users.length),
-        users_joined_in_window: metric(inWindow(users).length),
-        organizations_total: metric(orgs.length),
-      },
-    };
-  });
-
-  await load('supply', 'vehicles', async () => {
-    const vehicles = await readAllPages(() => client
+  // ONE provenance index for the whole page: every section judges a record by its creator through the
+  // same authority the Marketplace and Admin queues use. Users and vehicles are read separately so a
+  // failure degrades only the sections that depend on the table that failed — never the whole page.
+  const sources = { users: null, vehicles: null };
+  const sourceErrors = {};
+  try {
+    sources.users = await readAllPages(() => client.from('users').select('id, email, name, created_at'));
+  } catch (error) {
+    sourceErrors.users = error;
+  }
+  try {
+    // Vehicles are keyed by `vin`. The previous projection selected `vehicles.id`, a column that does
+    // not exist, so this section could never load (PC01-K2B P1-1).
+    sources.vehicles = await readAllPages(() => client
       .from('vehicles')
-      .select('id, publication_status, created_at'));
-    const published = vehicles.filter((row) => String(row.publication_status) === 'published');
+      .select('vin, owner_id, tenant_id, make, seller_description, publication_status, created_at'));
+  } catch (error) {
+    sourceErrors.vehicles = error;
+  }
+  const users = sources.users || [];
+  const vehicles = sources.vehicles || [];
+  const index = createProvenanceIndex({ users, vehicles });
+  /** A section that classifies through a source that could not be read is unreadable, not zero. */
+  const needsIndex = (reader, deps = ['users', 'vehicles']) => async () => {
+    const failed = deps.find((d) => sources[d] === null);
+    if (failed) throw sourceErrors[failed] || new Error(`${failed}_unavailable`);
+    return reader();
+  };
+
+  await load('overview', 'users, organizations', needsIndex(async () => {
+    const orgs = await readAllPages(() => client.from('organizations').select('id, created_at'));
+    const classified = users.map((u) => ({ row: u, provenance: index.identity(u.id) }));
+    const operational = classified.filter((c) => c.provenance.operational).map((c) => c.row);
     return {
       available: true,
       metrics: {
-        vehicles_total: metric(vehicles.length),
+        users_total: metric(operational.length),
+        users_joined_in_window: metric(inWindow(operational).length),
+        // Organisations carry no creator to classify. Until they do, a non-empty count cannot be
+        // separated from test organisations and is not stated as a business figure.
+        organizations_total: orgs.length === 0 ? metric(0) : notSeparable('provenance_not_separable'),
+      },
+      provenance: setAside(classified.map((c) => c.provenance)),
+    };
+  }, ['users']));
+
+  await load('supply', 'vehicles', needsIndex(async () => {
+    const classified = vehicles.map((v) => ({ row: v, provenance: index.vehicle(v.vin) }));
+    const operational = classified.filter((c) => c.provenance?.operational).map((c) => c.row);
+    const published = operational.filter((row) => String(row.publication_status) === 'published');
+    return {
+      available: true,
+      metrics: {
+        vehicles_total: metric(operational.length),
         vehicles_published: metric(published.length),
-        vehicles_unpublished: metric(vehicles.length - published.length),
-        listed_in_window: metric(inWindow(vehicles).length),
+        vehicles_unpublished: metric(operational.length - published.length),
+        listed_in_window: metric(inWindow(operational).length),
+      },
+      provenance: setAside(classified.map((c) => c.provenance)),
+    };
+  }));
+
+  await load('demand', 'marketplace_inquiries, marketplace_activity_events, saved_vehicles', needsIndex(async () => {
+    const inquiries = inWindow(await readAllPages(() => client
+      .from('marketplace_inquiries')
+      .select('id, status, buyer_id, guest_email, guest_name, listing_id, listing_type, created_at')));
+    const events = inWindow(await readAllPages(() => client
+      .from('marketplace_activity_events')
+      .select('id, event_type, authenticated_user_id, listing_id, vehicle_reference, exclusion_flags, occurred_at, created_at')));
+    // "Saved" is labelled with the period, so it is counted within the period.
+    const saved = inWindow(await readAllPages(() => client
+      .from('saved_vehicles').select('id, user_id, vin, created_at')));
+
+    const inquiryResults = inquiries.map((r) => index.inquiry(r));
+    const savedOperational = saved.filter((r) => index.identity(r.user_id)?.operational && index.vehicle(r.vin)?.operational === true);
+    const engagement = events.filter((e) => {
+      const flags = Array.isArray(e.exclusion_flags) ? e.exclusion_flags : [];
+      if (flags.some((f) => NON_ENGAGEMENT_EVENT_FLAGS.includes(f))) return false;
+      if (e.authenticated_user_id && !index.identity(e.authenticated_user_id)?.operational) return false;
+      const object = index.vehicle(e.listing_id || e.vehicle_reference);
+      if (object && !object.operational) return false;
+      return true;
+    });
+    const section = demandSection(
+      inquiries.filter((_, i) => inquiryResults[i].operational),
+      engagement,
+      savedOperational,
+      { recordedEvents: events.length },
+    );
+    section.provenance = {
+      inquiries: setAside(inquiryResults),
+      saved_vehicles: { records_read: saved.length, operational: savedOperational.length, excluded: saved.length - savedOperational.length },
+      behavioural_events: {
+        records_read: events.length,
+        operational: engagement.length,
+        excluded: events.length - engagement.length,
+        exclusion_basis: 'activity flags (self/bot/staff/fixture/synthetic), non-operational actor, or non-operational vehicle',
       },
     };
-  });
+    return section;
+  }));
 
-  await load('demand', 'marketplace_inquiries, marketplace_activity_events, saved_vehicles', async () => {
-    const inquiries = await readAllPages(() => client
-      .from('marketplace_inquiries').select('id, status, created_at'));
-    const events = await readAllPages(() => client
-      .from('marketplace_activity_events').select('id, event_type, occurred_at, created_at'));
-    const saved = await readAllPages(() => client
-      .from('saved_vehicles').select('id, created_at'));
-    return demandSection(inWindow(inquiries), inWindow(events), saved);
-  });
-
-  await load('trust_evidence', 'vehicle_evidence', async () => {
+  await load('trust_evidence', 'vehicle_evidence', needsIndex(async () => {
     const evidence = await readAllPages(() => client
-      .from('vehicle_evidence').select('id, verification_status, created_at'));
+      .from('vehicle_evidence').select('id, vin, verification_status, created_at'));
+    const results = evidence.map((r) => index.vehicle(r.vin) || { class: 'unknown_requires_review', operational: false });
+    const operational = evidence.filter((_, i) => results[i].operational);
     return {
       available: true,
       metrics: {
-        evidence_reviewed: metric(evidence.filter((r) => String(r.verification_status) === 'verified').length),
-        evidence_awaiting_review: metric(evidence.filter((r) => String(r.verification_status) === 'pending').length),
+        evidence_reviewed: metric(operational.filter((r) => String(r.verification_status) === 'verified').length),
+        evidence_awaiting_review: metric(operational.filter((r) => String(r.verification_status) === 'pending').length),
       },
+      provenance: setAside(results),
       // A trust distribution assembled here would be a second trust source.
       trust_authority: 'Trust positions are stated only by the canonical trust service. No Trust distribution is aggregated on this surface.',
     };
-  });
+  }));
 
-  await load('communications', 'message_threads, messages', async () => {
-    const threads = await readAllPages(() => client.from('message_threads').select('id, created_at'));
-    const messages = await readAllPages(() => client.from('messages').select('id, created_at'));
+  await load('communications', 'message_threads, messages', needsIndex(async () => {
+    // Volume of OPERATIONAL conversations. Certification threads stay governed evidence in
+    // Communications; they are only left out of this business volume, never removed.
+    const threads = await readAllPages(() => client.from('message_threads').select('id, primary_user_id, created_at'));
+    const messages = await readAllPages(() => client.from('messages').select('id, thread_id, created_at'));
+    const threadResult = new Map(threads.map((t) => [t.id, index.identity(t.primary_user_id) || { class: 'unknown_requires_review', operational: false }]));
+    const windowedThreads = inWindow(threads);
+    const threadResults = windowedThreads.map((t) => threadResult.get(t.id));
+    const windowedMessages = inWindow(messages);
     return {
       available: true,
       metrics: {
-        threads: metric(inWindow(threads).length),
-        messages: metric(inWindow(messages).length),
+        threads: metric(windowedThreads.filter((t) => threadResult.get(t.id)?.operational).length),
+        messages: metric(windowedMessages.filter((m) => threadResult.get(m.thread_id)?.operational).length),
       },
-      authority: 'Communications remains the authority on conversation state. These are volume counts only.',
+      provenance: setAside(threadResults),
+      authority: 'Communications remains the authority on conversation state. These are volume counts only, of operational conversations.',
     };
-  });
+  }, ['users']));
 
-  await load('transactions', 'escrow_trust_sessions', async () => {
+  await load('transactions', 'escrow_trust_sessions', needsIndex(async () => {
     const sessions = await readAllPages(() => client
       .from('escrow_trust_sessions')
-      .select('id, status, payment_provider_mode, created_at'));
+      .select('id, vin, status, payment_provider_mode, created_at'));
     const windowed = inWindow(sessions);
-    const live = windowed.filter((row) => String(row.payment_provider_mode) === 'live');
+    // A sandbox session is a test by definition; a live one is operational only on an operational car.
+    const results = windowed.map((row) => (String(row.payment_provider_mode) === 'live'
+      ? index.vehicle(row.vin) || { class: 'unknown_requires_review', operational: false }
+      : { class: 'uat', operational: false }));
+    const live = windowed.filter((row, i) => String(row.payment_provider_mode) === 'live' && results[i].operational);
     const sandbox = windowed.filter((row) => String(row.payment_provider_mode) === 'sandbox');
     return {
       available: true,
       metrics: {
-        sessions_opened: metric(windowed.length),
+        sessions_opened: metric(live.length),
         live_settlements: metric(live.filter((r) => String(r.status) === 'settled').length),
         sandbox_settlements: metric(sandbox.filter((r) => String(r.status) === 'settled').length),
       },
+      provenance: setAside(results),
       note: live.length === 0
-        ? 'No session used a live payment provider, so no settlement here represents money that moved.'
+        ? 'No operational session used a live payment provider, so no settlement here represents money that moved.'
         : null,
     };
-  });
+  }));
 
-  await load('risk', 'insurance_claims', async () => {
-    const claims = await readAllPages(() => client
-      .from('insurance_claims').select('id, created_at'));
+  await load('risk', 'insurance_claims', needsIndex(async () => {
+    const claims = inWindow(await readAllPages(() => client
+      .from('insurance_claims').select('id, vin, user_id, created_at')));
+    const results = claims.map((r) => index.vehicle(r.vin) || index.identity(r.user_id) || { class: 'unknown_requires_review', operational: false });
     return {
       available: true,
-      metrics: { claims_recorded: metric(inWindow(claims).length) },
+      metrics: { claims_recorded: metric(claims.filter((_, i) => results[i].operational).length) },
+      provenance: setAside(results),
       // Counts only. A verdict belongs to the governed risk domain.
       boundary: 'Volume only. Fraud and underwriting adjudication are a separate governed domain and no risk verdict is issued here.',
     };
-  });
+  }));
 
   return {
     scope: 'platform',

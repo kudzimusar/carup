@@ -245,11 +245,6 @@ const AUTHORIZATION_CHECK_VEHICLE_READS = [
       + 'this register certifies non-echo, not the strength of the check.',
   },
   {
-    key: 'services/marketplace/marketplaceAnalyticsService.js ((module scope)) owner_id, tenant_id',
-    why: 'assertModerator()-gated; both columns feed getFixtureExclusion() so seed rows are dropped '
-      + 'from the counts. The response is aggregate tallies.',
-  },
-  {
     key: 'services/marketplace/marketplaceInquiryService.js ((module scope)) current_seller_id, tenant_id',
     why: 'resolveListingSeller(): they become the inquiry row\'s seller_id/seller_tenant_id routing '
       + 'keys. toSellerInquiry() omits them; only toAdminInquiry(), behind assertReviewer(), echoes '

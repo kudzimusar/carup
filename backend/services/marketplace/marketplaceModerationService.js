@@ -20,7 +20,8 @@ import {
   shouldShowFixtures,
   listingImageRowsForVin,
 } from './listingSummaryService.js';
-import { getFixtureExclusion } from './marketplaceClassificationRules.js';
+import { classifyVehicle, summarizeProvenance } from '../provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../provenance/provenanceContext.js';
 import { deriveSuspicionLevel } from './marketplaceTrustSummaryService.js';
 import { normalizeVehicleStatus, isVehicleQuarantinedStatus } from '../../utils/vehicleStatus.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
@@ -174,12 +175,38 @@ export const clearListingRisk = (c, vin, b, a) => moderateListing(c, vin, 'clear
  * @param {object} client
  * @param {{ public_status?: string, risk_status?: string }} filters
  */
-export async function listListingsForAdmin(client, filters = {}) {
-  assertModerator(filters.actor || {});
+/**
+ * PC01-K2B — the ONE base population for Admin marketplace truth.
+ *
+ * Moderation listings and marketplace analytics both read through this, so they cannot disagree about
+ * which vehicles are operational: every row is classified once by the provenance authority with its
+ * creator's identity, not by VIN shape. Nothing is removed from the database; the caller decides
+ * whether to show non-operational rows and always reports how many were set aside.
+ */
+export async function readListingProvenanceBase(client) {
   const { data: vehicles, error } = await selectListingRows(client);
   if (error) throw error;
+  const rows = vehicles || [];
+  const index = await loadProvenanceIndex(client, { userIds: rows.map((v) => v.owner_id) });
+  const classified = rows.map((vehicle) => ({
+    vehicle,
+    provenance: classifyVehicle(vehicle, { owner: vehicle.owner_id ? index.user(vehicle.owner_id) : null }),
+  }));
+  return {
+    classified,
+    operational: classified.filter((c) => c.provenance.operational),
+    summary: summarizeProvenance(classified.map((c) => c.provenance)),
+  };
+}
+
+export async function listListingsForAdmin(client, filters = {}) {
+  assertModerator(filters.actor || {});
+  const base = await readListingProvenanceBase(client);
+  // MARKETPLACE_SHOW_FIXTURES keeps its meaning: an operator may ask to see everything. The default
+  // queue is operational truth only.
   const showFixtures = shouldShowFixtures();
-  const candidates = (vehicles || []).filter((v) => showFixtures || getFixtureExclusion(v) === null);
+  const candidates = (showFixtures ? base.classified : base.operational).map((c) => c.vehicle);
+  const provenanceByVin = new Map(base.classified.map((c) => [c.vehicle.vin, c.provenance]));
   const vins = candidates.map((v) => v.vin).filter(Boolean);
   const related = await fetchListingRelatedRows(client, vins);
   const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
@@ -203,11 +230,16 @@ export async function listListingsForAdmin(client, filters = {}) {
     if (isVehicleQuarantinedStatus(vehicle.status)) risk_status = 'blocked';
     else if (suspicion === 'flagged') risk_status = 'flagged';
     else if (suspicion === 'watch') risk_status = 'watch';
-    return { ...summary, public_status, risk_status };
+    const provenance = provenanceByVin.get(vehicle.vin);
+    return { ...summary, public_status, risk_status, provenance_class: provenance?.class ?? null };
   });
 
   let filtered = rows;
   if (filters.public_status) filtered = filtered.filter((r) => r.public_status === filters.public_status);
   if (filters.risk_status) filtered = filtered.filter((r) => r.risk_status === filters.risk_status);
-  return { listings: filtered, total: filtered.length };
+  return {
+    listings: filtered,
+    total: filtered.length,
+    provenance: { ...base.summary, view: showFixtures ? 'all_records' : 'operational_only' },
+  };
 }

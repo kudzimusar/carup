@@ -175,7 +175,13 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
           status: 200,
           contentType: 'application/json',
           headers: corsHeaders,
-          body: JSON.stringify(evidenceList.filter(item => item.verification_status === 'pending'))
+          // PC01-K2B: the Admin queue asks for an explicit page (paged=1) with its operational total.
+          body: JSON.stringify((() => {
+            const pending = evidenceList.filter(item => item.verification_status === 'pending');
+            return url.includes('paged=1')
+              ? { items: pending, page: 1, page_size: 50, total: pending.length, has_more: false, provenance: null }
+              : pending;
+          })())
         });
       } else if (url.includes('/verify') && url.includes('/evidence/')) {
         console.log(`[Mock Router Fulfill] Approve/Verify evidence: ${url}`);

@@ -4,11 +4,13 @@ import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult 
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
 import type { DocumentWorkspace } from '@/pages/diaspora/TradeDocumentsWorkspace'
 import { useAuth } from '@/context/AuthContext'
+import type { ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
 import type { PartSentryRecordResult, VehicleWorkOrder, WorkOrderDecision } from '@/lib/partsentry'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
+  fetchVerificationReviewQueueDetailed as fetchVerificationReviewQueueDetailedRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
   fetchEvidencePreview as fetchEvidencePreviewRequest,
   reviewVerificationSession as reviewVerificationSessionRequest,
@@ -614,6 +616,12 @@ export function useCarUpApi() {
     [verificationClientConfig],
   )
 
+  const fetchVerificationReviewQueueDetailed = useCallback(
+    (filter?: { workflow_phase?: string; status?: string }) =>
+      fetchVerificationReviewQueueDetailedRequest(verificationClientConfig, filter || undefined),
+    [verificationClientConfig],
+  )
+
   const fetchVerificationSessionDetail = useCallback(
     (sessionId: string): Promise<AdminVerificationSession> =>
       fetchVerificationSessionDetailRequest(verificationClientConfig, sessionId),
@@ -695,7 +703,7 @@ export function useCarUpApi() {
     return request(`/marketplace/services${query}`)
   }, [request])
 
-  const compareMarketplaceListings = useCallback(async (vins: string[]): Promise<{ listings: any[]; total: number }> => {
+  const compareMarketplaceListings = useCallback(async (vins: string[]): Promise<{ listings: any[]; total: number; provenance?: ProvenanceSummary }> => {
     return request('/marketplace/compare', { method: 'POST', body: JSON.stringify({ vins }) })
   }, [request])
 
@@ -729,7 +737,7 @@ export function useCarUpApi() {
     request('/marketplace/ai/share-copy', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
   // ── Admin marketplace command center ──
-  const fetchAdminMarketplaceListings = useCallback(async (filters?: { public_status?: string; risk_status?: string }): Promise<{ listings: any[]; total: number }> => {
+  const fetchAdminMarketplaceListings = useCallback(async (filters?: { public_status?: string; risk_status?: string }): Promise<{ listings: any[]; total: number; provenance?: ProvenanceSummary }> => {
     const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString() : ''
     return request(`/admin/marketplace/listings${query}`)
   }, [request])
@@ -737,7 +745,7 @@ export function useCarUpApi() {
     request<MarketplaceListingDetail>(`/admin/marketplace/listings/${encodeURIComponent(vin)}`), [request])
   const moderateMarketplaceListing = useCallback(async (vin: string, action: 'approve' | 'reject' | 'suppress' | 'request-evidence' | 'flag-risk' | 'clear-risk', body?: { reason?: string; notes?: string }): Promise<any> =>
     request(`/admin/marketplace/listings/${encodeURIComponent(vin)}/${action}`, { method: 'PATCH', body: JSON.stringify(body || {}) }), [request])
-  const fetchAdminMarketplaceInquiries = useCallback(async (filters?: { status?: string; inquiry_type?: string; risk_status?: string }): Promise<{ inquiries: any[] }> => {
+  const fetchAdminMarketplaceInquiries = useCallback(async (filters?: { status?: string; inquiry_type?: string; risk_status?: string }): Promise<{ inquiries: any[]; provenance?: ProvenanceSummary }> => {
     const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString() : ''
     return request(`/admin/marketplace/inquiries${query}`)
   }, [request])
@@ -799,8 +807,12 @@ export function useCarUpApi() {
     return request<{ vin: string; timeline: TimelineEvent[]; evidence: VehicleEvidence[] }>(`/vehicles/${vin}/evidence/timeline`)
   }, [request])
 
-  const fetchEvidenceReviewQueue = useCallback(async (status = 'pending'): Promise<VehicleEvidence[]> => {
-    return request<VehicleEvidence[]>(`/evidence/review?status=${encodeURIComponent(status)}`)
+  // PC01-K2B: an explicit page with its total, so a bounded page never passes for the whole queue.
+  const fetchEvidenceReviewQueue = useCallback(async (status = 'pending', page = 1, pageSize = 50): Promise<{
+    items: VehicleEvidence[]; page: number; page_size: number; total: number; has_more: boolean; provenance: ProvenanceSummary | null
+  }> => {
+    const qs = new URLSearchParams({ status, paged: '1', page: String(page), page_size: String(pageSize) })
+    return request(`/evidence/review?${qs.toString()}`)
   }, [request])
 
   const fetchTrustReviewQueue = useCallback(async (filters?: {
@@ -912,9 +924,9 @@ export function useCarUpApi() {
   }, [request])
 
   // ── WS-A fraud queue + WS-B dealer compliance (admin/reviewer) ────────────────
-  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: unknown[] }> => {
+  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: unknown[]; provenance?: ProvenanceSummary }> => {
     const qs = new URLSearchParams(filters as Record<string, string>).toString()
-    return request<{ cases: unknown[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
+    return request<{ cases: unknown[]; provenance?: ProvenanceSummary }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
   }, [request])
   const fetchFraudCase = useCallback(async (id: string): Promise<{ case: unknown }> =>
     request<{ case: unknown }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
@@ -922,8 +934,8 @@ export function useCarUpApi() {
     request(`/fraud/cases/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
   const evaluateVehicleFraud = useCallback(async (vin: string): Promise<unknown> =>
     request(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/fraud/evaluate`, { method: 'POST' }), [request])
-  const fetchDealers = useCallback(async (): Promise<{ dealers: unknown[] }> =>
-    request<{ dealers: unknown[] }>(`/admin/dealers`), [request])
+  const fetchDealers = useCallback(async (): Promise<{ dealers: unknown[]; provenance?: ProvenanceSummary }> =>
+    request<{ dealers: unknown[]; provenance?: ProvenanceSummary }>(`/admin/dealers`), [request])
   const fetchDealer = useCallback(async (id: string): Promise<{ dealer: unknown }> =>
     request<{ dealer: unknown }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
   const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<unknown> =>
@@ -2493,14 +2505,11 @@ export function useCarUpApi() {
     return request('/admin/health')
   }, [request])
 
-  const fetchUsers = useCallback(async (): Promise<User[]> => {
-    return request<User[]>('/admin/users')
-  }, [request])
-
-  const suspendUser = useCallback(async (id: string): Promise<any> => {
-    return request(`/admin/users/${id}/suspend`, {
-      method: 'PATCH'
-    })
+  // PC01-K2B: operational accounts plus how many were set aside by provenance class. Account
+  // suspension is not offered (ACCOUNT SUSPENSION — PRODUCT / AUTHORITY GAP); its endpoints answer 501.
+  const fetchUsers = useCallback(async (): Promise<{ users: User[]; provenance: ProvenanceSummary | null }> => {
+    const body = await request<{ users: User[]; provenance?: ProvenanceSummary } | User[]>('/admin/users')
+    return Array.isArray(body) ? { users: body, provenance: null } : { users: body.users || [], provenance: body.provenance || null }
   }, [request])
 
   const updateVehicleStatus = useCallback(async (vin: string, status: string): Promise<any> => {
@@ -3507,6 +3516,7 @@ export function useCarUpApi() {
     fetchVehicleEvidenceTimeline,
     fetchEvidenceReviewQueue,
     fetchVerificationReviewQueue,
+    fetchVerificationReviewQueueDetailed,
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
     reviewVerificationSession,
@@ -3761,7 +3771,6 @@ export function useCarUpApi() {
     updateRegistryVerification,
     fetchServerHealth,
     fetchUsers,
-    suspendUser,
     updateVehicleStatus,
 
     // ── Referral Engine ──

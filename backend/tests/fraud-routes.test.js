@@ -26,11 +26,16 @@ function resetDb() {
       { id: 'reviewer-1', role: 'reviewer', is_verified: true },
       { id: 'gov-1', role: 'government', is_verified: true },
       { id: 'buyer-1', role: 'buyer', is_verified: true },
+      // The vehicles' owners, product-shaped (PC01-K2B: the queue counts a case as operational only
+      // when its vehicle's creator is evidenced; an owner with no users row is "needs review").
+      { id: 'u_0a1b2c3d4e5f6071', role: 'owner', is_verified: true, email: 'tendai.owner@mail.co.zw', name: 'Tendai Moyo' },
+      { id: 'u_1b2c3d4e5f607182', role: 'owner', is_verified: true, email: 'rudo.owner@mail.co.zw', name: 'Rudo Ncube' },
+      { id: 'u_oc5rproof_k2b0001', role: 'owner', is_verified: true, email: 'proof@carup.test', name: 'Proof Owner' },
     ],
     vehicles: [
       // a clean vehicle (no peers) and a vehicle that duplicates it via chassis slot
-      { vin: 'CLEANVIN00000001', make: 'Toyota', model: 'Hilux', year: 2018, normalized_plate_number: 'ABC123', chassis_number: 'CH-1', engine_number: 'EN-1', temp_plate_id: null, owner_id: 'owner-1', tenant_id: 't1', status: 'active' },
-      { vin: 'CLONEVIN000000002', make: 'Toyota', model: 'Hilux', year: 2018, normalized_plate_number: 'ABC123', chassis_number: 'CLEANVIN00000001', engine_number: 'EN-2', temp_plate_id: null, owner_id: 'owner-2', tenant_id: 't1', status: 'active' },
+      { vin: 'CLEANVIN00000001', make: 'Toyota', model: 'Hilux', year: 2018, normalized_plate_number: 'ABC123', chassis_number: 'CH-1', engine_number: 'EN-1', temp_plate_id: null, owner_id: 'u_0a1b2c3d4e5f6071', tenant_id: 't1', status: 'active' },
+      { vin: 'CLONEVIN000000002', make: 'Toyota', model: 'Hilux', year: 2018, normalized_plate_number: 'ABC123', chassis_number: 'CLEANVIN00000001', engine_number: 'EN-2', temp_plate_id: null, owner_id: 'u_1b2c3d4e5f607182', tenant_id: 't1', status: 'active' },
     ],
     fraud_signals: [],
     fraud_cases: [],
@@ -143,6 +148,23 @@ test('GET /api/fraud/cases (reviewer) lists the open queue', async () => {
   assert.equal(res.status, 200);
   assert.ok(Array.isArray(res.body.cases));
   assert.equal(res.body.cases.length, 1);
+});
+
+test('GET /api/fraud/cases sets aside a case on a certification vehicle and counts it (PC01-K2B)', async () => {
+  resetDb();
+  db.vehicles.push({ vin: 'PROOFVIN00000003', make: 'Toyota', model: 'Hilux', year: 2018, normalized_plate_number: 'ABC123', chassis_number: 'CH-1', engine_number: 'EN-3', temp_plate_id: null, owner_id: 'u_oc5rproof_k2b0001', tenant_id: 't1', status: 'active' });
+  await request('POST', '/api/vehicles/CLEANVIN00000001/fraud/evaluate', {}, 'reviewer-1');
+  await request('POST', '/api/vehicles/PROOFVIN00000003/fraud/evaluate', {}, 'reviewer-1');
+  const raw = db.fraud_cases.length;
+  const res = await request('GET', '/api/fraud/cases', null, 'reviewer-1');
+  assert.equal(res.status, 200);
+  assert.ok(res.body.cases.every((c) => c.vin !== 'PROOFVIN00000003'), 'proof vehicle case is not in the operational queue');
+  assert.equal(res.body.provenance.raw, raw);
+  assert.equal(res.body.provenance.operational + res.body.provenance.excluded_non_operational + res.body.provenance.unknown_requires_review, raw);
+  assert.equal(res.body.provenance.view, 'operational_only');
+  const all = await request('GET', '/api/fraud/cases?view=all', null, 'reviewer-1');
+  assert.equal(all.body.cases.length, raw, 'view=all returns every case, nothing deleted');
+  assert.equal(all.body.provenance.view, 'all_records');
 });
 
 test('GET /api/fraud/cases is denied to a buyer (403)', async () => {

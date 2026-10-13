@@ -166,3 +166,52 @@ describe('a failed read is never a zero', () => {
     expect(await screen.findByTestId('command-centre-message')).toHaveTextContent(/NOT zero/i)
   })
 })
+
+describe('PC01-K2B — operational truth says what it set aside', () => {
+  it('states operational counts and the test / certification records excluded, per section', async () => {
+    fetchCommandCentre.mockResolvedValue({
+      ...base,
+      sections: {
+        ...base.sections,
+        supply: {
+          ...base.sections.supply,
+          metrics: { vehicles_total: value(1), vehicles_published: value(1) },
+          provenance: { records_read: 364, operational: 1, excluded_non_operational: 361, unknown_requires_review: 2, by_class: { ci_automation: 300 } },
+        },
+        demand: {
+          ...base.sections.demand,
+          provenance: {
+            inquiries: { records_read: 70, operational: 59, excluded_non_operational: 9, unknown_requires_review: 2 },
+            behavioural_events: { records_read: 12, operational: 0, excluded: 12 },
+          },
+        },
+      },
+    })
+    render(<CommandCentre />)
+    expect(await screen.findByTestId('command-supply-vehicles_total-value')).toHaveTextContent('1')
+    const supply = screen.getByTestId('command-supply-provenance')
+    expect(supply).toHaveTextContent('1 of 364 records counted')
+    expect(supply).toHaveTextContent('Test / certification data excluded: 361')
+    expect(supply).toHaveTextContent('Needs review (not counted): 2')
+    const demand = screen.getByTestId('command-demand-provenance')
+    expect(demand).toHaveTextContent('Inquiries: 59 of 70 records counted')
+    expect(demand).toHaveTextContent('Behavioural events: 0 of 12 records counted · Test / certification data excluded: 12')
+  })
+
+  it('names a figure that cannot be separated from test data instead of showing a number', async () => {
+    fetchCommandCentre.mockResolvedValue({
+      ...base,
+      sections: {
+        ...base.sections,
+        overview: {
+          ...base.sections.overview,
+          metrics: { users_total: value(2), organizations_total: { availability: 'unavailable', value: null, reason: 'provenance_not_separable' } },
+        },
+      },
+    })
+    render(<CommandCentre />)
+    const cell = await screen.findByTestId('command-overview-organizations_total-value')
+    expect(cell).toHaveTextContent('Not separable from test data')
+    expect(cell).not.toHaveTextContent(/\d/)
+  })
+})

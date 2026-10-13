@@ -902,10 +902,22 @@ test('P2 — listing-image read failure propagation produces primary_image_state
     status: 'Available',
     publication_status: 'published',
   };
+  // PC01-K2B: the admin queue lists a vehicle only with creator evidence, so both rows carry the
+  // product-shaped owner the product would hold (the image-failure contract is unchanged).
+  const listingOwner = { id: 'u_3d4e5f6071829304', email: 'farai.seller@mail.co.zw', name: 'Farai Seller' };
+  vehicleRow.owner_id = listingOwner.id;
+  vehicleRow2.owner_id = listingOwner.id;
 
   // Mock client where listing_images query fails (returns error)
   const failedClient = {
     from(table) {
+      if (table === 'users') {
+        return {
+          select() {
+            return { in: (col, vals) => Promise.resolve({ data: [listingOwner].filter((u) => vals.includes(u[col])), error: null }) };
+          },
+        };
+      }
       if (table === 'vehicles') {
         return {
           select() {

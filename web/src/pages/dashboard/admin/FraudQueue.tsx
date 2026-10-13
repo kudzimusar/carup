@@ -7,6 +7,7 @@ import { ShieldAlert, CheckCircle, XCircle } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/errorMessage'
+import { ProvenanceNotice, ReadFailedNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 
 export interface FraudCase {
   id: string
@@ -56,13 +57,23 @@ export function FraudCaseCard({ fraudCase, onResolve, busy }: { fraudCase: Fraud
 export default function FraudQueue() {
   const { fetchFraudCases, resolveFraudCase } = useCarUpApi()
   const [cases, setCases] = useState<FraudCase[]>([])
+  const [provenance, setProvenance] = useState<ProvenanceSummary | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
 
+  // PC01-K2B: the ACTIVE queue — no status filter, so the server returns open AND investigating
+  // cases. Asking for status=open used to drop every investigating case although its card offers
+  // actions for it. A failed read is stated, never shown as "no cases".
+  const apply = (r: { cases?: unknown[]; provenance?: ProvenanceSummary }) => {
+    setCases((r.cases || []) as FraudCase[])
+    setProvenance(r.provenance ?? null)
+    setLoadError(null)
+  }
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetchFraudCases({ status: 'open' }); setCases((r.cases || []) as FraudCase[]) }
-    catch (err) { toast.error(getErrorMessage(err)) }
+    try { apply(await fetchFraudCases()) }
+    catch (err) { setLoadError(getErrorMessage(err)) }
     finally { setLoading(false) }
   }, [fetchFraudCases])
 
@@ -70,9 +81,9 @@ export default function FraudQueue() {
   // state is set only in the async continuation). load() is reused for event-driven refresh.
   useEffect(() => {
     let cancelled = false
-    fetchFraudCases({ status: 'open' })
-      .then((r) => { if (!cancelled) setCases((r.cases || []) as FraudCase[]) })
-      .catch((err) => { if (!cancelled) toast.error(getErrorMessage(err)) })
+    fetchFraudCases()
+      .then((r) => { if (!cancelled) apply(r) })
+      .catch((err) => { if (!cancelled) setLoadError(getErrorMessage(err)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [fetchFraudCases])
@@ -91,10 +102,12 @@ export default function FraudQueue() {
     <div className="max-w-4xl mx-auto space-y-4">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2"><ShieldAlert className="w-6 h-6 text-red-500" /> Fraud &amp; duplicate queue</h1>
-        <p className="text-gray-500 text-sm">Open cases from the duplicate/fraud engine. Resolving records an append-only decision; vehicle passports are never auto-merged.</p>
+        <p className="text-gray-500 text-sm">Open and investigating cases from the duplicate/fraud engine. Resolving records an append-only decision; vehicle passports are never auto-merged.</p>
+        <ProvenanceNotice provenance={provenance} noun="cases" />
       </div>
       {loading ? [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)
-        : cases.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">No open fraud cases.</CardContent></Card>
+        : loadError ? <ReadFailedNotice what="Fraud cases" detail={loadError} />
+        : cases.length === 0 ? <Card className="border-0 card-shadow"><CardContent className="py-10 text-center text-gray-400">No open or investigating fraud cases.</CardContent></Card>
         : cases.map(c => <FraudCaseCard key={c.id} fraudCase={c} onResolve={onResolve} busy={busy === c.id} />)}
     </div>
   )

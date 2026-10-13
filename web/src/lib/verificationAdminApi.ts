@@ -6,6 +6,7 @@
  */
 
 import { apiRequest, type AuthHeaders } from './apiClient'
+import type { ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import type { AdminVerificationSession, EvidencePreview, DecisionResponse } from '@shared/types'
 
 const BASE_PATH = '/admin/identity/verification-sessions'
@@ -19,6 +20,8 @@ export interface VerificationAdminClientConfig {
 interface ListResponse {
   success: boolean
   sessions: AdminVerificationSession[]
+  /** PC01-K2B: how many sessions were set aside by provenance class (counts only). */
+  provenance?: ProvenanceSummary
 }
 
 interface SessionResponse {
@@ -35,11 +38,14 @@ interface EvidencePreviewResponse {
   preview: EvidencePreview
 }
 
-/** List sessions in the review queue, optionally filtered by workflow phase or status. */
-export async function fetchVerificationReviewQueue(
+/**
+ * List sessions in the review queue with the server's provenance summary — operational sessions plus
+ * how many were set aside (UAT / automation / certification / needs review).
+ */
+export async function fetchVerificationReviewQueueDetailed(
   config: VerificationAdminClientConfig,
   filter?: { workflow_phase?: string; status?: string },
-): Promise<AdminVerificationSession[]> {
+): Promise<{ sessions: AdminVerificationSession[]; provenance: ProvenanceSummary | null }> {
   const params = new URLSearchParams()
   if (filter?.workflow_phase) params.set('workflow_phase', filter.workflow_phase)
   else if (filter?.status) params.set('status', filter.status)
@@ -50,7 +56,15 @@ export async function fetchVerificationReviewQueue(
     authHeaders: config.authHeaders,
     fetchImpl: config.fetchImpl,
   })
-  return res.sessions ?? []
+  return { sessions: res.sessions ?? [], provenance: res.provenance ?? null }
+}
+
+/** List sessions in the review queue, optionally filtered by workflow phase or status. */
+export async function fetchVerificationReviewQueue(
+  config: VerificationAdminClientConfig,
+  filter?: { workflow_phase?: string; status?: string },
+): Promise<AdminVerificationSession[]> {
+  return (await fetchVerificationReviewQueueDetailed(config, filter)).sessions
 }
 
 /** Fetch one session's review detail including assessment and decisions. */

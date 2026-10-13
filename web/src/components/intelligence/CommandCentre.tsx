@@ -19,8 +19,18 @@ import {
   type MetricEnvelope,
 } from '@/lib/intelligenceDisplay'
 
+/** PC01-K2B — what a section read, and what it set aside, by provenance. Counts only. */
+interface SetAside {
+  records_read: number
+  operational: number
+  excluded_non_operational?: number
+  unknown_requires_review?: number
+  excluded?: number
+}
+
 interface Section {
   available: boolean
+  provenance?: SetAside | Record<string, SetAside>
   unreadable?: boolean
   source?: string
   reason?: string
@@ -70,6 +80,47 @@ const METRIC_LABELS: Record<string, string> = {
   claims_recorded: 'Claims recorded',
 }
 
+const PROVENANCE_PART_LABELS: Record<string, string> = {
+  inquiries: 'Inquiries',
+  saved_vehicles: 'Saved',
+  behavioural_events: 'Behavioural events',
+}
+
+function isSetAside(value: unknown): value is SetAside {
+  return Boolean(value) && typeof (value as SetAside).records_read === 'number'
+}
+
+function setAsideText(part: SetAside): string {
+  const excluded = part.excluded_non_operational ?? part.excluded ?? 0
+  const review = part.unknown_requires_review ?? 0
+  return `${part.operational} of ${part.records_read} records counted · Test / certification data excluded: ${excluded}`
+    + (review > 0 ? ` · Needs review (not counted): ${review}` : '')
+}
+
+/** Operational truth only: say what was read and what was set aside, never silently. */
+function ProvenanceLine({ sectionKey, provenance }: { sectionKey: string; provenance?: Section['provenance'] }) {
+  if (!provenance) return null
+  const parts: Array<[string | null, SetAside]> = isSetAside(provenance)
+    ? [[null, provenance]]
+    : Object.entries(provenance).filter((entry): entry is [string, SetAside] => isSetAside(entry[1]))
+  if (parts.length === 0) return null
+  return (
+    <div className="mt-3 space-y-0.5 text-[11px] text-gray-500" data-testid={`command-${sectionKey}-provenance`}>
+      {parts.map(([name, part]) => (
+        <p key={name ?? 'all'}>
+          {name ? `${PROVENANCE_PART_LABELS[name] || name}: ` : ''}{setAsideText(part)}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+/** A figure that cannot be separated from test data is named as such, not as "Not available". */
+function metricText(value: MetricEnvelope): string {
+  if (!hasValue(value) && value?.reason === 'provenance_not_separable') return 'Not separable from test data'
+  return displayMetric(value)
+}
+
 function SectionCard({ sectionKey, label, section }: { sectionKey: string; label: string; section?: Section }) {
   if (!section) return null
 
@@ -99,7 +150,7 @@ function SectionCard({ sectionKey, label, section }: { sectionKey: string; label
               className={hasValue(value) ? 'text-xl font-semibold text-gray-900' : 'text-sm italic text-gray-500'}
               data-testid={`command-${sectionKey}-${key}-value`}
             >
-              {displayMetric(value)}
+              {metricText(value)}
             </dd>
             <dt className="mt-0.5 text-xs text-gray-600">{METRIC_LABELS[key] || key}</dt>
           </div>
@@ -108,6 +159,7 @@ function SectionCard({ sectionKey, label, section }: { sectionKey: string; label
       {section.note && (
         <p className="mt-3 text-[11px] text-gray-500" data-testid={`command-${sectionKey}-note`}>{section.note}</p>
       )}
+      <ProvenanceLine sectionKey={sectionKey} provenance={section.provenance} />
       {(section.trust_authority || section.authority || section.boundary) && (
         <p className="mt-2 text-[11px] text-gray-500" data-testid={`command-${sectionKey}-authority`}>
           {section.trust_authority || section.authority || section.boundary}
