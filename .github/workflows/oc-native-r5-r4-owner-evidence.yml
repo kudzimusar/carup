@@ -178,8 +178,9 @@ jobs:
             '    timeout: 30000' \
             '- assertVisible: "Buy"'
 
-          run_flow tap_buy             '- tapOn:'             '    text: "^Buy$"'
           run_flow buy \
+            '- tapOn:' \
+            '    id: "primary-tab-marketplace"' \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000' \
@@ -583,8 +584,9 @@ jobs:
               '    timeout: 30000' \
               '- assertVisible: "Buy"'
 
-            run_flow tap_buy               '- tapOn:'               '    text: "^Buy$"'
             run_flow buy \
+              '- tapOn:' \
+              '    id: "primary-tab-marketplace"' \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000' \
