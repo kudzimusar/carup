@@ -2464,6 +2464,6 @@ Implementation should leave current operational Admin routes available until eac
 
 This document defines architecture only.
 
-It does not self-accept.
+This document does not self-accept.
 
 CA-UX-01 CORPORATE ADMIN UX ARCHITECTURE READY FOR MODERATOR REVIEW
