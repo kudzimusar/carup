@@ -178,7 +178,7 @@ jobs:
             '    timeout: 30000' \
             '- assertVisible: "Buy"'
 
-          tap_ios_primary_tab "Buy"
+          run_flow tap_buy             '- tapOn:'             '    text: "^Buy$"'
           run_flow buy \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
@@ -583,7 +583,7 @@ jobs:
               '    timeout: 30000' \
               '- assertVisible: "Buy"'
 
-            tap_android_primary_tab "Buy"
+            run_flow tap_buy               '- tapOn:'               '    text: "^Buy$"'
             run_flow buy \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
