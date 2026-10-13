@@ -315,23 +315,23 @@ jobs:
               local xml="$1"
               local tap
               tap="$(python3 - "$xml" <<'PY'
-import re
-import sys
-import xml.etree.ElementTree as ET
+            import re
+            import sys
+            import xml.etree.ElementTree as ET
 
-root = ET.parse(sys.argv[1]).getroot()
-for preferred in ("Close app", "Wait"):
-    for node in root.iter("node"):
-        label = (node.attrib.get("text") or node.attrib.get("content-desc") or "").strip()
-        if label != preferred:
-            continue
-        match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
-        if match:
-            x1, y1, x2, y2 = map(int, match.groups())
-            print((x1 + x2) // 2, (y1 + y2) // 2)
-            raise SystemExit(0)
-raise SystemExit(1)
-PY
+            root = ET.parse(sys.argv[1]).getroot()
+            for preferred in ("Close app", "Wait"):
+                for node in root.iter("node"):
+                    label = (node.attrib.get("text") or node.attrib.get("content-desc") or "").strip()
+                    if label != preferred:
+                        continue
+                    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+                    if match:
+                        x1, y1, x2, y2 = map(int, match.groups())
+                        print((x1 + x2) // 2, (y1 + y2) // 2)
+                        raise SystemExit(0)
+            raise SystemExit(1)
+            PY
               )" || return 1
               [ -n "$tap" ] || return 1
               read -r tap_x tap_y <<< "$tap"
@@ -408,9 +408,9 @@ PY
               echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
               echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
               echo "launcher_component=$LAUNCH_COMPONENT"
-              echo "expo=$(node -p "require('../../node_modules/expo/package.json').version")"
-              echo "react_native=$(node -p "require('../../node_modules/react-native/package.json').version")"
-              echo "expo_camera=$(node -p "require('../../node_modules/expo-camera/package.json').version")"
+              echo "expo=$(node -p 'require("../../node_modules/expo/package.json").version')"
+              echo "react_native=$(node -p 'require("../../node_modules/react-native/package.json").version')"
+              echo "expo_camera=$(node -p 'require("../../node_modules/expo-camera/package.json").version')"
               echo "new_architecture=true"
               echo "artifact=$APK"
               echo "home_assertion=CarUp resumed and focused; Fresh on CarUp visible; no blocking modal"
