@@ -5,7 +5,7 @@
  * raw fraud evidence or private dealer/garage documents.
  */
 import { CorporatePage, OperateLinks, Section, StatementPanel } from '@/components/corporate/CorporatePage'
-import { MetricSlotView } from '@/components/corporate/TruthState'
+import { CompactSlotList } from '@/components/corporate/TruthState'
 import { OPERATE_LINKS } from '@/config/corporate/navigation'
 import { K2B_PENDING_REASON, PENDING_K2B } from './shared'
 
@@ -15,9 +15,7 @@ export default function CorporateTrustRisk() {
   return (
     <CorporatePage id="trust-risk" intro="Risk and compliance work by named queue. Identity, evidence, dealer compliance, seller authority, PartSentry, fraud and trust remain separate facts.">
       <Section title="Aggregate workload" description="Each queue separately. No combined trust or risk percentage." testId="trust-aggregates">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {AGGREGATES.map((a) => <MetricSlotView key={a} label={a} slot={PENDING_K2B} size="sm" />)}
-        </div>
+        <CompactSlotList caption="Risk and compliance workload by named queue" items={AGGREGATES.map((a) => ({ label: a, slot: PENDING_K2B }))} />
         <p className="text-xs text-slate-500">{K2B_PENDING_REASON}</p>
       </Section>
       <Section title="Restricted operator queues" testId="trust-operate">

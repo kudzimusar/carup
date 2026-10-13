@@ -5,7 +5,7 @@
  */
 import { ChevronRight } from 'lucide-react'
 import { CorporatePage, Section } from '@/components/corporate/CorporatePage'
-import { MetricSlotView, TruthStateBadge } from '@/components/corporate/TruthState'
+import { CompactSlotList, TruthStateBadge } from '@/components/corporate/TruthState'
 import { NO_SOURCE } from './shared'
 
 const FAMILIES = [
@@ -23,11 +23,11 @@ export default function CorporateReports() {
   return (
     <CorporatePage id="reports" intro="Management cadence and the governed report lifecycle. No report has been generated in this release.">
       <Section title="Due, in review and awaiting approval" testId="reports-strip">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <MetricSlotView label="Reports due" slot={NO_SOURCE} size="sm" />
-          <MetricSlotView label="In review" slot={NO_SOURCE} size="sm" />
-          <MetricSlotView label="Awaiting approval" slot={NO_SOURCE} size="sm" />
-        </div>
+        <CompactSlotList caption="Report workload" items={[
+          { label: 'Reports due', slot: NO_SOURCE },
+          { label: 'In review', slot: NO_SOURCE },
+          { label: 'Awaiting approval', slot: NO_SOURCE },
+        ]} />
       </Section>
       <Section title="Report lifecycle" description="Each step is a separate authority. Generation is not publication." testId="reports-lifecycle">
         <ol className="flex flex-wrap items-center gap-1.5" aria-label="Report lifecycle stages">

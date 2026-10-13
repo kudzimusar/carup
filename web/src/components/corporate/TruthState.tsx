@@ -114,6 +114,7 @@ export function BlockedSlotList({
   caption: string
 }) {
   return (
+    <div>
     <table className="w-full border-collapse text-sm" data-testid="blocked-slot-list">
       <caption className="sr-only">{caption}</caption>
       <thead>
@@ -129,10 +130,10 @@ export function BlockedSlotList({
           return (
             <tr key={label} className="border-b border-slate-100 align-top" data-testid="blocked-slot-row" data-truth-state={p.state}>
               <th scope="row" className="py-2 pr-3 text-left font-medium text-slate-800">{label}</th>
-              <td className="py-2 pr-3">
+              <td className="py-2 pr-3" aria-label={p.accessibleText}>
                 <div className="flex flex-col gap-1">
+                  {p.isValue && <span className="tabular-nums text-sm font-semibold text-slate-900">{p.primary}</span>}
                   <TruthStateBadge state={p.state} badge={p.badge} className="self-start" />
-                  <span className="text-xs text-slate-600">{p.primary}</span>
                   {reason && <span className="text-[11px] text-slate-500 md:hidden">{reason}</span>}
                 </div>
               </td>
@@ -142,5 +143,56 @@ export function BlockedSlotList({
         })}
       </tbody>
     </table>
+    <StateFootnotes states={Array.from(new Set(items.map((i) => i.slot.state)))} />
+    </div>
+  )
+}
+
+/**
+ * A compact list of slots — label and truth badge per row — for sections where many slots share a
+ * state. The full statement stays available to assistive technology on every row, and each state
+ * used is explained once in the footnote, so blocked sections stay readable instead of repeating
+ * the same sentence (CA-UX-01 §4.3 density; never a wall of equal cards).
+ */
+export function CompactSlotList({ items, caption, className }: { items: Array<{ label: string; slot: MetricSlot }>; caption: string; className?: string }) {
+  const presented = items.map(({ label, slot }) => ({ label, p: presentSlot(slot, label) }))
+  const states = Array.from(new Set(presented.map(({ p }) => p.state)))
+  return (
+    <div className={cn('rounded-md border border-slate-200 bg-white', className)} data-testid="compact-slot-list">
+      <ul aria-label={caption} className="divide-y divide-slate-100">
+        {presented.map(({ label, p }) => (
+          <li
+            key={label}
+            className="flex min-h-[40px] flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2"
+            data-testid="metric-slot"
+            data-truth-state={p.state}
+            data-is-value={p.isValue ? 'true' : 'false'}
+            aria-label={p.accessibleText}
+          >
+            <span className="text-sm text-slate-800">{label}</span>
+            {p.isValue
+              ? <span className="flex items-center gap-2"><span className="tabular-nums text-sm font-semibold text-slate-900" data-testid="metric-slot-primary">{p.primary}</span><TruthStateBadge state={p.state} badge={p.badge} /></span>
+              : <TruthStateBadge state={p.state} badge={p.badge} />}
+          </li>
+        ))}
+      </ul>
+      <StateFootnotes states={states} />
+    </div>
+  )
+}
+
+/** Each state's statement, once — the legend for a compact block. */
+export function StateFootnotes({ states }: { states: TruthState[] }) {
+  const withStatement = states.filter((s) => TRUTH_STATES[s].statement)
+  if (withStatement.length === 0) return null
+  return (
+    <dl className="space-y-1 border-t border-slate-100 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-600" data-testid="state-footnotes">
+      {withStatement.map((s) => (
+        <div key={s} className="flex flex-wrap items-baseline gap-x-2">
+          <dt className="font-medium text-slate-700">{TRUTH_STATES[s].badge}:</dt>
+          <dd>{String(TRUTH_STATES[s].statement).replace(/\.$/, '')}.</dd>
+        </div>
+      ))}
+    </dl>
   )
 }

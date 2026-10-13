@@ -1,14 +1,16 @@
 /**
  * CA-K3-01 — Corporate Overview: the visual hierarchy only (CA-UX-01 §11, sections A–I). No live
- * number appears: no Corporate source path is yet certified, so every slot states why it is blocked.
- * Strategic blocked slots stay visible with their reason; nothing is filled to look complete.
+ * number appears: no Corporate source path is yet certified, so every position states its truth.
+ * Strategic blocked slots stay visible with their reason; nothing is filled to look complete, and each
+ * state is explained once per section rather than repeated on every slot.
  */
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { CorporatePage, Section, StatementPanel } from '@/components/corporate/CorporatePage'
-import { MetricSlotView } from '@/components/corporate/TruthState'
+import { CompactSlotList, MetricSlotView, StateFootnotes, TruthStateBadge } from '@/components/corporate/TruthState'
 import { ProvenanceFreshness } from '@/components/corporate/ProvenanceFreshness'
-import { BUSINESS_UNITS, CA_FIN_REASON, K2B_PENDING_REASON, NO_SOURCE, NO_SOURCE_REASON, PENDING_FIN, PENDING_K2B } from './shared'
+import { presentSlot, type MetricSlot } from '@/lib/corporate/truthState'
+import { BUSINESS_UNITS, K2B_PENDING_REASON, NO_SOURCE, PENDING_FIN, PENDING_K2B } from './shared'
 
 function DestinationLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
@@ -18,6 +20,12 @@ function DestinationLink({ to, children }: { to: string; children: React.ReactNo
   )
 }
 
+const BU_MEASURES: Array<{ label: string; slot: MetricSlot }> = [
+  { label: 'Demand', slot: PENDING_K2B },
+  { label: 'Throughput', slot: PENDING_K2B },
+  { label: 'Finance', slot: PENDING_FIN },
+]
+
 export default function CorporateOverview() {
   return (
     <CorporatePage
@@ -26,73 +34,92 @@ export default function CorporateOverview() {
     >
       <Section label="A" title="Executive state" description="At most a handful of high-confidence positions. None is certified for Corporate use yet." testId="overview-state-band">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricSlotView label="Operational accounts (not customers)" slot={PENDING_K2B} reason={K2B_PENDING_REASON} size="lg" />
-          <MetricSlotView label="Published Marketplace listings" slot={PENDING_K2B} reason={K2B_PENDING_REASON} size="lg" />
-          <MetricSlotView label="Marketplace inquiries" slot={PENDING_K2B} reason={K2B_PENDING_REASON} size="lg" />
-          <MetricSlotView label="Named review queues awaiting work" slot={PENDING_K2B} reason="Shown per queue, never summed into one risk number. Source path not yet certified." size="lg" />
+          <MetricSlotView label="Operational accounts (not customers)" slot={PENDING_K2B} size="lg" />
+          <MetricSlotView label="Published Marketplace listings" slot={PENDING_K2B} size="lg" />
+          <MetricSlotView label="Marketplace inquiries" slot={PENDING_K2B} size="lg" />
+          <MetricSlotView label="Named review queues awaiting work" slot={PENDING_K2B} size="lg" reason="Shown per queue, never summed into one risk number." />
         </div>
+        <p className="text-xs text-slate-500">{K2B_PENDING_REASON}</p>
       </Section>
 
-      <Section label="B" title="Business unit landscape" description="The four proposed management units. They are management constructs, not legal entities." testId="overview-bu-landscape">
+      <Section label="B" title="Business unit landscape" description="The four proposed management units — management constructs, not legal entities." testId="overview-bu-landscape">
         <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-          {BUSINESS_UNITS.map((bu) => (
-            <div key={bu.id} className="grid grid-cols-1 gap-3 border-b border-slate-100 p-3 last:border-b-0 md:grid-cols-[minmax(0,14rem)_1fr]">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{bu.name}</p>
-                <p className="text-[11px] text-slate-500">Proposed BU · legal status unknown</p>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <MetricSlotView label="Demand" slot={PENDING_K2B} size="sm" />
-                <MetricSlotView label="Throughput" slot={PENDING_K2B} size="sm" />
-                <MetricSlotView label="Finance" slot={PENDING_FIN} size="sm" />
-              </div>
-            </div>
-          ))}
+          <table className="w-full border-collapse text-sm">
+            <caption className="sr-only">Business unit landscape by measure and truth state</caption>
+            <thead className="hidden sm:table-header-group">
+              <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                <th scope="col" className="px-3 py-2 font-medium">Business unit</th>
+                {BU_MEASURES.map((m) => <th key={m.label} scope="col" className="px-3 py-2 font-medium">{m.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {BUSINESS_UNITS.map((bu) => (
+                <tr key={bu.id} className="flex flex-col gap-1.5 border-b border-slate-100 px-3 py-2.5 last:border-b-0 sm:table-row sm:px-0 sm:py-0">
+                  <th scope="row" className="text-left sm:px-3 sm:py-2.5">
+                    <span className="block font-semibold text-slate-900">{bu.name}</span>
+                    <span className="block text-[11px] font-normal text-slate-500">Proposed · legal status unknown</span>
+                  </th>
+                  {BU_MEASURES.map((m) => {
+                    const p = presentSlot(m.slot, `${bu.name} ${m.label}`)
+                    return (
+                      <td key={m.label} className="flex items-center justify-between gap-2 sm:table-cell sm:px-3 sm:py-2.5" aria-label={p.accessibleText} data-truth-state={p.state}>
+                        <span className="text-xs text-slate-500 sm:hidden">{m.label}</span>
+                        <TruthStateBadge state={p.state} badge={p.badge} />
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <StateFootnotes states={['PENDING_K2B_CONSUMPTION', 'PENDING_CA_FIN']} />
         </div>
         <DestinationLink to="/corporate/business-units">Compare Business Units</DestinationLink>
       </Section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Section label="C" title="Demand & growth picture" description="Each demand signal stays separately named. Accounts are not customers; inquiries are not sales." testId="overview-demand">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <MetricSlotView label="Recorded searches" slot={PENDING_K2B} size="sm" />
-            <MetricSlotView label="Unmet recorded search demand (zero results)" slot={PENDING_K2B} size="sm" />
-            <MetricSlotView label="Trade requests" slot={PENDING_K2B} size="sm" />
-            <MetricSlotView label="Service requests" slot={PENDING_K2B} size="sm" />
-          </div>
+          <CompactSlotList caption="Demand signals" items={[
+            { label: 'Recorded searches', slot: PENDING_K2B },
+            { label: 'Unmet recorded search demand (zero results)', slot: PENDING_K2B },
+            { label: 'Trade requests', slot: PENDING_K2B },
+            { label: 'Service requests', slot: PENDING_K2B },
+          ]} />
           <DestinationLink to="/corporate/growth">Open Customers & Growth</DestinationLink>
         </Section>
 
         <Section label="E" title="Operations state" description="Backlog, throughput and cycle time per named queue. No overall operations health score." testId="overview-operations">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <MetricSlotView label="Queue backlog" slot={PENDING_K2B} size="sm" />
-            <MetricSlotView label="Cycle time" slot={NO_SOURCE} size="sm" reason={NO_SOURCE_REASON} />
-          </div>
+          <CompactSlotList caption="Operations state" items={[
+            { label: 'Queue backlog (per named queue)', slot: PENDING_K2B },
+            { label: 'Throughput', slot: PENDING_K2B },
+            { label: 'Cycle time', slot: NO_SOURCE },
+          ]} />
           <DestinationLink to="/corporate/operations">Open Operations (Business Operations plane)</DestinationLink>
         </Section>
 
         <Section label="D" title="Finance position" testId="overview-finance">
           <StatementPanel tone="blocked">Corporate accounting system of record not yet established.</StatementPanel>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <MetricSlotView label="Recognized revenue" slot={PENDING_FIN} size="sm" />
-            <MetricSlotView label="Gross profit" slot={PENDING_FIN} size="sm" />
-            <MetricSlotView label="Cash" slot={PENDING_FIN} size="sm" />
-            <MetricSlotView label="Receivables / payables" slot={PENDING_FIN} size="sm" reason={CA_FIN_REASON} />
-          </div>
+          <CompactSlotList caption="Finance position" items={[
+            { label: 'Recognized revenue', slot: PENDING_FIN },
+            { label: 'Gross profit', slot: PENDING_FIN },
+            { label: 'Cash', slot: PENDING_FIN },
+            { label: 'Receivables / payables', slot: PENDING_FIN },
+          ]} />
           <DestinationLink to="/corporate/finance">Open Finance</DestinationLink>
         </Section>
 
         <Section label="F" title="Trust / Risk / Compliance" description="Named queues and their aging — never one combined trust percentage." testId="overview-trust">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <MetricSlotView label="Verification backlog" slot={PENDING_K2B} size="sm" />
-            <MetricSlotView label="Evidence backlog" slot={PENDING_K2B} size="sm" />
-          </div>
+          <CompactSlotList caption="Trust, risk and compliance queues" items={[
+            { label: 'Verification backlog', slot: PENDING_K2B },
+            { label: 'Evidence backlog', slot: PENDING_K2B },
+            { label: 'Fraud cases (open and investigating)', slot: PENDING_K2B },
+          ]} />
           <DestinationLink to="/corporate/trust-risk">Open Trust / Risk / Compliance</DestinationLink>
         </Section>
       </div>
 
-      <Section label="G" title="Geography" description="Shown only when an authoritative geography type is selected. None is available yet." testId="overview-geography">
-        <MetricSlotView label="Geographic view" slot={NO_SOURCE} reason="No governed geography dimension exists for Corporate scope yet; geography is never inferred from addresses or trade corridors." size="sm" />
+      <Section label="G" title="Geography" description="Shown only when an authoritative geography type is selected. None is available yet; geography is never inferred from addresses or trade corridors." testId="overview-geography">
+        <CompactSlotList caption="Geography" items={[{ label: 'Geographic view', slot: NO_SOURCE }]} />
       </Section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -106,10 +133,11 @@ export default function CorporateOverview() {
           <DestinationLink to="/corporate/data-intelligence">Open Data & Intelligence</DestinationLink>
         </Section>
         <Section label="I" title="Management actions" testId="overview-actions">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <MetricSlotView label="Reports due" slot={NO_SOURCE} size="sm" />
-            <MetricSlotView label="Access reviews due" slot={NO_SOURCE} size="sm" />
-          </div>
+          <CompactSlotList caption="Management actions" items={[
+            { label: 'Reports due', slot: NO_SOURCE },
+            { label: 'Access reviews due', slot: NO_SOURCE },
+            { label: 'Data source failures', slot: NO_SOURCE },
+          ]} />
         </Section>
       </div>
     </CorporatePage>
