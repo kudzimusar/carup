@@ -3,7 +3,7 @@
 Programme: CA-1.0 — CarUp Corporate Admin 1.0  
 Agent: CA-GROWTH — Customer & Growth Intelligence Authority Agent  
 Task: CA-GROWTH-01  
-Status: CUSTOMER/GROWTH AUTHORITY / DOCUMENTATION ONLY — NOT ACCEPTED UNTIL CA-MOD REVIEW
+Status: CA-MOD ACCEPTED — CUSTOMER/GROWTH AUTHORITY / DOCUMENTATION ONLY — K2B DEPENDENCY RECUSTODIED
 
 ## 1. Authority and custody
 
@@ -18,9 +18,9 @@ This model is produced under the following exact authorities:
 - Accepted CA-FIN-01 authority: \`9ba7388559fa13cf353e410ce2a62be30660bdeb\`
 - Documentation starting head: \`5e667b17250dbbaff113bfff424c91ae67916d53\`
 - Product/reference snapshot inspected read-only: \`505ffcca6b641c8b3b55f503e0f4fd39d26710dc\`
-- Parallel dependency: **PC01-K2B-R2 — ACTIVE / NOT YET ACCEPTED**
+- Accepted operational-provenance dependency: **PC01-K2B-R2 — ACCEPTED / FROZEN @ `7b34dec1bc9f05b72b6abf0104db65980f280a0b`**
 
-The live PR #222 advanced beyond the supplied product snapshot during execution. CA-GROWTH-01 remained pinned to \`505ffcca6b641c8b3b55f503e0f4fd39d26710dc\` and does not adopt later product or K2B state as Corporate Admin authority.
+The live PR #222 advanced beyond the supplied product snapshot during execution. CA-GROWTH-01 remained pinned to `505ffcca6b641c8b3b55f503e0f4fd39d26710dc` for product/source inspection. After the specialist return, CA-MOD independently accepted PC01-K2B-R2 at `7b34dec1bc9f05b72b6abf0104db65980f280a0b`. This recustody consumes only K2B's accepted provenance/publication semantics as a downstream authority; it does **not** substitute the later PR #222 product tree for the product snapshot inspected by CA-GROWTH.
 
 This document establishes customer, growth, funnel, cohort, attribution and behavioural-intelligence semantics only. It does **not** build dashboards, add analytics instrumentation, change event schemas, alter product code, modify database schema, create migrations, mutate K2B, classify current rows, expose PII, or activate blocked Corporate KPIs.
 
@@ -77,7 +77,7 @@ At this authority, CarUp does not have one accepted source that proves:
 - unique visitors from Navigation Intelligence;
 - a linked Navigation-route → commercial-outcome conversion.
 
-The correct Corporate state for those concepts is **BLOCKED**, **PENDING_K2B**, **PENDING_CA_FIN**, or **UNAVAILABLE_NOT_SEPARABLE** as specified below.
+The correct Corporate state for those concepts is **BLOCKED**, **PENDING_K2B_CONSUMPTION**, **PENDING_CA_FIN**, or **UNAVAILABLE_NOT_SEPARABLE** as specified below.
 
 ### 2.3 Governing rule
 
@@ -147,7 +147,7 @@ These rules are binding for every Corporate Admin surface and report:
 
 | Entity / relationship | Canonical meaning | Current source candidate | Customer by itself? | Corporate count status |
 | --- | --- | --- | --- | --- |
-| \`ACCOUNT\` | One base CarUp account identity, normally one \`users.id\`. | \`users\` | **No** | Account count candidate; PENDING_K2B |
+| \`ACCOUNT\` | One base CarUp account identity, normally one \`users.id\`. | \`users\` | **No** | Account count candidate; PENDING_K2B_CONSUMPTION |
 | \`KNOWN_PERSON\` | A person linked to a proven CarUp identity subject. | Account + governed identity layer | **No** | Cross-account person resolution not established |
 | \`REGISTERED_USER\` | An account with a persisted CarUp registration/account row. | \`users\` | **No** | Candidate account-level metric |
 | \`VERIFIED_PERSON\` | A person/account whose **current** identity lifecycle is capability-bearing. | \`identity_lifecycle_events\` + governed historical verification fallback | **No** | Candidate only after customer grain decision |
@@ -158,8 +158,8 @@ These rules are binding for every Corporate Admin surface and report:
 | \`BUYER\` | Role/relationship of a participant seeking/acquiring a vehicle/service/trade outcome. | Marketplace buyer IDs, Trade buyer IDs, domain records | Not automatically | Relationship fact |
 | \`SELLER\` | Role/relationship of the governed seller/supplier in a commercial journey. | \`current_seller_id\`, Trade quote/seller role | Not automatically | Relationship fact |
 | \`DEALER_CUSTOMER\` | Customer relationship within Dealer/Vehicle Commerce; **not** synonymous with dealer business profile. | Marketplace dealer-scoped relationships; completed dealer commerce absent | Depends Owner definition | BLOCKED |
-| \`GARAGE_SERVICE_CUSTOMER\` | Known customer relationship represented by governed service/work-order authority. | \`mechanic_work_orders.customer_id\`; service case linkage where available | Domain candidate | PENDING_K2B / identity completeness |
-| \`DIASPORA_TRADE_CUSTOMER\` | Known buyer/customer relationship to a governed Trade request/order, not every Trade participant. | \`diaspora_import_orders.buyer_id\`, buyer-owned RFQ/order | Domain candidate | PENDING_K2B |
+| \`GARAGE_SERVICE_CUSTOMER\` | Known customer relationship represented by governed service/work-order authority. | \`mechanic_work_orders.customer_id\`; service case linkage where available | Domain candidate | PENDING_K2B_CONSUMPTION / identity completeness |
+| \`DIASPORA_TRADE_CUSTOMER\` | Known buyer/customer relationship to a governed Trade request/order, not every Trade participant. | \`diaspora_import_orders.buyer_id\`, buyer-owned RFQ/order | Domain candidate | PENDING_K2B_CONSUMPTION |
 | \`FINANCE_PRODUCT_CUSTOMER\` | Person with qualifying customer-facing finance-product relationship under Owner rule. | finance application/consent/decision | Not merely applicant by default | BLOCKED customer policy |
 | \`INSURANCE_PRODUCT_CUSTOMER\` | Person with qualifying customer-facing insurance relationship under Owner rule. | insurance consent/policy/product records | Not merely eligibility outcome | BLOCKED customer policy |
 | \`PARTNER_ORGANISATION\` | External organization integrated/commercially partnered with CarUp. | partner/provider/tenant sources | Not automatically | External organization relationship |
@@ -304,7 +304,7 @@ Safe default:
 - save → engaged known user, not automatically customer;
 - inquiry → customer candidate/lead, not sale;
 - reservation → transaction participant;
-- settled live transaction → strongest purchase relationship, but Corporate customer/transacting definition remains Owner-governed and PENDING_K2B.
+- settled live transaction → strongest purchase relationship, but Corporate customer/transacting definition remains Owner-governed and PENDING_K2B_CONSUMPTION.
 
 ### 6.2 Dealer customer
 
@@ -615,7 +615,7 @@ This supports linked journeys where the same governed link key is present.
 
 Current taxonomy supports flags such as staff, fixture, bot suspect, synthetic and seller self-traffic.
 
-Corporate activation remains **PENDING_K2B** until the accepted provenance authority defines eligible business rows.
+Corporate activation remains **PENDING_K2B_CONSUMPTION** until the accepted provenance authority defines eligible business rows.
 
 ---
 
@@ -631,7 +631,7 @@ Do not call page views unless the exact route-view semantic is stated; do not ca
 
 Metric candidate: \`growth.navigation.route_render.count\`.
 
-Status: **PENDING_K2B + completeness guard**.
+Status: **PENDING_K2B_CONSUMPTION + completeness guard**.
 
 ### 12.2 Navigation impressions
 
@@ -952,7 +952,7 @@ The product API can return governed lookup outcomes, but CA-GROWTH must not manu
 
 Therefore:
 
-- Verify route usage → measurable via Navigation, PENDING_K2B;
+- Verify route usage → measurable via Navigation, PENDING_K2B_CONSUMPTION;
 - Verify submitted searches/outcomes → **requires dedicated governed process/source linkage or accepted existing authority mapping**;
 - Verify conversion → **UNAVAILABLE_NOT_SEPARABLE** today.
 
@@ -1658,7 +1658,7 @@ Candidate governed metrics:
 - Trade requests/RFQs;
 - service requests.
 
-All Corporate Actual operational counts: **PENDING_K2B**.
+All Corporate Actual operational counts: **PENDING_K2B_CONSUMPTION**.
 
 ### Tier 3 — Journey performance
 
@@ -1796,28 +1796,39 @@ Consequences:
 
 ---
 
-## 42. PC01-K2B-R2 boundary
+## 42. Accepted K2B operational-provenance boundary
 
-PC01-K2B-R2 is active and **not accepted**.
+PC01-K2B-R2 is **ACCEPTED / FROZEN** at:
 
-CA-GROWTH does not:
+`7b34dec1bc9f05b72b6abf0104db65980f280a0b`
 
-- adopt its counts;
-- assume its row classifications;
-- delete or quarantine data;
-- create a competing provenance system.
+CA-GROWTH now consumes K2B as the accepted authority for the distinction between:
 
-Operational Customer/Growth metrics susceptible to fixture/UAT/test/synthetic/legacy contamination remain:
+- operational business records;
+- non-operational test / UAT / CI / certification / seeded / legacy-synthetic records;
+- UNKNOWN / needs-review records;
+- canonical Marketplace publication truth.
 
-**\`PENDING_K2B\`**
+This acceptance does **not** turn an operational account into a customer, an operational event into meaningful growth, or an operational transaction-stage record into revenue. Customer grain, qualifying activity, funnel linkage, attribution, retention and finance semantics remain governed by this document, CA-METRIC, CA-FIN and Owner Decisions.
 
-This includes, as applicable:
+For Corporate Actual, the safe provenance rule is now:
+
+- include only records K2B classifies as operational for the relevant supported domain;
+- exclude K2B non-operational classes from Corporate Actual;
+- do not count UNKNOWN / needs-review as operational;
+- preserve excluded/review populations for governed inspection rather than deleting them.
+
+Where a Customer/Growth metric has **not yet been proven to consume the accepted K2B authority on its exact source path**, its state is:
+
+**`PENDING_K2B_CONSUMPTION_CONSUMPTION`**
+
+This is no longer a statement that K2B itself is unaccepted. It means the particular metric/source still needs source-path integration and certification against accepted K2B semantics.
+
+This applies, as relevant, to:
 
 - registered accounts used for business/customer metrics;
-- Marketplace activity;
-- inquiries;
+- Marketplace behavioural activity beyond already-converged Admin operational projections;
 - saves;
-- listings/seller activity;
 - reservations/transactions;
 - service records/work orders/cases;
 - Trade profiles/orders/quotes;
@@ -1825,7 +1836,9 @@ This includes, as applicable:
 - communications funnel data;
 - finance/insurance product demand.
 
-Navigation currently has no accepted K2B provenance authority and remains PENDING_K2B for Corporate Actual.
+Marketplace inquiries and listing operational populations may consume K2B's accepted record-level provenance semantics, but Customer/Growth labels and funnel use still require the separate customer/grain/linkage rules in this model.
+
+Navigation Intelligence remains a separate special case: K2B acceptance does not automatically prove record-level provenance for every Navigation event. Navigation Corporate Actual therefore remains **PENDING_K2B_CONSUMPTION_CONSUMPTION / source-specific provenance certification**, plus its existing 50,000-row completeness constraint and behavioural self/bot/staff rules.
 
 ---
 
@@ -1862,24 +1875,24 @@ Current status:
 
 | Metric / concept | Current source | Status | Required guard |
 | --- | --- | --- | --- |
-| Registered accounts | \`users\` | Candidate, PENDING_K2B | Never call customers |
-| Currently verified identity subjects | identity lifecycle | Candidate, PENDING_K2B | Customer relation separate |
+| Registered accounts | \`users\` | Candidate, PENDING_K2B_CONSUMPTION | Never call customers |
+| Currently verified identity subjects | identity lifecycle | Candidate, PENDING_K2B_CONSUMPTION | Customer relation separate |
 | Corporate distinct customers | No canonical customer subject | **BLOCKED** | Owner definition + cross-BU/person resolution |
 | Active customers | No approved customer/activity/window | **BLOCKED** | Owner policy |
 | Transacting customers | Domain transaction sources differ | **BLOCKED Corporate** | Per-BU states + dedupe + K2B |
-| Marketplace inquiries | \`marketplace_inquiries\` | Candidate actual, PENDING_K2B | Inquiry ≠ sale |
+| Marketplace inquiries | \`marketplace_inquiries\` | Candidate actual, PENDING_K2B_CONSUMPTION | Inquiry ≠ sale |
 | Guest inquirers | guest contact on inquiries | Countable as inquiry contacts only | Do not call distinct customers |
-| Saved listings | \`saved_vehicles\` | Candidate state, PENDING_K2B | Save ≠ transaction |
-| Marketplace searches | activity ledger | Candidate, PENDING_K2B | Complete instrumentation |
-| Zero-result searches | activity ledger | Candidate, PENDING_K2B | Search demand, not lost sale |
-| Filter usage | activity ledger | Candidate, PENDING_K2B | Structured filters only |
-| Listing impressions | activity ledger | Candidate, PENDING_K2B | Observation |
-| Listing opens | activity ledger | Candidate, PENDING_K2B | Missing-context undercount disclosed |
-| Daily unique shoppers | daily distinct link/actor keys | Candidate, PENDING_K2B | Daily only |
+| Saved listings | \`saved_vehicles\` | Candidate state, PENDING_K2B_CONSUMPTION | Save ≠ transaction |
+| Marketplace searches | activity ledger | Candidate, PENDING_K2B_CONSUMPTION | Complete instrumentation |
+| Zero-result searches | activity ledger | Candidate, PENDING_K2B_CONSUMPTION | Search demand, not lost sale |
+| Filter usage | activity ledger | Candidate, PENDING_K2B_CONSUMPTION | Structured filters only |
+| Listing impressions | activity ledger | Candidate, PENDING_K2B_CONSUMPTION | Observation |
+| Listing opens | activity ledger | Candidate, PENDING_K2B_CONSUMPTION | Missing-context undercount disclosed |
+| Daily unique shoppers | daily distinct link/actor keys | Candidate, PENDING_K2B_CONSUMPTION | Daily only |
 | 7/30/90 unique shoppers current projection | peak daily unique | **RENAME/WRAP** | Never period unique |
 | Human-readable top search terms | Query text hashed | **UNAVAILABLE_NOT_SEPARABLE** | Cannot reverse hash |
-| Structured top filters | filter metadata | Candidate, PENDING_K2B | Keep filter semantics |
-| Navigation route renders | Navigation events | Candidate, PENDING_K2B | 50k completeness guard |
+| Structured top filters | filter metadata | Candidate, PENDING_K2B_CONSUMPTION | Keep filter semantics |
+| Navigation route renders | Navigation events | Candidate, PENDING_K2B_CONSUMPTION | 50k completeness guard |
 | Navigation unique visitors | No identity/session stored | **UNAVAILABLE_NO_SOURCE** | Privacy contract |
 | Navigation→commercial conversion | No shared link key | **UNAVAILABLE_NOT_SEPARABLE** | Do not divide totals |
 | Detail→inquiry linked conversion | Marketplace link keys + inquiry | Candidate | K2B + linkage coverage |
@@ -1893,7 +1906,7 @@ Current status:
 | Customer churn | No canonical policy | **BLOCKED** | Customer+active/grace rule |
 | Reactivation | No canonical policy | **BLOCKED** | Same subject + churn state |
 | Customer geography | Multiple non-equivalent sources | **BLOCKED Corporate** | Owner hierarchy |
-| Trade corridor demand | order origin/destination | Candidate, PENDING_K2B | Not customer geography |
+| Trade corridor demand | order origin/destination | Candidate, PENDING_K2B_CONSUMPTION | Not customer geography |
 | Referral-associated inquiries | referral code + inquiry | Candidate | Association, not acquisition |
 | Campaign-associated inquiries | campaign code + inquiry | Candidate | Association, not causality |
 | Customers acquired by channel | Attribution model absent | **BLOCKED** | Owner attribution policy |
@@ -1998,7 +2011,7 @@ At minimum:
 
 Additional governance flags:
 
-- \`PENDING_K2B\`;
+- \`PENDING_K2B_CONSUMPTION\`;
 - \`PENDING_CA_FIN\`;
 - \`UNAVAILABLE_NOT_SEPARABLE\`;
 - \`BLOCKED_OWNER_DECISION\`.
@@ -2070,13 +2083,13 @@ A failed read must never become zero.
 | \`OD-CAGROWTH-057\` | What defines “new customer” when a known person enters a second BU? | Cross-BU acquisition | New-to-BU ≠ new-to-CarUp |
 | \`OD-CAGROWTH-058\` | What defines “returning customer” versus “repeat activity”? | Retention | Use repeat-action wording |
 | \`OD-CAGROWTH-059\` | Which process completion states can be used as non-financial growth outcomes? | Journey comparison | Domain completion only, never revenue |
-| \`OD-CAGROWTH-060\` | When K2B is accepted, which provenance classes are eligible for Growth Actual, Benchmark and Test views? | Production truth | PENDING_K2B |
+| `OD-CAGROWTH-060` | K2B now governs Growth Actual eligibility as operational-only; which non-operational provenance classes, if any, may appear in separately labelled Benchmark/Test views? | Prevents benchmark/test views from contaminating Actual | Actual = K2B operational only; UNKNOWN excluded; Benchmark/Test policy still Owner-governed |
 | \`OD-CAGROWTH-061\` | Should Navigation remain permanently identity-free, or is any future privacy-safe join architecture desired? | Cross-system funnel | Current Navigation stays separate |
 | \`OD-CAGROWTH-062\` | What completeness policy applies when the 50,000 Navigation cap is reached? | Truncated rankings | DEGRADED/UNAVAILABLE, never silent |
 | \`OD-CAGROWTH-063\` | What exact Corporate definition distinguishes “visitor”, “shopper” and “customer”? | Executive terminology | Use source-specific labels only |
 | \`OD-CAGROWTH-064\` | Which seller/dealer/garage organization activities qualify business-customer activity? | B2B growth | No tenant=customer inference |
 | \`OD-CAGROWTH-065\` | How should multi-role Trade participants be classified when one person is buyer in one order and seller in another? | Customer role | Roles are per relationship |
-| \`OD-CAGROWTH-066\` | What is the canonical treatment of bots, staff, seller self-traffic and synthetic activity after K2B? | Demand truth | Preserve current exclusions; defer final provenance |
+| `OD-CAGROWTH-066` | Beyond accepted K2B record provenance, what is the canonical treatment of behavioural bot flags, staff/internal traffic and seller self-traffic? | Demand truth | Exclude where authoritative flags exist; never infer unflagged activity as human/customer activity |
 | \`OD-CAGROWTH-067\` | Does Corporate Growth need household/customer-group concepts? | Person grouping | No household inference |
 | \`OD-CAGROWTH-068\` | Which business outcomes should define “journey performs best”? | Strategic comparison | Compare explicitly named linked outcomes only |
 
@@ -2093,7 +2106,7 @@ Customer & Growth surfaces must:
 - distinguish route renders from business usage;
 - show source/window/calculation version;
 - show coverage/completeness;
-- show PENDING_K2B and unavailable states;
+- show PENDING_K2B_CONSUMPTION and unavailable states;
 - label peak-day uniqueness correctly;
 - never display human-readable top search terms from hashes;
 - use linked funnel language only where linkage exists;
@@ -2150,7 +2163,7 @@ Future certification must test customer definition, identity grain, cross-BU ded
 12. **Sparse attribution** — recorded source/campaign fields may cover only part of a population.
 13. **Attribution causality** — code/UTM association can be presented as caused acquisition.
 14. **Seller self-traffic** — listing owner/dealer activity can inflate shopper demand if exclusions are not applied.
-15. **Staff/test/synthetic contamination** — Corporate Actual can absorb non-business activity before K2B acceptance.
+15. **K2B-consumption bypass** — Corporate Actual can still absorb non-business activity if a Growth source bypasses or incompletely consumes the accepted K2B provenance authority.
 16. **Bot/prefetch inflation** — unguarded impressions/opens can inflate demand.
 17. **Verify-route vanity** — route renders can be called completed verifications.
 18. **Trade-route vanity** — Trade clicks can be called customers/orders.
@@ -2194,7 +2207,7 @@ CA-GROWTH stopped rather than guessing on:
 - future human-readable search taxonomy;
 - Corporate cohort definitions;
 - CAC/LTV/ROAS/ARPU/revenue/profit per customer;
-- K2B eligible provenance classes.
+- K2B consumption mapping/certification for Growth sources not yet wired to the accepted provenance authority.
 
 Every unresolved customer/growth/business policy is represented by \`OD-CAGROWTH-*\` rather than a fabricated assumption.
 
@@ -2205,7 +2218,7 @@ Every unresolved customer/growth/business policy is represented by \`OD-CAGROWTH
 If CA-MOD accepts CA-GROWTH-01:
 
 1. Owner should prioritize \`OD-CAGROWTH-001\` customer definition, cross-BU grain, active/transacting rules and attribution policy.
-2. PC01-K2B-R2 must be accepted or superseded before Corporate Actual customer/growth counts are activated.
+2. PC01-K2B-R2 is accepted/frozen at `7b34dec1bc9f05b72b6abf0104db65980f280a0b`; before Corporate Actual customer/growth counts are activated, each metric source path must prove it consumes the accepted K2B provenance semantics or remain `PENDING_K2B_CONSUMPTION`.
 3. CA-UX can safely implement account, demand, navigation and funnel surfaces using explicit source labels and unavailable states without waiting for a universal customer KPI.
 4. Verify should receive a future bounded instrumentation/source-authority task if the Owner requires submitted/found/passport/next-action funnel intelligence.
 5. Customer/economic KPIs should remain blocked until CA-FIN authority exists for the corresponding revenue/cost facts.
@@ -2216,3 +2229,28 @@ No dashboard, instrumentation, product code, analytics schema, database migratio
 This document does not self-accept.
 
 CA-GROWTH-01 CUSTOMER & GROWTH INTELLIGENCE MODEL READY FOR MODERATOR REVIEW
+
+
+---
+
+## 52. CA-MOD post-review recustody — accepted K2B dependency
+
+**Recustody date:** 13 October 2026  
+**Original CA-GROWTH specialist result:** `c291bdd453d08adfbee28b3de07b17adb25898ad`  
+**Accepted K2B authority:** `7b34dec1bc9f05b72b6abf0104db65980f280a0b`
+
+This bounded CA-MOD recustody was made after PC01-K2B-R2 reached independent moderator acceptance.
+
+It changes no customer definition, funnel definition, attribution policy, retention/churn rule, metric formula, finance rule, RBAC rule or source inspection result from CA-GROWTH-01.
+
+It resolves only the stale dependency state:
+
+- K2B itself is now **ACCEPTED / FROZEN**;
+- K2B operational provenance may be consumed by Corporate Admin as an accepted downstream authority;
+- remaining `PENDING_K2B_CONSUMPTION` labels mean a particular Growth source path still needs integration/certification, not that K2B is unaccepted;
+- K2B operational status must never be relabelled as customer status without the separate customer relationship definition required by this model;
+- the product/reference snapshot inspected by CA-GROWTH remains `505ffcca6b641c8b3b55f503e0f4fd39d26710dc`; no later PR #222 product tree is silently substituted.
+
+This recustody preserves the 68 Owner Decisions except where `OD-CAGROWTH-060` and `OD-CAGROWTH-066` are narrowed to reflect accepted K2B authority.
+
+**CA-GROWTH-01 accepted dependency state:** K2B authority resolved; customer/growth policy decisions remain explicitly governed.
