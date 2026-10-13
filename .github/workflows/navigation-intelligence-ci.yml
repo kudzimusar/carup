@@ -80,6 +80,7 @@ jobs:
           backend/tests/feature-governance-rollout.test.js
           backend/tests/navigation-analytics.test.js
           backend/tests/server-export.test.js
+          backend/tests/auth-logout-revocation.test.js
 
       - name: Native navigation governance + route-ownership tests
         working-directory: mobile
@@ -123,6 +124,7 @@ jobs:
           tests/agents/30-mobile-navigation-blueprint.spec.ts
           tests/agents/31-navigation-route-boundary.spec.ts
           tests/agents/32-feature-governance-console.spec.ts
+          tests/agents/40-pc01-k1-shell-integrity.spec.ts
           --project=chromium
 
   # ── Navigation accessibility gate (Milestone H, @axe-core/playwright) ───────

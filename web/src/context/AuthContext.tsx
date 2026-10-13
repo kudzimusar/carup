@@ -9,13 +9,22 @@ const API_BASE = resolveApiBaseUrl(
   typeof window !== 'undefined' ? window.location.hostname : undefined,
 );
 
+/**
+ * What Sign Out established about the SERVER session (PC01-K1-R1). Local state is cleared in every
+ * case; only the server side differs, and it is reported as it is — never claimed revoked unconfirmed.
+ *   revoked        the server ended this session; its token no longer authenticates anything
+ *   already_ended  the server reports the session was not valid any more (expired, or ended elsewhere)
+ *   unconfirmed    the server could not be reached or refused; the token may still be valid until expiry
+ */
+export type SignOutOutcome = 'revoked' | 'already_ended' | 'unconfirmed'
+
 interface AuthContextType {
   user: AuthUser | null
   token: string | null
   isAuthenticated: boolean
   loading: boolean
   login: (userData: AuthUser, token: string) => void
-  logout: () => void
+  logout: () => Promise<SignOutOutcome>
   switchRole: (role: UserRole, tenantId?: string) => Promise<void>
   /**
    * OC-5D — choose the organisation this session acts for (null = act for yourself). The server
@@ -32,7 +41,7 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   loading: true,
   login: () => {},
-  logout: () => {},
+  logout: async () => 'already_ended',
   switchRole: async () => {},
   selectActiveTenant: async () => {},
   refreshSession: async () => {},
@@ -131,8 +140,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     storeAuth(localStorage, userData, sessionToken)
   }, [])
 
-  const logout = useCallback(() => {
+  // PC01-K1-R1 — Sign Out ends the session on the SERVER (POST /api/auth/logout), not only here.
+  // Local state is cleared FIRST and unconditionally, so a network failure can never strand a person
+  // inside the dashboard; the server call then uses the token captured before the clear.
+  const logout = useCallback(async (): Promise<SignOutOutcome> => {
+    const sessionToken = tokenRef.current
+    const sessionUser = userRef.current
     clearAuth()
+    if (!sessionToken || !sessionUser) return 'already_ended'
+    try {
+      await apiRequest({
+        baseUrl: API_BASE,
+        path: '/auth/logout',
+        options: { method: 'POST', body: JSON.stringify({}) },
+        authHeaders: {
+          'x-session-token': sessionToken,
+          'x-user-id': sessionUser.id,
+          ...(sessionUser.role ? { 'x-stakeholder-role': sessionUser.role } : {}),
+        },
+      })
+      return 'revoked'
+    } catch (e) {
+      // 401: the server no longer accepts this session — there is nothing left to revoke.
+      if (e instanceof SessionExpiredError) return 'already_ended'
+      console.warn('[auth] Signed out on this device; the server did not confirm the session ended.')
+      return 'unconfirmed'
+    }
   }, [clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {

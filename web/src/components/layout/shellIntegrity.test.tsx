@@ -13,6 +13,9 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
 const logoutSpy = vi.fn()
+const signOut = vi.hoisted(() => ({ outcome: 'revoked' as 'revoked' | 'already_ended' | 'unconfirmed' }))
+const toastWarning = vi.hoisted(() => vi.fn())
+vi.mock('sonner', () => ({ toast: { warning: toastWarning, error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 
 vi.mock('@/context/AuthContext', async () => {
   const React = await import('react')
@@ -23,7 +26,7 @@ vi.mock('@/context/AuthContext', async () => {
     const value = {
       user, token: user ? 't' : null, isAuthenticated: !!user, loading: false,
       login: (u: U) => setUser(u),
-      logout: () => { logoutSpy(); setUser(null) },
+      logout: async () => { logoutSpy(); setUser(null); return signOut.outcome },
       switchRole: vi.fn(async () => {}), selectActiveTenant: vi.fn(async () => {}), refreshSession: vi.fn(async () => {}),
     }
     return React.createElement(Ctx.Provider, { value }, children)
@@ -71,7 +74,28 @@ function renderDashboard(role: 'owner' | 'admin', initialUser: unknown = userFor
   )
 }
 
-beforeEach(() => logoutSpy.mockReset())
+beforeEach(() => { logoutSpy.mockReset(); toastWarning.mockReset(); signOut.outcome = 'revoked' })
+
+describe('Sign Out when the server cannot confirm the session ended (PC01-K1-R1)', () => {
+  it('still lands on the anonymous public home, and says plainly the server side is unconfirmed', async () => {
+    signOut.outcome = 'unconfirmed'
+    renderDashboard('admin')
+    fireEvent.click(screen.getByTestId('logout-button'))
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/))
+    expect(screen.queryByTestId('private-page')).toBeNull()
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledTimes(1))
+    expect(String(toastWarning.mock.calls[0][0])).toMatch(/could not confirm your session ended on the server/)
+  })
+
+  it('a confirmed revocation shows no warning', async () => {
+    renderDashboard('admin')
+    fireEvent.click(screen.getByTestId('logout-button'))
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(toastWarning).not.toHaveBeenCalled()
+    expect(logoutSpy).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe.each(['admin', 'owner'] as const)('%s dashboard shell', (role) => {
   it('states the active portal instead of offering every platform role', () => {

@@ -2665,6 +2665,50 @@ app.get('/api/auth/me', authorizeRole([], { ignoreTenantHeader: true }), async (
   }
 });
 
+// --- AUTH: Sign out — revoke THIS session on the server (PC01-K1-R1) ---
+// Sign Out used to clear only the browser's copy, so the token itself stayed valid until it expired and
+// anyone holding a copy kept the session. This revokes it. The session revoked is the one that just
+// authenticated THIS request — the same header the middleware validated, scoped to the user it
+// resolved — so nothing in the body (a user id, a role, another token) is read, and a caller can never
+// end anyone else's session. The row is kept (is_valid = false) as history. Only this session ends;
+// other devices are untouched ("sign out everywhere" is a separate contract). A repeat call carries a
+// session that is no longer valid, so the middleware answers 401 before anything is written.
+app.post('/api/auth/logout', authorizeRole([], { allowUserIdFallback: false, ignoreTenantHeader: true }), async (req, res) => {
+  if (req.userContext?.authenticationMethod !== 'session') {
+    return res.status(401).json({ error: 'Unauthorized. Sign out requires an authenticated session.' });
+  }
+  const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const userId = req.userContext.id;
+  try {
+    const { data: revokedRows, error } = await supabase
+      .from('user_sessions')
+      .update({ is_valid: false })
+      .eq('token', token)
+      .eq('user_id', userId)
+      .eq('is_valid', true)
+      .select('user_id');
+    if (error) {
+      return res.status(503).json({ error: 'Your session could not be ended right now. Please try again.', code: 'SESSION_REVOCATION_UNAVAILABLE' });
+    }
+    const revoked = Array.isArray(revokedRows) ? revokedRows.length : revokedRows ? 1 : 0;
+    // Audited after the fact: the revocation is the security action and stands even if the record
+    // fails. Never the token — only that this person's current session ended.
+    await logAuditEvent(supabase, {
+      req,
+      event_type: 'SESSION_LOGOUT',
+      source_route: '/api/auth/logout',
+      actor_user_id: userId,
+      actor_role: req.userContext.platformRole,
+      actor_tenant_id: req.userContext.tenantId,
+      previous_value: { session_valid: true },
+      new_value: { session_valid: false, sessions_revoked: revoked },
+    }).catch(() => null);
+    return res.json({ success: true, revoked: revoked > 0 });
+  } catch {
+    return res.status(503).json({ error: 'Your session could not be ended right now. Please try again.', code: 'SESSION_REVOCATION_UNAVAILABLE' });
+  }
+});
+
 // --- AUTH: Select the organisation this session acts for (OC-5D) ---
 // The only way a session gains an organisation. The person names one of their memberships (or null to
 // act for themselves); the server verifies it — a membership of a tenant whose status is active — and
