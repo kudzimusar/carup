@@ -22,6 +22,18 @@ import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 // Public Pages
 import Landing from './pages/Landing'
 const GuestSell = lazy(() => import('./pages/GuestSell'))
+// CA-K3-01 — Corporate Admin shell (coexists with /admin; its own fail-closed gate lives in CorporateLayout).
+const CorporateLayout = lazy(() => import('./components/corporate/CorporateLayout'))
+const CorporateOverview = lazy(() => import('./pages/corporate/CorporateOverview'))
+const CorporateBusinessUnits = lazy(() => import('./pages/corporate/CorporateBusinessUnits'))
+const CorporateFinance = lazy(() => import('./pages/corporate/CorporateFinance'))
+const CorporateGrowth = lazy(() => import('./pages/corporate/CorporateGrowth'))
+const CorporateOperations = lazy(() => import('./pages/corporate/CorporateOperations'))
+const CorporateTrustRisk = lazy(() => import('./pages/corporate/CorporateTrustRisk'))
+const CorporateDataIntelligence = lazy(() => import('./pages/corporate/CorporateDataIntelligence'))
+const CorporatePeopleAccess = lazy(() => import('./pages/corporate/CorporatePeopleAccess'))
+const CorporateReports = lazy(() => import('./pages/corporate/CorporateReports'))
+const CorporatePlatform = lazy(() => import('./pages/corporate/CorporatePlatform'))
 import Marketplace from './pages/Marketplace'
 const MarketplaceCompare = lazy(() => import('./pages/MarketplaceCompare'))
 const MarketplaceCategoryPage = lazy(() => import('./pages/MarketplaceCategoryPage'))
@@ -548,6 +560,21 @@ export default function App() {
           <Route path="/dashboard/admin/communications" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications/:section" element={<AdminCommunications />} />
+        </Route>
+
+        {/* CA-K3-01 — Corporate Admin. A separate shell beside /admin (which is unchanged); the layout
+            admits only who the existing /admin route decision admits, and renders nothing otherwise. */}
+        <Route element={<CorporateLayout />}>
+          <Route path="/corporate" element={<CorporateOverview />} />
+          <Route path="/corporate/business-units" element={<CorporateBusinessUnits />} />
+          <Route path="/corporate/finance" element={<CorporateFinance />} />
+          <Route path="/corporate/growth" element={<CorporateGrowth />} />
+          <Route path="/corporate/operations" element={<CorporateOperations />} />
+          <Route path="/corporate/trust-risk" element={<CorporateTrustRisk />} />
+          <Route path="/corporate/data-intelligence" element={<CorporateDataIntelligence />} />
+          <Route path="/corporate/people-access" element={<CorporatePeopleAccess />} />
+          <Route path="/corporate/reports" element={<CorporateReports />} />
+          <Route path="/corporate/platform" element={<CorporatePlatform />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
