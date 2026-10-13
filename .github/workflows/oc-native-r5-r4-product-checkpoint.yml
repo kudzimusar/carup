@@ -55,7 +55,7 @@ jobs:
           test "${#CHANGED[@]}" -gt 0
           for file in "${CHANGED[@]}"; do
             case "$file" in
-              mobile/*|.github/workflows/oc-native-r5-r4-product-checkpoint.yml)
+              mobile/*|.github/workflows/oc-native-r5-r4-product-checkpoint.yml|docs/one-carup/native/OC_NATIVE_LR1_R5_VISUAL_SYSTEM.md)
                 ;;
               *)
                 echo "::error::R5-R4 changed unauthorized path: $file"
