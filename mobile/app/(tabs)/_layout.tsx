@@ -26,7 +26,6 @@ export default function TabLayout() {
     title: string,
   ) => ({
     title,
-    headerShown: false,
     tabBarIcon: ({
       color,
       focused,
