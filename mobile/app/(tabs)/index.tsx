@@ -3,9 +3,8 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VehicleCard } from '../../components/marketplace/VehicleCard';
-import { BrandSearchField, BrandSecondaryAction, CarUpWordmark } from '../../components/brand/CarUpBrand';
+import { BrandSearchField, BrandSecondaryAction } from '../../components/brand/CarUpBrand';
 import {
   Button,
   EmptyState,
@@ -18,14 +17,12 @@ import {
   getSellerMarketplaceInquiries,
 } from '../../utils/marketplaceApi';
 import { getMyVehicles } from '../../utils/ownerGarageApi';
-import { listCommunicationThreads } from '../../utils/communicationApi';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
 export default function HomeScreen() {
   const theme = useNativeTheme();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const authLoading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -56,27 +53,6 @@ export default function HomeScreen() {
     retry: false,
   });
 
-  const threadsQuery = useQuery({
-    queryKey: ['native-home-owner-threads', user?.id],
-    queryFn: () => listCommunicationThreads(),
-    enabled: isOwner,
-  });
-
-  const sellerInquiriesQuery = useQuery({
-    queryKey: ['native-home-seller-inquiries', user?.id],
-    queryFn: getSellerMarketplaceInquiries,
-    enabled: Boolean(isOwner && publishedOwnedVehicle),
-  });
-
-  const unreadCount = useMemo(
-    () =>
-      (threadsQuery.data?.threads || []).reduce(
-        (sum: number, thread: any) => sum + Number(thread?.unread_count || 0),
-        0,
-      ),
-    [threadsQuery.data],
-  );
-
   const listings = marketplaceQuery.data?.listings || [];
   const newSellerInquiryCount = (sellerInquiriesQuery.data?.inquiries || []).filter(
     (inquiry) => String(inquiry.status || '').toLowerCase() === 'new',
@@ -96,7 +72,7 @@ export default function HomeScreen() {
       <View
         style={{
           backgroundColor: theme.brand.hero,
-          paddingTop: Math.max(insets.top + spacing[3], spacing[7]),
+          paddingTop: spacing[6],
           paddingHorizontal: spacing[5],
           paddingBottom: spacing[7],
           borderBottomLeftRadius: radius.hero,
@@ -130,51 +106,6 @@ export default function HomeScreen() {
           }}
         />
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <CarUpWordmark tone="light" />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={unreadCount > 0 ? 'Open Inbox, ' + unreadCount + ' unread' : 'Open Inbox'}
-            onPress={() => router.push('/(tabs)/inbox' as never)}
-            android_ripple={{ color: theme.brand.heroRaised, borderless: true }}
-            style={{
-              width: touchTarget.minimum,
-              height: touchTarget.minimum,
-              borderRadius: 24,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'rgba(255,255,255,0.08)',
-              borderWidth: 1,
-              borderColor: '#355A78',
-              overflow: 'hidden',
-            }}
-          >
-            <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.brand.onHero} />
-            {unreadCount > 0 ? (
-              <View
-                style={{
-                  position: 'absolute',
-                  minWidth: 19,
-                  height: 19,
-                  paddingHorizontal: 4,
-                  borderRadius: 10,
-                  top: -2,
-                  right: -2,
-                  backgroundColor: theme.brand.primary,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 2,
-                  borderColor: theme.brand.hero,
-                }}
-              >
-                <Text style={{ fontSize: 10, lineHeight: 12, fontWeight: '900', color: theme.brand.onPrimary }}>
-                  {unreadCount > 99 ? '99+' : String(unreadCount)}
-                </Text>
-              </View>
-            ) : null}
-          </Pressable>
-        </View>
-
         <Text allowFontScaling style={{ ...typeScale.heroEyebrow, color: theme.brand.primary, marginTop: spacing[8] }}>
           ONE CARUP · ONE VEHICLE THREAD
         </Text>
@@ -200,6 +131,17 @@ export default function HomeScreen() {
           onPress={submitSearch}
           icon={<Ionicons name="arrow-forward" size={19} color={theme.brand.onPrimary} />}
           style={{ marginTop: spacing[3], minHeight: 54 }}
+        />
+        <Button
+          label="All filters"
+          variant="secondary"
+          accessibilityLabel="All Marketplace filters"
+          onPress={() => {
+            const query = search.trim();
+            router.push((`/(tabs)/marketplace?filters=open${query ? `&q=${encodeURIComponent(query)}` : ''}`) as never);
+          }}
+          icon={<Ionicons name="options-outline" size={19} color={theme.text.primary} />}
+          style={{ marginTop: spacing[2] }}
         />
 
         <View style={{ flexDirection: 'row', gap: spacing[3], marginTop: spacing[3] }}>
