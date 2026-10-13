@@ -1,0 +1,120 @@
+name: OC-NATIVE R5-R4 Product Checkpoint
+
+on:
+  push:
+    branches:
+      - feat/oc-native01-product-foundation
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/oc-native-r5-r4-product-checkpoint.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-r5-r4-product-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  R4_START_SHA: 878344c480239023a8bfafa7064671fb46b52283
+  R4_FROZEN_R3_SHA: 435221436b3d2f1a93c1309a9017af3963c3e485
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app
+  R4_BACKEND_DEPLOYMENT: dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC
+  R4_BACKEND_SHA: 40621751d4b74c59324fe6601aa5ddbdc7769b08
+  R4_SUPABASE_PROJECT: eoyenigwevnxwwhyhaer
+  R4_EXTERNAL_SENDS: disabled
+
+jobs:
+  certify:
+    name: R5-R4 Source + Mobile Certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exact-head custody and bounded-source guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "$R4_START_SHA^{commit}"
+          git diff --check "$R4_START_SHA..HEAD"
+          mapfile -t CHANGED < <(git diff --name-only "$R4_START_SHA..HEAD")
+          printf '%s\n' "${CHANGED[@]}"
+          test "${#CHANGED[@]}" -gt 0
+          for file in "${CHANGED[@]}"; do
+            case "$file" in
+              mobile/*|.github/workflows/oc-native-r5-r4-product-checkpoint.yml)
+                ;;
+              *)
+                echo "::error::R5-R4 changed unauthorized path: $file"
+                exit 1
+                ;;
+            esac
+          done
+          if git diff --name-only "$R4_START_SHA..HEAD" | grep -Eq '^(backend|database|web)/'; then
+            echo "::error::Backend/database/web mutation is outside R5-R4 authority"
+            exit 1
+          fi
+
+      - name: Mobile Vitest
+        run: npm run test --workspace=mobile
+
+      - name: Native deterministic suite
+        run: npm run test:native --workspace=mobile
+
+      - name: Native static suite
+        run: npm run test:static --workspace=mobile
+
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+
+      - name: Expo dependency compatibility
+        working-directory: mobile
+        run: npx expo install --check
+
+      - name: Record certification receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r5-r4-certification"
+          {
+            echo "task=OC-NATIVE-LR1-R5-R4"
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "starting_sha=$R4_START_SHA"
+            echo "frozen_r3_sha=$R4_FROZEN_R3_SHA"
+            echo "backend_deployment=$R4_BACKEND_DEPLOYMENT"
+            echo "backend_url=$EXPO_PUBLIC_API_URL"
+            echo "backend_sha=$R4_BACKEND_SHA"
+            echo "supabase_project=$R4_SUPABASE_PROJECT"
+            echo "external_sends=$R4_EXTERNAL_SENDS"
+            echo "vitest=PASS"
+            echo "native_tests=PASS"
+            echo "static_tests=PASS"
+            echo "typescript=PASS"
+            echo "expo_install_check=PASS"
+            echo "diff_check=PASS"
+            echo "backend_database_web_mutation=NONE"
+          } > "$RUNNER_TEMP/r5-r4-certification/custody.txt"
+          git diff --name-only "$R4_START_SHA..HEAD" > "$RUNNER_TEMP/r5-r4-certification/changed-files.txt"
+          git log --oneline --reverse "$R4_START_SHA..HEAD" > "$RUNNER_TEMP/r5-r4-certification/commit-lineage.txt"
+
+      - name: Upload certification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-r5-r4-certification-${{ github.sha }}
+          path: ${{ runner.temp }}/r5-r4-certification
+          if-no-files-found: error
+          retention-days: 30
