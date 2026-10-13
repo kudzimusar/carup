@@ -10,7 +10,7 @@ import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 const CAPABILITY_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
   importOrders: 'document-text-outline',
-  tradeProfile: 'person-card-outline',
+  tradeProfile: 'person-circle-outline',
   containers: 'cube-outline',
   containerSpace: 'grid-outline',
   shipments: 'boat-outline',
