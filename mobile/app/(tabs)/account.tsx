@@ -126,6 +126,7 @@ export default function AccountScreen() {
             <>
               {canUseGarage ? <Button label="My vehicles" variant="secondary" onPress={() => router.push('/(tabs)/garage' as never)} /> : null}
               <Button label="Selling" variant="secondary" onPress={() => router.push('/sell' as never)} />
+              <Button label="Inbox / Messages" variant="secondary" onPress={() => router.push('/(tabs)/inbox' as never)} />
               {canUseSafePay ? <Button label="SafePay" variant="secondary" onPress={() => router.push('/(tabs)/escrow' as never)} /> : null}
               {canUseReferrals ? <Button label="Referrals" variant="secondary" onPress={() => router.push('/(tabs)/referral' as never)} /> : null}
             </>
