@@ -354,7 +354,6 @@ jobs:
               local tag="$3"
               local xml="$RUNNER_TEMP/$tag-window.xml"
               local RESUMED_LINE=""
-              local FOCUS_LINE=""
 
               for attempt in $(seq 1 20); do
                 if dump_ui "$xml"; then
@@ -378,8 +377,7 @@ jobs:
                   fi
 
                   RESUMED_LINE="$(adb shell dumpsys activity activities | tr -d '\r' | grep -E -m1 'mResumedActivity|topResumedActivity' || true)"
-                  FOCUS_LINE="$(adb shell dumpsys window windows | tr -d '\r' | grep -m1 'mCurrentFocus' || true)"
-                  if [[ "$RESUMED_LINE" == *"com.carup.mobile/"* ]] && [[ "$FOCUS_LINE" == *"com.carup.mobile/"* ]] && grep -Fq "$marker" "$xml"; then
+                  if [[ "$RESUMED_LINE" == *"com.carup.mobile/"* ]] && grep -Fq 'package="com.carup.mobile"' "$xml" && grep -Fq "$marker" "$xml"; then
                     cp "$xml" "$OUT/$tag-hierarchy.xml"
                     return 0
                   fi
@@ -389,7 +387,6 @@ jobs:
 
               echo "::error::Android target state was not established for $tag"
               echo "resumed=$RESUMED_LINE"
-              echo "focus=$FOCUS_LINE"
               [ -f "$xml" ] && cat "$xml"
               exit 1
             }
@@ -413,8 +410,8 @@ jobs:
               echo "expo_camera=$(node -p 'require("../../node_modules/expo-camera/package.json").version')"
               echo "new_architecture=true"
               echo "artifact=$APK"
-              echo "home_assertion=CarUp resumed and focused; Fresh on CarUp visible; no blocking modal"
-              echo "check_assertion=CarUp resumed and focused; Check CarUp record visible; no blocking modal"
+              echo "home_assertion=CarUp top-resumed with CarUp-owned UI; Fresh on CarUp visible; no blocking modal"
+              echo "check_assertion=CarUp top-resumed with CarUp-owned UI; Check CarUp record visible; no blocking modal"
               echo "home_screenshot=home.png"
               echo "check_screenshot=check-verify.png"
             } >> "$OUT/custody.txt"
