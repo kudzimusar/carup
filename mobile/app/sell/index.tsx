@@ -8,7 +8,7 @@ import { getMyVehicles } from '../../utils/ownerGarageApi';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
-export default function SellStartScreen() {
+export function SellStartExperience({ showBack = true }: { showBack?: boolean }) {
   const theme = useNativeTheme();
   const router = useRouter();
   const loading = useAuthStore((state) => state.loading);
@@ -73,7 +73,7 @@ export default function SellStartScreen() {
       contentContainerStyle={{ paddingHorizontal: spacing[5], paddingTop: spacing[6], paddingBottom: spacing[10] }}
       keyboardShouldPersistTaps="handled"
     >
-      <Button label="Back" variant="tertiary" onPress={() => router.back()} />
+      {showBack ? <Button label="Back" variant="tertiary" onPress={() => router.back()} /> : null}
       <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary, marginTop: spacing[4] }}>
         Sell your car with confidence
       </Text>
@@ -140,4 +140,8 @@ export default function SellStartScreen() {
       ) : null}
     </ScrollView>
   );
+}
+
+export default function SellStartScreen() {
+  return <SellStartExperience />;
 }
