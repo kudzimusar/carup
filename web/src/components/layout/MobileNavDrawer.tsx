@@ -1,7 +1,6 @@
-import { useState } from 'react'
-import { toast } from 'sonner'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, LogOut, LayoutDashboard, UserCog, LogIn, Car } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { Menu, LogOut, LayoutDashboard, LogIn, Car } from 'lucide-react'
 import {
   Sheet,
   SheetTrigger,
@@ -14,9 +13,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
 import { getMobileNavigation, type ResolvedNavItem } from '@/config/navigationManifest'
-import { getAllRoles, getRoleMetadata, getDashboardRoute, type NavigationContext } from '@/config/featureRegistry'
+import { getRoleMetadata, normalizeFrontendRole, type NavigationContext } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
+import { useShellSignOut } from './useShellSignOut'
 import type { UserRole } from '@shared/types'
 
 // Hoisted to module scope so its identity is stable across renders (a component
@@ -39,8 +39,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export default function MobileNavDrawer() {
   const [open, setOpen] = useState(false)
   const location = useLocation()
-  const navigate = useNavigate()
-  const { user, switchRole, logout } = useAuth()
+  const { user } = useAuth()
 
   const effectiveStates = useFeatureEffectiveStates()
   const ctx: NavigationContext = {
@@ -50,30 +49,13 @@ export default function MobileNavDrawer() {
     effectiveStates,
   }
   const nav = getMobileNavigation(ctx)
-  const close = () => setOpen(false)
+  const close = useCallback(() => setOpen(false), [])
+  const handleLogout = useShellSignOut(close)
+  const portalRole = normalizeFrontendRole(user?.role)
 
   const isActive = (href: string) => {
     const path = href.split('?')[0]
     return location.pathname === path
-  }
-
-  const handleRoleChange = async (role: UserRole) => {
-    try {
-      await switchRole(role as never)
-      close()
-      navigate(getDashboardRoute(role))
-    } catch (err) {
-      // Do NOT navigate — the switch failed. Announce it accessibly (sonner
-      // renders an aria-live region) instead of failing silently.
-      console.error('Failed to switch stakeholder role:', err)
-      toast.error('Could not switch portal role. Please try again.')
-    }
-  }
-
-  const handleLogout = () => {
-    logout()
-    close()
-    navigate('/')
   }
 
   const DrawerLink = ({ item, testid }: { item: ResolvedNavItem; testid?: string }) => {
@@ -113,7 +95,7 @@ export default function MobileNavDrawer() {
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="w-[310px] max-w-[85vw] overflow-y-auto p-0"
+        className="w-[310px] max-w-[85vw] overflow-y-auto p-0 pb-[env(safe-area-inset-bottom)]"
         data-testid="mobile-nav-drawer"
       >
         <SheetHeader className="px-4 pt-4 pb-3 text-left border-b">
@@ -126,8 +108,8 @@ export default function MobileNavDrawer() {
             </span>
           </SheetTitle>
           {user ? (
-            <p className="text-xs text-gray-500">
-              {user.name.split(' ')[0]} · {getRoleMetadata(user.role as UserRole).title}
+            <p className="text-xs text-gray-500" data-testid="mobile-active-portal">
+              {user.name.split(' ')[0]} · {getRoleMetadata((portalRole ?? user.role) as UserRole).title}
             </p>
           ) : (
             <p className="text-xs text-gray-500">Browse, verify and buy with clearer trust signals.</p>
@@ -176,19 +158,10 @@ export default function MobileNavDrawer() {
           <section aria-label="Account" className="border-t mt-2 pt-2">
             {user ? (
               <>
-                <SectionLabel>Switch Portal Role</SectionLabel>
-                {getAllRoles().filter(r => r !== user.role).map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => handleRoleChange(r)}
-                    data-testid={`mobile-roleswitch-${r}`}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]"
-                  >
-                    <UserCog className="w-4 h-4 shrink-0" aria-hidden="true" />
-                    <span className="flex-1 text-left">Change to {getRoleMetadata(r).title}</span>
-                  </button>
-                ))}
+                {/* PC01-K1: the active portal is stated, never offered as a catalogue of every
+                    platform role — the server refuses all but the session's own (an organisation
+                    is chosen through the account menu's verified organisation section). */}
+                <SectionLabel>Account</SectionLabel>
                 <button
                   type="button"
                   onClick={handleLogout}

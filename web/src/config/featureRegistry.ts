@@ -1908,6 +1908,19 @@ export function getDashboardItemsFor(
 }
 
 /**
+ * PC01-K1 — the account menu's destinations, from the registry's `user_menu` placement and the same
+ * role/tenant eligibility as the sidebar. The menu used to hard-code "My Garage" and "Gutu AI" for
+ * every role, so an admin was offered owner pages the route boundary then bounced them away from.
+ */
+export function getUserMenuItemsFor(
+  { role, activeTenant }: { role: UserRole; activeTenant?: ActiveTenantScope | null },
+): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('user_menu') && isFeatureRoleEligible(f, { role, activeTenant })
+  )
+}
+
+/**
  * Operations M5/M6 — platform-authority compatibility. The backend recognizes
  * `platform_admin` and `super_admin` as platform authority ABOVE `admin`
  * (authMiddleware PLATFORM_ADMIN_ROLES), but the shared UserRole cannot

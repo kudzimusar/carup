@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { toast } from 'sonner'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,20 +14,24 @@ import {
   ShoppingCart,
   Bell,
   LayoutDashboard,
+  LogIn,
   LogOut,
-  Settings,
   ChevronDown,
   Shield,
-  MessageSquare,
   Package,
   MoreHorizontal
 } from 'lucide-react'
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { ActiveOrganisationPrompt, OrganisationMenuSection } from '@/components/layout/OrganisationSwitcher'
+import { useShellSignOut } from '@/components/layout/useShellSignOut'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
+import {
+  activeTenantScopeOf, getDashboardRoute, getRoleMetadata, getUserMenuItemsFor, getVisiblePublicNavigationItems,
+  normalizeFrontendRole, resolveFeatureVisibility,
+} from '@/config/featureRegistry'
+import { resolveFeatureIcon } from '@/config/featureIcons'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
@@ -112,8 +115,8 @@ function CommerceMenu({
 
 export default function Navbar() {
   const location = useLocation()
-  const navigate = useNavigate()
-  const { user, switchRole, logout } = useAuth()
+  const { user } = useAuth()
+  const signOut = useShellSignOut()
   const { currency, setCurrency } = useApp()
   const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
   const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
@@ -187,15 +190,15 @@ export default function Navbar() {
   const partsMenu = getDesktopMegaMenu('navbar-mega-parts', navContext)
   const moreMenu = getDesktopMegaMenu('navbar-more', navContext)
 
-  const handleRoleChange = async (newRole: string) => {
-    try {
-      await switchRole(newRole as any)
-      navigate(getDashboardRoute(newRole as UserRole))
-    } catch (err) {
-      console.error('Failed to switch stakeholder role:', err)
-      toast.error('Could not switch portal role. Please try again.')
-    }
-  }
+  // PC01-K1 — the account menu offers what this person's portal can actually open: the registry's
+  // `user_menu` items for their role and selected organisation, through the same effective visibility
+  // as the sidebar. It used to hard-code owner pages for everyone, label the dashboard "Settings",
+  // and list every platform role as a switch the server would refuse.
+  const portalRole = normalizeFrontendRole(user?.role)
+  const userMenuItems = user && portalRole
+    ? getUserMenuItemsFor({ role: portalRole, activeTenant: activeTenantScopeOf(user) })
+      .filter((item) => resolveFeatureVisibility(item, { ...navContext, activeTenant: activeTenantScopeOf(user) }).visible)
+    : []
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -247,8 +250,8 @@ export default function Navbar() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {['USD', 'ZiG', 'ZAR', 'BWP'].map((c) => (
-                  <DropdownMenuItem key={c} onClick={() => setCurrency(c as any)}>
+                {(['USD', 'ZiG', 'ZAR', 'BWP'] as const).map((c) => (
+                  <DropdownMenuItem key={c} onClick={() => setCurrency(c)}>
                     {c} {currency === c && '✓'}
                   </DropdownMenuItem>
                 ))}
@@ -299,7 +302,7 @@ export default function Navbar() {
                 ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to="/dashboard" className="text-center text-orange-600 text-sm cursor-pointer">
+                  <Link to={user ? activeDashboardPath : '/login'} className="text-center text-orange-600 text-sm cursor-pointer">
                     View All Notifications
                   </Link>
                 </DropdownMenuItem>
@@ -319,28 +322,27 @@ export default function Navbar() {
                 <DropdownMenuContent align="end" className="w-56">
                   <div className="px-3 py-2 border-b">
                     <p className="font-medium text-sm">{user.name}</p>
-                    <p className="text-xs text-gray-500">{user.email} ({user.role?.toUpperCase()})</p>
+                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Active portal</p>
+                    <p className="text-xs font-medium text-gray-700" data-testid="navbar-active-portal">
+                      {getRoleMetadata((portalRole ?? user.role) as UserRole).title}
+                    </p>
                   </div>
                   <DropdownMenuItem asChild>
-                    <Link to={activeDashboardPath} className="cursor-pointer">
+                    <Link to={activeDashboardPath} className="cursor-pointer" data-testid="user-menu-dashboard">
                       <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard/garage" className="cursor-pointer">
-                      <Car className="w-4 h-4 mr-2" /> My Garage
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard/ai" className="cursor-pointer">
-                      <MessageSquare className="w-4 h-4 mr-2" /> Gutu AI
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to={activeDashboardPath} className="cursor-pointer">
-                      <Settings className="w-4 h-4 mr-2" /> Settings
-                    </Link>
-                  </DropdownMenuItem>
+                  {userMenuItems.map((item) => {
+                    const Icon = resolveFeatureIcon(item.icon)
+                    return (
+                      <DropdownMenuItem key={item.id} asChild>
+                        <Link to={item.route} className="cursor-pointer" data-testid={`user-menu-${item.id}`}>
+                          <Icon className="w-4 h-4 mr-2" aria-hidden="true" /> {item.label}
+                        </Link>
+                      </DropdownMenuItem>
+                    )
+                  })}
                   {(user.memberships?.length || user.active_tenant_id || user.memberships_unavailable) ? (
                     <>
                       <DropdownMenuSeparator />
@@ -348,33 +350,29 @@ export default function Navbar() {
                     </>
                   ) : null}
                   <DropdownMenuSeparator />
-                  <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
-                  {getAllRoles().map((r) => {
-                    if (r === user.role) return null;
-                    return (
-                      <DropdownMenuItem key={r} onClick={() => handleRoleChange(r)} className="cursor-pointer text-xs">
-                        Change to {getRoleMetadata(r).title}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => {
-                    logout()
-                    window.location.href = '/'
-                  }} data-testid="logout-button">
+                  <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={signOut} data-testid="logout-button">
                     <LogOut className="w-4 h-4 mr-2" /> Sign Out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
+              <>
+              {/* PC01-K1: a signed-out visitor on a phone gets the same explicit Sign In, not a guess
+                  that an unlabeled menu might hold it. Desktop keeps its pair of actions below. */}
+              <Button variant="outline" size="sm" asChild className="md:hidden min-h-10 gap-1 px-3">
+                <Link to="/login" data-testid="compact-signin">
+                  <LogIn className="w-4 h-4" aria-hidden="true" /> Sign in
+                </Link>
+              </Button>
               <div className="hidden md:flex items-center gap-2">
                 <Button variant="ghost" size="sm" asChild>
-                  <Link to="/login">Sign In</Link>
+                  <Link to="/login" data-testid="desktop-signin">Sign In</Link>
                 </Button>
                 <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
                   <Link to={sellerPath} data-testid="nav-sell-cta">Sell Your Car</Link>
                 </Button>
               </div>
+              </>
             )}
 
             {/* Mobile Menu — registry-driven drawer with focus trap (Milestone 4) */}

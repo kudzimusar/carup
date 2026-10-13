@@ -1,12 +1,11 @@
-import { useState } from 'react'
-import { toast } from 'sonner'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import CompactBottomNav from './CompactBottomNav'
+import { isRecentShellSignOut, useShellSignOut } from './useShellSignOut'
 import {
   Car,
   Bell,
   Search,
-  Settings,
   LogOut,
   Menu,
   X,
@@ -16,9 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
 import {
-  getDashboardRoute,
   getRoleMetadata,
-  getAllRoles,
   normalizeFrontendRole,
   resolveFeatureVisibility,
   type FeatureRegistryItem,
@@ -45,17 +42,30 @@ export default function DashboardLayout({ role }: { role: string }) {
   const [ownerSearch, setOwnerSearch] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, switchRole, loading } = useAuth()
+  const { user, loading } = useAuth()
 
-  const handleRoleChange = async (newRole: string) => {
-    try {
-      await switchRole(newRole as Parameters<typeof switchRole>[0])
-      navigate(getDashboardRoute(newRole as UserRole))
-    } catch (err) {
-      console.error('Failed to switch stakeholder role:', err)
-      toast.error('Could not switch portal role. Please try again.')
+  // Compact drawer: Escape closes it, focus moves into it on open and returns to whatever opened it
+  // (the header menu button or the bottom bar's More) on close.
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
+  const openSidebar = useCallback(() => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setSidebarOpen(true)
+  }, [])
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+  useEffect(() => {
+    if (!sidebarOpen) {
+      openerRef.current?.focus?.()
+      openerRef.current = null
+      return
     }
-  }
+    closeButtonRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSidebarOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sidebarOpen])
+
+  const signOut = useShellSignOut(closeSidebar)
 
   // Sidebar visibility must agree with direct access (the invariant this layout already keeps for
   // effective states). A garage tenant-member can REACH the garage surfaces, so they must also be
@@ -107,28 +117,41 @@ export default function DashboardLayout({ role }: { role: string }) {
     effectiveStates,
   })
   if (decision.kind === 'loading') return <AuthBootstrapLoading />
-  if (decision.kind === 'redirect') return <Navigate to={decision.to} replace />
+  if (decision.kind === 'redirect') {
+    // A person who just signed out goes to the public home, not to a sign-in that would return the
+    // next visitor into this workspace; every other anonymous visit keeps its returnTo.
+    const to = decision.reason === 'auth' && isRecentShellSignOut() ? '/' : decision.to
+    return <Navigate to={to} replace />
+  }
   if (decision.kind === 'planned') return <FeaturePlannedPage />
   if (decision.kind === 'disabled') return <FeatureDisabledPage />
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Mobile Overlay */}
+      {/* Mobile Overlay — above the compact bottom bar (z-50), so an open drawer is the ONE surface:
+          the bar can neither cover the drawer's account actions nor be tapped through the overlay. */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/50 z-[55] lg:hidden"
+          onClick={closeSidebar}
+          data-testid="sidebar-overlay"
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar. On compact widths it is a drawer sized to the VISIBLE viewport (100dvh, falling back
+          to 100vh): `h-screen` alone is taller than a phone's visible area while the browser chrome
+          shows, which pushed Settings / Sign Out under the bottom bar or off-screen. Header, identity
+          and account actions never shrink; only the navigation list between them scrolls. */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-64 bg-white border-r flex flex-col transition-transform duration-300 ${
+        className={`fixed lg:sticky top-0 left-0 z-[60] h-screen w-64 max-w-[85vw] bg-white border-r flex flex-col transition-transform duration-300 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
+        style={{ height: '100dvh' }}
+        data-testid="dashboard-sidebar"
+        data-open={sidebarOpen ? 'true' : 'false'}
       >
         {/* Sidebar Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b">
+        <div className="h-16 shrink-0 flex items-center justify-between px-4 border-b">
           <Link to="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
               <Car className="w-4 h-4 text-white" />
@@ -138,18 +161,22 @@ export default function DashboardLayout({ role }: { role: string }) {
             </span>
           </Link>
           <Button
+            ref={closeButtonRef}
             variant="ghost"
             size="icon"
             className="lg:hidden"
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
             aria-label="Close sidebar menu"
           >
             <X className="w-5 h-5" aria-hidden="true" />
           </Button>
         </div>
 
-        {/* User Info */}
-        <div className="p-4 border-b">
+        {/* User Info. The active portal is stated, not offered as a catalogue: the server lets a
+            session assume only its own platform role (or one an active organisation lends, chosen
+            through the organisation switcher), so listing every platform role offered switches that
+            were always refused. */}
+        <div className="p-4 border-b shrink-0">
           <div className="flex items-center gap-3">
             <img
               src={user?.avatar || '/images/avatars/owner-1.jpg'}
@@ -159,25 +186,17 @@ export default function DashboardLayout({ role }: { role: string }) {
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm truncate">{user?.name || 'User'}</p>
               <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">Active portal</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
-                <select
-                  value={role}
-                  onChange={(e) => handleRoleChange(e.target.value)}
-                  aria-label="Switch active portal role"
-                  className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
-                >
-                  {getAllRoles().map((r) => (
-                    <option key={r} value={r}>{getRoleMetadata(r).title}</option>
-                  ))}
-                </select>
-              </div>
+              <p className="flex items-center gap-1.5 mt-0.5 text-xs font-medium text-gray-700" data-testid="active-portal">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} aria-hidden="true" />
+                {roleInfo.title}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Navigation — grouped Operations information architecture (M6) */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+        {/* Navigation — grouped Operations information architecture (M6). `min-h-0` lets it scroll
+            inside the column instead of pushing the account actions out of the drawer. */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1" aria-label="Dashboard navigation">
           {groupedNav.map(({ group, items }) => (
             <div key={group ?? '__ungrouped'} className="space-y-1">
               {group && (
@@ -209,7 +228,7 @@ export default function DashboardLayout({ role }: { role: string }) {
               <Link
                 key={item.id}
                 to={item.route}
-                onClick={() => setSidebarOpen(false)}
+                onClick={closeSidebar}
                 aria-current={isActive ? 'page' : undefined}
                 className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
@@ -235,27 +254,19 @@ export default function DashboardLayout({ role }: { role: string }) {
           ))}
         </nav>
 
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t space-y-1">
-          <Link
-            to="/settings"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
-          >
-            <Settings className="w-5 h-5 text-gray-400" />
-            Settings
-          </Link>
-          <Link
-            to="/"
-            onClick={() => {
-              localStorage.clear()
-              window.location.href = '/'
-            }}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
+        {/* Sidebar Footer — account actions. Never shrinks; padded for the home-indicator safe area.
+            There is no general account-settings product yet (GENERAL ACCOUNT SETTINGS — PRODUCT
+            GAP), so no Settings entry is offered: it used to link to /settings, which has no route. */}
+        <div className="shrink-0 p-3 border-t space-y-1 pb-[max(env(safe-area-inset-bottom),0.75rem)]" data-testid="sidebar-account-actions">
+          <button
+            type="button"
+            onClick={signOut}
+            className="w-full flex items-center gap-3 px-3 py-2.5 min-h-11 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
             data-testid="logout-button"
           >
-            <LogOut className="w-5 h-5" />
+            <LogOut className="w-5 h-5" aria-hidden="true" />
             Sign Out
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -267,7 +278,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             variant="ghost"
             size="icon"
             className="lg:hidden mr-2"
-            onClick={() => setSidebarOpen(true)}
+            onClick={openSidebar}
             aria-label="Open sidebar menu"
             aria-expanded={sidebarOpen}
           >
@@ -327,8 +338,10 @@ export default function DashboardLayout({ role }: { role: string }) {
               <OwnerNotificationBell />
             ) : (
               <Button variant="ghost" size="icon" className="relative" asChild>
-                <Link to="/dashboard">
-                  <Bell className="w-5 h-5" />
+                {/* This portal's own home — `/dashboard` is the owner overview, which only bounced
+                    every other role back to where they started. */}
+                <Link to={roleInfo.dashboardRoute} aria-label="Dashboard notifications">
+                  <Bell className="w-5 h-5" aria-hidden="true" />
                 </Link>
               </Button>
             )}
@@ -358,7 +371,7 @@ export default function DashboardLayout({ role }: { role: string }) {
           It was previously mounted only in MainLayout, so every signed-in workspace on a phone had
           the hamburger drawer and nothing else — no persistent way to reach the work. "More" opens
           that same drawer rather than adding a second secondary surface. */}
-      <CompactBottomNav onOpenMore={() => setSidebarOpen(true)} />
+      <CompactBottomNav onOpenMore={openSidebar} />
     </div>
   )
 }

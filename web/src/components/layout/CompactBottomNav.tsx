@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { CarFront, CircleUserRound, Home, Menu, Search, Tag, type LucideIcon } from 'lucide-react'
+import { CarFront, CircleUserRound, Home, LogIn, Menu, Search, Tag, type LucideIcon } from 'lucide-react'
 import * as Icons from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
@@ -73,7 +73,11 @@ export default function CompactBottomNav({ onOpenMore }: { onOpenMore?: () => vo
       { label: 'Market', href: '/marketplace', icon: CarFront, active: location.pathname.startsWith('/marketplace'), onClick: undefined },
       { label: 'Verify', href: '/search', icon: Search, active: location.pathname.startsWith('/search'), onClick: undefined },
       { label: 'Sell', href: '/sell', icon: Tag, active: location.pathname === '/sell', onClick: undefined },
-      { label: 'Account', href: isAuthenticated ? resolveCompactHome(ctx) : '/login', icon: CircleUserRound, active: location.pathname.startsWith('/login') || location.pathname.startsWith('/register'), onClick: undefined },
+      // PC01-K1: signed out, this slot says what it does — "Sign in" — rather than a generic
+      // "Account" a visitor had to guess led to authentication.
+      isAuthenticated
+        ? { label: 'Account', href: resolveCompactHome(ctx), icon: CircleUserRound, active: false, onClick: undefined }
+        : { label: 'Sign in', href: '/login', icon: LogIn, active: location.pathname.startsWith('/login') || location.pathname.startsWith('/register'), onClick: undefined },
     ]
 
   return (
