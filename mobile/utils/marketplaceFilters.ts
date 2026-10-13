@@ -187,6 +187,6 @@ export function removeMarketplaceFilter(
   return { ...filters, [key]: '' };
 }
 
-export function clearMarketplaceFilters(filters?: MarketplaceFilters): MarketplaceFilters {
-  return { ...EMPTY_MARKETPLACE_FILTERS, q: filters?.q || '' };
+export function clearMarketplaceFilters(): MarketplaceFilters {
+  return { ...EMPTY_MARKETPLACE_FILTERS, tags: [] };
 }
