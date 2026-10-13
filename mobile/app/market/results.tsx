@@ -237,7 +237,7 @@ function ResultsInner() {
                       accessibilityLabel={`Remove ${chip.label} filter`}
                       onPress={() => commitFilters(removeMarketplaceFilter(filters, chip.key, chip.value))}
                       style={{
-                        minHeight: 40,
+                        minHeight: 48,
                         borderRadius: radius.chip,
                         borderWidth: 1,
                         borderColor: theme.border.strong,
