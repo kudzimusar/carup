@@ -124,14 +124,16 @@ const endpoints = Object.fromEntries(TRADE_READ_AUTHORITIES.map((item) => [item.
 assert.equal(endpoints.importOrders, '/api/diaspora/import-orders?limit=20');
 assert.equal(endpoints.tradeProfile, '/api/diaspora/trade-profiles/me');
 assert.equal(endpoints.containers, '/api/diaspora/containers?limit=20');
-assert.equal(endpoints.containerSpace, '/api/diaspora/reservations?limit=20');
-assert.equal(endpoints.shipments, '/api/diaspora/shipments?limit=20');
-assert.equal(endpoints.documents, '/api/diaspora/documents?limit=20');
+assert.equal(endpoints.containerSpace, '/api/diaspora/reservations?importOrderId=<authorized-order>');
+assert.equal(endpoints.shipments, '/api/diaspora/shipments?importOrderId=<authorized-order>');
+assert.equal(endpoints.documents, '/api/diaspora/documents?importOrderId=<authorized-order>');
 assert.match(trade, /getTradeGatewaySnapshot/);
 assert.match(trade, /Trade gateway/);
 assert.match(trade, /Start Import/);
 assert.match(trade, /CarUp will not show example orders, containers, shipments, documents or counts/);
 assert.match(tradeApi, /state: 'unavailable'/);
+assert.match(tradeApi, /readOrderScopedCollection/);
+assert.match(tradeApi, /importOrderId/);
 assert.doesNotMatch(trade + tradeApi, /mock|demo order|fake count/i);
 assert.doesNotMatch(trade, /AccountScreen|Your CarUp account/);
 
