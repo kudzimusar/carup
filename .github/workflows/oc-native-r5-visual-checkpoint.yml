@@ -156,8 +156,11 @@ jobs:
           xcrun simctl io "$UDID" screenshot "$OUT/home.png"
           test -s "$OUT/home.png"
 
-          xcrun simctl openurl "$UDID" "carup://check-car"
-          cat > "$RUNNER_TEMP/ios-check.yaml" <<YAML
+          TARGET_REACHED=false
+          for DEEP_LINK_ATTEMPT in 1 2; do
+            xcrun simctl openurl "$UDID" "carup://check-car"
+
+            cat > "$RUNNER_TEMP/ios-open-confirmation.yaml" <<YAML
           appId: com.carup.mobile
           ---
           - runFlow:
@@ -170,13 +173,45 @@ jobs:
               notVisible: "^Open$"
               timeout: 10000
           - extendedWaitUntil:
-              visible: "$CHECK_MARKER"
+              visible: "Fresh on CarUp|$CHECK_MARKER"
               timeout: 30000
+          - assertNotVisible: "Open in.*CarUp.*"
+          - assertNotVisible: "^Open$"
+          YAML
+            "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-open-confirmation.yaml"
+            "$MAESTRO" --device "$UDID" hierarchy > "$OUT/check-attempt-$DEEP_LINK_ATTEMPT-hierarchy.txt"
+
+            if grep -Eiq 'Open in.*CarUp|Application Not Responding|isn.t responding|has stopped|keeps stopping' "$OUT/check-attempt-$DEEP_LINK_ATTEMPT-hierarchy.txt"; then
+              echo "::error::Blocking system UI is present after iOS deep-link attempt $DEEP_LINK_ATTEMPT"
+              cat "$OUT/check-attempt-$DEEP_LINK_ATTEMPT-hierarchy.txt"
+              exit 1
+            fi
+
+            if grep -Fq "$CHECK_MARKER" "$OUT/check-attempt-$DEEP_LINK_ATTEMPT-hierarchy.txt"; then
+              TARGET_REACHED=true
+              cp "$OUT/check-attempt-$DEEP_LINK_ATTEMPT-hierarchy.txt" "$OUT/check-hierarchy.txt"
+              break
+            fi
+
+            if [ "$DEEP_LINK_ATTEMPT" -eq 1 ]; then
+              echo "::notice::CarUp is active but Check / Verify was not delivered after the first confirmed URL launch; retrying the same deep link once after trust establishment"
+            fi
+          done
+
+          if [ "$TARGET_REACHED" != true ]; then
+            echo "::error::Check / Verify target marker was not reached after two deterministic deep-link deliveries"
+            cat "$OUT/check-attempt-2-hierarchy.txt"
+            exit 1
+          fi
+
+          cat > "$RUNNER_TEMP/ios-check-final.yaml" <<YAML
+          appId: com.carup.mobile
+          ---
           - assertNotVisible: "Open in.*CarUp.*"
           - assertNotVisible: "^Open$"
           - assertVisible: "$CHECK_MARKER"
           YAML
-          "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-check.yaml"
+          "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-check-final.yaml"
           "$MAESTRO" --device "$UDID" hierarchy > "$OUT/check-hierarchy.txt"
           if grep -Eiq 'Open in.*CarUp|Application Not Responding|isn.t responding|has stopped|keeps stopping' "$OUT/check-hierarchy.txt"; then
             echo "::error::Blocking system UI is present before the iOS Check screenshot"
