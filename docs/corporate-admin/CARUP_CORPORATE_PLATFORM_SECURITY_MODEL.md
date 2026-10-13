@@ -276,6 +276,7 @@ They may temporarily remain as compatibility inputs so existing routes continue 
 
 They must not become:
 
+- **legacy role ≠ Corporate membership**;
 - future internal Corporate membership;
 - future permission assignments;
 - future job titles;
@@ -858,6 +859,8 @@ Preserve:
 - OCR/AI diagnostics report configured state, not credentials.
 
 ### 22.5 Secret rotation authority
+
+- **permission to administer an integration ≠ permission to reveal its raw secret**
 
 Permission to administer an integration ≠ permission to reveal its raw secret.
 
