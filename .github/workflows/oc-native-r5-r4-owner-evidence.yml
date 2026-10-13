@@ -159,7 +159,7 @@ jobs:
             '- assertVisible: "Buy"'
 
           run_flow buy \
-            '- tapOn:'
+            '- tapOn:' \
             '    id: "primary-tab-marketplace"' \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
@@ -234,7 +234,7 @@ jobs:
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000' \
-            '- tapOn:'
+            '- tapOn:' \
             '    id: "primary-tab-trade"' \
             '- extendedWaitUntil:' \
             '    visible: "Trade gateway"' \
@@ -249,7 +249,7 @@ jobs:
           capture 09-trade-gateway
 
           run_flow verify \
-            '- tapOn:'
+            '- tapOn:' \
             '    id: "primary-tab-verify"' \
             '- extendedWaitUntil:' \
             '    visible: "CHECK / VERIFY"' \
@@ -258,7 +258,7 @@ jobs:
           capture 10-verify
 
           run_flow sell \
-            '- tapOn:'
+            '- tapOn:' \
             '    id: "primary-tab-sell"' \
             '- extendedWaitUntil:' \
             '    visible: "Start selling"' \
@@ -442,7 +442,7 @@ jobs:
               '- assertVisible: "Buy"'
 
             run_flow buy \
-              '- tapOn:'
+              '- tapOn:' \
             '    id: "primary-tab-marketplace"' \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
@@ -517,7 +517,7 @@ jobs:
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000' \
-              '- tapOn:'
+              '- tapOn:' \
             '    id: "primary-tab-trade"' \
               '- extendedWaitUntil:' \
               '    visible: "Trade gateway"' \
@@ -532,7 +532,7 @@ jobs:
             capture 09-trade-gateway
 
             run_flow verify \
-              '- tapOn:'
+              '- tapOn:' \
             '    id: "primary-tab-verify"' \
               '- extendedWaitUntil:' \
               '    visible: "CHECK / VERIFY"' \
@@ -541,7 +541,7 @@ jobs:
             capture 10-verify
 
             run_flow sell \
-              '- tapOn:'
+              '- tapOn:' \
             '    id: "primary-tab-sell"' \
               '- extendedWaitUntil:' \
               '    visible: "Start selling"' \
