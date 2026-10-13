@@ -156,3 +156,209 @@ The recustodied dedicated run must continue to report:
 - external communications: `disabled`.
 
 The dedicated harness must recertify the unchanged product on iOS Simulator and Android emulator at the new exact PR head. Owner acceptance remains a separate subsequent gate.
+
+
+---
+
+## OWNER IA AMENDMENT — 13 OCTOBER 2026 — CANONICAL NATIVE SHELL + DISCOVERY AUTHORITY
+
+**Owner authority:** explicit Owner checkpoint following accepted R5-R3 visual recertification.  
+**Moderator disposition:** R5 visual language APPROVED IN PRINCIPLE; product-information-architecture adjustment REQUIRED.  
+**Supersedes for all future native work:** every earlier R5 statement that freezes or recommends `Home | Market | Verify | Sell | Account` as the final native shell.
+
+### Binding owner decision
+
+The permanent consumer bottom navigation is now:
+
+`Home | Buy | Verify | Sell | Trade`
+
+This is not optional wording and it is not a cosmetic label experiment.
+
+It is the canonical CarUp native primary-journey model.
+
+The five permanent bottom destinations represent the five primary customer-facing product journeys:
+
+1. **Home** — CarUp overview, discovery entry points, current state and shortcuts.
+2. **Buy** — Marketplace discovery, search, filters, shortlist/saved discovery, vehicle detail and buyer journey.
+3. **Verify** — VIN/chassis Check, Vehicle Passport, evidence, Trust, PartSentry and governed verification services.
+4. **Sell** — seller onboarding, vehicle capture, document intelligence, listing creation, publication/readiness and seller workflow.
+5. **Trade** — Trade OS / Diaspora Trade gateway, including governed trade/import, RFQ, logistics, container-sharing/container-space, shipment and trade-service capabilities as they are implemented.
+
+### Market → Buy is mandatory
+
+The current customer-facing tab label `Market` MUST become `Buy`.
+
+The internal Marketplace route/component may remain technically named `marketplace` where safe, but user-facing native navigation must say **Buy**.
+
+Reason:
+
+- Sell is already a first-class standalone journey;
+- Verify is already a first-class standalone journey;
+- buyer intent must be equally explicit;
+- `Buy` is action-oriented and immediately communicates the purpose of the Marketplace destination.
+
+Do not rename backend Marketplace contracts merely to satisfy this presentation rule.
+
+### Account → Trade is mandatory
+
+The current bottom tab `Account` MUST be removed from the permanent bottom navigation and replaced with **Trade**.
+
+Trade MUST NOT be a renamed Account screen.
+
+Trade must route into the real governed Trade OS / Diaspora Trade product surface available to native users. Where parts of the Trade product are not yet implemented natively, the destination must truthfully expose available governed capabilities and designed unavailable/planned states rather than fake workflows.
+
+The Trade destination is a first-class CarUp pillar, not a nested Account utility.
+
+### Account/Profile moves to the header
+
+Personal account access remains essential but is no longer one of the five primary business-journey tabs.
+
+A persistent **Profile** affordance must be placed in the shared native header at the top right.
+
+The Profile control is the entry point to personal/account capability, including current governed Account functions such as identity/account information, memberships/context, personal vehicle/account utilities, preferences where implemented, professional workspace links where authorized, and Sign Out.
+
+The exact Account route may remain internally named `account`; the change is its global navigation placement.
+
+### Notifications and Profile must coexist in the header
+
+The shared header must provide two distinct, evenly composed controls:
+
+`Notifications | Profile`
+
+Requirements:
+
+- both are visible, balanced and touch-accessible;
+- Profile uses a recognizable person/avatar/profile icon;
+- Notifications uses a recognizable bell/notification icon;
+- unread state may be shown only from real notification/unread authority;
+- neither control may visually overpower the CarUp lockup or primary page hierarchy;
+- safe-area and Dynamic Type behavior must remain correct.
+
+### Communications / Inbox MUST NOT be orphaned
+
+The currently visible Home top-right communication affordance must not simply disappear.
+
+Before replacing it, implementation must identify its current canonical route and preserve access to CarUp Inbox/conversations.
+
+The native communications principle remains:
+
+**CarUp owns the conversation. External providers own transport.**
+
+Inbox/conversation access must remain discoverable through appropriate governed paths, which may include:
+
+- Notifications when the notification is communication-related;
+- Vehicle Detail → Message seller;
+- conversation deep links;
+- Profile/Account → Messages/Inbox;
+- other explicit contextual message entry points.
+
+If the current top-right chat affordance is the only discoverable route into Inbox for a required user journey, the agent must preserve an alternative before removing it.
+
+No communications capability may be deleted merely to satisfy header composition.
+
+### Mobile Marketplace discovery parity is part of this amendment
+
+The owner also requires the Buy/Marketplace journey to expose the real discovery power already available in the canonical Marketplace backend.
+
+Mobile must provide a clear **All filters** entry and a native filter sheet/panel for backend-supported discovery controls, including:
+
+- make;
+- model;
+- year;
+- colour;
+- body style;
+- location;
+- fuel;
+- transmission;
+- minimum/maximum price;
+- condition/category;
+- governed trust/verification tags;
+- sorting.
+
+Governed trust filters include at least:
+
+- Passport Verified;
+- PartSentry Checked;
+- Dealer Verified.
+
+The visual Home hero remains premium and uncluttered. Discovery uses progressive disclosure rather than a desktop form embedded into Home.
+
+Canonical flow:
+
+`Search → All filters → filter sheet → results`
+
+Results retain filter state and expose `Filters (N)`, Sort, removable active chips, truthful result count, Clear all and truthful zero-result state.
+
+No local-only filtering of the first downloaded page. No fake counts. No demo inventory.
+
+### Navigation continuity
+
+The new shell must preserve:
+
+- current R5 navy/orange design language;
+- current CarUp lockup;
+- current hero;
+- current typography;
+- primary CTA hierarchy;
+- bottom-tab active-state clarity;
+- safe-area handling;
+- minimum practical touch targets;
+- screen-reader labels and selected state;
+- deep-link continuity;
+- route authorization;
+- feature-governance truth.
+
+One tab represents one primary intent.
+
+`Buy` and `Sell` must remain distinct.
+
+`Trade` must not become a catch-all More menu.
+
+`Profile` must not become a sixth bottom tab.
+
+### Canonical shell state after this amendment
+
+Earlier historical R5 shell:
+
+`Home | Market | Verify | Sell | Account`
+
+is retained in this document only as historical custody.
+
+The binding shell for R5-R4 and all subsequent native propagation is:
+
+**`Home | Buy | Verify | Sell | Trade`**
+
+with:
+
+**`Notifications | Profile`**
+
+in the shared top-right header.
+
+### Implementation boundary
+
+This amendment authorizes native product/navigation presentation changes only when separately dispatched by CA-MOD / native moderator task authority.
+
+It does not by itself authorize:
+
+- backend contract changes;
+- database changes;
+- publication/Trust authority changes;
+- Communications transport changes;
+- fake Trade data;
+- fake notifications;
+- production deployment;
+- merge.
+
+### Certification consequence
+
+Any future native visual checkpoint that still presents:
+
+`Market` as the permanent buyer tab,
+
+or:
+
+`Account` as the permanent bottom-right tab,
+
+after implementation authority has been granted is non-conformant to current Owner authority.
+
+R5-R4 must certify the new shell and discovery behavior on both iOS and Android before the native visual language may be propagated further.
