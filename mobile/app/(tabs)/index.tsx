@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -51,6 +51,12 @@ export default function HomeScreen() {
     queryFn: () => getMarketplaceListingDetail(publishedOwnedVehicle!.vin),
     enabled: Boolean(isOwner && publishedOwnedVehicle?.vin),
     retry: false,
+  });
+
+  const sellerInquiriesQuery = useQuery({
+    queryKey: ['native-home-seller-inquiries', user?.id],
+    queryFn: getSellerMarketplaceInquiries,
+    enabled: Boolean(isOwner && publishedOwnedVehicle),
   });
 
   const listings = marketplaceQuery.data?.listings || [];
