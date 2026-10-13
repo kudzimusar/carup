@@ -162,8 +162,8 @@ The dedicated harness must recertify the unchanged product on iOS Simulator and 
 
 ## OWNER IA AMENDMENT — 13 OCTOBER 2026 — CANONICAL NATIVE SHELL + DISCOVERY AUTHORITY
 
-**Owner authority:** explicit Owner checkpoint following accepted R5-R3 visual recertification.
-**Moderator disposition:** R5 visual language APPROVED IN PRINCIPLE; product-information-architecture adjustment REQUIRED.
+**Owner authority:** explicit Owner checkpoint following accepted R5-R3 visual recertification.  
+**Moderator disposition:** R5 visual language APPROVED IN PRINCIPLE; product-information-architecture adjustment REQUIRED.  
 **Supersedes for all future native work:** every earlier R5 statement that freezes or recommends `Home | Market | Verify | Sell | Account` as the final native shell.
 
 ### Binding owner decision
