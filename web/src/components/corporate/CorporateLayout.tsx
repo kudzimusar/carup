@@ -276,8 +276,9 @@ function RailNav({ destinations, collapsed, currentId, onNavigate }: { destinati
                   <span className="sr-only">{d.label} ({plane.label})</span>
                 ) : (
                   <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                    <span className="truncate">{d.label}</span>
-                    <span className={cn('shrink-0 font-mono text-[10px]', isCurrent ? 'text-orange-300' : 'text-slate-400')} aria-hidden="true">{plane.marker}</span>
+                    {/* CA-K3-01-R2 D-3: the canonical label wraps; it is never truncated. */}
+                    <span className="min-w-0 py-1 leading-snug" data-testid="rail-label">{d.label}</span>
+                    <span className={cn('shrink-0 font-mono text-[10px]', isCurrent ? 'text-orange-300' : 'text-slate-600')} aria-hidden="true" data-testid="rail-plane-marker">{plane.marker}</span>
                     <span className="sr-only">({plane.label})</span>
                   </span>
                 )}
@@ -289,9 +290,10 @@ function RailNav({ destinations, collapsed, currentId, onNavigate }: { destinati
       {!collapsed && (
         <div className="mt-4 space-y-1 border-t border-slate-100 px-4 pt-3 text-[11px] text-slate-500" data-testid="plane-legend">
           {Object.values(CORPORATE_PLANES).map((p) => (
-            <p key={p.id}><span className="mr-1.5 font-mono text-slate-400">{p.marker}</span>{p.label}</p>
+            <p key={p.id}><span className="mr-1.5 font-mono text-slate-600" data-testid="legend-plane-marker">{p.marker}</span>{p.label}</p>
           ))}
-          <Link to="/admin" onClick={onNavigate} className="mt-2 inline-block rounded text-slate-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+          {/* CA-K3-01-R2 D-2: a full-width 44px target (was ~138×17). */}
+          <Link to="/admin" onClick={onNavigate} className="-mx-2 mt-2 flex min-h-[44px] items-center rounded px-2 text-slate-600 underline-offset-2 hover:bg-slate-50 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" data-testid="rail-operational-admin-link">
             Current operational Admin
           </Link>
         </div>

@@ -31,7 +31,7 @@ export default function CorporateDataIntelligence() {
                   <tr key={s} className="border-b border-slate-100 align-top last:border-b-0" data-testid="legend-row" data-truth-state={s}>
                     <th scope="row" className="px-3 py-2 text-left">
                       <TruthStateBadge state={s} />
-                      <span className="mt-1 block font-mono text-[10px] font-normal text-slate-400">{s}</span>
+                      <span className="mt-1 block font-mono text-[10px] font-normal text-slate-600" data-testid="legend-state-id">{s}</span>
                     </th>
                     <td className="px-3 py-2 text-xs text-slate-700">
                       {spec.statement ?? (spec.rendersValue === 'yes' ? (s === 'MEASURED_ZERO' ? 'The number 0, from a complete read' : 'A governed value') : '')}

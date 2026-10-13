@@ -278,3 +278,36 @@ describe('CA-K3-01-R1 · Reports never present withdrawal as an available transi
     expect(within(within(main).getByTestId('reports-lifecycle')).getByRole('list', { name: 'Report lifecycle stages' }).textContent).toBe('DraftGeneratedIn ReviewApprovedPublished')
   })
 })
+
+describe('CA-K3-01-R2 · accessibility / responsive recustody', () => {
+  it('D-3 · the canonical "Trust / Risk / Compliance" label is shown in full and never truncated', () => {
+    renderAt('/corporate/trust-risk')
+    const rail = screen.getByTestId('corporate-rail')
+    const label = within(within(rail).getByTestId('corporate-nav-trust-risk')).getByTestId('rail-label')
+    expect(label).toHaveTextContent(/^Trust \/ Risk \/ Compliance$/)
+    // Recurrence guard for the proven defect: no rail label is clipped with an ellipsis.
+    for (const l of within(rail).getAllByTestId('rail-label')) expect(l.className).not.toMatch(/\btruncate\b/)
+    expect(within(rail).getAllByTestId('rail-label')).toHaveLength(10)
+  })
+
+  it('D-1 · plane markers and legend IDs no longer use the proven low-contrast slate-400 text', () => {
+    renderAt('/corporate/data-intelligence')
+    const markers = [
+      ...screen.getAllByTestId('rail-plane-marker'),
+      ...screen.getAllByTestId('legend-plane-marker'),
+      ...screen.getAllByTestId('legend-state-id'),
+    ]
+    expect(markers.length).toBeGreaterThanOrEqual(9 + 3 + 16)
+    for (const m of markers) expect(m.className).not.toMatch(/\btext-slate-400\b/)
+    // Plane identities and the CI / BO / PS semantics are unchanged.
+    expect(screen.getAllByTestId('legend-plane-marker').map((m) => m.textContent)).toEqual(['CI', 'BO', 'PS'])
+  })
+
+  it('D-2 · "Current operational Admin" is a full-width target that still opens /admin', () => {
+    renderAt('/corporate')
+    const link = within(screen.getByTestId('corporate-rail')).getByTestId('rail-operational-admin-link')
+    expect(link).toHaveAttribute('href', '/admin')
+    expect(link).toHaveTextContent('Current operational Admin')
+    expect(link.className).toMatch(/min-h-\[44px\]/)
+  })
+})
