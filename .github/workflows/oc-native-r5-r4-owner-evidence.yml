@@ -335,7 +335,17 @@ jobs:
             test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
 
             cd mobile/android
-            ./gradlew assembleRelease
+            BUILD_OK=false
+            for attempt in 1 2 3; do
+              echo "::notice::Android release build attempt $attempt/3"
+              if [ "$attempt" -eq 1 ]; then
+                ./gradlew assembleRelease --no-daemon && BUILD_OK=true && break
+              else
+                ./gradlew assembleRelease --no-daemon --refresh-dependencies && BUILD_OK=true && break
+              fi
+              sleep $((attempt * 10))
+            done
+            [ "$BUILD_OK" = true ] || { echo "::error::Android release build failed after three bounded dependency-resolution attempts"; exit 1; }
             APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
             test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
             adb install -r "$APK"
