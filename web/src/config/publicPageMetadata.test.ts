@@ -76,6 +76,19 @@ describe('crawler-visible public identity and fail-closed listing projection', (
     }
     expect(publicListingMetadata(withMedia(url, true), 'TEST-123')?.image).toBeUndefined()
   })
+  it('CA-K3-01: serves the ten Corporate Admin destinations as a private, never-indexed workspace — and nothing else under /corporate', async () => {
+    const routes = ['/corporate', '/corporate/business-units', '/corporate/finance', '/corporate/growth', '/corporate/operations', '/corporate/trust-risk', '/corporate/data-intelligence', '/corporate/people-access', '/corporate/reports', '/corporate/platform']
+    for (const route of routes) {
+      const meta = pageMetadata(route, false)
+      expect(meta.status, route).toBe(200)
+      expect(meta.robots, route).toBe('noindex, nofollow')
+      expect(meta.title, route).toBe('CarUp Corporate Admin')
+    }
+    for (const absent of ['/corporate/unknown', '/corporate/finance/x', '/corporatex']) expect(pageMetadata(absent, false).status, absent).toBe(404)
+    const fetcher = vi.fn()
+    expect((await resolveDocument('/corporate/finance', 'https://api-staging.carup.dev', false, fetcher as never)).status).toBe(200)
+    expect(fetcher).not.toHaveBeenCalled()
+  })
   it('shares canonical listing paths without Preview hosts or seller-preview query parameters', () => {
     expect(canonicalListingUrl('TEST-123')).toBe('https://carup.dev/marketplace/TEST-123')
   })

@@ -30,7 +30,17 @@ export const SITEMAP_PATHS = PUBLIC_LAUNCH_ROUTES.filter(row =>
   ['LAUNCH_ACTIVE', 'LAUNCH_ACTIVE_WITH_LIMIT'].includes(row.state)
   && !row.route.includes(':') && row.route !== '*' && !['/search', '/sell'].includes(row.route)).map(row => row.route)
 
+/**
+ * CA-K3-01 — the Corporate Admin workspace is a private, authenticated shell (its fail-closed gate is
+ * CorporateLayout); it is not a feature-registry route. Only its ten exact destinations are real pages:
+ * they serve 200 as a private workspace, never indexed. Any other /corporate path stays not found.
+ */
+const CORPORATE_WORKSPACE_ROUTE = /^\/corporate(?:\/(?:business-units|finance|growth|operations|trust-risk|data-intelligence|people-access|reports|platform))?$/
+
 export function pageMetadata(path: string, staging = true): PublicPageMetadata {
+  if (CORPORATE_WORKSPACE_ROUTE.test(path)) {
+    return { title: 'CarUp Corporate Admin', description: 'Sign in to access the CarUp Corporate Admin workspace.', canonicalPath: path, robots: 'noindex, nofollow', status: 200 }
+  }
   const feature = getFeatureByRoute(path)
   const exposure = PUBLIC_LAUNCH_ROUTES.find(row => row.route === path && row.route !== '*')
   const publicActive = !feature?.requiresAuth && exposure
