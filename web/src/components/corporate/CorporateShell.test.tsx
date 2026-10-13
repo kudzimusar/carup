@@ -548,7 +548,10 @@ describe('CA-K3-AUTH-01 · the Corporate shell renders only from the SERVER Corp
     expect(screen.queryByTestId('finance-authority-statement')).toBeNull()
   })
 
-  it('8 · the decision is asked once per session, not per navigation click, and a refresh / deep link asks again', async () => {
+  // Scope: the LAYOUT alone, under an isolated router. This router has no App-wide pathname-keyed
+  // LazyRouteBoundary, so it cannot speak for the shipped app — that claim was false at abdc9e4f (D-5).
+  // The real-App proof is App.corporateContinuity.test.tsx (CA-K3-AUTH-01-R1).
+  it('8 · a mounted layout keeps its decision across child navigation, and a fresh mount (refresh / deep link) asks again', async () => {
     const u = userEvent.setup()
     const first = await renderAdmitted('/corporate')
     await u.click(within(screen.getByTestId('corporate-rail')).getByTestId('corporate-nav-finance'))

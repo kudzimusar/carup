@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useState, createContext, useContext, useEffect, lazy, Suspense } from 'react'
+import { useState, createContext, useContext, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './context/AuthContext'
 import { RouteMetadata } from './components/routing/RouteMetadata'
@@ -227,6 +227,36 @@ export const AppContext = createContext<AppContextType>({
 
 export const useApp = () => useContext(AppContext)
 
+/**
+ * CA-K3-AUTH-01-R1 (D-5) — the key of the app-wide LazyRouteBoundary below.
+ *
+ * A pathname key resets a failed lazy route on every navigation. For the Corporate family it also
+ * destroyed the mounted Corporate shell — and with it the server's Corporate access decision for this
+ * session — on every in-shell click, so each click blanked the shell and asked the server again. The
+ * Corporate family therefore shares ONE key: child navigation keeps the shell and its decision, while
+ * leaving and re-entering Corporate, a reload, a new tab or a new session still mounts a fresh shell
+ * that asks the server. Every other route keeps its pathname key, unchanged.
+ */
+const CORPORATE_ROUTE_FAMILY = '/corporate'
+function routeBoundaryKey(pathname: string): string {
+  const path = pathname.toLowerCase()
+  return path === CORPORATE_ROUTE_FAMILY || path.startsWith(`${CORPORATE_ROUTE_FAMILY}/`) ? CORPORATE_ROUTE_FAMILY : pathname
+}
+
+/**
+ * The per-page reset the app-wide boundary used to give Corporate pages, now INSIDE the shell: a page
+ * whose chunk fails is caught here, in the content area, and cleared by the next Corporate navigation —
+ * without remounting the shell or touching its access decision.
+ */
+function CorporatePageBoundary({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  return (
+    <LazyRouteBoundary key={pathname} onRetry={() => window.location.reload()}>
+      <Suspense fallback={<AuthBootstrapLoading />}>{children}</Suspense>
+    </LazyRouteBoundary>
+  )
+}
+
 export default function App() {
   const location = useLocation()
   const [currency, setCurrency] = useState<'USD' | 'ZiG' | 'ZAR' | 'BWP'>('USD')
@@ -286,7 +316,7 @@ export default function App() {
       <RouteMetadata />
       <ActivityInstrumentation />
       <FeatureGovernanceLoader>
-      <LazyRouteBoundary key={location.pathname} onRetry={() => window.location.reload()}>
+      <LazyRouteBoundary key={routeBoundaryKey(location.pathname)} onRetry={() => window.location.reload()}>
       <Suspense fallback={<AuthBootstrapLoading />}>
       <Routes>
         {/* Public Routes */}
@@ -563,18 +593,19 @@ export default function App() {
         </Route>
 
         {/* CA-K3-01 — Corporate Admin. A separate shell beside /admin (which is unchanged); the layout
-            admits only who the existing /admin route decision admits, and renders nothing otherwise. */}
+            renders only on the server's Corporate access decision (CA-K3-AUTH-01) and nothing otherwise.
+            The family shares one app-wide boundary key (routeBoundaryKey); each page has its own. */}
         <Route element={<CorporateLayout />}>
-          <Route path="/corporate" element={<CorporateOverview />} />
-          <Route path="/corporate/business-units" element={<CorporateBusinessUnits />} />
-          <Route path="/corporate/finance" element={<CorporateFinance />} />
-          <Route path="/corporate/growth" element={<CorporateGrowth />} />
-          <Route path="/corporate/operations" element={<CorporateOperations />} />
-          <Route path="/corporate/trust-risk" element={<CorporateTrustRisk />} />
-          <Route path="/corporate/data-intelligence" element={<CorporateDataIntelligence />} />
-          <Route path="/corporate/people-access" element={<CorporatePeopleAccess />} />
-          <Route path="/corporate/reports" element={<CorporateReports />} />
-          <Route path="/corporate/platform" element={<CorporatePlatform />} />
+          <Route path="/corporate" element={<CorporatePageBoundary><CorporateOverview /></CorporatePageBoundary>} />
+          <Route path="/corporate/business-units" element={<CorporatePageBoundary><CorporateBusinessUnits /></CorporatePageBoundary>} />
+          <Route path="/corporate/finance" element={<CorporatePageBoundary><CorporateFinance /></CorporatePageBoundary>} />
+          <Route path="/corporate/growth" element={<CorporatePageBoundary><CorporateGrowth /></CorporatePageBoundary>} />
+          <Route path="/corporate/operations" element={<CorporatePageBoundary><CorporateOperations /></CorporatePageBoundary>} />
+          <Route path="/corporate/trust-risk" element={<CorporatePageBoundary><CorporateTrustRisk /></CorporatePageBoundary>} />
+          <Route path="/corporate/data-intelligence" element={<CorporatePageBoundary><CorporateDataIntelligence /></CorporatePageBoundary>} />
+          <Route path="/corporate/people-access" element={<CorporatePageBoundary><CorporatePeopleAccess /></CorporatePageBoundary>} />
+          <Route path="/corporate/reports" element={<CorporatePageBoundary><CorporateReports /></CorporatePageBoundary>} />
+          <Route path="/corporate/platform" element={<CorporatePageBoundary><CorporatePlatform /></CorporatePageBoundary>} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
