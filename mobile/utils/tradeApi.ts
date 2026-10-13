@@ -75,10 +75,9 @@ function available(
   key: TradeCapabilityKey,
   label: string,
   endpoint: string,
-  count: number | null,
   note: string,
 ): TradeCapabilityState {
-  return { key, label, endpoint, state: 'available', count, note };
+  return { key, label, endpoint, state: 'available', count: null, note };
 }
 
 function unavailable(
@@ -130,8 +129,7 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
     note: string,
   ): TradeCapabilityState => {
     if (result.status === 'fulfilled') {
-      const count = Array.isArray(result.value) ? result.value.length : arrayData(result.value).length;
-      return available(key, label, endpoint, count, note);
+      return available(key, label, endpoint, note);
     }
     const error = result.reason;
     if (error instanceof TradeApiError && [401, 403, 404].includes(error.statusCode || 0)) {
@@ -153,7 +151,6 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
         'importOrders',
         'My Import Orders',
         '/api/diaspora/import-orders?limit=20',
-        importOrders.length,
         'Your governed import-order book.',
       ),
       capabilityFromResult(
