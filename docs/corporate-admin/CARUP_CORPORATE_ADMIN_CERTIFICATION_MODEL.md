@@ -1,8 +1,8 @@
 # CARUP CORPORATE ADMIN CERTIFICATION MODEL
 
-Programme: CA-1.0 — CarUp Corporate Admin 1.0  
-Agent: CA-CERT — Corporate Admin Certification Agent  
-Task: CA-CERT-01  
+Programme: CA-1.0 — CarUp Corporate Admin 1.0
+Agent: CA-CERT — Corporate Admin Certification Agent
+Task: CA-CERT-01
 Status: CROSS-PLANE ARCHITECTURE / MIGRATION CERTIFICATION MODEL — NOT PROGRAMME ACCEPTANCE
 
 ---
@@ -221,10 +221,10 @@ The accepted CA-ORG taxonomy does **not** define a single linear chain:
 
 It defines internal branching:
 
-`CORPORATE_PARENT`  
-→ optional proven `LEGAL_ENTITY / SUBSIDIARY`  
-→ `BUSINESS_UNIT OR CORPORATE_FUNCTION`  
-→ `DEPARTMENT`  
+`CORPORATE_PARENT`
+→ optional proven `LEGAL_ENTITY / SUBSIDIARY`
+→ `BUSINESS_UNIT OR CORPORATE_FUNCTION`
+→ `DEPARTMENT`
 → `TEAM`
 
 with accepted direct-parent flexibility for departments/teams where a layer is intentionally omitted.
@@ -1020,9 +1020,9 @@ CA-CERT does not self-accept any CA-K3 result.
 
 Every implementation return remains subject to CA-MOD disposition:
 
-`ACCEPT`  
-`REMEDIATE`  
-or  
+`ACCEPT`
+`REMEDIATE`
+or
 `BLOCK`
 
 ---
