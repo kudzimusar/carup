@@ -1348,7 +1348,7 @@ Recommendations are not permissions.
 | `OD-CACERT-012` | When can byte-identical proof reuse older evidence? | Only when exact relevant bytes and all dependent runtime/config/source conditions are independently proven identical |
 | `OD-CACERT-013` | Maximum age for runtime screenshots/browser evidence. | No fixed days invented; evidence must represent current exact head/environment and current source assumptions |
 | `OD-CACERT-014` | Which Platform/Security actions require independent dual-control certification? | Defer to accepted CA-RBAC/Owner policy; no one-person production authority inferred |
-| `OD-CACERT-015` | May a certification run use seeded synthetic data to prove UI behavior? | Yes only when visibly isolated from business Actual and K2B path proves exclusion; never use it to certify business counts |
+| `OD-CACERT-015` | May a certification run use seeded synthetic data to prove UI behavior? | **UNRESOLVED / NOT AUTHORIZED:** seeded synthetic certification data must not be used unless Owner policy explicitly authorizes it. If later authorized, it must remain visibly isolated from business Actual, K2B must prove its exclusion from Actual, and it must never certify business counts. |
 
 ---
 
