@@ -1,8 +1,10 @@
 /**
  * CA-K3-01 — the Corporate Admin shell.
  *
- * Gate first: the shell renders NOTHING of Corporate Admin until the compatibility bridge
- * (lib/corporate/access.ts) admits the person; every other outcome redirects or refuses (fail closed).
+ * Gate first (CA-K3-AUTH-01): the shell renders NOTHING of Corporate Admin until the SERVER's Corporate
+ * access decision (GET /api/corporate/access, read via useCorporateServerDecision) grants this session.
+ * Pending shows only a loading state; denied, unauthenticated, failed, timed-out or malformed answers
+ * render no Corporate navigation or content (fail closed). The local account role is never consulted.
  * Then: identity bar (plane · scope · freshness · attention · account), a persistent left rail with
  * the ten canonical destinations in canonical order, each with its plane marker, and the page.
  *
@@ -15,13 +17,12 @@ import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Bell, Building2, Car, ChevronsLeft, ChevronsRight, Clock, Database, FileText, Landmark, LayoutDashboard, LogOut, Menu, Server, ShieldCheck, TrendingUp, UserCircle, Users, Workflow, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
-import { activeTenantScopeOf } from '@/config/featureRegistry'
-import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { loginWithReturnTo } from '@/lib/routeAccess'
 import { AuthBootstrapLoading } from '@/components/routing/RegistryRouteBoundary'
 import { useShellSignOut } from '@/components/layout/useShellSignOut'
 import { CORPORATE_PLANES, CORPORATE_ROOT, destinationForPath } from '@/config/corporate/navigation'
 import { canSeeDestination, resolveCorporateAccess, visibleDestinations, type CorporateGrant } from '@/lib/corporate/access'
+import { useCorporateServerDecision } from '@/lib/corporate/useCorporateAccess'
 import { CorporateContextProvider } from './CorporateContext'
 import { PlaneIndicator } from './CorporatePage'
 import { TruthStateBadge } from './TruthState'
@@ -34,25 +35,35 @@ const readCollapsed = () => { try { return window.localStorage.getItem(COLLAPSE_
 const writeCollapsed = (v: boolean) => { try { window.localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0') } catch { /* per-viewer convenience only */ } }
 
 export default function CorporateLayout() {
-  const { user, loading } = useAuth()
-  const effectiveStates = useFeatureEffectiveStates()
+  const { user, token, loading } = useAuth()
   const location = useLocation()
-  const decision = resolveCorporateAccess({
-    isBootstrapping: loading,
-    isAuthenticated: !!user,
-    role: user?.role ?? null,
-    activeTenant: activeTenantScopeOf(user),
-    effectiveStates,
-  })
+  const { decision: server, retry } = useCorporateServerDecision()
+  const decision = resolveCorporateAccess({ isBootstrapping: loading, isAuthenticated: !!user && !!token, server })
   if (decision.kind === 'loading') return <AuthBootstrapLoading />
-  if (decision.kind === 'redirect') {
-    const to = decision.reason === 'auth' ? loginWithReturnTo(`${location.pathname}${location.search}`) : decision.to
-    return <Navigate to={to} replace />
+  if (decision.kind === 'redirect') return <Navigate to={loginWithReturnTo(`${location.pathname}${location.search}`)} replace />
+  if (decision.kind === 'denied') {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6" data-testid="corporate-denied">
+        <div className="max-w-md space-y-3 text-center">
+          <h1 className="text-base font-semibold text-slate-900">Corporate Admin is not available to this account</h1>
+          <p className="text-sm text-slate-600">CarUp did not grant this account access to Corporate Admin.</p>
+          <Link to="/" className="inline-flex min-h-[44px] items-center rounded border border-slate-300 px-4 text-sm text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500">
+            Go to CarUp home
+          </Link>
+        </div>
+      </main>
+    )
   }
   if (decision.kind === 'unavailable') {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6" data-testid="corporate-unavailable">
-        <p className="max-w-md text-center text-sm text-slate-600">Corporate Admin is not available right now.</p>
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6" data-testid="corporate-unavailable" data-reason={decision.reason}>
+        <div className="max-w-md space-y-3 text-center">
+          <h1 className="text-base font-semibold text-slate-900">Corporate Admin access could not be confirmed</h1>
+          <p className="text-sm text-slate-600">Nothing is shown until CarUp confirms this account's access.</p>
+          <button type="button" onClick={retry} className="inline-flex min-h-[44px] items-center rounded border border-slate-300 px-4 text-sm text-slate-800 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" data-testid="corporate-access-retry">
+            Try again
+          </button>
+        </div>
       </main>
     )
   }
