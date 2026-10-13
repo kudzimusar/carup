@@ -258,7 +258,19 @@ Every recurring or ad-hoc governed report must resolve to a registered definitio
 | \`effective_to\` | Optional retirement boundary |
 | \`change_reason\` | Why definition version changed |
 
-### 5.2 Definition versioning
+### 5.2 Period-basis authority
+
+The report-family name **Monthly** or **Quarterly** does not, by itself, choose calendar or fiscal boundaries.
+
+Until Owner/reporting policy explicitly resolves the period convention:
+
+- no recurring Monthly/Quarterly report may claim an authoritative calendar or fiscal basis merely from its family name;
+- a certified report definition must state the exact period convention, timezone and boundary semantics before generation/publication can claim an authoritative recurring period basis;
+- if that certified period basis is absent, the report remains blocked from claiming an authoritative Monthly/Quarterly reporting period.
+
+This is a fail-closed boundary, not a selection of calendar or fiscal policy.
+
+### 5.3 Definition versioning
 
 A new Report Definition version is required when a change alters management meaning, including:
 
@@ -275,7 +287,7 @@ A new Report Definition version is required when a change alters management mean
 
 Cosmetic wording/layout changes that do not alter report meaning may remain within the same definition version if audit policy permits.
 
-### 5.3 Definition certification
+### 5.4 Definition certification
 
 A definition is eligible for production reporting only when:
 
@@ -529,7 +541,7 @@ Any substantive change after approval invalidates approval and requires renewed 
 
 ### 7.7 Published
 
-Publication makes the exact approved instance the official management artifact for its scope/period/family.
+Publication makes the exact approved instance the official management artifact for its scope/period/family **only when an accepted report definition, CA-RBAC grant and applicable Owner/report-family publication policy authorize that transition**. Approval alone does not create publication authority.
 
 Publication records:
 
@@ -574,7 +586,9 @@ A restatement:
 
 Withdrawal is not deletion.
 
-If Owner policy permits withdrawal:
+**Withdrawal is disabled while `OD-CAREPORT-038` remains unresolved.**
+
+If Owner policy later permits withdrawal:
 
 - original report remains archived;
 - publication status becomes withdrawn;
@@ -610,7 +624,7 @@ Record:
 | Approved | Returned | No | Yes | Commentary-only policy dependent; metric change requires new |
 | Published | Restated | Original no | Yes | **Yes** |
 | Published | Superseded | Original no | Yes | **Yes** |
-| Published | Withdrawn | Original no | Yes | No content mutation |
+| Published | Withdrawn **only if Owner/report-family policy explicitly enables withdrawal** | Original no | Yes | No content mutation |
 | Any | Generation Failed | N/A | Yes | Failed attempt record |
 
 ---
@@ -676,20 +690,15 @@ The restricted appendix must have separate access/export controls.
 
 The same person may perform multiple stages only where the report-family policy explicitly permits it.
 
-### 10.2 High-stakes default
+### 10.2 High-stakes report SoD boundary
 
-For:
+Accepted CA-RBAC already requires **report preparer ≠ publisher for designated executive/board/restricted reports** and forbids self-grant/SoD bypass.
 
-- Monthly Executive Review;
-- Quarterly Board / Strategy;
-- restricted Finance reports;
-- Compliance/Risk reports with sensitive content;
+CA-REPORT does not convert that accepted safeguard into broader unresolved policy. For Monthly Executive, Quarterly Board/Strategy, restricted Finance and sensitive Compliance/Risk reports:
 
-safe default is:
-
-- preparer/generator separate from final approver;
-- publisher separate from preparer for designated reports;
-- no self-approval of a report the same person materially authored where SoD policy marks it restricted.
+- the accepted CA-RBAC preparer/publisher separation remains binding where designated;
+- any additional generator/reviewer/approver separation is a **non-binding CA-REPORT recommendation** until the report-family/Owner policy explicitly adopts it;
+- if a certified report definition does not identify permitted review/approval/publication custody, that absence does not authorize self-approval or publication.
 
 ### 10.3 Daily Operations
 
@@ -715,17 +724,17 @@ A generated ad-hoc report is:
 
 ### 10.5 Step-up assurance
 
-CA-RBAC assurance applies.
+CA-RBAC assurance applies as accepted upstream authority.
 
-Potential higher-assurance actions:
+Accepted CA-RBAC establishes:
 
-- publish Board/Strategy;
-- export Restricted Financial;
-- publish sensitive Compliance/Risk;
-- restate published management artifact;
-- withdraw published artifact.
+- A0 / A1 / A2 assurance classes;
+- fail-closed behavior if assurance state cannot be read;
+- **A1 minimum** for restricted-finance export/publish;
+- **A1 as a candidate** for executive/board/restricted report publication;
+- A2 as a future stronger class that is not currently available as a proven strong authenticator.
 
-Exact assurance levels remain Owner/CA-RBAC policy.
+CA-REPORT neither strengthens nor weakens those accepted constraints. Exact report-family assurance for executive/board/restricted publication, restatement or any future withdrawal remains unresolved unless an accepted CA-RBAC/Owner policy states it. An unresolved Owner Decision grants no assurance or publication authority.
 
 ---
 
@@ -765,10 +774,12 @@ May be:
 
 Prefer:
 
-- \`CERTIFIED_CURRENT\`;
+- `CERTIFIED_CURRENT`;
 - governed operational metrics with exact source-path K2B certification.
 
-Candidates may appear only in a clearly segregated “Pending/Diagnostic” appendix if policy allows, never as Actual.
+A **Generated** or **In Review** artifact may preserve a candidate metric in its exact candidate state only where the already accepted report definition/policy permits it. A candidate is never Actual.
+
+Publication of candidate metrics is **disabled pending explicit Owner/report-family policy**. Placement in a “Pending/Diagnostic” section does not itself authorize publication.
 
 ### 11.5 Finance
 
@@ -899,12 +910,14 @@ If CA-BU says:
 
 the Weekly BU report must snapshot that **candidate state**, not a business Actual.
 
-Recommended presentation:
+For Generated/In-Review artifacts where the accepted report definition permits candidate preservation, the non-binding presentation recommendation is:
 
 - “Pending certification”
 - no executive performance coloring;
 - no inclusion in cross-BU ranking;
 - no automated management delta.
+
+This presentation recommendation does not authorize candidate publication. `OD-CAREPORT-052` remains unresolved.
 
 ---
 
@@ -1172,7 +1185,7 @@ Use:
 
 ### 17.4 AI commentary
 
-AI commentary is **off by default**.
+AI commentary is **fail-closed / disabled unless explicit Owner/report-family policy authorizes it**.
 
 If later enabled:
 
@@ -1370,6 +1383,12 @@ K2B/source authority owns classification.
 
 A report snapshots source quality at generation.
 
+**Generation ≠ publication.**
+
+A degraded, stale, unavailable, bounded-incomplete or partial-period instance may be generated only where an already accepted/certified report definition or policy explicitly permits that generation state. The existence of an unresolved `OD-CAREPORT-*` never supplies that permission.
+
+Publication is a separate authority gate. Unless an accepted report-family/Owner policy explicitly permits publication for the relevant quality state, unresolved policy must not be read as publication authority.
+
 ### 22.1 ALL_CURRENT
 
 All required sources meet report-definition freshness policy.
@@ -1378,15 +1397,15 @@ All required sources meet report-definition freshness policy.
 
 Some sections are current; one or more are stale but readable.
 
-Report may generate.
+A snapshot may be generated only where an already accepted/certified report definition permits mixed-freshness generation.
 
-Publication behavior is Owner-policy dependent.
+Publication remains **unresolved and disabled absent explicit report-family/Owner publication policy**.
 
 ### 22.3 SOURCE_STALE
 
-A required source exceeds allowed freshness threshold.
+A required source exceeds the freshness rule of an accepted/certified definition. If no freshness threshold exists, the report layer must not invent one.
 
-Show:
+Show, where a stale state is already established by authority:
 
 - source;
 - last as-of;
@@ -1395,13 +1414,15 @@ Show:
 
 Do not substitute old value silently.
 
+Generation and publication of a stale-source report are separate policy decisions. Unresolved publication policy grants no permission to publish.
+
 ### 22.4 SOURCE_UNAVAILABLE
 
 Source read failed.
 
 Affected metric/section becomes unavailable/degraded according to CA-METRIC.
 
-Report may generate with caveat if policy permits.
+A report instance may be generated with that explicit state only where an already accepted/certified definition permits it. **Significant SOURCE_UNAVAILABLE publication remains blocked unless explicit report-family/Owner publication policy permits it.**
 
 ### 22.5 BOUNDED_INCOMPLETE
 
@@ -1422,27 +1443,29 @@ Report period is not complete.
 
 Example:
 
-monthly report generated mid-month.
+a report generated before the certified reporting period closes.
 
 Must snapshot:
 
-- \`is_partial_period=true\`;
+- `is_partial_period=true`;
 - period elapsed;
 - comparison policy.
 
-No comparison to complete prior month unless approved.
+No comparison to a complete prior period unless an accepted comparison policy permits it.
+
+Generation may occur only where an already accepted/certified definition permits partial-period generation. **Publication remains disabled unless explicit report-family/Owner policy permits partial-period publication.**
 
 ### 22.7 Mixed-state report
 
 One unavailable source does not automatically erase all valid sections.
 
-The report can preserve:
+Where generation is already authorized, the report instance can preserve:
 
 - valid sections;
 - unavailable sections;
 - explicit coverage summary.
 
-Publication-blocking policy remains an Owner decision by report family/source criticality.
+That preservation is not publication authority. Publication-blocking behavior remains an explicit report-family/Owner decision; unresolved policy fails closed.
 
 ---
 
@@ -1648,12 +1671,12 @@ Archive must never replace old instance with newest file under same URL/referenc
 
 External sharing is unresolved Owner policy.
 
-Safe default:
+Fail-closed interim posture:
 
-- Corporate management reports are internal;
-- external sharing requires explicit capability/classification/policy;
-- expiring/revocable share patterns may be considered later;
-- no public token sharing by default.
+- no external sharing authority exists merely because a report can be read internally;
+- external sharing requires explicit capability, classification and Owner/report-family policy;
+- expiring/revocable share patterns are non-binding future design options;
+- no public token sharing is authorized by CA-REPORT-01.
 
 Vehicle History share links are a domain precedent, not authority to expose Corporate reports.
 
@@ -1729,7 +1752,7 @@ These IDs are proposed registry seeds and do not implement backend records.
 | \`REPORT_COMPLIANCE_RISK\` | Compliance / Risk | CF_TRUST_RISK_COMPLIANCE | Compliance/Executive | Defined cadence |
 | \`REPORT_ADHOC_GOVERNED\` | Ad-hoc | Explicit owner | Authorized scoped audience | On demand |
 
-Final names/cadences remain Owner decisions.
+Final names/cadences remain Owner decisions. These proposed registry seeds do not authorize a recurring schedule, period basis, generation, approval or publication by themselves.
 
 ---
 
@@ -1757,68 +1780,87 @@ Completeness of reporting means all required questions are represented with thei
 
 ## 29. Owner Decision Register
 
-| Decision ID | Owner decision required | Why it matters | Safe default until resolved |
+### 29.1 Authority rule for unresolved Owner Decisions
+
+An unresolved `OD-CAREPORT-*` is a **question requiring authority**. It is not authority itself.
+
+Every interim posture below is classified as one of four types:
+
+1. **ACCEPTED UPSTREAM AUTHORITY** — a constraint already established by an accepted upstream CA-RBAC / CA-METRIC / CA-FIN / CA-GROWTH / CA-UX / CA-BU / K2B authority. CA-REPORT merely carries it forward.
+2. **FAIL-CLOSED INTERIM** — a non-expansive restriction used only to prevent an unauthorized action while policy is unresolved. It may block generation, publication, sharing, export, withdrawal or disclosure; it may not create new rights or business semantics.
+3. **NON-BINDING CA-REPORT RECOMMENDATION** — design guidance for future Owner/moderator consideration. It must not be implemented as permission, cadence, period, publication, sharing, export, withdrawal or policy authority merely because it appears here.
+4. **UNRESOLVED OWNER DECISION** — no operative policy is established by CA-REPORT. A certified report definition may rely only on authority explicitly accepted elsewhere; it cannot self-resolve the Owner Decision.
+
+Additional binding interpretation rules:
+
+- **generation ≠ publication**;
+- generating an allowed degraded/unavailable/partial/candidate-preserving instance does not authorize publishing it;
+- unresolved policy never authorizes publication, withdrawal, external sharing, export, classification downgrade, financial/customer reinterpretation, K2B reclassification or access expansion;
+- a “recommendation” is not a safe default unless it is separately classified as a fail-closed interim restriction;
+- where accepted upstream authority is stricter than a recommendation, the accepted upstream authority controls.
+
+| Decision ID | Owner decision required | Why it matters | Authority posture while unresolved |
 | --- | --- | --- | --- |
-| \`OD-CAREPORT-001\` | Confirm canonical report families and names. | Registry stability | Use six dispatched families |
-| \`OD-CAREPORT-002\` | Reporting timezone for Corporate/BU reports. | Period boundaries | Explicit per report; no hidden default |
-| \`OD-CAREPORT-003\` | Calendar versus fiscal month/quarter conventions. | Monthly/quarterly reproducibility | Calendar periods until approved otherwise |
-| \`OD-CAREPORT-004\` | Who owns each report definition? | Accountability | Owner function/BU from architecture; explicit approval required |
-| \`OD-CAREPORT-005\` | Who may generate reports by family? | Custody | Scoped Reporting/Analyst permission |
-| \`OD-CAREPORT-006\` | Who may review each family? | SoD | Separate reviewer for executive/restricted reports |
-| \`OD-CAREPORT-007\` | Who may approve each family? | Governance | Explicit approver permission |
-| \`OD-CAREPORT-008\` | Who may publish each family? | Publication authority | REPORTING_PUBLISHER-style explicit permission |
-| \`OD-CAREPORT-009\` | Which families require generator ≠ approver? | SoD | Executive/Board/Compliance: separate by default |
-| \`OD-CAREPORT-010\` | Which families require publisher ≠ preparer? | SoD | Executive/Board/restricted: separate by default |
-| \`OD-CAREPORT-011\` | Can Daily Operations use lighter SoD? | Timeliness | Review required; exact split pending |
-| \`OD-CAREPORT-012\` | Which source failures block generation? | Availability | Generate with unavailable sections unless critical source contract says block |
-| \`OD-CAREPORT-013\` | Which source failures block publication? | Quality | Executive/Board stricter; exact policy pending |
-| \`OD-CAREPORT-014\` | Maximum acceptable stale-source age by report family/source. | Freshness | No automatic “current” label if threshold unresolved |
-| \`OD-CAREPORT-015\` | May reports publish with MIXED_FRESHNESS? | Governance | Allowed only with prominent disclosure, subject to approval |
-| \`OD-CAREPORT-016\` | May reports publish for partial periods? | Comparability | Explicit partial label; default no for Monthly/Quarterly final reports |
-| \`OD-CAREPORT-017\` | Materiality threshold for Monthly Executive changes. | Narrative/attention | Human-reviewed; no automatic threshold |
-| \`OD-CAREPORT-018\` | Materiality threshold requiring report restatement. | Historical governance | No silent correction; Owner policy required |
-| \`OD-CAREPORT-019\` | Late-arriving-data restatement policy. | Reproducibility | Original remains; restate only under approved policy |
-| \`OD-CAREPORT-020\` | Metric-version change restatement policy. | Historical comparability | New instance if published facts change |
-| \`OD-CAREPORT-021\` | K2B provenance correction restatement policy. | Actual integrity | Restate affected published facts; preserve original |
-| \`OD-CAREPORT-022\` | Report retention duration by family/classification. | Archive | Retain until explicit policy |
-| \`OD-CAREPORT-023\` | Draft/rejected report retention. | Audit | Retain under audit policy; do not silently delete |
-| \`OD-CAREPORT-024\` | Allowed export formats by family. | Disclosure | Web; PDF later; CSV only when authorized |
-| \`OD-CAREPORT-025\` | Which report classes permit CSV export? | Data leakage | Explicit export capability required |
-| \`OD-CAREPORT-026\` | Restricted appendix export policy. | Sensitive data | Separate permission + assurance |
-| \`OD-CAREPORT-027\` | External sharing of Corporate reports. | Confidentiality | Internal-only by default |
-| \`OD-CAREPORT-028\` | May external links be expiring/revocable? | Sharing model | No sharing until policy exists |
-| \`OD-CAREPORT-029\` | Board/Strategy audience definition. | Legal/governance meaning | Management/governance audience only; no legal-board assertion |
-| \`OD-CAREPORT-030\` | Whether Quarterly report is called “Board”, “Strategy” or both. | Legal semantics | “Quarterly Board / Strategy” as provisional management label |
-| \`OD-CAREPORT-031\` | Human commentary editing cutoff. | Approval integrity | Lock substantive commentary at approval |
-| \`OD-CAREPORT-032\` | Whether commentary may be corrected without full restatement. | Correction policy | Correction notice if metrics unchanged |
-| \`OD-CAREPORT-033\` | AI commentary policy. | Authority risk | Disabled by default |
-| \`OD-CAREPORT-034\` | If AI commentary enabled, required human-review level. | Safety/governance | Human review mandatory before publication |
-| \`OD-CAREPORT-035\` | Report approval SLA by family. | Workflow | No automatic breach status until defined |
-| \`OD-CAREPORT-036\` | Final report-classification labels. | RBAC/export | Consume Corporate classifications; report-specific labels pending |
-| \`OD-CAREPORT-037\` | Whether a report classification inherits the highest included metric/source classification. | Information security | Yes as safe default unless a governed redacted derivative exists |
-| \`OD-CAREPORT-038\` | Whether published reports may be withdrawn. | Historical governance | Withdrawal allowed only with audit; no deletion |
-| \`OD-CAREPORT-039\` | Who may withdraw or restate published reports? | Custody | Separate explicit privileged permission |
-| \`OD-CAREPORT-040\` | Whether strategically important unavailable slots stay visible in published reports. | Truth transparency | Yes |
-| \`OD-CAREPORT-041\` | How report-definition versions are approved/certified. | Change control | Central reporting/data governance + report owner |
-| \`OD-CAREPORT-042\` | Whether layout-only changes require report-definition version increment. | Version semantics | No if meaning unchanged and audit preserved |
-| \`OD-CAREPORT-043\` | Whether ad-hoc reports may be shared inside a team before approval. | Shadow-report risk | Private to creator/scoped team unless explicit share permission |
-| \`OD-CAREPORT-044\` | When an ad-hoc report becomes an official management artifact. | Authority | Only after governed approval/publication |
-| \`OD-CAREPORT-045\` | Whether Board/Executive publication requires strong future A2 assurance. | High-stakes publication | A1 minimum today; future A2 policy unresolved |
-| \`OD-CAREPORT-046\` | Whether published report integrity hashes/signatures are required. | Tamper evidence | Recommended; implementation choice later |
-| \`OD-CAREPORT-047\` | How current organisational-label changes are displayed on historical reports. | Archive readability | Preserve historical label; optionally display current alias |
-| \`OD-CAREPORT-048\` | Whether report archive search can expose titles/metadata of forbidden reports. | Existence privacy | Filter by read permission; no metadata leakage |
-| \`OD-CAREPORT-049\` | Whether report PDF/slide exports may omit unavailable sections. | Truth preservation | Do not omit required strategic unavailable states |
-| \`OD-CAREPORT-050\` | Who may certify comparison compatibility across metric versions. | Variance truth | CA-METRIC/Data Intelligence authority |
-| \`OD-CAREPORT-051\` | Whether compliance/risk reports require a restricted appendix or separate report definition. | Classification | Prefer separate restricted appendix/variant |
-| \`OD-CAREPORT-052\` | Whether a published report may contain candidate metrics at all. | Executive ambiguity | Only clearly segregated Pending/Diagnostic section, never Actual |
-| \`OD-CAREPORT-053\` | How report actions/decisions required are tracked after publication. | Closed-loop management | Link to governed task/action system when later authorized; commentary alone for MVP |
-| \`OD-CAREPORT-054\` | Whether report annotations/management decisions are themselves immutable after publication. | Audit | Published decision/commentary version immutable; corrections append |
-| \`OD-CAREPORT-055\` | Whether daily/weekly reports automatically supersede prior report in same family. | Archive semantics | New period does not “correct” prior period; archive chronologically |
-| \`OD-CAREPORT-056\` | How report scopes spanning multiple BUs/functions are represented. | Cross-BU reports | Explicit enumerated scope snapshot |
-| \`OD-CAREPORT-057\` | Whether report currency presentation may show multiple source currencies side-by-side. | Finance readability | Yes, separately; no sum |
-| \`OD-CAREPORT-058\` | Whether external regulators/auditors receive Corporate report variants. | External authority | Separate future governed definition/access |
-| \`OD-CAREPORT-059\` | Who owns recurring report schedules and missed-generation alerts. | Operations | Report owner function; scheduling implementation later |
-| \`OD-CAREPORT-060\` | Whether generated-but-unpublished report instances can be deleted. | Audit/storage | Retain per policy; no deletion assumption |
+| `OD-CAREPORT-001` | Confirm canonical report families and names. | Registry stability | **ACCEPTED UPSTREAM AUTHORITY:** CA-REPORT models the six dispatched report families. Final naming/cadence policy remains unresolved and this row grants no schedule/publication authority. |
+| `OD-CAREPORT-002` | Reporting timezone for Corporate/BU reports. | Period boundaries | **UNRESOLVED OWNER DECISION:** no hidden timezone default. A certified definition must state timezone before claiming authoritative period boundaries. |
+| `OD-CAREPORT-003` | Calendar versus fiscal month/quarter conventions. | Monthly/quarterly reproducibility | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** do not choose calendar or fiscal convention. A certified report definition must explicitly state the accepted period convention before recurring Monthly/Quarterly generation/publication can claim an authoritative period basis. |
+| `OD-CAREPORT-004` | Who owns each report definition? | Accountability | **NON-BINDING CA-REPORT RECOMMENDATION:** align ownership to the accepted BU/central-function architecture. Exact owner authority remains unresolved. |
+| `OD-CAREPORT-005` | Who may generate reports by family? | Custody | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no generate authority is created here; generation requires explicit accepted CA-RBAC/report-definition permission. |
+| `OD-CAREPORT-006` | Who may review each family? | SoD | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no review authority is created here; require explicit accepted permission. |
+| `OD-CAREPORT-007` | Who may approve each family? | Governance | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no approval authority is created here; require explicit accepted permission. |
+| `OD-CAREPORT-008` | Who may publish each family? | Publication authority | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no publication authority is created here; require explicit accepted publish permission and certified report-family policy. |
+| `OD-CAREPORT-009` | Which families require generator ≠ approver? | SoD | **UNRESOLVED OWNER DECISION:** CA-RBAC already supplies designated preparer/publisher separation; CA-REPORT recommends stronger separation for high-stakes reports but grants no additional rule until accepted. |
+| `OD-CAREPORT-010` | Which families require publisher ≠ preparer? | SoD | **ACCEPTED UPSTREAM AUTHORITY:** CA-RBAC requires report preparer ≠ publisher for designated executive/board/restricted reports. Which additional families are designated remains unresolved. |
+| `OD-CAREPORT-011` | Can Daily Operations use lighter SoD? | Timeliness | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** do not relax accepted CA-RBAC SoD merely for cadence. Any lighter family-specific rule requires explicit approval. |
+| `OD-CAREPORT-012` | Which source failures block generation? | Availability | **UNRESOLVED OWNER DECISION:** degraded/unavailable generation is permitted only where an already accepted/certified definition explicitly allows it. This OD itself authorizes no generation. |
+| `OD-CAREPORT-013` | Which source failures block publication? | Quality | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** significant source-failure publication is disabled unless explicit report-family/Owner policy permits it. Generation, where already authorized, does not imply publication. |
+| `OD-CAREPORT-014` | Maximum acceptable stale-source age by report family/source. | Freshness | **UNRESOLVED OWNER DECISION:** CA-REPORT invents no stale threshold. Without an accepted threshold, do not label a source “current” by assumption. |
+| `OD-CAREPORT-015` | May reports publish with MIXED_FRESHNESS? | Governance | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** mixed-freshness publication is disabled absent explicit report-family/Owner policy. An authorized Generated/In-Review snapshot may preserve mixed freshness without granting publication. |
+| `OD-CAREPORT-016` | May reports publish for partial periods? | Comparability | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** partial-period publication is disabled absent explicit report-family/Owner policy. Authorized generation must preserve `is_partial_period=true`. |
+| `OD-CAREPORT-017` | Materiality threshold for Monthly Executive changes. | Narrative/attention | **UNRESOLVED OWNER DECISION:** no automatic materiality threshold or “material” label. |
+| `OD-CAREPORT-018` | Materiality threshold requiring report restatement. | Historical governance | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** published content is never mutated in place; whether a change requires formal restatement remains unresolved. |
+| `OD-CAREPORT-019` | Late-arriving-data restatement policy. | Reproducibility | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** late data never rewrites a published instance. No automatic restatement/publication is authorized. |
+| `OD-CAREPORT-020` | Metric-version change restatement policy. | Historical comparability | **FAIL-CLOSED INTERIM:** published snapshots remain immutable; any corrected metric output requires a new instance. Whether that instance must be formally restated/published remains unresolved. |
+| `OD-CAREPORT-021` | K2B provenance correction restatement policy. | Actual integrity | **FAIL-CLOSED INTERIM:** K2B corrections never rewrite published custody in place. A new instance is required if corrected facts are issued; publication/restatement policy remains unresolved. |
+| `OD-CAREPORT-022` | Report retention duration by family/classification. | Archive | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no deletion authority is inferred from missing retention policy. |
+| `OD-CAREPORT-023` | Draft/rejected report retention. | Audit | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** do not silently delete solely because retention is unresolved. |
+| `OD-CAREPORT-024` | Allowed export formats by family. | Disclosure | **UNRESOLVED OWNER DECISION:** the architecture describes possible formats but grants no family-specific export authority. |
+| `OD-CAREPORT-025` | Which report classes permit CSV export? | Data leakage | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no CSV export without explicit accepted export permission and report-definition allowance. |
+| `OD-CAREPORT-026` | Restricted appendix export policy. | Sensitive data | **ACCEPTED UPSTREAM AUTHORITY + UNRESOLVED DETAIL:** CA-RBAC requires separate restricted access/assurance; no appendix export is authorized until exact report/export policy is accepted. |
+| `OD-CAREPORT-027` | External sharing of Corporate reports. | Confidentiality | **FAIL-CLOSED INTERIM:** no external sharing authority exists until explicit Owner/report-family policy and CA-RBAC capability authorize it. |
+| `OD-CAREPORT-028` | May external links be expiring/revocable? | Sharing model | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no external report-link creation is authorized. Expiring/revocable links are only a future design option. |
+| `OD-CAREPORT-029` | Board/Strategy audience definition. | Legal/governance meaning | **ACCEPTED UPSTREAM BOUNDARY:** this is a management-report family, not a statutory/legal filing claim. Exact audience remains unresolved. |
+| `OD-CAREPORT-030` | Whether Quarterly report is called “Board”, “Strategy” or both. | Legal semantics | **NON-BINDING CA-REPORT RECOMMENDATION:** retain the dispatched “Quarterly Board / Strategy” working label; it grants no legal Board authority. |
+| `OD-CAREPORT-031` | Human commentary editing cutoff. | Approval integrity | **FAIL-CLOSED INTERIM:** substantive post-approval change invalidates the approval state under the report lifecycle; exact commentary cutoff policy remains unresolved. |
+| `OD-CAREPORT-032` | Whether commentary may be corrected without full restatement. | Correction policy | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no in-place published-content mutation. Correction notice/new commentary lineage is architectural guidance; exact policy remains unresolved. |
+| `OD-CAREPORT-033` | AI commentary policy. | Authority risk | **FAIL-CLOSED INTERIM:** AI commentary is disabled unless explicit Owner/report-family policy enables it. |
+| `OD-CAREPORT-034` | If AI commentary enabled, required human-review level. | Safety/governance | **UNRESOLVED OWNER DECISION:** CA-REPORT recommends human review; because AI is disabled pending policy, this recommendation grants no publication authority. |
+| `OD-CAREPORT-035` | Report approval SLA by family. | Workflow | **UNRESOLVED OWNER DECISION:** no SLA/breach threshold is created. |
+| `OD-CAREPORT-036` | Final report-classification labels. | RBAC/export | **ACCEPTED UPSTREAM AUTHORITY:** use CA-RBAC data-classification classes; any report-specific labels remain unresolved and may not downgrade upstream classification. |
+| `OD-CAREPORT-037` | Whether a report classification inherits the highest included metric/source classification. | Information security | **FAIL-CLOSED INTERIM:** absent a governed redacted derivative, the report may not be assigned a lower access classification than included content. Exact inheritance mechanics remain unresolved. |
+| `OD-CAREPORT-038` | Whether published reports may be withdrawn. | Historical governance | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** withdrawal is disabled until explicit Owner policy authorizes it. If later authorized, withdrawal must be audited and must never delete historical custody. |
+| `OD-CAREPORT-039` | Who may withdraw or restate published reports? | Custody | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no withdraw/restatement action authority is created here; require explicit privileged permission. |
+| `OD-CAREPORT-040` | Whether strategically important unavailable slots stay visible in published reports. | Truth transparency | **UNRESOLVED OWNER DECISION:** the immutable report instance must preserve the true unavailable state; exact published-layout prominence remains unresolved. |
+| `OD-CAREPORT-041` | How report-definition versions are approved/certified. | Change control | **NON-BINDING CA-REPORT RECOMMENDATION:** Data/Intelligence plus report-owner review is a proposed future model. No certification authority is created here. |
+| `OD-CAREPORT-042` | Whether layout-only changes require report-definition version increment. | Version semantics | **NON-BINDING CA-REPORT RECOMMENDATION:** avoid semantic-version churn when meaning is unchanged; final versioning policy remains unresolved. |
+| `OD-CAREPORT-043` | Whether ad-hoc reports may be shared inside a team before approval. | Shadow-report risk | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no team sharing beyond already accepted report-read/share authority. |
+| `OD-CAREPORT-044` | When an ad-hoc report becomes an official management artifact. | Authority | **ACCEPTED REPORT-LIFECYCLE BOUNDARY:** generation alone is not publication. Official Published status requires the governed approval/publication path and explicit authority. |
+| `OD-CAREPORT-045` | Whether Board/Executive publication requires strong future A2 assurance. | High-stakes publication | **ACCEPTED UPSTREAM AUTHORITY + UNRESOLVED DETAIL:** CA-RBAC defines A0/A1/A2, makes assurance fail closed, sets restricted-finance export/publish at A1 minimum, and lists executive/board/restricted report publication as an A1 candidate. CA-REPORT grants no new A1/A2 requirement; exact Board/Executive assurance remains unresolved. |
+| `OD-CAREPORT-046` | Whether published report integrity hashes/signatures are required. | Tamper evidence | **NON-BINDING CA-REPORT RECOMMENDATION:** integrity hashing is recommended; no implementation/policy requirement is created here. |
+| `OD-CAREPORT-047` | How current organisational-label changes are displayed on historical reports. | Archive readability | **ACCEPTED REPORT-SNAPSHOT BOUNDARY + UNRESOLVED DISPLAY:** historical scope snapshot remains immutable; showing a current alias beside it is optional and unresolved. |
+| `OD-CAREPORT-048` | Whether report archive search can expose titles/metadata of forbidden reports. | Existence privacy | **FAIL-CLOSED INTERIM:** archive/search must not widen CA-RBAC or leak forbidden metadata merely through search. Exact non-enumeration UX remains unresolved. |
+| `OD-CAREPORT-049` | Whether report PDF/slide exports may omit unavailable sections. | Truth preservation | **ACCEPTED EXPORT BOUNDARY + UNRESOLVED LAYOUT:** exports must preserve truth/degraded state for included required content. Whether an optional section may be omitted remains report-definition policy. |
+| `OD-CAREPORT-050` | Who may certify comparison compatibility across metric versions. | Variance truth | **ACCEPTED UPSTREAM BOUNDARY:** report layer may not self-certify incompatibly versioned metrics. Exact approving actor/process under CA-METRIC/Data Intelligence remains unresolved. |
+| `OD-CAREPORT-051` | Whether compliance/risk reports require a restricted appendix or separate report definition. | Classification | **NON-BINDING CA-REPORT RECOMMENDATION:** prefer separately gated restricted content. No appendix inclusion/export authority is created here. |
+| `OD-CAREPORT-052` | Whether a published report may contain candidate metrics at all. | Executive ambiguity | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** candidates never become Actual. Generated/In-Review artifacts may preserve candidate state only where otherwise authorized. Publication of candidate content is disabled until explicit Owner/report-family policy permits it; a Pending/Diagnostic section alone is not authority. |
+| `OD-CAREPORT-053` | How report actions/decisions required are tracked after publication. | Closed-loop management | **NON-BINDING CA-REPORT RECOMMENDATION:** future governed action-system linkage is desirable; no action-tracking implementation/policy is created here. |
+| `OD-CAREPORT-054` | Whether report annotations/management decisions are themselves immutable after publication. | Audit | **ACCEPTED REPORT-LIFECYCLE BOUNDARY:** approved/published content is not mutated in place; exact correction annotation mechanics remain unresolved. |
+| `OD-CAREPORT-055` | Whether daily/weekly reports automatically supersede prior report in same family. | Archive semantics | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** do not auto-supersede solely because a new period report exists. |
+| `OD-CAREPORT-056` | How report scopes spanning multiple BUs/functions are represented. | Cross-BU reports | **NON-BINDING CA-REPORT RECOMMENDATION:** use an explicit enumerated scope snapshot; final representation policy remains unresolved. |
+| `OD-CAREPORT-057` | Whether report currency presentation may show multiple source currencies side-by-side. | Finance readability | **ACCEPTED UPSTREAM BOUNDARY + NON-BINDING PRESENTATION RECOMMENDATION:** CA-FIN forbids ungoverned cross-currency aggregation. Side-by-side source-currency presentation is recommended, not mandated. |
+| `OD-CAREPORT-058` | Whether external regulators/auditors receive Corporate report variants. | External authority | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no external variant/distribution authority until separate definition, access and legal policy are accepted. |
+| `OD-CAREPORT-059` | Who owns recurring report schedules and missed-generation alerts. | Operations | **UNRESOLVED OWNER DECISION:** no scheduler ownership or automated publication authority is created. |
+| `OD-CAREPORT-060` | Whether generated-but-unpublished report instances can be deleted. | Audit/storage | **UNRESOLVED OWNER DECISION / FAIL-CLOSED:** no deletion authority is inferred while retention/deletion policy is unresolved. |
 
 ---
 
