@@ -35,8 +35,10 @@ jobs:
         include:
           - label: current
             ref: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
+            check_marker: Check a car
           - label: r5
             ref: ${{ github.sha }}
+            check_marker: CHECK / VERIFY
     steps:
       - name: Checkout visual authority
         uses: actions/checkout@v4
@@ -97,6 +99,7 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/r5-evidence"
           MAESTRO="$HOME/.maestro/bin/maestro"
+          CHECK_MARKER='${{ matrix.check_marker }}'
           UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; xs=[v for group in d.values() for v in group if v.get("isAvailable") and v.get("name","").startswith("iPhone")]; print(xs[0]["udid"] if xs else "")')"
           if [ -z "$UDID" ]; then
             echo "::error::No available iPhone Simulator found"
@@ -154,7 +157,7 @@ jobs:
           test -s "$OUT/home.png"
 
           xcrun simctl openurl "$UDID" "carup://check-car"
-          cat > "$RUNNER_TEMP/ios-check.yaml" <<'YAML'
+          cat > "$RUNNER_TEMP/ios-check.yaml" <<YAML
           appId: com.carup.mobile
           ---
           - runFlow:
@@ -167,11 +170,11 @@ jobs:
               notVisible: "^Open$"
               timeout: 10000
           - extendedWaitUntil:
-              visible: "Check CarUp record"
+              visible: "$CHECK_MARKER"
               timeout: 30000
           - assertNotVisible: "Open in.*CarUp.*"
           - assertNotVisible: "^Open$"
-          - assertVisible: "Check CarUp record"
+          - assertVisible: "$CHECK_MARKER"
           YAML
           "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-check.yaml"
           "$MAESTRO" --device "$UDID" hierarchy > "$OUT/check-hierarchy.txt"
@@ -180,7 +183,7 @@ jobs:
             cat "$OUT/check-hierarchy.txt"
             exit 1
           fi
-          if ! grep -Fq 'Check CarUp record' "$OUT/check-hierarchy.txt"; then
+          if ! grep -Fq "$CHECK_MARKER" "$OUT/check-hierarchy.txt"; then
             echo "::error::Check / Verify target marker is absent from the iOS accessibility hierarchy"
             cat "$OUT/check-hierarchy.txt"
             exit 1
@@ -198,7 +201,7 @@ jobs:
             echo "expo_camera=$(node -p 'require("../../node_modules/expo-camera/package.json").version')"
             echo "new_architecture=true"
             echo "home_assertion=Fresh on CarUp visible; no blocking system prompt"
-            echo "check_assertion=Check CarUp record visible; Open confirmation absent"
+            echo "check_assertion=$CHECK_MARKER visible; Open confirmation absent"
             echo "home_screenshot=home.png"
             echo "check_screenshot=check-verify.png"
           } >> "$OUT/custody.txt"
@@ -222,8 +225,10 @@ jobs:
         include:
           - label: current
             ref: 109dfbf9d8a911e90b7adb7ff288cd7d15c03619
+            check_marker: Check a car
           - label: r5
             ref: ${{ github.sha }}
+            check_marker: CHECK / VERIFY
     steps:
       - name: Checkout visual authority
         uses: actions/checkout@v4
@@ -397,7 +402,7 @@ jobs:
             test -s "$OUT/home.png"
 
             reestablish_target check
-            assert_android_state "Check CarUp record" check check
+            assert_android_state '${{ matrix.check_marker }}' check check
             adb exec-out screencap -p > "$OUT/check-verify.png"
             test -s "$OUT/check-verify.png"
 
@@ -411,7 +416,7 @@ jobs:
               echo "new_architecture=true"
               echo "artifact=$APK"
               echo "home_assertion=CarUp top-resumed with CarUp-owned UI; Fresh on CarUp visible; no blocking modal"
-              echo "check_assertion=CarUp top-resumed with CarUp-owned UI; Check CarUp record visible; no blocking modal"
+              echo "check_assertion=CarUp top-resumed with CarUp-owned UI; ${{ matrix.check_marker }} visible; no blocking modal"
               echo "home_screenshot=home.png"
               echo "check_screenshot=check-verify.png"
             } >> "$OUT/custody.txt"
