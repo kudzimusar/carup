@@ -1,0 +1,488 @@
+name: OC-NATIVE R5-R4 Owner Evidence
+
+on:
+  push:
+    branches:
+      - feat/oc-native01-product-foundation
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/oc-native-r5-r4-owner-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-r5-r4-owner-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app
+  R4_BACKEND_DEPLOYMENT: dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC
+  R4_BACKEND_SHA: 40621751d4b74c59324fe6601aa5ddbdc7769b08
+  R4_SUPABASE_PROJECT: eoyenigwevnxwwhyhaer
+  R4_EXTERNAL_SENDS: disabled
+
+jobs:
+  ios-owner-evidence:
+    name: iOS · R5-R4 owner evidence
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Maestro 2.11.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          export MAESTRO_VERSION=2.11.0
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro/bin/maestro" --version
+
+      - name: Install and prebuild iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          cd mobile
+          npx expo prebuild --platform ios --clean --no-install
+          cd ios
+          pod install
+
+      - name: Build, install and capture iOS R5-R4 journey evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/r5-r4-owner-evidence"
+          mkdir -p "$OUT"
+          MAESTRO="$HOME/.maestro/bin/maestro"
+
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; xs=[v for group in d.values() for v in group if v.get("isAvailable") and v.get("name","").startswith("iPhone")]; print(xs[0]["udid"] if xs else "")')"
+          test -n "$UDID" || { echo "::error::No available iPhone Simulator"; exit 1; }
+          DEVICE_NAME="$(UDID="$UDID" xcrun simctl list devices available -j | UDID="$UDID" python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))')"
+          OS_VERSION="$(UDID="$UDID" xcrun simctl list devices available -j | UDID="$UDID" python3 -c 'import json,sys,os,re; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; key=next(k for k,group in d.items() if any(v.get("udid")==u for v in group)); m=re.search(r"iOS-(\d+)-(\d+)",key); print(".".join(m.groups()) if m else key)')"
+
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance light
+
+          cd mobile/ios
+          WORKSPACE="$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          test -n "$WORKSPACE" || { echo "::error::No iOS workspace"; exit 1; }
+          SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(j["workspace"]["schemes"][0])')"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -sdk iphonesimulator -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build
+
+          APP="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator" -maxdepth 2 -name '*.app' -print -quit)"
+          test -n "$APP" || { echo "::error::No built iOS app"; exit 1; }
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.carup.mobile
+
+          run_flow() {
+            local name="$1"
+            shift
+            local file="$RUNNER_TEMP/$name.yaml"
+            {
+              echo "appId: com.carup.mobile"
+              echo "---"
+              printf '%s\n' "$@"
+            } > "$file"
+            "$MAESTRO" --device "$UDID" test "$file"
+          }
+
+          capture() {
+            local name="$1"
+            "$MAESTRO" --device "$UDID" hierarchy > "$OUT/$name-hierarchy.txt"
+            if grep -Eiq 'Open in.*CarUp|Application Not Responding|isn.t responding|has stopped|keeps stopping|SpringBoard.*not responding' "$OUT/$name-hierarchy.txt"; then
+              echo "::error::Blocking system UI before iOS $name evidence"
+              cat "$OUT/$name-hierarchy.txt"
+              exit 1
+            fi
+            xcrun simctl io "$UDID" screenshot "$OUT/$name.png"
+            test -s "$OUT/$name.png"
+          }
+
+          run_flow home \
+            '- extendedWaitUntil:' \
+            '    visible: "Fresh on CarUp"' \
+            '    timeout: 30000' \
+            '- assertVisible: "Notifications"' \
+            '- assertVisible: "Profile"' \
+            '- assertVisible: "Home"' \
+            '- assertVisible: "Buy"' \
+            '- assertVisible: "Verify"' \
+            '- assertVisible: "Sell"' \
+            '- assertVisible: "Trade"'
+          capture 01-home-shell-header
+
+          run_flow profile \
+            '- tapOn: "Profile"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Your CarUp account"' \
+            '    timeout: 15000'
+          capture 02-profile-account
+
+          run_flow buy \
+            '- tapOn: "Buy"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Buy on CarUp"' \
+            '    timeout: 15000' \
+            '- assertVisible: "All filters"'
+          capture 03-buy-active
+
+          run_flow filters_open \
+            '- tapOn: "All filters"' \
+            '- extendedWaitUntil:' \
+            '    visible: "All filters"' \
+            '    timeout: 10000' \
+            '- assertVisible: "Toyota"'
+          capture 04-all-filters-open
+
+          run_flow filters_select \
+            '- tapOn: "Toyota"' \
+            '- scrollUntilVisible:' \
+            '    element:' \
+            '      text: "Condition"' \
+            '    direction: DOWN' \
+            '    timeout: 20000' \
+            '- tapOn: "Second hand"' \
+            '- scrollUntilVisible:' \
+            '    element:' \
+            '      text: "Passport Verified"' \
+            '    direction: DOWN' \
+            '    timeout: 20000' \
+            '- tapOn: "Passport Verified"' \
+            '- tapOn: "PartSentry Checked"' \
+            '- assertVisible: "Passport Verified"' \
+            '- assertVisible: "PartSentry Checked"'
+          capture 05-multiple-trust-filters
+
+          run_flow filters_apply \
+            '- tapOn: "Show results"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Filters (4)"' \
+            '    timeout: 30000'
+          for attempt in $(seq 1 30); do
+            "$MAESTRO" --device "$UDID" hierarchy > "$OUT/06-filtered-results-hierarchy.txt"
+            if grep -Eq '[0-9]+ matching vehicle' "$OUT/06-filtered-results-hierarchy.txt"; then break; fi
+            sleep 1
+          done
+          grep -Eq '[0-9]+ matching vehicle' "$OUT/06-filtered-results-hierarchy.txt" || { echo "::error::Truthful result count did not resolve"; exit 1; }
+          capture 06-filtered-results-count-chips
+
+          run_flow zero \
+            '- tapOn: "Search Marketplace results"' \
+            '- inputText: "OCNATIVEZEROZZZ"' \
+            '- pressKey: Enter' \
+            '- extendedWaitUntil:' \
+            '    visible: "0 matching vehicles"' \
+            '    timeout: 30000'
+          capture 07-zero-results
+
+          run_flow trade \
+            '- tapOn: "Back"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Buy on CarUp"' \
+            '    timeout: 15000' \
+            '- tapOn: "Trade"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Trade gateway"' \
+            '    timeout: 15000' \
+            '- assertVisible: "My Import Orders"' \
+            '- assertVisible: "Unavailable"'
+          capture 08-trade-gateway
+
+          run_flow verify \
+            '- tapOn: "Verify"' \
+            '- extendedWaitUntil:' \
+            '    visible: "CHECK / VERIFY"' \
+            '    timeout: 15000' \
+            '- assertVisible: "Check CarUp record"'
+          capture 09-verify
+
+          run_flow sell \
+            '- tapOn: "Sell"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Start selling"' \
+            '    timeout: 15000'
+          capture 10-sell
+
+          run_flow inbox \
+            '- tapOn: "Notifications"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Your messages live here"' \
+            '    timeout: 15000'
+          capture 11-notifications-inbox
+
+          {
+            echo "task=OC-NATIVE-LR1-R5-R4"
+            echo "platform=ios-simulator"
+            echo "candidate_sha=$GITHUB_SHA"
+            echo "device=$DEVICE_NAME"
+            echo "ios=$OS_VERSION"
+            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
+            echo "maestro=$("$MAESTRO" --version | tr '\n' ' ')"
+            echo "backend_deployment=$R4_BACKEND_DEPLOYMENT"
+            echo "backend_url=$EXPO_PUBLIC_API_URL"
+            echo "backend_sha=$R4_BACKEND_SHA"
+            echo "supabase_project=$R4_SUPABASE_PROJECT"
+            echo "external_sends=$R4_EXTERNAL_SENDS"
+            echo "auth_state=anonymous; unavailable Trade/Inbox states are truthful"
+          } > "$OUT/custody.txt"
+          (cd "$OUT" && shasum -a 256 *.png > sha256.txt)
+
+      - name: Upload iOS owner evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-r5-r4-ios-${{ github.sha }}
+          path: ${{ runner.temp }}/r5-r4-owner-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  android-owner-evidence:
+    name: Android · R5-R4 owner evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Maestro 2.11.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          export MAESTRO_VERSION=2.11.0
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro/bin/maestro" --version
+
+      - name: Install and prebuild Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          cd mobile
+          npx expo prebuild --platform android --clean --no-install
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build, install and capture Android R5-R4 journey evidence
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          R4_ANDROID_SCRIPT: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/r5-r4-owner-evidence"
+            mkdir -p "$OUT"
+            MAESTRO="$HOME/.maestro/bin/maestro"
+            DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
+            test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
+
+            cd mobile/android
+            ./gradlew assembleRelease
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
+            adb install -r "$APK"
+            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.carup.mobile | tr -d '\r' | tail -n 1)"
+            case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "::error::Invalid launcher $LAUNCH_COMPONENT"; exit 1;; esac
+            adb shell am force-stop com.carup.mobile
+            adb shell am start -W -n "$LAUNCH_COMPONENT" >/dev/null
+
+            run_flow() {
+              local name="$1"
+              shift
+              local file="$RUNNER_TEMP/$name.yaml"
+              {
+                echo "appId: com.carup.mobile"
+                echo "---"
+                printf '%s\n' "$@"
+              } > "$file"
+              "$MAESTRO" --device "$DEVICE_ID" test "$file"
+            }
+
+            capture() {
+              local name="$1"
+              "$MAESTRO" --device "$DEVICE_ID" hierarchy > "$OUT/$name-hierarchy.txt"
+              if grep -Eiq 'Quickstep.*(isn.t responding|not responding)|Application Not Responding|System UI.*(isn.t responding|not responding)|keeps stopping|has stopped' "$OUT/$name-hierarchy.txt"; then
+                echo "::error::Blocking system UI before Android $name evidence"
+                cat "$OUT/$name-hierarchy.txt"
+                exit 1
+              fi
+              RESUMED="$(adb shell dumpsys activity activities | tr -d '\r' | grep -E -m1 'mResumedActivity|topResumedActivity' || true)"
+              [[ "$RESUMED" == *"com.carup.mobile/"* ]] || { echo "::error::CarUp is not Android foreground for $name: $RESUMED"; exit 1; }
+              adb exec-out screencap -p > "$OUT/$name.png"
+              test -s "$OUT/$name.png"
+            }
+
+            run_flow home \
+              '- extendedWaitUntil:' \
+              '    visible: "Fresh on CarUp"' \
+              '    timeout: 30000' \
+              '- assertVisible: "Notifications"' \
+              '- assertVisible: "Profile"' \
+              '- assertVisible: "Home"' \
+              '- assertVisible: "Buy"' \
+              '- assertVisible: "Verify"' \
+              '- assertVisible: "Sell"' \
+              '- assertVisible: "Trade"'
+            capture 01-home-shell-header
+
+            run_flow profile \
+              '- tapOn: "Profile"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Your CarUp account"' \
+              '    timeout: 15000'
+            capture 02-profile-account
+
+            run_flow buy \
+              '- tapOn: "Buy"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Buy on CarUp"' \
+              '    timeout: 15000' \
+              '- assertVisible: "All filters"'
+            capture 03-buy-active
+
+            run_flow filters_open \
+              '- tapOn: "All filters"' \
+              '- extendedWaitUntil:' \
+              '    visible: "All filters"' \
+              '    timeout: 10000' \
+              '- assertVisible: "Toyota"'
+            capture 04-all-filters-open
+
+            run_flow filters_select \
+              '- tapOn: "Toyota"' \
+              '- scrollUntilVisible:' \
+              '    element:' \
+              '      text: "Condition"' \
+              '    direction: DOWN' \
+              '    timeout: 20000' \
+              '- tapOn: "Second hand"' \
+              '- scrollUntilVisible:' \
+              '    element:' \
+              '      text: "Passport Verified"' \
+              '    direction: DOWN' \
+              '    timeout: 20000' \
+              '- tapOn: "Passport Verified"' \
+              '- tapOn: "PartSentry Checked"' \
+              '- assertVisible: "Passport Verified"' \
+              '- assertVisible: "PartSentry Checked"'
+            capture 05-multiple-trust-filters
+
+            run_flow filters_apply \
+              '- tapOn: "Show results"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Filters (4)"' \
+              '    timeout: 30000'
+            for attempt in $(seq 1 30); do
+              "$MAESTRO" --device "$DEVICE_ID" hierarchy > "$OUT/06-filtered-results-hierarchy.txt"
+              if grep -Eq '[0-9]+ matching vehicle' "$OUT/06-filtered-results-hierarchy.txt"; then break; fi
+              sleep 1
+            done
+            grep -Eq '[0-9]+ matching vehicle' "$OUT/06-filtered-results-hierarchy.txt" || { echo "::error::Truthful result count did not resolve"; exit 1; }
+            capture 06-filtered-results-count-chips
+
+            run_flow zero \
+              '- tapOn: "Search Marketplace results"' \
+              '- inputText: "OCNATIVEZEROZZZ"' \
+              '- pressKey: Enter' \
+              '- extendedWaitUntil:' \
+              '    visible: "0 matching vehicles"' \
+              '    timeout: 30000'
+            capture 07-zero-results
+
+            run_flow trade \
+              '- tapOn: "Back"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Buy on CarUp"' \
+              '    timeout: 15000' \
+              '- tapOn: "Trade"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Trade gateway"' \
+              '    timeout: 15000' \
+              '- assertVisible: "My Import Orders"' \
+              '- assertVisible: "Unavailable"'
+            capture 08-trade-gateway
+
+            run_flow verify \
+              '- tapOn: "Verify"' \
+              '- extendedWaitUntil:' \
+              '    visible: "CHECK / VERIFY"' \
+              '    timeout: 15000' \
+              '- assertVisible: "Check CarUp record"'
+            capture 09-verify
+
+            run_flow sell \
+              '- tapOn: "Sell"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Start selling"' \
+              '    timeout: 15000'
+            capture 10-sell
+
+            run_flow inbox \
+              '- tapOn: "Notifications"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Your messages live here"' \
+              '    timeout: 15000'
+            capture 11-notifications-inbox
+
+            {
+              echo "task=OC-NATIVE-LR1-R5-R4"
+              echo "platform=android-emulator"
+              echo "candidate_sha=$GITHUB_SHA"
+              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
+              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+              echo "launcher_component=$LAUNCH_COMPONENT"
+              echo "maestro=$("$MAESTRO" --version | tr '\n' ' ')"
+              echo "backend_deployment=$R4_BACKEND_DEPLOYMENT"
+              echo "backend_url=$EXPO_PUBLIC_API_URL"
+              echo "backend_sha=$R4_BACKEND_SHA"
+              echo "supabase_project=$R4_SUPABASE_PROJECT"
+              echo "external_sends=$R4_EXTERNAL_SENDS"
+              echo "auth_state=anonymous; unavailable Trade/Inbox states are truthful"
+            } > "$OUT/custody.txt"
+            (cd "$OUT" && sha256sum *.png > sha256.txt)
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: bash -c "$R4_ANDROID_SCRIPT"
+
+      - name: Upload Android owner evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-r5-r4-android-${{ github.sha }}
+          path: ${{ runner.temp }}/r5-r4-owner-evidence
+          if-no-files-found: error
+          retention-days: 30
