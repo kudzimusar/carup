@@ -39,7 +39,7 @@ import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 function ResultsInner() {
   const theme = useNativeTheme();
   const router = useRouter();
-  const params = useLocalSearchParams<Record<string, string | string[] | undefined>>();
+  const params = useLocalSearchParams() as Record<string, string | string[] | undefined>;
   const initialFilters = useMemo(() => marketplaceFiltersFromParams(params), [params]);
   const [filters, setFilters] = useState<MarketplaceFilters>(initialFilters);
   const [search, setSearch] = useState(initialFilters.q);
