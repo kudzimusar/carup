@@ -69,7 +69,7 @@ Corporate Admin should be built as a new governed presentation and membership la
 
 | Layer | Proven current behavior | Corporate Admin implication |
 | --- | --- | --- |
-| Shared frontend role type | `UserRole = owner | dealer | mechanic | bank | insurance | government | admin`. | No CEO, CFO, COO, analyst, operator, compliance-manager, platform-admin or security-admin corporate principal is representable in the shared frontend role type. |
+| Shared frontend role type | `UserRole` is one of `owner`, `dealer`, `mechanic`, `bank`, `insurance`, `government`, or `admin`. | No CEO, CFO, COO, analyst, operator, compliance-manager, platform-admin or security-admin corporate principal is representable in the shared frontend role type. |
 | Frontend route/nav gate | `featureRegistry.ts` assigns all `/admin/*` corporate/ops/platform features to `roles: ['admin']`. `DashboardLayout` and `routeAccess.ts` use this for discovery/direct-route UX. | Current IA cannot express different corporate memberships or read/write scopes. |
 | Platform-role normalization | `platform_admin` and `super_admin` are rendered/routed as `admin`. | Technical platform authority is visually conflated with ordinary Admin. |
 | Backend role gate | `authorizeRole` authenticates session, loads `users.role`, verifies active tenant, resolves effective role, and then lets a base platform-admin role bypass normal allowed-role membership. | A platform administrator can reach many business-domain endpoints unless an additional domain/capability rule refuses it. |
