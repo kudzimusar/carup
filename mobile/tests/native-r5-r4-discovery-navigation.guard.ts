@@ -117,7 +117,7 @@ assert.match(results, /Sort: \$\{sortLabel\}/);
 assert.match(results, /activeMarketplaceFilterChips/);
 assert.match(results, /marketplaceQuery\.data\?\.total \?\? 0/);
 assert.match(results, /0 matching vehicles/);
-assert.match(results, /CarUp will not substitute unrelated or demo vehicles/);
+assert.match(results, /CarUp will not substitute unrelated or fabricated inventory/);
 assert.match(results, /if \(!savedMode\) return marketplaceQuery\.data\?\.listings \|\| \[\]/);
 
 const endpoints = Object.fromEntries(TRADE_READ_AUTHORITIES.map((item) => [item.key, item.endpoint]));
