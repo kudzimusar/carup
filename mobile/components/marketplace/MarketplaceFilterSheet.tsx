@@ -29,7 +29,7 @@ export function MarketplaceFilterSheet({
     if (visible) setDraft(value);
   }, [visible, value]);
 
-  const set = <K extends keyof MarketplaceFilters>(key: K, next: MarketplaceFilters[K]) => {
+  const set = <K extends keyof MarketplaceFilters,>(key: K, next: MarketplaceFilters[K]) => {
     setDraft((current) => ({ ...current, [key]: next }));
   };
 
@@ -155,7 +155,7 @@ export function MarketplaceFilterSheet({
           <Button
             label="Clear all"
             variant="tertiary"
-            onPress={() => setDraft({ ...EMPTY_MARKETPLACE_FILTERS, q: draft.q })}
+            onPress={() => setDraft({ ...EMPTY_MARKETPLACE_FILTERS, tags: [] })}
           />
         </View>
       </KeyboardAvoidingView>
