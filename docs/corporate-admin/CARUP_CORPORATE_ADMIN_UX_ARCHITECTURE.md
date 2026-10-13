@@ -81,7 +81,7 @@ Binding examples:
 - registered accounts are not customers;
 - inquiries are not sales;
 - payment intent is not revenue;
-- independent stage totals are not conversion;
+- stage totals ≠ linked funnel conversion;
 - navigation route renders are not users;
 - peak-day unique is not period unique.
 
