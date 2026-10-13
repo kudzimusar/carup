@@ -135,6 +135,16 @@ jobs:
             '    timeout: 15000'
           capture 02-profile-account
 
+          # Profile is a hidden route by design. Re-establish the primary shell deterministically
+          # instead of depending on platform-specific hidden-tab back-stack behavior.
+          xcrun simctl terminate "$UDID" com.carup.mobile || true
+          xcrun simctl launch "$UDID" com.carup.mobile
+          run_flow home_after_profile \
+            '- extendedWaitUntil:' \
+            '    visible: "Fresh on CarUp"' \
+            '    timeout: 30000' \
+            '- assertVisible: "Buy"'
+
           run_flow buy \
             '- tapOn: "Buy"' \
             '- extendedWaitUntil:' \
@@ -183,6 +193,19 @@ jobs:
           grep -Eq '[0-9]+ matching vehicle' "$OUT/06-filtered-results-hierarchy.txt" || { echo "::error::Truthful result count did not resolve"; exit 1; }
           capture 06-filtered-results-count-chips
 
+          run_flow clear_all \
+            '- tapOn: "Clear all"' \
+            '- extendedWaitUntil:' \
+            '    visible: "Filters"' \
+            '    timeout: 15000'
+          for attempt in $(seq 1 30); do
+            "$MAESTRO" --device "$UDID" hierarchy > "$OUT/07-clear-all-hierarchy.txt"
+            if grep -Eq '[0-9]+ matching vehicle' "$OUT/07-clear-all-hierarchy.txt"; then break; fi
+            sleep 1
+          done
+          grep -Eq '[0-9]+ matching vehicle' "$OUT/07-clear-all-hierarchy.txt" || { echo "::error::Unfiltered result count did not resolve after Clear all"; exit 1; }
+          capture 07-clear-all-unfiltered
+
           run_flow zero \
             '- tapOn: "Search Marketplace results"' \
             '- inputText: "OCNATIVEZEROZZZ"' \
@@ -190,7 +213,7 @@ jobs:
             '- extendedWaitUntil:' \
             '    visible: "0 matching vehicles"' \
             '    timeout: 30000'
-          capture 07-zero-results
+          capture 08-zero-results
 
           run_flow trade \
             '- tapOn: "Back"' \
@@ -208,7 +231,7 @@ jobs:
             '    timeout: 15000' \
             '- assertVisible: "My Import Orders"' \
             '- assertVisible: "Unavailable"'
-          capture 08-trade-gateway
+          capture 09-trade-gateway
 
           run_flow verify \
             '- tapOn: "Verify"' \
@@ -216,21 +239,21 @@ jobs:
             '    visible: "CHECK / VERIFY"' \
             '    timeout: 15000' \
             '- assertVisible: "Check CarUp record"'
-          capture 09-verify
+          capture 10-verify
 
           run_flow sell \
             '- tapOn: "Sell"' \
             '- extendedWaitUntil:' \
             '    visible: "Start selling"' \
             '    timeout: 15000'
-          capture 10-sell
+          capture 11-sell
 
           run_flow inbox \
             '- tapOn: "Notifications"' \
             '- extendedWaitUntil:' \
             '    visible: "Your messages live here"' \
             '    timeout: 15000'
-          capture 11-notifications-inbox
+          capture 12-notifications-inbox
 
           {
             echo "task=OC-NATIVE-LR1-R5-R4"
@@ -367,6 +390,16 @@ jobs:
               '    timeout: 15000'
             capture 02-profile-account
 
+            # Profile is a hidden route by design. Re-establish the primary shell deterministically
+            # instead of depending on platform-specific hidden-tab back-stack behavior.
+            adb shell am force-stop com.carup.mobile
+            adb shell am start -W -n "$LAUNCH_COMPONENT" >/dev/null
+            run_flow home_after_profile \
+              '- extendedWaitUntil:' \
+              '    visible: "Fresh on CarUp"' \
+              '    timeout: 30000' \
+              '- assertVisible: "Buy"'
+
             run_flow buy \
               '- tapOn: "Buy"' \
               '- extendedWaitUntil:' \
@@ -415,6 +448,19 @@ jobs:
             grep -Eq '[0-9]+ matching vehicle' "$OUT/06-filtered-results-hierarchy.txt" || { echo "::error::Truthful result count did not resolve"; exit 1; }
             capture 06-filtered-results-count-chips
 
+            run_flow clear_all \
+              '- tapOn: "Clear all"' \
+              '- extendedWaitUntil:' \
+              '    visible: "Filters"' \
+              '    timeout: 15000'
+            for attempt in $(seq 1 30); do
+              "$MAESTRO" --device "$DEVICE_ID" hierarchy > "$OUT/07-clear-all-hierarchy.txt"
+              if grep -Eq '[0-9]+ matching vehicle' "$OUT/07-clear-all-hierarchy.txt"; then break; fi
+              sleep 1
+            done
+            grep -Eq '[0-9]+ matching vehicle' "$OUT/07-clear-all-hierarchy.txt" || { echo "::error::Unfiltered result count did not resolve after Clear all"; exit 1; }
+            capture 07-clear-all-unfiltered
+
             run_flow zero \
               '- tapOn: "Search Marketplace results"' \
               '- inputText: "OCNATIVEZEROZZZ"' \
@@ -422,7 +468,7 @@ jobs:
               '- extendedWaitUntil:' \
               '    visible: "0 matching vehicles"' \
               '    timeout: 30000'
-            capture 07-zero-results
+            capture 08-zero-results
 
             run_flow trade \
               '- tapOn: "Back"' \
@@ -440,7 +486,7 @@ jobs:
               '    timeout: 15000' \
               '- assertVisible: "My Import Orders"' \
               '- assertVisible: "Unavailable"'
-            capture 08-trade-gateway
+            capture 09-trade-gateway
 
             run_flow verify \
               '- tapOn: "Verify"' \
@@ -448,21 +494,21 @@ jobs:
               '    visible: "CHECK / VERIFY"' \
               '    timeout: 15000' \
               '- assertVisible: "Check CarUp record"'
-            capture 09-verify
+            capture 10-verify
 
             run_flow sell \
               '- tapOn: "Sell"' \
               '- extendedWaitUntil:' \
               '    visible: "Start selling"' \
               '    timeout: 15000'
-            capture 10-sell
+            capture 11-sell
 
             run_flow inbox \
               '- tapOn: "Notifications"' \
               '- extendedWaitUntil:' \
               '    visible: "Your messages live here"' \
               '    timeout: 15000'
-            capture 11-notifications-inbox
+            capture 12-notifications-inbox
 
             {
               echo "task=OC-NATIVE-LR1-R5-R4"
