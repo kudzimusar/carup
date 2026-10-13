@@ -20,6 +20,8 @@ export interface AdminListing {
   currency: string
   trust_score: number
   public_status: string
+  /** Seller publication lifecycle (e.g. published / publishable / draft) — PC01-K2B-R1. */
+  publication_status?: string | null
   risk_status: string
   marketplace_tags?: string[]
 }
@@ -45,8 +47,11 @@ export interface AiAdvisory {
 
 const STATUS_COLORS: Record<string, string> = {
   public: 'bg-green-500', pending_review: 'bg-amber-500', suppressed: 'bg-orange-500',
-  rejected: 'bg-red-500', archived: 'bg-gray-400',
+  rejected: 'bg-red-500', archived: 'bg-gray-400', not_public: 'bg-slate-500',
 }
+// "public" means the public Marketplace shows it (status AND publication). A listing whose status
+// allows it but whose seller has not published it is "not public", with its lifecycle stated.
+const PUBLIC_STATUS_LABELS: Record<string, string> = { not_public: 'not public' }
 const INQUIRY_STATUSES = ['contacted', 'qualified', 'spam'] as const
 
 function normalizeId(value?: string | null) {
@@ -337,7 +342,10 @@ export default function MarketplaceModeration() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium">{l.year} {l.make} {l.model}</h3>
-                      <Badge className={STATUS_COLORS[l.public_status] || 'bg-gray-400'}>{l.public_status}</Badge>
+                      <Badge className={STATUS_COLORS[l.public_status] || 'bg-gray-400'} data-testid={`listing-public-status-${l.vin}`}>
+                        {PUBLIC_STATUS_LABELS[l.public_status] || l.public_status}
+                        {l.public_status === 'not_public' && l.publication_status ? ` · ${l.publication_status}` : ''}
+                      </Badge>
                       <Badge variant="outline" className={riskBadgeClass(l.risk_status)}>risk: {l.risk_status || 'clear'}</Badge>
                     </div>
                     <p className="text-sm text-gray-600">{l.currency} {l.price?.toLocaleString()} · Trust {l.trust_score} · {l.vin}</p>

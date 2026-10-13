@@ -154,4 +154,15 @@ describe('Marketplace moderation', () => {
     expect(await screen.findByText(/Listings could not be loaded/)).toBeInTheDocument()
     expect(screen.queryByText(/No operational listings/)).toBeNull()
   })
+
+  it('PC01-K2B-R1: a publishable listing reads "not public · publishable" and is not counted Public', async () => {
+    const serena = { ...listing, public_status: 'not_public', publication_status: 'publishable' }
+    api.fetchAdminMarketplaceListings = vi.fn().mockResolvedValue({ listings: [serena], total: 1, provenance: null })
+    api.fetchMarketplaceAnalytics = vi.fn().mockResolvedValue({ listings: { total: 1, public: 0, not_public: 1, suppressed: 0, rejected: 0 }, inquiries: { available: true, total: 0 } })
+    api.fetchAdminMarketplaceInquiries = vi.fn().mockResolvedValue({ inquiries: [], provenance: null })
+    render(<MemoryRouter><MarketplaceModeration /></MemoryRouter>)
+    expect(await screen.findByTestId(`listing-public-status-${listing.vin}`)).toHaveTextContent('not public · publishable')
+    await waitFor(() => expect(screen.getByTestId('stat-public')).toHaveTextContent('0'))
+    expect(screen.getByTestId('stat-total')).toHaveTextContent('1')
+  })
 })

@@ -23,7 +23,7 @@ import {
 import { classifyVehicle, summarizeProvenance } from '../provenance/recordProvenance.js';
 import { loadProvenanceIndex } from '../provenance/provenanceContext.js';
 import { deriveSuspicionLevel } from './marketplaceTrustSummaryService.js';
-import { normalizeVehicleStatus, isVehicleQuarantinedStatus } from '../../utils/vehicleStatus.js';
+import { normalizeVehicleStatus, isVehicleQuarantinedStatus, isPublicVehicleStatus, isPubliclyVisiblePublication } from '../../utils/vehicleStatus.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 
 // Marketplace moderation is a PLATFORM-level capability over GLOBAL (cross-tenant) listings. It is
@@ -50,15 +50,35 @@ export function assertModerator(actor) {
   }
 }
 
-/** Map a raw vehicle status to the marketplace public_status enum. */
-export function deriveListingPublicStatus(status) {
+/**
+ * Map a vehicle to the marketplace public_status enum.
+ *
+ * PC01-K2B-R1: `public` means what the public Marketplace means — the vehicle status permits public
+ * visibility AND its publication_status does (utils/vehicleStatus.js is the one authority for both;
+ * nothing here restates the lifecycle list). A public-status vehicle whose publication does not
+ * permit visibility (e.g. `publishable`: ready, not live) is `not_public` — not `pending_review`, which
+ * would invent a moderation meaning it does not have. Moderation outcomes (suppressed / rejected /
+ * archived / pending_review) are decided by status alone, as before.
+ *
+ * `publicationStatus` follows the canonical helper: absent means "not part of this read" and does not
+ * hide the row — every Admin read path selects the column, so on real data the check is complete.
+ */
+export function deriveListingPublicStatus(status, publicationStatus) {
   const norm = normalizeVehicleStatus(status);
-  if (norm === 'Available' || norm === 'Reserved') return 'public';
   if (norm === 'Suspended' || norm === 'Flagged') return 'suppressed';
   if (norm === 'Banned') return 'rejected';
   if (norm === 'Archived' || norm === 'Sold') return 'archived';
   if (norm === 'Pending') return 'pending_review';
+  if (isPublicVehicleStatus(status)) return isPubliclyVisiblePublication(publicationStatus) ? 'public' : 'not_public';
   return 'pending_review';
+}
+
+/** The ONE Admin publication projection — moderation rows, analytics and action responses use it. */
+export function deriveListingVisibility(vehicle = {}) {
+  return {
+    public_status: deriveListingPublicStatus(vehicle.status, vehicle.publication_status),
+    publication_status: vehicle.publication_status ?? null,
+  };
 }
 
 async function writeModerationAudit(client, { vin, event, previous, next, reason, notes, actor }) {
@@ -109,7 +129,7 @@ export async function moderateListing(client, vin, action, body = {}, actor = {}
 
   // owner_id/tenant_id are needed for the owner notification below; they are
   // never returned to the caller (response stays sanitized).
-  const { data: rows, error } = await client.from('vehicles').select('vin, status, owner_id, tenant_id').eq('vin', vin);
+  const { data: rows, error } = await client.from('vehicles').select('vin, status, publication_status, owner_id, tenant_id').eq('vin', vin);
   if (error) throw error;
   const vehicle = Array.isArray(rows) ? rows[0] : rows;
   if (!vehicle) throw new NotFoundError('Listing not found.');
@@ -156,7 +176,9 @@ export async function moderateListing(client, vin, action, body = {}, actor = {}
     action,
     previous_status: previousStatus,
     status: nextStatus,
-    public_status: deriveListingPublicStatus(nextStatus),
+    // Moderation changes status only; it never publishes. Visibility is reported from the row's own
+    // publication_status, so approving a `publishable` listing truthfully stays not_public.
+    ...deriveListingVisibility({ status: nextStatus, publication_status: vehicle.publication_status }),
     audited,
   };
 }
@@ -224,14 +246,14 @@ export async function listListingsForAdmin(client, filters = {}) {
       imageRows: listingImageRowsForVin(related, vehicle.vin),
       canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     });
-    const public_status = deriveListingPublicStatus(vehicle.status);
+    const { public_status, publication_status } = deriveListingVisibility(vehicle);
     const suspicion = deriveSuspicionLevel(partSentryRows);
     let risk_status = 'clear';
     if (isVehicleQuarantinedStatus(vehicle.status)) risk_status = 'blocked';
     else if (suspicion === 'flagged') risk_status = 'flagged';
     else if (suspicion === 'watch') risk_status = 'watch';
     const provenance = provenanceByVin.get(vehicle.vin);
-    return { ...summary, public_status, risk_status, provenance_class: provenance?.class ?? null };
+    return { ...summary, public_status, publication_status, risk_status, provenance_class: provenance?.class ?? null };
   });
 
   let filtered = rows;

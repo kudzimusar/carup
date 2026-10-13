@@ -10,7 +10,7 @@
  * classified by asker and listing. Set-aside records are reported per class; nothing is deleted.
  */
 
-import { deriveListingPublicStatus, assertModerator, readListingProvenanceBase } from './marketplaceModerationService.js';
+import { deriveListingVisibility, assertModerator, readListingProvenanceBase } from './marketplaceModerationService.js';
 import { MARKETPLACE_INQUIRY_TYPES, MARKETPLACE_INQUIRY_STATUSES } from './marketplaceEventTypes.js';
 import { summarizeProvenance } from '../provenance/recordProvenance.js';
 import { createProvenanceIndex } from '../provenance/provenanceContext.js';
@@ -41,10 +41,13 @@ export async function getMarketplaceAnalytics(client, actor) {
     for (const row of trustRows || []) trustByVin.set(row.vin, row.trust_score);
   }
 
-  const byPublicStatus = tally(realVehicles, (v) => deriveListingPublicStatus(v.status));
+  // The SAME publication projection the moderation queue uses (PC01-K2B-R1): "public" here means the
+  // public Marketplace can show it — status AND publication_status — never status alone.
+  const byPublicStatus = tally(realVehicles, (v) => deriveListingVisibility(v).public_status);
   const listings = {
     total: realVehicles.length,
     public: byPublicStatus.public || 0,
+    not_public: byPublicStatus.not_public || 0,
     pending_review: byPublicStatus.pending_review || 0,
     suppressed: byPublicStatus.suppressed || 0,
     rejected: byPublicStatus.rejected || 0,
