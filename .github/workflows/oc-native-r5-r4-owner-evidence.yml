@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oc-native-r5-r4-owner-evidence-${{ github.ref }}
+  group: oc-native-r5-r4-owner-evidence-${{ github.sha }}
   cancel-in-progress: true
 
 env:
