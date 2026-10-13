@@ -117,7 +117,7 @@ function ProvenanceLine({ sectionKey, provenance }: { sectionKey: string; proven
 
 /** A figure that cannot be separated from test data is named as such, not as "Not available". */
 function metricText(value: MetricEnvelope): string {
-  if (!hasValue(value) && value?.reason === 'provenance_not_separable') return 'Not separable from test data'
+  if (!hasValue(value) && String(value?.reason ?? '').endsWith('_not_separable')) return 'Not separable from test data'
   return displayMetric(value)
 }
 

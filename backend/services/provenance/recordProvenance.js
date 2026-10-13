@@ -248,9 +248,15 @@ export function classifyInquiry(inquiry = {}, { buyer = null, listing = null } =
   const explicit = explicitProvenance(inquiry);
   if (explicit) return explicit;
 
-  const asker = inquiry.buyer_id
+  let asker = inquiry.buyer_id
     ? classifyIdentity(buyer ? { ...buyer, id: buyer.id ?? inquiry.buyer_id } : { id: inquiry.buyer_id })
     : classifyIdentity({ email: inquiry.guest_email, name: inquiry.guest_name });
+  // A guest has no account, so there is no creator to evidence. Test evidence (reserved domain,
+  // registered family) still decides; a deliverable-looking guest is never presumed real — it needs
+  // review (PC01-K2B: the gmail-guest inquiry cohort stays UNKNOWN).
+  if (!inquiry.buyer_id && asker.operational) {
+    asker = result(UNKNOWN, { confidence: 'low', rule: 'guest_asker_unverified', signals: ['guest_without_account'] });
+  }
   if (!asker.operational && asker.class !== UNKNOWN) {
     return result(asker.class, { confidence: asker.confidence, rule: `asker:${asker.rule}`, signals: asker.signals });
   }

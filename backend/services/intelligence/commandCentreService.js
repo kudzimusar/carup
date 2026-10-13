@@ -35,7 +35,7 @@ import {
   AuthorizationError,
   windowDates,
 } from './intelligenceProjectionService.js';
-import { summarizeProvenance } from '../provenance/recordProvenance.js';
+import { summarizeProvenance, UNKNOWN as UNKNOWN_CLASS } from '../provenance/recordProvenance.js';
 import { createProvenanceIndex } from '../provenance/provenanceContext.js';
 
 // command_centre@2 (PC01-K2B): business figures count operational records only, each section states
@@ -265,28 +265,42 @@ export async function getCommandCentre(client = defaultClient, actor = null, { w
 
     const inquiryResults = inquiries.map((r) => index.inquiry(r));
     const savedOperational = saved.filter((r) => index.identity(r.user_id)?.operational && index.vehicle(r.vin)?.operational === true);
-    const engagement = events.filter((e) => {
+    // An event counts only when its actor is evidenced as operational. Flags, a test actor or a test
+    // object set it aside; an ANONYMOUS actor has no evidence either way, so it needs review — on
+    // staging that is overwhelmingly unflagged automation browsing, indistinguishable from a visitor.
+    const eventState = (e) => {
       const flags = Array.isArray(e.exclusion_flags) ? e.exclusion_flags : [];
-      if (flags.some((f) => NON_ENGAGEMENT_EVENT_FLAGS.includes(f))) return false;
-      if (e.authenticated_user_id && !index.identity(e.authenticated_user_id)?.operational) return false;
+      if (flags.some((f) => NON_ENGAGEMENT_EVENT_FLAGS.includes(f))) return 'excluded';
       const object = index.vehicle(e.listing_id || e.vehicle_reference);
-      if (object && !object.operational) return false;
-      return true;
-    });
+      if (object && !object.operational && object.class !== UNKNOWN_CLASS) return 'excluded';
+      if (!e.authenticated_user_id) return 'unknown';
+      const actor = index.identity(e.authenticated_user_id);
+      if (!actor?.operational) return actor?.class === UNKNOWN_CLASS ? 'unknown' : 'excluded';
+      if (object && !object.operational) return 'unknown';
+      return 'operational';
+    };
+    const eventStates = events.map(eventState);
+    const engagement = events.filter((_, i) => eventStates[i] === 'operational');
+    const eventsNeedingReview = eventStates.filter((st) => st === 'unknown').length;
     const section = demandSection(
       inquiries.filter((_, i) => inquiryResults[i].operational),
       engagement,
       savedOperational,
       { recordedEvents: events.length },
     );
+    // Engagement that cannot be separated from test traffic is not stated as a business number.
+    if (events.length > 0 && eventsNeedingReview > 0) {
+      section.metrics.behavioural_events = notSeparable('anonymous_activity_not_separable');
+    }
     section.provenance = {
       inquiries: setAside(inquiryResults),
       saved_vehicles: { records_read: saved.length, operational: savedOperational.length, excluded: saved.length - savedOperational.length },
       behavioural_events: {
         records_read: events.length,
         operational: engagement.length,
-        excluded: events.length - engagement.length,
-        exclusion_basis: 'activity flags (self/bot/staff/fixture/synthetic), non-operational actor, or non-operational vehicle',
+        excluded_non_operational: eventStates.filter((st) => st === 'excluded').length,
+        unknown_requires_review: eventsNeedingReview,
+        exclusion_basis: 'activity flags (self/bot/staff/fixture/synthetic), non-operational actor, or non-operational vehicle; anonymous activity needs review',
       },
     };
     return section;

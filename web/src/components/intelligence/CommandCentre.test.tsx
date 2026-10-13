@@ -214,4 +214,23 @@ describe('PC01-K2B — operational truth says what it set aside', () => {
     expect(cell).toHaveTextContent('Not separable from test data')
     expect(cell).not.toHaveTextContent(/\d/)
   })
+
+  it('anonymous activity that cannot be separated is named, with what was read stated', async () => {
+    fetchCommandCentre.mockResolvedValue({
+      ...base,
+      sections: {
+        ...base.sections,
+        demand: {
+          ...base.sections.demand,
+          note: null,
+          metrics: { ...base.sections.demand.metrics, behavioural_events: { availability: 'unavailable', value: null, reason: 'anonymous_activity_not_separable' } },
+          provenance: { behavioural_events: { records_read: 2115, operational: 0, excluded_non_operational: 753, unknown_requires_review: 1362 } },
+        },
+      },
+    })
+    render(<CommandCentre />)
+    const cell = await screen.findByTestId('command-demand-behavioural_events-value')
+    expect(cell).toHaveTextContent('Not separable from test data')
+    expect(screen.getByTestId('command-demand-provenance')).toHaveTextContent('Behavioural events: 0 of 2115 records counted · Test / certification data excluded: 753 · Needs review (not counted): 1362')
+  })
 })

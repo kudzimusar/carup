@@ -131,8 +131,16 @@ test('inquiries: test askers are test; real-looking askers on test or missing li
   assert.equal(onTest.class, 'unknown_requires_review');
   const missing = classifyInquiry({ guest_email: 'real@gmail.com', guest_name: 'Rudo', listing_id: 'VIN-GONE-1234567', listing_type: 'vehicle' }, { listing: null });
   assert.equal(missing.class, 'unknown_requires_review');
-  const genuine = classifyInquiry({ guest_email: 'buyer@gmail.com', guest_name: 'Rudo', listing_id: SERENA.vin, listing_type: 'vehicle' }, { listing: op });
-  assert.equal(genuine.operational, true);
+  // A guest has no account to evidence: a deliverable-looking guest is needs-review, never presumed
+  // real (the staging gmail-guest cohort, 2026-06-17, is exactly this).
+  const guest = classifyInquiry({ guest_email: 'buyer@gmail.com', guest_name: 'Rudo', listing_id: SERENA.vin, listing_type: 'vehicle' }, { listing: op });
+  assert.equal(guest.class, 'unknown_requires_review');
+  assert.equal(guest.rule, 'asker:guest_asker_unverified');
+  const guestDiaspora = classifyInquiry({ guest_email: 'family@gmail.com', guest_name: 'Tariro', listing_type: 'diaspora_request' });
+  assert.equal(guestDiaspora.class, 'unknown_requires_review', 'no listing does not make a guest real');
+  // An inquiry from an evidenced ACCOUNT on an operational listing is operational.
+  const account = classifyInquiry({ buyer_id: OWNER_ADMIN.id, listing_id: SERENA.vin, listing_type: 'vehicle' }, { buyer: OWNER_ADMIN, listing: op });
+  assert.equal(account.operational, true);
 });
 
 test('summaries keep UNKNOWN separate from both operational and test', () => {
@@ -197,12 +205,14 @@ const CC_TABLES = {
   marketplace_inquiries: [
     { id: 'i1', guest_email: 'golden-1@example.test', listing_id: SERENA.vin, listing_type: 'vehicle', created_at: now },
     { id: 'i2', guest_email: 'buyer@gmail.com', guest_name: 'Rudo', listing_id: SERENA.vin, listing_type: 'vehicle', created_at: now },
+    { id: 'i3', buyer_id: OWNER_ADMIN.id, listing_id: SERENA.vin, listing_type: 'vehicle', created_at: now },
   ],
   marketplace_activity_events: [
     { id: 'e1', authenticated_user_id: null, listing_id: SERENA.vin, exclusion_flags: [], created_at: now },
     { id: 'e2', authenticated_user_id: null, listing_id: SERENA.vin, exclusion_flags: ['bot_suspect'], created_at: now },
     { id: 'e3', authenticated_user_id: UAT_BUYER.id, listing_id: SERENA.vin, exclusion_flags: ['self_traffic'], created_at: now },
     { id: 'e4', authenticated_user_id: null, listing_id: AUTOMATION.vin, exclusion_flags: [], created_at: now },
+    { id: 'e5', authenticated_user_id: OWNER_ADMIN.id, listing_id: SERENA.vin, exclusion_flags: [], created_at: now },
   ],
   saved_vehicles: [
     { id: 's1', user_id: OWNER_ADMIN.id, vin: SERENA.vin, created_at: now },
@@ -243,7 +253,8 @@ test('8 · Command Centre counts operational records only and states what it set
   assert.equal(sections.overview.provenance.unknown_requires_review, 2, 'Hilux owner + cert gmail');
   assert.equal(sections.supply.metrics.vehicles_total.value, 1);
   assert.equal(sections.supply.provenance.excluded_non_operational, 4);
-  assert.equal(sections.demand.metrics.inquiries.value, 1, 'only the genuine-looking buyer on the genuine car');
+  assert.equal(sections.demand.metrics.inquiries.value, 1, 'only the evidenced account on the genuine car');
+  assert.equal(sections.demand.provenance.inquiries.unknown_requires_review, 1, 'the gmail guest needs review — counted on neither side');
   assert.equal(sections.trust_evidence.metrics.evidence_reviewed.value, 1);
   assert.equal(sections.trust_evidence.metrics.evidence_awaiting_review.value, 0, 'automation evidence is not a review backlog');
   assert.equal(sections.communications.metrics.threads.value, 1);
@@ -252,10 +263,23 @@ test('8 · Command Centre counts operational records only and states what it set
   assert.equal(sections.overview.metrics.organizations_total.value, 0);
 });
 
-test('9 · self / bot / test-actor / test-object activity is not business engagement', async () => {
+test('9 · self / bot / test-actor / test-object activity is not business engagement; anonymous activity is not separable', async () => {
   const { sections } = await getCommandCentre(fakeClient(CC_TABLES), ADMIN);
-  assert.equal(sections.demand.metrics.behavioural_events.value, 1, 'only the anonymous unflagged view of the genuine car');
-  assert.equal(sections.demand.provenance.behavioural_events.excluded, 3);
+  const p = sections.demand.provenance.behavioural_events;
+  assert.deepEqual(
+    { read: p.records_read, operational: p.operational, excluded: p.excluded_non_operational, review: p.unknown_requires_review },
+    { read: 5, operational: 1, excluded: 3, review: 1 },
+    'bot, self-traffic and the view of an automation car are excluded; the anonymous view of Serena needs review',
+  );
+  // With unseparable anonymous activity in the period, no business figure is stated.
+  assert.equal(sections.demand.metrics.behavioural_events.availability, 'unavailable');
+  assert.equal(sections.demand.metrics.behavioural_events.value, null);
+  assert.equal(sections.demand.metrics.behavioural_events.reason, 'anonymous_activity_not_separable');
+
+  // When every event is evidenced, the figure is the measured operational engagement.
+  const evidenced = { ...CC_TABLES, marketplace_activity_events: CC_TABLES.marketplace_activity_events.filter((e) => e.id !== 'e1' && e.id !== 'e4') };
+  const clean = await getCommandCentre(fakeClient(evidenced), ADMIN);
+  assert.equal(clean.sections.demand.metrics.behavioural_events.value, 1, 'only the owner-admin view of the genuine car');
 });
 
 test('10 · the windowed Saved metric is actually windowed', async () => {
