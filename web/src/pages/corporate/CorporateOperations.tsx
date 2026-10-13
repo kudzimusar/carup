@@ -22,7 +22,15 @@ export default function CorporateOperations() {
   return (
     <CorporatePage id="operations" intro="Cross-business-unit operating view over the workflows each unit owns. Queue counts are shown per named queue, never summed into one number.">
       <Section title="Queue summary by domain" description="A read failure is reported as such — it is never an empty queue." testId="operations-queues">
-        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+        {/* CA-K3-01-R3 D-4: at narrow widths this table scrolls horizontally, so its scroll region is a
+            focusable, labelled region (keyboard users can reach and scroll it). The caption stays. */}
+        <div
+          className="overflow-x-auto rounded-md border border-slate-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
+          tabIndex={0}
+          role="region"
+          aria-label="Operational queues by domain and measure"
+          data-testid="operations-scroll-region"
+        >
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <caption className="sr-only">Operational queues by domain and measure</caption>
             <thead>

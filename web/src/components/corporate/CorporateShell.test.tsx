@@ -311,3 +311,38 @@ describe('CA-K3-01-R2 · accessibility / responsive recustody', () => {
     expect(link.className).toMatch(/min-h-\[44px\]/)
   })
 })
+
+describe('CA-K3-01-R3 · D-4 horizontally scrolling tables are keyboard-reachable labelled regions', () => {
+  it.each([
+    ['/corporate/business-units', 'Business unit comparison by measure and truth state'],
+    ['/corporate/operations', 'Operational queues by domain and measure'],
+    ['/corporate/data-intelligence', 'Truth states, what each shows, and what each means'],
+  ])('%s', async (path, name) => {
+    renderAt(path)
+    const main = screen.getByTestId('corporate-main')
+    const region = within(main).getByRole('region', { name })
+    // Keyboard-focusable and actually takes focus.
+    expect(region).toHaveAttribute('tabindex', '0')
+    region.focus()
+    expect(document.activeElement).toBe(region)
+    // Still the horizontal scroll container, with a bounded visible-focus treatment.
+    expect(region.className).toMatch(/\boverflow-x-auto\b/)
+    expect(region.className).toMatch(/focus-visible:outline-orange-500/)
+    // Table semantics and caption are preserved inside the region.
+    const table = within(region).getByRole('table', { name })
+    expect(table.querySelector('caption')).toHaveTextContent(name)
+    expect(within(table).getAllByRole('columnheader').length).toBeGreaterThan(1)
+    expect(within(table).getAllByRole('rowheader').length).toBeGreaterThan(1)
+  })
+
+  it('the region is reachable with Tab from the content before it', async () => {
+    const u = userEvent.setup()
+    renderAt('/corporate/operations')
+    const main = screen.getByTestId('corporate-main')
+    const region = within(main).getByRole('region', { name: 'Operational queues by domain and measure' })
+    // Start from the last focusable element before the region (the breadcrumb link) and Tab once.
+    within(main).getByRole('link', { name: 'Corporate Admin' }).focus()
+    await u.tab()
+    expect(document.activeElement).toBe(region)
+  })
+})

@@ -14,7 +14,15 @@ export default function CorporateDataIntelligence() {
   return (
     <CorporatePage id="data-intelligence" intro="Metric definitions, sources, provenance, freshness and quality. A metric is active only when its source, semantics, window, provenance and certification are governed.">
       <Section title="Truth-state legend" description="How every Corporate figure declares what it is. Measured zero, no data, unavailable, not separable and restricted never look or read the same." testId="truth-state-legend">
-        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+        {/* CA-K3-01-R3 D-4: at narrow widths this table scrolls horizontally, so its scroll region is a
+            focusable, labelled region (keyboard users can reach and scroll it). The caption stays. */}
+        <div
+          className="overflow-x-auto rounded-md border border-slate-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
+          tabIndex={0}
+          role="region"
+          aria-label="Truth states, what each shows, and what each means"
+          data-testid="legend-scroll-region"
+        >
           <table className="w-full min-w-[560px] border-collapse text-sm">
             <caption className="sr-only">Truth states, what each shows, and what each means</caption>
             <thead>

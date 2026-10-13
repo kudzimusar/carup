@@ -30,7 +30,15 @@ export default function CorporateBusinessUnits() {
         description="One row per accepted management Business Unit. No combined score; inquiries, work orders and trade orders are never summed as transactions."
         testId="bu-comparison"
       >
-        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+        {/* CA-K3-01-R3 D-4: at narrow widths this table scrolls horizontally, so its scroll region is a
+            focusable, labelled region (keyboard users can reach and scroll it). The caption stays. */}
+        <div
+          className="overflow-x-auto rounded-md border border-slate-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
+          tabIndex={0}
+          role="region"
+          aria-label="Business unit comparison by measure and truth state"
+          data-testid="bu-scroll-region"
+        >
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <caption className="sr-only">Business unit comparison by measure and truth state</caption>
             <thead>
