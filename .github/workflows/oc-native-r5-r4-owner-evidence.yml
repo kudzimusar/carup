@@ -117,12 +117,12 @@ jobs:
           }
 
           tap_ios_primary_tab() {
-            local resource_id="$1"
+            local label="$1"
             cat > "$RUNNER_TEMP/ios-primary-tab-tap.yaml" <<YAML
           appId: com.carup.mobile
           ---
           - tapOn:
-              id: "$resource_id"
+              text: "^$label$"
           YAML
             "$MAESTRO" --device "$UDID" test "$RUNNER_TEMP/ios-primary-tab-tap.yaml"
           }
@@ -169,7 +169,7 @@ jobs:
             '    timeout: 30000' \
             '- assertVisible: "Buy"'
 
-          tap_ios_primary_tab "primary-tab-marketplace"
+          tap_ios_primary_tab "Buy"
           run_flow buy \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
@@ -244,7 +244,7 @@ jobs:
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000'
-          tap_ios_primary_tab "primary-tab-trade"
+          tap_ios_primary_tab "Trade"
           run_flow trade \
             '- extendedWaitUntil:' \
             '    visible: "Trade gateway"' \
@@ -258,7 +258,7 @@ jobs:
             '- assertVisible: "Unavailable"'
           capture 09-trade-gateway
 
-          tap_ios_primary_tab "primary-tab-verify"
+          tap_ios_primary_tab "Verify"
           run_flow verify \
             '- extendedWaitUntil:' \
             '    visible: "CHECK / VERIFY"' \
@@ -266,7 +266,7 @@ jobs:
             '- assertVisible: "Check CarUp record"'
           capture 10-verify
 
-          tap_ios_primary_tab "primary-tab-sell"
+          tap_ios_primary_tab "Sell"
           run_flow sell \
             '- extendedWaitUntil:' \
             '    visible: "Start selling"' \
@@ -509,13 +509,13 @@ jobs:
             }
 
             tap_android_primary_tab() {
-              local resource_id="$1"
+              local label="$1"
               local file="$RUNNER_TEMP/android-primary-tab-tap.yaml"
               {
                 echo "appId: com.carup.mobile"
                 echo "---"
                 echo "- tapOn:"
-                echo "    id: \"$resource_id\""
+                echo "    text: \"^$label$\""
               } > "$file"
               "$MAESTRO" --device "$DEVICE_ID" test "$file"
             }
@@ -565,7 +565,7 @@ jobs:
               '    timeout: 30000' \
               '- assertVisible: "Buy"'
 
-            tap_android_primary_tab "primary-tab-marketplace"
+            tap_android_primary_tab "Buy"
             run_flow buy \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
@@ -640,7 +640,7 @@ jobs:
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000'
-            tap_android_primary_tab "primary-tab-trade"
+            tap_android_primary_tab "Trade"
             run_flow trade \
               '- extendedWaitUntil:' \
               '    visible: "Trade gateway"' \
@@ -654,7 +654,7 @@ jobs:
               '- assertVisible: "Unavailable"'
             capture 09-trade-gateway
 
-            tap_android_primary_tab "primary-tab-verify"
+            tap_android_primary_tab "Verify"
             run_flow verify \
               '- extendedWaitUntil:' \
               '    visible: "CHECK / VERIFY"' \
@@ -662,7 +662,7 @@ jobs:
               '- assertVisible: "Check CarUp record"'
             capture 10-verify
 
-            tap_android_primary_tab "primary-tab-sell"
+            tap_android_primary_tab "Sell"
             run_flow sell \
               '- extendedWaitUntil:' \
               '    visible: "Start selling"' \
