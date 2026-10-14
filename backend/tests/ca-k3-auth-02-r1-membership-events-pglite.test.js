@@ -146,9 +146,10 @@ test('creation: history exists from the INSERT itself — a membership is never 
   assert.equal((await eventsOf(db, id)).length, 1);
   assert.equal((await rowOf(db, id)).state, 'PENDING');
   await asBackend(db, async () => {
-    const viaBackend = await addMembership(db, { user: 'u-owner', node: 'BU_SERVICE_NETWORK', state: 'PENDING' });
-    assert.equal((await eventsOf(db, viaBackend)).length, 1, 'the backend role gets the creation event too, without holding any INSERT right on the history');
+    await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_reason, updated_by_kind, updated_reason)
+                       VALUES ('u-owner','BU_SERVICE_NETWORK','PENDING',now(),'SYSTEM','runtime write','SYSTEM','runtime write')`, [], /permission denied/);
   });
+  assert.equal((await db.query("SELECT count(*)::int AS c FROM corporate_memberships WHERE user_id = 'u-owner' AND org_node_id = 'BU_SERVICE_NETWORK'")).rows[0].c, 0, 'Phase-A backend cannot create membership truth');
 });
 
 // ═════════════ 2 · every change appends exactly one event; earlier events never change ═════════════
@@ -165,7 +166,7 @@ test('lifecycle: PENDING → ACTIVE → SUSPENDED → ACTIVE → ENDED appends o
   const snapshots = [JSON.stringify(await eventsOf(db, id))];
   for (const [i, step] of steps.entries()) {
     const { was, ...changeArgs } = step;
-    await asBackend(db, () => change(db, id, changeArgs));
+    await change(db, id, changeArgs);
     const events = await eventsOf(db, id);
     const row = await rowOf(db, id);
     assert.equal(events.length, i + 2, `after ${step.state}: exactly one more event`);
@@ -333,12 +334,10 @@ test('if the event cannot be written, the membership INSERT and UPDATE FAIL with
 
   await db.exec('ALTER TABLE corporate_membership_events ADD CONSTRAINT zz_custody_blocked CHECK (FALSE) NOT VALID');
   try {
-    await asBackend(db, async () => {
-      await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_reason, updated_by_kind, updated_reason)
-                         VALUES ('u-owner','BU_SERVICE_NETWORK','ACTIVE', now(), 'SYSTEM','x','SYSTEM','x')`, [], /zz_custody_blocked/);
-      await refused(db, `UPDATE corporate_memberships SET state = 'SUSPENDED', updated_by_kind = 'SYSTEM', updated_reason = 'cannot be recorded' WHERE membership_id = $1`, [id], /zz_custody_blocked/);
-      await refused(db, `UPDATE corporate_memberships SET effective_until = now() + interval '1 day', updated_by_kind = 'SYSTEM', updated_reason = 'cannot be recorded' WHERE membership_id = $1`, [id], /zz_custody_blocked/);
-    });
+    await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_reason, updated_by_kind, updated_reason)
+                       VALUES ('u-owner','BU_SERVICE_NETWORK','ACTIVE', now(), 'SYSTEM','x','SYSTEM','x')`, [], /zz_custody_blocked/);
+    await refused(db, `UPDATE corporate_memberships SET state = 'SUSPENDED', updated_by_kind = 'SYSTEM', updated_reason = 'cannot be recorded' WHERE membership_id = $1`, [id], /zz_custody_blocked/);
+    await refused(db, `UPDATE corporate_memberships SET effective_until = now() + interval '1 day', updated_by_kind = 'SYSTEM', updated_reason = 'cannot be recorded' WHERE membership_id = $1`, [id], /zz_custody_blocked/);
     assert.equal(await count(db, 'corporate_memberships'), memberships, 'no half-created membership');
     assert.equal(await count(db, 'corporate_membership_events'), events);
     assert.equal(JSON.stringify(await rowOf(db, id)), rowBefore, 'the state did not change');
@@ -346,7 +345,7 @@ test('if the event cannot be written, the membership INSERT and UPDATE FAIL with
   } finally {
     await db.exec('ALTER TABLE corporate_membership_events DROP CONSTRAINT zz_custody_blocked');
   }
-  await asBackend(db, () => change(db, id, { state: 'SUSPENDED', reason: 'now it can be recorded' }));
+  await change(db, id, { state: 'SUSPENDED', reason: 'now it can be recorded' });
   assert.equal((await rowOf(db, id)).state, 'SUSPENDED');
   assert.equal((await eventsOf(db, id)).length, 2);
 });
@@ -537,13 +536,13 @@ test('schema: the event table carries history only — and no permission, capabi
   assert.ok((await db.query("SELECT 1 FROM pg_constraint WHERE conname = 'corporate_memberships_event_anchor'")).rows.length === 1);
 });
 
-test('privileges: a full role × table × privilege matrix — the backend holds no write right on history; clients hold nothing', async () => {
+test('privileges: a full role × table × privilege matrix — Phase-A backend is SELECT-only everywhere; clients hold nothing', async () => {
   const db = await database();
   const privileges = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'];
   const expected = {
     corporate_membership_events: { service_role: ['SELECT'] },
-    corporate_memberships: { service_role: ['SELECT', 'INSERT', 'UPDATE'] },
-    corporate_org_nodes: { service_role: ['SELECT', 'INSERT', 'UPDATE'] },
+    corporate_memberships: { service_role: ['SELECT'] },
+    corporate_org_nodes: { service_role: ['SELECT'] },
   };
   for (const [table, byRole] of Object.entries(expected)) {
     for (const role of ['anon', 'authenticated', 'service_role']) {
@@ -591,13 +590,11 @@ test('separation: a full lifecycle — and every refused attempt — leaves user
   const before = await identitySnapshot(db);
   await db.exec(UP);
   const id = await addMembership(db, { user: 'u-admin', state: 'PENDING', by: 'u-actor' });
-  await asBackend(db, async () => {
-    await change(db, id, { state: 'ACTIVE', kind: 'USER', by: 'u-owner', reason: 'approved' });
-    await change(db, id, { until: iso(10 * HOUR), reason: 'fixed term' });
-    await change(db, id, { reason: 'amended text' });
-    await change(db, id, { state: 'SUSPENDED', reason: 'review' });
-    await change(db, id, { state: 'ENDED', reason: 'leaver' });
-  });
+  await change(db, id, { state: 'ACTIVE', kind: 'USER', by: 'u-owner', reason: 'approved' });
+  await change(db, id, { until: iso(10 * HOUR), reason: 'fixed term' });
+  await change(db, id, { reason: 'amended text' });
+  await change(db, id, { state: 'SUSPENDED', reason: 'review' });
+  await change(db, id, { state: 'ENDED', reason: 'leaver' });
   await refused(db, "UPDATE corporate_memberships SET state = 'ACTIVE', updated_by_kind = 'SYSTEM', updated_reason = 'x' WHERE membership_id = $1", [id], /ENDED_IS_TERMINAL/);
   await refused(db, 'UPDATE corporate_membership_events SET reason = $1', ['x'], /APPEND_ONLY/);
   assert.equal((await eventsOf(db, id)).length, 6);
@@ -678,7 +675,7 @@ test('Down removes only AUTH-02 objects; Up restores a clean Phase-A schema that
   await db.exec(UP);
   assert.deepEqual([await count(db, 'corporate_org_nodes'), await count(db, 'corporate_memberships'), await count(db, 'corporate_membership_events')], [5, 0, 0], 'a clean Phase-A schema: the reference nodes, no member, no history');
   const again = await addMembership(db, { user: 'u-admin', state: 'PENDING', by: 'u-actor' });
-  await asBackend(db, () => change(db, again, { state: 'ACTIVE', reason: 'works after Down and Up' }));
+  await change(db, again, { state: 'ACTIVE', reason: 'works after Down and Up' });
   assert.deepEqual((await eventsOf(db, again)).map((e) => [e.event_seq, e.event_type]), [[1, 'CREATED'], [2, 'TRANSITIONED']]);
   assert.equal(await identitySnapshot(db), identityBefore);
 });

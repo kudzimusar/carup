@@ -467,19 +467,20 @@ INSERT INTO public.corporate_org_nodes (node_id, entity_type, parent_node_id, di
   ('BU_DIASPORA_TRADE',      'BUSINESS_UNIT', 'CARUP_CORPORATE', 'Diaspora Trade & Logistics')
 ON CONFLICT (node_id) DO NOTHING;
 
--- ── Closed to every client role; the backend (service_role) reads and writes, and cannot delete ─────────
--- service_role is REVOKEd first, on purpose: Supabase's default privileges hand it ALL (arwdDxtm — including DELETE and
--- TRUNCATE) on every new public table. Without this, the GRANTs below would only ADD to that, and "the backend cannot delete
--- or truncate" would hold only through the row guards, not through its privileges.
+-- ── Phase A runtime is read-only: clients get nothing; backend service_role may SELECT only ─────────────
+-- service_role is REVOKEd first, on purpose: Supabase's default privileges hand it ALL (arwdDxtm — including INSERT,
+-- UPDATE, DELETE and TRUNCATE) on every new public table. Phase A has no authorised membership/org mutation service yet,
+-- so the general backend role must not be a writer. A later, separately authorised Phase B mutation service must introduce
+-- its own narrow write path rather than inheriting broad service_role DML.
 ALTER TABLE public.corporate_org_nodes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.corporate_org_nodes FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.corporate_org_nodes FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_org_nodes TO service_role;
+GRANT SELECT ON TABLE public.corporate_org_nodes TO service_role;
 
 ALTER TABLE public.corporate_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.corporate_memberships FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.corporate_memberships FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_memberships TO service_role;
+GRANT SELECT ON TABLE public.corporate_memberships TO service_role;
 
 -- History: readable by the backend, writable by nobody directly (no INSERT, UPDATE, DELETE or TRUNCATE).
 ALTER TABLE public.corporate_membership_events ENABLE ROW LEVEL SECURITY;

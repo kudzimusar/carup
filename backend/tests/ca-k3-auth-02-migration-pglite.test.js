@@ -119,9 +119,9 @@ test('file: closed to every client role — RLS enabled and forced on all three 
   assert.equal(grants.length, 3);
   assert.deepEqual(grants.map((g) => g.replace(/\s+/g, ' ')).sort(), [
     'GRANT SELECT ON TABLE public.corporate_membership_events TO service_role;',
-    'GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_memberships TO service_role;',
-    'GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_org_nodes TO service_role;',
-  ], 'the history is read-only for the backend: no INSERT, UPDATE, DELETE or TRUNCATE');
+    'GRANT SELECT ON TABLE public.corporate_memberships TO service_role;',
+    'GRANT SELECT ON TABLE public.corporate_org_nodes TO service_role;',
+  ], 'Phase A is runtime read-only: service_role can inspect membership truth but cannot create or mutate it');
   for (const g of grants) {
     assert.doesNotMatch(g, /\b(?:anon|authenticated)\b|\bPUBLIC\b|\bDELETE\b|\bTRUNCATE\b|\bALL\b/, 'keywords only: the lowercase schema prefix public. is not the PUBLIC role');
   }
@@ -186,7 +186,7 @@ test('RLS is enabled AND forced on all three tables; no trigger function is exec
   }
 });
 
-test('privileges: anon and authenticated cannot read or write either table; service_role reads / inserts / updates but cannot delete or truncate', async () => {
+test('privileges: clients hold nothing and Phase-A service_role is SELECT-only on all Corporate membership tables', async () => {
   const db = await database();
   for (const role of ['anon', 'authenticated']) {
     try {
@@ -197,25 +197,31 @@ test('privileges: anon and authenticated cannot read or write either table; serv
         await refused(db, `INSERT INTO ${t} DEFAULT VALUES`, [], /permission denied/);
         await refused(db, `UPDATE ${t} SET ${assignment}`, [], /permission denied/);
         await refused(db, `DELETE FROM ${t}`, [], /permission denied/);
+        await refused(db, `TRUNCATE ${t}`, [], /permission denied/);
       }
     } finally { await db.exec('RESET ROLE'); }
   }
+
   const id = await addMembership(db);
   try {
     await db.exec('SET ROLE service_role');
     assert.equal((await db.query('SELECT count(*)::int AS c FROM corporate_memberships')).rows[0].c, 1);
-    await db.query("UPDATE corporate_memberships SET state = 'SUSPENDED', updated_by_kind = 'SYSTEM', updated_reason = 'r' WHERE membership_id = $1", [id]);
-    await refused(db, 'DELETE FROM corporate_memberships', [], /permission denied/);
-    await refused(db, 'TRUNCATE corporate_memberships', [], /permission denied/);
-    await refused(db, 'DELETE FROM corporate_org_nodes', [], /permission denied/);
-    await refused(db, 'TRUNCATE corporate_org_nodes', [], /permission denied/);
-    // The history: the backend may READ it, and can neither write nor change it in any way.
-    assert.equal((await db.query('SELECT count(*)::int AS c FROM corporate_membership_events')).rows[0].c, 2, 'the creation and the SUSPENDED transition');
+    assert.equal((await db.query('SELECT count(*)::int AS c FROM corporate_org_nodes')).rows[0].c, 5);
+    assert.equal((await db.query('SELECT count(*)::int AS c FROM corporate_membership_events')).rows[0].c, 1);
+    await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_reason, updated_by_kind, updated_reason)
+                       VALUES ('u-owner','BU_SERVICE_NETWORK','PENDING',now(),'SYSTEM','x','SYSTEM','x')`, [], /permission denied/);
+    await refused(db, "UPDATE corporate_memberships SET state = 'SUSPENDED', updated_by_kind = 'SYSTEM', updated_reason = 'r' WHERE membership_id = $1", [id], /permission denied/);
+    await refused(db, "INSERT INTO corporate_org_nodes (node_id, entity_type, parent_node_id, display_name) VALUES ('TEAM_RUNTIME_WRITE','TEAM','BU_MARKETPLACE','x')", [], /permission denied/);
+    await refused(db, "UPDATE corporate_org_nodes SET display_name = 'changed' WHERE node_id = 'BU_MARKETPLACE'", [], /permission denied/);
     await refused(db, 'INSERT INTO corporate_membership_events DEFAULT VALUES', [], /permission denied/);
     await refused(db, "UPDATE corporate_membership_events SET reason = 'x'", [], /permission denied/);
-    await refused(db, 'DELETE FROM corporate_membership_events', [], /permission denied/);
-    await refused(db, 'TRUNCATE corporate_membership_events', [], /permission denied/);
+    for (const t of ['corporate_memberships', 'corporate_org_nodes', 'corporate_membership_events']) {
+      await refused(db, `DELETE FROM ${t}`, [], /permission denied/);
+      await refused(db, `TRUNCATE ${t}`, [], /permission denied/);
+    }
   } finally { await db.exec('RESET ROLE'); }
+
+  assert.equal((await db.query('SELECT count(*)::int AS c FROM corporate_membership_events')).rows[0].c, 1, 'read-only backend attempts created no event');
 });
 
 // ═════════════ 3 · the internal organisation ═════════════
