@@ -708,6 +708,7 @@ test('END: a governance-bearing membership needs a continuity attestation — fe
   assert.equal(await end({ subject_holds_governance_authority: true, remaining_independent_governors: 1 }), 'GOVERNANCE_CONTINUITY_PROTECTION');
   assert.equal(await end({ subject_holds_governance_authority: true, remaining_independent_governors: 0 }), 'GOVERNANCE_CONTINUITY_PROTECTION');
   for (const bad of [undefined, null, {}, 'yes', { subject_holds_governance_authority: true }, { remaining_independent_governors: 5 }, { subject_holds_governance_authority: 'maybe', remaining_independent_governors: 5 },
+    { subject_holds_governance_authority: 'yes', remaining_independent_governors: 5 }, { subject_holds_governance_authority: false, remaining_independent_governors: '5' },
     { subject_holds_governance_authority: false, remaining_independent_governors: -1 }, { subject_holds_governance_authority: false, remaining_independent_governors: 'many' }]) {
     assert.equal(await end(bad), 'DECISION_CONTINUITY', JSON.stringify(bad));
   }
