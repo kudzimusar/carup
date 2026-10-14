@@ -233,7 +233,7 @@ jobs:
           run_flow filters_apply \
             '- tapOn: "Show results"' \
             '- extendedWaitUntil:' \
-            '    visible: "Filters (4)"' \
+            '    visible: "Filters, 4 active"' \
             '    timeout: 30000'
           for attempt in $(seq 1 30); do
             "$MAESTRO" --device "$UDID" hierarchy > "$OUT/06-filtered-results-hierarchy.txt"
