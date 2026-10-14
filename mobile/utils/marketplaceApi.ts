@@ -9,6 +9,7 @@
  * it renders backend-supplied projections and posts actions through governed endpoints.
  */
 import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
+import { nativeNow, recordNetworkResponse } from './nativePerformance';
 import type {
   MarketplacePublicTrust,
   MarketplaceTrustEvaluationState,
@@ -240,8 +241,10 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
     if (MUTATING_METHODS.has(method)) headers['x-csrf-token'] = await getCsrf(baseUrl, forceCsrf);
     return fetch(`${baseUrl}${path}`, { ...options, headers });
   };
+  const startedAt = nativeNow();
   let response = await perform(false);
   if (response.status === 403 && MUTATING_METHODS.has(method)) response = await perform(true);
+  recordNetworkResponse(method === 'GET' ? 'api.marketplace' : 'api.marketplace_action', startedAt, response);
   if (!response.ok) {
     let message = `Marketplace API returned HTTP ${response.status}`;
     try {
@@ -291,4 +294,49 @@ export async function getMarketplaceCategories(): Promise<{ listing_types: { slu
 
 export async function createMarketplaceInquiry(payload: MobileInquiryInput): Promise<{ inquiry: { id: string; status: string; referral_attributed: boolean } }> {
   return requestJson(`/api/marketplace/inquiries`, { method: 'POST', body: JSON.stringify({ ...payload, source_channel: 'mobile' }) });
+}
+
+export async function getSavedMarketplaceListings(): Promise<MobileListingsResponse> {
+  return requestJson<MobileListingsResponse>('/api/marketplace/saved');
+}
+
+export async function saveMarketplaceListing(vin: string): Promise<{ saved: true; vin: string }> {
+  return requestJson<{ saved: true; vin: string }>(
+    `/api/marketplace/listings/${encodeURIComponent(vin)}/save`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export async function unsaveMarketplaceListing(vin: string): Promise<{ saved: false; vin: string }> {
+  return requestJson<{ saved: false; vin: string }>(
+    `/api/marketplace/listings/${encodeURIComponent(vin)}/save`,
+    { method: 'DELETE' },
+  );
+}
+
+export interface MobileSellerInquiry {
+  id: string;
+  listing_id?: string | null;
+  inquiry_type?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+}
+
+export async function getSellerMarketplaceInquiries(): Promise<{ inquiries: MobileSellerInquiry[] }> {
+  return requestJson<{ inquiries: MobileSellerInquiry[] }>('/api/marketplace/my-listings/inquiries');
+}
+
+export interface MobileServiceListing {
+  slug?: string;
+  name?: string;
+  location?: string | null;
+  service_categories?: string[];
+  [key: string]: unknown;
+}
+
+export async function getMarketplaceServices(
+  filters?: Record<string, string | number | undefined>,
+): Promise<{ listings: MobileServiceListing[]; total: number; governed: boolean; listing_type: 'service'; note?: string }> {
+  return requestJson(`/api/marketplace/services${toQuery(filters)}`);
 }

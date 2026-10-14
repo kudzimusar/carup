@@ -1,80 +1,21 @@
 /**
- * Native Dashboard cold-start bootstrap ordering tests.
+ * OC-NATIVE-LR1 auth bootstrap / Home personalization guard.
  *
- * Pure, DB-free, import-only (no Expo/react-native runtime). Run with:
- *   npx tsx tests/native-dashboard-bootstrap.test.ts
- *
- * Proves the auth-bootstrap → confirmed-anonymous → role-boundary ordering of
- * `resolveDashboardGate` (consumed by app/(tabs)/index.tsx). The native auth
- * store starts loading:true while it restores a saved SecureStore session, so a
- * redirect must wait for bootstrap or an already-signed-in user is ejected on a
- * cold launch / direct Dashboard deep link.
+ * Home is now a public consumer surface. Auth restoration may add owner
+ * personalization after bootstrap, but it must never redirect a guest away
+ * from Home or flash private owner data before auth is known.
  */
 import { strict as assert } from 'node:assert';
-import { resolveDashboardGate } from '../navigation/dashboardGate';
+import fs from 'node:fs';
+import path from 'node:path';
 
-let PASSED = 0;
-let FAILED = 0;
-function test(name: string, fn: () => void): void {
-  try {
-    fn();
-    PASSED++;
-    console.log(`[PASS] ${name}`);
-  } catch (e) {
-    FAILED++;
-    console.log(`[FAIL] ${name}: ${(e as Error).message}`);
-  }
-}
+const source = fs.readFileSync(path.resolve(process.cwd(), 'app/(tabs)/index.tsx'), 'utf8');
 
-test('loading=true + role=null does NOT redirect (renders loading)', () => {
-  assert.equal(resolveDashboardGate({ loading: true, role: null }).kind, 'loading');
-});
+assert.doesNotMatch(source, /Redirect\b|resolveDashboardGate|role\.overview/, 'Home must not be a role-owned dashboard redirect');
+assert.match(source, /authLoading\s*=\s*useAuthStore/, 'Home must observe auth bootstrap');
+assert.match(source, /isOwner\s*=\s*!authLoading\s*&&\s*isAuthenticated/, 'owner personalization must wait for bootstrap');
+assert.match(source, /enabled:\s*isOwner/, 'owner-only queries must be disabled for guests and while bootstrap is pending');
+assert.match(source, /getMarketplaceListings/, 'public Home must still load real Marketplace truth for guests');
+assert.doesNotMatch(source, /Stakeholder Portal Switching|multi-tenant|authorization context/i, 'legacy architecture UX must not return to Home');
 
-test('loading=true + saved session pending (role still null) → loading', () => {
-  // SecureStore restore in flight: loading true, role not yet available.
-  assert.equal(resolveDashboardGate({ loading: true, role: null }).kind, 'loading');
-});
-
-test('bootstrap wins: loading=true even with a momentary role → loading', () => {
-  assert.equal(resolveDashboardGate({ loading: true, role: 'owner' }).kind, 'loading');
-});
-
-test('loading=false + role=null → a guest browses the public Marketplace (PC01-J-R1)', () => {
-  // This redirected to /login, so a guest could not browse at all. Browsing never needs an account.
-  const g = resolveDashboardGate({ loading: false, role: null });
-  assert.equal(g.kind, 'redirect');
-  assert.equal(g.kind === 'redirect' && g.to, '/marketplace');
-});
-
-test('loading=false + owner role uses owner.overview', () => {
-  const g = resolveDashboardGate({ loading: false, role: 'owner' });
-  assert.equal(g.kind, 'boundary');
-  assert.equal(g.kind === 'boundary' && g.featureId, 'owner.overview');
-});
-
-test('loading=false + dealer role uses dealer.overview', () => {
-  const g = resolveDashboardGate({ loading: false, role: 'dealer' });
-  assert.equal(g.kind, 'boundary');
-  assert.equal(g.kind === 'boundary' && g.featureId, 'dealer.overview');
-});
-
-test('auth-loading guard executes BEFORE the anonymous redirect', () => {
-  // loading=true + role=null must be 'loading' (guard first), never 'redirect' —
-  // i.e. a cold-launch signed-in user is never ejected mid-restore.
-  const g = resolveDashboardGate({ loading: true, role: null });
-  assert.equal(g.kind, 'loading');
-  assert.notEqual(g.kind, 'redirect');
-});
-
-test('role-owned boundary resolves a real manifest route', () => {
-  const g = resolveDashboardGate({ loading: false, role: 'owner' });
-  assert.equal(g.kind, 'boundary');
-  assert.ok(g.kind === 'boundary' && typeof g.route === 'string' && g.route.length > 0);
-});
-
-console.log(`\n${PASSED} passed, ${FAILED} failed.`);
-if (FAILED === 0) {
-  console.log('ALL NATIVE DASHBOARD BOOTSTRAP TESTS PASSED');
-} else {
-  process.exit(1);
-}
+console.log('native-dashboard-bootstrap.test: PASS');
