@@ -24,9 +24,11 @@ export function MarketplaceFilterSheet({
 }) {
   const theme = useNativeTheme();
   const [draft, setDraft] = useState<MarketplaceFilters>(value);
+  const wasVisible = React.useRef(false);
 
   useEffect(() => {
-    if (visible) setDraft(value);
+    if (visible && !wasVisible.current) setDraft(value);
+    wasVisible.current = visible;
   }, [visible, value]);
 
   const set = <K extends keyof MarketplaceFilters,>(key: K, next: MarketplaceFilters[K]) => {
