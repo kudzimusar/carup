@@ -166,8 +166,8 @@ BEGIN
   IF p_decision->>'decision' IS DISTINCT FROM 'granted' THEN
     RAISE EXCEPTION 'CORPORATE_GOVERNANCE/DECISION_NOT_GRANTED';
   END IF;
-  -- Only the target Corporate governance authority may grant. The legacy compatibility bridge, a platform role, a tenant
-  -- role, a client assertion: none of them is a source this contract accepts.
+  -- This Phase-B check validates the decision snapshot's declared target-governance source label and contract shape only.
+  -- It does not authenticate the producer; persistent grant authority is required before any mutation route is activated.
   IF p_decision->>'source' IS DISTINCT FROM (v_policy->>'decision_source') THEN
     RAISE EXCEPTION 'CORPORATE_GOVERNANCE/DECISION_SOURCE';
   END IF;
