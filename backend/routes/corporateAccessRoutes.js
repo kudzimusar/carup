@@ -11,11 +11,15 @@
 import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { evaluateCorporateAccess } from '../services/corporate/corporateAccessService.js';
+import { observeShadowPolicy } from '../services/corporate/corporateShadowPolicy.js';
 
 const router = express.Router();
 
 router.get('/api/corporate/access', authorizeSessionRole([]), (req, res) => {
   const decision = evaluateCorporateAccess(req.userContext);
+  // CA-K3-AUTH-02: shadow observation of the target membership policy. Default OFF, fire-and-forget, logs only;
+  // it cannot change, delay or fail this response, and the legacy bridge decision above stays the only admission.
+  observeShadowPolicy({ userContext: req.userContext, legacyDecision: decision });
   // A decision about THIS session: never cached by a browser or an intermediary.
   res.set('Cache-Control', 'no-store');
   return res.status(decision.status).json(decision.body);
