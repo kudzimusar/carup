@@ -101,7 +101,7 @@ jobs:
               echo "---"
               printf '%s\n' "$@"
             } > "$file"
-            "$MAESTRO" --device "$UDID" test "$file"
+            "$MAESTRO" --device "$UDID" test --test-output-dir "$OUT" "$file"
           }
 
           capture() {
@@ -181,6 +181,7 @@ jobs:
           run_flow buy \
             '- tapOn:' \
             '    id: "primary-tab-marketplace"' \
+            '- takeScreenshot: diagnostic-buy-after-tap' \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000' \
@@ -405,7 +406,7 @@ jobs:
                 echo "---"
                 printf '%s\n' "$@"
               } > "$file"
-              "$MAESTRO" --device "$DEVICE_ID" test "$file"
+              "$MAESTRO" --device "$DEVICE_ID" test --test-output-dir "$OUT" "$file"
             }
 
             capture() {
@@ -587,6 +588,7 @@ jobs:
             run_flow buy \
               '- tapOn:' \
               '    id: "primary-tab-marketplace"' \
+              '- takeScreenshot: diagnostic-buy-after-tap' \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000' \
