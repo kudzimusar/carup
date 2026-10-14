@@ -24,6 +24,10 @@ import { MEMBERSHIP_STATE, resolveCorporateMembership, CORPORATE_MEMBERSHIP_STAT
 
 export const SHADOW_POLICY_CONTRACT = 'carup.corporate_membership_shadow.v1';
 export const SHADOW_OBSERVATION_FLAG = 'CORPORATE_MEMBERSHIP_SHADOW';
+export const SHADOW_OBSERVATION_TIMEOUT_MS = 2_000;
+export const SHADOW_OBSERVATION_MAX_IN_FLIGHT = 8;
+
+let shadowObservationInFlight = 0;
 
 export function isShadowObservationEnabled(env = process.env) {
   return env?.[SHADOW_OBSERVATION_FLAG] === 'true';
@@ -57,10 +61,10 @@ function notEvaluated(reason, subject) {
  * Only a SESSION-proven identity is ever looked up: an identity asserted by a header (x-user-id) is not
  * evaluated at all, so no request header can mint, name or probe a membership.
  */
-export async function evaluateShadowPolicy({ userContext, legacyDecision, supabaseClient = defaultSupabase, now = new Date() }) {
+export async function evaluateShadowPolicy({ userContext, legacyDecision, supabaseClient = defaultSupabase, now = new Date(), signal } = {}) {
   const proven = userContext?.authenticationMethod === 'session' && typeof userContext?.id === 'string' && userContext.id.trim() !== '';
   const corporate_membership_state = proven
-    ? await resolveCorporateMembership(supabaseClient, userContext.id, { now })
+    ? await resolveCorporateMembership(supabaseClient, userContext.id, { now, signal })
     : notEvaluated('identity_not_session_proven', null);
   const legacy_bridge_decision = summariseLegacyDecision(legacyDecision);
   return {
@@ -83,24 +87,41 @@ function defaultLog(line) {
  * Fire-and-forget observation for the access route. Returns nothing, throws nothing, awaits nothing: a
  * missing table, a database outage or a logging failure leaves the response exactly as it was.
  */
-export function observeShadowPolicy({ userContext, legacyDecision, env = process.env, supabaseClient, now, log = defaultLog } = {}) {
+export function observeShadowPolicy({
+  userContext,
+  legacyDecision,
+  env = process.env,
+  supabaseClient,
+  now,
+  log = defaultLog,
+  timeoutMs = SHADOW_OBSERVATION_TIMEOUT_MS,
+} = {}) {
   if (!isShadowObservationEnabled(env)) return;
-  try {
-    evaluateShadowPolicy({ userContext, legacyDecision, supabaseClient, now })
-      .then((evaluation) => log({
-        level: 'info',
-        msg: 'corporate_membership_shadow',
-        contract: evaluation.contract,
-        mode: evaluation.mode,
-        affects_admission: evaluation.affects_admission,
-        subject_digest: digest(userContext?.id),
-        legacy_bridge_decision: evaluation.legacy_bridge_decision.decision,
-        corporate_membership_state: evaluation.corporate_membership_state.state,
-        active_membership_count: evaluation.corporate_membership_state.active_memberships.length,
-        alignment: evaluation.alignment,
-      }))
-      .catch(() => { /* observation only */ });
-  } catch {
-    /* observation only */
-  }
+  if (shadowObservationInFlight >= SHADOW_OBSERVATION_MAX_IN_FLIGHT) return;
+
+  const controller = new AbortController();
+  const boundedTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : SHADOW_OBSERVATION_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), boundedTimeout);
+  timer.unref?.();
+  shadowObservationInFlight += 1;
+
+  Promise.resolve()
+    .then(() => evaluateShadowPolicy({ userContext, legacyDecision, supabaseClient, now, signal: controller.signal }))
+    .then((evaluation) => log({
+      level: 'info',
+      msg: 'corporate_membership_shadow',
+      contract: evaluation.contract,
+      mode: evaluation.mode,
+      affects_admission: evaluation.affects_admission,
+      subject_digest: digest(userContext?.id),
+      legacy_bridge_decision: evaluation.legacy_bridge_decision.decision,
+      corporate_membership_state: evaluation.corporate_membership_state.state,
+      active_membership_count: evaluation.corporate_membership_state.active_memberships.length,
+      alignment: evaluation.alignment,
+    }))
+    .catch(() => { /* observation only */ })
+    .finally(() => {
+      clearTimeout(timer);
+      shadowObservationInFlight -= 1;
+    });
 }

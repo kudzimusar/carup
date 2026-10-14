@@ -444,6 +444,63 @@ test('the shadow observation cannot change, delay or fail the response — flag 
   assert.doesNotThrow(() => shadow.observeShadowPolicy({ userContext: { id: 'u', authenticationMethod: 'session' }, legacyDecision: {}, env: { CORPORATE_MEMBERSHIP_SHADOW: 'true' }, supabaseClient: { from() { throw new Error('boom'); } }, log() { throw new Error('boom'); } }));
 });
 
+test('shadow observation bounds hung work: at most the configured in-flight cap, and timed-out reads are aborted without affecting access', async () => {
+  const calls = [];
+  const aborts = [];
+  const client = {
+    from(table) {
+      const record = { table, signal: null };
+      calls.push(record);
+      const builder = {
+        select() { return builder; },
+        eq() { return builder; },
+        in() { return builder; },
+        abortSignal(signal) { record.signal = signal; return builder; },
+        then(resolve, reject) {
+          const promise = new Promise((_, rejectPromise) => {
+            if (!record.signal) return;
+            if (record.signal.aborted) { aborts.push(table); rejectPromise(new Error('aborted')); return; }
+            record.signal.addEventListener('abort', () => { aborts.push(table); rejectPromise(new Error('aborted')); }, { once: true });
+          });
+          return promise.then(resolve, reject);
+        },
+      };
+      return builder;
+    },
+  };
+  const ctx = { id: 'u-owner', authenticationMethod: 'session', platformRole: 'owner' };
+  const decision = evaluateCorporateAccess(ctx);
+  const accessBefore = await accessAs({ token: 'tok-owner' });
+  for (let i = 0; i < shadow.SHADOW_OBSERVATION_MAX_IN_FLIGHT + 3; i += 1) {
+    shadow.observeShadowPolicy({
+      userContext: ctx,
+      legacyDecision: decision,
+      env: { CORPORATE_MEMBERSHIP_SHADOW: 'true' },
+      supabaseClient: client,
+      timeoutMs: 20,
+      log() {},
+    });
+  }
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls.length, shadow.SHADOW_OBSERVATION_MAX_IN_FLIGHT, 'extra observations are dropped while the cap is full');
+  const accessDuring = await accessAs({ token: 'tok-owner' });
+  assert.equal(accessDuring.status, accessBefore.status);
+  assert.equal(accessDuring.text, accessBefore.text, 'observer pressure cannot change the access response');
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(aborts.length, shadow.SHADOW_OBSERVATION_MAX_IN_FLIGHT, 'every admitted hung read received the timeout abort');
+  shadow.observeShadowPolicy({
+    userContext: ctx,
+    legacyDecision: decision,
+    env: { CORPORATE_MEMBERSHIP_SHADOW: 'true' },
+    supabaseClient: client,
+    timeoutMs: 20,
+    log() {},
+  });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls.length, shadow.SHADOW_OBSERVATION_MAX_IN_FLIGHT + 1, 'a slot is released after abort completion');
+  await new Promise((r) => setTimeout(r, 30));
+});
+
 test('the observation writes nothing: no audit row, no membership row, no identity change', async () => {
   seed([row('u-admin-member', 'BU_MARKETPLACE', 'ACTIVE')]);
   const before = snapshot([...IDENTITY_TABLES, 'corporate_memberships', 'corporate_org_nodes', 'trust_audit_events']); const writes = world.writes.length;

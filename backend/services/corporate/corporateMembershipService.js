@@ -110,7 +110,7 @@ export function classifyMembershipRow(row, now) {
  * @param userId a SERVER-PROVEN users.id — never a header, never client input
  * @param opts.now injected clock (defaults to the wall clock)
  */
-export async function resolveCorporateMembership(supabaseClient, userId, { now = new Date() } = {}) {
+export async function resolveCorporateMembership(supabaseClient, userId, { now = new Date(), signal } = {}) {
   const evaluatedAt = now instanceof Date && !Number.isNaN(now.getTime()) ? now.toISOString() : null;
   const base = { evaluated_at: evaluatedAt, subject_user_id: null };
 
@@ -122,10 +122,12 @@ export async function resolveCorporateMembership(supabaseClient, userId, { now =
 
   let rows;
   try {
-    const { data, error } = await supabaseClient
+    let query = supabaseClient
       .from('corporate_memberships')
       .select('membership_id, org_node_id, state, effective_from, effective_until')
       .eq('user_id', userId);
+    if (signal && typeof query?.abortSignal === 'function') query = query.abortSignal(signal);
+    const { data, error } = await query;
     if (error) return result(MEMBERSHIP_STATE.UNAVAILABLE, { ...base, reason: 'membership_read_failed' });
     rows = Array.isArray(data) ? data : [];
   } catch {
@@ -139,10 +141,12 @@ export async function resolveCorporateMembership(supabaseClient, userId, { now =
   const nodes = new Map();
   if (nodeIds.length > 0) {
     try {
-      const { data, error } = await supabaseClient
+      let query = supabaseClient
         .from('corporate_org_nodes')
         .select('node_id, entity_type')
         .in('node_id', nodeIds);
+      if (signal && typeof query?.abortSignal === 'function') query = query.abortSignal(signal);
+      const { data, error } = await query;
       if (error) return result(MEMBERSHIP_STATE.UNAVAILABLE, { ...base, reason: 'org_node_read_failed' });
       for (const node of Array.isArray(data) ? data : []) {
         if (CORPORATE_ORG_NODE_TYPES.includes(node.entity_type)) nodes.set(node.node_id, node.entity_type);
