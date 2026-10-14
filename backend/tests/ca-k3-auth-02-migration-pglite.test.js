@@ -26,6 +26,11 @@ after(async () => { await Promise.all(open.map((db) => db.close().catch(() => {}
 
 const BOOTSTRAP = `
   CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
+  -- Supabase hands service_role / anon / authenticated ALL on every NEW public table, function and sequence (pg_default_acl,
+  -- read from staging). Reproduced here so the privilege assertions are about the platform, not about a bare PostgreSQL.
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
   CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE, role TEXT NOT NULL);
   CREATE TABLE tenants (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, type TEXT);
   CREATE TABLE tenant_users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL REFERENCES tenants(id), user_id TEXT NOT NULL REFERENCES users(id), role TEXT NOT NULL);
@@ -86,40 +91,48 @@ test('file: a canonical migration, sorted after every other, with a unique versi
 
 const stripped = (sql) => sql.replace(/--.*$/gm, '').replace(/'(?:[^']|'')*'/g, "''");
 
-test('file: it writes only to the two new tables — nothing reads, writes, grants on or backfills any identity table', () => {
+test('file: it writes only to its own tables — nothing reads, writes, grants on or backfills any identity table', () => {
   const sql = stripped(UP);
   const inserts = [...sql.matchAll(/\bINSERT\s+INTO\s+(?:public\.)?(\w+)/gi)].map((m) => m[1]);
   assert.ok(inserts.length >= 2);
-  assert.deepEqual([...new Set(inserts)], ['corporate_org_nodes'], 'the only seeded table is the organisation reference table');
+  // The seed (organisation reference nodes) and the one trigger that records lifecycle events. Nothing else is ever inserted.
+  assert.deepEqual([...new Set(inserts)].sort(), ['corporate_membership_events', 'corporate_org_nodes']);
   assert.doesNotMatch(sql, /\bUPDATE\s+(?:public\.)?\w+\s+SET\b/i, 'no UPDATE statement');
-  assert.doesNotMatch(sql, /\bDELETE\s+FROM\b|\bTRUNCATE\b/i);
-  assert.doesNotMatch(sql, /\bINSERT\s+INTO[\s\S]{0,400}\bSELECT\b/i, 'no INSERT ... SELECT backfill from anywhere');
+  // No DELETE or TRUNCATE STATEMENT. (A `BEFORE TRUNCATE` trigger that REFUSES truncation is the opposite of one.)
+  assert.doesNotMatch(sql, /\bDELETE\s+FROM\b|(?:^|;)\s*TRUNCATE\b/im);
+  // Statement-bounded (an INSERT is followed by a SELECT inside the SAME statement): a backfill from anywhere.
+  assert.doesNotMatch(sql, /\bINSERT\s+INTO\s+[^;]*\bSELECT\b/i, 'no INSERT ... SELECT backfill from anywhere');
   // The only mention of an identity table is a foreign key to users(id).
   const without = sql.replace(/REFERENCES\s+public\.users\(id\)/gi, '');
   assert.doesNotMatch(without, /\b(users|user_sessions|tenants|tenant_users|organizations|organization_users)\b/i);
-  assert.equal([...sql.matchAll(/REFERENCES\s+public\.users\(id\)/gi)].length, 3, 'user_id + the two actor references');
+  assert.equal([...sql.matchAll(/REFERENCES\s+public\.users\(id\)/gi)].length, 4, 'user_id, the two membership actor references, and the event actor reference');
 });
 
-test('file: closed to every client role — RLS enabled and forced on both tables, no grant to anon / authenticated / PUBLIC, no DELETE / TRUNCATE', () => {
+test('file: closed to every client role — RLS enabled and forced on all three tables, no grant to anon / authenticated / PUBLIC, no DELETE / TRUNCATE', () => {
   const sql = stripped(UP);
-  for (const t of ['corporate_org_nodes', 'corporate_memberships']) {
+  for (const t of ['corporate_org_nodes', 'corporate_memberships', 'corporate_membership_events']) {
     assert.match(sql, new RegExp(`ALTER TABLE public\\.${t} ENABLE ROW LEVEL SECURITY`));
     assert.match(sql, new RegExp(`ALTER TABLE public\\.${t} FORCE ROW LEVEL SECURITY`));
-    assert.match(sql, new RegExp(`REVOKE ALL ON TABLE public\\.${t} FROM PUBLIC, anon, authenticated`));
+    assert.match(sql, new RegExp(`REVOKE ALL ON TABLE public\\.${t} FROM PUBLIC, anon, authenticated, service_role;`));
   }
   const grants = [...sql.matchAll(/\bGRANT\b[^;]*;/gi)].map((m) => m[0]);
-  assert.equal(grants.length, 2);
+  assert.equal(grants.length, 3);
+  assert.deepEqual(grants.map((g) => g.replace(/\s+/g, ' ')).sort(), [
+    'GRANT SELECT ON TABLE public.corporate_membership_events TO service_role;',
+    'GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_memberships TO service_role;',
+    'GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_org_nodes TO service_role;',
+  ], 'the history is read-only for the backend: no INSERT, UPDATE, DELETE or TRUNCATE');
   for (const g of grants) {
-    assert.match(g, /GRANT SELECT, INSERT, UPDATE ON TABLE public\.corporate_(org_nodes|memberships) TO service_role;$/);
     assert.doesNotMatch(g, /\b(?:anon|authenticated)\b|\bPUBLIC\b|\bDELETE\b|\bTRUNCATE\b|\bALL\b/, 'keywords only: the lowercase schema prefix public. is not the PUBLIC role');
   }
 });
 
 test('file: the Down removes exactly what the Up created', () => {
-  assert.match(DOWN, /DROP TABLE IF EXISTS public\.corporate_memberships/);
-  assert.match(DOWN, /DROP TABLE IF EXISTS public\.corporate_org_nodes/);
-  assert.match(DOWN, /DROP FUNCTION IF EXISTS public\.corporate_memberships_guard\(\)/);
-  assert.match(DOWN, /DROP FUNCTION IF EXISTS public\.corporate_org_nodes_guard\(\)/);
+  for (const t of ['corporate_membership_events', 'corporate_memberships', 'corporate_org_nodes']) assert.match(DOWN, new RegExp(`DROP TABLE IF EXISTS public\\.${t};`));
+  for (const f of ['corporate_membership_events_record', 'corporate_membership_events_guard', 'corporate_memberships_guard', 'corporate_org_nodes_guard', 'corporate_custody_truncate_guard']) {
+    assert.match(DOWN, new RegExp(`DROP FUNCTION IF EXISTS public\\.${f}\\(\\);`));
+  }
+  assert.ok(DOWN.indexOf('corporate_membership_events;') < DOWN.indexOf('corporate_memberships;'), 'the history goes before the table it references');
   assert.doesNotMatch(stripped(DOWN), /\b(users|tenant_users|organization_users|user_sessions)\b/i);
 });
 
@@ -158,18 +171,18 @@ test('the schema carries membership and placement ONLY — no permission, capabi
   const cols = async (t) => (await db.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY column_name", [t])).rows.map((r) => r.column_name);
   assert.deepEqual(await cols('corporate_memberships'), [
     'created_at', 'created_by_kind', 'created_by_user_id', 'created_reason', 'created_reference', 'effective_from', 'effective_until',
-    'membership_id', 'org_node_id', 'state', 'updated_at', 'updated_by_kind', 'updated_by_user_id', 'updated_reason', 'user_id',
+    'membership_id', 'org_node_id', 'state', 'updated_at', 'updated_by_kind', 'updated_by_user_id', 'updated_reason', 'updated_reference', 'user_id',
   ]);
   assert.deepEqual(await cols('corporate_org_nodes'), ['created_at', 'display_name', 'entity_type', 'legal_evidence_ref', 'node_id', 'parent_node_id']);
-  for (const c of [...await cols('corporate_memberships'), ...await cols('corporate_org_nodes')]) assert.doesNotMatch(c, /permission|capabilit|role|scope|grant|privilege|admin/i, c);
+  for (const c of [...await cols('corporate_memberships'), ...await cols('corporate_org_nodes'), ...await cols('corporate_membership_events')]) assert.doesNotMatch(c, /permission|capabilit|role|scope|grant|privilege|admin/i, c);
 });
 
-test('RLS is enabled AND forced on both tables; the guard functions are not executable by client roles', async () => {
+test('RLS is enabled AND forced on all three tables; no trigger function is executable by any client or backend role', async () => {
   const db = await database();
-  const { rows } = await db.query("SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN ('corporate_org_nodes','corporate_memberships') ORDER BY relname");
-  assert.deepEqual(rows.map((r) => [r.relname, r.relrowsecurity, r.relforcerowsecurity]), [['corporate_memberships', true, true], ['corporate_org_nodes', true, true]]);
-  for (const fn of ['corporate_org_nodes_guard', 'corporate_memberships_guard']) {
-    for (const role of ['anon', 'authenticated']) assert.equal((await db.query(`SELECT has_function_privilege('${role}', 'public.${fn}()', 'EXECUTE') AS ok`)).rows[0].ok, false, `${role} ${fn}`);
+  const { rows } = await db.query("SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN ('corporate_org_nodes','corporate_memberships','corporate_membership_events') ORDER BY relname");
+  assert.deepEqual(rows.map((r) => [r.relname, r.relrowsecurity, r.relforcerowsecurity]), [['corporate_membership_events', true, true], ['corporate_memberships', true, true], ['corporate_org_nodes', true, true]]);
+  for (const fn of ['corporate_org_nodes_guard', 'corporate_memberships_guard', 'corporate_custody_truncate_guard', 'corporate_membership_events_guard', 'corporate_membership_events_record']) {
+    for (const role of ['anon', 'authenticated', 'service_role']) assert.equal((await db.query(`SELECT has_function_privilege('${role}', 'public.${fn}()', 'EXECUTE') AS ok`)).rows[0].ok, false, `${role} ${fn}`);
   }
 });
 
@@ -178,10 +191,11 @@ test('privileges: anon and authenticated cannot read or write either table; serv
   for (const role of ['anon', 'authenticated']) {
     try {
       await db.exec(`SET ROLE ${role}`);
-      for (const t of ['corporate_memberships', 'corporate_org_nodes']) {
+      for (const t of ['corporate_memberships', 'corporate_org_nodes', 'corporate_membership_events']) {
+        const assignment = t === 'corporate_membership_events' ? "reason = 'x'" : 'created_at = now()';
         await refused(db, `SELECT * FROM ${t}`, [], /permission denied/);
         await refused(db, `INSERT INTO ${t} DEFAULT VALUES`, [], /permission denied/);
-        await refused(db, `UPDATE ${t} SET created_at = now()`, [], /permission denied/);
+        await refused(db, `UPDATE ${t} SET ${assignment}`, [], /permission denied/);
         await refused(db, `DELETE FROM ${t}`, [], /permission denied/);
       }
     } finally { await db.exec('RESET ROLE'); }
@@ -195,6 +209,12 @@ test('privileges: anon and authenticated cannot read or write either table; serv
     await refused(db, 'TRUNCATE corporate_memberships', [], /permission denied/);
     await refused(db, 'DELETE FROM corporate_org_nodes', [], /permission denied/);
     await refused(db, 'TRUNCATE corporate_org_nodes', [], /permission denied/);
+    // The history: the backend may READ it, and can neither write nor change it in any way.
+    assert.equal((await db.query('SELECT count(*)::int AS c FROM corporate_membership_events')).rows[0].c, 2, 'the creation and the SUSPENDED transition');
+    await refused(db, 'INSERT INTO corporate_membership_events DEFAULT VALUES', [], /permission denied/);
+    await refused(db, "UPDATE corporate_membership_events SET reason = 'x'", [], /permission denied/);
+    await refused(db, 'DELETE FROM corporate_membership_events', [], /permission denied/);
+    await refused(db, 'TRUNCATE corporate_membership_events', [], /permission denied/);
   } finally { await db.exec('RESET ROLE'); }
 });
 
@@ -278,9 +298,13 @@ test('organisation: identity and place in the hierarchy never change and a node 
 test('membership: exactly the four lifecycle states', async () => {
   const db = await database();
   for (const state of ['PENDING', 'ACTIVE', 'SUSPENDED', 'ENDED']) await addMembership(db, { user: `u-${state === 'PENDING' ? 'owner' : state === 'ACTIVE' ? 'tadmin' : state === 'SUSPENDED' ? 'lorg' : 'actor'}`, state });
+  // The refusal must come from the MEMBERSHIPS table's own state constraint: the history table repeats this CHECK on its
+  // to_state, so a generic "check constraint" match would be satisfied by the wrong wall even if this one were widened.
   for (const bad of ['APPROVED', 'active', 'EXPIRED', 'REVOKED', 'NOT_YET_EFFECTIVE', '']) {
-    await assert.rejects(addMembership(db, { user: 'u-hr', node: 'BU_SERVICE_NETWORK', state: bad }), /check constraint/, bad || '(empty)');
+    await assert.rejects(addMembership(db, { user: 'u-hr', node: 'BU_SERVICE_NETWORK', state: bad }), /corporate_memberships_state_check/, bad || '(empty)');
   }
+  const definition = (await db.query("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'public.corporate_memberships'::regclass AND conname = 'corporate_memberships_state_check'")).rows[0].def;
+  assert.deepEqual([...definition.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]).sort(), ['ACTIVE', 'ENDED', 'PENDING', 'SUSPENDED'], 'the stored lifecycle states are exactly these four');
 });
 
 test('membership: the person and the node must exist; ids are the stable codes and TEXT account ids', async () => {
@@ -308,9 +332,9 @@ test('membership: provenance is required and coherent — SYSTEM has no user, US
   await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'USER',NULL,'r','SYSTEM',NULL,'r')`, [], /created_actor_coherent/);
   await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'SYSTEM','u-actor','r','SYSTEM',NULL,'r')`, [], /created_actor_coherent/);
   await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'SYSTEM',NULL,'r','USER',NULL,'r')`, [], /updated_actor_coherent/);
-  await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'ROBOT',NULL,'r','SYSTEM',NULL,'r')`, [], /check constraint/);
-  await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'SYSTEM',NULL,'   ','SYSTEM',NULL,'r')`, [], /check constraint/);
-  await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'SYSTEM',NULL,'r','SYSTEM',NULL,'')`, [], /check constraint/);
+  await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'ROBOT',NULL,'r','SYSTEM',NULL,'r')`, [], /corporate_memberships_created_by_kind_check/);
+  await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'SYSTEM',NULL,'   ','SYSTEM',NULL,'r')`, [], /corporate_memberships_created_reason_check/);
+  await refused(db, `INSERT INTO corporate_memberships (user_id, org_node_id, state, effective_from, created_by_kind, created_by_user_id, created_reason, updated_by_kind, updated_by_user_id, updated_reason) VALUES ('u-hr','BU_DIASPORA_TRADE','PENDING',now(),'SYSTEM',NULL,'r','SYSTEM',NULL,'')`, [], /corporate_memberships_updated_reason_check/);
 });
 
 test('membership: one LIVE relationship per person per node; an ENDED one never blocks a fresh start; several nodes are allowed', async () => {
@@ -452,7 +476,7 @@ test('resolver on real PostgreSQL: a database that cannot answer is UNAVAILABLE,
   const db = await database();
   await addMembership(db, { user: 'u-owner' });
   const r = await resolveCorporateMembership(adapter(db), 'u-owner'); assert.equal(r.state, S.ACTIVE);
-  await db.exec('DROP TABLE corporate_memberships');
+  await db.exec('DROP TABLE corporate_memberships CASCADE'); // (CASCADE: the history's foreign key rightly blocks a plain drop)
   const gone = await resolveCorporateMembership(adapter(db), 'u-owner');
   assert.equal(gone.state, S.UNAVAILABLE);
   assert.equal(gone.is_active_member, false);
@@ -467,7 +491,7 @@ test('Down removes only what Up created and leaves every identity table byte-ide
   await addMembership(db, { user: 'u-admin' });
   await db.exec(DOWN);
   const gone = (await db.query(`SELECT to_regclass('public.corporate_memberships') AS a, to_regclass('public.corporate_org_nodes') AS b,
-      (SELECT count(*)::int FROM pg_proc WHERE proname IN ('corporate_org_nodes_guard','corporate_memberships_guard')) AS fns`)).rows[0];
+      (SELECT count(*)::int FROM pg_proc WHERE proname LIKE 'corporate\\_%') AS fns`)).rows[0];
   assert.deepEqual([gone.a, gone.b, gone.fns], [null, null, 0]);
   assert.equal(await identitySnapshot(db), before);
   await db.exec(UP);

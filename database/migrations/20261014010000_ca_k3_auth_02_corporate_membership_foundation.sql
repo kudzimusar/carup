@@ -19,11 +19,28 @@
 -- Authorities: CA-ORG-01 (taxonomy, hierarchy, stable ids), CA-RBAC-01 (membership vs permission vs scope),
 -- CA-BU-01 / CA-K3-01-R1 (the four accepted management Business Units; legal status NOT asserted).
 -- Applied to staging only by the controlled staging runner, never by this change; never to Production here.
+--
+-- R1 (CA-K3-AUTH-02-R1) — authoritative, append-only LIFECYCLE CUSTODY. corporate_memberships keeps only the
+-- latest change, so each transition used to overwrite the provenance of the one before it. Every membership
+-- creation and every change is now also written, in the SAME transaction, as an immutable row of
+-- corporate_membership_events — by a trigger, not by a caller that has to remember to. If that row cannot
+-- be written, the membership change fails with it. Nobody (not even the backend role) can insert, update,
+-- delete or truncate events directly: history exists only as the consequence of a membership change.
+-- The events carry no permission, capability, scope or grant, and nothing derives authority from them.
+-- This revision replaces the never-applied first revision of this same migration (no environment ran it).
 
 DO $$
 BEGIN
   IF to_regclass('public.users') IS NULL THEN
     RAISE EXCEPTION 'CA-K3-AUTH-02 requires public.users';
+  END IF;
+  -- The pre-custody revision of this migration was never applied anywhere. If a database somehow holds its
+  -- tables, evolving them in place could leave members without a creation event: refuse, loudly.
+  IF to_regclass('public.corporate_memberships') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_schema = 'public' AND table_name = 'corporate_memberships'
+                        AND column_name = 'updated_reference') THEN
+    RAISE EXCEPTION 'CA-K3-AUTH-02-R1: public.corporate_memberships exists in its pre-lifecycle-custody shape; run that revision''s Down first';
   END IF;
 END $$;
 
@@ -113,6 +130,25 @@ CREATE TRIGGER corporate_org_nodes_guard
   BEFORE INSERT OR UPDATE OR DELETE ON public.corporate_org_nodes
   FOR EACH ROW EXECUTE FUNCTION public.corporate_org_nodes_guard();
 
+-- Corporate organisation and membership truth is never truncated — not by the backend role (which holds no
+-- TRUNCATE privilege) and not by the table owner either. TRUNCATE ... CASCADE reaches the other two tables
+-- through their own triggers below.
+CREATE OR REPLACE FUNCTION public.corporate_custody_truncate_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  RAISE EXCEPTION 'CORPORATE_CUSTODY_TRUNCATE_FORBIDDEN' USING ERRCODE = 'restrict_violation';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS corporate_org_nodes_no_truncate ON public.corporate_org_nodes;
+CREATE TRIGGER corporate_org_nodes_no_truncate
+  BEFORE TRUNCATE ON public.corporate_org_nodes
+  FOR EACH STATEMENT EXECUTE FUNCTION public.corporate_custody_truncate_guard();
+
 -- ── Corporate memberships ──────────────────────────────────────────────────────────────────────────
 -- One row = one person's relationship to ONE internal node. A person may hold several (a home unit plus
 -- matrix placements); that is a later policy, not constrained here beyond "one live row per person per node".
@@ -136,6 +172,9 @@ CREATE TABLE IF NOT EXISTS public.corporate_memberships (
   updated_by_kind    TEXT NOT NULL CHECK (updated_by_kind IN ('USER', 'SYSTEM')),
   updated_by_user_id TEXT REFERENCES public.users(id) ON DELETE RESTRICT,
   updated_reason     TEXT NOT NULL CHECK (BTRIM(updated_reason) <> ''),
+  updated_reference  TEXT,
+  -- The anchor the lifecycle events reference, so an event can never name a person or node its membership does not.
+  CONSTRAINT corporate_memberships_event_anchor UNIQUE (membership_id, user_id, org_node_id),
   CONSTRAINT corporate_memberships_window_ordered
     CHECK (effective_until IS NULL OR effective_until > effective_from),
   CONSTRAINT corporate_memberships_created_actor_coherent
@@ -193,6 +232,20 @@ BEGIN
     RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_TRANSITION_NOT_ALLOWED' USING ERRCODE = 'check_violation';
   END IF;
 
+  -- A statement that changes nothing is not a lifecycle event: the row stays exactly as it was and no
+  -- history is written. Anything else is a change — and corporate_memberships_record_event (below) writes
+  -- its event in this same transaction.
+  IF NEW.state IS NOT DISTINCT FROM OLD.state
+     AND NEW.effective_from IS NOT DISTINCT FROM OLD.effective_from
+     AND NEW.effective_until IS NOT DISTINCT FROM OLD.effective_until
+     AND NEW.updated_by_kind IS NOT DISTINCT FROM OLD.updated_by_kind
+     AND NEW.updated_by_user_id IS NOT DISTINCT FROM OLD.updated_by_user_id
+     AND NEW.updated_reason IS NOT DISTINCT FROM OLD.updated_reason
+     AND NEW.updated_reference IS NOT DISTINCT FROM OLD.updated_reference THEN
+    NEW.updated_at := OLD.updated_at;
+    RETURN NEW;
+  END IF;
+
   NEW.updated_at := NOW();
   RETURN NEW;
 END;
@@ -203,6 +256,192 @@ CREATE TRIGGER corporate_memberships_guard
   BEFORE UPDATE OR DELETE ON public.corporate_memberships
   FOR EACH ROW EXECUTE FUNCTION public.corporate_memberships_guard();
 
+DROP TRIGGER IF EXISTS corporate_memberships_no_truncate ON public.corporate_memberships;
+CREATE TRIGGER corporate_memberships_no_truncate
+  BEFORE TRUNCATE ON public.corporate_memberships
+  FOR EACH STATEMENT EXECUTE FUNCTION public.corporate_custody_truncate_guard();
+
+-- ── Membership lifecycle events (R1): the authoritative, append-only history ───────────────────────────
+-- One row per creation or change of a membership, in order (event_seq), written only by the trigger below.
+-- from_state / prior_* are NULL for the creation event. The actor, reason and reference are the ones that came
+-- WITH that change, so a later change can no longer overwrite the provenance of an earlier one.
+CREATE TABLE IF NOT EXISTS public.corporate_membership_events (
+  event_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id         UUID NOT NULL,
+  event_seq             INTEGER NOT NULL CHECK (event_seq >= 1),
+  user_id               TEXT NOT NULL,
+  org_node_id           TEXT NOT NULL,
+  event_type            TEXT NOT NULL CHECK (event_type IN ('CREATED', 'TRANSITIONED', 'WINDOW_CHANGED', 'PROVENANCE_AMENDED')),
+  from_state            TEXT CHECK (from_state IN ('PENDING', 'ACTIVE', 'SUSPENDED', 'ENDED')),
+  to_state              TEXT NOT NULL CHECK (to_state IN ('PENDING', 'ACTIVE', 'SUSPENDED', 'ENDED')),
+  prior_effective_from  TIMESTAMPTZ,
+  prior_effective_until TIMESTAMPTZ,
+  effective_from        TIMESTAMPTZ NOT NULL,
+  effective_until       TIMESTAMPTZ,
+  actor_kind            TEXT NOT NULL CHECK (actor_kind IN ('USER', 'SYSTEM')),
+  actor_user_id         TEXT REFERENCES public.users(id) ON DELETE RESTRICT,
+  reason                TEXT NOT NULL CHECK (BTRIM(reason) <> ''),
+  reference             TEXT,
+  occurred_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT corporate_membership_events_membership_fk
+    FOREIGN KEY (membership_id, user_id, org_node_id)
+    REFERENCES public.corporate_memberships (membership_id, user_id, org_node_id) ON DELETE RESTRICT,
+  CONSTRAINT corporate_membership_events_one_per_seq UNIQUE (membership_id, event_seq),
+  CONSTRAINT corporate_membership_events_window_ordered
+    CHECK (effective_until IS NULL OR effective_until > effective_from),
+  CONSTRAINT corporate_membership_events_actor_coherent
+    CHECK ((actor_kind = 'USER') = (actor_user_id IS NOT NULL)),
+  CONSTRAINT corporate_membership_events_no_self_actor
+    CHECK (actor_user_id IS DISTINCT FROM user_id),
+  CONSTRAINT corporate_membership_events_created_shape
+    CHECK (event_type <> 'CREATED'
+           OR (event_seq = 1 AND from_state IS NULL AND prior_effective_from IS NULL AND prior_effective_until IS NULL)),
+  CONSTRAINT corporate_membership_events_change_shape
+    CHECK (event_type = 'CREATED'
+           OR (event_seq > 1 AND from_state IS NOT NULL AND prior_effective_from IS NOT NULL)),
+  CONSTRAINT corporate_membership_events_legal_transition
+    CHECK (event_type <> 'TRANSITIONED'
+           OR (from_state = 'PENDING'   AND to_state IN ('ACTIVE', 'ENDED'))
+           OR (from_state = 'ACTIVE'    AND to_state IN ('SUSPENDED', 'ENDED'))
+           OR (from_state = 'SUSPENDED' AND to_state IN ('ACTIVE', 'ENDED'))),
+  CONSTRAINT corporate_membership_events_window_change_shape
+    CHECK (event_type <> 'WINDOW_CHANGED'
+           OR (from_state = to_state
+               AND (prior_effective_from IS DISTINCT FROM effective_from
+                    OR prior_effective_until IS DISTINCT FROM effective_until))),
+  CONSTRAINT corporate_membership_events_amendment_shape
+    CHECK (event_type <> 'PROVENANCE_AMENDED'
+           OR (from_state = to_state
+               AND prior_effective_from IS NOT DISTINCT FROM effective_from
+               AND prior_effective_until IS NOT DISTINCT FROM effective_until))
+);
+
+CREATE INDEX IF NOT EXISTS idx_corporate_membership_events_user_time
+  ON public.corporate_membership_events (user_id, occurred_at);
+
+-- Append-only, and only ever as the consequence of a membership change:
+--   · UPDATE and DELETE are refused outright (for every role, the table owner included);
+--   · an INSERT is refused unless it happens inside another trigger (pg_trigger_depth() >= 2): no statement can
+--     add history on its own. The only trigger that does so is corporate_memberships_record_event; the depth test
+--     stops a stray statement, it is not a substitute for ownership — only the table owner could create another;
+--   · and even then the event must describe the membership AS IT NOW IS and extend its chain by exactly one
+--     (seq n+1, from_state = the previous event's to_state, prior window = the previous event's window).
+CREATE OR REPLACE FUNCTION public.corporate_membership_events_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_membership public.corporate_memberships%ROWTYPE;
+  v_previous   public.corporate_membership_events%ROWTYPE;
+BEGIN
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_EVENT_APPEND_ONLY' USING ERRCODE = 'restrict_violation';
+  END IF;
+
+  IF pg_trigger_depth() < 2 THEN
+    RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_EVENT_ONLY_VIA_MEMBERSHIP_CHANGE' USING ERRCODE = 'restrict_violation';
+  END IF;
+
+  SELECT * INTO v_membership FROM public.corporate_memberships WHERE membership_id = NEW.membership_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_EVENT_MEMBERSHIP_NOT_FOUND' USING ERRCODE = 'foreign_key_violation';
+  END IF;
+  IF NEW.to_state IS DISTINCT FROM v_membership.state
+     OR NEW.effective_from IS DISTINCT FROM v_membership.effective_from
+     OR NEW.effective_until IS DISTINCT FROM v_membership.effective_until THEN
+    RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_EVENT_NOT_CURRENT' USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT * INTO v_previous FROM public.corporate_membership_events
+   WHERE membership_id = NEW.membership_id ORDER BY event_seq DESC LIMIT 1;
+  IF NOT FOUND THEN
+    IF NEW.event_seq <> 1 OR NEW.event_type <> 'CREATED' THEN
+      RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_EVENT_CHAIN_BROKEN' USING ERRCODE = 'check_violation';
+    END IF;
+  ELSIF NEW.event_seq <> v_previous.event_seq + 1
+     OR NEW.event_type = 'CREATED'
+     OR NEW.from_state IS DISTINCT FROM v_previous.to_state
+     OR NEW.prior_effective_from IS DISTINCT FROM v_previous.effective_from
+     OR NEW.prior_effective_until IS DISTINCT FROM v_previous.effective_until THEN
+    RAISE EXCEPTION 'CORPORATE_MEMBERSHIP_EVENT_CHAIN_BROKEN' USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS corporate_membership_events_guard ON public.corporate_membership_events;
+CREATE TRIGGER corporate_membership_events_guard
+  BEFORE INSERT OR UPDATE OR DELETE ON public.corporate_membership_events
+  FOR EACH ROW EXECUTE FUNCTION public.corporate_membership_events_guard();
+
+DROP TRIGGER IF EXISTS corporate_membership_events_no_truncate ON public.corporate_membership_events;
+CREATE TRIGGER corporate_membership_events_no_truncate
+  BEFORE TRUNCATE ON public.corporate_membership_events
+  FOR EACH STATEMENT EXECUTE FUNCTION public.corporate_custody_truncate_guard();
+
+-- The ONLY writer of events. SECURITY DEFINER so that the backend role needs (and holds) no INSERT privilege on
+-- the history at all: it cannot forge an event, only cause one by changing a membership. It is an AFTER ROW trigger
+-- in the same transaction as the change — if this INSERT fails (a constraint, the chain guard, anything), the
+-- membership INSERT or UPDATE that fired it fails and rolls back with it. There is no EXCEPTION handler, by design.
+CREATE OR REPLACE FUNCTION public.corporate_membership_events_record()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_type TEXT;
+  v_seq  INTEGER;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO public.corporate_membership_events
+      (membership_id, event_seq, user_id, org_node_id, event_type, from_state, to_state,
+       prior_effective_from, prior_effective_until, effective_from, effective_until,
+       actor_kind, actor_user_id, reason, reference)
+    VALUES
+      (NEW.membership_id, 1, NEW.user_id, NEW.org_node_id, 'CREATED', NULL, NEW.state,
+       NULL, NULL, NEW.effective_from, NEW.effective_until,
+       NEW.created_by_kind, NEW.created_by_user_id, NEW.created_reason, NEW.created_reference);
+    RETURN NULL;
+  END IF;
+
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    v_type := 'TRANSITIONED';
+  ELSIF NEW.effective_from IS DISTINCT FROM OLD.effective_from
+        OR NEW.effective_until IS DISTINCT FROM OLD.effective_until THEN
+    v_type := 'WINDOW_CHANGED';
+  ELSIF NEW.updated_by_kind IS DISTINCT FROM OLD.updated_by_kind
+        OR NEW.updated_by_user_id IS DISTINCT FROM OLD.updated_by_user_id
+        OR NEW.updated_reason IS DISTINCT FROM OLD.updated_reason
+        OR NEW.updated_reference IS DISTINCT FROM OLD.updated_reference THEN
+    v_type := 'PROVENANCE_AMENDED';
+  ELSE
+    RETURN NULL; -- the guard let a no-op through unchanged; there is nothing to record
+  END IF;
+
+  SELECT COALESCE(MAX(event_seq), 0) + 1 INTO v_seq
+    FROM public.corporate_membership_events WHERE membership_id = NEW.membership_id;
+
+  INSERT INTO public.corporate_membership_events
+    (membership_id, event_seq, user_id, org_node_id, event_type, from_state, to_state,
+     prior_effective_from, prior_effective_until, effective_from, effective_until,
+     actor_kind, actor_user_id, reason, reference)
+  VALUES
+    (NEW.membership_id, v_seq, NEW.user_id, NEW.org_node_id, v_type, OLD.state, NEW.state,
+     OLD.effective_from, OLD.effective_until, NEW.effective_from, NEW.effective_until,
+     NEW.updated_by_kind, NEW.updated_by_user_id, NEW.updated_reason, NEW.updated_reference);
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS corporate_memberships_record_event ON public.corporate_memberships;
+CREATE TRIGGER corporate_memberships_record_event
+  AFTER INSERT OR UPDATE ON public.corporate_memberships
+  FOR EACH ROW EXECUTE FUNCTION public.corporate_membership_events_record();
+
 COMMENT ON TABLE public.corporate_org_nodes IS
   'CA-K3-AUTH-02 internal Corporate organisation nodes (CA-ORG-01). Not tenants, not external organisations. '
   'LEGAL_ENTITY / SUBSIDIARY require legal evidence; business units are management constructs whose legal status is not asserted.';
@@ -210,6 +449,11 @@ COMMENT ON TABLE public.corporate_memberships IS
   'CA-K3-AUTH-02 internal Corporate membership truth source. A relationship between a CarUp account and ONE internal '
   'node. ACTIVE membership grants ZERO Corporate capability: it is only a prerequisite for a future, separate permission '
   'assignment. Never derived from users.role, tenant_users, organization_users or the legacy admin compatibility bridge.';
+
+COMMENT ON TABLE public.corporate_membership_events IS
+  'CA-K3-AUTH-02-R1 authoritative append-only lifecycle history of corporate_memberships: one immutable row per creation or '
+  'change, written only by a trigger in the same transaction. Evidence, not authority: it carries no permission, capability, '
+  'scope or grant, and nothing derives authority from it.';
 
 -- ── Accepted reference nodes (organisation only — NO members, NO legal status asserted) ────────────────
 INSERT INTO public.corporate_org_nodes (node_id, entity_type, parent_node_id, display_name) VALUES
@@ -224,21 +468,37 @@ INSERT INTO public.corporate_org_nodes (node_id, entity_type, parent_node_id, di
 ON CONFLICT (node_id) DO NOTHING;
 
 -- ── Closed to every client role; the backend (service_role) reads and writes, and cannot delete ─────────
+-- service_role is REVOKEd first, on purpose: Supabase's default privileges hand it ALL (arwdDxtm — including DELETE and
+-- TRUNCATE) on every new public table. Without this, the GRANTs below would only ADD to that, and "the backend cannot delete
+-- or truncate" would hold only through the row guards, not through its privileges.
 ALTER TABLE public.corporate_org_nodes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.corporate_org_nodes FORCE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.corporate_org_nodes FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.corporate_org_nodes FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_org_nodes TO service_role;
 
 ALTER TABLE public.corporate_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.corporate_memberships FORCE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.corporate_memberships FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.corporate_memberships FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.corporate_memberships TO service_role;
 
-REVOKE ALL ON FUNCTION public.corporate_org_nodes_guard() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.corporate_memberships_guard() FROM PUBLIC, anon, authenticated;
+-- History: readable by the backend, writable by nobody directly (no INSERT, UPDATE, DELETE or TRUNCATE).
+ALTER TABLE public.corporate_membership_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.corporate_membership_events FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.corporate_membership_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.corporate_membership_events TO service_role;
+
+REVOKE ALL ON FUNCTION public.corporate_org_nodes_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_memberships_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_custody_truncate_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_membership_events_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_membership_events_record() FROM PUBLIC, anon, authenticated, service_role;
 
 -- +migrate Down
+DROP TABLE IF EXISTS public.corporate_membership_events;
 DROP TABLE IF EXISTS public.corporate_memberships;
 DROP TABLE IF EXISTS public.corporate_org_nodes;
+DROP FUNCTION IF EXISTS public.corporate_membership_events_record();
+DROP FUNCTION IF EXISTS public.corporate_membership_events_guard();
 DROP FUNCTION IF EXISTS public.corporate_memberships_guard();
 DROP FUNCTION IF EXISTS public.corporate_org_nodes_guard();
+DROP FUNCTION IF EXISTS public.corporate_custody_truncate_guard();
