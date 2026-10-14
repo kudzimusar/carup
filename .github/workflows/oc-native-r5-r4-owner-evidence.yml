@@ -612,7 +612,13 @@ jobs:
               '    centerElement: true' \
               '    direction: DOWN' \
               '    timeout: 20000' \
-              '- tapOn: "Second hand"' \
+              '- waitForAnimationToEnd' \
+              '- tapOn:' \
+              '    text: "Second hand"' \
+              '    retryTapIfNoChange: true' \
+              '- assertVisible:' \
+              '    text: "Second hand"' \
+              '    selected: true' \
               '- scrollUntilVisible:' \
               '    element:' \
               '      text: "Passport Verified"' \
