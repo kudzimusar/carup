@@ -195,7 +195,12 @@ jobs:
           capture 04-all-filters-open
 
           run_flow filters_select \
-            '- tapOn: "Toyota"' \
+            '- tapOn:' \
+            '    text: "Toyota"' \
+            '    retryTapIfNoChange: true' \
+            '- assertVisible:' \
+            '    text: "Toyota"' \
+            '    selected: true' \
             '- scrollUntilVisible:' \
             '    element:' \
             '      text: "Second hand"' \
