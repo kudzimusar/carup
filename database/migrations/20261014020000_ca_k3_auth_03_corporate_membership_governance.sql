@@ -29,7 +29,8 @@
 --   · A1 (recent password re-authentication) is re-proven from the actor's OWN user_sessions row, never from a parameter;
 --   · the target-governance decision snapshot must be well-formed, fresh, granted by `target_corporate_governance`
 --     (never the legacy compatibility bridge), name the membership-management capability, cover the organisation node,
---     and bind this actor and subject; a missing, malformed, stale or non-target-source-labelled decision is refused.\n--     Producer authenticity is NOT established by this Phase-B snapshot check; persistent grant authority is required before routing.
+--     and bind this actor and subject; a missing, malformed, stale or non-target-source-labelled decision is refused.
+--     Producer authenticity is NOT established by this Phase-B snapshot check; persistent grant authority is required before routing.
 --   · END of a governance-bearing membership needs a governance-continuity attestation (at least two independent
 --     governors would remain); a security-compromise SUSPEND needs the identity to hold NO live session at that instant.
 --
