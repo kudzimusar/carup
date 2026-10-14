@@ -32,7 +32,8 @@ function serialise(db, task) {
   return next;
 }
 
-const toError = (e) => ({ code: e?.code ?? 'P0001', message: String(e?.message ?? e), details: null, hint: null });
+// PostgREST reports a RAISE's DETAIL/HINT as `details`/`hint`; the authority entry points put the per-capability denials in DETAIL.
+const toError = (e) => ({ code: e?.code ?? 'P0001', message: String(e?.message ?? e), details: e?.detail ?? null, hint: e?.hint ?? null });
 
 /**
  * @param options.faults a Set of `<op>:<table>` strings ('update:user_sessions', 'insert:trust_audit_events', 'select:user_sessions')

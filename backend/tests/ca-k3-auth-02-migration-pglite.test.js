@@ -82,14 +82,16 @@ const stateOf = async (db, id) => (await db.query('SELECT state FROM corporate_m
 
 // ═════════════ 1 · the migration file ═════════════
 
-// CA-K3-AUTH-03 (Phase B) is, by design, dated AFTER this migration: its request ledgers foreign-key to these tables, so it MUST sort later.
-// "The newest migration in the tree" is therefore relaxed for exactly that one NAMED successor and nothing else — any other migration
-// that sorts after this one still fails the test — and the carve-out has to prove the dependency it is exempt for.
+// CA-K3-AUTH-03 (Phase B) and CA-K3-AUTH-04 (Phase C) are, by design, dated AFTER this migration: their ledgers and assignments foreign-key to
+// these tables, so they MUST sort later. "The newest migration in the tree" is therefore relaxed for exactly those NAMED successors and nothing
+// else — any other migration that sorts after this one still fails the test — and each carve-out has to prove the dependency it is exempt for.
 const PHASE_B_SUCCESSOR = '20261014020000_ca_k3_auth_03_corporate_membership_governance.sql';
-test('file: a canonical migration, sorted after every other except its one declared Phase-B successor, with a unique version', () => {
+const PHASE_C_SUCCESSOR = '20261015010000_ca_k3_auth_04_corporate_permission_authority.sql';
+test('file: a canonical migration, sorted after every other except its two declared successors (Phase B, Phase C), with a unique version', () => {
   const all = readdirSync(DIR).filter((f) => /^\d{14}_.+\.sql$/.test(f)).sort();
-  assert.deepEqual(all.filter((f) => f > FILE), [PHASE_B_SUCCESSOR], 'nothing but the declared Phase-B successor sorts after this migration');
-  assert.match(readFileSync(new URL(PHASE_B_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the successor really depends on this migration');
+  assert.deepEqual(all.filter((f) => f > FILE), [PHASE_B_SUCCESSOR, PHASE_C_SUCCESSOR], 'nothing but the declared Phase-B and Phase-C successors sorts after this migration');
+  assert.match(readFileSync(new URL(PHASE_B_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the Phase-B successor really depends on this migration');
+  assert.match(readFileSync(new URL(PHASE_C_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the Phase-C successor really depends on this migration');
   assert.equal(all.filter((f) => f.startsWith(FILE.slice(0, 14))).length, 1, 'no shared version');
   assert.ok(UP.length > 500 && DOWN.length > 20);
 });

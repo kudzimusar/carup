@@ -1,25 +1,33 @@
 /**
- * CA-K3-AUTH-03 (Phase B core) — the TARGET Corporate governance decision contract.
+ * CA-K3-AUTH-04 (Phase C) — the TRUSTED target-governance evaluator.
  *
- * The membership-mutation core must never infer authority. Today no persistent Corporate permission-assignment authority
- * exists (it is a later slice), so the core takes an EXPLICIT decision from a target-governance evaluator and refuses everything
- * else: a missing, malformed, stale, mis-bound, legacy-derived or unavailable decision is a denial.
+ * Phase B took an explicit decision from a caller and refused everything else; it could validate that decision's SHAPE but could not
+ * authenticate who produced it, so a holder of service_role could hand-craft a valid one (CERT-03 proved and bounded this). Phase C
+ * removes the thing that could be forged: there is no decision a caller can supply any more — not here, and not at the database.
  *
- *   legacy `admin` / `platform_admin` / `super_admin`            → NEVER a source (no code here reads a role)
- *   the `carup.corporate_access.v1` decision of the bridge        → NEVER a governance decision (different contract)
- *   a plain object someone typed                                  → refused: only a decision MINTED below is accepted
+ * Authority is DERIVED, by the database, from persistent Corporate permission assignments (corporate_permission_assignments):
  *
- * The brand is a module-private WeakSet, not a security boundary: it stops a route, a test double or a copy-paste from
- * accidentally passing a hand-written object, and makes the intended producer — a future target-governance evaluator —
- * a single, greppable import (a test pins that nothing else imports `mintTargetGovernanceDecision`).
+ *   an ACTIVE assignment · inside its effective period · whose scope covers the exact organisation node · resting on an ACTIVE, effective
+ *   membership of the SAME account · whose assurance floor this platform can satisfy · for EACH required capability, on its own.
  *
- * IMPORTANT: the database re-validates the snapshot's shape, binding, freshness, scope and A1 evidence, but Phase B does not
- * yet give the database a persistent grant authority with which to authenticate who produced that snapshot. Therefore a caller
- * already holding service_role procedure access could still hand-craft a structurally valid snapshot. This Phase-B service is
- * deliberately non-routed and its evaluator returns unavailable; persistent Corporate grant authority is a required later
- * slice before any membership-mutation route may be activated.
+ * Nothing else is an input: not `admin` / `platform_admin` / `super_admin`, not a tenant or organisation role, not a title, not the
+ * `carup.corporate_access.v1` bridge decision, not navigation, not an object someone typed. An ACTIVE membership alone authorizes nothing.
+ * Grants are never combined: a broad scope on one grant and a broad capability on another do not make a broader authority than any single
+ * approved grant intended.
  *
- * An ACTIVE membership grants zero capability. A governance decision is where capability comes from, and nothing else is.
+ * This module is a CLIENT of that evaluator, not a second one:
+ *  - `evaluateCorporateGovernanceAuthorization` calls the read-only database evaluator (`corporate_authority_evaluate`), validates that what
+ *    came back is exactly what was asked for, and returns a frozen result — or throws. It is used to refuse EARLY (before the one side
+ *    effect that happens outside the database: session revocation). It is never an input to a mutation.
+ *  - every mutation goes through a database entry point that evaluates the same authority AGAIN, itself, inside the transaction, with the
+ *    rows locked, and hands the result to the Phase-B procedures. The Phase-B ledgers therefore record a decision (with the assignment ids
+ *    relied on) that the database generated from verified authority — never one a caller carried in.
+ *
+ * Residual trust, stated plainly: the database proves the NAMED account holds the authority and a live A1 session row. Which human is behind
+ * that account is established by the backend's session authentication. A holder of service_role can act as an account that holds authority
+ * and has a live A1 session — it can no longer manufacture authority.
+ *
+ * An ACTIVE membership grants zero capability. A persistent assignment is where Corporate capability comes from, and nothing else is.
  */
 
 export const GOVERNANCE_DECISION_CONTRACT = 'carup.corporate_governance_decision.v1';
@@ -29,15 +37,24 @@ export const GOVERNANCE_CAPABILITIES = Object.freeze({
   MEMBERSHIP_MANAGE: 'corporate.people.membership.manage',
   SESSION_REVOKE: 'corporate.people.session.revoke',
 });
-/** Must equal corporate_governance_policy() in the migration (a test pins both directions). */
-export const DECISION_MAX_AGE_MS = 5 * 60 * 1000;
-export const DECISION_CLOCK_SKEW_MS = 60 * 1000;
+export const AUTHORITY_EVALUATOR_RPC = 'corporate_authority_evaluate';
+export const AUTHORITY_EVALUATOR_NAME = 'corporate_authority_evaluate';
+/** Must equal corporate_governance_policy() in the Phase-B migration (a test pins both directions). */
 export const MIN_INDEPENDENT_GOVERNORS = 2;
+
+/** Every reason the database evaluator can give for a denial; anything else is treated as an unreadable answer. */
+export const AUTHORITY_DENIAL_REASONS = Object.freeze([
+  'INPUT_INVALID', 'CAPABILITY_NOT_EVALUABLE', 'NO_ASSIGNMENT',
+  'STATE_REQUESTED', 'STATE_APPROVED', 'STATE_SUSPENDED', 'STATE_REVOKED', 'STATE_EXPIRED',
+  'OUT_OF_WINDOW', 'OUT_OF_SCOPE', 'MEMBERSHIP_NOT_EFFECTIVE', 'ASSURANCE_FLOOR_UNMET',
+  'CONTINUITY_TARGET_REQUIRED', 'CONTINUITY_UNREADABLE',
+]);
 
 export class CorporateGovernanceError extends Error {
   /**
-   * @param code same vocabulary as the database (`CORPORATE_GOVERNANCE/<CODE>`), plus the service-level codes below
+   * @param code same vocabulary as the database (`CORPORATE_GOVERNANCE/<CODE>`), plus the service-level codes
    * @param details.recorded true when the refusal was itself written to the request ledger (EXPIRED / STALE_PRECONDITION)
+   * @param details.denials  for AUTHORITY_DENIED: [{ capability, reason, assignment_id }] — which capability failed and why
    */
   constructor(code, message = code, details = {}) {
     super(message);
@@ -48,9 +65,7 @@ export class CorporateGovernanceError extends Error {
   }
 }
 
-const MINTED = new WeakSet();
-
-/** Frozen all the way down: a minted decision cannot be altered between the evaluator's call and the moment it is used. */
+/** Frozen all the way down: an evaluation result cannot be altered between the evaluator's answer and the moment it is used. */
 function deepFreeze(value) {
   if (value !== null && typeof value === 'object') {
     for (const child of Object.values(value)) deepFreeze(child);
@@ -60,99 +75,105 @@ function deepFreeze(value) {
 }
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nonBlank = (v) => typeof v === 'string' && v.trim() !== '';
-const CAPABILITY_SHAPE = /^[a-z]+(\.[a-z_]+){2,3}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NODE_ID = /^[A-Z][A-Z0-9_]{1,63}$/;
 
-function parseInstant(value) {
-  if (!nonBlank(value)) return null;
-  const t = Date.parse(value);
-  return Number.isFinite(t) ? t : null;
+const unavailable = (cause) => new CorporateGovernanceError('GOVERNANCE_UNAVAILABLE', 'The governance authority could not be read.', { source: 'database', cause });
+
+const normaliseDenials = (list) => (Array.isArray(list) ? list.filter(isPlainObject).map((d) => ({
+  capability: d.capability ?? null, reason: AUTHORITY_DENIAL_REASONS.includes(d.reason) ? d.reason : 'UNKNOWN', assignment_id: d.assignment_id ?? null })) : []);
+
+/** Parse the DETAIL of an AUTHORITY_DENIED raised by a database entry point (`[{capability, reason, assignment_id}]`). */
+export function parseAuthorityDenials(detail) {
+  if (typeof detail !== 'string' || detail.trim() === '') return [];
+  try { return normaliseDenials(JSON.parse(detail)); } catch { return []; }
 }
 
 /**
- * The ONE producer of an acceptable decision. A target-governance evaluator calls this with what it decided; nothing else may.
- * Validates the contract-level shape only — per-call binding (actor / subject / node / freshness) is checked at use.
+ * Ask the database who holds the authority, now. Throws CorporateGovernanceError unless every requested capability is covered, each on its
+ * own, for exactly this actor and node:
+ *   AUTHORITY_DENIED                  — a capability is not covered (details.denials says which, and why)
+ *   GOVERNANCE_CONTINUITY_PROTECTION  — (END) the subject carries governance and fewer than two independent governors would remain
+ *   GOVERNANCE_UNAVAILABLE            — the store could not be read, or answered with anything other than what was asked: a denial, never an allow
+ *
+ * @param client the service-role client
+ * @returns a frozen { granted: true, decision, assignments, governance_continuity } — informational: no mutation accepts it as an input
  */
-export function mintTargetGovernanceDecision(fields) {
-  if (!isPlainObject(fields)) throw new CorporateGovernanceError('DECISION_MISSING', 'A governance decision is an object.');
-  if (fields.contract !== GOVERNANCE_DECISION_CONTRACT) throw new CorporateGovernanceError('DECISION_CONTRACT');
-  if (fields.decision !== 'granted') throw new CorporateGovernanceError('DECISION_NOT_GRANTED');
-  if (fields.source !== GOVERNANCE_DECISION_SOURCE) throw new CorporateGovernanceError('DECISION_SOURCE');
-  if (!isPlainObject(fields.evaluator) || !nonBlank(fields.evaluator.name) || !nonBlank(fields.evaluator.version)) throw new CorporateGovernanceError('DECISION_EVALUATOR');
-  if (parseInstant(fields.decided_at) === null) throw new CorporateGovernanceError('DECISION_MALFORMED');
-  if (!nonBlank(fields.actor_user_id) || !nonBlank(fields.subject_user_id)) throw new CorporateGovernanceError('DECISION_BINDING');
-  if (!Array.isArray(fields.capabilities) || fields.capabilities.length === 0 || !fields.capabilities.every((c) => typeof c === 'string' && CAPABILITY_SHAPE.test(c))) {
-    throw new CorporateGovernanceError('DECISION_CAPABILITY');
+export async function evaluateCorporateGovernanceAuthorization(client, { actorUserId, subjectUserId, orgNodeId, capabilities, needContinuity = false, targetMembershipId = null } = {}) {
+  if (!client || typeof client.rpc !== 'function') throw unavailable('no client');
+  if (!nonBlank(actorUserId)) throw new CorporateGovernanceError('ACTOR_REQUIRED');
+  if (!nonBlank(subjectUserId)) throw new CorporateGovernanceError('SUBJECT_REQUIRED');
+  if (!nonBlank(orgNodeId) || !NODE_ID.test(orgNodeId)) throw new CorporateGovernanceError('NODE_UNKNOWN');
+  const wanted = Array.isArray(capabilities) ? [...new Set(capabilities)] : [];
+  if (wanted.length === 0 || !wanted.every((c) => Object.values(GOVERNANCE_CAPABILITIES).includes(c))) {
+    throw new CorporateGovernanceError('AUTHORITY_DENIED', 'Only the governance capabilities are evaluable.', { denials: [{ capability: null, reason: 'CAPABILITY_NOT_EVALUABLE', assignment_id: null }] });
   }
-  const scope = fields.scope;
-  if (!isPlainObject(scope) || scope.kind !== 'ORG_NODES' || !Array.isArray(scope.org_node_ids) || scope.org_node_ids.length === 0
-      || !scope.org_node_ids.every((n) => nonBlank(n) && /^[A-Z][A-Z0-9_]{1,63}$/.test(n))) {
-    throw new CorporateGovernanceError('DECISION_SCOPE');
+  if (needContinuity && !(typeof targetMembershipId === 'string' && UUID.test(targetMembershipId))) {
+    throw new CorporateGovernanceError('AUTHORITY_DENIED', 'A continuity check needs the target membership.', { denials: [{ capability: GOVERNANCE_CAPABILITIES.MEMBERSHIP_MANAGE, reason: 'CONTINUITY_TARGET_REQUIRED', assignment_id: null }] });
   }
-  if (!isPlainObject(fields.assurance) || fields.assurance.class !== GOVERNANCE_ASSURANCE_CLASS || fields.assurance.server_proven !== true) {
-    throw new CorporateGovernanceError('DECISION_ASSURANCE');
+
+  let response;
+  try {
+    response = await client.rpc(AUTHORITY_EVALUATOR_RPC, {
+      p_actor_user_id: actorUserId, p_subject_user_id: subjectUserId, p_org_node_id: orgNodeId, p_capabilities: wanted,
+      p_need_continuity: needContinuity === true, p_target_membership_id: needContinuity === true ? targetMembershipId.toLowerCase() : null,
+    });
+  } catch (error) {
+    throw unavailable(String(error?.message ?? error).slice(0, 200));
   }
-  const frozen = deepFreeze(JSON.parse(JSON.stringify({
-    contract: fields.contract, decision: fields.decision, source: fields.source,
-    evaluator: { name: fields.evaluator.name, version: fields.evaluator.version },
-    decided_at: new Date(parseInstant(fields.decided_at)).toISOString(),
-    actor_user_id: fields.actor_user_id, subject_user_id: fields.subject_user_id,
-    capabilities: [...fields.capabilities],
-    scope: { kind: 'ORG_NODES', org_node_ids: [...scope.org_node_ids] },
-    assurance: { class: fields.assurance.class, server_proven: true },
-    ...(fields.governance_continuity === undefined ? {} : { governance_continuity: fields.governance_continuity }),
-  })));
-  MINTED.add(frozen);
-  return frozen;
-}
+  if (response?.error) throw unavailable(String(response.error?.message ?? 'rpc error').slice(0, 200));
+  const answer = response?.data;
+  if (!isPlainObject(answer) || (answer.decision !== 'granted' && answer.decision !== 'denied')) throw unavailable('unreadable evaluator answer');
 
-export const isMintedGovernanceDecision = (value) => MINTED.has(value);
+  if (answer.decision === 'denied') {
+    throw new CorporateGovernanceError('AUTHORITY_DENIED', 'No persistent assignment authorizes this.', { denials: normaliseDenials(answer.denials), source: 'database' });
+  }
 
-/** The wire form sent to the database: plain JSON, never the branded object itself. */
-export const governanceDecisionToWire = (decision) => JSON.parse(JSON.stringify(decision));
+  // A grant is accepted only if it is EXACTLY the answer to the question that was asked. Any divergence is an unreadable answer.
+  const assignments = answer.provenance?.assignments;
+  const sound = answer.contract === GOVERNANCE_DECISION_CONTRACT && answer.source === GOVERNANCE_DECISION_SOURCE
+    && isPlainObject(answer.evaluator) && answer.evaluator.name === AUTHORITY_EVALUATOR_NAME
+    && answer.actor_user_id === actorUserId && answer.subject_user_id === subjectUserId
+    && Array.isArray(answer.capabilities) && answer.capabilities.length === wanted.length && wanted.every((c) => answer.capabilities.includes(c))
+    && isPlainObject(answer.scope) && answer.scope.kind === 'ORG_NODES' && Array.isArray(answer.scope.org_node_ids)
+    && answer.scope.org_node_ids.length === 1 && answer.scope.org_node_ids[0] === orgNodeId
+    && isPlainObject(answer.assurance) && answer.assurance.class === GOVERNANCE_ASSURANCE_CLASS && answer.assurance.server_proven === true
+    && isPlainObject(answer.provenance) && answer.provenance.derivation === 'persistent_assignments'
+    && Array.isArray(assignments) && assignments.length === wanted.length
+    && wanted.every((c) => assignments.filter((a) => isPlainObject(a) && a.capability === c && typeof a.assignment_id === 'string' && UUID.test(a.assignment_id)).length === 1);
+  if (!sound) throw unavailable('the evaluator answered something other than what was asked');
 
-/**
- * Is THIS decision good for THIS call? Throws CorporateGovernanceError (same codes as the database) or returns the wire snapshot.
- * Every condition is written so that anything missing or unreadable is a denial.
- */
-export function assertGovernanceDecision(decision, { actorUserId, subjectUserId, orgNodeId, needSessionRevoke = false, needContinuity = false, now = Date.now() } = {}) {
-  if (decision === undefined || decision === null) throw new CorporateGovernanceError('DECISION_MISSING');
-  // The evaluator's own "I cannot decide" marker (see evaluateCorporateGovernanceAuthorization) is a denial of its own kind.
-  if (typeof decision === 'object' && decision.available === false) throw new CorporateGovernanceError('DECISION_UNAVAILABLE');
-  if (!isMintedGovernanceDecision(decision)) throw new CorporateGovernanceError('DECISION_NOT_MINTED', 'Only a decision minted by the target governance evaluator is accepted.');
-  if (decision.contract !== GOVERNANCE_DECISION_CONTRACT) throw new CorporateGovernanceError('DECISION_CONTRACT');
-  if (decision.decision !== 'granted') throw new CorporateGovernanceError('DECISION_NOT_GRANTED');
-  if (decision.source !== GOVERNANCE_DECISION_SOURCE) throw new CorporateGovernanceError('DECISION_SOURCE');
-  const decidedAt = parseInstant(decision.decided_at);
-  if (decidedAt === null || decidedAt < now - DECISION_MAX_AGE_MS || decidedAt > now + DECISION_CLOCK_SKEW_MS) throw new CorporateGovernanceError('DECISION_STALE');
-  if (decision.actor_user_id !== actorUserId || decision.subject_user_id !== subjectUserId) throw new CorporateGovernanceError('DECISION_BINDING');
-  if (!decision.capabilities.includes(GOVERNANCE_CAPABILITIES.MEMBERSHIP_MANAGE)) throw new CorporateGovernanceError('DECISION_CAPABILITY');
-  if (needSessionRevoke && !decision.capabilities.includes(GOVERNANCE_CAPABILITIES.SESSION_REVOKE)) throw new CorporateGovernanceError('DECISION_CAPABILITY');
-  const nodes = decision.scope.org_node_ids;
-  if (!nonBlank(orgNodeId) || !nodes.includes(orgNodeId) || nodes.includes('*') || nodes.includes('GLOBAL')) throw new CorporateGovernanceError('DECISION_SCOPE');
-  if (decision.assurance.class !== GOVERNANCE_ASSURANCE_CLASS || decision.assurance.server_proven !== true) throw new CorporateGovernanceError('DECISION_ASSURANCE');
+  let continuity = null;
   if (needContinuity) {
-    const k = decision.governance_continuity;
+    const k = answer.governance_continuity;
     if (!isPlainObject(k) || typeof k.subject_holds_governance_authority !== 'boolean' || !Number.isInteger(k.remaining_independent_governors) || k.remaining_independent_governors < 0) {
-      throw new CorporateGovernanceError('DECISION_CONTINUITY');
+      throw unavailable('unreadable continuity');
     }
     if (k.subject_holds_governance_authority && k.remaining_independent_governors < MIN_INDEPENDENT_GOVERNORS) {
-      throw new CorporateGovernanceError('GOVERNANCE_CONTINUITY_PROTECTION');
+      throw new CorporateGovernanceError('GOVERNANCE_CONTINUITY_PROTECTION', 'Fewer than two independent governors would remain.', { source: 'database', remaining_independent_governors: k.remaining_independent_governors });
     }
+    continuity = { subject_holds_governance_authority: k.subject_holds_governance_authority, remaining_independent_governors: k.remaining_independent_governors };
   }
-  return governanceDecisionToWire(decision);
+  return deepFreeze(JSON.parse(JSON.stringify({ granted: true, decision: answer, assignments, governance_continuity: continuity })));
 }
 
 /**
- * The target-governance evaluator. IT DOES NOT EXIST YET: persistent Corporate permission assignment is a later slice, and
- * deriving this decision from `users.role`, `tenant_users`, an organisation role or the legacy bridge is exactly what this contract
- * forbids. Until a real evaluator replaces this function — and is the only importer of mintTargetGovernanceDecision — every
- * governed mutation that is not handed an explicit minted decision is DENIED.
+ * Names that would mean a caller is trying to hand this layer an AUTHORITY instead of earning one from persistent assignments: a governance
+ * decision, a snapshot, capabilities, a grant, a permission, a scope, a role, an assignment. Refused, never ignored — the same discipline the
+ * service applies to a client-asserted assurance. (`governanceDecision` / `governance_decision` is exactly the field Phase B accepted, and is gone;
+ * the checker's `decision: 'APPROVE' | 'REFUSE'` is a different thing and is parsed explicitly by the service.)
  */
-export function evaluateCorporateGovernanceAuthorization() {
-  return Object.freeze({ available: false, reason: 'NO_PERSISTENT_GRANT_AUTHORITY' });
+export const CLIENT_AUTHORITY_KEY = /^governance_?decision$|snapshot|^authority$|capabilit|^grants?$|permission|^scope$|^roles?$|entitle|assignment|provenance|^evaluator$|^source$/i;
+export function assertNoClientAssertedAuthority(object, where = 'input') {
+  if (object === null || typeof object !== 'object') return;
+  for (const key of Object.keys(object)) {
+    if (CLIENT_AUTHORITY_KEY.test(key)) {
+      throw new CorporateGovernanceError('AUTHORITY_CLIENT_ASSERTED', `${where}.${key} may not carry authority; authority is derived by the database from persistent assignments.`);
+    }
+  }
 }
 
 export default {
-  GOVERNANCE_DECISION_CONTRACT, GOVERNANCE_DECISION_SOURCE, GOVERNANCE_ASSURANCE_CLASS, GOVERNANCE_CAPABILITIES,
-  mintTargetGovernanceDecision, isMintedGovernanceDecision, assertGovernanceDecision, evaluateCorporateGovernanceAuthorization,
+  GOVERNANCE_DECISION_CONTRACT, GOVERNANCE_DECISION_SOURCE, GOVERNANCE_ASSURANCE_CLASS, GOVERNANCE_CAPABILITIES, MIN_INDEPENDENT_GOVERNORS,
+  AUTHORITY_DENIAL_REASONS, evaluateCorporateGovernanceAuthorization, assertNoClientAssertedAuthority, parseAuthorityDenials,
 };

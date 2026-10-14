@@ -8,12 +8,15 @@
  *
  * What this module is — and is not:
  *  - It is the ONLY code path that writes Corporate membership state, and it writes nothing itself: every mutation is one of five
- *    narrow SECURITY DEFINER database procedures (service_role has SELECT and EXECUTE, never INSERT/UPDATE/DELETE on any Corporate
- *    table). The procedures re-prove every control below inside the transaction; the checks here only refuse EARLIER — before an
- *    I/O round trip and, crucially, before the one side effect that happens outside the database (session revocation).
- *  - It never decides who may govern. It requires an explicit, freshly-minted TARGET governance decision for every call
- *    (corporateGovernanceDecision.js). `admin` / `platform_admin` / `super_admin`, the legacy bridge, organization_users and
- *    tenant_users are not inputs here and cannot become one.
+ *    narrow SECURITY DEFINER database entry points (service_role has SELECT and EXECUTE, never INSERT/UPDATE/DELETE on any Corporate
+ *    table, and no EXECUTE at all on the Phase-B snapshot-taking procedures any more). The entry points re-prove every control below
+ *    inside the transaction; the checks here only refuse EARLIER — before an I/O round trip and, crucially, before the one side effect
+ *    that happens outside the database (session revocation).
+ *  - It never decides who may govern, and it never accepts anyone's word for it. There is NO decision input: authority is derived by the
+ *    database from persistent Corporate permission assignments (corporateGovernanceDecision.js asks the database's evaluator; each entry
+ *    point evaluates again, itself, inside the transaction). A `governanceDecision`, `capabilities`, `role`, `grant` or `scope` in an input
+ *    is REFUSED, not ignored. `admin` / `platform_admin` / `super_admin`, the legacy bridge, organization_users and tenant_users are not
+ *    inputs here and cannot become one.
  *  - Assurance is proven from the actor's own user_sessions row (corporateGovernanceAssurance.js) and is only ever A1_RECENT_REAUTH.
  *    Any attempt to pass an assurance, header or request object is REFUSED, not ignored.
  *  - It never touches users.role, tenant_users, tenants, organizations or organization_users, and an ACTIVE membership grants
@@ -23,7 +26,9 @@
  * process-wide singleton.
  */
 import { revokeSessionsForUser } from '../auth/sessionSecurityService.js';
-import { CorporateGovernanceError, assertGovernanceDecision } from './corporateGovernanceDecision.js';
+import {
+  CorporateGovernanceError, GOVERNANCE_CAPABILITIES, assertNoClientAssertedAuthority, evaluateCorporateGovernanceAuthorization, parseAuthorityDenials,
+} from './corporateGovernanceDecision.js';
 import { assertNoClientAssertedAssurance, proveActorAssuranceA1 } from './corporateGovernanceAssurance.js';
 import { buildInvalidationEvent, invalidateCorporateAuthorization } from './corporateAuthorizationInvalidation.js';
 
@@ -53,6 +58,7 @@ const fail = (code, message, details) => new CorporateGovernanceError(code, mess
 function exactKeys(object, allowed, where) {
   if (!isPlainObject(object)) throw fail('INPUT_INVALID', `${where} must be an object.`);
   assertNoClientAssertedAssurance(object, where);
+  assertNoClientAssertedAuthority(object, where);
   for (const key of Object.keys(object)) {
     if (!allowed.includes(key)) throw fail('INPUT_UNKNOWN_KEY', `${where}.${key} is not an accepted field.`);
   }
@@ -92,8 +98,8 @@ function parseActor(actor) {
 }
 
 function parseCommon(input, ownKeys, where) {
-  exactKeys(input, ['actor', 'governanceDecision', ...ownKeys], where);
-  return { actor: parseActor(input.actor), governanceDecision: input.governanceDecision };
+  exactKeys(input, ['actor', ...ownKeys], where);
+  return { actor: parseActor(input.actor) };
 }
 
 /** The injected clock is for tests; a value that is not a finite epoch-millisecond number is refused, never coerced. */
@@ -114,7 +120,11 @@ function clientOrThrow(client) {
 function mapDatabaseError(error) {
   const message = String(error?.message ?? '');
   const match = message.match(DB_CODE);
-  if (match) return fail(match[1], match[1], { source: 'database' });
+  if (match) {
+    // AUTHORITY_DENIED carries WHICH capability failed and why (the entry point puts it in DETAIL); nothing else about the refusal is added.
+    const denials = match[1] === 'AUTHORITY_DENIED' ? parseAuthorityDenials(error?.details ?? error?.detail) : undefined;
+    return fail(match[1], match[1], denials ? { source: 'database', denials } : { source: 'database' });
+  }
   // A table guard — the second line of defence — refused a write the procedure should already have refused: a hard denial, never a retry.
   const guard = message.match(GUARD_CODE);
   if (guard) return fail('GOVERNANCE_GUARD_REFUSED', 'A governance table guard refused the write.', { source: 'database', guard: guard[1] });
@@ -166,12 +176,25 @@ function assertNotSubject(actorUserId, subjectUserId) {
   if (actorUserId === subjectUserId) throw fail('ACTOR_IS_SUBJECT');
 }
 
-/** The shared pre-flight: decision for THIS actor/subject/node, then A1 from the actor's own session. Both before any side effect. */
-async function authorise(client, actor, governanceDecision, binding, { needSessionRevoke = false, needContinuity = false, now }) {
-  const decisionSnapshot = assertGovernanceDecision(governanceDecision, { actorUserId: actor.userId, ...binding, needSessionRevoke, needContinuity, now });
+/**
+ * The shared pre-flight, before any side effect: A1 from the actor's own session, then the database's evaluation of the persistent authority
+ * for THIS actor, subject and node (each capability on its own; for END, the governance-continuity count). The result is informational — it is
+ * never passed to a mutation: the entry point evaluates again, inside the transaction, with the rows locked.
+ */
+async function authorise(client, actor, binding, { needSessionRevoke = false, needContinuity = false, targetMembershipId = null, now }) {
   const assurance = await proveActorAssuranceA1(client, actor, { now });
-  return { decisionSnapshot, sessionId: assurance.session_id };
+  const authority = await evaluateCorporateGovernanceAuthorization(client, {
+    actorUserId: actor.userId, subjectUserId: binding.subjectUserId, orgNodeId: binding.orgNodeId,
+    capabilities: needSessionRevoke ? [GOVERNANCE_CAPABILITIES.MEMBERSHIP_MANAGE, GOVERNANCE_CAPABILITIES.SESSION_REVOKE] : [GOVERNANCE_CAPABILITIES.MEMBERSHIP_MANAGE],
+    needContinuity, targetMembershipId,
+  });
+  return { authority, sessionId: assurance.session_id };
 }
+
+/** The assignments the DATABASE says it relied on (generated from persistent authority; echoed, never trusted as input). */
+const authorityReceipt = (data) => (isPlainObject(data?.authority) && Array.isArray(data.authority.assignments)
+  ? Object.freeze({ derivation: String(data.authority.derivation ?? ''), assignments: Object.freeze(data.authority.assignments.map((a) => Object.freeze({ capability: a.capability, assignment_id: a.assignment_id, membership_id: a.membership_id }))) })
+  : null);
 
 /** Fires the invalidation seam and folds its outcome into the result. A listener failure never undoes the committed mutation. */
 async function finishMutation(result, { fromState }) {
@@ -194,6 +217,7 @@ async function finishMutation(result, { fromState }) {
     event_seq: result.event_seq,
     authorization_epoch: Number(result.authorization_epoch),
     grants_capability: false,
+    authority: authorityReceipt(result),
     invalidation,
   });
 }
@@ -209,7 +233,7 @@ function recordedRefusal(data) {
 export async function createPendingMembership(client, input, options = {}) {
   clientOrThrow(client);
   const now = resolveNow(options);
-  const { actor, governanceDecision } = parseCommon(input, ['subjectUserId', 'orgNodeId', 'reason', 'reference', 'effectiveFrom', 'effectiveUntil'], 'input');
+  const { actor } = parseCommon(input, ['subjectUserId', 'orgNodeId', 'reason', 'reference', 'effectiveFrom', 'effectiveUntil'], 'input');
   const subjectUserId = identifier(input.subjectUserId, 'SUBJECT_REQUIRED');
   const orgNodeId = nodeId(input.orgNodeId);
   const reason = textField(input.reason, 'REASON_REQUIRED', REASON_MAX);
@@ -219,19 +243,19 @@ export async function createPendingMembership(client, input, options = {}) {
   if (effectiveFrom && effectiveUntil && Date.parse(effectiveUntil) <= Date.parse(effectiveFrom)) throw fail('INPUT_INVALID', 'effectiveUntil must be after effectiveFrom.');
   assertNotSubject(actor.userId, subjectUserId);
 
-  const { decisionSnapshot, sessionId } = await authorise(client, actor, governanceDecision, { subjectUserId, orgNodeId }, { now });
-  const data = await callProcedure(client, 'corporate_membership_apply_direct', {
+  const { sessionId } = await authorise(client, actor, { subjectUserId, orgNodeId }, { now });
+  const data = await callProcedure(client, 'corporate_authority_apply_direct', {
     p_operation: 'CREATE', p_actor_user_id: actor.userId, p_actor_session_id: sessionId,
     p_subject_user_id: subjectUserId, p_org_node_id: orgNodeId, p_membership_id: null,
     p_reason: reason, p_reference: reference, p_effective_from: effectiveFrom, p_effective_until: effectiveUntil,
-    p_classification: CLASSIFICATIONS.ROUTINE, p_session_revocation: null, p_governance_decision: decisionSnapshot,
+    p_classification: CLASSIFICATIONS.ROUTINE, p_session_revocation: null,
   });
   return finishMutation(data, { fromState: null });
 }
 
 async function directTransition(client, input, operation, { now }) {
   clientOrThrow(client);
-  const { actor, governanceDecision } = parseCommon(input, ['membershipId', 'subjectUserId', 'orgNodeId', 'reason', 'reference', 'classification'], 'input');
+  const { actor } = parseCommon(input, ['membershipId', 'subjectUserId', 'orgNodeId', 'reason', 'reference', 'classification'], 'input');
   const membershipId = uuid(input.membershipId, 'MEMBERSHIP_NOT_FOUND');
   const subjectUserId = identifier(input.subjectUserId, 'SUBJECT_REQUIRED');
   const orgNodeId = nodeId(input.orgNodeId);
@@ -244,7 +268,7 @@ async function directTransition(client, input, operation, { now }) {
   assertNotSubject(actor.userId, subjectUserId);
 
   // Authorise BEFORE reading or revoking anything: an unauthorised caller learns nothing and changes nothing.
-  const { decisionSnapshot, sessionId } = await authorise(client, actor, governanceDecision, { subjectUserId, orgNodeId }, { needSessionRevoke: compromise, needContinuity: operation === 'END', now });
+  const { sessionId } = await authorise(client, actor, { subjectUserId, orgNodeId }, { needSessionRevoke: compromise, needContinuity: operation === 'END', targetMembershipId: operation === 'END' ? membershipId : null, now });
 
   const membership = await readMembership(client, membershipId);
   assertBinding(membership, { membershipId, subjectUserId, orgNodeId });
@@ -255,11 +279,11 @@ async function directTransition(client, input, operation, { now }) {
     p_operation: operation, p_actor_user_id: actor.userId, p_actor_session_id: sessionId,
     p_subject_user_id: subjectUserId, p_org_node_id: orgNodeId, p_membership_id: membershipId,
     p_reason: reason, p_reference: reference, p_effective_from: null, p_effective_until: null,
-    p_classification: classification, p_session_revocation: null, p_governance_decision: decisionSnapshot,
+    p_classification: classification, p_session_revocation: null,
   };
 
   if (!compromise) {
-    const data = await callProcedure(client, 'corporate_membership_apply_direct', params);
+    const data = await callProcedure(client, 'corporate_authority_apply_direct', params);
     return finishMutation(data, { fromState: membership.state });
   }
 
@@ -278,7 +302,7 @@ async function directTransition(client, input, operation, { now }) {
       throw fail('SESSION_REVOCATION_FAILED', 'Sessions could not be revoked; the membership was not suspended.', { cause: String(error?.message ?? error).slice(0, 200) });
     }
     try {
-      const data = await callProcedure(client, 'corporate_membership_apply_direct', {
+      const data = await callProcedure(client, 'corporate_authority_apply_direct', {
         ...params,
         p_session_revocation: {
           contract: SESSION_REVOCATION_CONTRACT, scope: 'all', primitive: 'sessionSecurityService.revokeSessionsForUser',
@@ -306,7 +330,7 @@ export const endMembership = (client, input, options = {}) => directTransition(c
 
 async function submitRequest(client, input, operation, { now }) {
   clientOrThrow(client);
-  const { actor, governanceDecision } = parseCommon(input, ['membershipId', 'subjectUserId', 'orgNodeId', 'reason', 'reference'], 'input');
+  const { actor } = parseCommon(input, ['membershipId', 'subjectUserId', 'orgNodeId', 'reason', 'reference'], 'input');
   const membershipId = uuid(input.membershipId, 'MEMBERSHIP_NOT_FOUND');
   const subjectUserId = identifier(input.subjectUserId, 'SUBJECT_REQUIRED');
   const orgNodeId = nodeId(input.orgNodeId);
@@ -314,19 +338,20 @@ async function submitRequest(client, input, operation, { now }) {
   const reference = textField(input.reference, 'REFERENCE_REQUIRED', REFERENCE_MAX);
   assertNotSubject(actor.userId, subjectUserId);
 
-  const { decisionSnapshot, sessionId } = await authorise(client, actor, governanceDecision, { subjectUserId, orgNodeId }, { now });
+  const { sessionId } = await authorise(client, actor, { subjectUserId, orgNodeId }, { now });
   const membership = await readMembership(client, membershipId);
   assertBinding(membership, { membershipId, subjectUserId, orgNodeId });
   if (membership.state !== (operation === 'ACTIVATE' ? 'PENDING' : 'SUSPENDED')) throw fail('ILLEGAL_TRANSITION');
 
-  const data = await callProcedure(client, 'corporate_membership_request_submit', {
+  const data = await callProcedure(client, 'corporate_authority_request_submit', {
     p_operation: operation, p_membership_id: membershipId, p_requester_user_id: actor.userId, p_requester_session_id: sessionId,
-    p_reason: reason, p_reference: reference, p_governance_decision: decisionSnapshot,
+    p_reason: reason, p_reference: reference,
   });
   return Object.freeze({
     contract: MUTATION_CONTRACT, outcome: 'REQUESTED', request_id: data.request_id, operation: data.operation,
     membership_id: data.membership_id, subject_user_id: data.subject_user_id, org_node_id: data.org_node_id,
     expected_event_seq: data.expected_event_seq, binding_digest: data.binding_digest, expires_at: data.expires_at, grants_capability: false,
+    authority: authorityReceipt(data),
   });
 }
 
@@ -343,7 +368,7 @@ export const requestMembershipRestoration = (client, input, options = {}) => sub
 export async function decideMembershipRequest(client, input, options = {}) {
   clientOrThrow(client);
   const now = resolveNow(options);
-  const { actor, governanceDecision } = parseCommon(input, ['requestId', 'decision', 'reason', 'expected'], 'input');
+  const { actor } = parseCommon(input, ['requestId', 'decision', 'reason', 'expected'], 'input');
   const requestId = uuid(input.requestId, 'REQUEST_NOT_FOUND');
   if (input.decision !== 'APPROVE' && input.decision !== 'REFUSE') throw fail('DECISION_VALUE_INVALID');
   const reason = textField(input.reason, 'REASON_REQUIRED', REASON_MAX);
@@ -367,21 +392,21 @@ export async function decideMembershipRequest(client, input, options = {}) {
     throw fail('BINDING_MISMATCH');
   }
 
-  const { decisionSnapshot, sessionId } = await authorise(client, actor, governanceDecision, { subjectUserId: request.subject_user_id, orgNodeId: request.org_node_id }, { now });
-  const data = await callProcedure(client, 'corporate_membership_request_decide', {
+  const { sessionId } = await authorise(client, actor, { subjectUserId: request.subject_user_id, orgNodeId: request.org_node_id }, { now });
+  const data = await callProcedure(client, 'corporate_authority_request_decide', {
     p_request_id: requestId, p_checker_user_id: actor.userId, p_checker_session_id: sessionId, p_decision: input.decision, p_reason: reason,
     p_expected_subject_user_id: expected.subjectUserId, p_expected_membership_id: expected.membershipId, p_expected_org_node_id: expected.orgNodeId,
-    p_expected_operation: expected.operation, p_expected_binding_digest: expected.bindingDigest, p_governance_decision: decisionSnapshot,
+    p_expected_operation: expected.operation, p_expected_binding_digest: expected.bindingDigest,
   });
   if (data.outcome !== 'APPROVED' && data.outcome !== 'REFUSED') throw recordedRefusal(data);
-  return Object.freeze({ contract: MUTATION_CONTRACT, outcome: data.outcome, request_id: data.request_id, step_seq: data.step_seq, classification: data.classification, grants_capability: false });
+  return Object.freeze({ contract: MUTATION_CONTRACT, outcome: data.outcome, request_id: data.request_id, step_seq: data.step_seq, classification: data.classification, grants_capability: false, authority: authorityReceipt(data) });
 }
 
 /** Consume an approval — once. Executes the transition, writes its lifecycle event, and marks the approval spent, atomically. */
 export async function executeMembershipRequest(client, input, options = {}) {
   clientOrThrow(client);
   const now = resolveNow(options);
-  const { actor, governanceDecision } = parseCommon(input, ['requestId', 'expectedBindingDigest'], 'input');
+  const { actor } = parseCommon(input, ['requestId', 'expectedBindingDigest'], 'input');
   const requestId = uuid(input.requestId, 'REQUEST_NOT_FOUND');
   if (typeof input.expectedBindingDigest !== 'string' || !DIGEST.test(input.expectedBindingDigest)) throw fail('BINDING_MISMATCH');
 
@@ -389,10 +414,10 @@ export async function executeMembershipRequest(client, input, options = {}) {
   assertNotSubject(actor.userId, request.subject_user_id);
   if (request.binding_digest !== input.expectedBindingDigest) throw fail('BINDING_MISMATCH');
 
-  const { decisionSnapshot, sessionId } = await authorise(client, actor, governanceDecision, { subjectUserId: request.subject_user_id, orgNodeId: request.org_node_id }, { now });
-  const data = await callProcedure(client, 'corporate_membership_request_execute', {
+  const { sessionId } = await authorise(client, actor, { subjectUserId: request.subject_user_id, orgNodeId: request.org_node_id }, { now });
+  const data = await callProcedure(client, 'corporate_authority_request_execute', {
     p_request_id: requestId, p_executor_user_id: actor.userId, p_executor_session_id: sessionId,
-    p_expected_binding_digest: input.expectedBindingDigest, p_governance_decision: decisionSnapshot,
+    p_expected_binding_digest: input.expectedBindingDigest,
   });
   if (data.outcome !== 'EXECUTED') throw recordedRefusal(data);
   return finishMutation(data, { fromState: request.from_state });
@@ -402,7 +427,7 @@ export async function executeMembershipRequest(client, input, options = {}) {
 export async function cancelMembershipRequest(client, input, options = {}) {
   clientOrThrow(client);
   const now = resolveNow(options);
-  const { actor, governanceDecision } = parseCommon(input, ['requestId', 'reason'], 'input');
+  const { actor } = parseCommon(input, ['requestId', 'reason'], 'input');
   const requestId = uuid(input.requestId, 'REQUEST_NOT_FOUND');
   const reason = textField(input.reason, 'REASON_REQUIRED', REASON_MAX);
 
@@ -410,11 +435,11 @@ export async function cancelMembershipRequest(client, input, options = {}) {
   assertNotSubject(actor.userId, request.subject_user_id);
   if (actor.userId !== request.requester_user_id) throw fail('ONLY_REQUESTER_MAY_CANCEL');
 
-  const { decisionSnapshot, sessionId } = await authorise(client, actor, governanceDecision, { subjectUserId: request.subject_user_id, orgNodeId: request.org_node_id }, { now });
-  const data = await callProcedure(client, 'corporate_membership_request_cancel', {
-    p_request_id: requestId, p_actor_user_id: actor.userId, p_actor_session_id: sessionId, p_reason: reason, p_governance_decision: decisionSnapshot,
+  const { sessionId } = await authorise(client, actor, { subjectUserId: request.subject_user_id, orgNodeId: request.org_node_id }, { now });
+  const data = await callProcedure(client, 'corporate_authority_request_cancel', {
+    p_request_id: requestId, p_actor_user_id: actor.userId, p_actor_session_id: sessionId, p_reason: reason,
   });
-  return Object.freeze({ contract: MUTATION_CONTRACT, outcome: data.outcome, request_id: data.request_id, classification: data.classification, grants_capability: false });
+  return Object.freeze({ contract: MUTATION_CONTRACT, outcome: data.outcome, request_id: data.request_id, classification: data.classification, grants_capability: false, authority: authorityReceipt(data) });
 }
 
 /** Read-only: where a request stands, from the append-only ledgers (status is the latest step, never a stored mutable column). */
