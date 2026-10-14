@@ -208,13 +208,13 @@ jobs:
             '    direction: DOWN' \
             '    timeout: 20000' \
             '- tapOn: "Passport Verified"' \
+            '- assertVisible: "Passport Verified"' \
             '- scrollUntilVisible:' \
             '    element:' \
             '      text: "PartSentry Checked"' \
             '    direction: DOWN' \
             '    timeout: 20000' \
             '- tapOn: "PartSentry Checked"' \
-            '- assertVisible: "Passport Verified"' \
             '- assertVisible: "PartSentry Checked"'
           capture 05-multiple-trust-filters
 
@@ -618,13 +618,13 @@ jobs:
               '    direction: DOWN' \
               '    timeout: 20000' \
               '- tapOn: "Passport Verified"' \
+              '- assertVisible: "Passport Verified"' \
               '- scrollUntilVisible:' \
               '    element:' \
               '      text: "PartSentry Checked"' \
               '    direction: DOWN' \
               '    timeout: 20000' \
               '- tapOn: "PartSentry Checked"' \
-              '- assertVisible: "Passport Verified"' \
               '- assertVisible: "PartSentry Checked"'
             capture 05-multiple-trust-filters
 
