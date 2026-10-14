@@ -29,7 +29,7 @@
 --   · A1 (recent password re-authentication) is re-proven from the actor's OWN user_sessions row, never from a parameter;
 --   · the target-governance decision snapshot must be well-formed, fresh, granted by `target_corporate_governance`
 --     (never the legacy compatibility bridge), name the membership-management capability, cover the organisation node,
---     and bind this actor and subject; a missing, malformed, stale or legacy-derived decision is refused;
+--     and bind this actor and subject; a missing, malformed, stale or non-target-source-labelled decision is refused.\n--     Producer authenticity is NOT established by this Phase-B snapshot check; persistent grant authority is required before routing.
 --   · END of a governance-bearing membership needs a governance-continuity attestation (at least two independent
 --     governors would remain); a security-compromise SUSPEND needs the identity to hold NO live session at that instant.
 --
@@ -209,6 +209,11 @@ BEGIN
     RAISE EXCEPTION 'CORPORATE_GOVERNANCE/DECISION_ASSURANCE';
   END IF;
   IF p_need_continuity THEN
+    IF jsonb_typeof(p_decision #> '{governance_continuity}') IS DISTINCT FROM 'object'
+       OR jsonb_typeof(p_decision #> '{governance_continuity,subject_holds_governance_authority}') IS DISTINCT FROM 'boolean'
+       OR jsonb_typeof(p_decision #> '{governance_continuity,remaining_independent_governors}') IS DISTINCT FROM 'number' THEN
+      RAISE EXCEPTION 'CORPORATE_GOVERNANCE/DECISION_CONTINUITY';
+    END IF;
     BEGIN
       v_holds := (p_decision #>> '{governance_continuity,subject_holds_governance_authority}')::boolean;
       v_remaining := (p_decision #>> '{governance_continuity,remaining_independent_governors}')::integer;
