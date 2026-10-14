@@ -199,9 +199,16 @@ jobs:
             '- scrollUntilVisible:' \
             '    element:' \
             '      text: "Second hand"' \
+            '    centerElement: true' \
             '    direction: DOWN' \
             '    timeout: 20000' \
-            '- tapOn: "Second hand"' \
+            '- waitForAnimationToEnd' \
+            '- tapOn:' \
+            '    text: "Second hand"' \
+            '    retryTapIfNoChange: true' \
+            '- assertVisible:' \
+            '    text: "Second hand"' \
+            '    selected: true' \
             '- scrollUntilVisible:' \
             '    element:' \
             '      text: "Passport Verified"' \
@@ -609,16 +616,9 @@ jobs:
               '- scrollUntilVisible:' \
               '    element:' \
               '      text: "Second hand"' \
-              '    centerElement: true' \
               '    direction: DOWN' \
               '    timeout: 20000' \
-              '- waitForAnimationToEnd' \
-              '- tapOn:' \
-              '    text: "Second hand"' \
-              '    retryTapIfNoChange: true' \
-              '- assertVisible:' \
-              '    text: "Second hand"' \
-              '    selected: true' \
+              '- tapOn: "Second hand"' \
               '- scrollUntilVisible:' \
               '    element:' \
               '      text: "Passport Verified"' \
