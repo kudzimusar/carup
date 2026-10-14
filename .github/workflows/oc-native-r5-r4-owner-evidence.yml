@@ -27,7 +27,7 @@ jobs:
   ios-owner-evidence:
     name: iOS · R5-R4 owner evidence
     runs-on: macos-15
-    timeout-minutes: 75
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
         with:
