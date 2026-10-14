@@ -208,6 +208,11 @@ jobs:
             '    direction: DOWN' \
             '    timeout: 20000' \
             '- tapOn: "Passport Verified"' \
+            '- scrollUntilVisible:' \
+            '    element:' \
+            '      text: "PartSentry Checked"' \
+            '    direction: DOWN' \
+            '    timeout: 20000' \
             '- tapOn: "PartSentry Checked"' \
             '- assertVisible: "Passport Verified"' \
             '- assertVisible: "PartSentry Checked"'
@@ -613,6 +618,11 @@ jobs:
               '    direction: DOWN' \
               '    timeout: 20000' \
               '- tapOn: "Passport Verified"' \
+              '- scrollUntilVisible:' \
+              '    element:' \
+              '      text: "PartSentry Checked"' \
+              '    direction: DOWN' \
+              '    timeout: 20000' \
               '- tapOn: "PartSentry Checked"' \
               '- assertVisible: "Passport Verified"' \
               '- assertVisible: "PartSentry Checked"'
