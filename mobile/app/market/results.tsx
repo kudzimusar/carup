@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { FlashList } from '@shopify/flash-list';
@@ -38,6 +39,7 @@ import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function ResultsInner() {
   const theme = useNativeTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams() as Record<string, string | string[] | undefined>;
   const initialFilters = useMemo(() => marketplaceFiltersFromParams(params), [params]);
@@ -179,7 +181,7 @@ function ResultsInner() {
         <View
           style={{
             paddingHorizontal: spacing[5],
-            paddingTop: spacing[4],
+            paddingTop: spacing[4] + (Platform.OS === 'ios' ? insets.top : 0),
             paddingBottom: spacing[3],
             borderBottomWidth: 1,
             borderBottomColor: theme.border.default,
