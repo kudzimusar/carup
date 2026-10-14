@@ -101,7 +101,7 @@ jobs:
               echo "---"
               printf '%s\n' "$@"
             } > "$file"
-            "$MAESTRO" --device "$UDID" test --test-output-dir "$OUT" "$file"
+            "$MAESTRO" --device "$UDID" test "$file"
           }
 
           capture() {
@@ -178,10 +178,8 @@ jobs:
             '    timeout: 30000' \
             '- assertVisible: "Buy"'
 
+          run_flow tap_buy             '- tapOn:'             '    text: "^Buy$"'
           run_flow buy \
-            '- tapOn:' \
-            '    id: "primary-tab-marketplace"' \
-            '- takeScreenshot: diagnostic-buy-after-tap' \
             '- extendedWaitUntil:' \
             '    visible: "Buy on CarUp"' \
             '    timeout: 15000' \
@@ -406,7 +404,7 @@ jobs:
                 echo "---"
                 printf '%s\n' "$@"
               } > "$file"
-              "$MAESTRO" --device "$DEVICE_ID" test --test-output-dir "$OUT" "$file"
+              "$MAESTRO" --device "$DEVICE_ID" test "$file"
             }
 
             capture() {
@@ -585,10 +583,8 @@ jobs:
               '    timeout: 30000' \
               '- assertVisible: "Buy"'
 
+            run_flow tap_buy               '- tapOn:'               '    text: "^Buy$"'
             run_flow buy \
-              '- tapOn:' \
-              '    id: "primary-tab-marketplace"' \
-              '- takeScreenshot: diagnostic-buy-after-tap' \
               '- extendedWaitUntil:' \
               '    visible: "Buy on CarUp"' \
               '    timeout: 15000' \

@@ -34,14 +34,19 @@ export function resolveApiBaseUrl(
   env: Record<string, string | undefined> = process.env,
   platformOS: string = detectPlatformOS(),
 ): string {
-  const baseUrl = env.EXPO_PUBLIC_API_URL?.trim();
+  // Expo inlines only a direct process.env.EXPO_PUBLIC_* reference in native bundles.
+  // Preserve the injected env map for tests and explicit callers.
+  const baseUrl = (env === process.env ? process.env.EXPO_PUBLIC_API_URL : env.EXPO_PUBLIC_API_URL)?.trim();
   if (!baseUrl) {
     throw new ApiConfigurationError('EXPO_PUBLIC_API_URL is required for backend verification.');
   }
 
   const normalized = baseUrl.replace(/\/+$/, '');
   const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalized);
-  if (isLocalhost && platformOS !== 'web' && env.EXPO_PUBLIC_ALLOW_LOCALHOST_API !== 'true') {
+  const allowLocalhost = env === process.env
+    ? process.env.EXPO_PUBLIC_ALLOW_LOCALHOST_API
+    : env.EXPO_PUBLIC_ALLOW_LOCALHOST_API;
+  if (isLocalhost && platformOS !== 'web' && allowLocalhost !== 'true') {
     throw new ApiConfigurationError(
       'Physical devices cannot reach localhost. Set EXPO_PUBLIC_API_URL to your LAN, ngrok, or deployed backend URL.',
     );
