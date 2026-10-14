@@ -10,9 +10,14 @@
  *   a plain object someone typed                                  → refused: only a decision MINTED below is accepted
  *
  * The brand is a module-private WeakSet, not a security boundary: it stops a route, a test double or a copy-paste from
- * accidentally passing a hand-written object, and makes the one legitimate producer — a future target-governance evaluator —
- * a single, greppable import (a test pins that nothing else imports `mintTargetGovernanceDecision`). The database re-validates
- * the same snapshot, so a forged object cannot be made to look governed there either.
+ * accidentally passing a hand-written object, and makes the intended producer — a future target-governance evaluator —
+ * a single, greppable import (a test pins that nothing else imports `mintTargetGovernanceDecision`).
+ *
+ * IMPORTANT: the database re-validates the snapshot's shape, binding, freshness, scope and A1 evidence, but Phase B does not
+ * yet give the database a persistent grant authority with which to authenticate who produced that snapshot. Therefore a caller
+ * already holding service_role procedure access could still hand-craft a structurally valid snapshot. This Phase-B service is
+ * deliberately non-routed and its evaluator returns unavailable; persistent Corporate grant authority is a required later
+ * slice before any membership-mutation route may be activated.
  *
  * An ACTIVE membership grants zero capability. A governance decision is where capability comes from, and nothing else is.
  */
