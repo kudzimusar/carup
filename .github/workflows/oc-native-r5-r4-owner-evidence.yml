@@ -609,6 +609,7 @@ jobs:
               '- scrollUntilVisible:' \
               '    element:' \
               '      text: "Second hand"' \
+              '    centerElement: true' \
               '    direction: DOWN' \
               '    timeout: 20000' \
               '- tapOn: "Second hand"' \
