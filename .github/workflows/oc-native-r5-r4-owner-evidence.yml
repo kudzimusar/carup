@@ -194,13 +194,21 @@ jobs:
             '- assertVisible: "Toyota"'
           capture 04-all-filters-open
 
-          run_flow filters_select \
+          run_flow filters_select_toyota \
             '- tapOn:' \
             '    text: "Toyota"' \
-            '    retryTapIfNoChange: true' \
+            '    retryTapIfNoChange: true'
+          if ! run_flow filters_toyota_selected \
             '- assertVisible:' \
             '    text: "Toyota"' \
-            '    selected: true' \
+            '    selected: true'; then
+            run_flow filters_toyota_retry \
+              '- tapOn: "Toyota"' \
+              '- assertVisible:' \
+              '    text: "Toyota"' \
+              '    selected: true'
+          fi
+          run_flow filters_select \
             '- scrollUntilVisible:' \
             '    element:' \
             '      text: "Second hand"' \
