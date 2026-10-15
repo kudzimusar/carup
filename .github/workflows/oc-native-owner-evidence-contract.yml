@@ -1,0 +1,31 @@
+name: OC-NATIVE Owner Evidence Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/native-owner-evidence*'
+      - '.github/scripts/fixtures/native-owner-evidence-attempts.json'
+      - '.github/workflows/oc-native-r5-r4-owner-evidence.yml'
+      - '.github/workflows/oc-native-owner-evidence-contract.yml'
+  push:
+    paths:
+      - '.github/scripts/native-owner-evidence*'
+      - '.github/scripts/fixtures/native-owner-evidence-attempts.json'
+      - '.github/workflows/oc-native-r5-r4-owner-evidence.yml'
+      - '.github/workflows/oc-native-owner-evidence-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Attempt custody and diagnostic fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test evidence contract without devices or network services
+        run: node --test .github/scripts/native-owner-evidence.test.mjs
