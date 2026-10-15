@@ -1,0 +1,296 @@
+name: R6-B0 Exact Pairing Pre-UAT
+
+on:
+  push:
+    branches:
+      - evidence/r6b0-exact-pairing
+    paths:
+      - '.github/workflows/r6b0-exact-pairing.yml'
+
+permissions:
+  contents: read
+
+env:
+  NATIVE_SHA: 1dd189b98d0590bd7b92a0533f376fb446a2bb9a
+  BACKEND_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  BACKEND_DEPLOYMENT_ID: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
+  SUPABASE_PROJECT: eoyenigwevnxwwhyhaer
+  EXTERNAL_SENDS: disabled
+
+jobs:
+  anonymous-runtime-probe:
+    name: Anonymous auth boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BACKEND_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Exact backend custody
+        run: test "$(git rev-parse HEAD)" = "$BACKEND_SHA"
+      - name: Health and deployment provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$EXPO_PUBLIC_API_URL/api/health" -o /tmp/health.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const h = JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
+          assert.equal(h.status, 'UP');
+          assert.equal(h.build.commit_sha, process.env.BACKEND_SHA);
+          assert.equal(h.build.deployment_id, process.env.BACKEND_DEPLOYMENT_ID);
+          assert.equal(h.build.environment, 'preview');
+          assert.equal(h.database.supabase_project_ref, process.env.SUPABASE_PROJECT);
+          assert.equal(h.communications.outbound.external_sends, 'disabled');
+          assert.equal(h.communications.outbound.kill_switch, 'active');
+          console.log(JSON.stringify({
+            health: 'UP',
+            backend_source_sha: h.build.commit_sha,
+            deployment_id: h.build.deployment_id,
+            environment: h.build.environment,
+            supabase_project: h.database.supabase_project_ref,
+            external_sends: h.communications.outbound.external_sends,
+            kill_switch: h.communications.outbound.kill_switch
+          }));
+          NODE
+      - name: CSRF and anonymous logout negative probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          code_no_csrf="$(curl -sS -o /tmp/logout-no-csrf.json -w '%{http_code}' -X POST             -H 'Content-Type: application/json'             --data '{}'             "$EXPO_PUBLIC_API_URL/api/auth/logout")"
+          test "$code_no_csrf" = "403"
+
+          curl -fsS -c /tmp/cookies.txt "$EXPO_PUBLIC_API_URL/api/security/csrf-token" -o /tmp/csrf.json
+          csrf="$(node -pe "JSON.parse(require('fs').readFileSync('/tmp/csrf.json','utf8')).csrfToken")"
+          test -n "$csrf"
+
+          code_anon="$(curl -sS -b /tmp/cookies.txt -o /tmp/logout-anon.json -w '%{http_code}' -X POST             -H 'Content-Type: application/json'             -H "x-csrf-token: $csrf"             --data '{}'             "$EXPO_PUBLIC_API_URL/api/auth/logout")"
+          test "$code_anon" = "401"
+
+          code_spoof="$(curl -sS -b /tmp/cookies.txt -o /tmp/logout-spoof.json -w '%{http_code}' -X POST             -H 'Content-Type: application/json'             -H "x-csrf-token: $csrf"             -H 'x-user-id: spoofed-user'             --data '{"userId":"spoofed-user","sessionId":"spoofed-session","sessionToken":"spoofed-token"}'             "$EXPO_PUBLIC_API_URL/api/auth/logout")"
+          test "$code_spoof" = "401"
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const noCsrf = JSON.parse(fs.readFileSync('/tmp/logout-no-csrf.json','utf8'));
+          const anon = JSON.parse(fs.readFileSync('/tmp/logout-anon.json','utf8'));
+          const spoof = JSON.parse(fs.readFileSync('/tmp/logout-spoof.json','utf8'));
+          console.log(JSON.stringify({
+            no_csrf_status: 403,
+            anonymous_with_csrf_status: 401,
+            spoofed_identity_status: 401,
+            no_csrf_error: noCsrf.error || null,
+            anonymous_error: anon.error || null,
+            spoofed_error: spoof.error || null
+          }));
+          NODE
+      - name: Deployed passwordless fallback classification
+        shell: bash
+        env:
+          VERCEL: '1'
+          VERCEL_ENV: preview
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { isPasswordlessLoginAllowed } from './backend/utils/passwordAuth.js';
+          assert.equal(isPasswordlessLoginAllowed(process.env), false);
+          console.log('PASSWORDLESS_DEPLOYED_FALLBACK=DENIED');
+          NODE
+
+  ios-simulator:
+    name: iOS simulator anonymous sign-in readiness
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.NATIVE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Exact native custody
+        run: test "$(git rev-parse HEAD)" = "$NATIVE_SHA"
+      - name: Install and prebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          cd mobile
+          npx expo prebuild --platform ios --clean --no-install
+          cd ios
+          pod install
+      - name: Build, install, and stop at anonymous login
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/r6b0-ios"
+          mkdir -p "$OUT"
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; xs=[v for group in d.values() for v in group if v.get("isAvailable") and v.get("name","").startswith("iPhone")]; print(xs[0]["udid"] if xs else "")')"
+          test -n "$UDID"
+          DEVICE_NAME="$(UDID="$UDID" xcrun simctl list devices available -j | python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))')"
+          OS_VERSION="$(UDID="$UDID" xcrun simctl list devices available -j | python3 -c 'import json,sys,os,re; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; key=next(k for k,group in d.items() if any(v.get("udid")==u for v in group)); m=re.search(r"iOS-(\d+)-(\d+)",key); print(".".join(m.groups()) if m else key)')"
+
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+          cd mobile/ios
+          WORKSPACE="$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          test -n "$WORKSPACE"
+          SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(j["workspace"]["schemes"][0])')"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -sdk iphonesimulator -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build
+          APP="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator" -maxdepth 2 -name '*.app' -print -quit)"
+          test -n "$APP"
+
+          grep -R -a -m1 -F "$EXPO_PUBLIC_API_URL" "$APP" >/dev/null
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.carup.mobile >/dev/null
+          xcrun simctl openurl "$UDID" "carup://login"
+          sleep 4
+
+          curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
+          "$HOME/.maestro/bin/maestro" --device "$UDID" test - <<'YAML'
+          appId: com.carup.mobile
+          ---
+          - assertVisible: "Sign in to CarUp"
+          - assertVisible: "Email"
+          - assertVisible: "Password"
+          - assertVisible: "Sign in"
+          YAML
+
+          xcrun simctl io "$UDID" screenshot "$OUT/login-anonymous.png"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/CarUp-R6B0-iOS-Simulator.app.zip"
+
+          cat > "$OUT/custody.json" <<EOF
+          {
+            "native_source_sha":"$NATIVE_SHA",
+            "backend_source_sha":"$BACKEND_SHA",
+            "backend_deployment_id":"$BACKEND_DEPLOYMENT_ID",
+            "backend_deployment_url":"$EXPO_PUBLIC_API_URL",
+            "supabase_project":"$SUPABASE_PROJECT",
+            "external_sends":"$EXTERNAL_SENDS",
+            "auth_state":"anonymous",
+            "platform":"ios-simulator",
+            "device":"$DEVICE_NAME",
+            "os_api":"iOS $OS_VERSION",
+            "xcode":"$(xcodebuild -version | tr '\n' ' ' | sed 's/"/\\"/g')",
+            "node":"$(node --version)",
+            "api_base_embedded":"$EXPO_PUBLIC_API_URL",
+            "login_screen_proven":"YES",
+            "credential_entry_performed":"NO",
+            "recording_stopped_before_owner_login":"YES"
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r6b0-ios-simulator-${{ env.NATIVE_SHA }}
+          path: ${{ runner.temp }}/r6b0-ios
+          if-no-files-found: error
+          retention-days: 30
+
+  android-emulator:
+    name: Android emulator anonymous sign-in readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.NATIVE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Exact native custody
+        run: test "$(git rev-parse HEAD)" = "$NATIVE_SHA"
+      - name: Install and prebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          cd mobile
+          npx expo prebuild --platform android --clean --no-install
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build, install, and stop at anonymous login
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/r6b0-android"
+            mkdir -p "$OUT"
+            DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
+            test -n "$DEVICE_ID"
+            DEVICE_NAME="$(adb shell getprop ro.product.model | tr -d '\r')"
+            API_LEVEL="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+
+            cd mobile/android
+            ./gradlew assembleRelease --no-daemon
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            test -n "$APK"
+
+            mkdir -p "$RUNNER_TEMP/apk-unpack"
+            unzip -q "$APK" -d "$RUNNER_TEMP/apk-unpack"
+            grep -R -a -m1 -F "$EXPO_PUBLIC_API_URL" "$RUNNER_TEMP/apk-unpack" >/dev/null
+
+            adb install "$APK"
+            adb shell pm clear com.carup.mobile >/dev/null
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile >/dev/null
+            sleep 4
+
+            curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
+            "$HOME/.maestro/bin/maestro" --device "$DEVICE_ID" test - <<'YAML'
+            appId: com.carup.mobile
+            ---
+            - assertVisible: "Sign in to CarUp"
+            - assertVisible: "Email"
+            - assertVisible: "Password"
+            - assertVisible: "Sign in"
+            YAML
+
+            adb exec-out screencap -p > "$OUT/login-anonymous.png"
+            cp "$APK" "$OUT/CarUp-R6B0-Android.apk"
+            cat > "$OUT/custody.json" <<EOF
+            {
+              "native_source_sha":"$NATIVE_SHA",
+              "backend_source_sha":"$BACKEND_SHA",
+              "backend_deployment_id":"$BACKEND_DEPLOYMENT_ID",
+              "backend_deployment_url":"$EXPO_PUBLIC_API_URL",
+              "supabase_project":"$SUPABASE_PROJECT",
+              "external_sends":"$EXTERNAL_SENDS",
+              "auth_state":"anonymous",
+              "platform":"android-emulator",
+              "device":"$DEVICE_NAME",
+              "os_api":"Android API $API_LEVEL",
+              "java":"$(java -version 2>&1 | head -n 1 | sed 's/"/\\"/g')",
+              "node":"$(node --version)",
+              "api_base_embedded":"$EXPO_PUBLIC_API_URL",
+              "login_screen_proven":"YES",
+              "credential_entry_performed":"NO",
+              "recording_stopped_before_owner_login":"YES"
+            }
+            EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r6b0-android-emulator-${{ env.NATIVE_SHA }}
+          path: ${{ runner.temp }}/r6b0-android
+          if-no-files-found: error
+          retention-days: 30
