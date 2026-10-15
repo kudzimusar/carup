@@ -4,6 +4,8 @@ import { AuthUser, UserRole } from '@shared/types';
 import { withServerTenantContext } from '@shared/auth/sessionTenant';
 import { apiUrl, resolveApiBaseUrl } from '../utils/apiBase';
 import { fetchCsrfToken } from '../utils/verificationApi';
+import { clearIdentityQueryCache } from '../utils/queryClient';
+import { revokeCurrentServerSession } from '../utils/sessionLogout';
 
 /**
  * Refresh governed feature states after an identity change (login/logout/role
@@ -155,6 +157,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(user));
       await SecureStore.setItemAsync(SECURE_TOKEN_KEY, token);
+      // A new authenticated authority must never inherit the previous process cache.
+      clearIdentityQueryCache();
       set({
         user,
         token,
@@ -169,36 +173,53 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
-    // OC-EXPO-02 — release this device's push registration WHILE the session still exists: the
-    // next account to sign in here must not inherit the previous person's notifications, and must
-    // not be refused the device. Bounded and non-throwing, so sign-out always completes.
+    const currentToken = get().token;
+
+    // Preserve the existing push-registration release while the session is still valid. It is
+    // intentionally attempted before server logout because the release endpoint needs this token.
     try {
       const { releasePushRegistration } = await import('../utils/pushRegistration');
       await releasePushRegistration();
     } catch {
       // never block sign-out on push cleanup
     }
-    try {
-      await SecureStore.deleteItemAsync(SECURE_USER_KEY);
-      await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);
-      set({
-        user: null,
-        token: null,
-        isAuthenticated: false,
-      });
-      // Clear sensitive in-memory verification state (captured ID document images + OCR PII)
-      // so it cannot persist across a session change. Lazy-imported to avoid an import cycle.
+
+    // Terminate only the presenting backend session while its credential still exists locally.
+    // This call is bounded and returns diagnostics without credential material. A backend/network
+    // failure must never trap the person signed in on this device.
+    if (currentToken) {
       try {
-        const { useVerificationStore } = await import('./verificationStore');
-        useVerificationStore.getState().clear();
+        await revokeCurrentServerSession(currentToken);
       } catch {
-        // best-effort; never block logout on sensitive-state cleanup
+        // defense in depth: local sign-out remains authoritative for this device
       }
-      // Drop any identity-specific governed state back to anonymous defaults.
-      await refreshFeatureGovernance();
-    } catch (error) {
-      console.error('Failed to clear secure session credentials:', error);
     }
+
+    // SecureStore failures are best-effort cleanup failures, never permission to keep the in-memory
+    // identity alive. Attempt both deletions independently, then cross the local identity boundary.
+    await Promise.allSettled([
+      SecureStore.deleteItemAsync(SECURE_USER_KEY),
+      SecureStore.deleteItemAsync(SECURE_TOKEN_KEY),
+    ]);
+
+    clearIdentityQueryCache();
+    set({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+    });
+
+    // Clear sensitive in-memory verification state (captured ID document images + OCR PII)
+    // so it cannot persist across a session change. Lazy-imported to avoid an import cycle.
+    try {
+      const { useVerificationStore } = await import('./verificationStore');
+      useVerificationStore.getState().clear();
+    } catch {
+      // best-effort; never block logout on sensitive-state cleanup
+    }
+
+    // Drop any identity-specific governed state back to anonymous defaults.
+    await refreshFeatureGovernance();
   },
 
   switchRole: async (role: UserRole, tenantId?: string): Promise<RoleSwitchResult> => {
@@ -249,9 +270,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(updatedUser));
       if (data.token) {
         await SecureStore.setItemAsync(SECURE_TOKEN_KEY, data.token);
-        set({ token: data.token });
       }
-      set({ user: updatedUser });
+      // Role/tenant authority changed: discard every query from the prior context before exposing
+      // the updated identity to subscribers.
+      clearIdentityQueryCache();
+      set({
+        user: updatedUser,
+        ...(data.token ? { token: data.token } : {}),
+      });
       // Re-fetch governed feature truth for the newly active role/tenant.
       await refreshFeatureGovernance();
       return { ok: true };
@@ -293,6 +319,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (latest.token !== current.token || !latest.user) return { ok: false, error: 'Your session changed. Please try again.' };
       const updatedUser = withServerTenantContext(latest.user, body?.user ?? { active_tenant_id: null });
       await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(updatedUser));
+      // A verified organisation switch is an identity-authority boundary for cached data.
+      clearIdentityQueryCache();
       set({ user: updatedUser });
       await refreshFeatureGovernance();
       return { ok: true };
