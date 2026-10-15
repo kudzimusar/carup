@@ -130,7 +130,10 @@ const phaseCFunction = (sql, name) => {
   const next = sql.indexOf('CREATE OR REPLACE FUNCTION public.', start + marker.length);
   return sql.slice(start, next >= 0 ? next : sql.length);
 };
-const ordered = (body, parts) => parts.every((part, i) => i === 0 || body.indexOf(parts[i - 1]) < body.indexOf(part));
+const ordered = (body, parts) => {
+  const positions = parts.map((part) => body.indexOf(part));
+  return positions.every((position, i) => position >= 0 && (i === 0 || positions[i - 1] < position));
+};
 
 function temporalInvariantViolations(sql) {
   const failures = [];
