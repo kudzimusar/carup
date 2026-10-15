@@ -1,0 +1,62 @@
+name: R6-B0 Anonymous Auth Probe
+
+on:
+  push:
+    branches:
+      - evidence/r6b0-exact-pairing
+    paths:
+      - '.github/workflows/r6b0-auth-probe.yml'
+
+permissions:
+  contents: read
+
+env:
+  BACKEND_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  BACKEND_DEPLOYMENT_ID: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BACKEND_SHA }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Probe deployed auth boundary
+        shell: bash
+        run: |
+          set -u
+          echo "backend_head=$(git rev-parse HEAD)"
+
+          code_no_csrf="$(curl -sS -o /tmp/no-csrf.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' "$API_URL/api/auth/logout")"
+          echo "no_csrf_status=$code_no_csrf"
+          cat /tmp/no-csrf.json; echo
+
+          csrf_status="$(curl -sS -c /tmp/cookies.txt -o /tmp/csrf.json -w '%{http_code}' "$API_URL/api/security/csrf-token")"
+          echo "csrf_token_status=$csrf_status"
+          cat /tmp/csrf.json; echo
+
+          csrf="$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('/tmp/csrf.json','utf8')).csrfToken||'')}catch{console.log('')}")"
+          if [ -n "$csrf" ]; then
+            code_anon="$(curl -sS -b /tmp/cookies.txt -o /tmp/anon.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" --data '{}' "$API_URL/api/auth/logout")"
+            echo "anonymous_with_csrf_status=$code_anon"
+            cat /tmp/anon.json; echo
+
+            code_spoof="$(curl -sS -b /tmp/cookies.txt -o /tmp/spoof.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" -H 'x-user-id: spoofed-user' --data '{"userId":"spoofed-user","sessionId":"spoofed-session","sessionToken":"spoofed-token"}' "$API_URL/api/auth/logout")"
+            echo "spoofed_identity_status=$code_spoof"
+            cat /tmp/spoof.json; echo
+          fi
+
+          VERCEL=1 VERCEL_ENV=preview node --input-type=module <<'NODE'
+          import { isPasswordlessLoginAllowed } from './backend/utils/passwordAuth.js';
+          console.log('PASSWORDLESS_DEPLOYED_FALLBACK=' + (isPasswordlessLoginAllowed(process.env) ? 'ALLOWED' : 'DENIED'));
+          NODE
+
+          test "$code_no_csrf" = "403"
+          test "$csrf_status" = "200"
+          test "$code_anon" = "401"
+          test "$code_spoof" = "401"
