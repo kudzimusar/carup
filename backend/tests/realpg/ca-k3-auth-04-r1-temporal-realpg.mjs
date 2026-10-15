@@ -443,7 +443,7 @@ async function main() {
 
   // OPERATION WINS FIRST: it holds assignment SHARE while waiting on its target membership; revocation must wait for it.
   const opFirst=await seedGovernor(owner,'g-op-first');
-  const targetOp=await seedMembership(owner,'m-op-target',{state:'ACTIVE'});
+  const targetOp=await seedMembership(owner,'m-op-target',{node:NODE,state:'ACTIVE'});
   await blocker.query('BEGIN');
   await blocker.query('SELECT membership_id FROM corporate_memberships WHERE membership_id=$1 FOR UPDATE',[targetOp]);
   const opPromise=observed(direct(service,{op:'SUSPEND',actor:opFirst.userId,session:opFirst.sessionId,subject:'m-op-target',membership:targetOp}));
