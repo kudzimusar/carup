@@ -45,8 +45,10 @@
 -- really ended can not authorize inside such a transaction either. Proved on a real server, including a 31-minute real-time run.
 --
 -- Residual trust, stated plainly: the database proves that the NAMED account currently holds the authority and a live A1 session
--- row; which human is behind that account is still established by the backend's session authentication. A holder of service_role can
--- therefore act as an account that holds authority and has a live A1 session — but can no longer manufacture authority.
+-- row; which human is behind that account is still established by the backend's session authentication, and service_role can write
+-- user_sessions today. A holder of service_role can therefore still ASSUME THE IDENTITY of an existing governor (by writing a session
+-- row for it) — but can no longer manufacture authority: it cannot create a governor, widen a scope or extend a period, and maker/checker
+-- still needs two distinct governor identities. Moving session issuance out of service_role's reach is a separate, later slice.
 
 DO $$
 BEGIN
@@ -419,7 +421,8 @@ CREATE OR REPLACE VIEW public.corporate_permission_assignment_effective WITH (se
 -- ── The trusted evaluator (read-only) ──────────────────────────────────────────────────────────────────────────
 -- Derives a decision for (actor, subject, node, capabilities) from the persistent authority. Every required capability must be covered
 -- by ONE assignment on its own — there is no union of scopes, no intersection invented across grants, no inheritance from a title, a
--- legacy role or a tenant. Anything it cannot read or does not find is a denial.
+-- legacy role or a tenant. Anything it cannot read or does not find is a denial. It is deliberately NOT actor≠subject-aware: that rule
+-- lives in the unchanged Phase-B procedures (ACTOR_IS_SUBJECT), so a 'granted' preview never means "may act on their own membership".
 --
 -- For END (p_need_continuity) it also COUNTS the independent governors that would remain, from the same rows. The result is a decision
 -- projection in the Phase-B contract plus a provenance block naming the assignments relied on; the Phase-B ledgers store it.
