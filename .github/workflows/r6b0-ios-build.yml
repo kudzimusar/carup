@@ -21,7 +21,7 @@ env:
 jobs:
   ios:
     runs-on: macos-15
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,18 +66,30 @@ jobs:
           grep -R -a -m1 -F "$EXPO_PUBLIC_API_URL" "$APP" >/dev/null
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" com.carup.mobile >/dev/null
-          xcrun simctl openurl "$UDID" "carup://login"
-          sleep 4
+          sleep 5
 
           export MAESTRO_VERSION=2.11.0
+          export MAESTRO_CLI_NO_ANALYTICS=1
           curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
           cat > "$RUNNER_TEMP/r6b0-login.yaml" <<'YAML'
           appId: com.carup.mobile
           ---
-          - assertVisible: "Sign in to CarUp"
+          - extendedWaitUntil:
+              visible: "Profile"
+              timeout: 45000
+          - tapOn: "Profile"
+          - extendedWaitUntil:
+              visible: "Your CarUp account"
+              timeout: 15000
+          - tapOn:
+              text: "^Sign in$"
+          - extendedWaitUntil:
+              visible: "Sign in to CarUp"
+              timeout: 15000
           - assertVisible: "Email"
           - assertVisible: "Password"
-          - assertVisible: "Sign in"
+          - assertVisible:
+              text: "^Sign in$"
           YAML
           "$HOME/.maestro/bin/maestro" --device "$UDID" test "$RUNNER_TEMP/r6b0-login.yaml"
 
@@ -104,6 +116,7 @@ jobs:
           }
           EOF
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: r6b0-ios-simulator-${{ env.NATIVE_SHA }}
           path: ${{ runner.temp }}/r6b0-ios
