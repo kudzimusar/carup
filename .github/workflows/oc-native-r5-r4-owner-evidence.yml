@@ -28,6 +28,8 @@ jobs:
     name: iOS · R5-R4 owner evidence
     runs-on: macos-15
     timeout-minutes: 110
+    env:
+      R4_EVIDENCE_PLATFORM: ios-simulator
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +39,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Initialize attempt-bound evidence custody
+        shell: bash
+        run: node .github/scripts/native-owner-evidence.mjs init
 
       - uses: actions/setup-java@v4
         with:
@@ -63,6 +69,7 @@ jobs:
           pod install
 
       - name: Build, install and capture iOS R5-R4 journey evidence
+        id: capture_ios
         shell: bash
         run: |
           set -euo pipefail
@@ -74,6 +81,12 @@ jobs:
           test -n "$UDID" || { echo "::error::No available iPhone Simulator"; exit 1; }
           DEVICE_NAME="$(UDID="$UDID" xcrun simctl list devices available -j | UDID="$UDID" python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))')"
           OS_VERSION="$(UDID="$UDID" xcrun simctl list devices available -j | UDID="$UDID" python3 -c 'import json,sys,os,re; d=json.load(sys.stdin)["devices"]; u=os.environ["UDID"]; key=next(k for k,group in d.items() if any(v.get("udid")==u for v in group)); m=re.search(r"iOS-(\d+)-(\d+)",key); print(".".join(m.groups()) if m else key)')"
+
+          R4_EVIDENCE_DEVICE="$DEVICE_NAME" \
+          R4_EVIDENCE_OS_API="iOS $OS_VERSION" \
+          R4_EVIDENCE_MAESTRO="$("$MAESTRO" --version | tr '\n' ' ')" \
+          R4_EVIDENCE_XCODE="$(xcodebuild -version | tr '\n' ' ')" \
+            node "$GITHUB_WORKSPACE/.github/scripts/native-owner-evidence.mjs" device
 
           xcrun simctl boot "$UDID" || true
           open -a Simulator
@@ -314,36 +327,52 @@ jobs:
             '    timeout: 15000'
           capture 12-notifications-inbox
 
-          {
-            echo "task=OC-NATIVE-LR1-R5-R4"
-            echo "platform=ios-simulator"
-            echo "candidate_sha=$GITHUB_SHA"
-            echo "device=$DEVICE_NAME"
-            echo "ios=$OS_VERSION"
-            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
-            echo "maestro=$("$MAESTRO" --version | tr '\n' ' ')"
-            echo "backend_deployment=$R4_BACKEND_DEPLOYMENT"
-            echo "backend_url=$EXPO_PUBLIC_API_URL"
-            echo "backend_sha=$R4_BACKEND_SHA"
-            echo "supabase_project=$R4_SUPABASE_PROJECT"
-            echo "external_sends=$R4_EXTERNAL_SENDS"
-            echo "auth_state=anonymous; unavailable Trade/Inbox states are truthful"
-          } > "$OUT/custody.txt"
-          (cd "$OUT" && shasum -a 256 *.png > sha256.txt)
+      - name: Finalize attempt-bound evidence custody
+        id: finalize_ios
+        if: always()
+        env:
+          R4_CAPTURE_OUTCOME: ${{ steps.capture_ios.outcome }}
+        shell: bash
+        run: node .github/scripts/native-owner-evidence.mjs finalize
 
       - name: Upload iOS owner evidence
+        id: upload_ios
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oc-native-r5-r4-ios-${{ github.sha }}
+          name: ${{ steps.finalize_ios.outputs.artifact_name || format('oc-native-r5-r4-ios-simulator-{0}-run-{1}-attempt-{2}-job-{3}-diagnostic-uninitialized', github.sha, github.run_id, github.run_attempt, github.job) }}
           path: ${{ runner.temp }}/r5-r4-owner-evidence
           if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+
+      - name: Record uploaded artifact digest outside its source archive
+        id: receipt_ios
+        if: always() && steps.upload_ios.outcome == 'success' && steps.finalize_ios.outputs.artifact_name != ''
+        env:
+          R4_UPLOAD_ARTIFACT_NAME: ${{ steps.finalize_ios.outputs.artifact_name }}
+          R4_UPLOAD_ARTIFACT_ID: ${{ steps.upload_ios.outputs.artifact-id }}
+          R4_UPLOAD_ARTIFACT_DIGEST: ${{ steps.upload_ios.outputs.artifact-digest }}
+          R4_UPLOAD_ARTIFACT_URL: ${{ steps.upload_ios.outputs.artifact-url }}
+        shell: bash
+        run: node .github/scripts/native-owner-evidence.mjs receipt
+
+      - name: Preserve uploaded artifact receipt
+        if: always() && steps.receipt_ios.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.finalize_ios.outputs.artifact_name }}-receipt
+          path: ${{ runner.temp }}/r5-r4-owner-evidence-receipt
+          if-no-files-found: error
+          overwrite: false
           retention-days: 30
 
   android-owner-evidence:
     name: Android · R5-R4 owner evidence
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    env:
+      R4_EVIDENCE_PLATFORM: android-emulator
     steps:
       - uses: actions/checkout@v4
         with:
@@ -353,6 +382,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Initialize attempt-bound evidence custody
+        shell: bash
+        run: node .github/scripts/native-owner-evidence.mjs init
 
       - uses: actions/setup-java@v4
         with:
@@ -383,20 +416,21 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Build, install and capture Android R5-R4 journey evidence
+        id: capture_android
         uses: reactivecircus/android-emulator-runner@v2
         env:
           R4_ANDROID_SCRIPT: |
             set -euo pipefail
             OUT="$RUNNER_TEMP/r5-r4-owner-evidence"
             mkdir -p "$OUT"
-            {
-              echo "task=OC-NATIVE-LR1-R5-R4"
-              echo "platform=android-emulator"
-              echo "candidate_sha=$GITHUB_SHA"
-            } > "$OUT/custody.txt"
             MAESTRO="$HOME/.maestro/bin/maestro"
             DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
             test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
+
+            R4_EVIDENCE_DEVICE="$(adb shell getprop ro.product.model | tr -d '\r')" \
+            R4_EVIDENCE_OS_API="Android API $(adb shell getprop ro.build.version.sdk | tr -d '\r')" \
+            R4_EVIDENCE_MAESTRO="$("$MAESTRO" --version | tr '\n' ' ')" \
+              node "$GITHUB_WORKSPACE/.github/scripts/native-owner-evidence.mjs" device
 
             cd mobile/android
             BUILD_OK=false
@@ -724,22 +758,6 @@ jobs:
               '    timeout: 15000'
             capture 12-notifications-inbox
 
-            {
-              echo "task=OC-NATIVE-LR1-R5-R4"
-              echo "platform=android-emulator"
-              echo "candidate_sha=$GITHUB_SHA"
-              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
-              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-              echo "launcher_component=$LAUNCH_COMPONENT"
-              echo "maestro=$("$MAESTRO" --version | tr '\n' ' ')"
-              echo "backend_deployment=$R4_BACKEND_DEPLOYMENT"
-              echo "backend_url=$EXPO_PUBLIC_API_URL"
-              echo "backend_sha=$R4_BACKEND_SHA"
-              echo "supabase_project=$R4_SUPABASE_PROJECT"
-              echo "external_sends=$R4_EXTERNAL_SENDS"
-              echo "auth_state=anonymous; unavailable Trade/Inbox states are truthful"
-            } >> "$OUT/custody.txt"
-            (cd "$OUT" && sha256sum *.png > sha256.txt)
         with:
           api-level: 35
           arch: x86_64
@@ -748,11 +766,42 @@ jobs:
           disable-animations: true
           script: bash -c "$R4_ANDROID_SCRIPT"
 
+      - name: Finalize attempt-bound evidence custody
+        id: finalize_android
+        if: always()
+        env:
+          R4_CAPTURE_OUTCOME: ${{ steps.capture_android.outcome }}
+        shell: bash
+        run: node .github/scripts/native-owner-evidence.mjs finalize
+
       - name: Upload Android owner evidence
+        id: upload_android
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oc-native-r5-r4-android-${{ github.sha }}
+          name: ${{ steps.finalize_android.outputs.artifact_name || format('oc-native-r5-r4-android-emulator-{0}-run-{1}-attempt-{2}-job-{3}-diagnostic-uninitialized', github.sha, github.run_id, github.run_attempt, github.job) }}
           path: ${{ runner.temp }}/r5-r4-owner-evidence
           if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+
+      - name: Record uploaded artifact digest outside its source archive
+        id: receipt_android
+        if: always() && steps.upload_android.outcome == 'success' && steps.finalize_android.outputs.artifact_name != ''
+        env:
+          R4_UPLOAD_ARTIFACT_NAME: ${{ steps.finalize_android.outputs.artifact_name }}
+          R4_UPLOAD_ARTIFACT_ID: ${{ steps.upload_android.outputs.artifact-id }}
+          R4_UPLOAD_ARTIFACT_DIGEST: ${{ steps.upload_android.outputs.artifact-digest }}
+          R4_UPLOAD_ARTIFACT_URL: ${{ steps.upload_android.outputs.artifact-url }}
+        shell: bash
+        run: node .github/scripts/native-owner-evidence.mjs receipt
+
+      - name: Preserve uploaded artifact receipt
+        if: always() && steps.receipt_android.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.finalize_android.outputs.artifact_name }}-receipt
+          path: ${{ runner.temp }}/r5-r4-owner-evidence-receipt
+          if-no-files-found: error
+          overwrite: false
           retention-days: 30

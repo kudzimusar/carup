@@ -1,0 +1,38 @@
+{
+  "description": "Offline custody fixtures only; no device launch, account, backend request or GitHub upload. Carry-forward timestamps are from the EV2 receipt.",
+  "env": {
+    "GITHUB_SHA": "266c9c7608ab3476d188132ef4b3f6503c606830",
+    "GITHUB_RUN_ID": "38532894761",
+    "GITHUB_RUN_ATTEMPT": "1",
+    "GITHUB_JOB": "ios-owner-evidence",
+    "R4_EVIDENCE_PLATFORM": "ios-simulator",
+    "R4_BACKEND_DEPLOYMENT": "dpl_9Q85zjgdKkVGBqXW8WB7aHV6HogC",
+    "R4_BACKEND_SHA": "40621751d4b74c59324fe6601aa5ddbdc7769b08",
+    "EXPO_PUBLIC_API_URL": "https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app",
+    "R4_SUPABASE_PROJECT": "eoyenigwevnxwwhyhaer",
+    "R4_EXTERNAL_SENDS": "disabled"
+  },
+  "failure": {
+    "capture_exit_code": 1,
+    "capture_outcome": "failure",
+    "screenshots": ["01-home-shell-header.png"],
+    "expected_classification": "failed-capture-diagnostic"
+  },
+  "attempt_2": {
+    "started_at": "2026-10-14T23:12:15Z",
+    "android_carry_forward": {
+      "id": 116154724828,
+      "run_attempt": 2,
+      "started_at": "2026-10-14T08:07:18Z",
+      "completed_at": "2026-10-14T08:36:40Z",
+      "conclusion": "success"
+    },
+    "android_reexecution_fixture": {
+      "id": "offline-fixture-new-job",
+      "run_attempt": 2,
+      "started_at": "2026-10-14T23:13:00Z",
+      "completed_at": "2026-10-14T23:30:00Z",
+      "conclusion": "success"
+    }
+  }
+}
