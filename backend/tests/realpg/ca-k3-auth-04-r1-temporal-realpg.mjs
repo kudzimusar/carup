@@ -141,6 +141,12 @@ async function cancel(client, req, { actor, session }) {
     [req.request_id, actor, session, 'realpg cancel']);
   return rows[0].r;
 }
+async function preview(client, actor, subject='m-eve', node=NODE) {
+  const { rows } = await client.query(
+    `SELECT public.corporate_authority_evaluate($1,$2,$3,ARRAY[$4]::text[],false,NULL) r`,
+    [actor, subject, node, MANAGE]);
+  return rows[0].r;
+}
 async function requestFixture(owner, service, maker, checker, subject, { approved = false } = {}) {
   await ensureUsers(owner, [subject]);
   const created = await direct(service, { actor: maker.userId, session: maker.sessionId, subject });
@@ -368,6 +374,7 @@ async function main() {
   // Expiry while queued — assignment and membership are evaluated after the serialization wait.
   const expAssignment = await seedGovernor(owner, 'g-exp-assignment', { assignmentUntilMs: 2800 });
   await ensureUsers(owner, ['m-exp-assignment']);
+  rec('ASSIGNMENT_EXPIRES_WHILE_WAITING: initially authorized', (await preview(service, expAssignment.userId, 'm-exp-assignment')).decision === 'granted');
   const expAssignmentBefore=await countSubject(admin,'m-exp-assignment');
   await holdAdvisory(blocker,'m-exp-assignment');
   await shortQueuedExpiry(
@@ -378,6 +385,7 @@ async function main() {
 
   const expMembership = await seedGovernor(owner, 'g-exp-membership', { membershipUntilMs: 2800 });
   await ensureUsers(owner, ['m-exp-membership']);
+  rec('MEMBERSHIP_WINDOW_EXPIRES_WHILE_WAITING: initially authorized', (await preview(service, expMembership.userId, 'm-exp-membership')).decision === 'granted');
   const expMembershipBefore=await countSubject(admin,'m-exp-membership');
   await holdAdvisory(blocker,'m-exp-membership');
   await shortQueuedExpiry(
@@ -389,6 +397,8 @@ async function main() {
   // Session / A1 remain apparently fresh to frozen Phase B now(), so these specifically prove the FINAL wall-clock rollback boundary.
   const expSession = await seedGovernor(owner, 'g-exp-session', { session: { expiresInMs: 2800 } });
   await ensureUsers(owner, ['m-exp-session']);
+  await owner.query('SELECT public.corporate_governance_assert_a1($1,$2)', [expSession.sessionId, expSession.userId]);
+  rec('SESSION_EXPIRES_WHILE_WAITING: initially A1-authorized', true);
   const expSessionBefore=await countSubject(admin,'m-exp-session');
   await holdAdvisory(blocker,'m-exp-session');
   await shortQueuedExpiry(
@@ -399,6 +409,8 @@ async function main() {
 
   const expA1 = await seedGovernor(owner, 'g-exp-a1', { session: { stepUpAgeMs: 898_000 } });
   await ensureUsers(owner, ['m-exp-a1']);
+  await owner.query('SELECT public.corporate_governance_assert_a1($1,$2)', [expA1.sessionId, expA1.userId]);
+  rec('A1_EXPIRES_WHILE_WAITING: initially A1-authorized', true);
   const expA1Before=await countSubject(admin,'m-exp-a1');
   await holdAdvisory(blocker,'m-exp-a1');
   await shortQueuedExpiry(
