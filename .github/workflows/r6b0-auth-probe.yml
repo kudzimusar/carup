@@ -29,34 +29,34 @@ jobs:
       - name: Probe deployed auth boundary
         shell: bash
         run: |
-          set -u
-          echo "backend_head=$(git rev-parse HEAD)"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BACKEND_SHA"
 
           code_no_csrf="$(curl -sS -o /tmp/no-csrf.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' "$API_URL/api/auth/logout")"
           echo "no_csrf_status=$code_no_csrf"
-          cat /tmp/no-csrf.json; echo
+          test "$code_no_csrf" = "403"
 
           csrf_status="$(curl -sS -c /tmp/cookies.txt -o /tmp/csrf.json -w '%{http_code}' "$API_URL/api/security/csrf-token")"
           echo "csrf_token_status=$csrf_status"
-          cat /tmp/csrf.json; echo
+          test "$csrf_status" = "200"
+          csrf="$(node -pe "JSON.parse(require('fs').readFileSync('/tmp/csrf.json','utf8')).csrfToken")"
+          test -n "$csrf"
 
-          csrf="$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('/tmp/csrf.json','utf8')).csrfToken||'')}catch{console.log('')}")"
-          if [ -n "$csrf" ]; then
-            code_anon="$(curl -sS -b /tmp/cookies.txt -o /tmp/anon.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" --data '{}' "$API_URL/api/auth/logout")"
-            echo "anonymous_with_csrf_status=$code_anon"
-            cat /tmp/anon.json; echo
+          code_anon="$(curl -sS -b /tmp/cookies.txt -o /tmp/anon.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" --data '{}' "$API_URL/api/auth/logout")"
+          echo "anonymous_with_csrf_status=$code_anon"
+          test "$code_anon" = "401"
 
-            code_spoof="$(curl -sS -b /tmp/cookies.txt -o /tmp/spoof.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" -H 'x-user-id: spoofed-user' --data '{"userId":"spoofed-user","sessionId":"spoofed-session","sessionToken":"spoofed-token"}' "$API_URL/api/auth/logout")"
-            echo "spoofed_identity_status=$code_spoof"
-            cat /tmp/spoof.json; echo
-          fi
+          code_body_spoof="$(curl -sS -b /tmp/cookies.txt -o /tmp/body-spoof.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" --data '{"userId":"spoofed-user","sessionId":"spoofed-session","sessionToken":"spoofed-token"}' "$API_URL/api/auth/logout")"
+          echo "body_only_spoof_status=$code_body_spoof"
+          test "$code_body_spoof" = "401"
+
+          code_header_spoof="$(curl -sS -b /tmp/cookies.txt -o /tmp/header-spoof.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "x-csrf-token: $csrf" -H 'x-user-id: spoofed-user' --data '{}' "$API_URL/api/auth/logout")"
+          echo "header_spoof_status=$code_header_spoof"
+          test "$code_header_spoof" = "403"
 
           VERCEL=1 VERCEL_ENV=preview node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
           import { isPasswordlessLoginAllowed } from './backend/utils/passwordAuth.js';
-          console.log('PASSWORDLESS_DEPLOYED_FALLBACK=' + (isPasswordlessLoginAllowed(process.env) ? 'ALLOWED' : 'DENIED'));
+          assert.equal(isPasswordlessLoginAllowed(process.env), false);
+          console.log('PASSWORDLESS_DEPLOYED_FALLBACK=DENIED');
           NODE
-
-          test "$code_no_csrf" = "403"
-          test "$csrf_status" = "200"
-          test "$code_anon" = "401"
-          test "$code_spoof" = "401"
