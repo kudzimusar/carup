@@ -1,0 +1,31 @@
+name: R6-B0 Cancel Superseded iOS Attempt
+
+on:
+  push:
+    branches:
+      - evidence/r6b0-exact-pairing
+    paths:
+      - '.github/workflows/r6b0-cancel-superseded-ios.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel superseded iOS evidence run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: '38687607200'
+        run: |
+          set -euo pipefail
+          status="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).status")"
+          if [ "$status" = "completed" ]; then
+            echo "Superseded run already completed."
+            exit 0
+          fi
+          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/cancel"
+          echo "Cancellation requested."
