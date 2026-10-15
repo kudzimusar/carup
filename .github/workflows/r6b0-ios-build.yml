@@ -1,0 +1,110 @@
+name: R6-B0 iOS Exact Pairing
+
+on:
+  push:
+    branches:
+      - evidence/r6b0-exact-pairing
+    paths:
+      - '.github/workflows/r6b0-ios-build.yml'
+
+permissions:
+  contents: read
+
+env:
+  NATIVE_SHA: 1dd189b98d0590bd7b92a0533f376fb446a2bb9a
+  BACKEND_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  BACKEND_DEPLOYMENT_ID: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
+  SUPABASE_PROJECT: eoyenigwevnxwwhyhaer
+  EXTERNAL_SENDS: disabled
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.NATIVE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Exact native custody and prebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$NATIVE_SHA"
+          npm ci
+          cd mobile
+          npx expo prebuild --platform ios --clean --no-install
+          cd ios
+          pod install
+      - name: Build, install, and prove anonymous login
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/r6b0-ios"
+          mkdir -p "$OUT"
+          UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; xs=[v for group in d.values() for v in group if v.get("isAvailable") and v.get("name","").startswith("iPhone")]; print(xs[0]["udid"] if xs else "")')"
+          test -n "$UDID"
+          DEVICE_NAME="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; u=sys.argv[1]; print(next(v["name"] for group in d.values() for v in group if v.get("udid")==u))' "$UDID")"
+          OS_VERSION="$(xcrun simctl list devices available -j | python3 -c 'import json,sys,re; d=json.load(sys.stdin)["devices"]; u=sys.argv[1]; key=next(k for k,group in d.items() if any(v.get("udid")==u for v in group)); m=re.search(r"iOS-(\d+)-(\d+)",key); print(".".join(m.groups()) if m else key)' "$UDID")"
+
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+          cd mobile/ios
+          WORKSPACE="$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          test -n "$WORKSPACE"
+          SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE" | python3 -c 'import json,sys; j=json.load(sys.stdin); print(j["workspace"]["schemes"][0])')"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -sdk iphonesimulator -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build
+          APP="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator" -maxdepth 2 -name '*.app' -print -quit)"
+          test -n "$APP"
+
+          grep -R -a -m1 -F "$EXPO_PUBLIC_API_URL" "$APP" >/dev/null
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.carup.mobile >/dev/null
+          xcrun simctl openurl "$UDID" "carup://login"
+          sleep 4
+
+          export MAESTRO_VERSION=2.11.0
+          curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
+          "$HOME/.maestro/bin/maestro" --device "$UDID" test - <<'YAML'
+          appId: com.carup.mobile
+          ---
+          - assertVisible: "Sign in to CarUp"
+          - assertVisible: "Email"
+          - assertVisible: "Password"
+          - assertVisible: "Sign in"
+          YAML
+
+          xcrun simctl io "$UDID" screenshot "$OUT/login-anonymous.png"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/CarUp-R6B0-iOS-Simulator.app.zip"
+          cat > "$OUT/custody.json" <<EOF
+          {
+            "native_source_sha":"$NATIVE_SHA",
+            "backend_source_sha":"$BACKEND_SHA",
+            "backend_deployment_id":"$BACKEND_DEPLOYMENT_ID",
+            "backend_deployment_url":"$EXPO_PUBLIC_API_URL",
+            "supabase_project":"$SUPABASE_PROJECT",
+            "external_sends":"$EXTERNAL_SENDS",
+            "auth_state":"anonymous",
+            "platform":"ios-simulator",
+            "device":"$DEVICE_NAME",
+            "os_api":"iOS $OS_VERSION",
+            "xcode":"$(xcodebuild -version | tr '\n' ' ' | sed 's/"/\\"/g')",
+            "node":"$(node --version)",
+            "api_base_embedded":"$EXPO_PUBLIC_API_URL",
+            "login_screen_proven":"YES",
+            "credential_entry_performed":"NO",
+            "recording_stopped_before_owner_login":"YES"
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r6b0-ios-simulator-${{ env.NATIVE_SHA }}
+          path: ${{ runner.temp }}/r6b0-ios
+          if-no-files-found: error
+          retention-days: 30
