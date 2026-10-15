@@ -117,8 +117,109 @@ test('file: it writes only the two assignment tables, never an identity table; i
   for (const t of ['users', 'user_sessions', 'tenants', 'tenant_users', 'organizations', 'organization_users']) {
     assert.doesNotMatch(sql, new RegExp(`\\b(INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+(?:public\\.)?${t}\\b`, 'i'), `never writes ${t}`);
   }
-  assert.doesNotMatch(sql, /\b(tenants|tenant_users|organizations|organization_users|user_sessions)\b/i, 'tenant / external-organisation / session tables are not even read');
+  assert.doesNotMatch(sql, /\b(tenants|tenant_users|organizations|organization_users)\b/i, 'tenant / external-organisation tables are not even read');
+  assert.equal([...sql.matchAll(/\bFROM\s+(?:public\.)?user_sessions\b/gi)].length, 1,
+    'the only Phase-C session read is the final wall-clock A1 revalidation; session state never grants Corporate capability');
   assert.doesNotMatch(sql, /\bFROM\s+(?:public\.)?users\b|\busers\s+SET\b|\.role\b|\brole\s*=|\bplatform_admin\b|\bsuper_admin\b|legacy_admin|\badmin\b/i, 'no role, no admin, no legacy bridge anywhere in the executable SQL');
+});
+
+const phaseCFunction = (sql, name) => {
+  const marker = `CREATE OR REPLACE FUNCTION public.${name}(`;
+  const start = sql.indexOf(marker);
+  assert.ok(start >= 0, `${name} exists`);
+  const next = sql.indexOf('CREATE OR REPLACE FUNCTION public.', start + marker.length);
+  return sql.slice(start, next >= 0 ? next : sql.length);
+};
+const ordered = (body, parts) => parts.every((part, i) => i === 0 || body.indexOf(parts[i - 1]) < body.indexOf(part));
+
+function temporalInvariantViolations(sql) {
+  const failures = [];
+  const directBody = phaseCFunction(sql, 'corporate_authority_apply_direct');
+  if (!ordered(directBody, ['pg_advisory_xact_lock', 'corporate_authority_require', 'corporate_membership_apply_direct', 'corporate_authority_finalize'])) {
+    failures.push('CREATE serialization/finalization order');
+  }
+  for (const [wrapper, phaseB] of [
+    ['corporate_authority_request_decide', 'corporate_membership_request_decide'],
+    ['corporate_authority_request_execute', 'corporate_membership_request_execute'],
+    ['corporate_authority_request_cancel', 'corporate_membership_request_cancel'],
+  ]) {
+    const body = phaseCFunction(sql, wrapper);
+    if (!ordered(body, ['FOR UPDATE', 'corporate_authority_require', phaseB, 'corporate_authority_finalize'])) {
+      failures.push(`${wrapper} serialization/finalization order`);
+    }
+  }
+  const submitBody = phaseCFunction(sql, 'corporate_authority_request_submit');
+  if (!ordered(submitBody, ['corporate_authority_require', 'corporate_membership_request_submit', 'corporate_authority_finalize'])) {
+    failures.push('submit finalization order');
+  }
+  const requireBody = phaseCFunction(sql, 'corporate_authority_require');
+  if (!ordered(requireBody, ['FOR SHARE', 'FOR UPDATE', 'clock_timestamp() - now()', 'corporate_authority_evaluate'])) {
+    failures.push('require post-lock stale gate');
+  }
+  const finalBody = phaseCFunction(sql, 'corporate_authority_finalize');
+  if ((finalBody.match(/clock_timestamp\(\) - now\(\)/g) ?? []).length < 2) failures.push('final stale gates');
+  if (!ordered(finalBody, ['clock_timestamp() - now()', 'corporate_authority_assert_a1_wall_clock', 'corporate_authority_evaluate', 'corporate_governance_check_decision'])) {
+    failures.push('final wall-clock authority order');
+  }
+  const a1Body = phaseCFunction(sql, 'corporate_authority_assert_a1_wall_clock');
+  if (!a1Body.includes('v_now timestamptz := clock_timestamp()') || /v_exp\s*<=\s*now\(\)|v_step\s*[<>].*now\(\)/.test(a1Body)) {
+    failures.push('final A1 wall clock');
+  }
+  const evaluatorBody = phaseCFunction(sql, 'corporate_authority_evaluate');
+  if (!evaluatorBody.includes("'decided_at', to_char(v_now AT TIME ZONE 'UTC'") || evaluatorBody.includes("'decided_at', to_char(now()")) {
+    failures.push('decision timestamp wall clock');
+  }
+  const wrapperFinalizeCalls = (sql.match(/:=\s*public\.corporate_authority_finalize\(/g) ?? []).length;
+  if (wrapperFinalizeCalls !== 5) failures.push(`all five wrappers finalize (${wrapperFinalizeCalls})`);
+  return failures;
+}
+
+test('R1 temporal closure: every later Phase-B serialization point is owned before authority evaluation and every callable wrapper has a rollback-producing final wall-clock boundary', () => {
+  assert.deepEqual(temporalInvariantViolations(PHASE_C.up), []);
+});
+
+test('R1 mutation guards kill every requested temporal-authority regression class', () => {
+  const sql = PHASE_C.up;
+  const mutants = [
+    ['remove post-lock stale gate',
+      sql.replace(`IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE' USING DETAIL = 'a governed call must run in a fresh transaction: time rules are judged against the transaction start';
+  END IF;`, '')],
+    ['move require stale gate before a blocking membership lock',
+      sql.replace(
+        `  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE' USING DETAIL = 'a governed call must run in a fresh transaction: time rules are judged against the transaction start';
+  END IF;`,
+        `  -- mutant: stale gate moved before membership serialization
+  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE';
+  END IF;`)
+         .replace('  FOR r IN\n', '  -- mutant blocking point follows the stale gate\n  FOR r IN\n')],
+    ['change final A1 back to transaction time',
+      sql.replace('v_now timestamptz := clock_timestamp();', 'v_now timestamptz := now();')],
+    ['bypass final rollback-producing validation on CREATE',
+      sql.replace(
+        `    v_decision := public.corporate_authority_finalize(
+      p_actor_user_id, p_actor_session_id, v_subject, v_node, v_caps,`,
+        `    v_decision := v_decision; -- mutant: finalization bypassed
+    -- removed corporate_authority_finalize(
+      p_actor_user_id, p_actor_session_id, v_subject, v_node, v_caps,`)],
+    ['omit DECIDE request serialization',
+      sql.replace('FROM public.corporate_membership_requests WHERE request_id = p_request_id FOR UPDATE;', 'FROM public.corporate_membership_requests WHERE request_id = p_request_id;', 1)],
+    ['omit EXECUTE request serialization',
+      (() => {
+        const body = phaseCFunction(sql, 'corporate_authority_request_execute');
+        return sql.replace(body, body.replace('FOR UPDATE;', ';'));
+      })()],
+    ['omit CANCEL request serialization',
+      (() => {
+        const body = phaseCFunction(sql, 'corporate_authority_request_cancel');
+        return sql.replace(body, body.replace('FOR UPDATE;', ';'));
+      })()],
+  ];
+  for (const [name, mutant] of mutants) {
+    assert.notDeepEqual(temporalInvariantViolations(mutant), [], `mutant survived: ${name}`);
+  }
 });
 
 test('migration: applied to an empty Corporate world it creates NO assignment, member, administrator or reference row — only the accepted organisation nodes exist', async () => {
@@ -178,8 +279,10 @@ test('privileges: service_role may EXECUTE exactly the five authority-gated entr
 
 test('functions: the entry points, the evaluator and the lock-and-require helper are SECURITY DEFINER owned by the migration owner with a pinned search_path; guards and pure helpers are not definers', async () => {
   const db = await openDatabase({ migrate: 'all' });
-  const NEW_DEFINERS = [...WRAPPERS, 'corporate_authority_evaluate', 'corporate_authority_require', 'corporate_permission_assignment_events_record'];
-  const NEW_PLAIN = ['corporate_authority_grantable_capabilities', 'corporate_authority_scope_covers', 'corporate_permission_assignments_guard', 'corporate_permission_assignment_events_guard'];
+  const NEW_DEFINERS = [...WRAPPERS, 'corporate_authority_evaluate', 'corporate_authority_require',
+    'corporate_authority_assert_a1_wall_clock', 'corporate_authority_finalize', 'corporate_permission_assignment_events_record'];
+  const NEW_PLAIN = ['corporate_authority_grantable_capabilities', 'corporate_authority_scope_covers',
+    'corporate_authority_max_transaction_age', 'corporate_permission_assignments_guard', 'corporate_permission_assignment_events_guard'];
   const rows = (await db.query(`SELECT proname, prosecdef, pg_get_userbyid(proowner) AS owner, proconfig::text AS config FROM pg_proc
       WHERE pronamespace = 'public'::regnamespace AND proname = ANY($1) ORDER BY 1`, [[...NEW_DEFINERS, ...NEW_PLAIN]])).rows;
   assert.equal(rows.length, NEW_DEFINERS.length + NEW_PLAIN.length);
@@ -205,8 +308,16 @@ test('direct DML: service_role, anon and authenticated cannot INSERT, UPDATE, DE
           if (code !== '42501') failures.push(`${role} ${t} ${label}: ${code}`);
         }
       }
-      for (const fn of ['corporate_authority_require', 'corporate_permission_assignments_guard', 'corporate_permission_assignment_events_record', 'corporate_authority_scope_covers']) {
-        const code = await sqlCode(db.query(`SELECT public.${fn}(${fn === 'corporate_authority_scope_covers' ? "ARRAY['X'], false, 'X'" : fn === 'corporate_authority_require' ? "'a','b','c',ARRAY['x'],false,NULL,false" : ''})`));
+      const internalCalls = {
+        corporate_authority_require: "'a','b','c',ARRAY['x'],false,NULL,false",
+        corporate_authority_assert_a1_wall_clock: "'s','a'",
+        corporate_authority_finalize: "'a','s','b','c',ARRAY['x'],false,false,NULL",
+        corporate_permission_assignments_guard: '',
+        corporate_permission_assignment_events_record: '',
+        corporate_authority_scope_covers: "ARRAY['X'], false, 'X'",
+      };
+      for (const [fn, args] of Object.entries(internalCalls)) {
+        const code = await sqlCode(db.query(`SELECT public.${fn}(${args})`));
         if (code !== '42501') failures.push(`${role} ${fn}: ${code}`);
       }
     });
