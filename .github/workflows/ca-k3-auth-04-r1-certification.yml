@@ -12,6 +12,14 @@ on:
       - 'backend/tests/ca-k3-auth-03-membership-governance-service.test.js'
       - 'backend/tests/realpg/ca-k3-auth-04-r1-temporal-realpg.mjs'
       - '.github/workflows/ca-k3-auth-04-r1-certification.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql'
+      - 'backend/tests/ca-k3-auth-04-permission-authority-pglite.test.js'
+      - 'backend/tests/ca-k3-auth-03-membership-governance-service.test.js'
+      - 'backend/tests/realpg/ca-k3-auth-04-r1-temporal-realpg.mjs'
+      - '.github/workflows/ca-k3-auth-04-r1-certification.yml'
   workflow_dispatch: {}
 
 permissions:
