@@ -30,6 +30,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   NODE_ENV: test
   SUPABASE_URL: http://localhost:54321
   SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
@@ -44,6 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -53,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test "$(git hash-object database/migrations/20261014010000_ca_k3_auth_02_corporate_membership_foundation.sql)" = "a6f7d0ec15236056b3b1c3f6f1f55c1fbf024cda"
           test "$(git hash-object database/migrations/20261014020000_ca_k3_auth_03_corporate_membership_governance.sql)" = "433ae3bf85e53455b48f0bee5ff3c35028a22169"
           test "$(git merge-base 2bf90e7e8f470ba775602c9da8237a2db8eeba02 HEAD)" = "2bf90e7e8f470ba775602c9da8237a2db8eeba02"
@@ -69,7 +71,7 @@ jobs:
       - name: Web TypeScript
         run: npx tsc --noEmit --project web/tsconfig.app.json
       - name: Exact remediation diff hygiene
-        run: git diff --check 2bf90e7e8f470ba775602c9da8237a2db8eeba02 "$GITHUB_SHA"
+        run: git diff --check 2bf90e7e8f470ba775602c9da8237a2db8eeba02 "$CANDIDATE_SHA"
 
   real-postgres:
     name: Real PostgreSQL ${{ matrix.pg }}
@@ -98,6 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -115,6 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
