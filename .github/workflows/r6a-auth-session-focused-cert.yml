@@ -1,0 +1,115 @@
+name: R6-A-R1 Focused Auth Session Certification
+
+on:
+  push:
+    branches:
+      - evidence/r6a-auth-session-focused-cert
+
+permissions:
+  contents: read
+
+jobs:
+  backend-focused:
+    name: Backend current-session logout
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      CANDIDATE_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+      BASE_SHA: 40621751d4b74c59324fe6601aa5ddbdc7769b08
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Exact custody
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA..HEAD"
+          test "$(git diff --name-only "$BASE_SHA..HEAD" | sort | tr '\n' ' ')" = "backend/routes/authSecurityRoutes.js backend/tests/r6a-current-session-logout.test.js "
+      - name: Install dependencies
+        run: npm ci
+      - name: Focused backend auth and session tests
+        run: |
+          node --test \
+            backend/tests/r6a-current-session-logout.test.js \
+            backend/tests/o2-x3-authentication-assurance.test.js \
+            backend/tests/auth-session.test.js \
+            backend/tests/auth-session-row.test.js
+      - name: Backend syntax and deployed-passwordless guard
+        shell: bash
+        run: |
+          node --check backend/routes/authSecurityRoutes.js
+          node --check backend/tests/r6a-current-session-logout.test.js
+          if git diff "$BASE_SHA..HEAD" | grep -F 'CARUP_ALLOW_PASSWORDLESS_LOGIN=true'; then
+            echo "::error::dangerous passwordless override introduced"
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { isPasswordlessLoginAllowed } from './backend/utils/passwordAuth.js';
+          assert.equal(isPasswordlessLoginAllowed({ NODE_ENV: 'test', VERCEL: '1', VERCEL_ENV: 'preview' }), false);
+          assert.equal(isPasswordlessLoginAllowed({ NODE_ENV: 'development', VERCEL: '1', VERCEL_ENV: 'production' }), false);
+          console.log('deployed passwordless fallback denied');
+          NODE
+
+  native-focused:
+    name: Native logout and cache isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      EXPO_PUBLIC_API_URL: https://staging.example.invalid
+      CANDIDATE_SHA: 0bef036b9e508e852bcbebdb09db8a681bc282bf
+      BASE_SHA: 266c9c7608ab3476d188132ef4b3f6503c606830
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Exact custody
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA..HEAD"
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA..HEAD")
+          printf '%s\n' "${changed[@]}"
+          for file in "${changed[@]}"; do
+            case "$file" in
+              mobile/app/_layout.tsx|mobile/store/authStore.ts|mobile/tests/r6a-auth-session-isolation.test.ts|mobile/utils/queryClient.ts|mobile/utils/sessionLogout.ts) ;;
+              *) echo "::error::unexpected native remediation path: $file"; exit 1 ;;
+            esac
+          done
+      - name: Install dependencies
+        run: npm ci
+      - name: Focused native auth and identity-isolation tests
+        run: |
+          npm run test --workspace=mobile -- \
+            tests/r6a-auth-session-isolation.test.ts \
+            tests/gate2-session-validation.test.ts \
+            tests/oc5d-active-tenant.test.ts
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+      - name: Native static auth-adjacent suite
+        run: npm run test:static --workspace=mobile
+      - name: No refresh-token or dangerous passwordless activation in remediation diff
+        shell: bash
+        run: |
+          if git diff "$BASE_SHA..HEAD" | grep -Ei 'refresh[_ -]?token|CARUP_ALLOW_PASSWORDLESS_LOGIN=true'; then
+            echo "::error::forbidden auth architecture activation detected"
+            exit 1
+          fi
