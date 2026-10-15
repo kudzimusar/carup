@@ -95,4 +95,34 @@ router.post(
   }),
 );
 
+// Sign out this presenting session only. No password/step-up is required: the caller already
+// holds the session being terminated, and neither body identity nor a body-supplied session id
+// participates in target selection.
+router.post(
+  '/api/auth/logout',
+  authorizeSessionRole([]),
+  asyncHandler(async (req, res) => {
+    const token = presentingToken(req);
+
+    // Resolve the current session from the authenticated account's server-owned live-session set.
+    // listOwnSessions never returns token material; current is computed server-side by matching
+    // the presenting credential that authorizeSessionRole has already proven.
+    const sessions = await listOwnSessions(supabase, req.userContext, { presentingToken: token });
+    const currentSession = sessions.find((session) => session.current);
+    if (!currentSession) {
+      return res.status(401).json({ error: 'Unauthorized. Presenting session is invalid or expired.' });
+    }
+
+    await revokeSessionsForUser(supabase, req.userContext, {
+      userId: req.userContext.id,
+      scope: 'one',
+      sessionId: currentSession.id,
+      reason: 'self_service_current_session_logout',
+    }, { req, sourceRoute: '/api/auth/logout' });
+
+    // Deliberately return no session id and no credential material.
+    return res.json({ success: true });
+  }),
+);
+
 export default router;
