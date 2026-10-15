@@ -322,9 +322,9 @@ export default function DealerOnboarding() {
                     {overview.document_types.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                   </select>
                 </label>
-                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm" data-testid="upload-evidence">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2" data-testid="upload-evidence">
                   <Upload className="h-4 w-4" aria-hidden />{uploading ? 'Uploading…' : 'Upload document'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
+                  <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only"
                     onChange={(e) => uploadEvidence(e.target.files?.[0])} />
                 </label>
               </div>
@@ -362,9 +362,9 @@ export default function DealerOnboarding() {
                 CarUp suggests how your columns map; you decide. Nothing is imported here — the import engine runs a dry run you review first.
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
                   <Upload className="h-4 w-4" aria-hidden />{workbookFile ? workbookFile.name : 'Choose .xlsx file'}
-                  <input type="file" accept=".xlsx" className="hidden" onChange={(e) => pickWorkbook(e.target.files?.[0])} data-testid="workbook-file" />
+                  <input type="file" accept=".xlsx" className="sr-only" onChange={(e) => pickWorkbook(e.target.files?.[0])} data-testid="workbook-file" />
                 </label>
                 <Button size="sm" onClick={inspectWorkbook} disabled={!workbookFile || inspecting} data-testid="inspect-workbook">
                   {inspecting ? 'Inspecting…' : 'Inspect & suggest mapping'}
@@ -379,21 +379,25 @@ export default function DealerOnboarding() {
                   {inspection.ai.state === 'unavailable' && (
                     <p className="text-xs text-amber-700" data-testid="ai-unavailable">AI suggestions are unavailable right now — map the remaining columns yourself.</p>
                   )}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead><tr className="text-left text-muted-foreground"><th className="p-1">Workbook column</th><th className="p-1">CarUp field</th><th className="p-1">Suggested by</th></tr></thead>
-                      <tbody>
+                  {/* On a phone each mapping is a stacked block (column, decision, provenance) so the decision is never
+                      off-screen; from sm up it is the table it always was. Explicit roles keep the table semantics that
+                      a display change would otherwise drop (PC01-F F6). */}
+                  <div className="sm:overflow-x-auto">
+                    <table className="block w-full text-xs sm:table" role="table">
+                      <thead className="sr-only sm:not-sr-only sm:table-header-group" role="rowgroup"><tr className="text-left text-muted-foreground" role="row"><th className="p-1" role="columnheader">Workbook column</th><th className="p-1" role="columnheader">CarUp field</th><th className="p-1" role="columnheader">Suggested by</th></tr></thead>
+                      <tbody className="block sm:table-row-group" role="rowgroup">
                         {inspection.proposals.map((row) => (
-                          <tr key={row.source} className="border-t border-border">
-                            <td className="p-1">{row.source}</td>
-                            <td className="p-1">
+                          <tr key={row.source} className="block border-t border-border py-2 sm:table-row sm:py-0" role="row">
+                            <td className="block break-words p-1 font-medium text-foreground sm:table-cell sm:break-normal sm:font-normal" role="cell">{row.source}</td>
+                            <td className="block p-1 sm:table-cell" role="cell">
                               <select className={fieldClass} value={mappingTargets[row.source] || 'ignore'} data-testid={`target-${row.source}`}
+                                aria-label={`CarUp field for ${row.source}`}
                                 onChange={(e) => { setMappingTargets({ ...mappingTargets, [row.source]: e.target.value }); setMappingConfirmed(false) }}>
                                 <option value="ignore">— ignore —</option>
                                 {inspection.canonical_columns.map((c) => <option key={c} value={c}>{c}</option>)}
                               </select>
                             </td>
-                            <td className="p-1 text-muted-foreground" data-testid={`source-${row.source}`}>{sourceLabel(row)}</td>
+                            <td className="block p-1 text-muted-foreground sm:table-cell" role="cell" data-testid={`source-${row.source}`}>{sourceLabel(row)}</td>
                           </tr>
                         ))}
                       </tbody>

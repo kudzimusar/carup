@@ -10,8 +10,10 @@ import ExtractionReviewPanel from '@/components/ExtractionReviewPanel'
 import { CheckCircle, FileText, Image as ImageIcon, Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EvidenceVerificationStatus, VehicleEvidence } from '@/types'
+import { ProvenanceNotice, ReadFailedNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 
 const statuses: EvidenceVerificationStatus[] = ['pending', 'verified', 'rejected']
+const PAGE_SIZE = 50
 
 function labelize(value?: string) {
   return (value || 'evidence')
@@ -38,7 +40,12 @@ function classificationLabel(item: VehicleEvidence) {
 export default function EvidenceReview() {
   const { fetchEvidenceReviewQueue, approveEvidence, rejectEvidence } = useCarUpApi()
   const [status, setStatus] = useState<EvidenceVerificationStatus>('pending')
+  const [page, setPage] = useState(1)
   const [items, setItems] = useState<VehicleEvidence[]>([])
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [provenance, setProvenance] = useState<ProvenanceSummary | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -46,23 +53,39 @@ export default function EvidenceReview() {
   useEffect(() => {
     let mounted = true
     setLoading(true)
-    fetchEvidenceReviewQueue(status)
+    // PC01-K2B: an explicit page of the operational queue with its true total. A failed read clears
+    // the list — the previous tab's rows must never sit under the new tab's label.
+    fetchEvidenceReviewQueue(status, page, PAGE_SIZE)
       .then(data => {
-        if (mounted) setItems(data)
+        if (!mounted) return
+        // A response without a page of items is not an empty queue; it is a read we cannot trust.
+        if (!data || !Array.isArray(data.items)) throw new Error('The evidence queue returned an unreadable response')
+        setItems(data.items)
+        setTotal(data.total ?? 0)
+        setHasMore(Boolean(data.has_more))
+        setProvenance(data.provenance ?? null)
+        setLoadError(null)
       })
-      .catch(err => toast.error(err instanceof Error ? err.message : 'Failed to load evidence queue'))
+      .catch(err => {
+        if (!mounted) return
+        setItems([])
+        setTotal(0)
+        setHasMore(false)
+        setLoadError(err instanceof Error ? err.message : 'Failed to load evidence queue')
+      })
       .finally(() => {
         if (mounted) setLoading(false)
       })
 
     return () => { mounted = false }
-  }, [fetchEvidenceReviewQueue, status])
+  }, [fetchEvidenceReviewQueue, status, page])
 
   const counts = useMemo(() => ({
-    total: items.length,
     photos: items.filter(item => item.evidence_type.includes('photo')).length,
     documents: items.filter(item => item.evidence_type.includes('document')).length
   }), [items])
+  const firstShown = items.length ? (page - 1) * PAGE_SIZE + 1 : 0
+  const lastShown = (page - 1) * PAGE_SIZE + items.length
 
   const review = async (item: VehicleEvidence, action: 'approve' | 'reject') => {
     setBusyId(item.id)
@@ -76,6 +99,7 @@ export default function EvidenceReview() {
         toast.success('Evidence rejected')
       }
       setItems(current => current.filter(row => row.id !== item.id))
+      setTotal(current => Math.max(0, current - 1))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Evidence review failed')
     } finally {
@@ -90,7 +114,7 @@ export default function EvidenceReview() {
           <h1 className="text-2xl font-bold">Vehicle Evidence Review</h1>
           <p className="text-gray-500">Approve, reject, and inspect visual proof linked to vehicle registry events.</p>
         </div>
-        <Tabs value={status} onValueChange={(value) => setStatus(value as EvidenceVerificationStatus)}>
+        <Tabs value={status} onValueChange={(value) => { setStatus(value as EvidenceVerificationStatus); setPage(1) }}>
           <TabsList>
             {statuses.map(option => (
               <TabsTrigger key={option} value={option}>{labelize(option)}</TabsTrigger>
@@ -101,14 +125,14 @@ export default function EvidenceReview() {
 
       <div className="grid sm:grid-cols-3 gap-4">
         {[
-          { label: 'Queue Items', value: counts.total },
-          { label: 'Photos', value: counts.photos },
-          { label: 'Documents', value: counts.documents },
+          { label: 'Queue Items', value: loadError ? '—' : total },
+          { label: 'Photos on this page', value: loadError ? '—' : counts.photos },
+          { label: 'Documents on this page', value: loadError ? '—' : counts.documents },
         ].map(stat => (
           <Card key={stat.label} className="border-0 card-shadow">
             <CardContent className="p-5">
               <p className="text-sm text-gray-500">{stat.label}</p>
-              <p className="text-2xl font-bold mt-1">{stat.value}</p>
+              <p className="text-2xl font-bold mt-1" data-testid={`evidence-stat-${stat.label.split(' ')[0].toLowerCase()}`}>{stat.value}</p>
             </CardContent>
           </Card>
         ))}
@@ -117,9 +141,21 @@ export default function EvidenceReview() {
       <Card className="border-0 card-shadow">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Evidence Queue</CardTitle>
+          <ProvenanceNotice provenance={provenance} noun="evidence items" />
+          {!loadError && total > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600" data-testid="evidence-page-range">
+              <span>Showing {firstShown}–{lastShown} of {total}</span>
+              <span className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage(p => Math.max(1, p - 1))}>Previous</Button>
+                <Button variant="outline" size="sm" disabled={!hasMore || loading} onClick={() => setPage(p => p + 1)}>Next</Button>
+              </span>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
-          {loading ? (
+          {loadError && !loading ? (
+            <ReadFailedNotice what={`The ${status} evidence queue`} detail={loadError} />
+          ) : loading ? (
             <div className="py-12 flex justify-center text-orange-500">
               <Loader2 className="w-7 h-7 animate-spin" />
             </div>

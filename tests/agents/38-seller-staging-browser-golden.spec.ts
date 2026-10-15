@@ -25,6 +25,7 @@ import {
   API_URL,
   RUN_ID,
 } from './staging-helpers';
+import { tapClearOfBars } from './safe-tap';
 
 interface SessionAuth {
   token: string;
@@ -549,7 +550,10 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
       .toEqual(photoLabels);
 
     // Real guest buyer intent -> governed Marketplace inquiry -> Communications bridge.
-    await page.getByTestId('marketplace-inquiry-open').first().click();
+    // REL-02 D: the listing page has a sticky header AND (below 1024px) a fixed compact bottom bar, and
+    // html{scroll-behavior:smooth}. Playwright's own auto-scroll cannot settle there (see safe-tap.ts), so the
+    // control is explicitly scrolled clear of both bars, its clearance recorded, and then tapped normally.
+    await tapClearOfBars(page, page.getByTestId('marketplace-inquiry-open').first(), testInfo, 'ask-about-vehicle');
     await expect(page.getByTestId('marketplace-inquiry-modal')).toBeVisible();
     await page.getByTestId('marketplace-inquiry-name').fill('Golden Dynamic Buyer');
     await page.getByTestId('marketplace-inquiry-email').fill(`golden-${suffix}@example.test`);
@@ -566,7 +570,7 @@ test.describe('Golden Dynamic Seller — exact-head deployed acceptance', () => 
     // Phase N inspection-request instrumentation is a separate authoritative inquiry type.
     const inspectionTrigger = page.getByRole('button', { name: /Request (an )?inspection/i }).first();
     await expect(inspectionTrigger).toBeVisible({ timeout: 20_000 });
-    await inspectionTrigger.click();
+    await tapClearOfBars(page, inspectionTrigger, testInfo, 'request-inspection');
     await expect(page.getByTestId('marketplace-inquiry-modal')).toBeVisible();
     await page.getByTestId('marketplace-inquiry-name').fill('Golden Dynamic Buyer');
     await page.getByTestId('marketplace-inquiry-email').fill(`inspection-${suffix}@example.test`);

@@ -1,3 +1,5 @@
+import { isPublicLaunchNavigationRoute } from '@/config/publicLaunchPolicy'
+import { canonicalListingUrl } from '@/config/publicPageMetadata'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -21,7 +23,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
+import { zimbabweLocations } from '@/data/zimbabweLocations'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { MarketplaceListingSummary } from '@/types'
@@ -94,24 +96,15 @@ function MarketplaceImpression({
   return <div ref={ref}>{children}</div>
 }
 
-const ALLOW_MOCK_LISTINGS = import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
-
 function marketplacePriceLabel(price: number | null | undefined, currency: string | null | undefined) {
   if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price not recorded'
   const amount = price.toLocaleString()
   if (!currency?.trim()) return `${amount} · currency not recorded`
-  return currency.toUpperCase() === 'USD' ? `${amount}` : `${currency.toUpperCase()} ${amount}`
-}
-
-/** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
-export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
-  if (live.length > 0) return live
-  return allowMock ? mock : []
+  return currency.toUpperCase() === 'USD' ? `$${amount}` : `${currency.toUpperCase()} ${amount}`
 }
 
 type TrustRanking = { requested?: string; applied?: string; note?: string }
 type CanonicalListing = MarketplaceListingSummary
-type MockVehicle = (typeof mockVehicles)[number]
 
 const CONDITION_LABELS: Record<string, string> = {
   brand_new: 'Brand New',
@@ -148,51 +141,8 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
   }
 }
 
-/**
- * Dev-only adapter. Production/staging never use this path. Mock rows intentionally carry no
- * canonical Trust projection, so the reference card presents an unevaluated/unknown Trust state
- * rather than laundering mock `trustScore` into a public claim.
- */
-function mockVehicleToListing(vehicle: MockVehicle): CanonicalListing {
-  return {
-    vin: vehicle.vin,
-    make: vehicle.make,
-    model: vehicle.model,
-    year: vehicle.year,
-    price: vehicle.price,
-    currency: vehicle.currency,
-    mileage: vehicle.mileage,
-    fuel_type: vehicle.fuelType,
-    transmission: vehicle.transmission,
-    status: vehicle.status || 'Available',
-    condition_category: 'unknown',
-    marketplace_tags: [],
-    trust_score: null,
-    trust: null,
-    primary_image_url: vehicle.images?.[0] || null,
-    primary_image_state: vehicle.images?.[0] ? 'first_published' : 'none',
-    primary_image_unpublishable_count: 0,
-    plate_verified: false,
-    plate_status: null,
-    passport_verified: false,
-    evidence_count: 0,
-    partsentry_checked: false,
-    repair_history_count: 0,
-    verified_parts_count: 0,
-    duty_cleared: false,
-    zimra_verified: false,
-    cid_clear: false,
-    seller_type: vehicle.sellerType === 'Dealer' ? 'dealer' : 'private',
-    seller_display_label: vehicle.sellerName,
-    seller_public_profile_enabled: true,
-    location: vehicle.location,
-    location_state: 'recorded',
-    created_at: vehicle.listingDate || null,
-  }
-}
-
 async function shareListing(vin: string, name: string) {
-  const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
+  const url = canonicalListingUrl(vin)
   try {
     if (navigator.share) await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
     else {
@@ -260,7 +210,7 @@ function FilterControls({
   return (
     <div className="grid gap-4">
       <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Make</label>
+        <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Make</label>
         <Select value={selectedMake} onValueChange={onMake}>
           <SelectTrigger data-testid="marketplace-make-filter" className="bg-white"><SelectValue /></SelectTrigger>
           <SelectContent>{makes.map(make => <SelectItem key={make} value={make}>{make}</SelectItem>)}</SelectContent>
@@ -268,7 +218,7 @@ function FilterControls({
       </div>
 
       <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Model</label>
+        <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Model</label>
         <Input
           list="marketplace-model-options"
           value={selectedModel === ALL ? '' : selectedModel}
@@ -284,7 +234,7 @@ function FilterControls({
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Year</label>
+          <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Year</label>
           <Select value={selectedYear} onValueChange={onYear}>
             <SelectTrigger className="bg-white" data-testid="marketplace-year-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -294,7 +244,7 @@ function FilterControls({
           </Select>
         </div>
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Colour</label>
+          <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Colour</label>
           <Select value={selectedColor} onValueChange={onColor}>
             <SelectTrigger className="bg-white" data-testid="marketplace-color-filter"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -306,7 +256,7 @@ function FilterControls({
       </div>
 
       <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Body style</label>
+        <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Body style</label>
         <Select value={selectedBodyStyle} onValueChange={onBodyStyle}>
           <SelectTrigger className="bg-white" data-testid="marketplace-body-style-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -317,7 +267,7 @@ function FilterControls({
       </div>
 
       <div>
-        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Location</label>
+        <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Location</label>
         <Select value={selectedLocation} onValueChange={onLocation}>
           <SelectTrigger className="bg-white" data-testid="marketplace-location-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -329,14 +279,14 @@ function FilterControls({
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Fuel</label>
+          <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Fuel</label>
           <Select value={selectedFuel} onValueChange={onFuel}>
             <SelectTrigger className="bg-white" data-testid="marketplace-fuel-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{fuelTypes.map(fuel => <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div>
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Transmission</label>
+          <label className="mb-1.5 block text-sm font-semibold uppercase tracking-wide text-slate-500">Transmission</label>
           <Select value={selectedTransmission} onValueChange={onTransmission}>
             <SelectTrigger className="bg-white" data-testid="marketplace-transmission-filter"><SelectValue /></SelectTrigger>
             <SelectContent>{transmissions.map(transmission => <SelectItem key={transmission} value={transmission}>{transmission}</SelectItem>)}</SelectContent>
@@ -346,8 +296,8 @@ function FilterControls({
 
       <div>
         <div className="mb-2 flex items-center justify-between gap-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</label>
-          <span className="text-[11px] font-medium text-slate-500">
+          <label className="text-sm font-semibold uppercase tracking-wide text-slate-500">Price</label>
+          <span className="text-[13px] font-medium text-slate-500">
             ${priceRange[0].toLocaleString()} – {priceRange[1] >= 100000 ? 'Any max' : `$${priceRange[1].toLocaleString()}`}
           </span>
         </div>
@@ -419,6 +369,7 @@ export default function Marketplace() {
   const [liveListings, setLiveListings] = useState<CanonicalListing[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
   const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
@@ -485,6 +436,7 @@ export default function Marketplace() {
   // for the same shopping surface. Production fails closed; explicit dev mode may show mock inventory.
   useEffect(() => {
     let cancelled = false
+    let requestDeadline: number | undefined
     const apiFilters = stateToApiFilters(url) as Record<string, string | number | boolean | undefined>
     if (fixtureScope) apiFilters.fixture_scope = fixtureScope
 
@@ -493,26 +445,32 @@ export default function Marketplace() {
     setLoadError(false)
     /* eslint-enable react-hooks/set-state-in-effect */
 
-    fetchMarketplaceListings(apiFilters)
+    Promise.race([
+      fetchMarketplaceListings(apiFilters),
+      new Promise<never>((_resolve, reject) => {
+        requestDeadline = window.setTimeout(() => reject(new Error('Published listing request timed out')), 10_000)
+      }),
+    ])
       .then(data => {
         if (cancelled) return
         setTrustRanking(readTrustRanking(data))
         const listings = Array.isArray(data?.listings) ? data.listings as CanonicalListing[] : []
-        setLiveListings(withMockFallback(listings, mockVehicles.map(mockVehicleToListing)))
+        setLiveListings(listings)
       })
       .catch(error => {
         if (cancelled) return
         console.error('Failed to fetch canonical marketplace listing summaries:', error)
         setTrustRanking(null)
         setLoadError(true)
-        setLiveListings(withMockFallback([], mockVehicles.map(mockVehicleToListing)))
+        setLiveListings([])
       })
       .finally(() => {
+        window.clearTimeout(requestDeadline)
         if (!cancelled) setLoadingVehicles(false)
       })
 
-    return () => { cancelled = true }
-  }, [url, fixtureScope, fetchMarketplaceListings])
+    return () => { cancelled = true; window.clearTimeout(requestDeadline) }
+  }, [url, fixtureScope, fetchMarketplaceListings, retryCount])
 
   const toggleCompare = useCallback((event: React.MouseEvent, vin: string) => {
     event.preventDefault()
@@ -665,10 +623,10 @@ export default function Marketplace() {
         <div className="mb-2 flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Vehicle condition</p>
-            <p className="mt-0.5 text-xs leading-4 text-slate-500">Choose one classification.</p>
+            <p className="mt-0.5 text-sm leading-4 text-slate-500">Choose one classification.</p>
           </div>
           {url.selectedCategory !== ALL && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedCategory: ALL })} data-testid="marketplace-clear-condition">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={() => updateUrl({ selectedCategory: ALL })} data-testid="marketplace-clear-condition">
               Clear
             </Button>
           )}
@@ -682,7 +640,7 @@ export default function Marketplace() {
                 type="button"
                 aria-pressed={active}
                 onClick={() => (chip === 'All' ? updateUrl({ selectedCategory: ALL }) : setCategoryFilter(chip))}
-                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
+                className={`rounded-full border px-2.5 py-1.5 text-[13px] font-semibold transition ${active
                   ? 'border-orange-500 bg-orange-50 text-orange-800'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
                 data-testid="marketplace-category-chip"
@@ -700,10 +658,10 @@ export default function Marketplace() {
             <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
               <ShieldCheck className="h-4 w-4 text-orange-600" /> Trust signals
             </p>
-            <p className="mt-0.5 text-xs leading-4 text-slate-500">Stack filters; every selected signal must match.</p>
+            <p className="mt-0.5 text-sm leading-4 text-slate-500">Stack filters; every selected signal must match.</p>
           </div>
           {url.selectedTags.length > 0 && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
               Clear
             </Button>
           )}
@@ -717,7 +675,7 @@ export default function Marketplace() {
                 type="button"
                 aria-pressed={active}
                 onClick={() => toggleTrustTag(chip)}
-                className={`rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${active
+                className={`rounded-full border px-2.5 py-1.5 text-[13px] font-semibold transition ${active
                   ? 'border-orange-500 bg-orange-50 text-orange-800'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:text-slate-900'}`}
                 data-testid="marketplace-trust-chip"
@@ -738,40 +696,41 @@ export default function Marketplace() {
         data-testid="marketplace-compact-header"
       >
         <div className="pointer-events-none absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_18%_20%,rgba(249,115,22,0.16),transparent_24%),linear-gradient(120deg,transparent_0%,transparent_58%,rgba(255,255,255,0.04)_58%,rgba(255,255,255,0.04)_59%,transparent_59%)]" />
-        <div className="section-padding relative mx-auto max-w-[1440px] pb-20 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
+        <div className="section-padding relative mx-auto max-w-[1440px] pb-12 pt-5 sm:pb-24 lg:pb-28 lg:pt-7">
           <div className="flex items-center justify-between gap-5 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-orange-400">
+            <div className="flex items-center gap-2 text-[13px] font-black uppercase tracking-[0.24em] text-orange-400">
               <CarFront className="h-4 w-4" /> CarUp Marketplace
             </div>
-            <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-xs font-semibold sm:text-sm" aria-label="Marketplace categories">
-              <Link to="/marketplace" className="shrink-0 border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
-              <Link to="/marketplace/parts" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
-              <Link to="/marketplace/services" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Garages</Link>
-              <Link to="/diaspora" className="shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
-              <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>
-              <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Finance</Link>
+            <nav className="flex max-w-[72vw] gap-1 overflow-x-auto text-sm font-semibold sm:text-sm" aria-label="Marketplace categories">
+              <Link to="/marketplace" className="inline-flex min-h-11 shrink-0 items-center border-b border-orange-400 px-2.5 py-2 text-white">Cars</Link>
+              <Link to="/marketplace/parts" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Parts</Link>
+              <Link to="/marketplace/services" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Services</Link>
+              <Link to="/diaspora" className="inline-flex min-h-11 shrink-0 items-center border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white">Imports</Link>
+              {isPublicLaunchNavigationRoute('/insurance') && <Link to="/insurance" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Insurance</Link>}
+              {/* PC01-J-R1: labelled "Finance" — CarUp offers no finance; the page is Pricing. */}
+              {isPublicLaunchNavigationRoute('/pricing') && <Link to="/pricing" className="hidden shrink-0 border-b border-transparent px-2.5 py-2 text-slate-400 hover:text-white sm:block">Pricing</Link>}
             </nav>
           </div>
 
-          <div className="grid gap-8 pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
+          <div className="grid gap-6 pt-6 sm:gap-8 sm:pt-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-12 lg:pt-12">
             <div className="relative z-10 lg:pb-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
-              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.055em] text-white sm:text-6xl lg:text-7xl">
+              <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-400">Zimbabwe&apos;s vehicle showroom + trust layer</p>
+              <h1 className="mt-4 max-w-3xl text-[2.25rem] font-black leading-[0.95] tracking-[-0.045em] text-white sm:text-6xl sm:leading-[0.9] sm:tracking-[-0.055em] lg:text-7xl">
                 Find the car.
                 <span className="mt-1 block text-orange-400">Know what stands behind it.</span>
               </h1>
-              <p className="mt-6 max-w-xl text-sm leading-6 text-slate-300 sm:text-base sm:leading-7">
-                Shop published vehicles with the commercial facts up front and CarUp&apos;s governed Trust,
-                evidence and lifecycle context close enough to act on — without turning seller claims into verified facts.
+              <p className="mt-6 max-w-xl text-base leading-7 text-slate-300">
+                Compare published cars, prices and locations. Read the Passport for recorded evidence,
+                seller-stated facts and gaps before you decide.
               </p>
-              <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-4 text-xs text-slate-400">
+              <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-4 text-sm text-slate-400">
                 <span><strong className="text-white">Published</strong> inventory only</span>
-                <span><strong className="text-white">Canonical</strong> Trust states</span>
+                <span><strong className="text-white">Recorded</strong> facts and gaps</span>
                 <span><strong className="text-white">4 cars</strong> max compare</span>
               </div>
             </div>
 
-            <div className="relative min-h-[300px] sm:min-h-[390px] lg:min-h-[470px]" data-testid="marketplace-showroom-spotlight">
+            <div className={spotlightListing ? 'relative min-h-[300px] sm:min-h-[390px] lg:min-h-[470px]' : 'relative min-h-20 sm:min-h-28'} data-testid="marketplace-showroom-spotlight">
               <div className="absolute -right-8 top-0 h-[88%] w-[92%] border border-white/10 [clip-path:polygon(9%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]" />
               {spotlightListing ? (
                 <Link
@@ -787,12 +746,12 @@ export default function Marketplace() {
                     loading="eager"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/5 to-black/10" />
-                  <div className="absolute left-5 top-5 border border-white/25 bg-black/35 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm">
+                  <div className="absolute left-5 top-5 border border-white/25 bg-black/35 px-3 py-1.5 text-[13px] font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm">
                     Live inventory
                   </div>
                   <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-5 p-5 sm:p-7">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-300">Showroom spotlight</p>
+                      <p className="text-sm font-semibold uppercase tracking-[0.14em] text-orange-300">Showroom spotlight</p>
                       <p className="mt-1 truncate text-2xl font-black tracking-[-0.035em] text-white sm:text-3xl">
                         {[spotlightListing.year, spotlightListing.make, spotlightListing.model].filter(Boolean).join(' ')}
                       </p>
@@ -802,7 +761,7 @@ export default function Marketplace() {
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-2xl font-black text-white">{marketplacePriceLabel(spotlightListing.price, spotlightListing.currency)}</p>
-                      <span className="mt-2 inline-flex items-center gap-2 text-xs font-bold text-orange-300">
+                      <span className="mt-2 inline-flex items-center gap-2 text-sm font-bold text-orange-300">
                         Open vehicle <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
                       </span>
                     </div>
@@ -810,7 +769,7 @@ export default function Marketplace() {
                 </Link>
               ) : (
                 <div className="absolute inset-x-0 top-3 flex h-[82%] items-center justify-center bg-slate-900 text-sm text-slate-500 [clip-path:polygon(8%_0,100%_0,100%_88%,82%_100%,0_91%,0_14%)]">
-                  {loadingVehicles ? 'Loading live showroom…' : 'No published vehicle to spotlight'}
+                  {loadingVehicles ? 'Loading published cars…' : loadError ? 'Published cars could not be loaded.' : 'No published vehicle to spotlight'}
                 </div>
               )}
             </div>
@@ -823,11 +782,11 @@ export default function Marketplace() {
           <div className="border-b border-slate-200 px-4 py-3 sm:px-6">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Search the showroom</p>
-                <p className="mt-0.5 text-xs text-slate-500">Make, model, year, location, seller or a vehicle identifier.</p>
+                <p className="text-[13px] font-black uppercase tracking-[0.2em] text-orange-600">Search the showroom</p>
+                <p className="mt-0.5 text-sm text-slate-500">Make, model, year, location, seller or a vehicle identifier.</p>
               </div>
-              {!loadingVehicles && (
-                <p className="hidden text-xs font-semibold text-slate-500 sm:block">
+              {!loadingVehicles && !loadError && (
+                <p className="hidden text-sm font-semibold text-slate-500 sm:block">
                   <span className="text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}
                 </p>
               )}
@@ -850,7 +809,7 @@ export default function Marketplace() {
               <Select value={url.selectedMake} onValueChange={value => updateUrl({ selectedMake: value, selectedModel: ALL })}>
                 <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-make">
                   <div className="text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Make</span>
+                    <span className="block text-[13px] font-black uppercase tracking-[0.16em] text-slate-400">Make</span>
                     <SelectValue />
                   </div>
                 </SelectTrigger>
@@ -862,7 +821,7 @@ export default function Marketplace() {
               <Select value={url.selectedYear} onValueChange={value => updateUrl({ selectedYear: value })}>
                 <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-year">
                   <div className="text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Year</span>
+                    <span className="block text-[13px] font-black uppercase tracking-[0.16em] text-slate-400">Year</span>
                     <SelectValue />
                   </div>
                 </SelectTrigger>
@@ -877,7 +836,7 @@ export default function Marketplace() {
               <Select value={url.selectedLocation} onValueChange={value => updateUrl({ selectedLocation: value })}>
                 <SelectTrigger className="h-[72px] rounded-none border-0 bg-white px-4 shadow-none focus:ring-0" data-testid="marketplace-command-location">
                   <div className="min-w-0 text-left">
-                    <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Location</span>
+                    <span className="block text-[13px] font-black uppercase tracking-[0.16em] text-slate-400">Location</span>
                     <SelectValue />
                   </div>
                 </SelectTrigger>
@@ -896,13 +855,13 @@ export default function Marketplace() {
                 >
                   <SlidersHorizontal className="mr-2 h-4 w-4" />
                   All filters
-                  {activeFilterCount > 0 && <span className="ml-2 bg-white px-1.5 py-0.5 text-[10px] font-black text-orange-700">{activeFilterCount}</span>}
+                  {activeFilterCount > 0 && <span className="ml-2 bg-white px-1.5 py-0.5 text-[13px] font-black text-orange-700">{activeFilterCount}</span>}
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-[94%] max-w-md overflow-y-auto bg-[#f8fafc] p-0 sm:max-w-lg" data-testid="marketplace-mobile-filter-drawer">
                 <SheetHeader className="border-b border-slate-200 bg-[#08111f] px-5 py-5 text-left text-white">
                   <SheetTitle className="text-white">Build your shortlist</SheetTitle>
-                  <p className="text-xs leading-5 text-slate-400">Refine the published inventory. Seller-stated and governed facts keep their original evidence states.</p>
+                  <p className="text-sm leading-5 text-slate-400">Refine your search. Seller statements remain distinct from recorded evidence.</p>
                 </SheetHeader>
                 <div className="space-y-7 px-5 py-6">
                   {filterControls}
@@ -920,7 +879,7 @@ export default function Marketplace() {
 
           <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto" data-testid="marketplace-quick-filters">
-              <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+              <span className="flex shrink-0 items-center gap-1.5 pr-1 text-[13px] font-black uppercase tracking-[0.16em] text-slate-400">
                 <Sparkles className="h-3.5 w-3.5 text-orange-600" /> Discover
               </span>
               {TRUST_QUICK_FILTERS.map(filter => {
@@ -933,7 +892,7 @@ export default function Marketplace() {
                     data-testid={filter.testId}
                     aria-pressed={active}
                     onClick={() => (category ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
-                    className={`shrink-0 border-b-2 px-2.5 py-1.5 text-xs font-bold transition ${active
+                    className={`inline-flex min-h-11 shrink-0 items-center border-b-2 px-2.5 py-1.5 text-sm font-bold transition ${active
                       ? 'border-orange-500 text-orange-700'
                       : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-950'}`}
                   >
@@ -944,14 +903,14 @@ export default function Marketplace() {
             </div>
 
             <Select value={url.sortBy} onValueChange={value => updateUrl({ sortBy: value as MarketplaceSort })}>
-              <SelectTrigger className="h-9 w-full rounded-none border-0 border-b border-slate-300 bg-white px-0 text-xs shadow-none focus:ring-0 sm:w-[190px]" data-testid="marketplace-sort-select">
+              <SelectTrigger className="h-9 w-full rounded-none border-0 border-b border-slate-300 bg-white px-0 text-sm shadow-none focus:ring-0 sm:w-[190px]" data-testid="marketplace-sort-select">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="newest">Newest first</SelectItem>
                 <SelectItem value="price-low">Price: low to high</SelectItem>
                 <SelectItem value="price-high">Price: high to low</SelectItem>
-                <SelectItem value="trust">Highest canonical Trust</SelectItem>
+                <SelectItem value="trust">Highest recorded Trust</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -959,19 +918,19 @@ export default function Marketplace() {
 
         {activeChips.length > 0 && (
           <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-active-filters">
-            <span className="text-xs font-medium text-slate-500">Active</span>
+            <span className="text-sm font-medium text-slate-500">Active</span>
             {activeChips.map(chip => (
               <button
                 key={`${chip.key}:${chip.value ?? chip.label}`}
                 type="button"
                 onClick={() => removeChip(chip.key, chip.value)}
                 data-testid="marketplace-active-filter-chip"
-                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-800 transition hover:bg-orange-100"
+                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-sm font-medium text-orange-800 transition hover:bg-orange-100"
               >
                 {chip.label}<X className="h-3 w-3" />
               </button>
             ))}
-            <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="marketplace-clear-filters" className="h-7 text-xs text-slate-600">
+            <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="marketplace-clear-filters" className="h-7 text-sm text-slate-600">
               Clear all
             </Button>
           </div>
@@ -979,33 +938,34 @@ export default function Marketplace() {
 
         <main className="mt-10 min-w-0">
           {loadError && !loadingVehicles && (
-            <div className="mb-6 border-y border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900" data-testid="marketplace-error-state">
-              Marketplace data is temporarily unavailable. CarUp has not substituted another public vehicle endpoint or fabricated production inventory.
+            <div className="mb-6 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-5 text-amber-900" data-testid="marketplace-error-state">
+              Published listings could not be loaded. This is not a result about which cars are available.
+              <Button variant="outline" className="ml-3 min-h-11" onClick={() => setRetryCount(count => count + 1)}>Try again</Button>
             </div>
           )}
 
           {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
-            <div className="mb-6 border-y border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
-              {trustRanking.note || 'No listing on this page carries a canonical Trust evaluation, so these results are not ordered by Trust.'}
+            <div className="mb-6 border-y border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-5 text-slate-600" data-testid="marketplace-trust-ranking-notice">
+              {trustRanking.note || 'No listing on this page has a recorded Trust assessment, so these results are not ordered by Trust.'}
             </div>
           )}
 
           <div className="mb-7 flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Available now</p>
+              <p className="text-[13px] font-black uppercase tracking-[0.2em] text-orange-600">Browse cars</p>
               <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950 sm:text-4xl">Published vehicles</h2>
               <p className="mt-2 text-sm text-slate-500" data-testid="marketplace-results-summary">{getResultSummary(filterState)}</p>
-              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Published listings only · Trust and vehicle facts retain their governed states.</p>
+              <p className="mt-1 text-[13px] font-semibold uppercase tracking-[0.1em] text-slate-400">Published listings only · Read the evidence and gaps in each Passport.</p>
             </div>
             <div className="flex items-end gap-5">
               <p className="text-sm text-slate-500" data-testid="marketplace-results-count">
                 {loadingVehicles
                   ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading vehicles…</span>
-                  : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
+                  : loadError ? <span>Count unavailable</span> : <><span className="text-2xl font-black text-slate-950">{visibleListings.length}</span> published {visibleListings.length === 1 ? 'listing' : 'listings'}</>}
               </p>
               <Button
                 variant="ghost"
-                className="hidden h-auto rounded-none border-b border-slate-300 px-0 pb-1 text-xs font-bold text-slate-600 hover:bg-transparent hover:text-orange-700 sm:inline-flex"
+                className="hidden h-auto rounded-none border-b border-slate-300 px-0 pb-1 text-sm font-bold text-slate-600 hover:bg-transparent hover:text-orange-700 sm:inline-flex"
                 onClick={() => setMobileFiltersOpen(true)}
               >
                 <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" /> Refine
@@ -1017,14 +977,14 @@ export default function Marketplace() {
             <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-loading-state">
               {Array.from({ length: 6 }).map((_, index) => <SkeletonCard key={index} />)}
             </div>
-          ) : visibleListings.length === 0 ? (
+          ) : loadError ? null : visibleListings.length === 0 ? (
             <div className="border-y border-dashed border-slate-300 bg-white px-6 py-20 text-center" data-testid="marketplace-empty-state">
               <Search className="mx-auto mb-4 h-10 w-10 text-slate-300" />
-              <h3 className="text-xl font-black text-slate-900">No matching vehicles</h3>
+              <h3 className="text-xl font-black text-slate-900">{activeFilterCount > 0 ? 'No matching vehicles' : 'No published vehicles yet'}</h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                Broaden the search or remove one of the active filters. CarUp will not fill an empty result with demo inventory.
+                {activeFilterCount > 0 ? 'Broaden the search or remove one of the active filters.' : 'Have a car to sell? Start with the vehicle, photos and price. Choose when you are ready to publish.'}
               </p>
-              <Button variant="outline" className="mt-5 rounded-none" onClick={resetFilters}>Clear all filters</Button>
+              <div className="mt-5 flex flex-wrap justify-center gap-3">{activeFilterCount > 0 && <Button variant="outline" className="min-h-11" onClick={resetFilters}>Clear all filters</Button>}<Button className="min-h-11" asChild><Link to="/sell">Start a listing</Link></Button></div>
             </div>
           ) : (
             <div className="grid gap-x-7 gap-y-12 md:grid-cols-2" data-testid="marketplace-results-grid">
@@ -1095,10 +1055,10 @@ export default function Marketplace() {
                     imgClassName="object-cover"
                   />
                   <div className="min-w-0">
-                    <p className="truncate text-[11px] font-black text-white">
+                    <p className="truncate text-[13px] font-black text-white">
                       {[listing.year, listing.make, listing.model].filter(Boolean).join(' ')}
                     </p>
-                    <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                    <p className="mt-0.5 truncate text-[13px] text-slate-400">
                       {marketplacePriceLabel(listing.price, listing.currency)}
                     </p>
                   </div>
@@ -1108,7 +1068,7 @@ export default function Marketplace() {
 
             <div className="min-w-0 flex-1 sm:hidden">
               <p className="truncate text-sm font-black text-white">{compareVins.length} selected to compare</p>
-              <p className="mt-0.5 text-[10px] text-slate-400">
+              <p className="mt-0.5 text-[13px] text-slate-400">
                 {compareVins.length < 2 ? 'Select one more vehicle.' : 'Your side-by-side shortlist is ready.'}
               </p>
             </div>

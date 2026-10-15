@@ -142,6 +142,13 @@ function ocrSpy(result) {
   return { calls, async extractDocumentData(...args) { calls.push(args); return typeof result === 'function' ? result() : result; } };
 }
 
+// Real file signatures: evidence must be the type it declares (PC01-F F3c), so fixtures are real files.
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('garage-evidence-png')]);
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('garage-evidence-jpeg')]);
+const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x24, 0x00, 0x00, 0x00]), Buffer.from('WEBPVP8 garage-evidence')]);
+const PDF = Buffer.from('%PDF-1.7\n% garage evidence\n');
+const b64 = (buf) => buf.toString('base64');
+
 const reading = (top = {}, extracted = {}) => ({
   success: true, provider: 'cloudflare', model: QWEN, executionStatus: 'provider_succeeded',
   confidence: 0.88, confidenceReported: true,
@@ -205,7 +212,7 @@ test('STORAGE: the path is server-composed under the caller\'s own application, 
   const { client } = world();
   const storage = storageSpy();
   const out = await uploadEvidence(client, alice, APP_ALICE, {
-    evidence_type: 'utility_bill', mime_type: 'image/png', file_base64: Buffer.from('png').toString('base64'),
+    evidence_type: 'utility_bill', mime_type: 'image/png', file_base64: b64(PNG),
     file_ref: '../../app-bob/steal.png', path: '../../etc/passwd',
   }, { storage });
   const upload = storage.calls.find((c) => c.op === 'upload');
@@ -216,12 +223,57 @@ test('STORAGE: the path is server-composed under the caller\'s own application, 
 
   // An evidence type is never a path segment: anything outside the catalogue is refused first.
   await assert.rejects(() => uploadEvidence(client, alice, APP_ALICE, {
-    evidence_type: '../app-bob', mime_type: 'image/png', file_base64: 'eA==',
+    evidence_type: '../app-bob', mime_type: 'image/png', file_base64: b64(PNG),
   }, { storage }), (err) => err.name === 'ValidationError');
   // MIME is validated, not trusted to the extension.
   await assert.rejects(() => uploadEvidence(client, alice, APP_ALICE, {
     evidence_type: 'utility_bill', mime_type: 'text/html', file_base64: 'eA==',
   }, { storage }), (err) => err.name === 'ValidationError');
+});
+
+// ── CONTENT (PC01-F F3c) ────────────────────────────────────────────────────────────────────────
+
+test('CONTENT: evidence must be the type it declares — text, a mislabelled file or broken base64 is refused, nothing stored or written', async () => {
+  const cases = [
+    ['HTML declared as a PNG', { mime_type: 'image/png', file_base64: b64(Buffer.from('<html><script>alert(1)</script></html>')) }, /not the type it claims/],
+    ['HTML declared as a PDF', { mime_type: 'application/pdf', file_base64: b64(Buffer.from('<!doctype html><p>utility bill</p>')) }, /not the type it claims/],
+    ['a PNG declared as a JPEG', { mime_type: 'image/jpeg', file_base64: b64(PNG) }, /not the type it claims/],
+    ['a JPEG declared as a PDF', { mime_type: 'application/pdf', file_base64: b64(JPEG) }, /not the type it claims/],
+    ['arbitrary text as base64', { mime_type: 'image/png', file_base64: 'not a real file!!' }, /could not be read/],
+    ['base64 of a broken length', { mime_type: 'image/png', file_base64: 'iVBORw0' }, /could not be read/],
+  ];
+  for (const [label, payload, pattern] of cases) {
+    const { client, writes } = world();
+    const storage = storageSpy();
+    await assert.rejects(
+      () => uploadEvidence(client, alice, APP_ALICE, { evidence_type: 'utility_bill', ...payload }, { storage }),
+      (err) => err.name === 'ValidationError' && pattern.test(err.message),
+      label,
+    );
+    assert.deepEqual(storage.calls, [], `${label}: nothing reached storage`);
+    assert.deepEqual(writes, [], `${label}: nothing was written`);
+  }
+});
+
+test('CONTENT: real JPG, PNG, WEBP and PDF files are filed as what they ARE (image/jpg means image/jpeg)', async () => {
+  for (const [declared, file, filedAs, extension] of [
+    ['image/jpeg', JPEG, 'image/jpeg', 'jpg'],
+    ['image/jpg', JPEG, 'image/jpeg', 'jpg'],
+    ['image/png', PNG, 'image/png', 'png'],
+    ['image/webp', WEBP, 'image/webp', 'webp'],
+    ['application/pdf', PDF, 'application/pdf', 'pdf'],
+  ]) {
+    const { client, tables } = world();
+    const storage = storageSpy();
+    await uploadEvidence(client, alice, APP_ALICE, {
+      evidence_type: 'utility_bill', mime_type: declared, file_base64: `data:${declared};base64,${b64(file)}`,
+    }, { storage });
+    const upload = storage.calls.find((c) => c.op === 'upload');
+    assert.equal(upload.size, file.length, `${declared}: the stored bytes are the whole file`);
+    assert.equal(upload.mime, filedAs, declared);
+    assert.match(upload.path, new RegExp(`\\.${extension}$`), declared);
+    assert.equal(tables.garage_application_documents.at(-1).mime_type, filedAs, `${declared}: the record says what the file is`);
+  }
 });
 
 // ── REMOVE ──────────────────────────────────────────────────────────────────────────────────────
@@ -345,7 +397,7 @@ test('UPLOAD: visual evidence starts unavailable (nothing to read); documents st
   for (const [type, state] of [['premises_photo', 'unavailable'], ['signage_photo', 'unavailable'], ['other', 'unavailable'], ['utility_bill', 'not_attempted'], ['tax_document', 'not_attempted']]) {
     const { client } = world();
     const out = await uploadEvidence(client, alice, APP_ALICE, {
-      evidence_type: type, mime_type: 'image/jpeg', file_base64: Buffer.from('jpg').toString('base64'),
+      evidence_type: type, mime_type: 'image/jpeg', file_base64: b64(JPEG),
     }, { storage: storageSpy() });
     assert.equal(out.document.extraction_state, state, type);
     assert.equal(out.document.extracted_at ?? null, null, `${type}: an unattempted reading has no timestamp`);
@@ -366,7 +418,7 @@ test('LIST: the applicant learns whether automatic reading is available — and 
 
 test('AUTHORITY: no evidence/OCR path writes the application, a decision, a tenant, membership, Seller Authority or Trust', async () => {
   const flows = [
-    ['upload', (c, s) => uploadEvidence(c, alice, APP_ALICE, { evidence_type: 'utility_bill', mime_type: 'image/png', file_base64: 'eA==' }, { storage: s })],
+    ['upload', (c, s) => uploadEvidence(c, alice, APP_ALICE, { evidence_type: 'utility_bill', mime_type: 'image/png', file_base64: b64(PNG) }, { storage: s })],
     ['extract success', (c, s) => runEvidenceExtraction(c, alice, APP_ALICE, DOC_ALICE, { ...READY, storage: s, ocr: ocrSpy(reading()) })],
     ['extract failure', (c, s) => runEvidenceExtraction(c, alice, APP_ALICE, DOC_ALICE, { ...READY, storage: s, ocr: ocrSpy(() => { throw new Error('x'); }) })],
     ['extract disabled', (c, s) => runEvidenceExtraction(c, alice, APP_ALICE, DOC_ALICE, { env: {}, storage: s, ocr: ocrSpy(reading()) })],

@@ -23,7 +23,7 @@ const HIDDEN_FROM_BUYER = new Set(['finance_eligibility'])
 
 const GOOD = new Set(['complete', 'publishable', 'eligible', 'clear', 'compliant', 'no_conflicts', 'source_connected'])
 const BAD = new Set(['conflict', 'blocked', 'not_eligible', 'high', 'suspended', 'conflicts_present', 'failed'])
-const WARN = new Set(['incomplete', 'watch', 'manual_review', 'conditionally_eligible', 'potentially_eligible', 'restricted', 'demonstration_only', 'partial_coverage'])
+const WARN = new Set(['incomplete', 'watch', 'manual_review', 'conditionally_eligible', 'potentially_eligible', 'restricted', 'demonstration_only', 'reviewed_only', 'partial_coverage'])
 
 function toneClass(status: string): string {
   if (GOOD.has(status)) return 'text-green-700 bg-green-50 border-green-200'

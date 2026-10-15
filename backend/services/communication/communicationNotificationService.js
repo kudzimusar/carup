@@ -210,7 +210,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'shipment_exception_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -223,7 +223,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'warehouse_intake_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -236,7 +236,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'warehouse_intake_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -249,7 +249,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'warehouse_intake_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -261,7 +261,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'container_loading_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -274,7 +274,7 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     channels: ['in_app'],
     fallbackChannels: [],
     policyChannelsOnly: true,
-    templateKey: 'logistics_update_v1',
+    templateKey: 'container_loading_update_v1',
     classification: 'transactional',
     transactional: true,
   },
@@ -668,6 +668,43 @@ export function projectAccountSecurityActivity(row = {}) {
   };
 }
 
+const STRICT_TRADE_EVENT = /^(?:diaspora\.(?:rfq|logistics|container_booking|warehouse|loading)\.|diaspora\.shipment\.exception$)/;
+
+/**
+ * Project only durable event facts into governed template variables.
+ *
+ * Trade OS lifecycle templates fail closed when their own event omitted a required fact. The
+ * generic compatibility labels used by older notification families (`CarUp`, `updated`) are not
+ * facts from a durable Trade OS event and must never make a malformed T3/T7/T9/T10/D7 row look
+ * renderable during runtime or backlog custody.
+ */
+export function templateVariablesForEvent(eventType, payload = {}) {
+  const strictTradeEvent = STRICT_TRADE_EVENT.test(String(eventType || ''));
+  return {
+    topic: payload.topic || payload.intent || eventType,
+    listing_id: payload.listingId || payload.listing_id || payload.vin || 'listing',
+    escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
+    status: payload.transfer_state || payload.currentStatus || payload.status || payload.current_status || (strictTradeEvent ? '' : 'updated'),
+    application_id: payload.applicationId || payload.application_id || payload.id || 'application',
+    reference: payload.publicReference || payload.reference || payload.transferId || payload.transfer_id || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || (strictTradeEvent ? '' : 'CarUp'),
+    decision: payload.decision || payload.action || '',
+    reason: payload.reason || '',
+    summary: payload.summary || '',
+    team: payload.team || 'support',
+    share_text: payload.shareText || payload.share_text || 'View this CarUp listing:',
+    share_url: payload.shareUrl || payload.share_url || '',
+    failed_channel: payload.failedChannel || '',
+    // T9/T10 event producers persist a bounded factual headline. The template repeats that fact;
+    // it does not infer a route, price, departure, customs state or Trust conclusion.
+    headline: payload.headline || '',
+    // T7 shipment exceptions persist the authoritative stage. Notes are deliberately not projected
+    // into the template contract because they are optional operator text.
+    stage: payload.stage || '',
+    // T2/T3/D7 legitimately require route. Empty is intentional and fail-closed.
+    route: payload.route || '',
+  };
+}
+
 export class CommunicationNotificationService {
   constructor({ repository, threadService, templateService = null, preferenceService = null } = {}) {
     this.repository = repository;
@@ -696,24 +733,7 @@ export class CommunicationNotificationService {
   }
 
   variablesForEvent(eventType, payload = {}) {
-    return {
-      topic: payload.topic || payload.intent || eventType,
-      listing_id: payload.listingId || payload.listing_id || payload.vin || 'listing',
-      escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
-      status: payload.transfer_state || payload.currentStatus || payload.status || payload.current_status || 'updated',
-      application_id: payload.applicationId || payload.application_id || payload.id || 'application',
-      reference: payload.publicReference || payload.reference || payload.transferId || payload.transfer_id || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
-      decision: payload.decision || payload.action || '',
-      reason: payload.reason || '',
-      summary: payload.summary || '',
-      team: payload.team || 'support',
-      share_text: payload.shareText || payload.share_text || 'View this CarUp listing:',
-      share_url: payload.shareUrl || payload.share_url || '',
-      failed_channel: payload.failedChannel || '',
-      // Trade OS D7 — required by the governed container_booking_update template. Container
-      // booking emitters always supply it; other events simply carry an unused empty string.
-      route: payload.route || '',
-    };
+    return templateVariablesForEvent(eventType, payload);
   }
 
   async queueFromDomainEvent(event = {}) {

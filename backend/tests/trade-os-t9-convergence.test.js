@@ -72,6 +72,7 @@ test('T9/T7: all three warehouse events are registered in the listener AND the p
     assert.ok(policy, `${eventType} must have a notification policy`);
     assert.equal(policy.transactional, true);
     assert.deepEqual(policy.channels, ['in_app']);
+    assert.equal(policy.templateKey, 'warehouse_intake_update_v1');
   }
   assert.equal(policies.NOTIFICATION_POLICIES[WAREHOUSE_EVENTS.CONDITION].priority, 'high',
     'a condition issue is the one the customer may need to act on');

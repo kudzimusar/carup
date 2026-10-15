@@ -4,6 +4,26 @@ import { buildDedupeKey, normalizeChannel, redactPayload, stableHash, nowIso } f
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { ForbiddenError, ValidationError } from '../../utils/errors.js';
 import { RESEND_EVENT_STATUS, RESEND_SUPPRESSION_REASON, verifyResendSignature } from './resendWebhookService.js';
+import { isFixtureRuntime, isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
+
+/**
+ * The providers whose inbound webhook may speak for each channel (OC-5R-PROV-01 G1). A channel
+ * not listed here has no inbound provider webhook at all.
+ */
+export const INBOUND_PROVIDERS_BY_CHANNEL = Object.freeze({
+  whatsapp: Object.freeze(['meta']),
+  facebook: Object.freeze(['meta']),
+  instagram: Object.freeze(['meta']),
+  telegram: Object.freeze(['telegram']),
+  email: Object.freeze(['resend', 'brevo', 'sendgrid', 'cloudflare']),
+  sms: Object.freeze(['twilio']),
+  push: Object.freeze(['expo']),
+});
+
+export function isInboundProviderForChannel(provider, channel) {
+  const allowed = INBOUND_PROVIDERS_BY_CHANNEL[channel];
+  return Boolean(allowed) && allowed.includes(String(provider || '').toLowerCase());
+}
 
 const DEFAULT_CLOUDFLARE_SIGNATURE_TOLERANCE_SECONDS = 300;
 const DEFAULT_CLOUDFLARE_MAX_EMAIL_BYTES = 25 * 1024 * 1024;
@@ -82,11 +102,13 @@ export class CommunicationWebhookService {
     if (!['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
       throw new ValidationError('Unsupported Meta webhook channel.');
     }
-    const expected = this.env.CARUP_META_WEBHOOK_VERIFY_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
+    // The generic shared secret stands in for the verify token only in a local/CI runtime (G3).
+    const expected = this.env.CARUP_META_WEBHOOK_VERIFY_TOKEN
+      || (isProductionLikeRuntime(this.env) ? null : this.env.CARUP_CHANNEL_WEBHOOK_SECRET);
     const mode = query['hub.mode'];
     const token = query['hub.verify_token'];
     const challenge = query['hub.challenge'];
-    if (mode === 'subscribe' && expected && token === expected && challenge !== undefined) {
+    if (mode === 'subscribe' && expected && safeEqual(token || '', expected) && challenge !== undefined) {
       return String(challenge);
     }
     throw new ForbiddenError('Meta webhook verification failed.');
@@ -95,16 +117,28 @@ export class CommunicationWebhookService {
   verify(provider, channel, { headers = {}, query = {}, rawBody = '', body = {} } = {}) {
     const normalized = normalizeChannel(channel) || channel;
     const normalizedProvider = String(provider || '').toLowerCase();
-    if (provider === 'telegram' || normalized === 'telegram') {
-      const expected = this.env.CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      return Boolean(expected && headers['x-telegram-bot-api-secret-token'] === expected);
+    // OC-5R-PROV-01 G1: the CHANNEL decides which provider — and so which verification scheme — may
+    // speak for it. The `:provider` URL segment is the caller's choice and never selects it: before
+    // this, POST /webhooks/brevo/whatsapp?token=<Brevo secret> was ingested as a WhatsApp message
+    // without Meta's HMAC ever being checked, and any provider's secret could speak for any channel.
+    if (!isInboundProviderForChannel(normalizedProvider, normalized)) return false;
+    // G3: the generic CARUP_CHANNEL_WEBHOOK_SECRET is a local/CI convenience. In any declared
+    // deployment no real provider ever presents it, so accepting it there admits only non-provider
+    // callers — and one secret would unlock every channel that lacks its own credential.
+    const shared = isProductionLikeRuntime(this.env) ? null : (this.env.CARUP_CHANNEL_WEBHOOK_SECRET || null);
+    const sharedHeader = (...names) => Boolean(shared)
+      && names.some((name) => safeEqual(headerValue(headers, name) || '', shared));
+    const fixtureTest = body?.test === true && isFixtureRuntime(this.env);
+
+    if (normalizedProvider === 'telegram') {
+      const expected = this.env.CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN || shared;
+      return Boolean(expected) && safeEqual(headerValue(headers, 'x-telegram-bot-api-secret-token') || '', expected);
     }
     if (normalizedProvider === 'sendgrid') {
       if (this.env.SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY) {
         return this.verifySendGridSignature(headers, rawBody);
       }
-      const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+      return sharedHeader('x-channel-webhook-secret') || fixtureTest;
     }
     // Resend signs with Svix over the exact raw bytes. No shared-secret or test-mode fallback:
     // a P0 auth/security transport must never accept an unverified event.
@@ -124,44 +158,35 @@ export class CommunicationWebhookService {
         || headers['x-brevo-webhook-secret']
         || String(query?.token || '');
       if (!supplied) return false;
-      const a = Buffer.from(String(supplied), 'utf8');
-      const b = Buffer.from(String(expected), 'utf8');
-      return a.length === b.length && crypto.timingSafeEqual(a, b);
+      return safeEqual(supplied, expected);
     }
     if (normalizedProvider === 'twilio') {
       if (this.env.TWILIO_AUTH_TOKEN) {
         return this.verifyTwilioSignature(headers, body);
       }
-      const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+      return sharedHeader('x-channel-webhook-secret') || fixtureTest;
     }
     if (normalizedProvider === 'expo') {
-      const expected = this.env.EXPO_ACCESS_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      const supplied = headers.authorization?.replace(/^Bearer\s+/i, '') || headers['x-channel-webhook-secret'];
-      return Boolean(expected && supplied === expected) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+      const expected = this.env.EXPO_ACCESS_TOKEN || shared;
+      const supplied = headerValue(headers, 'authorization')?.replace(/^Bearer\s+/i, '') || headerValue(headers, 'x-channel-webhook-secret');
+      return (Boolean(expected) && safeEqual(supplied || '', expected)) || fixtureTest;
     }
-    if (normalizedProvider === 'cloudflare' && normalized === 'email') {
+    if (normalizedProvider === 'cloudflare') {
       return this.verifyCloudflareEmailSignature(headers, rawBody);
     }
-    if (normalizedProvider === 'meta' || ['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
-      if (query['hub.mode'] === 'subscribe') {
-        const expected = this.env.CARUP_META_WEBHOOK_VERIFY_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-        return Boolean(expected && query['hub.verify_token'] === expected);
-      }
+    if (normalizedProvider === 'meta') {
+      // G2: a POST is a delivery and must carry Meta's signature. The GET subscription handshake is
+      // verifyMetaCallback's job; its verify token used to authenticate a POST body here as well.
       const appSecret = this.env.CARUP_META_APP_SECRET;
       const signature = headers['x-hub-signature-256'];
       if (appSecret) {
         if (!signature || !rawBody) return false;
         const expected = `sha256=${crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')}`;
-        const signatureBuffer = Buffer.from(String(signature));
-        const expectedBuffer = Buffer.from(expected);
-        return signatureBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+        return safeEqual(String(signature), expected);
       }
-      const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-      return Boolean(shared && (headers['x-channel-webhook-secret'] === shared || headers['x-carup-channel-secret'] === shared));
+      return sharedHeader('x-channel-webhook-secret', 'x-carup-channel-secret');
     }
-    const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
-    return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    return false;
   }
 
   verifySendGridSignature(headers = {}, rawBody = '') {
@@ -389,9 +414,12 @@ export class CommunicationWebhookService {
     const attempts = receipt.providerMessageId
       ? await this.repository.list('message_delivery_attempts', { provider_message_id: receipt.providerMessageId })
       : [];
-    const attempt = attempts.find((row) => !receipt.provider || row.provider === receipt.provider) || attempts[0] || null;
-    const notificationId = receipt.notificationId || attempt?.notification_id || null;
-    const messageId = receipt.messageId || attempt?.message_id || null;
+    // OC-5R-PROV-01 G4: only an attempt from THIS provider, and only through that attempt. The
+    // former `|| attempts[0]` took another provider's attempt, and request-carried ids were trusted
+    // on their own. (The runtime uses the canonical subclass; this base path keeps the same rule.)
+    const attempt = attempts.find((row) => !receipt.provider || !row.provider || row.provider === receipt.provider) || null;
+    const notificationId = attempt?.notification_id || null;
+    const messageId = attempt?.message_id || null;
     if (attempt?.id) {
       await this.repository.updateById('message_delivery_attempts', attempt.id, {
         status: receipt.status === 'failed' ? 'failed' : receipt.status,

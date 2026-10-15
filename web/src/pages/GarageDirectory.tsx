@@ -1,4 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card'
+import { DirectoryJoinCard } from '@/components/directory/DirectoryJoinCard'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Search, Wrench, MapPin, AlertCircle } from 'lucide-react'
@@ -128,6 +129,11 @@ export default function GarageDirectory() {
               </p>
             </CardContent>
           </Card>
+        )}
+
+        {/* PC01-J-R1: the real way in for a garage, whether or not any is listed yet. */}
+        {!loading && !loadFailed && (
+          <div className="mb-6"><DirectoryJoinCard kind="garage" /></div>
         )}
 
         {!loading && !loadFailed && filtered.length === 0 && (

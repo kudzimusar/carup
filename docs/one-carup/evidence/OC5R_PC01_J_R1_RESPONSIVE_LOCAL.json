@@ -1,0 +1,2744 @@
+{
+ "schema": "oc5r-pc01-j-r1-responsive/v1",
+ "mode": "local Vite build of the working tree, API stubbed (layout only — not deployed evidence); Chromium device emulation (isMobile, touch) at 320/360/375/390/430 and desktop 1440; 25 public pages",
+ "metric": "overflow = max(scrollWidth − device width, layout viewport − device width): mobile emulation widens innerWidth to fit an over-wide page, so innerWidth alone hides the defect. A control is 'sub-44 px' when its box is under 44×44 CSS px.",
+ "before": {
+  "tree": "the J-R1 working tree immediately before the responsive pass (2026-10-10T18:30Z): the access, identity and navigation changes already applied, no responsive change. Not the d13c2e78 tree — some of those pages (Footer, Contact) had already gained 44 px targets.",
+  "summary": {
+   "page_width_rows": 150,
+   "phone_overflow_rows": 11,
+   "phone_sub_44px_controls": 1095,
+   "per_width": {
+    "320": 219,
+    "360": 219,
+    "375": 219,
+    "390": 219,
+    "430": 219
+   },
+   "max_phone_h1_px": 48,
+   "desktop_overflow_rows": 0
+  },
+  "rows": [
+   {
+    "path": "/",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 32,
+    "h1_px": 40.8,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 38,
+    "h1_px": 48,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/search",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 11,
+    "h1_px": 48,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 48,
+    "h1_top_px": 152
+   },
+   {
+    "path": "/dealers",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 10,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 260,
+    "sub_44px_controls": 13,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 8,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 13,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 144,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/privacy",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 7,
+    "h1_px": 24,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/register",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 24,
+    "h1_top_px": 76
+   },
+   {
+    "path": "/api-docs",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 24,
+    "h1_top_px": 221
+   },
+   {
+    "path": "/",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 32,
+    "h1_px": 40.8,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 38,
+    "h1_px": 48,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/search",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 11,
+    "h1_px": 48,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 48,
+    "h1_top_px": 152
+   },
+   {
+    "path": "/dealers",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 10,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 230,
+    "sub_44px_controls": 13,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 8,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 115,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/privacy",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 7,
+    "h1_px": 24,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/register",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 24,
+    "h1_top_px": 76
+   },
+   {
+    "path": "/api-docs",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 24,
+    "h1_top_px": 221
+   },
+   {
+    "path": "/",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 32,
+    "h1_px": 40.8,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 38,
+    "h1_px": 48,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/search",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 11,
+    "h1_px": 48,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 48,
+    "h1_top_px": 152
+   },
+   {
+    "path": "/dealers",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 10,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 219,
+    "sub_44px_controls": 13,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 8,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 103,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/privacy",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 7,
+    "h1_px": 24,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/register",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 24,
+    "h1_top_px": 76
+   },
+   {
+    "path": "/api-docs",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 24,
+    "h1_top_px": 221
+   },
+   {
+    "path": "/",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 32,
+    "h1_px": 40.8,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 38,
+    "h1_px": 48,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/search",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 11,
+    "h1_px": 48,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 48,
+    "h1_top_px": 152
+   },
+   {
+    "path": "/dealers",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 10,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 208,
+    "sub_44px_controls": 13,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 8,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 92,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/privacy",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 7,
+    "h1_px": 24,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/register",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 24,
+    "h1_top_px": 76
+   },
+   {
+    "path": "/api-docs",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 24,
+    "h1_top_px": 233
+   },
+   {
+    "path": "/",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 32,
+    "h1_px": 40.8,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 38,
+    "h1_px": 48,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/search",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 11,
+    "h1_px": 48,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 48,
+    "h1_top_px": 152
+   },
+   {
+    "path": "/dealers",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 10,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 178,
+    "sub_44px_controls": 13,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 8,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 62,
+    "sub_44px_controls": 18,
+    "h1_px": 36,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/privacy",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 4,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 7,
+    "h1_px": 24,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/register",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 24,
+    "h1_top_px": 76
+   },
+   {
+    "path": "/api-docs",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 24,
+    "h1_top_px": 233
+   },
+   {
+    "path": "/",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 69,
+    "h1_px": 84,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 81,
+    "h1_px": 72,
+    "h1_top_px": 227
+   },
+   {
+    "path": "/search",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 48,
+    "h1_px": 60,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/sell",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 60,
+    "h1_top_px": 176
+   },
+   {
+    "path": "/dealers",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 41,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 47,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 43,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 50,
+    "h1_px": 72,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 46,
+    "h1_px": 60,
+    "h1_top_px": 228
+   },
+   {
+    "path": "/contact",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/support",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 36,
+    "h1_top_px": 169
+   },
+   {
+    "path": "/security",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 36,
+    "h1_top_px": 169
+   },
+   {
+    "path": "/pricing",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 42,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 43,
+    "h1_px": 48,
+    "h1_top_px": 180
+   },
+   {
+    "path": "/about",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 48,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/press",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 56,
+    "h1_px": 60,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 55,
+    "h1_px": 60,
+    "h1_top_px": 200
+   },
+   {
+    "path": "/privacy",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 41,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 41,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 7,
+    "h1_px": 24,
+    "h1_top_px": 250
+   },
+   {
+    "path": "/register",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 6,
+    "h1_px": 24,
+    "h1_top_px": 114
+   },
+   {
+    "path": "/api-docs",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 42,
+    "h1_px": 24,
+    "h1_top_px": 287
+   }
+  ]
+ },
+ "after": {
+  "tree": "code head 896ee73f753bb73ca232da04904cdd8272fbeeb1 — the clean certification worktree, Vite dev server; run completed 2026-10-10T19:16:59Z",
+  "summary": {
+   "page_width_rows": 150,
+   "phone_overflow_rows": 0,
+   "phone_sub_44px_controls": 0,
+   "per_width": {
+    "320": 0,
+    "360": 0,
+    "375": 0,
+    "390": 0,
+    "430": 0
+   },
+   "max_phone_h1_px": 36,
+   "desktop_overflow_rows": 0
+  },
+  "rows": [
+   {
+    "path": "/",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 35.2,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 218
+   },
+   {
+    "path": "/search",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 136
+   },
+   {
+    "path": "/dealers",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/trust",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 224
+   },
+   {
+    "path": "/privacy",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 178
+   },
+   {
+    "path": "/register",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 80
+   },
+   {
+    "path": "/api-docs",
+    "width": 320,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 213
+   },
+   {
+    "path": "/",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 35.2,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 218
+   },
+   {
+    "path": "/search",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 136
+   },
+   {
+    "path": "/dealers",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/trust",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 224
+   },
+   {
+    "path": "/privacy",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 178
+   },
+   {
+    "path": "/register",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 80
+   },
+   {
+    "path": "/api-docs",
+    "width": 360,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 213
+   },
+   {
+    "path": "/",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 35.2,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 218
+   },
+   {
+    "path": "/search",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 136
+   },
+   {
+    "path": "/dealers",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/trust",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 224
+   },
+   {
+    "path": "/privacy",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 178
+   },
+   {
+    "path": "/register",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 80
+   },
+   {
+    "path": "/api-docs",
+    "width": 375,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 213
+   },
+   {
+    "path": "/",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 35.2,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 218
+   },
+   {
+    "path": "/search",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 136
+   },
+   {
+    "path": "/dealers",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/trust",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 224
+   },
+   {
+    "path": "/privacy",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 178
+   },
+   {
+    "path": "/register",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 80
+   },
+   {
+    "path": "/api-docs",
+    "width": 390,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 225
+   },
+   {
+    "path": "/",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 35.2,
+    "h1_top_px": 121
+   },
+   {
+    "path": "/marketplace",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 218
+   },
+   {
+    "path": "/search",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 133
+   },
+   {
+    "path": "/sell",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 136
+   },
+   {
+    "path": "/dealers",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/trust",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 196
+   },
+   {
+    "path": "/contact",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/support",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/security",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/pricing",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 143
+   },
+   {
+    "path": "/about",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 30,
+    "h1_top_px": 154
+   },
+   {
+    "path": "/press",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 224
+   },
+   {
+    "path": "/privacy",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 178
+   },
+   {
+    "path": "/register",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 80
+   },
+   {
+    "path": "/api-docs",
+    "width": 430,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 0,
+    "h1_px": 24,
+    "h1_top_px": 225
+   },
+   {
+    "path": "/",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 84,
+    "h1_top_px": 149
+   },
+   {
+    "path": "/marketplace",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 62,
+    "h1_px": 72,
+    "h1_top_px": 234
+   },
+   {
+    "path": "/search",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 41,
+    "h1_px": 60,
+    "h1_top_px": 153
+   },
+   {
+    "path": "/sell",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 60,
+    "h1_top_px": 176
+   },
+   {
+    "path": "/dealers",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/garages",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/insurance",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 30,
+    "h1_top_px": 105
+   },
+   {
+    "path": "/marketplace/parts",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 46,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/marketplace/services",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 42,
+    "h1_px": 30,
+    "h1_top_px": 137
+   },
+   {
+    "path": "/trust",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 49,
+    "h1_px": 72,
+    "h1_top_px": 215
+   },
+   {
+    "path": "/help",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 45,
+    "h1_px": 60,
+    "h1_top_px": 228
+   },
+   {
+    "path": "/contact",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/support",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 36,
+    "h1_top_px": 169
+   },
+   {
+    "path": "/security",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 36,
+    "h1_top_px": 169
+   },
+   {
+    "path": "/pricing",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 41,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/diaspora",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 42,
+    "h1_px": 48,
+    "h1_top_px": 180
+   },
+   {
+    "path": "/about",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 48,
+    "h1_top_px": 186
+   },
+   {
+    "path": "/careers",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 39,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/press",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 48,
+    "h1_px": 60,
+    "h1_top_px": 204
+   },
+   {
+    "path": "/blog",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 48,
+    "h1_px": 60,
+    "h1_top_px": 224
+   },
+   {
+    "path": "/privacy",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/terms",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 40,
+    "h1_px": 36,
+    "h1_top_px": 170
+   },
+   {
+    "path": "/login",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 3,
+    "h1_px": 24,
+    "h1_top_px": 240
+   },
+   {
+    "path": "/register",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 5,
+    "h1_px": 24,
+    "h1_top_px": 116
+   },
+   {
+    "path": "/api-docs",
+    "width": 1440,
+    "status": 200,
+    "overflow_px": 0,
+    "sub_44px_controls": 41,
+    "h1_px": 24,
+    "h1_top_px": 287
+   }
+  ]
+ },
+ "note": "deployed measurement of the J-R1 pair is recorded separately after deployment"
+}

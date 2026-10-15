@@ -585,3 +585,32 @@ describe('device retest round 2 regressions (source-level)', () => {
     expect(src).toContain('they are NOT zero')
   })
 })
+
+describe('PC01-K2B — unmeasured queues show no count, and set-aside sessions are stated', () => {
+  it('only the tab that was read carries a count; the others never show "(0)"', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      success: true,
+      sessions: defaultSessions,
+      provenance: { raw: 9, operational: 2, excluded_non_operational: 6, unknown_requires_review: 1, view: 'operational_only' },
+    }))
+    render(<IdentityVerificationCaseManagement />)
+    await waitForSessions()
+    expect(screen.getByTestId('verification-tab-count-reviewer_action_required')).toHaveTextContent('(2)')
+    for (const id of ['applicant_action_required', 'escalated', 'resolved_approved', 'resolved_rejected', 'all']) {
+      expect(screen.queryByTestId(`verification-tab-count-${id}`)).toBeNull()
+    }
+    expect(screen.queryByText('(0)')).toBeNull()
+    const notice = screen.getByTestId('provenance-notice')
+    expect(notice).toHaveTextContent('Test / certification data excluded: 6')
+    expect(notice).toHaveTextContent('Needs review (not counted): 1')
+  })
+
+  it('a failed read shows "(—)" for the read tab, and no set-aside line from an earlier read', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({ error: 'Server error' }, false))
+    render(<IdentityVerificationCaseManagement />)
+    await waitFor(() => {
+      expect(screen.getByTestId('verification-tab-count-reviewer_action_required')).toHaveTextContent('(—)')
+    })
+    expect(screen.queryByTestId('provenance-notice')).toBeNull()
+  })
+})

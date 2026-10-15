@@ -1691,6 +1691,12 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['footer'],
     requiresAuth: false,
     icon: 'BookOpen',
+    // PC01-J-R1: the page documents `https://api.carup.dev/v1/vehicles/valuations`, `/v1/inspections`
+    // and `/v1/dealers`. None exists — the partner API is `/api/partner/v1/vehicles/:vin/identity`,
+    // `/trust-summary`, `/source-coverage`, `/dealers/:id/summary` and the rest in
+    // backend/routes/partnerApiRoutes.js. Documentation for endpoints that do not exist is planned,
+    // not active, until it describes the real API.
+    lifecycle: 'planned',
   },
 
   // ─── Auth / Registration Flow Routes ─────────────────────────────────
@@ -1898,6 +1904,19 @@ export function getDashboardItemsFor(
 ): FeatureRegistryItem[] {
   return FEATURE_REGISTRY.filter(
     f => f.placements.includes('dashboard_sidebar') && isFeatureRoleEligible(f, { role, activeTenant })
+  )
+}
+
+/**
+ * PC01-K1 — the account menu's destinations, from the registry's `user_menu` placement and the same
+ * role/tenant eligibility as the sidebar. The menu used to hard-code "My Garage" and "Gutu AI" for
+ * every role, so an admin was offered owner pages the route boundary then bounced them away from.
+ */
+export function getUserMenuItemsFor(
+  { role, activeTenant }: { role: UserRole; activeTenant?: ActiveTenantScope | null },
+): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('user_menu') && isFeatureRoleEligible(f, { role, activeTenant })
   )
 }
 

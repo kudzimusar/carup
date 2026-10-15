@@ -9,7 +9,10 @@ export const RegisterSchema = z.object({
   name: z.string().min(2, { message: 'Name must be at least 2 characters' }),
   email: z.string().email({ message: 'Invalid email address' }),
   phone: z.string().optional(),
-  password: z.string().min(6, { message: 'Password must be at least 6 characters' }),
+  // PC01-J-R1: the server refuses a registration password shorter than 8 (POST /api/auth/register),
+  // so the form must not accept 6 and 7 and then fail. Login keeps its own rule: existing passwords
+  // are not re-validated at sign-in.
+  password: z.string().min(8, { message: 'Password must be at least 8 characters' }),
   role: z.enum(['owner', 'dealer', 'mechanic', 'insurance', 'government', 'bank', 'admin']),
 });
 

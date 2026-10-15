@@ -95,14 +95,27 @@ test('the TrustSafety report action is disabled and says why', () => {
   assert.ok(TRUST.includes('trust-report-submit'));
   assert.ok(/disabled/.test(TRUST.split('trust-report-submit')[1].slice(-400) + TRUST.split('trust-report-submit')[0].slice(-400)),
     'the submit control must be disabled');
-  assert.ok(/support@carup\.co\.zw/.test(TRUST), 'a channel that genuinely exists must be offered instead');
+  // PC01-J-R1: the channel that genuinely exists is the certified `support@carup.dev` alias
+  // (docs/communications/EMAIL_EXPERIENCE_1_0_CONTACT_IDENTITY_MAPPING.md, §1/§3.1). This assertion
+  // used to require `support@carup.co.zw` — a domain CarUp does not use — so it pinned the defect.
+  assert.ok(/support@carup\.dev/.test(TRUST), 'a channel that genuinely exists must be offered instead');
+  assert.ok(!/carup\.co\.zw/.test(TRUST), 'no address on the unused legacy domain may be offered');
 });
 
-test('the Contact form is disabled and says why', () => {
-  assert.ok(CONTACT.includes('contact-unavailable'));
-  assert.ok(CONTACT.includes('contact-submit'));
-  assert.ok(/support@carup\.co\.zw/.test(CONTACT));
-  assert.ok(!/within 24 hours/i.test(CONTACT), 'no reply time may be promised for a form that cannot send');
+test('the Contact page offers only channels that exist — no form at all', () => {
+  // PC01-J-R1 replaced the disabled form with the channels that are genuinely ready: one certified
+  // `@carup.dev` address per purpose (from config/publicIdentity.ts) and in-product seller
+  // conversations. A form that cannot send is not a channel, so there is none to disable.
+  assert.ok(!/<form\b|onSubmit=|type="submit"/.test(CONTACT), 'the Contact page must not render a form');
+  assert.ok(!/carup\.co\.zw/.test(CONTACT), 'no address on the unused legacy domain');
+  assert.ok(!/Business Hours|Mon\s*-?\s*Fri/i.test(CONTACT), 'no opening hours are kept, so none may be published');
+  assert.ok(!/\/dashboard\/ai/.test(CONTACT), 'Gutu is not a support channel and must not be offered as one');
+  assert.ok(!/within 24 hours/i.test(CONTACT), 'no reply time may be promised');
+  assert.match(CONTACT, /CONTACT_PURPOSES\.map/, 'every certified address is rendered from the frozen mapping');
+  assert.match(CONTACT, /href=\{`mailto:\$\{PUBLIC_CONTACTS\[purpose\]\}`\}/, 'each address is a real mailto link');
+  assert.ok(CONTACT.includes('contact-unavailable-channels'), 'channels that do not exist are stated, not omitted');
+  const identity = codeOnly(fs.readFileSync(path.join(REPO, 'web/src/config/publicIdentity.ts'), 'utf8'));
+  assert.match(identity, /support: 'support@carup\.dev'/);
 });
 
 // ── No institutional integration may be asserted ───────────────────────────

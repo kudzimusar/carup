@@ -269,6 +269,22 @@ export async function getMarketplaceListingDetail(vin: string, attribution?: Rec
   return requestJson<MobileListingDetail>(`/api/marketplace/listings/${encodeURIComponent(vin)}${toQuery(attribution)}`);
 }
 
+/**
+ * PC01-J-R1 — the Vehicle Passport for a vehicle that is NOT publicly listed, read by its signed-in
+ * owner. The Garage "Trust Passport" action opened the public listing route, which answers 404 for an
+ * unlisted vehicle, so an owner could never see their own vehicle here. The per-VIN passport route
+ * serves the owner's audience for a signed-in caller (and refuses an anonymous one for a restricted
+ * identifier — backend/utils/passportLookupPolicy.js).
+ */
+export interface MobileOwnerPassport {
+  vehicle?: { vin?: string; make?: string | null; model?: string | null; year?: number | null; mileage?: number | null; color?: string | null } | null;
+  trustReport?: MobilePublicTrust | null;
+}
+
+export async function getOwnerVehiclePassport(vin: string): Promise<MobileOwnerPassport> {
+  return requestJson<MobileOwnerPassport>(`/api/vehicles/${encodeURIComponent(vin)}/passport`);
+}
+
 export async function getMarketplaceCategories(): Promise<{ listing_types: { slug: string; label: string }[]; condition_categories: { slug: string; label: string }[]; trust_tags: { slug: string; label: string }[] }> {
   return requestJson(`/api/marketplace/categories`);
 }

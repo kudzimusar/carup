@@ -393,7 +393,8 @@ test('OC-4A 1.1 pin — the measured writers the classification rests on (a new 
     ['services/identity/verificationSessionService.js', 'update'],
   ]);
   assert.deepEqual(writesTo('financial_ledger'), [], 'financial_ledger has no runtime writer');
-  assert.equal(runtimeSources().some((file) => readFileSync(file, 'utf8').includes('financial_ledger')), false);
+  // A migration FILENAME (the parser's registry names 001_add_financial_ledger.sql) is not a use of the table.
+  assert.equal(runtimeSources().some((file) => /financial_ledger(?!\.sql)/.test(readFileSync(file, 'utf8'))), false);
 });
 
 test('OC-4A 1.1 pin — the governed partsentry fields ARE the review workflow\'s fields, and every patch key it writes is governed', () => {

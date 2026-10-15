@@ -590,9 +590,9 @@ export default function RegistrationJourney() {
                   const uploaded = identity?.uploaded_sides?.[side]
                   const state = uploadState[side] || 'idle'
                   return (
-                    <label key={side} className="block min-h-24 cursor-pointer rounded-lg border border-dashed border-input bg-background p-3 text-center text-sm shadow-sm"
+                    <label key={side} className="block min-h-24 cursor-pointer rounded-lg border border-dashed border-input bg-background p-3 text-center text-sm shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
                       data-testid={`upload-${side}`}>
-                      <input type="file" accept={IMAGE_ACCEPT} className="hidden"
+                      <input type="file" accept={IMAGE_ACCEPT} className="sr-only"
                         onChange={(e) => uploadSide(side, e.target.files?.[0])} />
                       <div className="flex flex-col items-center gap-1.5">
                         {uploaded

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isProductionLikeRuntime } from './runtimeEnvironment.js';
 
 const SCRYPT_KEYLEN = 64;
 const MIN_PASSWORD_LENGTH = 8;
@@ -20,8 +21,11 @@ function scryptAsync(password, salt) {
  * in middleware/authMiddleware.js.
  */
 export function isPasswordlessLoginAllowed(env = process.env) {
-  return env.CARUP_ALLOW_PASSWORDLESS_LOGIN === 'true' ||
-    env.NODE_ENV === 'test' ||
+  if (env.CARUP_ALLOW_PASSWORDLESS_LOGIN === 'true') return true;
+  // OC-5R-PROV-01 B1: a declared deployment never infers passwordless login from NODE_ENV —
+  // NODE_ENV=test inside staging or a preview would otherwise sign anyone in by email alone.
+  if (isProductionLikeRuntime(env)) return false;
+  return env.NODE_ENV === 'test' ||
     env.NODE_ENV === 'development' ||
     env.NODE_ENV === 'local';
 }

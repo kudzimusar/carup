@@ -61,6 +61,9 @@ describe('channelRegistry', () => {
 
   it('exposes helper label accessors', () => {
     expect(channelLabel('sms')).toBe('SMS')
-    expect(providerLabel('email')).toBe('sendgrid')
+    expect(providerLabel('email')).toBe('resend')
+    expect(providerLabel('email_marketing')).toBe('brevo')
+    expect(getChannel('email').webhookPath).toBe('/api/communications/webhooks/resend/email')
+    expect(getChannel('email_marketing').webhookPath).toBe('/api/communications/webhooks/brevo/email')
   })
 })

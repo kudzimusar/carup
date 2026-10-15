@@ -13,6 +13,8 @@
  * production never auto-selects an unsafe path.
  */
 
+import { isDeployedRuntime, isFixtureRuntime, isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
+
 // Providers recognised by the billing abstraction. SANDBOX/MANUAL are always safe; STRIPE is the
 // first real provider slot but is not implemented (external activation pending).
 export const BILLING_PROVIDERS = Object.freeze({
@@ -39,7 +41,7 @@ export const BILLING_TEST_PROFILES = Object.freeze({
 export const APPROVED_LIVE_PROVIDERS = Object.freeze([]);
 
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isProductionLikeRuntime(process.env);
 }
 
 /** Whether entitlement denials block protected operations. Default OFF (M1 foundation, no enforcement). */
@@ -73,8 +75,13 @@ export function assertBillingProductionSafety() {
   }
 }
 
-/** Sandbox is selected unless live billing is enabled AND an approved provider is configured. */
+/**
+ * Sandbox exists only for local/test development. A staging/preview/production deployment with no
+ * approved billing provider reports NOT CONFIGURED rather than manufacturing ACTIVE subscription
+ * truth in memory.
+ */
 export function shouldUseSandboxBilling() {
+  if (isDeployedRuntime(process.env)) return false;
   if (!isBillingLiveEnabled()) return true;
   const provider = configuredBillingProvider();
   return !provider || !APPROVED_LIVE_PROVIDERS.includes(provider);
@@ -95,13 +102,14 @@ export function shouldUseSandboxBilling() {
  * accept a forged webhook from anyone who had read this file, moving an arbitrary tenant onto any
  * plan. The signature verified correctly because the attacker held the same key we did.
  *
- * NODE_ENV==='test' keeps a fixed key so the suite stays hermetic — the only context with no real
- * tenant data and no externally reachable route.
+ * The test suite's FIXTURE runtime keeps a fixed key so the suite stays hermetic — the only context
+ * with no real tenant data and no externally reachable route. NODE_ENV=test inside a declared
+ * deployment is not that context (OC-5R-PROV-01 B2), so it gets no key and the route fails closed.
  */
 export function billingWebhookSecret() {
   const secret = process.env.DIASPORA_BILLING_WEBHOOK_SECRET;
   if (secret) return secret;
-  if (process.env.NODE_ENV === 'test') return 'diaspora-billing-test-webhook-secret';
+  if (isFixtureRuntime(process.env)) return 'diaspora-billing-test-webhook-secret';
   throw new Error(
     'DIASPORA_BILLING_WEBHOOK_SECRET is required to verify billing webhooks. Refusing to fall back '
     + 'to a shared default: this secret is the only credential protecting an unauthenticated, '

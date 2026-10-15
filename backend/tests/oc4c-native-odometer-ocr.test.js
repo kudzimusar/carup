@@ -239,10 +239,122 @@ test('OC-4C: a decimal (trip meter) reading is not accepted as an odometer total
   assert.equal(db.vehicle_document_extractions.length, 0);
 });
 
-test('OC-4C: OCR is refused for a PUBLIC odometer photo and for a stranger — the governed path is private and object-scoped', async () => {
-  const publicUpload = await nativeUpload('idem-oc4c-public', { visibility_level: 'public_safe' });
-  assert.equal(publicUpload.status, 201);
-  const refused = await call(ocrPath(publicUpload.body.id));
+// OC-5R-REL-01: this test used to upload with visibility 'public_safe', get a 201 for a PUBLIC odometer
+// photo (stored in vehicle-images), and only then be refused at OCR time. The server now derives
+// private storage for the type, so the public upload cannot happen; the OCR-time gate is still
+// proven, against a legacy row that an older build left in the public bucket.
+test('OC-4C / REL-01: a caller asking for PUBLIC — or for nothing — cannot place an odometer capture in a public bucket', async () => {
+  const asked = await nativeUpload('idem-rel01-public', { visibility_level: 'public_safe' });
+  const unsaid = await nativeUpload('idem-rel01-unsaid', { visibility_level: undefined });
+  assert.equal(asked.status, 201, asked.text.slice(0, 300));
+  assert.equal(unsaid.status, 201, unsaid.text.slice(0, 300));
+  const [askedRow, unsaidRow] = db.vehicle_evidence;
+  for (const row of [askedRow, unsaidRow]) {
+    assert.equal(row.visibility_level, 'private');
+    assert.equal(row.storage_bucket, 'ocr-documents');
+    assert.ok(objects.has(`ocr-documents/${row.file_path}`), 'the bytes are in the private bucket');
+  }
+  assert.equal([...objects.keys()].some((k) => k.startsWith('vehicle-images/')), false, 'nothing was written to the public bucket');
+  assert.equal(askedRow.metadata.visibility_request_refused.requested, 'public_safe');
+  assert.equal(askedRow.metadata.visibility_request_refused.applied, 'private');
+  assert.match(askedRow.metadata.visibility_request_refused.reason, /odometer photo is private evidence by type/);
+  assert.equal(unsaidRow.metadata.visibility_request_refused, undefined, 'no request, nothing refused');
+  // And the private capture is readable by governed OCR.
+  const ocr = await call(ocrPath(asked.body.id));
+  assert.equal(ocr.status, 201, ocr.text.slice(0, 300));
+});
+
+test('REL-01: even an operator holding the evidence-review capability cannot publish an odometer photo', async () => {
+  // Anti-vacuity, through the real route: this admin's widening request IS honoured for a source
+  // document (whose server default is restricted), so the clamp below is the type rule, not a
+  // missing capability.
+  const doc = await call(uploadPath(), {
+    who: 'admin-1',
+    body: { evidence_type: 'registration_document', visibility_level: 'public_safe', file: PHOTO, idempotency_key: 'idem-rel01-admin-doc' },
+    headers: { [CONTRACT.upload.idempotencyHeader]: 'idem-rel01-admin-doc' },
+  });
+  assert.equal(doc.status, 201, doc.text.slice(0, 300));
+  assert.equal(db.vehicle_evidence[0].visibility_level, 'public_safe', 'the admin may publish a document');
+  db.vehicle_evidence.length = 0;
+  const res = await call(uploadPath(), {
+    who: 'admin-1',
+    body: { ...CONTRACT.upload.body, visibility_level: 'public_safe', file: PHOTO, idempotency_key: 'idem-rel01-admin' },
+    headers: { [CONTRACT.upload.idempotencyHeader]: 'idem-rel01-admin' },
+  });
+  assert.equal(res.status, 201, res.text.slice(0, 300));
+  const [row] = db.vehicle_evidence;
+  assert.equal(row.visibility_level, 'private');
+  assert.equal(row.storage_bucket, 'ocr-documents');
+  assert.equal(row.metadata.visibility_request_refused.requested, 'public_safe');
+});
+
+test('REL-01: a legacy-only odometer_photo upload is private too', async () => {
+  const res = await call(uploadPath(), {
+    body: { evidence_type: 'odometer_photo', visibility_level: 'public_safe', file: PHOTO, idempotency_key: 'idem-rel01-legacy' },
+    headers: { [CONTRACT.upload.idempotencyHeader]: 'idem-rel01-legacy' },
+  });
+  assert.equal(res.status, 201, res.text.slice(0, 300));
+  const [row] = db.vehicle_evidence;
+  assert.equal(row.visibility_level, 'private');
+  assert.equal(row.storage_bucket, 'ocr-documents');
+});
+
+test('REL-01: a remote odometer create must reference a private object under this vehicle — public buckets and URLs are refused', async () => {
+  const base = { evidence_class: 'current_condition', evidence_subtype: 'odometer', visibility_level: 'public_safe', mime_type: 'image/jpeg' };
+  const publicBucket = await call(uploadPath(), { body: { ...base, storage_bucket: 'vehicle-images', file_path: `${VIN}/odo-a.jpg`, file_url: `${VIN}/odo-a.jpg` } });
+  assert.equal(publicBucket.status, 400, publicBucket.text.slice(0, 300));
+  assert.match(publicBucket.text, /odometer photo is private evidence/);
+  const publicUrl = await call(uploadPath(), { body: { ...base, file_url: `https://storage.invalid/vehicle-images/${VIN}/odo-b.jpg` } });
+  assert.equal(publicUrl.status, 400, publicUrl.text.slice(0, 300));
+  const noBucket = await call(uploadPath(), { body: { ...base, file_path: `${VIN}/odo-c.jpg`, file_url: `${VIN}/odo-c.jpg` } });
+  assert.equal(noBucket.status, 400, noBucket.text.slice(0, 300));
+  // Naming the private bucket does not make a public URL private: the object is somewhere else.
+  const urlClaimingPrivate = await call(uploadPath(), { body: { ...base, storage_bucket: 'ocr-documents', file_url: `https://storage.invalid/vehicle-images/${VIN}/odo-e.jpg` } });
+  assert.equal(urlClaimingPrivate.status, 400, urlClaimingPrivate.text.slice(0, 300));
+  assert.match(urlClaimingPrivate.text, /odometer photo is private evidence/);
+  assert.equal(db.vehicle_evidence.length, 0, 'no row points at a public copy');
+  const privateRef = await call(uploadPath(), { body: { ...base, storage_bucket: 'ocr-documents', file_path: `${VIN}/odo-d.jpg`, file_url: `${VIN}/odo-d.jpg` } });
+  assert.equal(privateRef.status, 201, privateRef.text.slice(0, 300));
+  const [row] = db.vehicle_evidence;
+  assert.equal(row.storage_bucket, 'ocr-documents');
+  assert.equal(row.visibility_level, 'private');
+});
+
+test('REL-01: a reviewer cannot give a public-bucket photo an odometer meaning, nor make an odometer photo public', async () => {
+  db.vehicle_evidence.push({
+    id: 'public-photo-1', vehicle_id: VIN, vin: VIN, evidence_class: 'current_condition', evidence_subtype: 'dashboard', evidence_type: 'vehicle_life_photo',
+    storage_bucket: 'vehicle-images', file_path: `${VIN}/dash.jpg`, file_url: `https://storage.invalid/vehicle-images/${VIN}/dash.jpg`,
+    visibility_level: 'public_safe', uploaded_by: 'owner-1', verification_status: 'pending', metadata: {},
+  });
+  const reclassify = await call(`/api/vehicles/${VIN}/evidence/public-photo-1/classification`, {
+    who: 'admin-1', method: 'PATCH', body: { evidence_class: 'current_condition', evidence_subtype: 'odometer', reason: 'it shows the odometer' },
+  });
+  assert.equal(reclassify.status, 409, reclassify.text.slice(0, 300));
+  assert.equal(reclassify.body.code, 'CLASSIFICATION_CORRECTION_PRIVATE_BY_TYPE');
+  assert.equal(db.vehicle_evidence[0].evidence_subtype, 'dashboard', 'the meaning did not change');
+
+  const uploaded = await nativeUpload('idem-rel01-correct');
+  const publish = await call(`/api/vehicles/${VIN}/evidence/${uploaded.body.id}/classification`, {
+    who: 'admin-1', method: 'PATCH', body: { evidence_class: 'current_condition', evidence_subtype: 'odometer', visibility_level: 'public_safe', reason: 'publish it' },
+  });
+  assert.equal(publish.status, 400, publish.text.slice(0, 300));
+  assert.equal(publish.body.code, 'CLASSIFICATION_CORRECTION_PRIVATE_BY_TYPE');
+  assert.equal(db.vehicle_evidence.find((r) => r.id === uploaded.body.id).visibility_level, 'private');
+
+  // Anti-vacuity: the same reviewer CAN correct a public-bucket photo to another (non-private) meaning.
+  const ok = await call(`/api/vehicles/${VIN}/evidence/public-photo-1/classification`, {
+    who: 'admin-1', method: 'PATCH', body: { evidence_class: 'current_condition', evidence_subtype: 'interior', reason: 'it is the interior' },
+  });
+  assert.equal(ok.status, 200, ok.text.slice(0, 300));
+});
+
+test('OC-4C: OCR is refused for a legacy PUBLIC odometer row and for a stranger — the governed path is private and object-scoped', async () => {
+  db.vehicle_evidence.push({
+    id: 'legacy-public-odometer', vehicle_id: VIN, vin: VIN, evidence_class: 'current_condition', evidence_subtype: 'odometer', evidence_type: 'odometer_photo',
+    storage_bucket: 'vehicle-images', file_path: `${VIN}/odometer_photo_legacy.jpg`, file_url: `https://storage.invalid/vehicle-images/${VIN}/odometer_photo_legacy.jpg`,
+    mime_type: 'image/jpeg', visibility_level: 'public_safe', uploaded_by: 'owner-1', verification_status: 'pending', metadata: {},
+  });
+  const refused = await call(ocrPath('legacy-public-odometer'));
   assert.equal(refused.status, 400);
   assert.match(refused.text, /private document bucket/);
   const owned = await nativeUpload('idem-oc4c-owned');

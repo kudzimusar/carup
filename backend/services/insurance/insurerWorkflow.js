@@ -28,7 +28,7 @@
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { evaluateGates } from '../eligibility/eligibilityContract.js';
-import { sign, verifyWebhook } from '../eligibility/webhookSecurity.js';
+import { sign, verifyRouteWebhook } from '../eligibility/webhookSecurity.js';
 import { executeProviderRequest } from '../providerPlatform/providerFramework.js';
 
 // The insurer webhook shares the insurance-capability HMAC identity (INSURANCE_WEBHOOK_SECRET).
@@ -367,9 +367,10 @@ async function persistBlocked({ vin, vehicle, profile, correlationId, idempotenc
  * append-only decision and updates the eligibility request. Fail-closed on a missing secret.
  * NEVER records 'eligible' without a confirmed provider_reference in the payload.
  */
-export async function ingestInsurerWebhook({ providerId, payloadString, signature, timestamp, idempotencyKey, body } = {}, now = Date.now()) {
-  const pid = providerId || INSURER_WEBHOOK_PROVIDER;
-  const verdict = verifyWebhook(pid, payloadString, signature, timestamp, now);
+export async function ingestInsurerWebhook({ providerId = null, payloadString, signature, timestamp, idempotencyKey, body } = {}, now = Date.now()) {
+  // Server-owned identity (OC-5R-PROV-01 B5): the caller's provider id is checked, never obeyed.
+  const pid = INSURER_WEBHOOK_PROVIDER;
+  const verdict = verifyRouteWebhook(pid, providerId, payloadString, signature, timestamp, now);
 
   // Dedupe: a repeated key is recorded (append-only) but never re-applied.
   let duplicate = false;
@@ -393,6 +394,8 @@ export async function ingestInsurerWebhook({ providerId, payloadString, signatur
 
   const { data: request } = await supabase.from('eligibility_requests').select('*').eq('id', body.request_id).maybeSingle();
   if (!request) return { applied: false, reason: 'unknown_request', signature_valid: true };
+  // An insurance-signed delivery authorises insurance requests only.
+  if (request.capability !== 'insurance') return { applied: false, reason: 'request_not_found_for_capability', signature_valid: true };
   const insurerProfileId = request.decision_inputs?.insurer_profile_id || body.insurer_profile_id;
   if (!insurerProfileId) return { applied: false, reason: 'unknown_insurer', signature_valid: true };
 

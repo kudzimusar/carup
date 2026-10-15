@@ -174,7 +174,13 @@ test('SHARDS: all three projects are invoked, serially, from one testMatch contr
     `a shard narrows the spec set: ${invocation.trim()}`);
   // Each shard re-proves the pairing, so a deployment that moves between shards fails.
   assert.match(shardYaml, /resolve-governed-preview-pair\.mjs/);
-  assert.match(shard, /TRADEOS_WORKER_SECRET is not configured/);
+  // D7 drains through the CANONICAL Communications worker secret (REL-03A 9257be51: "converge D7 shard
+  // worker secret"; REL-03B handoff §5: "Do not create TRADEOS_WORKER_SECRET support"). The shard must
+  // still fail loudly when that secret is absent — a run without it is not a certification.
+  assert.match(shardYaml, /if \[ -z "\$COMMUNICATION_WORKER_SECRET" \]; then/);
+  assert.match(shard, /COMMUNICATION_WORKER_SECRET is not configured/);
+  assert.match(shardYaml, /COMMUNICATION_WORKER_SECRET is not configured[^\n]*\n\s*exit 1/);
+  assert.ok(!/TRADEOS_WORKER_SECRET/.test(shardYaml), 'the retired TRADEOS_WORKER_SECRET must not return to the shard');
 });
 
 test('SHARDS: the 35-minute ceiling is unchanged', () => {

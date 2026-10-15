@@ -20,5 +20,10 @@ for (const file of ['vercel.json', 'web/vercel.json', 'backend/vercel.json']) {
 
 test('OC-4D: the frontend rewrites are unchanged by the release-only switch', () => {
   assert.deepEqual(config('vercel.json').rewrites, [{ source: '/(.*)', destination: '/' }]);
-  assert.deepEqual(config('web/vercel.json').rewrites, [{ source: '/((?!email-assets/).*)', destination: '/index.html' }]);
+  // The release-only switch changes no rewrite. The frontend rewrite itself was changed deliberately and
+  // separately by OC-LAUNCH-04 (public-document function); this pins that governed value.
+  assert.deepEqual(config('web/vercel.json').rewrites, [{
+    source: '/((?!assets/|email-assets/|api/|sw\\.js$|favicon\\.svg$|manifest\\.webmanifest$|robots\\.txt$|sitemap\\.xml$|carup-provenance\\.json$).*)',
+    destination: '/api/public-page?path=$1',
+  }]);
 });

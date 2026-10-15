@@ -39,10 +39,11 @@ test('bootstrap wins: loading=true even with a momentary role → loading', () =
   assert.equal(resolveDashboardGate({ loading: true, role: 'owner' }).kind, 'loading');
 });
 
-test('loading=false + role=null → redirect to /login', () => {
+test('loading=false + role=null → a guest browses the public Marketplace (PC01-J-R1)', () => {
+  // This redirected to /login, so a guest could not browse at all. Browsing never needs an account.
   const g = resolveDashboardGate({ loading: false, role: null });
   assert.equal(g.kind, 'redirect');
-  assert.equal(g.kind === 'redirect' && g.to, '/login');
+  assert.equal(g.kind === 'redirect' && g.to, '/marketplace');
 });
 
 test('loading=false + owner role uses owner.overview', () => {

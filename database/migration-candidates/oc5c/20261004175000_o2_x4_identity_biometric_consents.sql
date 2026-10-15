@@ -1,6 +1,8 @@
 -- +migrate Up
--- CANDIDATE (OC-5C, ported from PR #208 20260903210000) — NOT APPLIED ANYWHERE. database/migration-
--- candidates/ is not globbed by any runner. Promote it only together with a SELECTED biometric
+-- CANDIDATE (OC-5C, ported from PR #208 20260903210000) — NOT PROMOTED into the canonical lineage. It IS present on
+-- canonical staging (applied by PR #208's runs, with no ledger row) and is held under custody exception
+-- X4-BIOMETRIC-CONSENT-LEDGER in database/convergence/oc5r-lineage-exceptions.json. database/migration-candidates/ is
+-- not globbed by any runner, and the staging runner refuses this file by name. Promote it only together with a SELECTED biometric
 -- provider and the deferred consent service (docs/features/o2/CARUP_OPERATIONS_O2_X4_BIOMETRIC_
 -- PROVIDER_DECISION.md). OPEN before promotion (owner): user_id is ON DELETE CASCADE here, whereas
 -- the X3 identity-history ledger is RESTRICT — consent history and erasure rights need one rule.

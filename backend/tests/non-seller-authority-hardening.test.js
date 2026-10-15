@@ -43,9 +43,15 @@ test('hardening: NODE_ENV alone cannot open the x-user-id fallback in a producti
       isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, CARUP_ENV: 'production' }), false,
       `NODE_ENV=${nodeEnv} must not open the fallback when CARUP_ENV=production`,
     );
-    // Non-production deployments are unchanged, so local development and CI still work.
+    // OC-5R-PROV-01 B1: NOT only production. A preview or staging deployment is just as reachable,
+    // and NODE_ENV=test there opened the same credential-free identity. Every declared deployment
+    // (the central classifier) now refuses the inference.
+    assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, VERCEL_ENV: 'preview' }), false,
+      `NODE_ENV=${nodeEnv} must not open the fallback in a Vercel preview`);
+    assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, CARUP_ENV: 'staging' }), false,
+      `NODE_ENV=${nodeEnv} must not open the fallback on staging`);
+    // Local development and CI declare no deployment, so they still work.
     assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv }), true);
-    assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, VERCEL_ENV: 'preview' }), true);
   }
 
   // NODE_ENV=production was already closed and stays closed.
@@ -229,11 +235,11 @@ test('hardening: a production deployment never signs the ledger with an ephemera
   const custody = read('../services/blockchain/blockchainKeyCustodyService.js');
 
   assert.match(custody, /function isEphemeralTestSecretAllowed\(\)/);
-  assert.match(
-    custody,
-    /CARUP_ENV === 'production' \|\| process\.env\.VERCEL_ENV === 'production'\) return false/,
-    'the deployment environment must override the NODE_ENV inference',
-  );
+  // OC-5R-PROV-01 B1: the deployment declaration is the CENTRAL classifier, so every deployment —
+  // staging and previews, not only production — overrides the NODE_ENV inference.
+  assert.match(custody, /import \{ isFixtureRuntime \} from '\.\.\/\.\.\/utils\/runtimeEnvironment\.js'/);
+  assert.match(custody, /return isFixtureRuntime\(process\.env\);/,
+    'the deployment environment must override the NODE_ENV inference');
   // Neither resolver may branch on NODE_ENV directly any more.
   for (const resolver of ['function masterSecret', 'function currentSystemSecret']) {
     const start = custody.indexOf(resolver);
@@ -245,20 +251,26 @@ test('hardening: a production deployment never signs the ledger with an ephemera
     assert.match(body, /isEphemeralTestSecretAllowed\(\)/);
   }
 
-  // Behavioural: with the deployment marked production and no configured secret, signing throws.
+  // Behavioural: with ANY deployment declared and no configured secret, signing throws.
   const savedVercel = process.env.VERCEL_ENV;
+  const savedCarup = process.env.CARUP_ENV;
   const savedMaster = process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET;
   const savedSystem = process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET;
   try {
-    process.env.VERCEL_ENV = 'production';
     delete process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET;
     delete process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET;
-    // Fresh module instance so the module-level cached test secrets cannot mask the branch.
-    const fresh = await import(`../services/blockchain/blockchainKeyCustodyService.js?production-probe`);
-    assert.throws(() => fresh.signSystemLedgerHash('abc'), /CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET is required/);
-    assert.throws(() => fresh.deriveStakeholderKey('u1'), /CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET is required/);
+    for (const [key, value, probe] of [['VERCEL_ENV', 'production', 'production-probe'], ['VERCEL_ENV', 'preview', 'preview-probe'], ['CARUP_ENV', 'staging', 'staging-probe']]) {
+      delete process.env.VERCEL_ENV;
+      delete process.env.CARUP_ENV;
+      process.env[key] = value;
+      // Fresh module instance so the module-level cached test secrets cannot mask the branch.
+      const fresh = await import(`../services/blockchain/blockchainKeyCustodyService.js?${probe}`);
+      assert.throws(() => fresh.signSystemLedgerHash('abc'), /CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET is required/, `${key}=${value}`);
+      assert.throws(() => fresh.deriveStakeholderKey('u1'), /CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET is required/, `${key}=${value}`);
+    }
   } finally {
     if (savedVercel === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = savedVercel;
+    if (savedCarup === undefined) delete process.env.CARUP_ENV; else process.env.CARUP_ENV = savedCarup;
     process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET = savedMaster;
     process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET = savedSystem;
   }

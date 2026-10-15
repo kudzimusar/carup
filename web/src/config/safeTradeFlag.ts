@@ -4,7 +4,7 @@
  * VITE_DIASPORA_SAFETRADE_UI_ENABLED gates the SafeTrade frontend ONLY:
  *   - OFF (default): the nav entry is hidden (featureRegistry isHidden) AND the
  *     /diaspora/safetrade page renders an explicit "not available" unavailable state.
- *   - ON  ('true'): the nav entry appears and the page renders the live UI.
+ *   - ON  ('true'): the nav entry appears only in a local/test harness; deployed builds stay unavailable.
  *
  * This is DISTINCT from the backend master gate (DIASPORA_SAFETRADE_ENABLED) and from the
  * live-payment switch (DIASPORA_SAFETRADE_LIVE_PAYMENT). It NEVER enables real money movement —
@@ -14,10 +14,13 @@
  * Read at call time (not module-eval time) so tests can stub import.meta.env per case.
  */
 export function safeTradeUiEnabled(): boolean {
-  // Optional-chain so a Node context where import.meta.env is undefined fails closed (false), not
-  // throws. The Playwright Node runner imports the registry (which imports this) transitively, and
-  // there import.meta.env is undefined — a non-optional access would crash the whole e2e job.
-  return import.meta.env?.VITE_DIASPORA_SAFETRADE_UI_ENABLED === 'true'
+  // The current SafeTrade money rail is a sandbox simulator. It may be exercised in local/test
+  // development only; a deployed build must remain unavailable until a regulated live provider is
+  // separately approved and wired.
+  const env = import.meta.env
+  if (!env) return false
+  const localHarness = env.DEV === true || env.MODE === 'test'
+  return localHarness && env.VITE_DIASPORA_SAFETRADE_UI_ENABLED === 'true'
 }
 
 /**

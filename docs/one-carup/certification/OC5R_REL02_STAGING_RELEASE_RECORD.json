@@ -1,0 +1,2967 @@
+{
+ "schema": "carup.oc5r.staging_release_record.v1",
+ "programme": "OC-5R-REL-02",
+ "pull_request": 222,
+ "branch": "fix/oc5r-real-runtime-source-closure",
+ "recorded_at": "2026-10-08T07:35:28Z",
+ "historical_evidence_untouched": "OC5R_STAGING_RELEASE_RECORD.json (REL-01), its receipts and report are NOT rewritten, amended or invalidated; REL-01's aliases (…-oc5r-rel01-11-11) keep serving d491b5aa",
+ "iterations": {
+  "summary": "REL-02 ran twice on the SAME named aliases. The interim iteration (code 17377635, deploy 1ab0e357) was deployed, runtime-verified, proved and gate-tested; its Diaspora gate found two TEST-HARNESS defects (C2, J2) and no product defect. The fixes are test-only (no product source differs), so the final iteration (code ff50ba34, deploy 24a14933) re-deployed and re-proved everything at its own exact SHA. Receipts cite the FINAL iteration only; the interim evidence is kept here as history.",
+  "interim_superseded": {
+   "code": "1737763513f36158abb954fcd49e25dc49181779",
+   "deploy": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+   "why_superseded": "two harness defects found by its Diaspora gate; no product change was needed"
+  },
+  "final": {
+   "code": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+   "deploy": "24a149334beb25932ebcafdb829463a65fce17f1"
+  }
+ },
+ "shas": {
+  "starting": "ce89a8fac7ad75d07e9b6d9fc4ab87e8503dbc80",
+  "frozen_rel01_deployed_evidence": "d491b5aa8778002341f1eba6e2450273546e52cb",
+  "code": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+  "deploy": "24a149334beb25932ebcafdb829463a65fce17f1",
+  "interim_code": "1737763513f36158abb954fcd49e25dc49181779",
+  "interim_deploy": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+  "code_commits": {
+   "98510d93": "A — the loaded owner page is visibly the Vehicle Passport",
+   "6705464f": "B — spec 41 asserts one active SIDEBAR destination",
+   "48a7ea01": "C — spec 45 chooses its organisation through the real UI",
+   "c11d057a": "D — spec 38 scrolls its CTAs clear of the fixed bars, then taps normally",
+   "6fb12461": "B/C/D contract tests",
+   "e8d5eede": "E — Gemma advisory calls disable hidden reasoning; ai_timeout",
+   "e5a66b67": "J/H — D7 last with drain evidence; Gemma proof requires the bound",
+   "17377635": "three test gaps the mutation battery found (interim code SHA)",
+   "95928d7a": "C2 — the seven-viewport sweep and the visual capture get explicit test timeouts",
+   "ff50ba34": "J2 — spec 42 lets the product's own evidence upload settle before the reviewer reads (FINAL code SHA)"
+  },
+  "deploy_commits": {
+   "1ab0e357": "interim deploy commit: the two alias records + candidate package for 17377635",
+   "24a14933": "FINAL deploy commit: candidate package for ff50ba34, documentation only (alias records inherited; verifier pairing \"absent\")"
+  }
+ },
+ "deployments": {
+  "final": {
+   "frontend": {
+    "project": "carup-staging (prj_auYmL5hA2ppWA15jdTK4GAdy3AYm)",
+    "target": "preview",
+    "deployment_id": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG",
+    "url": "https://carup-staging-fpm8jqlkm-11-11.vercel.app",
+    "alias": "https://carup-staging-oc5r-rel02-11-11.vercel.app",
+    "alias_moved_from": "dpl_CFRtA9A1PPuYeUDhZG8W6WYWvgSM",
+    "build_inputs": [
+     "CARUP_BUILD_SHA",
+     "CARUP_BUILD_REF"
+    ],
+    "meta": {
+     "carupSourceSha": "24a149334beb25932ebcafdb829463a65fce17f1",
+     "carupProgramme": "OC-5R-REL-02",
+     "carupStage": "release-pair-2"
+    },
+    "upload_set": {
+     "head": "24a149334beb25932ebcafdb829463a65fce17f1",
+     "worktree_clean": true,
+     "uploaded": 3200,
+     "tracked": 3204,
+     "uploaded_not_tracked": [],
+     "tracked_not_uploaded": [],
+     "ignored_by_cli": [
+      ".git",
+      ".gitignore",
+      "backend/.gitignore",
+      "mobile/.gitignore",
+      "web/.gitignore"
+     ],
+     "upload_is_tracked_tree": true
+    }
+   },
+   "backend": {
+    "project": "carup-backend-staging (prj_ddsVeXDxxHxyMAaZxX4v5ORya27W)",
+    "target": "preview",
+    "deployment_id": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+    "url": "https://carup-backend-staging-hd0to0xko-11-11.vercel.app",
+    "alias": "https://carup-backend-staging-oc5r-rel02-11-11.vercel.app",
+    "alias_moved_from": "dpl_8SoFtGC4wxZJUrb1qPM6shm1jQNx",
+    "build_inputs": [
+     "CARUP_BUILD_SHA",
+     "CARUP_BUILD_REF"
+    ],
+    "deployment_env": [
+     "CARUP_BUILD_SHA",
+     "CARUP_BUILD_REF",
+     "COMMUNICATION_OUTBOUND_DISABLED=true"
+    ],
+    "meta": {
+     "carupSourceSha": "24a149334beb25932ebcafdb829463a65fce17f1",
+     "carupProgramme": "OC-5R-REL-02",
+     "carupStage": "release-pair-2"
+    },
+    "upload_set": {
+     "head": "24a149334beb25932ebcafdb829463a65fce17f1",
+     "worktree_clean": true,
+     "uploaded": 3200,
+     "tracked": 3204,
+     "uploaded_not_tracked": [],
+     "tracked_not_uploaded": [],
+     "ignored_by_cli": [
+      ".git",
+      ".gitignore",
+      "backend/.gitignore",
+      "mobile/.gitignore",
+      "web/.gitignore"
+     ],
+     "upload_is_tracked_tree": true
+    }
+   },
+   "deployed_at": "deploy started 2026-10-08T04:34:18Z, both READY by 2026-10-08T04:35:33Z; aliases assigned through the Vercel API and read back"
+  },
+  "interim_superseded": {
+   "backend_code_sha_first": {
+    "purpose": "the backend preview of the interim CODE SHA, deployed first so its real alias could be read before the pairing commit",
+    "deployment_id": "dpl_GVbhKuAay3d8Jt1qJSPo5uAAi9vm",
+    "url": "https://carup-backend-staging-2oq6vdk0i-11-11.vercel.app",
+    "served_sha": "1737763513f36158abb954fcd49e25dc49181779",
+    "upload_set": {
+     "head": "1737763513f36158abb954fcd49e25dc49181779",
+     "worktree_clean": true,
+     "uploaded": 3199,
+     "tracked": 3203,
+     "uploaded_not_tracked": [],
+     "tracked_not_uploaded": [],
+     "ignored_by_cli": [
+      ".git",
+      ".gitignore",
+      "backend/.gitignore",
+      "mobile/.gitignore",
+      "web/.gitignore"
+     ],
+     "upload_is_tracked_tree": true
+    }
+   },
+   "frontend": {
+    "deployment_id": "dpl_CFRtA9A1PPuYeUDhZG8W6WYWvgSM",
+    "url": "https://carup-staging-lew1pyp07-11-11.vercel.app",
+    "served_sha": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+    "upload_set": {
+     "head": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+     "worktree_clean": true,
+     "uploaded": 3199,
+     "tracked": 3203,
+     "uploaded_not_tracked": [],
+     "tracked_not_uploaded": [],
+     "ignored_by_cli": [
+      ".git",
+      ".gitignore",
+      "backend/.gitignore",
+      "mobile/.gitignore",
+      "web/.gitignore"
+     ],
+     "upload_is_tracked_tree": true
+    },
+    "alias_history": "carup-staging-oc5r-rel02-11-11.vercel.app was assigned to it 2026-10-08T03:35:15Z and moved to the final frontend"
+   },
+   "backend": {
+    "deployment_id": "dpl_8SoFtGC4wxZJUrb1qPM6shm1jQNx",
+    "url": "https://carup-backend-staging-39hqrbjp7-11-11.vercel.app",
+    "served_sha": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+    "upload_set": {
+     "head": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+     "worktree_clean": true,
+     "uploaded": 3199,
+     "tracked": 3203,
+     "uploaded_not_tracked": [],
+     "tracked_not_uploaded": [],
+     "ignored_by_cli": [
+      ".git",
+      ".gitignore",
+      "backend/.gitignore",
+      "mobile/.gitignore",
+      "web/.gitignore"
+     ],
+     "upload_is_tracked_tree": true
+    },
+    "alias_history": "carup-backend-staging-oc5r-rel02-11-11.vercel.app was assigned to it and moved to the final backend"
+   }
+  },
+  "unchanged_read_back_after_the_final_assignment": {
+   "carup-backend-staging.vercel.app (and api-staging.carup.dev, carup-backend-staging-11-11, …-git-main-11-11, carup-backend-aca7)": "dpl_91cteUJnAN8218aeCtUPrXHSHLa3 (main@bb9d9900)",
+   "carup-staging.vercel.app (and staging.carup.dev, carup-staging-11-11, …-git-main-11-11)": "dpl_4LzS7ioRPzjvDbw1nSaiFdoqkT6Y (main@bb9d9900)",
+   "REL-01 backend alias carup-backend-staging-oc5r-rel01-11-11.vercel.app": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB (d491b5aa) — read back unmoved",
+   "REL-01 frontend alias carup-staging-oc5r-rel01-11-11.vercel.app": "dpl_F6XtrHpnu12WecJZYgMGzqZEqcbo (d491b5aa) — read back unmoved"
+  }
+ },
+ "environment": {
+  "supabase_db_url": "NOT restored to Preview (owner decision 2026-10-07T23:49:06Z stands); read back after the final deployment: [{\"key\": \"SUPABASE_DB_URL\", \"type\": \"sensitive\", \"target\": [\"production\"], \"gitBranch\": null, \"updatedAt\": 1791416946782}]",
+  "other_env_changes": "none"
+ },
+ "stage_g_runtime_identity": {
+  "final": {
+   "verdict": "DEPLOYED RUNTIME VERIFIED",
+   "identity_checks": {
+    "frontend serves the exact SHA": true,
+    "frontend is paired, not unpaired": true,
+    "frontend API base is the paired backend alias": true,
+    "backend serves the exact SHA": true,
+    "backend database is healthy": true,
+    "backend reaches the staging project only": true,
+    "no production project ref in the health body": true,
+    "no production project ref in any served chunk": true,
+    "a served chunk names the staging project": true,
+    "the served bundle calls the paired backend alias": true,
+    "OCR: cloudflare / Qwen, configured, custody canonical, no mock": true,
+    "general AI: cloudflare / Gemma, configured, advisory": true,
+    "outbound kill switch active": true,
+    "the stale CLOUDFLARE_TOKEN is not what configures OCR or AI": true
+   },
+   "acceptance_conditions": {
+    "frontend SHA == backend SHA == pairing SHA": true,
+    "database = eoyenigwevnxwwhyhaer, consistent, nothing unreadable": true,
+    "production ref absent (health body and every served chunk)": true,
+    "the served bundle names the staging project and calls the paired backend alias": true,
+    "Qwen canonical and configured": true,
+    "Gemma configured": true,
+    "outbound kill switch active": true,
+    "SUPABASE_DB_URL is NOT restored to Preview (production scope unchanged)": true
+   },
+   "health": {
+    "build": {
+     "commit_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+     "commit_sha_short": "24a14933",
+     "branch": "fix/oc5r-real-runtime-source-closure",
+     "deployment_id": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+     "environment": "preview",
+     "source": "explicit_build_input",
+     "provenance_available": true
+    },
+    "database": {
+     "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+     "postgres_project_refs": [
+      "eoyenigwevnxwwhyhaer"
+     ],
+     "unrecognised_endpoints": 0,
+     "unrecognised_endpoint_names": [],
+     "consistent": true
+    },
+    "ocr": {
+     "selectedProvider": "cloudflare",
+     "selectedModel": "@cf/qwen/qwen3.8-27b",
+     "configured": true,
+     "mockRuntimeAllowed": false,
+     "custody": {
+      "canonical_provider": "cloudflare",
+      "canonical_model": "@cf/qwen/qwen3.8-27b",
+      "status": "canonical"
+     }
+    },
+    "ai": {
+     "provider": "cloudflare",
+     "model": "@cf/google/gemma-4-26b-a4b-it",
+     "configured": true,
+     "authority": "advisory"
+    },
+    "outbound": {
+     "kill_switch": "active",
+     "external_sends": "disabled",
+     "internal_channels": "enabled",
+     "control": "COMMUNICATION_OUTBOUND_DISABLED"
+    },
+    "supabase": {
+     "status": "healthy",
+     "outboxBacklog": 630,
+     "ledgerIntentBacklog": 0
+    },
+    "sentry": {
+     "enabled": false,
+     "status": "not_configured",
+     "sdk_installed": false,
+     "dsn_configured": false,
+     "reporting_to": "structured_logger"
+    },
+    "evidenceVision": {
+     "state": "not_configured",
+     "provider": null,
+     "available": false,
+     "authority": "advisory"
+    }
+   },
+   "provenance": {
+    "commit_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+    "git_ref": "fix/oc5r-real-runtime-source-closure",
+    "provenance_source": "explicit_build_input",
+    "api_base_url": "https://carup-backend-staging-oc5r-rel02-11-11.vercel.app",
+    "api_base_source": "paired from preview-backend-pairing.json for \"fix/oc5r-real-runtime-source-closure\"",
+    "unpaired": false
+   },
+   "bundle_chunks": [
+    {
+     "name": "index-DvoFh8Hm.js",
+     "status": 200,
+     "bytes": 3833882,
+     "staging": false,
+     "production": false,
+     "backend_alias": true
+    },
+    {
+     "name": "supabase-ZD19OdpY.js",
+     "status": 200,
+     "bytes": 207835,
+     "staging": true,
+     "production": false,
+     "backend_alias": false
+    },
+    {
+     "name": "FeatureGovernanceConsole-DS6NGrkw.js",
+     "status": 200,
+     "bytes": 33856,
+     "staging": false,
+     "production": false,
+     "backend_alias": true
+    }
+   ],
+   "request_capture": {
+    "schema": "oc5r-rel02-runtime-request-capture/v1",
+    "captured_at": "2026-10-08T04:36:52Z",
+    "method": "Playwright (MCP) browser load of the REL-02 frontend alias home page, then the page's full network log (static included)",
+    "frontend": "https://carup-staging-oc5r-rel02-11-11.vercel.app/",
+    "deploy_commit": "24a149334beb25932ebcafdb829463a65fce17f1",
+    "bundle_entry": "index-DvoFh8Hm.js",
+    "requests": [
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/ => 200",
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/assets/index-DvoFh8Hm.js => 200",
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/assets/index-DFHHs5OS.css => 200",
+     "GET https://fonts.googleapis.com/css2?family=Inter... => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/health => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/marketplace/nav-coverage",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/marketplace/listings?limit=6&sort=newest => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/features/effective => 200",
+     "GET https://fonts.gstatic.com/s/inter/v20/... => 200"
+    ],
+    "api_hosts_called": [
+     "carup-backend-staging-oc5r-rel02-11-11.vercel.app"
+    ],
+    "stable_staging_backend_called": false,
+    "rel01_backend_alias_called": false,
+    "unpaired_invalid_host_called": false
+   }
+  },
+  "interim_superseded": {
+   "verdict": "DEPLOYED RUNTIME VERIFIED",
+   "identity_checks": {
+    "frontend serves the exact SHA": true,
+    "frontend is paired, not unpaired": true,
+    "frontend API base is the paired backend alias": true,
+    "backend serves the exact SHA": true,
+    "backend database is healthy": true,
+    "backend reaches the staging project only": true,
+    "no production project ref in the health body": true,
+    "no production project ref in any served chunk": true,
+    "a served chunk names the staging project": true,
+    "the served bundle calls the paired backend alias": true,
+    "OCR: cloudflare / Qwen, configured, custody canonical, no mock": true,
+    "general AI: cloudflare / Gemma, configured, advisory": true,
+    "outbound kill switch active": true,
+    "the stale CLOUDFLARE_TOKEN is not what configures OCR or AI": true
+   },
+   "acceptance_conditions": {
+    "frontend SHA == backend SHA == pairing SHA": true,
+    "database = eoyenigwevnxwwhyhaer, consistent, nothing unreadable": true,
+    "production ref absent (health body and every served chunk)": true,
+    "the served bundle names the staging project and calls the paired backend alias": true,
+    "Qwen canonical and configured": true,
+    "Gemma configured": true,
+    "outbound kill switch active": true,
+    "SUPABASE_DB_URL is NOT restored to Preview (production scope unchanged)": true
+   },
+   "health": {
+    "build": {
+     "commit_sha": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+     "commit_sha_short": "1ab0e357",
+     "branch": "fix/oc5r-real-runtime-source-closure",
+     "deployment_id": "dpl_8SoFtGC4wxZJUrb1qPM6shm1jQNx",
+     "environment": "preview",
+     "source": "explicit_build_input",
+     "provenance_available": true
+    },
+    "database": {
+     "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+     "postgres_project_refs": [
+      "eoyenigwevnxwwhyhaer"
+     ],
+     "unrecognised_endpoints": 0,
+     "unrecognised_endpoint_names": [],
+     "consistent": true
+    },
+    "ocr": {
+     "selectedProvider": "cloudflare",
+     "selectedModel": "@cf/qwen/qwen3.8-27b",
+     "configured": true,
+     "mockRuntimeAllowed": false,
+     "custody": {
+      "canonical_provider": "cloudflare",
+      "canonical_model": "@cf/qwen/qwen3.8-27b",
+      "status": "canonical"
+     }
+    },
+    "ai": {
+     "provider": "cloudflare",
+     "model": "@cf/google/gemma-4-26b-a4b-it",
+     "configured": true,
+     "authority": "advisory"
+    },
+    "outbound": {
+     "kill_switch": "active",
+     "external_sends": "disabled",
+     "internal_channels": "enabled",
+     "control": "COMMUNICATION_OUTBOUND_DISABLED"
+    },
+    "supabase": {
+     "status": "healthy",
+     "outboxBacklog": 594,
+     "ledgerIntentBacklog": 0
+    },
+    "sentry": {
+     "enabled": false,
+     "status": "not_configured",
+     "sdk_installed": false,
+     "dsn_configured": false,
+     "reporting_to": "structured_logger"
+    },
+    "evidenceVision": {
+     "state": "not_configured",
+     "provider": null,
+     "available": false,
+     "authority": "advisory"
+    }
+   },
+   "provenance": {
+    "commit_sha": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+    "git_ref": "fix/oc5r-real-runtime-source-closure",
+    "provenance_source": "explicit_build_input",
+    "api_base_url": "https://carup-backend-staging-oc5r-rel02-11-11.vercel.app",
+    "api_base_source": "paired from preview-backend-pairing.json for \"fix/oc5r-real-runtime-source-closure\"",
+    "unpaired": false
+   },
+   "bundle_chunks": [
+    {
+     "name": "index-BuqhhY3f.js",
+     "status": 200,
+     "bytes": 3833882,
+     "staging": false,
+     "production": false,
+     "backend_alias": true
+    },
+    {
+     "name": "supabase-BPuO-I3N.js",
+     "status": 200,
+     "bytes": 207835,
+     "staging": true,
+     "production": false,
+     "backend_alias": false
+    },
+    {
+     "name": "FeatureGovernanceConsole-GDmqkbXi.js",
+     "status": 200,
+     "bytes": 33856,
+     "staging": false,
+     "production": false,
+     "backend_alias": true
+    }
+   ],
+   "request_capture": {
+    "schema": "oc5r-rel02-runtime-request-capture/v1",
+    "captured_at": "2026-10-08T03:36:13Z",
+    "method": "Playwright (MCP) browser load of the REL-02 frontend alias home page, then the page's full network log (static included)",
+    "frontend": "https://carup-staging-oc5r-rel02-11-11.vercel.app/",
+    "bundle_entry": "index-BuqhhY3f.js",
+    "requests": [
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/ => 200",
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/assets/index-BuqhhY3f.js => 200",
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/assets/index-DFHHs5OS.css => 200",
+     "GET https://fonts.googleapis.com/css2?family=Inter... => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/health => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/marketplace/nav-coverage => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/marketplace/listings?limit=6&sort=newest => 200",
+     "GET https://carup-backend-staging-oc5r-rel02-11-11.vercel.app/api/features/effective",
+     "GET https://fonts.gstatic.com/s/inter/v20/... => 200",
+     "GET https://carup-staging-oc5r-rel02-11-11.vercel.app/favicon.svg => 200"
+    ],
+    "api_hosts_called": [
+     "carup-backend-staging-oc5r-rel02-11-11.vercel.app"
+    ],
+    "stable_staging_backend_called": false,
+    "rel01_backend_alias_called": false,
+    "unpaired_invalid_host_called": false
+   }
+  }
+ },
+ "stage_d_tablet_reproduction": {
+  "schema": "oc5r-rel02-tablet-reproduction/v1",
+  "subject": "spec 38 tablet step: the first \"Request an inspection\" control on a published listing page",
+  "page_under_test": "the REAL deployed REL-01 frontend bundle (index-3F8HCCtf.js, d491b5aa) at its tablet project dimensions 820x1180 with touch; every API call and image replayed from the REL-01 gate run's own recorded responses (no staging contact beyond public SPA assets; no write possible)",
+  "gate_trace_evidence": {
+   "source": "REL-01 Diaspora gate, run 37703063171 attempt 2, tablet shard, trace.zip",
+   "viewport": "820x1180 hasTouch, 231 snapshots all at that size",
+   "playwright_retry_log": "alternating \"compact-bottom-nav intercepts pointer events\" / \"header.sticky intercepts pointer events\", separated by \"element is not stable\", for 20 s (bar 3x+, header 2x+ per 8 s)",
+   "recorded_scroll_positions": "scrollTop ping-pongs 18 <-> 1154 every ~1.05 s, in lockstep with the intercepts",
+   "screencast": "the page stays at the top of the listing; the control sits below the fold behind the compact bar"
+  },
+  "geometry_at_rest": {
+   "viewport": {
+    "width": 820,
+    "height": 1180
+   },
+   "sticky_header": {
+    "top": 0,
+    "bottom": 65
+   },
+   "compact_bar": {
+    "top": 1111,
+    "bottom": 1180
+   },
+   "clear_band": {
+    "from": 65,
+    "to": 1111
+   },
+   "cta_at_scrollY_0": {
+    "top": 1154,
+    "bottom": 1198
+   },
+   "note": "below the fold and partly behind the bar at rest"
+  },
+  "reproduced_before_any_change": {
+   "harness_as_written": [
+    {
+     "throttle": 1,
+     "reducedMotion": false,
+     "passed": false,
+     "ms": 8028,
+     "scrollYValues": 150,
+     "scrollYMin": 18,
+     "scrollYMax": 1154,
+     "interceptedByCompactNav": 3,
+     "interceptedByStickyHeader": 2,
+     "notStable": 5
+    },
+    {
+     "throttle": 1,
+     "reducedMotion": false,
+     "passed": false,
+     "ms": 8021,
+     "scrollYValues": 139,
+     "scrollYMin": 18,
+     "scrollYMax": 1154,
+     "interceptedByCompactNav": 3,
+     "interceptedByStickyHeader": 2,
+     "notStable": 5
+    },
+    {
+     "throttle": 4,
+     "reducedMotion": false,
+     "passed": false,
+     "ms": 8018,
+     "scrollYValues": 147,
+     "scrollYMin": 18,
+     "scrollYMax": 1154,
+     "interceptedByCompactNav": 3,
+     "interceptedByStickyHeader": 2,
+     "notStable": 5
+    },
+    {
+     "throttle": 4,
+     "reducedMotion": false,
+     "passed": false,
+     "ms": 8018,
+     "scrollYValues": 146,
+     "scrollYMin": 18,
+     "scrollYMax": 1154,
+     "interceptedByCompactNav": 3,
+     "interceptedByStickyHeader": 2,
+     "notStable": 5
+    },
+    {
+     "throttle": 6,
+     "reducedMotion": false,
+     "passed": false,
+     "ms": 8019,
+     "scrollYValues": 141,
+     "scrollYMin": 18,
+     "scrollYMax": 1154,
+     "interceptedByCompactNav": 3,
+     "interceptedByStickyHeader": 2,
+     "notStable": 5
+    },
+    {
+     "throttle": 6,
+     "reducedMotion": false,
+     "passed": false,
+     "ms": 8019,
+     "scrollYValues": 144,
+     "scrollYMin": 18,
+     "scrollYMax": 1154,
+     "interceptedByCompactNav": 3,
+     "interceptedByStickyHeader": 2,
+     "notStable": 5
+    }
+   ],
+   "outcome": "FAILS 6/6 at 1x/4x/6x CPU from the gate's starting scrollY 51: scrollY min 18, max 1154; compact-bar intercepts 3, sticky-header intercepts 2, not-stable 5 within 8 s"
+  },
+  "cause_isolated": {
+   "smooth_scrolling_off": [
+    {
+     "throttle": 4,
+     "reducedMotion": true,
+     "passed": true,
+     "ms": 173,
+     "scrollYValues": 3,
+     "scrollYMin": 18,
+     "scrollYMax": 586,
+     "interceptedByCompactNav": 0,
+     "interceptedByStickyHeader": 0,
+     "notStable": 0
+    },
+    {
+     "throttle": 6,
+     "reducedMotion": true,
+     "passed": true,
+     "ms": 147,
+     "scrollYValues": 2,
+     "scrollYMin": 18,
+     "scrollYMax": 51,
+     "interceptedByCompactNav": 0,
+     "interceptedByStickyHeader": 0,
+     "notStable": 0
+    }
+   ],
+   "finding": "with prefers-reduced-motion (html scroll-behavior:auto) the identical click passes in ~150-170 ms"
+  },
+  "classification_gate": {
+   "one_user_equivalent_scroll_to_the_middle": "scrollY 586; CTA 568-612 inside the clear band 65-1111; overlap with header 0, with compact bar 0; the centre hit target is the control; a normal click opens its dialog",
+   "classification": "HARNESS-SCROLL DEFECT (the control is structurally clear; the product and both bars are unchanged)"
+  },
+  "fix": "tests/agents/safe-tap.ts tapClearOfBars: instant scroll to the middle, wait for settle, measure against both bars (pure geometry module), record the geometry, fail on any overlap, then a NORMAL click. Never force, never alters a bar, never moves test pixels.",
+  "fix_verified": {
+   "candidate_fix_trials": [
+    {
+     "throttle": 1,
+     "passed": true,
+     "ms": 228,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 1,
+     "passed": true,
+     "ms": 223,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 1,
+     "passed": true,
+     "ms": 219,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 4,
+     "passed": true,
+     "ms": 314,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 4,
+     "passed": true,
+     "ms": 323,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 4,
+     "passed": true,
+     "ms": 316,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 6,
+     "passed": true,
+     "ms": 370,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 6,
+     "passed": true,
+     "ms": 376,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    },
+    {
+     "throttle": 6,
+     "passed": true,
+     "ms": 375,
+     "error": null,
+     "geometry": {
+      "scrollY": 586,
+      "cta": {
+       "top": 568,
+       "bottom": 612,
+       "height": 44
+      },
+      "overlapWithHeader": 0,
+      "overlapWithNav": 0,
+      "centerCoveredBy": "cta"
+     }
+    }
+   ],
+   "real_helper_under_playwright_against_the_replay": "tablet 820x1180, desktop 1280x720, mobile Pixel 5 at 1x and 6x CPU: all 6 passed with a normal click (clear band 65-1111 / 65-720 / 65-658; overlap 0/0); the OLD plain click kept as a failing control on the tablet profile"
+  },
+  "other_viewports_before_the_change": "desktop and mobile passed with the plain click in the REL-01 gate (spec 38 passed in full on both); the same helper was verified on both",
+  "recommendation_not_made": "html{scroll-padding-top/bottom} equal to the two bars would make browser-driven scrolls (keyboard focus, anchor jumps) clear the bars too (WCAG 2.2 \"Focus Not Obscured\"); that is a product-layout improvement outside the classification gate, deliberately not made in REL-02"
+ },
+ "stage_h_deployed_provider_proof": {
+  "final": {
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37728492328 (attempt 1, label oc5r-deployed-provider-proof re-added)",
+   "overall": "SUCCEEDED",
+   "started_at": "2026-10-08T04:40:01.053Z",
+   "finished_at": "2026-10-08T04:41:11.268Z",
+   "gemma": {
+    "http_status": 200,
+    "latency_ms": 3937,
+    "product_bound_ms": 12000,
+    "within_product_bound": true,
+    "ai_status": "ai_assisted",
+    "ai_available": true,
+    "ai_reason": null,
+    "ai_provenance": {
+     "provider": "cloudflare",
+     "model": "@cf/google/gemma-4-26b-a4b-it",
+     "execution": "provider_executed"
+    },
+    "guidance_lines": 7,
+    "ai_withheld": 0,
+    "protected_state_unchanged": {
+     "vehicles": true,
+     "users": true
+    },
+    "verdict": "SUCCEEDED"
+   },
+   "qwen": {
+    "vin": "JTREL772849232801",
+    "vehicle_add_status": 201,
+    "publication_status": "draft",
+    "upload": {
+     "http_status": 201,
+     "evidence_id": "e6129651-d6d9-418f-89f7-d1eb05050b22",
+     "visibility_requested": "public_safe",
+     "visibility_applied": "private",
+     "storage_bucket": "ocr-documents",
+     "refusal_recorded": true
+    },
+    "ocr": {
+     "http_status": 201,
+     "latency_ms": 41288,
+     "provider": "cloudflare",
+     "model": "@cf/qwen/qwen3.8-27b",
+     "reading": {
+      "odometer_reading": 4213,
+      "odometer_unit": "km",
+      "status": "candidate_pending_review"
+     },
+     "authority_effects": {
+      "identity_verified": false,
+      "dealer_compliant": false,
+      "seller_authorised": false,
+      "vehicle_registered": false,
+      "vehicle_trusted": false,
+      "listing_published": false,
+      "mileage_recorded": false
+     },
+     "expected_digits": "084213"
+    },
+    "mileage_unchanged": true,
+    "still_unpublished": true,
+    "verdict": "SUCCEEDED"
+   },
+   "cleanup": {
+    "vehicle_document_extractions_deleted": 2,
+    "ocr_documents_deleted": 1,
+    "retained_by_design": [
+     "users (this run's proof identity) and its user_sessions/login_attempts",
+     "vehicles (one synthetic draft, never published, owned by the proof identity)",
+     "vehicle_evidence (one private odometer photo in ocr-documents) and its append-only evidence_provenance_events",
+     "trust_audit_events (append-only audit of the upload and the OCR observation)"
+    ]
+   },
+   "health": {
+    "build": {
+     "commit_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+     "commit_sha_short": "24a14933",
+     "branch": "fix/oc5r-real-runtime-source-closure",
+     "deployment_id": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+     "environment": "preview",
+     "source": "explicit_build_input",
+     "provenance_available": true
+    },
+    "database": {
+     "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+     "postgres_project_refs": [
+      "eoyenigwevnxwwhyhaer"
+     ],
+     "unrecognised_endpoints": 0,
+     "unrecognised_endpoint_names": [],
+     "consistent": true
+    },
+    "ocr": {
+     "selectedProvider": "cloudflare",
+     "selectedModel": "@cf/qwen/qwen3.8-27b",
+     "configured": true,
+     "mockRuntimeAllowed": false,
+     "custody": {
+      "canonical_provider": "cloudflare",
+      "canonical_model": "@cf/qwen/qwen3.8-27b",
+      "status": "canonical"
+     }
+    },
+    "ai": {
+     "provider": "cloudflare",
+     "model": "@cf/google/gemma-4-26b-a4b-it",
+     "configured": true,
+     "authority": "advisory"
+    },
+    "outbound": {
+     "kill_switch": "active",
+     "external_sends": "disabled",
+     "internal_channels": "enabled",
+     "control": "COMMUNICATION_OUTBOUND_DISABLED"
+    },
+    "evidence_vision": {
+     "state": "not_configured",
+     "provider": null,
+     "available": false,
+     "authority": "advisory"
+    }
+   },
+   "backend_completion_times": "from the deployed backend runtime log: buyer-assistant POST completed 2026-10-08T04:40:13Z (server 3887 ms); run-ocr POST completed 2026-10-08T04:41:10Z (server 41242 ms)"
+  },
+  "interim_superseded": {
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37723572509 (interim pair, SHA 1ab0e357)",
+   "overall": "SUCCEEDED",
+   "gemma_latency_ms": 3178,
+   "gemma_verdict": "SUCCEEDED",
+   "qwen_verdict": "SUCCEEDED"
+  }
+ },
+ "stage_i_j_gates": {
+  "seller_home_lifecycle": {
+   "workflow": "Seller Home & Lifecycle Staging UAT",
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37728393919 (attempt 2; attempt 1 was the deliberate cancel before the pair was redeployed and the provider proof ran)",
+   "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+   "started": "2026-10-08T04:42:05Z",
+   "finished": "2026-10-08T04:48:59Z",
+   "conclusion": "success",
+   "pairing_proof": "passed (resolve-governed-preview-pair.mjs: ok true, sha 24a14933, deployment dpl_796CYuhndXadx1TTvHjPWcFmJDfa; frozen bundle index-DvoFh8Hm.js)",
+   "results": {
+    "chromium": "P+R passed (2.0 min)",
+    "tablet-chromium": "P+R passed (1.8 min)",
+    "mobile-chromium": "P+R passed (1.6 min)",
+    "Q (Communications)": "fixme in every project (owner decision D) — not run"
+   },
+   "asserted_and_passed": [
+    "the publication gate refuses a draft without verified ownership evidence (400), then allows it after the registration evidence is uploaded private and verified by the staging reviewer",
+    "P: ordinary Home never shows the automation listing; the run-scoped Home inventory card renders it with its cover",
+    "R: unpublish withdraws it from Marketplace AND Home; republish returns it to both",
+    "R: mark-sold shows Sold on My Listings, removes the publication control, and the sold vehicle's Garage page still opens with its VIN AND the visible \"Vehicle Passport\" label (spec 48 line 450, assertion unchanged)",
+    "after sold: Marketplace count 0 and Home scope absence",
+    "availability state sold and publication history preserved (status Sold, publication_status published)"
+   ],
+   "retirement_sweep": "passed — \"No spec 48 listing of this run is left in commerce.\"",
+   "regression_fixed": "REL-01 failure at spec 48 line 450 (expected \"Passport\" on the loaded Garage page) — passes on all three viewports with the assertion unweakened, on the interim pair (run 37723227982) and again on the final pair",
+   "job_log": "rel02/seller_job_log_b.txt",
+   "interim_run": "https://github.com/kudzimusar/carup/actions/runs/37723227982 (attempt 2, SHA 1ab0e357, success: chromium 1.9m, tablet 1.6m, mobile 1.8m)"
+  },
+  "diaspora_deployed": {
+   "workflow": "Diaspora Deployed Staging UAT",
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37728394135 (attempt 2; attempt 1 was the deliberate cancel before the final pair was deployed and the provider proof ran)",
+   "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+   "started": "2026-10-08T04:49:02Z",
+   "finished": "2026-10-08T05:29:46Z",
+   "conclusion": "success",
+   "pairing_proof": "passed in Bootstrap and every shard; each shard froze the exact candidate bundle index-DvoFh8Hm.js (the bundle the browser capture and the Seller gate also saw)",
+   "shards": {
+    "chromium": {
+     "job": 113154727609,
+     "passed": 71,
+     "failed": 0,
+     "skipped": 9,
+     "duration": "18.3m"
+    },
+    "tablet-chromium": {
+     "job": 113159725642,
+     "passed": 50,
+     "failed": 0,
+     "skipped": 30,
+     "duration": "9.0m"
+    },
+    "mobile-chromium": {
+     "job": 113162323097,
+     "passed": 50,
+     "failed": 0,
+     "skipped": 30,
+     "duration": "9.0m"
+    },
+    "aggregate": "success"
+   },
+   "skips": {
+    "spec 43 (3, chromium)": "Kingstone staging credentials are not provisioned for this run",
+    "spec 47 (2, chromium)": "T3 fixtures not provisioned",
+    "spec 45 + spec 46 responsive (4, chromium)": "by design: responsive cases run on the narrow projects (and passed there)",
+    "tablet/mobile (30 each)": "desktop-once journeys skip by design"
+   },
+   "closed_here": {
+    "A/E": "n/a in this gate (Seller gate + provider proof)",
+    "B (spec 41)": "passed on chromium, tablet, mobile",
+    "C (spec 45 organisation selection)": "every operator and outsider journey passed through the real prompt; rival-tenant denial passed",
+    "C2 (spec 45 seven-viewport sweep)": "HARD GEOMETRY GATE passed on chromium; visual evidence passed",
+    "D (spec 38 tablet)": "passed on tablet-chromium",
+    "J2 (spec 42 tablet)": "passed on tablet-chromium (and chromium, mobile)"
+   },
+   "d7": "both D7 tests reported passed, but the result is NOT EARNED — see d7"
+  }
+ },
+ "interim_gate_runs_superseded": {
+  "seller_home_lifecycle": {
+   "workflow": "Seller Home & Lifecycle Staging UAT",
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37723227982 (attempt 2; attempt 1 was the deliberate cancel before the pair was deployed)",
+   "sha": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+   "started": "2026-10-08T03:39:31Z",
+   "finished": "2026-10-08T03:46:13Z",
+   "conclusion": "success",
+   "pairing_proof": "passed (frozen bundle index-BuqhhY3f.js, env-truth mode acceptance, deployment dpl_8SoFtGC4wxZJUrb1qPM6shm1jQNx at 1ab0e357)",
+   "results": {
+    "chromium": "P+R passed (1.9 min)",
+    "tablet-chromium": "P+R passed (1.6 min)",
+    "mobile-chromium": "P+R passed (1.8 min)",
+    "Q (Communications)": "fixme in every project (owner decision D) — not run"
+   },
+   "asserted_and_passed": [
+    "the publication gate refuses a draft without verified ownership evidence (400), then allows it after the registration evidence is uploaded private and verified by the staging reviewer",
+    "P: ordinary Home never shows the automation listing; the run-scoped Home inventory card renders it with its cover",
+    "R: unpublish withdraws it from Marketplace AND Home; republish returns it to both",
+    "R: mark-sold shows Sold on My Listings, removes the publication control, and the sold vehicle's Garage page still opens with its VIN AND the visible \"Vehicle Passport\" label (spec 48 line 450, assertion unchanged)",
+    "after sold: Marketplace count 0 and Home scope absence",
+    "availability state sold and publication history preserved (status Sold, publication_status published)"
+   ],
+   "retirement_sweep": "passed — \"No spec 48 listing of this run is left in commerce.\"",
+   "regression_fixed": "REL-01 failure at spec 48 line 450 (expected \"Passport\" on the loaded Garage page) — now passes on all three viewports with the assertion unweakened"
+  },
+  "diaspora_deployed": {
+   "workflow": "Diaspora Deployed Staging UAT",
+   "run": "https://github.com/kudzimusar/carup/actions/runs/37723228342 (attempt 2; attempt 1 was the deliberate cancel before the interim pair was deployed)",
+   "sha": "1ab0e357c350de492447ab0fbeddc2fbcb8725d3",
+   "started": "2026-10-08T03:46:16Z",
+   "finished": "2026-10-08T04:24:44Z",
+   "conclusion": "failure",
+   "pairing_proof": "passed in Bootstrap and every shard (resolve-governed-preview-pair.mjs: frontend and backend at the exact head; frozen bundle index-BuqhhY3f.js)",
+   "shards": {
+    "chromium": {
+     "job": 113139026021,
+     "passed": 67,
+     "failed": 1,
+     "skipped": 7,
+     "did_not_run": 5,
+     "duration": "16.0m"
+    },
+    "tablet-chromium": {
+     "job": 113143302486,
+     "passed": 49,
+     "failed": 1,
+     "skipped": 30,
+     "duration": "8.0m"
+    },
+    "mobile-chromium": {
+     "job": 113145696392,
+     "passed": 50,
+     "failed": 0,
+     "skipped": 30,
+     "duration": "9.5m"
+    },
+    "aggregate": "failure (requires all three shards)"
+   },
+   "failures": [
+    {
+     "spec": "tests/agents/45-trade-os-container-demo-staging.spec.ts:450 (HARD GEOMETRY GATE, chromium)",
+     "error": "Test timeout of 90000ms exceeded while opening the container at the seventh viewport",
+     "evidence": "the failed test's results record geometry-393x852, 820x1180, 1024x768, 1280x800, 1366x768 and 1440x900 attachments: six of seven viewports had completed (~13 s each) with every overflow assertion passing; real organisation selection (PUT /api/auth/active-tenant 200) had worked",
+     "classification": "TEST-HARNESS (suite-level 90 s ceiling too short for a seven-viewport sweep); slow, not stuck; no product defect",
+     "resolution": "REL-02 C2 (95928d7a): explicit test timeouts 240 s / 180 s"
+    },
+    {
+     "spec": "tests/agents/42-seller-media-lifecycle-staging.spec.ts:218 (tablet-chromium)",
+     "error": "the seller's UI upload must have produced a governed evidence row",
+     "evidence": "deployed backend runtime log: seller POST /api/vehicles/<vin>/evidence/upload 04:12:13.8→04:12:16.5 HTTP 201; reviewer GET /evidence 04:12:14.2→04:12:15.5 (inside the POST); evidence row created 04:12:15.6; the same step passed on chromium and mobile",
+     "classification": "TEST-HARNESS race (the spec read the list while the product's own upload was in flight); the product accepted the upload",
+     "resolution": "REL-02 J2 (ff50ba34): the spec awaits the product's own POST and the uploader closing before the reviewer reads"
+    }
+   ],
+   "d7": "not reached: the chromium serial chain stopped at the geometry gate; D7 is the last two tests"
+  }
+ },
+ "diaspora_finding_resolution": {
+  "C2": "interim chromium: spec 45 geometry gate 90 s ceiling at viewport 7/7 → explicit 240 s/180 s (95928d7a) → final: passed",
+  "J2": "interim tablet: spec 42 evidence read inside the product's own upload → wait for the product POST + uploader close (ff50ba34) → final: passed on all three viewports"
+ },
+ "d7": {
+  "schema": "oc5r-rel02-d7-evidence/v1",
+  "recorded_at": "2026-10-08T07:07:36Z",
+  "run": "https://github.com/kudzimusar/carup/actions/runs/37728394135 (attempt 2, chromium job 113154727609, SHA 24a14933)",
+  "drain_answers": {
+   "participant_test": "/internal/events/process answered 7x: 401 {\"error\":\"Unauthorized communication worker request.\"}",
+   "operator_test": "/internal/events/process answered 8x: 401 {\"error\":\"Unauthorized communication worker request.\"}"
+  },
+  "why_401": "backend/routes/communicationBaseRoutes.js requireWorkerSecret: the runtime expects COMMUNICATION_WORKER_SECRET or CRON_SECRET; neither exists on the Preview target of carup-backend-staging, so any supplied secret is refused",
+  "d7_test_outcome": "both D7 tests reported PASSED",
+  "d7_verdict": "NOT EARNED - VACUOUS PASS",
+  "why_vacuous": "the D7 assertion is 'some notification of type container_booking exists for this user' (and a 'Container booking RES-' thread is visible). No container_booking row was created during this run; the newest such rows in public.notification_queue were created 2026-09-26 by earlier Trade OS runs (in_app, status queued, tenant c0106a0e-...-a01). This run's booking events sit unprocessed in public.domain_events because the drain was refused.",
+  "this_runs_undrained_events": {
+   "diaspora.container_booking.reservation_requested": 4,
+   "diaspora.container_booking.reservation_received": 4,
+   "diaspora.container_booking.reservation_approved": 1,
+   "diaspora.container_booking.reservation_rejected": 1,
+   "diaspora.container_booking.reservation_cancelled": 1
+  },
+  "classification": "staging secret-custody blocker (the drain) + a pre-existing harness weakness (D7 is not scoped to the run's own reservation). D7 assertions were executed unchanged as instructed; no backend secret was added or rotated."
+ },
+ "net_zero_windows": {
+  "rel02b_start_rel02b_pre_proof": {
+   "from": "2026-10-08T04:36:52.795894+00:00",
+   "to": "2026-10-08T04:38:25.533999+00:00",
+   "changed": {},
+   "background": [],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": true
+  },
+  "rel02b_pre_proof_rel02b_post_proof": {
+   "from": "2026-10-08T04:38:25.533999+00:00",
+   "to": "2026-10-08T04:41:24.273832+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     20,
+     21
+    ],
+    "public.evidence_provenance_events": [
+     218,
+     219
+    ],
+    "public.login_attempts": [
+     5688,
+     5689
+    ],
+    "public.trust_audit_events": [
+     33878,
+     33881
+    ],
+    "public.user_sessions": [
+     5615,
+     5616
+    ],
+    "public.users": [
+     284,
+     285
+    ],
+    "public.vehicle_evidence": [
+     237,
+     238
+    ],
+    "public.vehicle_ownership_history": [
+     277,
+     278
+    ],
+    "public.vehicles": [
+     315,
+     316
+    ],
+    "storage.objects": [
+     1866,
+     1867
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 1
+    },
+    {
+     "t": "VEHICLE_DOCUMENT_OCR_OBSERVED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+     "n": 1
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02b_post_proof_rel02b_post_seller": {
+   "from": "2026-10-08T04:41:24.273832+00:00",
+   "to": "2026-10-08T04:49:12.681096+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     21,
+     24
+    ],
+    "public.domain_events": [
+     1705,
+     1708
+    ],
+    "public.evidence_provenance_events": [
+     219,
+     222
+    ],
+    "public.listing_images": [
+     1372,
+     1381
+    ],
+    "public.login_attempts": [
+     5689,
+     5707
+    ],
+    "public.marketplace_activity_events": [
+     6919,
+     6967
+    ],
+    "public.navigation_analytics_events": [
+     10909,
+     10930
+    ],
+    "public.trust_audit_events": [
+     33881,
+     33917
+    ],
+    "public.user_sessions": [
+     5616,
+     5634
+    ],
+    "public.users": [
+     285,
+     288
+    ],
+    "public.vehicle_evidence": [
+     238,
+     241
+    ],
+    "public.vehicle_ownership_history": [
+     278,
+     281
+    ],
+    "public.vehicles": [
+     316,
+     319
+    ],
+    "storage.objects": [
+     1867,
+     1879
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 3
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 3
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 18
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 6
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 3
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 3
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02b_post_seller_rel02b_final": {
+   "from": "2026-10-08T04:49:12.681096+00:00",
+   "to": "2026-10-08T07:08:17.409773+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     24,
+     30
+    ],
+    "public.diaspora_cargo_reservations": [
+     123,
+     127
+    ],
+    "public.diaspora_container_shipments": [
+     86,
+     89
+    ],
+    "public.diaspora_import_audit_log": [
+     1945,
+     1982
+    ],
+    "public.diaspora_import_order_request_lines": [
+     43,
+     44
+    ],
+    "public.diaspora_import_orders": [
+     198,
+     202
+    ],
+    "public.diaspora_import_quotes": [
+     67,
+     68
+    ],
+    "public.diaspora_payment_milestones": [
+     211,
+     217
+    ],
+    "public.diaspora_stock_items": [
+     100,
+     103
+    ],
+    "public.diaspora_stock_ledger": [
+     96,
+     99
+    ],
+    "public.domain_events": [
+     1708,
+     1742
+    ],
+    "public.evidence_provenance_events": [
+     222,
+     228
+    ],
+    "public.intelligence_ingestion_stats": [
+     146,
+     147
+    ],
+    "public.intelligence_rollup_runs": [
+     79,
+     82
+    ],
+    "public.listing_daily_metrics": [
+     175,
+     184
+    ],
+    "public.listing_images": [
+     1381,
+     1411
+    ],
+    "public.login_attempts": [
+     5707,
+     5850
+    ],
+    "public.marketplace_activity_events": [
+     6967,
+     7090
+    ],
+    "public.marketplace_inquiries": [
+     300,
+     306
+    ],
+    "public.message_participants": [
+     703,
+     703
+    ],
+    "public.navigation_analytics_events": [
+     10930,
+     11053
+    ],
+    "public.notification_queue": [
+     1121,
+     1130
+    ],
+    "public.platform_daily_metrics": [
+     8,
+     8
+    ],
+    "public.referral_events": [
+     1404,
+     1410
+    ],
+    "public.seller_daily_metrics": [
+     42,
+     48
+    ],
+    "public.trust_audit_events": [
+     33917,
+     34086
+    ],
+    "public.user_sessions": [
+     5634,
+     5777
+    ],
+    "public.users": [
+     288,
+     291
+    ],
+    "public.vehicle_evidence": [
+     241,
+     247
+    ],
+    "public.vehicle_ownership_history": [
+     281,
+     287
+    ],
+    "public.vehicle_taxonomy_observations": [
+     57,
+     60
+    ],
+    "public.vehicles": [
+     319,
+     325
+    ],
+    "storage.objects": [
+     1879,
+     1915
+    ]
+   },
+   "background": [
+    {
+     "t": "ACTIVE_TENANT_SELECTED",
+     "r": "/api/auth/active-tenant",
+     "n": 10
+    },
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 6
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 6
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 112
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/analytics/navigation",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders/92cc3e53-f9a3-42ec-8b24-b1cfe43ccc81/accept-quote",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/container-marketplace/reservations/c655e021-0e13-4ffc-8fce-dd4b566e366a/approve",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/trade-profiles/00000000-0000-0000-0000-000000000000/verify",
+     "n": 3
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/vehicles/add",
+     "n": 1
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 9
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 6
+    },
+    {
+     "t": "VEHICLE_PRICE_CHANGED",
+     "r": "/api/vehicles/:vin/price",
+     "n": 3
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 9
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02_start_rel02b_final": {
+   "from": "2026-10-08T03:32:14.391599+00:00",
+   "to": "2026-10-08T07:08:17.409773+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     10,
+     30
+    ],
+    "public.diaspora_cargo_reservations": [
+     119,
+     127
+    ],
+    "public.diaspora_container_shipments": [
+     83,
+     89
+    ],
+    "public.diaspora_import_audit_log": [
+     1908,
+     1982
+    ],
+    "public.diaspora_import_order_request_lines": [
+     42,
+     44
+    ],
+    "public.diaspora_import_orders": [
+     194,
+     202
+    ],
+    "public.diaspora_import_quotes": [
+     66,
+     68
+    ],
+    "public.diaspora_payment_milestones": [
+     205,
+     217
+    ],
+    "public.diaspora_stock_items": [
+     97,
+     103
+    ],
+    "public.diaspora_stock_ledger": [
+     93,
+     99
+    ],
+    "public.domain_events": [
+     1669,
+     1742
+    ],
+    "public.evidence_provenance_events": [
+     208,
+     228
+    ],
+    "public.intelligence_ingestion_stats": [
+     144,
+     147
+    ],
+    "public.intelligence_rollup_runs": [
+     76,
+     82
+    ],
+    "public.listing_daily_metrics": [
+     167,
+     184
+    ],
+    "public.listing_images": [
+     1333,
+     1411
+    ],
+    "public.login_attempts": [
+     5530,
+     5850
+    ],
+    "public.marketplace_activity_events": [
+     6752,
+     7090
+    ],
+    "public.marketplace_inquiries": [
+     294,
+     306
+    ],
+    "public.message_participants": [
+     703,
+     703
+    ],
+    "public.navigation_analytics_events": [
+     10779,
+     11053
+    ],
+    "public.notification_queue": [
+     1112,
+     1130
+    ],
+    "public.platform_daily_metrics": [
+     8,
+     8
+    ],
+    "public.referral_events": [
+     1398,
+     1410
+    ],
+    "public.seller_daily_metrics": [
+     36,
+     48
+    ],
+    "public.trust_audit_events": [
+     33689,
+     34086
+    ],
+    "public.user_sessions": [
+     5457,
+     5777
+    ],
+    "public.users": [
+     277,
+     291
+    ],
+    "public.vehicle_evidence": [
+     227,
+     247
+    ],
+    "public.vehicle_ownership_history": [
+     267,
+     287
+    ],
+    "public.vehicle_taxonomy_observations": [
+     54,
+     60
+    ],
+    "public.vehicles": [
+     305,
+     325
+    ],
+    "storage.objects": [
+     1817,
+     1915
+    ]
+   },
+   "background": [
+    {
+     "t": "ACTIVE_TENANT_SELECTED",
+     "r": "/api/auth/active-tenant",
+     "n": 18
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/analytics/navigation",
+     "n": 2
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 4
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/container-marketplace/reservations/c655e021-0e13-4ffc-8fce-dd4b566e366a/approve",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders/92cc3e53-f9a3-42ec-8b24-b1cfe43ccc81/accept-quote",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/trade-profiles/00000000-0000-0000-0000-000000000000/verify",
+     "n": 6
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 17
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 28
+    },
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 20
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/container-marketplace/reservations/3825bd28-4c4d-4296-a1a3-5ef53a64316d/approve",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders",
+     "n": 2
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 23
+    },
+    {
+     "t": "VEHICLE_PRICE_CHANGED",
+     "r": "/api/vehicles/:vin/price",
+     "n": 6
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 17
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders/76f27020-94da-476b-a69f-42dba6ab8ce6/accept-quote",
+     "n": 1
+    },
+    {
+     "t": "VEHICLE_DOCUMENT_OCR_OBSERVED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+     "n": 2
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/vehicles/add",
+     "n": 1
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 247
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02_start_rel02_pre_proof": {
+   "from": "2026-10-08T03:32:14.391599+00:00",
+   "to": "2026-10-08T03:36:25.289321+00:00",
+   "changed": {
+    "public.marketplace_activity_events": [
+     6752,
+     6754
+    ],
+    "public.navigation_analytics_events": [
+     10779,
+     10780
+    ],
+    "public.trust_audit_events": [
+     33689,
+     33691
+    ]
+   },
+   "background": [
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 1
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02_pre_proof_rel02_post_proof": {
+   "from": "2026-10-08T03:36:25.289321+00:00",
+   "to": "2026-10-08T03:39:01.374415+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     10,
+     11
+    ],
+    "public.evidence_provenance_events": [
+     208,
+     209
+    ],
+    "public.login_attempts": [
+     5530,
+     5531
+    ],
+    "public.trust_audit_events": [
+     33691,
+     33695
+    ],
+    "public.user_sessions": [
+     5457,
+     5458
+    ],
+    "public.users": [
+     277,
+     278
+    ],
+    "public.vehicle_evidence": [
+     227,
+     228
+    ],
+    "public.vehicle_ownership_history": [
+     267,
+     268
+    ],
+    "public.vehicles": [
+     305,
+     306
+    ],
+    "storage.objects": [
+     1817,
+     1818
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/triggers/github",
+     "n": 2
+    },
+    {
+     "t": "VEHICLE_DOCUMENT_OCR_OBSERVED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+     "n": 1
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02_post_proof_rel02_post_seller": {
+   "from": "2026-10-08T03:39:01.374415+00:00",
+   "to": "2026-10-08T03:46:32.038734+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     11,
+     14
+    ],
+    "public.domain_events": [
+     1669,
+     1672
+    ],
+    "public.evidence_provenance_events": [
+     209,
+     212
+    ],
+    "public.listing_images": [
+     1333,
+     1342
+    ],
+    "public.login_attempts": [
+     5531,
+     5549
+    ],
+    "public.marketplace_activity_events": [
+     6754,
+     6801
+    ],
+    "public.navigation_analytics_events": [
+     10780,
+     10800
+    ],
+    "public.trust_audit_events": [
+     33695,
+     33730
+    ],
+    "public.user_sessions": [
+     5458,
+     5476
+    ],
+    "public.users": [
+     278,
+     281
+    ],
+    "public.vehicle_evidence": [
+     228,
+     231
+    ],
+    "public.vehicle_ownership_history": [
+     268,
+     271
+    ],
+    "public.vehicles": [
+     306,
+     309
+    ],
+    "storage.objects": [
+     1818,
+     1830
+    ]
+   },
+   "background": [
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 3
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 3
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 17
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 6
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 3
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 3
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  },
+  "rel02_post_seller_rel02b_start": {
+   "from": "2026-10-08T03:46:32.038734+00:00",
+   "to": "2026-10-08T04:36:52.795894+00:00",
+   "changed": {
+    "public.communication_reconciliation_work": [
+     14,
+     20
+    ],
+    "public.diaspora_cargo_reservations": [
+     119,
+     123
+    ],
+    "public.diaspora_container_shipments": [
+     83,
+     86
+    ],
+    "public.diaspora_import_audit_log": [
+     1908,
+     1945
+    ],
+    "public.diaspora_import_order_request_lines": [
+     42,
+     43
+    ],
+    "public.diaspora_import_orders": [
+     194,
+     198
+    ],
+    "public.diaspora_import_quotes": [
+     66,
+     67
+    ],
+    "public.diaspora_payment_milestones": [
+     205,
+     211
+    ],
+    "public.diaspora_stock_items": [
+     97,
+     100
+    ],
+    "public.diaspora_stock_ledger": [
+     93,
+     96
+    ],
+    "public.domain_events": [
+     1672,
+     1705
+    ],
+    "public.evidence_provenance_events": [
+     212,
+     218
+    ],
+    "public.intelligence_ingestion_stats": [
+     144,
+     146
+    ],
+    "public.intelligence_rollup_runs": [
+     76,
+     79
+    ],
+    "public.listing_daily_metrics": [
+     167,
+     175
+    ],
+    "public.listing_images": [
+     1342,
+     1372
+    ],
+    "public.login_attempts": [
+     5549,
+     5688
+    ],
+    "public.marketplace_activity_events": [
+     6801,
+     6919
+    ],
+    "public.marketplace_inquiries": [
+     294,
+     300
+    ],
+    "public.navigation_analytics_events": [
+     10800,
+     10909
+    ],
+    "public.notification_queue": [
+     1112,
+     1121
+    ],
+    "public.platform_daily_metrics": [
+     8,
+     8
+    ],
+    "public.referral_events": [
+     1398,
+     1404
+    ],
+    "public.seller_daily_metrics": [
+     36,
+     42
+    ],
+    "public.trust_audit_events": [
+     33730,
+     33878
+    ],
+    "public.user_sessions": [
+     5476,
+     5615
+    ],
+    "public.users": [
+     281,
+     284
+    ],
+    "public.vehicle_evidence": [
+     231,
+     237
+    ],
+    "public.vehicle_ownership_history": [
+     271,
+     277
+    ],
+    "public.vehicle_taxonomy_observations": [
+     54,
+     57
+    ],
+    "public.vehicles": [
+     309,
+     315
+    ],
+    "storage.objects": [
+     1830,
+     1866
+    ]
+   },
+   "background": [
+    {
+     "t": "ACTIVE_TENANT_SELECTED",
+     "r": "/api/auth/active-tenant",
+     "n": 8
+    },
+    {
+     "t": "EVIDENCE_UPLOADED",
+     "r": "/api/vehicles/:vin/evidence/upload",
+     "n": 6
+    },
+    {
+     "t": "EVIDENCE_VERIFIED",
+     "r": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 5
+    },
+    {
+     "t": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "r": "/api/analytics/navigation",
+     "n": 99
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/analytics/navigation",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/buyer-orders/76f27020-94da-476b-a69f-42dba6ab8ce6/accept-quote",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/container-marketplace/reservations/3825bd28-4c4d-4296-a1a3-5ef53a64316d/approve",
+     "n": 1
+    },
+    {
+     "t": "SECURITY_CSRF_VIOLATION",
+     "r": "/api/diaspora/trade-profiles/00000000-0000-0000-0000-000000000000/verify",
+     "n": 3
+    },
+    {
+     "t": "VEHICLE_LISTING_PUBLISHED",
+     "r": "/api/vehicles/:vin/publish",
+     "n": 7
+    },
+    {
+     "t": "VEHICLE_LISTING_UNPUBLISHED",
+     "r": "/api/vehicles/:vin/unpublish",
+     "n": 5
+    },
+    {
+     "t": "VEHICLE_PRICE_CHANGED",
+     "r": "/api/vehicles/:vin/price",
+     "n": 3
+    },
+    {
+     "t": "VEHICLE_STATUS_CHANGED",
+     "r": "/api/vehicles/:vin/status",
+     "n": 8
+    }
+   ],
+   "pre_existing_audit_rows_unchanged": true,
+   "net_zero": false
+  }
+ },
+ "stage_k_row_classification": {
+  "window": {
+   "from": "2026-10-08T03:32:14Z",
+   "to": "2026-10-08T07:08:17Z"
+  },
+  "tables": {
+   "public.communication_reconciliation_work": {
+    "rows": 20,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_cargo_reservations": {
+    "rows": 8,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_container_shipments": {
+    "rows": 6,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_import_audit_log": {
+    "rows": 74,
+    "class": "APPEND_ONLY"
+   },
+   "public.diaspora_import_order_request_lines": {
+    "rows": 2,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_import_orders": {
+    "rows": 8,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_import_quotes": {
+    "rows": 2,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_payment_milestones": {
+    "rows": 12,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_stock_items": {
+    "rows": 6,
+    "class": "UAT_FIXTURE"
+   },
+   "public.diaspora_stock_ledger": {
+    "rows": 6,
+    "class": "UAT_FIXTURE"
+   },
+   "public.domain_events": {
+    "rows": 73,
+    "class": "APPEND_ONLY"
+   },
+   "public.evidence_provenance_events": {
+    "rows": 20,
+    "class": "APPEND_ONLY"
+   },
+   "public.intelligence_ingestion_stats": {
+    "rows": 3,
+    "class": "TELEMETRY"
+   },
+   "public.listing_images": {
+    "rows": 78,
+    "class": "UAT_FIXTURE"
+   },
+   "public.marketplace_activity_events": {
+    "rows": 338,
+    "class": "TELEMETRY"
+   },
+   "public.marketplace_inquiries": {
+    "rows": 12,
+    "class": "UAT_FIXTURE"
+   },
+   "public.navigation_analytics_events": {
+    "rows": 274,
+    "class": "TELEMETRY"
+   },
+   "public.notification_queue": {
+    "rows": 18,
+    "class": "UAT_FIXTURE"
+   },
+   "public.referral_events": {
+    "rows": 12,
+    "class": "UAT_FIXTURE"
+   },
+   "public.trust_audit_events": {
+    "rows": 397,
+    "class": "APPEND_ONLY"
+   },
+   "public.user_sessions": {
+    "rows": 320,
+    "class": "UAT_FIXTURE"
+   },
+   "public.users": {
+    "rows": 14,
+    "class": "UAT_FIXTURE"
+   },
+   "public.vehicle_evidence": {
+    "rows": 20,
+    "class": "UAT_FIXTURE"
+   },
+   "public.vehicle_taxonomy_observations": {
+    "rows": 6,
+    "class": "UAT_FIXTURE"
+   },
+   "public.vehicles": {
+    "rows": 20,
+    "class": "UAT_FIXTURE"
+   },
+   "storage.objects": {
+    "rows": 98,
+    "class": "UAT_FIXTURE"
+   }
+  },
+  "unexpected": [],
+  "detail": {
+   "users_created": [
+    {
+     "id": "u_golden_37723227982_2_chromium",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_oc5rproof_37723572509_1",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37723227982_2_tablet",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37723227982_2_mobile",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37723228342_2_chromium",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37723228342_2_tablet",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37723228342_2_mobile",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_oc5rproof_37728492328_1",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37728393919_2_chromium",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37728393919_2_tablet",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37728393919_2_mobile",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37728394135_2_chromium",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37728394135_2_tablet",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    },
+    {
+     "id": "u_golden_37728394135_2_mobile",
+     "role": "owner",
+     "email_domain": "carup-staging.test"
+    }
+   ],
+   "vehicles_created": [
+    {
+     "vin": "JTREL772849232801",
+     "current_seller_id": "u_oc5rproof_37728492328_1",
+     "status": "Available",
+     "publication_status": "draft"
+    },
+    {
+     "vin": "JTHLCMXB283939192",
+     "current_seller_id": "u_golden_37728393919_2_mobile",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTDKARFP0H3273567",
+     "current_seller_id": "u_golden_37723228342_2_chromium",
+     "status": "Sold",
+     "publication_status": "publishable"
+    },
+    {
+     "vin": "JTHLCTAB283939192",
+     "current_seller_id": "u_golden_37728393919_2_tablet",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTMLCCHR232283422",
+     "current_seller_id": "u_e57adbc081314723",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTHLCCHR283939192",
+     "current_seller_id": "u_golden_37728393919_2_chromium",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTDKARFP0H3145160",
+     "current_seller_id": "u_golden_37723228342_2_tablet",
+     "status": "Sold",
+     "publication_status": "publishable"
+    },
+    {
+     "vin": "JTMLCTAB232283422",
+     "current_seller_id": "u_e57adbc081314723",
+     "status": "Available",
+     "publication_status": "draft"
+    },
+    {
+     "vin": "JTDKARFP0H3833160",
+     "current_seller_id": "u_golden_37728394135_2_chromium",
+     "status": "Sold",
+     "publication_status": "publishable"
+    },
+    {
+     "vin": "JTMLCMXB232283422",
+     "current_seller_id": "u_e57adbc081314723",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTDKARFP0H3480836",
+     "current_seller_id": "u_golden_37723228342_2_mobile",
+     "status": "Sold",
+     "publication_status": "publishable"
+    },
+    {
+     "vin": "JTMLCCHR283941352",
+     "current_seller_id": "u_e57adbc081314723",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTDKARFP0H3973521",
+     "current_seller_id": "u_golden_37728394135_2_tablet",
+     "status": "Sold",
+     "publication_status": "publishable"
+    },
+    {
+     "vin": "JTREL772357250901",
+     "current_seller_id": "u_oc5rproof_37723572509_1",
+     "status": "Available",
+     "publication_status": "draft"
+    },
+    {
+     "vin": "JTMLCTAB283941352",
+     "current_seller_id": "u_e57adbc081314723",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTHLCCHR232279822",
+     "current_seller_id": "u_golden_37723227982_2_chromium",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTDKARFP0H3309197",
+     "current_seller_id": "u_golden_37728394135_2_mobile",
+     "status": "Sold",
+     "publication_status": "publishable"
+    },
+    {
+     "vin": "JTHLCTAB232279822",
+     "current_seller_id": "u_golden_37723227982_2_tablet",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTHLCMXB232279822",
+     "current_seller_id": "u_golden_37723227982_2_mobile",
+     "status": "Sold",
+     "publication_status": "published"
+    },
+    {
+     "vin": "JTMLCMXB283941352",
+     "current_seller_id": "u_e57adbc081314723",
+     "status": "Sold",
+     "publication_status": "published"
+    }
+   ],
+   "vehicles_left_live_in_commerce": 0,
+   "sessions_by_user": [
+    {
+     "user_id": "u_2a1d843d7a754f68",
+     "n": 78
+    },
+    {
+     "user_id": "u_69f5fc051fdc4d63",
+     "n": 54
+    },
+    {
+     "user_id": "u_afaaa4d76b4548d2",
+     "n": 12
+    },
+    {
+     "user_id": "u_e57adbc081314723",
+     "n": 54
+    },
+    {
+     "user_id": "u_fa9a48f702224a79",
+     "n": 12
+    },
+    {
+     "user_id": "u_golden_37723227982_2_chromium",
+     "n": 5
+    },
+    {
+     "user_id": "u_golden_37723227982_2_mobile",
+     "n": 5
+    },
+    {
+     "user_id": "u_golden_37723227982_2_tablet",
+     "n": 5
+    },
+    {
+     "user_id": "u_golden_37723228342_2_chromium",
+     "n": 2
+    },
+    {
+     "user_id": "u_golden_37723228342_2_mobile",
+     "n": 2
+    },
+    {
+     "user_id": "u_golden_37723228342_2_tablet",
+     "n": 2
+    },
+    {
+     "user_id": "u_golden_37728393919_2_chromium",
+     "n": 5
+    },
+    {
+     "user_id": "u_golden_37728393919_2_mobile",
+     "n": 5
+    },
+    {
+     "user_id": "u_golden_37728393919_2_tablet",
+     "n": 5
+    },
+    {
+     "user_id": "u_golden_37728394135_2_chromium",
+     "n": 2
+    },
+    {
+     "user_id": "u_golden_37728394135_2_mobile",
+     "n": 2
+    },
+    {
+     "user_id": "u_golden_37728394135_2_tablet",
+     "n": 2
+    },
+    {
+     "user_id": "u_oc5rproof_37723572509_1",
+     "n": 1
+    },
+    {
+     "user_id": "u_oc5rproof_37728492328_1",
+     "n": 1
+    },
+    {
+     "user_id": "u_tradeos_operator",
+     "n": 16
+    },
+    {
+     "user_id": "u_tradeos_outsider",
+     "n": 2
+    },
+    {
+     "user_id": "u_tradeos_participant_a",
+     "n": 12
+    },
+    {
+     "user_id": "u_tradeos_participant_b",
+     "n": 4
+    },
+    {
+     "user_id": "u_tradeos_rfq_buyer",
+     "n": 16
+    },
+    {
+     "user_id": "u_tradeos_rfq_supplier",
+     "n": 16
+    }
+   ],
+   "evidence_for_new_vehicles": 20,
+   "new_evidence_rows_public": 0,
+   "container_shipments_created": [
+    {
+     "id": "e943a974-261b-42cc-a23c-d0c10aed8a41",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_operator"
+    },
+    {
+     "id": "09daa91c-d738-410c-8255-4c2788491afa",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_operator"
+    },
+    {
+     "id": "7661fe29-a908-40c2-97ac-9b16ad8865ee",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_operator"
+    },
+    {
+     "id": "a293d7dc-e490-434a-8359-377d354a68a8",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_operator"
+    },
+    {
+     "id": "f82e64e8-2a81-42ed-8c5d-e609d192722b",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_operator"
+    },
+    {
+     "id": "51ceaadd-17d9-455f-b89e-1f962938786e",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_operator"
+    }
+   ],
+   "cargo_reservations_created": [
+    {
+     "id": "79e170b6-797c-407f-87fd-ba3a27cdee58",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_b"
+    },
+    {
+     "id": "3825bd28-4c4d-4296-a1a3-5ef53a64316d",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_a"
+    },
+    {
+     "id": "0aeaddd8-fc8e-410c-b3bf-c1b63455c502",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_b"
+    },
+    {
+     "id": "33919742-17a9-4b2d-b62f-168ee64dad03",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_a"
+    },
+    {
+     "id": "ef8fee14-8b8d-47f8-b044-e97b2445b01e",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_b"
+    },
+    {
+     "id": "c655e021-0e13-4ffc-8fce-dd4b566e366a",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_a"
+    },
+    {
+     "id": "5a2952dc-13d1-4cad-8fba-23282ce3cb44",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_b"
+    },
+    {
+     "id": "9f27271b-2d99-4cf2-a128-e01733f5bc9f",
+     "tenant": "c0106a0e-1a11-4a6a-9e01-000000000a01",
+     "actor": "u_tradeos_participant_a"
+    }
+   ],
+   "notification_queue": [
+    {
+     "ch": "(none)",
+     "status": "queued",
+     "attempts": 0,
+     "n": 18
+    }
+   ],
+   "message_delivery_attempts_started": 0,
+   "audit_events": [
+    {
+     "event_type": "NAVIGATION_ANALYTICS_BATCH_INGESTED",
+     "source_route": "/api/analytics/navigation",
+     "n": 247
+    },
+    {
+     "event_type": "VEHICLE_LISTING_PUBLISHED",
+     "source_route": "/api/vehicles/:vin/publish",
+     "n": 28
+    },
+    {
+     "event_type": "VEHICLE_STATUS_CHANGED",
+     "source_route": "/api/vehicles/:vin/status",
+     "n": 23
+    },
+    {
+     "event_type": "EVIDENCE_UPLOADED",
+     "source_route": "/api/vehicles/:vin/evidence/upload",
+     "n": 20
+    },
+    {
+     "event_type": "ACTIVE_TENANT_SELECTED",
+     "source_route": "/api/auth/active-tenant",
+     "n": 18
+    },
+    {
+     "event_type": "VEHICLE_LISTING_UNPUBLISHED",
+     "source_route": "/api/vehicles/:vin/unpublish",
+     "n": 17
+    },
+    {
+     "event_type": "EVIDENCE_VERIFIED",
+     "source_route": "/api/vehicles/:vin/evidence/:evidenceId/verify",
+     "n": 17
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/diaspora/trade-profiles/00000000-0000-0000-0000-000000000000/verify",
+     "n": 6
+    },
+    {
+     "event_type": "VEHICLE_PRICE_CHANGED",
+     "source_route": "/api/vehicles/:vin/price",
+     "n": 6
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/triggers/github",
+     "n": 4
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/diaspora/buyer-orders",
+     "n": 2
+    },
+    {
+     "event_type": "VEHICLE_DOCUMENT_OCR_OBSERVED",
+     "source_route": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+     "n": 2
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/analytics/navigation",
+     "n": 2
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/diaspora/buyer-orders/92cc3e53-f9a3-42ec-8b24-b1cfe43ccc81/accept-quote",
+     "n": 1
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/diaspora/buyer-orders/76f27020-94da-476b-a69f-42dba6ab8ce6/accept-quote",
+     "n": 1
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/vehicles/add",
+     "n": 1
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/diaspora/container-marketplace/reservations/3825bd28-4c4d-4296-a1a3-5ef53a64316d/approve",
+     "n": 1
+    },
+    {
+     "event_type": "SECURITY_CSRF_VIOLATION",
+     "source_route": "/api/diaspora/container-marketplace/reservations/c655e021-0e13-4ffc-8fce-dd4b566e366a/approve",
+     "n": 1
+    }
+   ],
+   "audit_background_rows": 251,
+   "audit_run_rows": 146
+  },
+  "invariants": {
+   "retired_rows_present": 0,
+   "by_table": null,
+   "synthetic_reference_objects": 0,
+   "synthetic_reference_listing_images": 0,
+   "u3_present": 1,
+   "escrow_present": 1
+  },
+  "verdict": "NO_UNEXPECTED_MUTATION"
+ },
+ "invariants": {
+  "rel02_start": {
+   "at": "2026-10-08T03:32:34.042229+00:00",
+   "result": {
+    "retired_rows_present": 0,
+    "by_table": null,
+    "synthetic_reference_objects": 0,
+    "synthetic_reference_listing_images": 0,
+    "u3_present": 1,
+    "escrow_present": 1
+   }
+  },
+  "rel02b_final": {
+   "at": "2026-10-08T07:34:09.806933+00:00",
+   "result": {
+    "retired_rows_present": 0,
+    "by_table": null,
+    "synthetic_reference_objects": 0,
+    "synthetic_reference_listing_images": 0,
+    "u3_present": 1,
+    "escrow_present": 1
+   }
+  }
+ },
+ "mutation_batteries": {
+  "final_at_code_sha": {
+   "REL2-EVIDENCE-web": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 8,
+    "mutants": 8,
+    "survivors": []
+   },
+   "REL2-HARNESS": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 59,
+    "mutants": 59,
+    "survivors": []
+   },
+   "REL-MARKET": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 24,
+    "mutants": 24,
+    "survivors": []
+   },
+   "REL-PROOF": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 10,
+    "mutants": 10,
+    "survivors": []
+   },
+   "REL2-GEMMA-web": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 4,
+    "mutants": 4,
+    "survivors": []
+   },
+   "REL2-GEMMA": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 21,
+    "mutants": 21,
+    "survivors": []
+   },
+   "REL2-NAV-web": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 5,
+    "mutants": 5,
+    "survivors": []
+   },
+   "REL2-ORG-web": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 8,
+    "mutants": 8,
+    "survivors": []
+   },
+   "REL2-PASSPORT": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 7,
+    "mutants": 7,
+    "survivors": []
+   },
+   "REL2-PROOF": {
+    "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+    "killed": 9,
+    "mutants": 9,
+    "survivors": []
+   }
+  },
+  "interim_history": {
+   "REL-MARKET": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 24,
+     "mutants": 24,
+     "survivors": []
+    }
+   },
+   "REL-PROOF": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 10,
+     "mutants": 10,
+     "survivors": []
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 10,
+     "mutants": 10,
+     "survivors": []
+    }
+   },
+   "REL2-GEMMA-web": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 3,
+     "mutants": 4,
+     "survivors": [
+      "web: the withheld label is lost"
+     ]
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 4,
+     "mutants": 4,
+     "survivors": []
+    }
+   },
+   "REL2-GEMMA": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 21,
+     "mutants": 21,
+     "survivors": []
+    }
+   },
+   "REL2-HARNESS": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 37,
+     "mutants": 38,
+     "survivors": [
+      "D: the centre hit target is no longer asserted"
+     ]
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 38,
+     "mutants": 38,
+     "survivors": []
+    }
+   },
+   "REL2-NAV-web": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 5,
+     "mutants": 5,
+     "survivors": []
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 5,
+     "mutants": 5,
+     "survivors": []
+    }
+   },
+   "REL2-ORG-web": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 8,
+     "mutants": 8,
+     "survivors": []
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 8,
+     "mutants": 8,
+     "survivors": []
+    }
+   },
+   "REL2-PASSPORT": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 7,
+     "mutants": 7,
+     "survivors": []
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 7,
+     "mutants": 7,
+     "survivors": []
+    }
+   },
+   "REL2-PROOF": {
+    "f": {
+     "sha": "e5a66b67d8249460e6cc334f57c09bf5df455959",
+     "killed": 8,
+     "mutants": 9,
+     "survivors": [
+      "proof: an answer that says the AI was not available still succeeds"
+     ]
+    },
+    "g": {
+     "sha": "1737763513f36158abb954fcd49e25dc49181779",
+     "killed": 9,
+     "mutants": 9,
+     "survivors": []
+    }
+   }
+  }
+ },
+ "source_certification": {
+  "code_sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+  "product_source_delta_from_interim": "none — 17377635..ff50ba34 changes only tests, harness specs, docs and pairing records",
+  "backend_full_suite": {
+   "tests": 8312,
+   "pass": 8289,
+   "fail": 0,
+   "skipped": 23,
+   "env": "ci.yml env contract",
+   "evidence": "prov01/rel02b_full_backend.tap",
+   "at": "2026-10-08T04:28:38Z→04:30:56Z"
+  },
+  "harness_contracts": "backend/tests/oc5r-rel02-uat-harness-contracts.test.js 25/25",
+  "web": "new EvidenceUploadModal.settled-state.test.tsx + canonical 9/9 locally; the full web suite passed in CI at the deploy SHA (OC-5D web surfaces job, run 37728389306)",
+  "spec_typecheck": "tsc --noEmit --strict on tests/agents/42 exit 0",
+  "lint": "eslint on the changed web test file: clean",
+  "ci_at_deploy_sha": "every PR check on 24a14933 passed (Seller + Diaspora gates, provider proof, OC-5 source closure, OC-5D web, OC-4*, OCR, referral, comms, passport, finance)",
+  "candidate_verifier": "{\"ok\": true, \"refusals\": [], \"pairing\": \"absent\"} for deploy commit 24a14933",
+  "cr1": "CR-1 secret scan clean (3204 tracked files)",
+  "guard": "evidence certification guard: no impossible promotion"
+ },
+ "production_untouched": {
+  "vercel_production_target_deployments": 0,
+  "stable_or_production_aliases_moved": 0,
+  "rel01_aliases_moved": 0,
+  "carup.dev / api.carup.dev": "not touched",
+  "production_supabase_project": "never contacted (every read: eoyenigwevnxwwhyhaer)",
+  "env_edits_in_rel02": "none (SUPABASE_DB_URL stays [\"production\"] only, read back)"
+ }
+}

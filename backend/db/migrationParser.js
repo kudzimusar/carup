@@ -146,8 +146,24 @@ export function isRetiredMigration(file) {
  * content. Instead each is enumerated here and PINNED by sha256, so it cannot drift silently, and
  * the parser REFUSES it for any target but SQLite. The PostgreSQL runners and the PGlite harness
  * assert the same refusal before they execute a file (assertNotSqliteDialect).
+ *
+ * OC-5R added 001 and 002: the same era and the same local-SQLite role (backend/db/migrate.js applies them to
+ * carup.db), but they were never enumerated, so a PostgreSQL plan could still select them. Staging proves they were
+ * never applied there as written (001's ledger table exists in another shape; its payment tables and 002's outbox
+ * tables do not). They are registered here rather than in RETIRED_UNAPPLIABLE because retiring them would also drop
+ * their tables from every fresh local SQLite database.
  */
 export const SQLITE_DIALECT_ONLY = Object.freeze({
+  '001_add_financial_ledger.sql': {
+    sha256: '834133d822f6d66a1d3a344220ad5ce6b28c4da2e73f85947d3d2dd465623d80',
+    reason: 'SQLite-era ledger schema for the local dev database (TEXT ids and timestamps, FKs to the legacy safepay_escrows). ' +
+      'On PostgreSQL it was never applied as written: its payment tables do not exist and its ledger table has another shape.',
+  },
+  '002_add_notification_queue.sql': {
+    sha256: '6fab7e3c7423d9d47c812ec138d5d911c4985b86c4d134b3902b3608e690a898',
+    reason: 'SQLite-era outbox/notification schema for the local dev database (TEXT timestamps). On PostgreSQL notification_queue ' +
+      'is a different, later shape and outbox_events/gateway_integration_logs/sync_reconciliation_queue were never created.',
+  },
   '003_add_user_sessions.sql': {
     sha256: 'e147ef575554a39d83a280fc23be3adbf6afea0fa8579517fd231126e0dddbc2',
     reason: 'SQLite schema for the local dev database (`INTEGER PRIMARY KEY AUTOINCREMENT`). PostgreSQL ' +

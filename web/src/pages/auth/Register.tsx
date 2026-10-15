@@ -274,7 +274,7 @@ export default function Register() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
       <div className="w-full max-w-xl">
         <div className="text-center mb-7">
-          <Link to="/" className="inline-flex items-center gap-2 mb-5">
+          <Link to="/" className="inline-flex min-h-11 items-center gap-2 mb-5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
               <Car className="w-6 h-6 text-white" />
             </div>

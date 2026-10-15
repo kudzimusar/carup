@@ -8,6 +8,12 @@
  * responsibility: provenance now also states `execution` (and every result carries
  * machine_output / authority: 'advisory'), and the Cloudflare credential names are owned by the
  * transport, whose source is read alongside the runtime config.
+ *
+ * OC-5R-REL-02 E: the Gemma request body is no longer #217's byte for byte — it carries ONE intentional
+ * extra field, `chat_template_kwargs: { enable_thinking: false }`, so interactive advisory calls have
+ * bounded latency (Gemma 4 reasons by default). The cases below assert the parts of the body they
+ * always asserted and still pass unmodified; the byte-level golden lives in
+ * oc3c-cloudflare-ai-transport.test.js and the full contract in oc5r-rel02-gemma-latency-convergence.test.js.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

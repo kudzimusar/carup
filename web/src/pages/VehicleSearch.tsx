@@ -26,6 +26,8 @@ import { marketplaceListingToCardModel } from '@/lib/marketplaceCardModel'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
 import { VEHICLE_MAKES } from '@/data/vehicleTaxonomy'
 
+const SEARCH_DEADLINE_MS = 10000
+
 function labelize(slug: string): string {
   return slug
     .split(/[-_]/)
@@ -63,8 +65,12 @@ export default function VehicleSearch() {
   const [listings, setListings] = useState<MarketplaceListingSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [searchAttempt, setSearchAttempt] = useState(0)
   const [passportMatch, setPassportMatch] = useState<Vehicle | null>(null)
   const [passportListed, setPassportListed] = useState(false)
+  // PC01-J-R1: a guest's plate / chassis / frame / temporary-ID lookup is refused by policy. It used
+  // to be swallowed silently — no result and no reason — so the page now says sign-in is the way in.
+  const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
   const [categoryOptions, setCategoryOptions] = useState<{ slug: string; label: string }[]>([])
 
   useEffect(() => {
@@ -94,12 +100,15 @@ export default function VehicleSearch() {
       setLoadError(false)
 
       let matched: Vehicle | null = null
+      let needsSignIn = false
       if (looksLikeIdentifier(committedQuery)) {
         try {
           const passport = await lookupVehiclePassport(committedQuery)
           if (passport?.vehicle?.vin) matched = passport.vehicle
-        } catch {
+        } catch (err) {
           // Public lookup is fail-closed. A miss is never published as proof that a vehicle does not exist.
+          // The one refusal worth naming is the policy one: it is answered by signing in.
+          if ((err as { code?: string } | null)?.code === 'LOOKUP_REQUIRES_AUTHENTICATION') needsSignIn = true
         }
       }
 
@@ -116,13 +125,18 @@ export default function VehicleSearch() {
       if (cancelled) return
       setPassportMatch(matched)
       setPassportListed(matchedListed)
+      setLookupNeedsSignIn(needsSignIn)
 
       try {
-        const data = await fetchMarketplaceListings({
-          q: committedQuery || undefined,
-          make: make !== 'All' ? make : undefined,
-          category: category !== 'All' ? category : undefined,
-        })
+        // A slow network gets an explicit failure + retry, never an endless "Searching…".
+        const data = await Promise.race([
+          fetchMarketplaceListings({
+            q: committedQuery || undefined,
+            make: make !== 'All' ? make : undefined,
+            category: category !== 'All' ? category : undefined,
+          }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('search_timeout')), SEARCH_DEADLINE_MS)),
+        ])
         if (cancelled) return
         setListings(Array.isArray(data?.listings) ? data.listings : [])
       } catch (err) {
@@ -144,6 +158,7 @@ export default function VehicleSearch() {
     fetchMarketplaceListings,
     lookupVehiclePassport,
     fetchMarketplaceListingDetail,
+    searchAttempt,
   ])
 
   const makes = ['All', ...VEHICLE_MAKES]
@@ -165,7 +180,7 @@ export default function VehicleSearch() {
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">
                 <ShieldCheck className="h-4 w-4" /> CarUp Verify
               </div>
-              <h1 className="mt-4 max-w-3xl text-5xl font-black leading-[0.9] tracking-[-0.06em] sm:text-6xl">
+              <h1 className="mt-4 max-w-3xl text-[2.25rem] font-black leading-[0.95] tracking-[-0.045em] sm:text-6xl sm:leading-[0.9] sm:tracking-[-0.06em]">
                 Verify before commitment.
                 <span className="mt-2 block text-orange-400">Silence is not evidence.</span>
               </h1>
@@ -249,6 +264,19 @@ export default function VehicleSearch() {
           vehicle exists. An empty result therefore must not be read as proof that the identifier is unknown.
         </p>
 
+        {lookupNeedsSignIn && !passportMatch && (
+          <div className="mt-6 border-y border-orange-200 bg-orange-50 px-5 py-4 text-sm text-orange-950" data-testid="vehicle-search-signin-required">
+            <p className="font-semibold">Sign in to look this vehicle up</p>
+            <p className="mt-1">
+              Searching by plate, chassis or frame number, or temporary identifier needs a CarUp account. An exact
+              17-character VIN can be checked without one.
+            </p>
+            <Link to={`/login?returnTo=${encodeURIComponent('/search')}`} className="mt-1 inline-flex min-h-11 items-center font-semibold underline">
+              Sign in
+            </Link>
+          </div>
+        )}
+
         {passportMatch && passportListed && (
           <Link
             to={`/marketplace/listing/${encodeURIComponent(passportMatch.vin)}`}
@@ -291,7 +319,15 @@ export default function VehicleSearch() {
         {loadError && (
           <div className="mt-8 flex items-center gap-2 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="vehicle-search-error">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            Live marketplace results could not be loaded. CarUp has not substituted fabricated inventory.
+            <span className="flex-1">Live marketplace results could not be loaded. CarUp has not substituted fabricated inventory.</span>
+            <button
+              type="button"
+              className="min-h-11 shrink-0 rounded-md border border-amber-300 bg-white px-3 font-semibold text-amber-900 hover:bg-amber-100"
+              onClick={() => setSearchAttempt(attempt => attempt + 1)}
+              data-testid="vehicle-search-retry"
+            >
+              Try again
+            </button>
           </div>
         )}
 
@@ -300,7 +336,7 @@ export default function VehicleSearch() {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-600">Published Marketplace</p>
             <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] sm:text-4xl">Vehicles you can inspect now.</h2>
           </div>
-          {!loading && (
+          {!loading && !loadError && (
             <p className="text-sm text-slate-500">
               <span className="text-2xl font-black text-slate-950">{listings.length}</span> {listings.length === 1 ? 'vehicle' : 'vehicles'} found
             </p>
@@ -313,7 +349,7 @@ export default function VehicleSearch() {
           </div>
         ) : (
           <>
-            <span className="sr-only">{listings.length} vehicles found</span>
+            {!loadError && <span className="sr-only">{listings.length} vehicles found</span>}
             {listings.length === 0 && !loadError && (
               <div className="border-y border-dashed border-slate-300 px-6 py-16 text-center" data-testid="vehicle-search-empty">
                 <CarFront className="mx-auto h-10 w-10 text-slate-300" />

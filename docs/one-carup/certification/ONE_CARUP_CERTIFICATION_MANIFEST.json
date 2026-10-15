@@ -1792,6 +1792,1660 @@
       },
       "remaining": [],
       "recorded_at": "2026-10-05T05:02:09Z"
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-SOURCE-RUNNER",
+      "sha": "fe6e93f7fc99cd93e0fde6270dabdd480885f5ed",
+      "level": "SOURCE-CERTIFIED",
+      "database": null,
+      "proof_mechanism": "node:test — the staging migration runner suite (real PostgreSQL semantics via PGlite) and the full backend suite under ci.yml validate-job env, plus an exact-SHA mutation battery, all run in a git worktree at this commit (ci.yml does not run on this PR)",
+      "claims": [
+        "migration identity is the full filename: a timestamp prefix alone never records a file, and other ledger conventions count only as equivalences a plan states",
+        "the runner refuses any connection string naming the production project and accepts only the positively identified staging project or an explicit loopback rehearsal database",
+        "each group runs in one transaction: the ledger row is written only after the SQL and every expected-effect probe succeed, and a failure rolls back SQL and ledger together and stops the run",
+        "an \"already exists\" error is a failure, never reported as applied; a recorded file whose effect is missing is reported as drift",
+        "a replay re-executes an already-recorded migration inside its anchor's transaction, must prove what it restores, and is never recorded twice",
+        "a timestamp-prefix collision is refused unless the plan records it as resolved",
+        "NEVER_APPLY, SQLite-only, retired and non-migration files are refused before any SQL runs"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-staging-migration-runner.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "runner 16/16 at this SHA; full backend suite 8029 tests: 8006 pass, 0 fail, 23 skipped",
+        "mutants": "26/27 killed at this SHA; survivor 'collision: resolved without naming this file' was a test gap (the guard was correct) closed at d3f95c4d, where 27/27 are killed",
+        "artifacts": "scratchpad MUT_fe6e93f7_convergence.json (battery), stage6_full_backend.tap"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-SOURCE-CUSTODY",
+      "sha": "d3f95c4dabb4701805a2f989212b61aaf94056fc",
+      "level": "SOURCE-CERTIFIED",
+      "database": null,
+      "proof_mechanism": "node:test — runner suite, OC-4A migration hygiene, X4 candidate and full backend suites, plus the exact-SHA mutation battery (convergence and custody sets), run at this commit",
+      "claims": [
+        "001_add_financial_ledger and 002_add_notification_queue are refused for every PostgreSQL plan action, a ledger repair included",
+        "20260808140000_publication_gate_backfill is classified RECORDED_ONE_TIME_DATA_MIGRATION_NEVER_REPLAY and is never executed or replayed by the runner",
+        "files held under the custody record (the X4 biometric candidates, their PR #208 originals and the PR #208 dealer extension) are refused for every action, by filename or by path",
+        "a collision resolution resolves only the files it names",
+        "every runner guard certified at fe6e93f7 still holds at this commit"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-staging-migration-runner.test.js",
+          "backend/tests/oc4a-migration-hygiene.test.js",
+          "backend/tests/o2-x4-biometric-interface.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "runner 19/19; full backend suite 8032 tests: 8009 pass, 0 fail, 23 skipped",
+        "mutants": "27/27 convergence + 7/7 custody killed at this SHA",
+        "artifacts": "scratchpad MUT_d3f95c4d_convergence.json, MUT_d3f95c4d_custody.json, full_backend_d3f95c4d.tap"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-DATABASE-PGLITE",
+      "sha": "fe6e93f7fc99cd93e0fde6270dabdd480885f5ed",
+      "level": "DATABASE-CERTIFIED",
+      "database": {
+        "engine": "pglite",
+        "migrations": [
+          "database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql",
+          "database/migrations/20260621130000_external_source_ingestion.sql",
+          "database/migrations/20260621140000_ai_temporal_disclosure_intelligence.sql",
+          "database/migrations/20260621150000_report_versions.sql",
+          "database/migrations/20260621160000_governance_disputes_corrections.sql",
+          "database/migrations/20260621170000_outbox_dead_letter.sql",
+          "database/migrations/20260624120000_vehicle_trust_security_hardening.sql",
+          "database/migrations/20260624130000_vehicle_document_extractions.sql",
+          "database/migrations/20260624140000_listing_publication_lifecycle.sql",
+          "database/migrations/20260624150000_trust_change_log_immutability.sql",
+          "database/migrations/20260626120000_source_verification_network.sql",
+          "database/migrations/20260626130000_partner_api.sql",
+          "database/migrations/20260626140000_fraud_engine.sql",
+          "database/migrations/20260626150000_dealer_compliance.sql",
+          "database/migrations/20260626160000_eligibility_framework.sql",
+          "database/migrations/20260626180000_escrow_trust_sessions.sql",
+          "database/migrations/20260703120000_provider_platform.sql",
+          "database/migrations/20260703130000_government_source_activation.sql",
+          "database/migrations/20260703140000_insurance_provider.sql",
+          "database/migrations/20260703150000_finance_provider.sql",
+          "database/migrations/20260703160000_escrow_provider.sql",
+          "database/migrations/20260703170000_mobile_certification.sql",
+          "database/migrations/20260703190000_provider_storage.sql",
+          "database/migrations/20260710120000_provider_request_attempts_provider_scope.sql",
+          "database/migrations/20260710130000_partsentry_review_requests.sql",
+          "database/migrations/20260808150000_mechanic_work_orders_convergence.sql",
+          "database/migrations/20260809100000_trust_side_tables.sql",
+          "database/migrations/20260809110000_api_role_write_hardening.sql",
+          "database/migrations/20260810120000_trust_side_convergence.sql"
+        ]
+      },
+      "proof_mechanism": "PGlite at this commit: database/test/migration_pglite_check.mjs (Up, Down, re-Up of the governed chain) and the runner suite's transactional cases",
+      "claims": [
+        "the 29 chain migrations apply, revert and re-apply on PostgreSQL semantics with no prerequisite, Up, Down or re-Up failure",
+        "a failing migration leaves no partial effect and no ledger row; an atomic group commits all-or-nothing, ledger included",
+        "a self-contained BEGIN/COMMIT envelope is unwrapped and cannot commit the runner transaction early"
+      ],
+      "evidence": {
+        "harness": "database/test/migration_pglite_check.mjs",
+        "result": "overall PASS: up 29, down 29, re-up 29, catalog {'legacy_backfill': {'evidence_class': 'inspection', 'evidence_subtype': 'odometer_photo', 'checksum_algorithm': 'sha256', 'expected_class': 'inspection', 'backfill_ok': True}, 'new_tables': ['ai_analysis_jobs', 'ai_observations', 'disclosure_claims', 'disclosure_conflicts', 'dispute_events', 'disputes', 'evidence_class_taxonomy', 'evidence_provenance_events', 'evidence_sets', 'evidence_sources', 'ingestion_jobs', 'listing_snapshots', 'report_versions', 'review_decisions', 'review_tasks', 'source_records', 'temporal_findings', 'trust_change_log', 'vehicle_identity_candidates'], 'views': ['evidence_sources_public'], 'triggers': ['dealer_decisions_no_delete on dealer_compliance_decisions', 'dealer_decisions_no_update on dealer_compliance_decisions', 'dispute_events_no_delete on dispute_events', 'dispute_events_no_update on dispute_events', 'elig_dec_no_delete on eligibility_decisions', 'elig_dec_no_update on eligibility_decisions', 'elig_wh_no_delete on eligibility_webhook_events', 'elig_wh_no_update on eligibility_webhook_events', 'escrow_dual_control_no_delete on escrow_dual_control_approvals', 'escrow_dual_control_no_update on escrow_dual_control_approvals', 'escrow_events_no_delete on escrow_trust_events', 'escrow_events_no_update on escrow_trust_events', 'escrow_recon_ledger_no_delete on escrow_reconciliation_ledger', 'escrow_recon_ledger_no_update on escrow_reconciliation_ledger', 'escrow_wh_no_delete on escrow_trust_webhook_events', 'escrow_wh_no_update on escrow_trust_webhook_events', 'fin_dec_no_delete on finance_provider_decisions', 'fin_dec_no_update on finance_provider_decisions', 'fraud_case_events_no_delete on fraud_case_events', 'fraud_case_events_no_update on fraud_case_events', 'fraud_case_resolutions_no_delete on fraud_case_resolutions', 'fraud_case_resolutions_no_update on fraud_case_resolutions', 'fraud_cases_set_updated_at on fraud_cases', 'fraud_signals_no_delete on fraud_signals', 'fraud_signals_no_update on fraud_signals', 'gov_batch_no_delete on government_source_batch_imports', 'gov_batch_no_update on government_source_batch_imports', 'ins_decisions_no_delete on insurance_provider_decisions', 'ins_decisions_no_update on insurance_provider_decisions', 'insurance_consent_guard_del on insurance_consents', 'insurance_consent_guard_upd on insurance_consents', 'mobile_cert_results_no_delete on mobile_certification_results', 'mobile_cert_results_no_update on mobile_certification_results', 'partner_requests_no_delete on partner_api_requests', 'partner_requests_no_update on partner_api_requests', 'provider_activation_no_delete on provider_activation_history', 'provider_activation_no_update on provider_activation_history', 'provider_attempts_no_delete on provider_request_attempts', 'provider_attempts_no_update on provider_request_attempts', 'review_decisions_no_delete on review_decisions', 'review_decisions_no_update on review_decisions', 'svr_no_delete on source_verification_results', 'svr_no_update on source_verification_results', 'trg_extraction_no_content_update on vehicle_document_extractions', 'trg_finance_consent_guard_update on finance_consents', 'trg_finance_consent_no_delete on finance_consents', 'trg_listing_snapshot_no_delete on listing_snapshots', 'trg_listing_snapshot_no_update on listing_snapshots', 'trg_provenance_no_delete on evidence_provenance_events', 'trg_provenance_no_update on evidence_provenance_events', 'trg_report_version_guard on report_versions', 'trust_change_log_no_delete on trust_change_log', 'trust_change_log_no_update on trust_change_log'], 'rls_policies': ['ai_observations: 1', 'dealer_branches: 2', 'dealer_compliance_decisions: 2', 'dealer_compliance_documents: 2', 'dealer_compliance_requirements: 2', 'dealer_profiles: 4', 'disclosure_claims: 1', 'disclosure_conflicts: 1', 'dispute_events: 1', 'disputes: 1', 'eligibility_requests: 2', 'escrow_dual_control_approvals: 2', 'escrow_kyc_kyb_states: 2', 'escrow_provider_config: 1', 'escrow_reconciliation_ledger: 1', 'escrow_trust_sessions: 2', 'evidence_provenance_events: 1', 'evidence_sets: 1', 'finance_consents: 2', 'finance_provider_decisions: 2', 'fraud_case_events: 1', 'fraud_case_resolutions: 1', 'fraud_cases: 1', 'fraud_signals: 1', 'government_source_batch_imports: 1', 'government_source_config: 1', 'insurance_consents: 2', 'insurance_provider_decisions: 2', 'insurer_profiles: 1', 'lender_profiles: 1', 'mobile_certification_results: 1', 'mobile_certification_runs: 1', 'provider_registry: 1', 'provider_request_attempts: 1', 'report_versions: 3', 'review_decisions: 1', 'review_tasks: 1', 'source_verification_results: 2', 'temporal_findings: 1', 'trust_change_log: 1', 'vehicle_document_extractions: 2', 'vehicle_evidence: 4'], 'provenance_append_only_enforced': True, 'provenance_fk_mode': 'r', 'provenance_fk_is_restrict': True, 'evidence_sets_fk_mode': 'r', 'evidence_sets_fk_is_restrict': True, 'report_versions_fk_mode': 'r', 'report_versions_fk_is_restrict': True, 'vehicle_evidence_rls': True, 'vehicle_plate_history_rls': False, 'extractions_table': 'vehicle_document_extractions', 'extractions_rls': True, 'extraction_content_guard_enforced': True, 'publication_status_col': 'text', 'temp_plate_id_col': 'text', 'publication_status_check_enforced': True, 'review_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'dispute_events_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'listing_snapshots_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'trust_change_log_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'source_verification_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'source_verification_mode_enforced': True, 'source_coverage_view_sandbox_labelled': True, 'fraud_signals_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'dealer_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'eligibility_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'escrow_events_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'partner_requests_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'gov_batch_imports_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'insurance_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'finance_decisions_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'escrow_recon_ledger_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'mobile_cert_results_immutable': {'update_blocked': True, 'delete_blocked': True, 'error': None}, 'mechanic_work_orders_columns': [], 'mechanic_parts_columns': [], 'mechanic_convergence_ok': True, 'mechanic_phase4_insert_ok': True, 'tables_after_down': 0, 'tables_after_reup': 19}",
+        "artifacts": "scratchpad DBX_fe6e93f7_pglite_chain.json"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R",
+      "capability": "programme.database_migration_convergence",
+      "environment": "local",
+      "provider": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-07T10:13:01Z",
+      "id": "OC5R-DBMC-DATABASE-POSTGRES",
+      "sha": "fe6e93f7fc99cd93e0fde6270dabdd480885f5ed",
+      "level": "DATABASE-CERTIFIED",
+      "database": {
+        "engine": "postgres-disposable",
+        "migrations": [
+          "database/migrations/20261007063512_vehicles_trust_score_unknown_is_null.sql",
+          "database/migrations/20260826120000_email_1_0_hardening.sql",
+          "database/migrations/20260828220000_passport_ownership_transfer_communications.sql",
+          "database/migrations/20260828210000_issue158_private_key_custody.sql",
+          "database/migrations/20260829003000_issue158_custody_rollout_upgrade.sql",
+          "database/migrations/20260829020000_issue158_activation_boundary_hardening.sql",
+          "database/migrations/20260829040000_issue158_terminal_event_uniqueness.sql",
+          "database/migrations/20260830060000_issue158_terminal_operation_identity.sql",
+          "database/migrations/20260901120000_vehicle_finance_obligation_authority.sql",
+          "database/migrations/20260902123000_auth_activity_not_conversation.sql",
+          "database/migrations/20261003100000_ocr_c3_garage_evidence_lineage_reconciliation.sql",
+          "database/migrations/20261004150000_o2_dealer_compliance_decision_template.sql",
+          "database/migrations/20261004160100_oc5a_work_order_owner_authorization.sql",
+          "database/migrations/20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql",
+          "database/migrations/20261004172000_o2_x6_semantic_event_templates.sql",
+          "database/migrations/20261004180800_service_network_case_status_template.sql",
+          "database/migrations/20261004190000_gmo3_garage_application_decision.sql",
+          "database/migrations/20261004190200_gmo6_garage_invitations.sql",
+          "database/migrations/20261004190300_gmo7_garage_membership_guard.sql",
+          "database/migrations/20261004210000_oc5g_policy_notification_templates.sql",
+          "database/migrations/20261004180600_service_network_o4_event_dedupe.sql"
+        ]
+      },
+      "proof_mechanism": "disposable loopback PostgreSQL 17.11 (restored from an OC-5R recovery snapshot with original owners and ACLs, the runner connecting as a non-superuser role), driven by this commit's runner CLI and parser; scratch databases dropped afterwards",
+      "claims": [
+        "20261007063512_vehicles_trust_score_unknown_is_null removes the trust_score default: an INSERT that omits trust_score stores NULL, an explicit score is still stored, a second Up executes nothing, Down restores DEFAULT 80.0, and re-Up succeeds",
+        "the 19 executed migrations of the OC-5R convergence plan apply in dependency order with one runner transaction per group — the Issue-158 custody chain as one atomic group, Email 1.0 atomically with the SN-O4 replay — and a second run executes and records nothing",
+        "applying Email 1.0 after SN-O4 rewrites communication_domain_event_dedupe_key(); replaying SN-O4 in the same transaction restores it",
+        "converging the plan changes pre-existing data only by inserting ledger and communication-template rows"
+      ],
+      "evidence": {
+        "steps": "Trust migration 8/8; convergence rehearsal 12/12 steps",
+        "result": "PASS",
+        "artifacts": "scratchpad DBX_fe6e93f7_trust.json, DELIVERABLES/DB2C_rehearsal_receipt.json"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "id": "OC5R-OCR-QWEN-LIVE-SMOKE",
+      "phase": "OC-5R",
+      "capability": "ocr.qwen_boundary",
+      "sha": "f8fed206ff6b0afad4772a1956efd58d39f0d8e6",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "ci",
+      "proof_mechanism": "workflow_dispatch of the in-lineage manual-only .github/workflows/o2-live-ocr-accuracy.yml at this exact SHA (checkout asserted): one real Cloudflare Workers AI vision request through CarUp's own CloudflareVisionClient on a synthetic corpus image, then a PARTIAL single-fixture Document Intelligence diagnostic whose database writes are captured in-process, never persisted",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/qwen/qwen3.8-27b",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "Cloudflare Workers AI @cf/qwen/qwen3.8-27b answered a vision request (synthetic national-id image, fixed JSON instruction) through this SHA's CloudflareVisionClient, outside production",
+        "the same provider and model completed one Document Intelligence extraction of the synthetic fixture national-id-clean through this SHA's OCR path: 8 of 8 graded fields exact, 0 fabrications, result held as a candidate (Pending_Verification)"
+      ],
+      "evidence": {
+        "request_class": "vision completion: one synthetic document image + a fixed raw-JSON instruction (proof call); one Document Intelligence extraction of one synthetic corpus fixture (partial diagnostic)",
+        "execution_evidence": "GitHub Actions run 37607951170 (workflow_dispatch, ref fix/oc5r-real-runtime-source-closure). Proof: usage 42.3 neurons, 714 prompt + 45 completion tokens, finishReason stop. Fixture national-id-clean: 16237 ms, 271.37 neurons, confidence 0.98.",
+        "result": "proof SUCCEEDED (content {\"ok\":true}); partial gate: fixtures 1/1, fields 8 exact / 0 missing / 0 incorrect, fabrications 0, verdict PARTIAL by design — a single-fixture run is never an accuracy pass, and the job exits non-zero for that reason",
+        "executed_at": "2026-10-07T10:31:57Z",
+        "not_claimed": "OCR accuracy (11-fixture gate not run), deployed wiring (the staging runtime is not this SHA and lacks CLOUDFLARE_API_TOKEN), any identity, Trust or registry authority"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T10:42:00Z"
+    },
+    {
+      "id": "OC5R-PROV01-A1-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "trust.connected_source_authority",
+      "sha": "a6d9d81f1aef275be9c9e635b52f5c7f2fe80877",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "only source_connected coverage (a live provider transport verdict) counts as a connected authoritative source",
+        "partner-file and CarUp manual-review coverage is retained, counted as reviewed and disclosed, and adds nothing to the score, the connected-source count, confidence, the CarUp Gold floor or the insurer/eligibility source floor",
+        "the automated government path persists only sandbox, live or unavailable: a partner_file or manual provider fails closed (mode_<mode>_not_automated), and a SANDBOX payload is never persisted under another mode",
+        "the rules change is versioned trust-decision-1.1.0; a trust-decision-1.0.0 cache row classifies stale and is not published"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-trust-authority-boundary.test.js",
+          "backend/tests/issue164-phase3-trust-authority.test.js",
+          "backend/tests/government-activation.test.js",
+          "backend/tests/issue164-codex-findings-remediation.test.js",
+          "web/src/components/TrustDecisionPanel.test.tsx",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "boundary suite 21/21; full backend suite 8053 tests: 8030 pass, 0 fail, 23 skipped",
+        "mutants": "13/13 killed at a6d9d81f (A1 set) + 1/1 killed at a6d9d81f (web)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-B1-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "security.deployed_runtime_boundary",
+      "sha": "16698d6cccba17917c47b9bb7651730813afb42a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "config/testFixtureGuard.js delegates to the one central deployed-runtime classifier (utils/runtimeEnvironment.js)",
+        "with NODE_ENV=test inside any declared deployment (CARUP_ENV staging/production, VERCEL_ENV preview/production) none of these opens: the x-user-id identity fallback, passwordless login, the CSRF bypass and its committed signing secret, the ephemeral ledger signing secret, the OCR asserted-identity seam, the client-extraction seam, the static vault token, the Seller fixture scope, error diagnostics, or the development CSRF cookie flags",
+        "webhook test seams ({test:true}) and committed fallback webhook secrets (billing, eligibility, escrow-trust, escrow-provider) are unusable in every deployment"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-security-convergence.test.js",
+          "backend/tests/oc5r-prov01-csrf-cookie-runtime.test.js",
+          "backend/tests/non-seller-authority-hardening.test.js",
+          "backend/tests/oc3b-r-simulation-steering-guard.test.js",
+          "backend/tests/auth-middleware.test.js",
+          "backend/tests/auth-login.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "security convergence suite 27/27 at this SHA (28/28 from c31ad2b5, which adds the configured-secret SafeTrade case); full backend suite 8082 tests: 8059 pass, 0 fail, 23 skipped",
+        "mutants": "B set 36/37 killed at 16698d6c; this capability's mutants B1 13/13 + B2 8/8",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-B3-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "payments.safetrade_webhook_boundary",
+      "sha": "16698d6cccba17917c47b9bb7651730813afb42a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the SafeTrade payment webhook measures replay drift against the wall clock; a pinned request clock is honoured only in the fixture runtime",
+        "the webhook route selects its provider through the fail-closed selector: a deployment without an approved provider answers 503 SAFETRADE_WEBHOOK_UNAVAILABLE and claims or reconciles nothing, even when a webhook secret is configured",
+        "the committed SafeTrade key is never usable in a deployment; an unconfigured secret is reported unavailable"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-security-convergence.test.js",
+          "backend/tests/oc5r-prov01-csrf-cookie-runtime.test.js",
+          "backend/tests/non-seller-authority-hardening.test.js",
+          "backend/tests/oc3b-r-simulation-steering-guard.test.js",
+          "backend/tests/auth-middleware.test.js",
+          "backend/tests/auth-login.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "security convergence suite 27/27 at this SHA (28/28 from c31ad2b5, which adds the configured-secret SafeTrade case); full backend suite 8082 tests: 8059 pass, 0 fail, 23 skipped",
+        "mutants": "B set 36/37 killed at 16698d6c; this capability's mutants B3 4/5 — the one survivor (B3: route used the sandbox provider directly) was a test gap closed at c31ad2b5, where it is killed: 1/1 killed at c31ad2b5",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-B4-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "escrow.provider_participant_authority",
+      "sha": "16698d6cccba17917c47b9bb7651730813afb42a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "PATCH /api/escrow/:id/provider/transition and POST /api/escrow/:id/provider/initiate require the canonical participant authority (escrowTrustService.getSession): an unrelated authenticated buyer, owner or dealer receives 403 and nothing is written; an unknown escrow is 404"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-security-convergence.test.js",
+          "backend/tests/oc5r-prov01-csrf-cookie-runtime.test.js",
+          "backend/tests/non-seller-authority-hardening.test.js",
+          "backend/tests/oc3b-r-simulation-steering-guard.test.js",
+          "backend/tests/auth-middleware.test.js",
+          "backend/tests/auth-login.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "security convergence suite 27/27 at this SHA (28/28 from c31ad2b5, which adds the configured-secret SafeTrade case); full backend suite 8082 tests: 8059 pass, 0 fail, 23 skipped",
+        "mutants": "B set 36/37 killed at 16698d6c; this capability's mutants B4 3/3",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-B5-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "eligibility.webhook_identity",
+      "sha": "16698d6cccba17917c47b9bb7651730813afb42a",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "eligibility, insurer and lender webhooks verify against the route's server-owned identity; a caller-asserted x-provider-id never selects the key and a mismatch is refused",
+        "a signature valid for one capability cannot change another capability's eligibility request; an unknown capability is 404"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-security-convergence.test.js",
+          "backend/tests/oc5r-prov01-csrf-cookie-runtime.test.js",
+          "backend/tests/non-seller-authority-hardening.test.js",
+          "backend/tests/oc3b-r-simulation-steering-guard.test.js",
+          "backend/tests/auth-middleware.test.js",
+          "backend/tests/auth-login.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "security convergence suite 27/27 at this SHA (28/28 from c31ad2b5, which adds the configured-secret SafeTrade case); full backend suite 8082 tests: 8059 pass, 0 fail, 23 skipped",
+        "mutants": "B set 36/37 killed at 16698d6c; this capability's mutants B5 8/8",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-C1-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "trade.reference_fx",
+      "sha": "c31ad2b5e382af3bd02b96e464112f8c3f9eb0c1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every ECB request is bounded by ECB_FETCH_TIMEOUT_MS; one process observer reuses a successful feed for ECB_FEED_TTL_MS and an outage for ECB_FAILURE_TTL_MS",
+        "a snapshot is written only when the source publishes a rate date newer than the stored one; a read of an unchanged publication writes nothing",
+        "AVAILABLE versus STALE is decided at read time from the rate's own date; an unreachable or unpublished pair carries no number"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-fx-observation-policy.test.js",
+          "backend/tests/trade-os-t6-commercial-transparency.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "full backend suite 8098 tests: 8075 pass, 0 fail, 23 skipped",
+        "mutants": "C set 13/14 killed at c31ad2b5; this capability's mutants 7/8 — the one survivor (no timeout on the source request) exposed a stub that crashed instead of hanging; the corrected test kills it at 4a6f96e7: 1/1 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-C2-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "billing.provider_unavailable_contract",
+      "sha": "c31ad2b5e382af3bd02b96e464112f8c3f9eb0c1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every billing failure carries a deterministic status (4xx caller, 503 provider not active, 502 provider answer) — never an untyped 500",
+        "subscription read routes do not select a billing provider; on a deployment without an approved provider, provider routes answer 503 EXTERNAL_ACTIVATION_REQUIRED and no subscription or provider event is written"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-provider-truthfulness.test.js",
+          "backend/tests/diaspora-subscription-routes.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "full backend suite 8098 tests: 8075 pass, 0 fail, 23 skipped",
+        "mutants": "C set 13/14 killed at c31ad2b5; this capability's mutants 4/4",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-C3-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "observability.health_truth",
+      "sha": "c31ad2b5e382af3bd02b96e464112f8c3f9eb0c1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "/api/health reports Sentry unavailable (DSN present, no SDK) or not_configured — never enabled — and never echoes the DSN"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-provider-truthfulness.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "full backend suite 8098 tests: 8075 pass, 0 fail, 23 skipped",
+        "mutants": "C set 13/14 killed at c31ad2b5; this capability's mutants 2/2",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-C4-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "web.help_center_payment_claims",
+      "sha": "c31ad2b5e382af3bd02b96e464112f8c3f9eb0c1",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "vitest source-integrity test at this commit, plus the exact-SHA web mutation battery",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "every Help Center string that names EcoCash, InnBucks, ZIPIT or RTGS states that no online payment method is live; the assistant no longer claims accepted payment rails"
+      ],
+      "evidence": {
+        "suites": [
+          "web/src/pages/HelpCenter.paymentClaims.test.ts"
+        ],
+        "tests": "help-center claims 3/3; fails on the pre-fix copy (2 of 3)",
+        "mutants": "3/3 killed at c31ad2b5",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-COMMS-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "communications.transport_boundary",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the channel decides which provider may speak for it; the caller-chosen :provider URL segment never selects the verification scheme",
+        "a Meta POST is authenticated only by Meta's HMAC; the GET verify token authenticates only the subscription handshake",
+        "the generic CARUP_CHANNEL_WEBHOOK_SECRET authenticates nothing in a declared deployment; secret and token comparisons are timing-safe",
+        "a delivery receipt changes CarUp state only through the delivery attempt it resolves to; request-carried notification or message ids never stand in for one",
+        "a Telegram timeout stays a retryable timeout; a 2xx without the provider's own message id is provider_acceptance_unproven (not sent, not retried)",
+        "the inbound Resend content fetch bounds the body read; a fake Telegram adapter is refused by name in a deployment with a bot token"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-communications-boundary.test.js",
+          "backend/tests/communication-engine.test.js",
+          "backend/tests/email-webhook-and-reply-routing.test.js",
+          "backend/tests/email-experience-resend-provenance.test.js",
+          "backend/tests/oc5r-prov01-security-convergence.test.js",
+          "backend/tests/*.test.js"
+        ],
+        "tests": "communications boundary suite 17/17; full backend suite 8135 tests: 8112 pass, 0 fail, 23 skipped",
+        "mutants": "18/18 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-D2-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "programme.live_provider_smoke_harness",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the live-provider smoke workflow is workflow_dispatch only, uses no environment, asserts the exact checkout SHA and injects only the selected provider's credentials",
+        "the harness classifies a missing credential as NOT_CONFIGURED, refuses production markers, redacts raw and URL-encoded credentials, calls read endpoints only and writes nothing"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-live-provider-smoke.test.js"
+        ],
+        "tests": "smoke harness suite 11/11",
+        "mutants": "9/9 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-E3-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "programme.staging_deployment_candidate",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "a deployable commit is the candidate code SHA or a descendant touching only docs/** and this branch's two governed pairing records, with the frontend alias checked exactly, the backend alias against its per-branch shape, and the governed pair resolver consulted"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-prov01-deployment-candidate.test.js"
+        ],
+        "tests": "candidate verifier suite 8/8",
+        "mutants": "6/6 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-QWEN-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "ocr.qwen_boundary",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the OCR transport is configured only with CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (CLOUDFLARE_TOKEN is not read) and makes no request when unconfigured",
+        "the default OCR model is @cf/qwen/qwen3.8-27b with its measured image form; REJECTED models, models without a proven transport and unknown provider names are refused",
+        "the best extraction outcome is a candidate (Pending_Verification); extraction writes only the ocr evidence tables",
+        "a provider failure, timeout, HTTP error, empty or malformed reply is recorded as a provider failure with no fields",
+        "the OCR simulator exists only in the test-fixture runtime and is labelled simulated; outside the test runtime an extraction must name its user; strict boot requires the selected provider to be configured"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/o2-cloudflare-ocr-provider.test.js",
+          "backend/tests/oc3c-cloudflare-ai-transport.test.js",
+          "backend/tests/o2-live-ocr-operationalization.test.js",
+          "backend/tests/o2-x1-document-intelligence-authority.test.js",
+          "backend/tests/ocr-mock-guard.test.js",
+          "backend/tests/o2-ocr-startup-diagnostic.test.js",
+          "backend/tests/oc3b-r-simulation-steering-guard.test.js",
+          "backend/tests/oc3b-ai-authority-invariants.test.js",
+          "backend/tests/oc4b-communications-ai-convergence.test.js"
+        ],
+        "tests": "baseline pass 199; full backend suite 8135 tests: 8112 pass, 0 fail, 23 skipped",
+        "mutants": "21/21 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files",
+        "not_claimed": "OCR accuracy (the 11-fixture gate was not run); that CARUP_OCR_MODEL cannot select another proven, non-rejected model by explicit configuration (it can)"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-ODOMETER-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "garage.native_odometer_candidate",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "an odometer reading is a candidate (candidate_pending_review, review_status pending, mileage_recorded false) or not_read — never recorded mileage",
+        "OCR runs only on evidence in the private ocr-documents bucket; the native capture contract requests private visibility",
+        "only an owner, current seller or governed dealer tenant with a proven session may run vehicle-document OCR; a revoked seller authority is refused",
+        "a provider failure creates no field candidates; the native client reports an OCR HTTP failure as unavailable and tells the owner the reading does not change recorded mileage"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc4c-native-odometer-ocr.test.js",
+          "backend/tests/oc4e-product-journeys.test.js",
+          "backend/tests/o2-ocr-path-convergence.test.js",
+          "backend/tests/o2-ocr-adversarial-hardening.test.js",
+          "backend/tests/o2-ocr-three-problem-hardening.test.js",
+          "backend/tests/oc5r-prov01-security-convergence.test.js",
+          "mobile/tests/garage-odometer-ocr.test.ts"
+        ],
+        "tests": "baseline pass 77; mobile contract test 1/1",
+        "mutants": "12/12 killed at 4a6f96e7 (egress-guarded) + 4/4 killed at 4a6f96e7 (egress-guarded) (mobile, tsx)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files",
+        "not_claimed": "that the server forces a photo upload private (privacy rests on the client contract plus the OCR-time bucket gate); the Expo device runtime"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-GEMMA-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the general AI gateway is configured only with CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN and spends no request when unconfigured",
+        "the general model is @cf/google/gemma-4-26b-a4b-it on provider cloudflare; alternate models and providers are refused, not substituted",
+        "every gateway answer carries advisory authority; only an executed advisory machine output is accepted as an answer; a failure, an empty reply or a timeout is typed and never an answer",
+        "/api/health states whether the gateway is configured, truthfully, without echoing a credential"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/ai01b-carup-ai-gateway.test.js",
+          "backend/tests/oc3c-cloudflare-ai-transport.test.js",
+          "backend/tests/oc3e-w1-ai-consumer-convergence.test.js",
+          "backend/tests/oc3b-ai-provider-failure-contract.test.js",
+          "backend/tests/oc4b-communications-ai-convergence.test.js",
+          "backend/tests/o2-x5-workbook-mapping.test.js",
+          "backend/tests/communications-2-ai-provider-neutrality.test.js",
+          "backend/tests/oc3b-ai-authority-invariants.test.js",
+          "backend/tests/oc3-programme-authority.test.js",
+          "backend/tests/oc5r-prov01-provider-truthfulness.test.js"
+        ],
+        "tests": "baseline pass 193",
+        "mutants": "14/14 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-ADVISORY-SOURCE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "marketplace.ai_advisory",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test at this commit — the named suites, the full backend suite (ci.yml env contract), and the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "a caller without a proven session, or with oversized input, spends no provider request and receives the deterministic answer with its reason",
+        "a degraded answer is labelled ai_unavailable; listing tags never come from the model",
+        "the fraud scan requires authentication, answers 503 on a provider failure, refuses a reply without a recognised rating, and stores a verdict only as advisory, non-binding machine output with no filler risk index"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc3e-w1-ai-consumer-convergence.test.js",
+          "backend/tests/oc3b-ai-provider-failure-contract.test.js",
+          "backend/tests/marketplace-v1-spine.test.js",
+          "backend/tests/oc4e-product-journeys.test.js",
+          "backend/tests/oc3b-ai-authority-invariants.test.js",
+          "backend/tests/oc3-programme-authority.test.js",
+          "backend/tests/oc4a-ai-fraud-scans-candidate.test.js"
+        ],
+        "tests": "baseline pass 151",
+        "mutants": "12/12 killed at 4a6f96e7 (egress-guarded)",
+        "artifacts": "scratchpad prov01/: battery JSONs named in `mutants`, full-suite TAP files",
+        "not_claimed": "that the price estimate publishes no valuation (it publishes a deterministic fair band, and the model may raise its confidence label); that ai_notes are filtered; the aiLimiter route wiring — so the capability SOURCE cell is NOT promoted"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "id": "OC5R-PROV01-ECB-LIVE-SMOKE",
+      "phase": "OC-5R-PROV-01",
+      "capability": "trade.reference_fx",
+      "sha": "4a6f96e7564cf8081cd3d28928bc1cee1b514585",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "the governed live-provider smoke harness (backend/tests/tools/oc5r-live-provider-smoke.mjs) run at this exact SHA in a clean detached worktree with EXPECTED_HEAD_SHA asserted; run locally because the dispatch-only workflow cannot be dispatched until it exists on the default branch (HTTP 404)",
+      "provider": {
+        "name": "European Central Bank euro reference rates",
+        "model": "eurofxref-daily.xml",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "claims": [
+        "the ECB daily reference feed answered CarUp's createEcbFxProvider at this SHA, within its timeout, and JPY→USD triangulated through EUR in memory"
+      ],
+      "evidence": {
+        "request_class": "one keyless GET of the ECB daily reference feed through CarUp's createEcbFxProvider (bounded by its timeout), then one in-memory triangulation; no snapshot is written",
+        "execution_evidence": "local run, smoke schema oc5r-live-provider-smoke/v1; latency 893 ms; feed rate_date 2026-10-07; 29 currencies; ZWG published: False",
+        "result": "feed dated 2026-10-07 with 29 currencies; JPY→USD triangulated through EUR",
+        "executed_at": "2026-10-07T14:43:57.735Z",
+        "not_claimed": "any rate as settlement or customs FX; ZWG/MZN/TZS coverage (not published by the ECB); a stored snapshot; deployed wiring"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ],
+      "recorded_at": "2026-10-07T15:02:54Z"
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-MARKET-SOURCE",
+      "capability": "marketplace.ai_advisory",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "the all-in price estimate publishes no fair value and no asking-price band: it states valuation_status not_configured with a notice, and price_confidence is the fixed cost-estimate label",
+        "the price estimate makes no provider call for any caller (ai_reason valuation_not_configured), so no model can raise its confidence or add notes",
+        "AI text that states a money amount, a percentage or valuation vocabulary is withheld from buyer guidance, listing drafts and share copy, and the reader is told it was withheld",
+        "an AI-assisted answer carries ai_provenance {provider, model, execution}"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-marketplace-valuation-boundary.test.js",
+          "backend/tests/marketplace-v1-spine.test.js",
+          "backend/tests/oc3e-w1-ai-consumer-convergence.test.js",
+          "web/src/components/marketplace/AllInPricePanel.test.tsx"
+        ],
+        "mutation": "REL-MARKET 24/24 killed + REL-MARKET-web 3/3 killed (at e7b14a07; marketplace files unchanged at 15b604ba)"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-ODOMETER-SOURCE",
+      "capability": "garage.native_odometer_candidate",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "the server derives private storage for an odometer photo (current_condition:odometer, inspection:odometer_reading, legacy odometer_photo): a requested public_safe is clamped to private with the refusal recorded, and the bytes land in the private ocr-documents bucket",
+        "a remote odometer reference that is not a storage path in the private bucket is refused",
+        "a classification correction cannot move a public-bucket row into an odometer type, nor make an odometer type public",
+        "ingestion skips private-by-type assets; the native client contract and the OCR-time bucket gate are unchanged"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-odometer-private-by-type.test.js",
+          "backend/tests/oc4c-native-odometer-ocr.test.js"
+        ],
+        "mutation": "REL-ODO 13/13 killed, including the regression back to the old public path (at e7b14a07; files unchanged at 15b604ba)"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-OCR-CUSTODY-SOURCE",
+      "capability": "ocr.qwen_boundary",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "in a deployment (CARUP_ENV or VERCEL_ENV staging/preview/production) an OCR model override must be absent or exactly @cf/qwen/qwen3.8-27b; anything else fails closed with OCR_CUSTODY_REFUSED",
+        "a process deployed only by NODE_ENV opens the evaluation seam only with CARUP_OCR_MODEL_EVALUATION=governed; local and test keep the controlled seam",
+        "the general AI (Gemma) role is unchanged; /api/health reports ocr.custody canonical, refused or override"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-ocr-custody-and-runtime-identity.test.js"
+        ],
+        "mutation": "REL-CUSTODY 8/8 killed at 15b604ba"
+      },
+      "remaining": [
+        "DATABASE-CERTIFIED",
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-COMMS-SOURCE",
+      "capability": "communications.transport_boundary",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "COMMUNICATION_OUTBOUND_DISABLED is a fail-closed outbound kill switch: every external provider send (the direct adapters, the governed Meta template path, the delivery worker, the admin smoke route and send_probe) is refused before any request with outbound_disabled",
+        "the delivery worker holds a refused item (retry_scheduled one hour out, attempt restored, OUTBOUND_HELD audit) instead of failing it",
+        "send_probe runs through the governed sendProviderSmokeTest boundary with a SMOKE_TEST audit",
+        "SendGrid, Brevo, Expo, Cloudflare REST and the Cloudflare worker no longer synthesise a provider message id: an id-less 2xx is provider_acceptance_unproven"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-communications-kill-switch.test.js",
+          "backend/tests/communication-engine.test.js"
+        ],
+        "mutation": "REL-COMMS 19/19 killed (at e7b14a07; files unchanged at 15b604ba)"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-HEALTH-SOURCE",
+      "capability": "observability.health_truth",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "/api/health names the Supabase project ref each configured database endpoint points at (never a URL, host, user or password); consistent is true only when every configured endpoint is read and all agree, and an unreadable endpoint is counted and named by variable",
+        "/api/health reports the outbound kill switch and OCR custody"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-ocr-custody-and-runtime-identity.test.js"
+        ],
+        "mutation": "REL-HEALTH 10/10 killed at 15b604ba"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-PROVENANCE-SOURCE",
+      "capability": "programme.staging_deployment_candidate",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "a Git-less governed preview takes its build identity from CARUP_BUILD_SHA and CARUP_BUILD_REF; Vercel's own variables win when present and a contradiction is refused (the frontend build throws; the backend reports source conflict and no commit_sha)",
+        "the frontend stamps provenance_source into /carup-provenance.json"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-build-provenance.test.js",
+          "web/build/previewPairing.test.ts",
+          "web/build/viteConfigProvenance.test.ts"
+        ],
+        "mutation": "REL-PROV 4/4 + REL-PROV-web 6/6 killed (at e7b14a07; files unchanged at 15b604ba)"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-PROOF-HARNESS-SOURCE",
+      "capability": "programme.live_provider_smoke_harness",
+      "sha": "15b604ba3dd13d440396f0f165ecf44b960646a6",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8259 tests: 8236 pass, 0 fail, 23 skipped); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after). Batteries whose files are unchanged since e7b14a07 carry that run (verified by diff)",
+      "claims": [
+        "the deployed provider proof runs only when a person adds the label oc5r-deployed-provider-proof (never on push, synchronize, schedule or workflow_run), declares no environment, and proves the exact-head pair before any staging contact",
+        "it refuses a runtime that is not the exact SHA, not the staging project only, not cloudflare/Qwen with canonical custody, not cloudflare/Gemma, or without the kill switch; its verdicts accept only provider-executed Gemma with provenance and a candidate-only Qwen reading with no authority effect"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-deployed-provider-proof.test.js"
+        ],
+        "mutation": "REL-PROOF 10/10 killed at 15b604ba"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-CANDIDATE-DEPLOYED",
+      "capability": "programme.staging_deployment_candidate",
+      "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI upload of the clean deploy commit, named aliases read back), proven by the Stage 4 runtime-identity proof and the CI resolver before any journey",
+      "claims": [
+        "the deploy commit (docs and pairing records only on top of the code SHA, accepted by verify-deployment-candidate) runs as a frontend/backend preview pair that serves that exact SHA, pairs with each other and reaches only the staging project"
+      ],
+      "evidence": {
+        "deployed_sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+        "frontend_deployment": "dpl_F6XtrHpnu12WecJZYgMGzqZEqcbo (carup-staging, preview target) served at https://carup-staging-oc5r-rel01-11-11.vercel.app; /carup-provenance.json commit_sha = deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the backend alias",
+        "backend_deployment": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel01-11-11.vercel.app; /api/health build.commit_sha = deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner (the stale CLOUDFLARE_TOKEN is read by no code); SUPABASE_DB_URL removed from the Preview target 2026-10-07T23:49:06Z (owner decision; production scope unchanged)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; DATABASE_URL alone read as that project by probe dpl_HCKwBhTFLYHqzw8b51nTwjky9KPg, the blanking proven by positive control dpl_A5P5ty8Z7zrpCNJ9MBFa9UrC6v3A (postgres_project_refs []); no production ref in the health body or in any of the 3 served chunks",
+        "route_behavior": "GET /carup-provenance.json and /api/health on both aliases (14/14 identity checks); a browser load of the frontend alias called only the backend alias (12 requests); scripts/ci/resolve-governed-preview-pair.mjs passed in CI for the provider proof and both gates"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-HEALTH-DEPLOYED",
+      "capability": "observability.health_truth",
+      "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI upload of the clean deploy commit, named aliases read back), proven by the Stage 4 runtime-identity proof and the CI resolver before any journey",
+      "claims": [
+        "the deployed /api/health states the exact build (SHA, branch, source, deployment id), the database project of every configured endpoint, OCR custody, the AI configuration and the outbound kill switch, and it caught a real defect: an unreadable SUPABASE_DB_URL on the Preview target (consistent false) before any journey ran"
+      ],
+      "evidence": {
+        "deployed_sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+        "frontend_deployment": "dpl_F6XtrHpnu12WecJZYgMGzqZEqcbo (carup-staging, preview target) served at https://carup-staging-oc5r-rel01-11-11.vercel.app; /carup-provenance.json commit_sha = deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the backend alias",
+        "backend_deployment": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel01-11-11.vercel.app; /api/health build.commit_sha = deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner (the stale CLOUDFLARE_TOKEN is read by no code); SUPABASE_DB_URL removed from the Preview target 2026-10-07T23:49:06Z (owner decision; production scope unchanged)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; DATABASE_URL alone read as that project by probe dpl_HCKwBhTFLYHqzw8b51nTwjky9KPg, the blanking proven by positive control dpl_A5P5ty8Z7zrpCNJ9MBFa9UrC6v3A (postgres_project_refs []); no production ref in the health body or in any of the 3 served chunks",
+        "route_behavior": "GET /api/health on dpl_aw6JohCorvwwrvufmBd9BT5GbzjY (unrecognised SUPABASE_DB_URL, consistent false) and on dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB after the owner-approved fix (0 unrecognised, consistent true)"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-QWEN-DEPLOYED",
+      "capability": "ocr.qwen_boundary",
+      "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI upload of the clean deploy commit, named aliases read back), proven by the Stage 4 runtime-identity proof and the CI resolver before any journey",
+      "claims": [
+        "OCR on the deployed runtime runs as cloudflare/@cf/qwen/qwen3.8-27b with canonical custody and answers with a candidate (candidate_pending_review) whose authority effects are all false; the recorded mileage did not move"
+      ],
+      "evidence": {
+        "deployed_sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+        "frontend_deployment": "dpl_F6XtrHpnu12WecJZYgMGzqZEqcbo (carup-staging, preview target) served at https://carup-staging-oc5r-rel01-11-11.vercel.app; /carup-provenance.json commit_sha = deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the backend alias",
+        "backend_deployment": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel01-11-11.vercel.app; /api/health build.commit_sha = deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner (the stale CLOUDFLARE_TOKEN is read by no code); SUPABASE_DB_URL removed from the Preview target 2026-10-07T23:49:06Z (owner decision; production scope unchanged)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; DATABASE_URL alone read as that project by probe dpl_HCKwBhTFLYHqzw8b51nTwjky9KPg, the blanking proven by positive control dpl_A5P5ty8Z7zrpCNJ9MBFa9UrC6v3A (postgres_project_refs []); no production ref in the health body or in any of the 3 served chunks",
+        "route_behavior": "POST /api/vehicles/:vin/evidence/:id/run-ocr → 201 (provider cloudflare, model @cf/qwen/qwen3.8-27b, reading.status candidate_pending_review, authority_effects all false), run 37705240258",
+        "not_claimed": "OCR accuracy: the one synthetic odometer read 4213 km where 084213 was drawn (two leading digits dropped)"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-ODOMETER-DEPLOYED",
+      "capability": "garage.native_odometer_candidate",
+      "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI upload of the clean deploy commit, named aliases read back), proven by the Stage 4 runtime-identity proof and the CI resolver before any journey",
+      "claims": [
+        "on the deployed runtime an odometer photo uploaded with visibility public_safe is stored private in the ocr-documents bucket with the refusal recorded, and its OCR yields a candidate only; mileage unchanged, vehicle unpublished"
+      ],
+      "evidence": {
+        "deployed_sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+        "frontend_deployment": "dpl_F6XtrHpnu12WecJZYgMGzqZEqcbo (carup-staging, preview target) served at https://carup-staging-oc5r-rel01-11-11.vercel.app; /carup-provenance.json commit_sha = deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the backend alias",
+        "backend_deployment": "dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel01-11-11.vercel.app; /api/health build.commit_sha = deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner (the stale CLOUDFLARE_TOKEN is read by no code); SUPABASE_DB_URL removed from the Preview target 2026-10-07T23:49:06Z (owner decision; production scope unchanged)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; DATABASE_URL alone read as that project by probe dpl_HCKwBhTFLYHqzw8b51nTwjky9KPg, the blanking proven by positive control dpl_A5P5ty8Z7zrpCNJ9MBFa9UrC6v3A (postgres_project_refs []); no production ref in the health body or in any of the 3 served chunks",
+        "route_behavior": "POST /api/vehicles/:vin/evidence/upload (current_condition/odometer, visibility_level public_safe) → 201, applied private, bucket ocr-documents, refusal recorded; then run-ocr as above (run 37705240258)",
+        "not_claimed": "the device/Expo capture runtime: the request was made by the CI harness with the native client's contract, so the capability ladder is not promoted"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-01",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/qwen/qwen3.8-27b",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T01:06:07Z",
+      "id": "OC5R-REL01-QWEN-DEPLOYED-LIVE",
+      "capability": "ocr.qwen_boundary",
+      "sha": "d491b5aa8778002341f1eba6e2450273546e52cb",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, one synthetic odometer image through the DEPLOYED backend's evidence upload and run-ocr routes (the product path, not a test endpoint)",
+      "claims": [
+        "Cloudflare Workers AI @cf/qwen/qwen3.8-27b answered an OCR request made through the deployed preview of this SHA, and the product held the result as a candidate with no authority effect"
+      ],
+      "evidence": {
+        "request_class": "one synthetic 680x220 seven-segment odometer PNG drawn by the proof (084213 km), uploaded as current_condition/odometer and read by run-ocr",
+        "execution_evidence": "GitHub Actions run 37705240258 (label-triggered, attempt 1); deployed backend dpl_CiBUWPo2g83cuhwts5oJ5aQgosnB runtime log OCR_SUCCESS provider cloudflare model @cf/qwen/qwen3.8-27b executionStatus provider_succeeded, 6894 ms provider time, 12740 ms request",
+        "result": "reading.status candidate_pending_review, odometer_reading 4213 km (drawn 084213: two leading digits dropped, so no accuracy is claimed); authority_effects all false; mileage unchanged; the proof deleted its OCR rows (2 extractions, 1 OCR document)",
+        "executed_at": "2026-10-08T00:00:03Z",
+        "not_claimed": "OCR accuracy; the run as a whole failed because its Gemma half did not succeed (see ai.general.gemma_gateway)"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-PASSPORT-SOURCE",
+      "capability": "owner.vehicle_passport_identity",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "the successfully loaded owner /dashboard/garage/:vin page visibly identifies itself as the Vehicle Passport: a label \"Vehicle Passport\" above the vehicle heading and VIN, and the page landmark is named by the label plus the heading",
+        "the loading state keeps its own \"Loading Vehicle Passport\" announcement and the error state its own \"Vehicle Passport unavailable\" words; neither carries the loaded-state label",
+        "the label asserts nothing about the vehicle: no data, no authority, no fabricated state"
+      ],
+      "evidence": {
+        "suites": [
+          "web/src/pages/dashboard/owner/VehicleProfile.passport-identity.test.tsx",
+          "web/src/pages/dashboard/owner/VehicleProfile.passport-v15.test.tsx",
+          "web/src/pages/dashboard/owner/VehicleProfile.claims.test.tsx"
+        ],
+        "mutation": "REL2-PASSPORT 7/7 killed at ff50ba34"
+      },
+      "remaining": [
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-GEMMA-SOURCE",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "the Gemma request body is PR #217's plus exactly one intentional field, chat_template_kwargs.enable_thinking=false, on text, JSON and image requests (hidden reasoning pushed the deployed buyer assistant past its 12 s bound)",
+        "cloudflareAiTransport still sends every policy's body verbatim; the OCR/Qwen request body is byte-identical to a baseline captured before the change and does not inherit the field",
+        "model and provider stay pinned, one attempt, no fallback vendor, provenance unchanged (cloudflare / @cf/google/gemma-4-26b-a4b-it / provider_executed, advisory machine output)"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel02-gemma-latency-convergence.test.js",
+          "backend/tests/oc3c-cloudflare-ai-transport.test.js",
+          "backend/tests/ai01b-carup-ai-gateway.test.js"
+        ],
+        "mutation": "REL2-GEMMA 21/21 killed at ff50ba34"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ADVISORY-SOURCE",
+      "capability": "marketplace.ai_advisory",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "a degraded Marketplace answer whose AI call timed out carries ai_reason ai_timeout (buyer assistant, listing draft, share copy, moderation summary), and ONLY a timeout does; every other failure keeps the deterministic answer with no reason",
+        "sign-in required, oversized input, valuation not configured and withheld output keep their existing reason vocabulary; an answer that never reached the model is never relabelled",
+        "the buyer-assistant bound is still 12 seconds"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel02-gemma-latency-convergence.test.js",
+          "web/src/components/marketplace/BuyerAssistantDrawer.test.tsx",
+          "backend/tests/oc5r-rel01-marketplace-valuation-boundary.test.js"
+        ],
+        "mutation": "REL2-GEMMA 21/21, REL2-GEMMA-web 4/4, REL-MARKET 24/24 killed at ff50ba34"
+      },
+      "remaining": [
+        "LIVE-PROVIDER-CERTIFIED",
+        "DEPLOYED-CERTIFIED",
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-HARNESS-SOURCE",
+      "capability": "programme.deployed_uat_harness",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "spec 41 asserts exactly ONE active sidebar destination (and which), while the compact bar may mark its own; the product's two aria-current systems are untouched",
+        "spec 45 chooses its organisation through the real \"Act for …\" prompt or switcher, observing the product's own PUT /api/auth/active-tenant; it bypasses nothing, and its tenant assertions and the rival-tenant 403 are unchanged",
+        "spec 38 scrolls its listing-page controls clear of the sticky header and the compact bar (measured by a pure geometry module) and taps with a normal click; it never forces, hides or alters a bar",
+        "D7's assertions are unchanged and run last; every drain answer is recorded and attached even when D7 fails",
+        "the frozen Seller assertion /Vehicle Passport|Passport/i in spec 48 is exactly as written",
+        "C2: spec 45's seven-viewport geometry sweep and visual capture set explicit test timeouts (240 s / 180 s); the 90 s default, per-action bounds, retries 0 and every overflow assertion are unchanged",
+        "J2: spec 42 observes the product's own POST /vehicles/:vin/evidence/upload (registered before the click), requires it accepted and waits for the uploader to close before the reviewer reads; its evidence assertions are unchanged and the list is one read"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel02-uat-harness-contracts.test.js",
+          "web/src/components/layout/sidebarCurrentContract.test.tsx",
+          "web/src/components/layout/organisationSelectionFlow.test.tsx",
+          "web/src/components/EvidenceUploadModal.settled-state.test.tsx"
+        ],
+        "mutation": "REL2-HARNESS 59/59, REL2-NAV-web 5/5, REL2-ORG-web 8/8, REL2-EVIDENCE-web 8/8 killed at ff50ba34"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-PROOF-HARNESS-SOURCE",
+      "capability": "programme.live_provider_smoke_harness",
+      "sha": "ff50ba347b8cd43f144b320195bdcd18c98ffbd5",
+      "level": "SOURCE-CERTIFIED",
+      "environment": "local",
+      "proof_mechanism": "node:test and vitest at this commit — the named suites; the full backend suite under the ci.yml env contract (8312 tests: 8289 pass, 0 fail, 23 skipped, at the code SHA); the exact-SHA mutation battery (prov01/mutation_battery.py: one fragment per mutant, worktree verified clean before and after)",
+      "claims": [
+        "the deployed provider proof counts a Gemma answer only when it is ai_assisted, ai_available true (the boolean), names cloudflare / Gemma / provider_executed, and arrives inside the assistant's own 12 s bound (exclusive); a degraded ai_timeout answer is classified as a timeout"
+      ],
+      "evidence": {
+        "suites": [
+          "backend/tests/oc5r-rel01-deployed-provider-proof.test.js"
+        ],
+        "mutation": "REL2-PROOF 9/9, REL-PROOF 10/10 killed at ff50ba34"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-CANDIDATE-DEPLOYED",
+      "capability": "programme.staging_deployment_candidate",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the REL-02 deploy commit (docs and the two alias records only, accepted by verify-deployment-candidate) runs as a second frontend/backend preview pair that serves that exact SHA, pairs with each other and reaches only the staging project, on NEW named aliases; REL-01's aliases were not moved"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "GET /carup-provenance.json and /api/health on both aliases (14/14 identity checks, 8/8 acceptance conditions incl. SUPABASE_DB_URL not restored to Preview); a browser load of the frontend alias called only the REL-02 backend alias; scripts/ci/resolve-governed-preview-pair.mjs passed in CI for the provider proof and both gates"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-HEALTH-DEPLOYED",
+      "capability": "observability.health_truth",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the deployed /api/health states the exact build, the database project of every configured endpoint (consistent, 0 unrecognised), OCR custody, the AI configuration and the outbound kill switch"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "GET /api/health on dpl_796CYuhndXadx1TTvHjPWcFmJDfa (the release backend; build.commit_sha = the deploy SHA, source explicit_build_input), inside the identity proof and again inside the provider proof run"
+      },
+      "remaining": []
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-QWEN-DEPLOYED",
+      "capability": "ocr.qwen_boundary",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "OCR on the deployed runtime runs as cloudflare/@cf/qwen/qwen3.8-27b with canonical custody and answers with a candidate (candidate_pending_review) whose authority effects are all false; the recorded mileage did not move; the odometer photo was stored private"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "POST /api/vehicles/:vin/evidence/upload (current_condition/odometer, visibility_level public_safe) → 201, applied private, bucket ocr-documents, refusal recorded; POST …/run-ocr → 201 (provider cloudflare, model @cf/qwen/qwen3.8-27b, candidate_pending_review, authority_effects all false), run 37728492328",
+        "not_claimed": "OCR accuracy: the one synthetic odometer read 4213 km where 084213 was drawn (two leading digits dropped), as in REL-01; the 11-fixture accuracy gate has not been run"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ODOMETER-DEPLOYED",
+      "capability": "garage.native_odometer_candidate",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "on the deployed runtime an odometer photo uploaded with visibility public_safe is stored private in ocr-documents with the refusal recorded, and its OCR yields a candidate only; mileage unchanged, vehicle unpublished"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "the same upload and run-ocr as above (run 37728492328)",
+        "not_claimed": "the device/Expo capture runtime: the request was made by the CI harness with the native client's contract, so the capability ladder is not promoted"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-GEMMA-DEPLOYED",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the real deployed Marketplace buyer-assistant route returns an AI-assisted answer from cloudflare / @cf/google/gemma-4-26b-a4b-it with provider_executed provenance, inside its 12 s bound (3937 ms; REL-01's first deployed call had timed out at 13.35 s before the policy fix); protected vehicle and user state is unchanged"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "POST /api/marketplace/ai/buyer-assistant (session-proven caller) → 200, ai_status ai_assisted, ai_available true, ai_provenance {cloudflare, @cf/google/gemma-4-26b-a4b-it, provider_executed}, 7 guidance lines, run 37728492328",
+        "not_claimed": "answer quality; any consumer other than the buyer assistant"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ADVISORY-DEPLOYED",
+      "capability": "marketplace.ai_advisory",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the deployed buyer assistant is AI-assisted, available and provenance-carrying on the real route, with no valuation claim in the guidance"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "the same buyer-assistant call (run 37728492328): ai_assisted, ai_available true, ai_withheld 0",
+        "not_claimed": "the listing draft, share copy and moderation summary consumers, and the fraud scan, were not exercised on the deployed runtime"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/google/gemma-4-26b-a4b-it",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-GEMMA-LIVE",
+      "capability": "ai.general.gemma_gateway",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, a synthetic request through the DEPLOYED backend's own product routes (not a test endpoint)",
+      "claims": [
+        "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it answered an advisory request made through the deployed preview of this SHA, inside the product's 12 s bound"
+      ],
+      "evidence": {
+        "request_class": "one synthetic Marketplace buyer-assistant question (a used diesel pickup for a farm; what to check before paying) through the deployed route, request body carrying chat_template_kwargs.enable_thinking=false",
+        "execution_evidence": "GitHub Actions run 37728492328 (label-triggered, attempt 1); deployed backend dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+        "result": "HTTP 200 in 3937 ms; ai_status ai_assisted, ai_available true, ai_provenance {cloudflare, @cf/google/gemma-4-26b-a4b-it, provider_executed}; 7 guidance lines, 0 withheld; the vehicles and users fingerprints were unchanged",
+        "executed_at": "2026-10-08T04:40:13Z",
+        "not_claimed": "answer quality or accuracy; any consumer other than the buyer assistant"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/google/gemma-4-26b-a4b-it",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ADVISORY-LIVE",
+      "capability": "marketplace.ai_advisory",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, a synthetic request through the DEPLOYED backend's own product routes (not a test endpoint)",
+      "claims": [
+        "the Marketplace buyer assistant obtained a live Gemma answer through the deployed route (scope: the buyer assistant only)"
+      ],
+      "evidence": {
+        "request_class": "the same synthetic buyer-assistant question through the deployed route",
+        "execution_evidence": "GitHub Actions run 37728492328; deployed backend dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+        "result": "ai_assisted and available inside the 12 s bound (3937 ms), with full provenance",
+        "executed_at": "2026-10-08T04:40:13Z",
+        "not_claimed": "the listing draft, share copy, moderation summary and fraud-scan consumers were not exercised against the live provider"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": {
+        "name": "Cloudflare Workers AI",
+        "model": "@cf/qwen/qwen3.8-27b",
+        "mocked": false
+      },
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-QWEN-LIVE",
+      "capability": "ocr.qwen_boundary",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "LIVE-PROVIDER-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "label-triggered .github/workflows/oc5r-deployed-provider-proof.yml at the exact deploy SHA: after the governed pair resolver, a synthetic request through the DEPLOYED backend's own product routes (not a test endpoint)",
+      "claims": [
+        "Cloudflare Workers AI @cf/qwen/qwen3.8-27b answered an OCR request made through the deployed preview of this SHA, and the product held the result as a candidate with no authority effect"
+      ],
+      "evidence": {
+        "request_class": "one synthetic 680x220 seven-segment odometer PNG drawn by the proof (084213 km), uploaded as current_condition/odometer and read by run-ocr",
+        "execution_evidence": "GitHub Actions run 37728492328 (label-triggered, attempt 1); deployed backend dpl_796CYuhndXadx1TTvHjPWcFmJDfa",
+        "result": "reading.status candidate_pending_review, odometer_reading 4213 km (drawn 084213: two leading digits dropped, no accuracy is claimed); authority_effects all false; mileage unchanged; the proof deleted its OCR rows (2 extractions, 1 OCR document)",
+        "executed_at": "2026-10-08T04:41:10Z",
+        "not_claimed": "OCR accuracy"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-SELLER-HOME-DEPLOYED",
+      "capability": "seller.home_lifecycle",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "P+R on desktop, tablet and mobile Chromium: a published Seller listing appears on Home only inside its run scope; unpublish, republish and sold move it on Marketplace and Home; the sold vehicle's Garage page still opens with its VIN and the visible Vehicle Passport label; the sold listing is absent from Marketplace and Home; availability is sold and the publication history is preserved"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "Seller Home & Lifecycle Staging UAT run 37728393919 attempt 2 at the deploy SHA: spec 48 P+R passed on chromium, tablet-chromium and mobile-chromium; the retirement sweep found nothing left in commerce",
+        "not_claimed": "Q (Marketplace inquiry → Communications thread) is fixme until owner decision D and did not run"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-PASSPORT-DEPLOYED",
+      "capability": "owner.vehicle_passport_identity",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "the sold vehicle's /dashboard/garage/:vin page on the deployed pair shows the VIN and the visible Vehicle Passport text (the frozen assertion /Vehicle Passport|Passport/i), on three viewports"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "spec 48 line 450 passed on chromium, tablet-chromium and mobile-chromium (run 37728393919 attempt 2)"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
+    },
+    {
+      "phase": "OC-5R-REL-02",
+      "provider": null,
+      "database": null,
+      "mocked_provider": false,
+      "mocked_components": [],
+      "recorded_at": "2026-10-08T07:35:28Z",
+      "id": "OC5R-REL02-ACTIVE-TENANT-DEPLOYED",
+      "capability": "service_network.active_tenant_context",
+      "sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+      "level": "DEPLOYED-CERTIFIED",
+      "environment": "preview",
+      "proof_mechanism": "the governed exact-SHA preview pair on the staging projects (CLI uploads of the clean deploy commit onto the NEW named REL-02 aliases, read back; the first iteration also deployed a backend preview of its code SHA first), proven by the runtime-identity proof (14/14 checks, 8/8 acceptance conditions) and the CI resolver before any journey",
+      "claims": [
+        "on the deployed pair, signing in never selects an organisation: the Trade OS operator lands acting for themself and chooses Hikari Co-Load through the real \"Act for …\" prompt or switcher; the product's own PUT /api/auth/active-tenant answers 200 and the header badge then names the organisation",
+        "the chosen context carries the organisation's authority (create section, identity header) on desktop, tablet and mobile Chromium, and a rival organisation's admin who chose their own organisation is refused (403) on approval of a Hikari reservation"
+      ],
+      "evidence": {
+        "deployed_sha": "24a149334beb25932ebcafdb829463a65fce17f1",
+        "frontend_deployment": "dpl_7DM7w7mTE5AesWueu2i6a6rjMHEG (carup-staging, preview target) served at https://carup-staging-oc5r-rel02-11-11.vercel.app; /carup-provenance.json commit_sha = the deploy SHA, provenance_source explicit_build_input, unpaired false, api_base_url = the REL-02 backend alias",
+        "backend_deployment": "dpl_796CYuhndXadx1TTvHjPWcFmJDfa (carup-backend-staging, preview target) served at https://carup-backend-staging-oc5r-rel02-11-11.vercel.app; /api/health build.commit_sha = the deploy SHA, source explicit_build_input, environment preview",
+        "runtime_configuration": "preview runtime env: COMMUNICATION_OUTBOUND_DISABLED=true (health communications.outbound.kill_switch active, external_sends disabled); OCR cloudflare/@cf/qwen/qwen3.8-27b configured, custody canonical, mock not reachable; general AI cloudflare/@cf/google/gemma-4-26b-a4b-it configured, advisory; CLOUDFLARE_API_TOKEN as set by the owner; SUPABASE_DB_URL absent from the Preview target (owner decision 2026-10-07, not restored)",
+        "database_target": "eoyenigwevnxwwhyhaer only: health supabase_project_ref and every configured Postgres endpoint read as that project, 0 unrecognised, consistent true; no production ref in the health body or in any of the served chunks",
+        "route_behavior": "Diaspora Deployed Staging UAT run 37728394135 attempt 2 at the deploy SHA: spec 45 operator and outsider journeys (chromium) and the responsive operator view (tablet-chromium, mobile-chromium) passed through tests/agents/staging-helpers.ts ensureActingForOrganisation; chromium 71/0/9, tablet 50/0/30, mobile 50/0/30",
+        "not_claimed": "DATABASE-level certification of the tenant context; garage/mechanic organisations were not exercised by this gate; D7 (in-app container_booking notification) is not claimed"
+      },
+      "remaining": [
+        "OWNER-UAT-CERTIFIED"
+      ]
     }
   ],
   "capabilities": {
@@ -1804,20 +3458,20 @@
       "notes": "A repository CI guard; it has no deployed or owner surface."
     },
     "ai.general.gemma_gateway": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
-      "LIVE-PROVIDER-CERTIFIED": "PENDING",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it. No live Gemma run is recorded on any lineage of this programme."
+      "notes": "Cloudflare Workers AI @cf/google/gemma-4-26b-a4b-it, advisory. SOURCE PASS: OC5R-PROV01-GEMMA-SOURCE and OC5R-REL02-GEMMA-SOURCE (the request body is #217's plus chat_template_kwargs.enable_thinking=false). LIVE PASS: OC5R-REL02-GEMMA-LIVE (run 37728492328 @24a14933: ai_assisted in 3937 ms through the deployed buyer assistant). DEPLOYED PASS: OC5R-REL02-GEMMA-DEPLOYED. REL-01's first deployed call (run 37705240258 @d491b5aa) did not return inside the 12 s bound; a diagnostic outside the governed path measured ~16 s with the model's default reasoning and ~2.7 s without. No answer quality or accuracy is claimed."
     },
     "ocr.qwen_boundary": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "PENDING",
-      "LIVE-PROVIDER-CERTIFIED": "PENDING",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. Prior live Qwen evidence exists on OTHER lineages only (GMO-8 receipt on PR #209 @ce45e16f; O2 live OCR accuracy runs) — it does not certify this lineage."
+      "notes": "Cloudflare Workers AI @cf/qwen/qwen3.8-27b. SOURCE PASS: OC5R-PROV01-QWEN-SOURCE, OC5R-REL01-OCR-CUSTODY-SOURCE (custody fails closed in a deployment; 8/8). LIVE PASS: OC5R-OCR-QWEN-LIVE-SMOKE (CI run 37607951170 @f8fed206), and through the DEPLOYED path OC5R-REL01-QWEN-DEPLOYED-LIVE (run 37705240258 @d491b5aa) and OC5R-REL02-QWEN-LIVE (run 37728492328 @24a14933). DEPLOYED PASS: the preview runtime is configured (cloudflare / Qwen, custody canonical, no mock) and a deployed run answers a candidate with no authority effect (OC5R-REL01-QWEN-DEPLOYED, OC5R-REL02-QWEN-DEPLOYED). NOT claimed: OCR accuracy — in both deployed runs the synthetic odometer drawn as 084213 read 4213 (two leading digits dropped) — and any identity, Trust or registry authority; the 11-fixture accuracy gate has not been run. DATABASE for the boundary is still PENDING. Only the STABLE staging deployment (main@bb9d9900) still predates the credential. Live evidence on OTHER lineages (GMO-8 on PR #209 @ce45e16f) or on superseded code (run 36287013223 @e2961ad) is not carried."
     },
     "identity.lifecycle": {
       "SOURCE-CERTIFIED": "PASS",
@@ -1915,8 +3569,9 @@
       "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "PENDING",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
-      "DEPLOYED-CERTIFIED": "PENDING",
-      "OWNER-UAT-CERTIFIED": "PENDING"
+      "DEPLOYED-CERTIFIED": "PASS",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "OC-5D: login never selects an organisation; the person explicitly chooses it (one tap even with a single membership). SOURCE PASS (OC-5D). DEPLOYED PASS: OC5R-REL02-ACTIVE-TENANT-DEPLOYED — the Trade OS operator chose Hikari Co-Load through the real prompt on the governed pair @24a14933 (PUT /api/auth/active-tenant 200) on three viewports, and a rival tenant admin was refused. DATABASE still PENDING; garage/mechanic organisations were not exercised on the deployed runtime."
     },
     "garage.application_review_activation": {
       "SOURCE-CERTIFIED": "PASS",
@@ -1954,12 +3609,12 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "marketplace.ai_advisory": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
-      "LIVE-PROVIDER-CERTIFIED": "PENDING",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Advisory Gemma consumers (buyer assistant, listing draft, fraud scan)."
+      "notes": "Advisory Gemma consumers (buyer assistant, listing draft, share copy, moderation summary, fraud scan). SOURCE PASS: REL-01 (no valuation from any path) and REL-02 (OC5R-REL02-ADVISORY-SOURCE: ai_timeout named only for AI_TIMEOUT). LIVE and DEPLOYED PASS are scoped to the BUYER ASSISTANT: the deployed route returned an AI-assisted, available, provenance-carrying answer in 3937 ms (OC5R-REL02-ADVISORY-LIVE / -DEPLOYED, run 37728492328). History: REL-01's first deployed call timed out at 13.35 s because Gemma reasons by default; REL-02 E fixed the policy (enable_thinking=false) without lengthening the 12 s bound. The listing draft, share copy, moderation summary and fraud scan were not exercised on the deployed runtime."
     },
     "communications.governed_templates": {
       "SOURCE-CERTIFIED": "PASS",
@@ -1983,12 +3638,12 @@
       "OWNER-UAT-CERTIFIED": "PENDING"
     },
     "garage.native_odometer_candidate": {
-      "SOURCE-CERTIFIED": "PENDING",
+      "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "PENDING",
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "Native capture → private evidence → Qwen candidate. Device/Expo runtime not exercised."
+      "notes": "Native capture → private evidence → Qwen candidate. REL-01: the server now forces an odometer photo private whatever the caller asks (OC5R-REL01-ODOMETER-SOURCE @15b604ba), and that server boundary was exercised on the deployed preview (OC5R-REL01-ODOMETER-DEPLOYED @d491b5aa). DEPLOYED stays PENDING for the capability: the device/Expo capture runtime has not been exercised."
     },
     "auth.step_up_assurance": {
       "SOURCE-CERTIFIED": "PASS",
@@ -2066,9 +3721,9 @@
       "SOURCE-CERTIFIED": "PASS",
       "DATABASE-CERTIFIED": "N/A",
       "LIVE-PROVIDER-CERTIFIED": "N/A",
-      "DEPLOYED-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PASS",
       "OWNER-UAT-CERTIFIED": "PENDING",
-      "notes": "OC-5F slice F: a published Seller listing on Home only inside its run scope, and the unpublish / republish / sold lifecycle on Marketplace and Home. Spec 48 (deployed staging) is authored and has never run: DEPLOYED waits on a governed RC2 preview pair. Its Communications phase is fixme until owner decision D."
+      "notes": "OC-5F slice F. DEPLOYED PASS: spec 48 P+R on desktop, tablet and mobile Chromium against the governed pair @24a14933 (OC5R-REL02-SELLER-HOME-DEPLOYED). History: the REL-01 run @d491b5aa failed on all three viewports at spec 48 line 450 because the loaded Garage page never said \"Vehicle Passport\"; REL-02 A added that visible label and the assertion is unchanged. Its Communications phase Q is fixme until owner decision D and did not run."
     },
     "communications.policy_channel_routing": {
       "SOURCE-CERTIFIED": "PASS",
@@ -2101,6 +3756,126 @@
       "DEPLOYED-CERTIFIED": "PENDING",
       "OWNER-UAT-CERTIFIED": "PENDING",
       "notes": "OC-5J: a governed ownership-transfer refusal (42501/P0002/23505/23514/22023) is a 403/404/409/409/400 with its own words; an unexpected fault stays a 500 DatabaseError."
+    },
+    "programme.database_migration_convergence": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PASS",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "The OC-5R staging migration runner and the repository lineage it converges. SOURCE and DATABASE certify repository behaviour only (local worktree runs at the receipt SHAs; disposable PostgreSQL / PGlite). The live staging convergence and its database state are staging reconciliation observations (docs/one-carup/OC5R_DATABASE_RECERTIFICATION_PACKAGE.md), never a ladder level. DEPLOYED stays PENDING until an exact-SHA staging pair runs against the converged database; no external provider and no owner journey are involved."
+    },
+    "trust.connected_source_authority": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "A1 (OC5R-PROV01-A1-SOURCE @a6d9d81f). Rules version trust-decision-1.1.0: every 1.0.0 cache row is stale until the governed refresh re-derives it after deployment."
+    },
+    "security.deployed_runtime_boundary": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "B1+B2 (OC5R-PROV01-B1-SOURCE @16698d6c). Explicit opt-in flags (CARUP_ALLOW_X_USER_ID_FALLBACK, CARUP_ALLOW_PASSWORDLESS_LOGIN) are deliberately unchanged."
+    },
+    "payments.safetrade_webhook_boundary": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "B3. No payment provider is active; payments are not activated."
+    },
+    "escrow.provider_participant_authority": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "B4. Participant scope only; the escrow engine is unchanged."
+    },
+    "eligibility.webhook_identity": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "B5."
+    },
+    "trade.reference_fx": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "PENDING",
+      "LIVE-PROVIDER-CERTIFIED": "PASS",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "C1 SOURCE @c31ad2b5 (+ recheck @4a6f96e7); LIVE: OC5R-PROV01-ECB-LIVE-SMOKE @4a6f96e7 (local, keyless). DATABASE not run against a disposable database."
+    },
+    "billing.provider_unavailable_contract": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "C2. No billing provider is active."
+    },
+    "observability.health_truth": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PASS",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "C3 Sentry; the Gemma configured flag is in OC5R-PROV01-GEMMA-SOURCE. REL-01/REL-02: database target, OCR custody and the outbound kill switch (OC5R-REL01-HEALTH-SOURCE); DEPLOYED @d491b5aa and again @24a14933 — it caught the unreadable SUPABASE_DB_URL before any journey in REL-01."
+    },
+    "web.help_center_payment_claims": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "C4."
+    },
+    "communications.transport_boundary": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "PENDING",
+      "DEPLOYED-CERTIFIED": "PENDING",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "G1–G7 closed @4a6f96e7. REL-01 @15b604ba: a fail-closed outbound kill switch that every direct and admin path honours, send_probe through the governed boundary, and no synthesised provider ids (OC5R-REL01-COMMS-SOURCE). The kill switch is active on the deployed preview @d491b5aa (health), but no send was attempted there, so DEPLOYED stays PENDING. LIVE: provider credentials are not available to the governed harness."
+    },
+    "programme.live_provider_smoke_harness": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "N/A",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "D2. Dispatch is blocked until the workflow file exists on the default branch."
+    },
+    "programme.staging_deployment_candidate": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PASS",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "E3 package docs/one-carup/certification/OC5R_STAGING_DEPLOYMENT_CANDIDATE.json (REL-02 version; REL-01's is in git history). Deployed as the governed preview pair @d491b5aa (REL-01) and again @24a14933 (REL-02), on separate named aliases."
+    },
+    "owner.vehicle_passport_identity": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "PASS",
+      "OWNER-UAT-CERTIFIED": "PENDING",
+      "notes": "The owner's loaded /dashboard/garage/:vin page is the canonical Vehicle Passport surface and now says so (REL-02 A). SOURCE PASS: OC5R-REL02-PASSPORT-SOURCE. The spec-48 assertion /Vehicle Passport|Passport/i is the frozen one and is unchanged."
+    },
+    "programme.deployed_uat_harness": {
+      "SOURCE-CERTIFIED": "PASS",
+      "DATABASE-CERTIFIED": "N/A",
+      "LIVE-PROVIDER-CERTIFIED": "N/A",
+      "DEPLOYED-CERTIFIED": "N/A",
+      "OWNER-UAT-CERTIFIED": "N/A",
+      "notes": "REL-02 B/C/D/J/C2/J2: the deployed-UAT harness corrections hold the product contract (spec 41 sidebar scope; spec 45 explicit organisation selection, D7 last with recorded drain answers, explicit timeouts for the seven-viewport sweep; spec 38 tap clear of the fixed bars; spec 42 waits for the product's own evidence upload). SOURCE PASS: OC5R-REL02-HARNESS-SOURCE. No product navigation, organisation or layout behaviour was changed to make a test pass."
     }
   }
 }

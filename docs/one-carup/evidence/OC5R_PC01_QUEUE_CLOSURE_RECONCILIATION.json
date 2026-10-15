@@ -1,0 +1,198 @@
+{
+ "schema": "oc5r-pc01-queue-closure-reconciliation/v1",
+ "run": 38039280275,
+ "job": 114176118881,
+ "artifact": 11670405560,
+ "artifact_digest": "sha256:bc40fcdac9813502ece29c51badbc3a985e1d16ec8df1b2492d316f691198003",
+ "receipt_sha256": "538687eda9c407c50e982524b5bae2a4493fb1e942f26a53b28a86c02e5fd3a0",
+ "authority_sha": "bcd7076a22f16c18e82fb07ef50eb8f02e18a136",
+ "run_window": {
+  "started_at": "2026-10-10T12:09:09.858Z",
+  "finished_at": "2026-10-10T12:36:17.474Z"
+ },
+ "reread_at": "2026-10-10 13:15:19.504615+00",
+ "staging_project_ref": "eoyenigwevnxwwhyhaer",
+ "checks": [
+  {
+   "check": "S1 processed exactly the frozen D7 prefix, in FIFO order",
+   "ok": true,
+   "detail": "30 ids"
+  },
+  {
+   "check": "S3 processed exactly BC_DRAIN minus the S1 prefix",
+   "ok": true,
+   "detail": "269 ids"
+  },
+  {
+   "check": "S1 \u222a S3 = BC_DRAIN (299)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "S5 replayed exactly E_REPLAY (114)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "S2 quarantined the frozen D_MARKETPLACE population",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "S4 quarantined the frozen E_QUARANTINE population",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "every worker cycle green",
+   "ok": true,
+   "detail": "42 cycles"
+  },
+  {
+   "check": "worker calls = 42 = cycles",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "per-cycle external attempt / send / queue deltas all 0",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "notifications added = 413 (sum of cycles = final)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "messages added = 413 (sum of cycles = final)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "start totals 381 / 121 / 1044 / 196",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "final totals 0 / 0 / 1457 / 285",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "external delivery delta 0 (receipt start = end)",
+   "ok": true,
+   "detail": "attempts {'attempts': 644, 'external_attempts': 205, 'external_send_evidence': 157}, external queue rows 510"
+  },
+  {
+   "check": "receipt authority is bcd7076a, target is staging",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "staging session is read-only",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "live totals 0 / 0 / 1457 / 285, nothing stuck or other",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "live quarantine reasons = B5 196 + 82 STALE + 7 SUPERSEDED",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "every scheduler inactive",
+   "ok": true,
+   "detail": "[{\"job\": \"carup-communication-worker-every-minute\", \"active\": false}, {\"job\": \"carup-events-outbox-every-minute\", \"active\": false}, {\"job\": \"issue164-reservation-expiry-reconcile\", \"active\": false}]"
+  },
+  {
+   "check": "live delivery = receipt start (external attempts 205, send evidence 157)",
+   "ok": true,
+   "detail": "{\"attempts\": 644, \"external_attempts\": 205, \"external_send_evidence\": 157}"
+  },
+  {
+   "check": "live external queue rows = 510",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "all 413 drained rows are processed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "the worker never writes processed_at (pre-existing: 0 of all processed rows) \u2014 so the window is proven by each row's notification below",
+   "ok": true,
+   "detail": "observability residual, not a closure defect"
+  },
+  {
+   "check": "413 notifications for them, all in-app, all created inside the run window, each with its message",
+   "ok": true,
+   "detail": "{\"total\": 413, \"in_app\": 413, \"external\": 0, \"created_in_window\": 413, \"with_message\": 413}"
+  },
+  {
+   "check": "413 distinct messages",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "0 external delivery attempts for any drained row",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "nothing else was processed: 1,044 before + exactly these 413 = 1,457",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "no domain event was created during the run window",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "no notification in the run window belongs to any other event",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "82 STALE_HISTORICAL_QUARANTINE: exact frozen ids, quarantined in the window, full provenance",
+   "ok": true,
+   "detail": "{\"n\": 82, \"in_window\": 82, \"provenance_ok\": 82}"
+  },
+  {
+   "check": "82 STALE_HISTORICAL_QUARANTINE: pre-quarantine fingerprint rebuilt from provenance = frozen 0b3dfeac\u2026",
+   "ok": true,
+   "detail": "0b3dfeac47a0092ea1d5282b6e262da0"
+  },
+  {
+   "check": "7 SUPERSEDED_HISTORICAL_WORK: exact frozen ids, quarantined in the window, full provenance",
+   "ok": true,
+   "detail": "{\"n\": 7, \"in_window\": 7, \"provenance_ok\": 7}"
+  },
+  {
+   "check": "7 SUPERSEDED_HISTORICAL_WORK: pre-quarantine fingerprint rebuilt from provenance = frozen 2f86c127\u2026",
+   "ok": true,
+   "detail": "2f86c127cbe519c1e908d0ec45aa5f09"
+  },
+  {
+   "check": "B5: 196 rows, every one quarantined before this run",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "B5: reasons 6 / 168 / 16 / 6 unchanged",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "B5: frozen fingerprint 5f95aa13\u2026 rebuilt from provenance \u2014 every column B5 froze is untouched",
+   "ok": true,
+   "detail": "5f95aa1324364a05d10654ae4c7ce195"
+  }
+ ],
+ "verdict": "RECONCILED"
+}

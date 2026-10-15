@@ -2,6 +2,7 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { DatabaseError } from '../utils/errors.js';
+import { classifyIdentity, summarizeProvenance } from '../services/provenance/recordProvenance.js';
 
 const router = express.Router();
 
@@ -56,18 +57,22 @@ router.get('/api/admin/stats', authorizeRole(['admin']), asyncHandler(async (_re
   });
 }));
 
-// POST /api/users/:id/suspend - Suspend a user
-router.post('/api/users/:id/suspend', authorizeRole(['admin']), asyncHandler(async (req, res) => {
-  const { data, error } = await supabase
-    .from('users')
-    .update({ role: 'suspended' }) // Simple suspension for now
-    .eq('id', req.params.id)
-    .select(ADMIN_USER_COLUMNS)
-    .single();
+// POST /api/users/:id/suspend — retired (PC01-K2B).
+//
+// ACCOUNT SUSPENSION — PRODUCT / AUTHORITY GAP. This used to rewrite `users.role` to 'suspended',
+// which is not an account lifecycle: it destroys the person's real role and nothing downstream reads
+// it as a suspension. Its sibling below wrote `users.status`, a column that does not exist, so the
+// Admin "Suspend User" control always failed. Neither is offered as a working control; the governed
+// account lifecycle belongs to the People & Access phase. Both answer 501 and change nothing.
+const ACCOUNT_SUSPENSION_GAP = Object.freeze({
+  error: 'Account suspension is not available yet.',
+  code: 'ACCOUNT_SUSPENSION_UNAVAILABLE',
+  gap: 'ACCOUNT SUSPENSION — PRODUCT / AUTHORITY GAP',
+});
 
-  if (error) throw new DatabaseError(error.message);
-  res.json(data);
-}));
+router.post('/api/users/:id/suspend', authorizeRole(['admin']), (_req, res) => {
+  res.status(501).json(ACCOUNT_SUSPENSION_GAP);
+});
 
 // GET /api/admin/health - Server health history
 router.get('/api/admin/health', authorizeRole(['admin']), asyncHandler(async (_req, res) => {
@@ -80,26 +85,30 @@ router.get('/api/admin/health', authorizeRole(['admin']), asyncHandler(async (_r
 }));
 
 // GET /api/admin/users - Admin users list
-router.get('/api/admin/users', authorizeRole(['admin']), asyncHandler(async (_req, res) => {
+//
+// PC01-K2B: operational accounts by default, classified by the provenance authority; the response
+// says how many accounts were set aside and why (UAT, automation, certification, needs review), so
+// their existence is stated rather than hidden. `?view=all` returns every account with its class.
+router.get('/api/admin/users', authorizeRole(['admin']), asyncHandler(async (req, res) => {
   const { data: users, error } = await supabase
     .from('users')
     .select(ADMIN_USER_COLUMNS)
     .order('join_date', { ascending: false });
   if (error) throw new DatabaseError(error.message);
-  res.json(users);
+  const classified = (users || []).map((user) => ({ user, provenance: classifyIdentity(user) }));
+  const showAll = String(req.query?.view || '') === 'all';
+  res.json({
+    users: classified
+      .filter((c) => showAll || c.provenance.operational)
+      .map((c) => ({ ...c.user, provenance_class: c.provenance.class })),
+    provenance: { ...summarizeProvenance(classified.map((c) => c.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+  });
 }));
 
-// PATCH /api/admin/users/:id/suspend - Suspend user (admin view)
-router.patch('/api/admin/users/:id/suspend', authorizeRole(['admin']), asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { data: user, error } = await supabase
-    .from('users')
-    .update({ status: 'Suspended' })
-    .eq('id', id)
-    .select(ADMIN_USER_COLUMNS)
-    .single();
-  if (error) throw new DatabaseError(error.message);
-  res.json(user);
-}));
+// PATCH /api/admin/users/:id/suspend — retired with its sibling above (ACCOUNT SUSPENSION — PRODUCT /
+// AUTHORITY GAP). It wrote `users.status`, which does not exist, so every call failed.
+router.patch('/api/admin/users/:id/suspend', authorizeRole(['admin']), (_req, res) => {
+  res.status(501).json(ACCOUNT_SUSPENSION_GAP);
+});
 
 export default router;

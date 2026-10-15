@@ -76,6 +76,7 @@ test('T10/T7: both loading events are registered in the listener AND the policy'
     const policy = (policies.NOTIFICATION_POLICIES || {})[eventType];
     assert.ok(policy, `${eventType} must have a policy`);
     assert.equal(policy.transactional, true);
+    assert.equal(policy.templateKey, 'container_loading_update_v1');
   }
   // The customer whose cargo did NOT travel is the one waiting for goods that are not coming.
   assert.equal(policies.NOTIFICATION_POLICIES[LOADING_EVENTS.LEFT_BEHIND].priority, 'high');

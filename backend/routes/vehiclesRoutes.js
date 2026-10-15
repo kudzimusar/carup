@@ -1,6 +1,9 @@
 import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
+import { readAllPages } from '../services/intelligence/rollupService.js';
+import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
 // ONE public-evidence authority. #175 shipped a deliberately self-contained
@@ -30,6 +33,9 @@ import {
   evidenceToTimelineItem,
   evidenceTypeLabel,
   isDocumentUpload,
+  isPrivateByTypeUpload,
+  evidenceStorageBucket,
+  PRIVATE_EVIDENCE_BUCKET,
   resolveEvidenceVisibility,
   isSupportedMimeType,
   normalizeEvidenceRecord,
@@ -691,10 +697,16 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   // else is clamped back to the default rather than refused, because the artifact itself is
   // legitimate and losing the upload would punish the seller for a client's choice; the refusal is
   // recorded on the row instead, so it is visible to review rather than silent.
+  //
+  // OC-5R-REL-01: an odometer photo is PRIVATE BY TYPE. The mobile client asks for 'private', but a
+  // client request is not a control — the server derives it here, and below it pins the private
+  // bucket for the bytes and refuses any locator that would point the row at a public object.
+  const privateByType = isPrivateByTypeUpload(normalized);
   const { visibility: visibilityLevel, refused: visibilityRefused } = resolveEvidenceVisibility({
     requested: requestedVisibility,
     isDocument: isDocumentUpload(normalized),
     mayPublish: hasOperationsCapability(req.userContext, OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW),
+    privateByType,
   });
 
   let mimeType = req.body.mime_type || req.body.mimeType || null;
@@ -725,8 +737,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     const randomString = crypto.randomBytes(6).toString('hex');
     filePath = `${vin.toUpperCase()}/${normalized.evidenceType}_${randomString}.${fileExt}`;
 
-    const isPrivate = ['private', 'restricted', 'government_only'].includes(visibilityLevel);
-    bucketName = (isDocumentUpload(normalized) || isPrivate) ? 'ocr-documents' : 'vehicle-images';
+    bucketName = evidenceStorageBucket({ isDocument: isDocumentUpload(normalized), privateByType, visibility: visibilityLevel });
     const uploadResult = await uploadToStorage(bucketName, filePath, fileBuffer, mimeType);
     fileUrl = uploadResult;
   } else if (!isSupportedMimeType(mimeType)) {
@@ -780,13 +791,20 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     }
   }
 
+  // OC-5R-REL-01: a remote create of a PRIVATE-BY-TYPE artifact must reference an object the server
+  // can show is private — a storage-relative path in the private bucket. An absolute URL (a public
+  // image link, or one minted by the public media upload) and an unnamed bucket are refused: the
+  // server cannot keep an odometer photo private if the row only points at someone else's copy.
+  if (privateByType && !req.body.file && (!looksLikeStoragePath || bucketName !== PRIVATE_EVIDENCE_BUCKET)) {
+    throw new ValidationError(
+      `an odometer photo is private evidence: upload the image itself, or reference a private object in "${PRIVATE_EVIDENCE_BUCKET}" under this vehicle`,
+    );
+  }
+
   // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
   // is what turns a public-image create into a private-document reference the read path will sign.
   if (bucketName) {
-    const expectedBucket = (isDocumentUpload(normalized)
-      || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
-      ? 'ocr-documents'
-      : 'vehicle-images';
+    const expectedBucket = evidenceStorageBucket({ isDocument: isDocumentUpload(normalized), privateByType, visibility: visibilityLevel });
     if (bucketName !== expectedBucket) {
       throw new ValidationError(
         `storage_bucket "${bucketName}" does not match this evidence type and visibility (expected "${expectedBucket}")`,
@@ -823,7 +841,9 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     metadata.visibility_request_refused = {
       requested: requestedVisibility,
       applied: visibilityLevel,
-      reason: 'publishing a source document is a governed decision; uploader lacks evidence review capability',
+      reason: privateByType
+        ? 'an odometer photo is private evidence by type; the server stores it privately whatever is requested'
+        : 'publishing a source document is a governed decision; uploader lacks evidence review capability',
     };
   }
 
@@ -858,7 +878,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     event_type: normalized.eventType || req.body.event_source || req.body.eventSource || normalized.evidenceType,
     evidence_type: normalized.evidenceType,
     file_url: fileUrl,
-    storage_bucket: bucketName || (isDocumentUpload(normalized) ? 'ocr-documents' : 'vehicle-images'),
+    storage_bucket: bucketName || ((isDocumentUpload(normalized) || privateByType) ? 'ocr-documents' : 'vehicle-images'),
     file_path: filePath || fileUrl,
     mime_type: mimeType,
     file_size: fileSize,
@@ -1179,29 +1199,60 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
   if (!verificationStatuses.includes(status)) {
     throw new ValidationError(`Invalid verification status: ${status}`);
   }
+  // PC01-K2B: `paged=1` is the truthful queue — every matching row is read, classified by the
+  // provenance authority, and returned as an explicit page with its total, so "the first 100 rows"
+  // can no longer pass for "all evidence". The bare array form is kept for existing callers.
+  const paged = String(req.query.paged || '') === '1';
 
-  let query = supabase
-    .from('vehicle_evidence')
-    .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
-    .eq('verification_status', status)
-    .order('uploaded_at', { ascending: false })
-    .limit(100);
-
-  // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
-  // only admin and government review globally; a dealer/mechanic session with
-  // no tenant context gets nothing (previously, omitting the tenant header
-  // skipped the filter entirely and exposed every tenant's pending evidence).
-  if (['dealer', 'mechanic'].includes(req.userContext.role)) {
-    if (!req.userContext.tenantId) {
-      return res.json([]);
+  const buildQuery = () => {
+    let query = supabase
+      .from('vehicle_evidence')
+      .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
+      .eq('verification_status', status)
+      .order('uploaded_at', { ascending: false });
+    // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
+    // only admin and government review globally; a dealer/mechanic session with
+    // no tenant context gets nothing (previously, omitting the tenant header
+    // skipped the filter entirely and exposed every tenant's pending evidence).
+    if (['dealer', 'mechanic'].includes(req.userContext.role)) {
+      query = query.eq('tenant_id', req.userContext.tenantId);
     }
-    query = query.eq('tenant_id', req.userContext.tenantId);
+    return query;
+  };
+  const tenantBlocked = ['dealer', 'mechanic'].includes(req.userContext.role) && !req.userContext.tenantId;
+
+  if (!paged) {
+    if (tenantBlocked) return res.json([]);
+    const { data, error } = await buildQuery().limit(100);
+    if (error) throw new DatabaseError(error.message);
+    return res.json((data || []).map(normalizeEvidenceRecord));
   }
 
-  const { data, error } = await query;
-  if (error) throw new DatabaseError(error.message);
-
-  res.json((data || []).map(normalizeEvidenceRecord));
+  const pageSize = Math.min(Math.max(Number.parseInt(req.query.page_size, 10) || 50, 1), 100);
+  const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+  let rows = [];
+  if (!tenantBlocked) {
+    try {
+      rows = await readAllPages(buildQuery);
+    } catch (error) {
+      throw new DatabaseError(error.message);
+    }
+  }
+  const index = await loadProvenanceIndex(supabase, { vins: rows.map((r) => r.vin) });
+  const classified = rows.map((row) => ({ row, provenance: index.vehicle(row.vin) || { class: 'unknown_requires_review', operational: false } }));
+  const showAll = req.query.view === 'all';
+  const visible = classified
+    .filter((c) => showAll || c.provenance.operational)
+    .map((c) => (showAll ? { ...normalizeEvidenceRecord(c.row), provenance_class: c.provenance.class } : normalizeEvidenceRecord(c.row)));
+  const offset = (page - 1) * pageSize;
+  res.json({
+    items: visible.slice(offset, offset + pageSize),
+    page,
+    page_size: pageSize,
+    total: visible.length,
+    has_more: offset + pageSize < visible.length,
+    provenance: { ...summarizeProvenance(classified.map((c) => c.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+  });
 }));
 
 // PATCH: Verify Evidence

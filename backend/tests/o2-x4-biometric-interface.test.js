@@ -204,10 +204,16 @@ const sections = (file) => {
   return { raw, up: up.replace('-- +migrate Up', ''), down };
 };
 
-test('OC-5C: both biometric migrations are CANDIDATES — not applied anywhere — and each Up/Down/Up works on PostgreSQL', async () => {
+test('OC-5C: both biometric migrations are CANDIDATES — not promoted, held under custody — and each Up/Down/Up works on PostgreSQL', async () => {
   const consents = sections('20261004175000_o2_x4_identity_biometric_consents.sql');
   const assessments = sections('20261004175100_o2_x4_verification_assessments_biometrics.sql');
-  for (const c of [consents, assessments]) assert.match(c.raw, /NOT APPLIED ANYWHERE/);
+  // OC-5R: canonical staging carries both (applied by PR #208's runs). The header must say "not promoted" and name the
+  // custody exception — never the false "not applied anywhere".
+  for (const c of [consents, assessments]) {
+    assert.match(c.raw, /NOT PROMOTED into the canonical lineage/);
+    assert.match(c.raw, /X4-BIOMETRIC-CONSENT-LEDGER/);
+    assert.doesNotMatch(c.raw, /NOT APPLIED ANYWHERE/);
+  }
   assert.match(consents.raw, /OPEN before promotion \(owner\)/, 'the CASCADE-vs-RESTRICT question is surfaced, not decided');
   for (const file of readdirSync(path.join(repo, 'database/migrations'))) {
     assert.doesNotMatch(file, /biometric/i, `${file}: no biometric migration is in the applied set`);

@@ -97,14 +97,17 @@ router.post('/api/eligibility/:capability/webhook', express.json({
   verify: (req, _res, buf) => { req.rawBody = buf.toString(); },
 }), async (req, res, next) => {
   try {
+    // The provider identity — and so the verification key — is server-owned (derived from the
+    // route's capability inside ingestWebhook). A supplied x-provider-id is checked, never obeyed.
     const result = await ingestWebhook(req.params.capability, {
-      providerId: req.headers['x-provider-id'] || `${req.params.capability}_sandbox`,
+      providerId: req.headers['x-provider-id'] || null,
       payloadString: req.rawBody || JSON.stringify(req.body || {}),
       signature: req.headers['x-signature'],
       timestamp: req.headers['x-timestamp'],
       idempotencyKey: req.headers['idempotency-key'],
       body: req.body,
     });
+    if (result.reason === 'unknown_capability') return res.status(404).json(result);
     return res.status(result.applied ? 200 : (result.signature_valid ? 202 : 401)).json(result);
   } catch (err) {
     return next(err);

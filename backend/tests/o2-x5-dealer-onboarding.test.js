@@ -145,17 +145,17 @@ test('X5: creating the application grants NO Dealer Compliance outcome — no go
   const overview = await call('GET', '/api/dealer-onboarding/overview', { as: 'dealer-app-1' });
   assert.equal(overview.body.compliance.can_publish, false, 'an applicant can never publish');
   assert.ok(world.rows('trust_audit_events').some((e) => e.event_type === 'DEALER_ONBOARDING_PROFILE_SUBMITTED'));
-  assert.equal(world.rows('domain_events').filter((e) => e.event_type === 'dealer.onboarding.started').length, 1);
+  assert.equal(world.rows('domain_events').filter((e) => e.event_type === 'dealer.onboarding.started').length, 0, 'observability-only onboarding does not create worker work');
 
-  // A second save is an UPDATE: audited as one, and onboarding is not announced again.
+  // A second save is an UPDATE: audited as one, and no onboarding outbox work is created.
   const again = await call('PUT', '/api/dealer-onboarding/profile', { as: 'dealer-app-1', body: { profile: { ...PROFILE, trading_name: 'Moyo Motors Harare' } } });
   assert.equal(again.status, 200);
   assert.deepEqual(again.body.changed_fields, ['trading_name']);
   assert.ok(world.rows('trust_audit_events').some((e) => e.event_type === 'DEALER_ONBOARDING_PROFILE_UPDATED'));
-  assert.equal(world.rows('domain_events').filter((e) => e.event_type === 'dealer.onboarding.started').length, 1);
+  assert.equal(world.rows('domain_events').filter((e) => e.event_type === 'dealer.onboarding.started').length, 0);
 });
 
-test('OC-5C: a profile lookup that fails is a failure — never guessed "new" (no second SUBMITTED audit, no second announcement)', async () => {
+test('OC-5C: a profile lookup that fails is a failure — never guessed "new" (no second SUBMITTED audit, no orphan outbox work)', async () => {
   const profile = await createApplication();
   const auditsBefore = world.rows('trust_audit_events').length;
   const realFrom = supabase.from;
@@ -175,7 +175,7 @@ test('OC-5C: a profile lookup that fails is a failure — never guessed "new" (n
   }
   assert.equal(world.rows('dealer_profiles').find((p) => p.id === profile.id).trading_name, PROFILE.trading_name, 'nothing was written');
   assert.equal(world.rows('trust_audit_events').length, auditsBefore, 'no audit claims a submission');
-  assert.equal(world.rows('domain_events').filter((e) => e.event_type === 'dealer.onboarding.started').length, 1, 'onboarding announced once');
+  assert.equal(world.rows('domain_events').filter((e) => e.event_type === 'dealer.onboarding.started').length, 0, 'failed retry never creates onboarding worker work');
 });
 
 test('OC-5C: a lost audit is REPORTED with the durable write — never a 500 for a profile or an upload that happened', async () => {

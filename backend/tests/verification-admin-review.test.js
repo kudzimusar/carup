@@ -31,24 +31,26 @@ function resetDb() {
     _seq: 0,
     users: [
       { id: 'admin-1', role: 'admin', is_verified: true },
-      { id: 'owner-2', role: 'owner', is_verified: true },
+      // Product-shaped owner (PC01-K2B: the review queue lists a session only when the identity is
+      // evidenced as operational; a bare non-product id is "needs review").
+      { id: 'u_2c3d4e5f60718293', role: 'owner', is_verified: true, email: 'rumbi.owner@mail.co.zw', name: 'Rumbi Dube' },
     ],
     user_sessions: [
       // O2-X3: evidence preview now also requires a fresh step-up on the presenting session;
       // the admin session mock carries one, exactly as a live reviewer's would after re-proof.
       { token: 'admin-token', user_id: 'admin-1', is_valid: true, expires_at: FUTURE, auth_method: 'password', step_up_at: new Date().toISOString(), step_up_method: 'password_reauth' },
-      { token: 'owner-token', user_id: 'owner-2', is_valid: true, expires_at: FUTURE, auth_method: 'password', step_up_at: null, step_up_method: null },
+      { token: 'owner-token', user_id: 'u_2c3d4e5f60718293', is_valid: true, expires_at: FUTURE, auth_method: 'password', step_up_at: null, step_up_method: null },
     ],
     verification_sessions: [
       {
         id: 'vs-pending',
-        user_id: 'owner-2',
+        user_id: 'u_2c3d4e5f60718293',
         document_type: 'national_id',
         double_sided: true,
         status: 'pending_manual_review',
-        front_storage_path: 'owner-2/vs-pending/front-secret.jpg',
-        back_storage_path: 'owner-2/vs-pending/back-secret.jpg',
-        selfie_storage_path: 'owner-2/vs-pending/selfie-secret.jpg',
+        front_storage_path: 'u_2c3d4e5f60718293/vs-pending/front-secret.jpg',
+        back_storage_path: 'u_2c3d4e5f60718293/vs-pending/back-secret.jpg',
+        selfie_storage_path: 'u_2c3d4e5f60718293/vs-pending/selfie-secret.jpg',
         front_mime_type: 'image/jpeg',
         ocr_document_id: 'ocr-9',
         ocr_result: { first_name: 'Tata', last_name: 'Moyo' },
@@ -68,12 +70,12 @@ function resetDb() {
       },
       {
         id: 'vs-verified',
-        user_id: 'owner-2',
+        user_id: 'u_2c3d4e5f60718293',
         document_type: 'passport',
         double_sided: false,
         status: 'verified',
-        front_storage_path: 'owner-2/vs-verified/front-secret.jpg',
-        selfie_storage_path: 'owner-2/vs-verified/selfie-secret.jpg',
+        front_storage_path: 'u_2c3d4e5f60718293/vs-verified/front-secret.jpg',
+        selfie_storage_path: 'u_2c3d4e5f60718293/vs-verified/selfie-secret.jpg',
         ocr_result: { first_name: 'Ada', last_name: 'Banda', national_id_number: 'ZN1' },
         confidence_score: 0.95,
         created_at: '2026-06-12T00:00:00.000Z',
@@ -99,12 +101,13 @@ class MockQuery {
   insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
   update(payload) { this.operation = 'update'; this.payload = payload; return this; }
   eq(key, value) { this.filters.push({ key, value }); return this; }
+  in(key, values) { this.filters.push({ key, values }); return this; }
   order(key, opts = {}) { this.orderKey = key; this.orderAsc = opts.ascending !== false; return this; }
   single() { return this.execute('single'); }
   maybeSingle() { return this.execute('maybeSingle'); }
   then(resolve, reject) { return this.execute('list').then(resolve, reject); }
 
-  matches(row) { return this.filters.every((f) => row[f.key] === f.value); }
+  matches(row) { return this.filters.every((f) => (f.values ? f.values.includes(row[f.key]) : row[f.key] === f.value)); }
   rows() { return (db[this.table] ||= []); }
 
   async execute(mode) {
@@ -259,8 +262,8 @@ test('admin detail of a missing session returns 404', async () => {
 });
 
 test('F: admin detail surfaces account-vs-document identity binding (mismatch)', async () => {
-  // owner-2 account name differs from the document holder ("Tata Moyo").
-  db.users.find((u) => u.id === 'owner-2').name = 'Brian Ncube';
+  // u_2c3d4e5f60718293 account name differs from the document holder ("Tata Moyo").
+  db.users.find((u) => u.id === 'u_2c3d4e5f60718293').name = 'Brian Ncube';
   const res = await req('GET', `${LIST_PATH}/vs-pending`, { token: 'admin-token' });
   assert.equal(res.status, 200);
   const body = await res.json();

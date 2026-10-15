@@ -70,7 +70,7 @@ import { projectFinanceObligationForVehicle } from '../finance/vehicleFinanceObl
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { buildTrustSummary, buildVerificationSummary } from './marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
-import { deriveListingPublicStatus } from './marketplaceModerationService.js';
+import { deriveListingVisibility } from './marketplaceModerationService.js';
 import {
   getPublicReservationProjection,
   projectListingStatusWithReservation,
@@ -267,8 +267,10 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     // marker becomes null rather than a false live hold.
     status: projectedListingStatus,
     listing_type: 'vehicle',
-    // Public audience only ever sees public listings; admins see the true governed status.
-    public_status: audience === 'admin' ? deriveListingPublicStatus(vehicle.status) : 'public',
+    // Public audience only ever sees public listings; admins see the true governed status through the
+    // ONE Admin publication projection (PC01-K2B-R2): status AND publication_status, exactly as the
+    // moderation queue and analytics read it — a `publishable` car is not_public, never public.
+    ...(audience === 'admin' ? deriveListingVisibility(vehicle) : { public_status: 'public' }),
     risk_status: trust_summary.risk_status,
     short_description: buildShortDescription(listingSummary),
     description: buildDescription(listingSummary),

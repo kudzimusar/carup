@@ -1,0 +1,172 @@
+{
+ "schema": "oc5r-lineage-exceptions/v1",
+ "purpose": "Every live public-schema object on canonical staging is either defined by this repository's executable lineage or held under an explicit exception recorded here. Staging only; no production authority.",
+ "target_ref": "eoyenigwevnxwwhyhaer",
+ "reverse_lineage_check": {
+  "method": "Strict reverse check over a read-only catalogue capture: an object is explained only by a DEFINING statement in database/migrations Up sections (never-apply files excluded) or the bootstrap snapshot supabase_schema.sql \u2014 CREATE/RENAME for relations, functions, triggers, policies and indexes; CREATE TABLE column lists, ADD/RENAME COLUMN; CONSTRAINT/ADD CONSTRAINT or PostgreSQL's automatic name for an inline constraint of a lineage table; serial sequences and constraint indexes by catalogue ownership; dynamic EXECUTE format() builders only where the builder statement and its literal iteration list name the object exactly (013 + 20260905090000 platform-admin policies, 013/20260727120000/20260731100000 updated_at triggers, 20260817140000 trust-cache columns and index, 20260818110000 source-vocabulary constraints).",
+  "catalogue_captured_at": "2026-10-07T09:27:12.244907+00:00",
+  "live_objects": 7703,
+  "explained_by_lineage": 7663,
+  "held_under_exception": {
+   "X4-BIOMETRIC-CONSENT-LEDGER": 36,
+   "PR208-DEALER-DOCUMENT-EXTRACTION": 4
+  },
+  "unexplained": 0
+ },
+ "exceptions": [
+  {
+   "id": "X4-BIOMETRIC-CONSENT-LEDGER",
+   "status": "DEFERRED_CANDIDATE_PRESENT_ON_STAGING",
+   "canonical_lineage": "NOT PROMOTED",
+   "provider_authority": "NOT SELECTED",
+   "production_authority": "NONE",
+   "automatic_apply_authority": "NONE",
+   "candidates": [
+    {
+     "path": "database/migration-candidates/oc5c/20261004175000_o2_x4_identity_biometric_consents.sql",
+     "sha256": "1aceae104bf511b4d0829bd6c53c236606524fc5e48e9776061535989cbc78cf"
+    },
+    {
+     "path": "database/migration-candidates/oc5c/20261004175100_o2_x4_verification_assessments_biometrics.sql",
+     "sha256": "e44e74a3b59f6453635119e5d976508ac8e8788048832b93270151c9bba7c992"
+    }
+   ],
+   "origin": "Ported by OC-5C from PR #208 (open, branch feat/operations-o2-people-compliance), where the same SQL is database/migrations/20260903210000_identity_biometric_consents.sql and 20260903211000_verification_assessments_biometrics.sql. Present on staging from PR #208's runs; there is NO supabase_migrations ledger row for either file (applied outside any recording runner).",
+   "live_footprint": {
+    "captured_at": "2026-10-07T09:26:06.339918+00:00",
+    "table": "public.identity_biometric_consents",
+    "columns": [
+     "id",
+     "seq",
+     "user_id",
+     "session_id",
+     "status",
+     "purposes",
+     "policy_version",
+     "consent_text_version",
+     "source",
+     "actor_kind",
+     "actor_user_id",
+     "supersedes_id",
+     "note",
+     "created_at"
+    ],
+    "constraints": {
+     "identity_biometric_consent_actor": "CHECK ((((actor_kind = 'user'::text) AND (actor_user_id IS NOT NULL)) OR (actor_kind = 'system'::text)))",
+     "identity_biometric_consents_actor_kind_check": "CHECK ((actor_kind = ANY (ARRAY['user'::text, 'system'::text])))",
+     "identity_biometric_consents_pkey": "PRIMARY KEY (id)",
+     "identity_biometric_consents_status_check": "CHECK ((status = ANY (ARRAY['granted'::text, 'withdrawn'::text])))",
+     "identity_biometric_consents_supersedes_id_fkey": "FOREIGN KEY (supersedes_id) REFERENCES identity_biometric_consents(id)",
+     "identity_biometric_consents_user_id_fkey": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    "indexes": [
+     "identity_biometric_consents_pkey",
+     "idx_identity_biometric_consents_user"
+    ],
+    "trigger": "CREATE TRIGGER trg_identity_biometric_consents_append_only BEFORE DELETE OR UPDATE ON public.identity_biometric_consents FOR EACH ROW EXECUTE FUNCTION identity_biometric_consents_append_only()",
+    "function": {
+     "name": "identity_biometric_consents_append_only()",
+     "prosrc_md5": "f2724cbaf451ddf7a314042a9c96596b",
+     "equals_candidate_body": true
+    },
+    "sequence": "public.identity_biometric_consents_seq_seq",
+    "row_level_security": {
+     "enabled": true,
+     "forced": true
+    },
+    "grants": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+    "rows": 9,
+    "verification_assessments_columns": [
+     "consent_id",
+     "face_match_score",
+     "face_match_status",
+     "liveness_score",
+     "liveness_status",
+     "provider_reference",
+     "provider_state",
+     "threshold_policy_version"
+    ],
+    "verification_assessments_indexes": [
+     "idx_assessments_face_match_status",
+     "idx_assessments_liveness_status"
+    ],
+    "verification_assessments_rows_with_biometric_values": 0,
+    "objects_held": 36
+   },
+   "equivalence_to_candidate": "Every live object matches the candidate definitions: 14 columns, 6 constraints (incl. user_id ON DELETE CASCADE), 2 indexes, the append-only trigger, the function body (md5 equal), RLS enabled+forced, grants postgres+service_role only; the 8 assessment columns (numeric(5,4) scores) and 2 indexes.",
+   "unresolved_before_promotion": [
+    {
+     "id": "X4-D1",
+     "question": "identity_biometric_consents.user_id is ON DELETE CASCADE (candidate and live) while the X3 identity-history ledger uses RESTRICT: which retention/erasure rule governs biometric consent history?",
+     "observed_behaviour": "Proven on disposable PostgreSQL 17.11 with the candidate SQL: because the BEFORE DELETE append-only trigger also fires for the cascaded delete, deleting a user who has consent rows FAILS ('identity_biometric_consents is append-only: DELETE is not permitted') and both rows survive. CASCADE therefore neither erases nor cleanly restricts \u2014 it blocks erasure with a trigger error.",
+     "requires": [
+      "Product Owner decision",
+      "selected biometric provider + signed data-processor agreement",
+      "privacy authority (retention vs erasure rights)"
+     ],
+     "blocks": "promotion of the candidates and any consent/assessment service"
+    }
+   ],
+   "staging_data_note": "The 9 consent rows are PR #208 staging test data. They are not migrated, deleted or corrected by OC-5R.",
+   "enforcement": "database/scripts/lib/stagingMigrationRunner.mjs DEFERRED_LINEAGE refuses all four filenames (candidate and PR #208 originals) for every action; database/migration-candidates is not read by any runner."
+  },
+  {
+   "id": "PR208-DEALER-DOCUMENT-EXTRACTION",
+   "status": "DEFERRED_FOREIGN_LINEAGE_PRESENT_ON_STAGING",
+   "canonical_lineage": "NOT PROMOTED (no file in this lineage defines these columns)",
+   "provider_authority": "NOT SELECTED (dealer company-document OCR is deferred to the governed Document Intelligence pattern)",
+   "production_authority": "NONE",
+   "automatic_apply_authority": "NONE",
+   "origin": "PR #208 commit d8c11885c (not an ancestor of this lineage), database/migrations/20260903220000_dealer_onboarding_extensions.sql. This lineage ported only that file's dealer_workbook_mapping_confirmations table (20261004173000_o2_x5_dealer_workbook_mapping_confirmations.sql); OC-5C deferred the dealer company-document OCR columns (docs/one-carup/OC5C_PEOPLE_IDENTITY_COMPLETION.md, open decision 4).",
+   "live_footprint": {
+    "table": "public.dealer_compliance_documents",
+    "columns": [
+     {
+      "name": "extraction_candidates",
+      "type": "jsonb",
+      "nullable": "YES",
+      "default": null
+     },
+     {
+      "name": "extraction_provider",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+     },
+     {
+      "name": "extraction_confidence",
+      "type": "numeric",
+      "nullable": "YES",
+      "default": null
+     },
+     {
+      "name": "extracted_at",
+      "type": "timestamp with time zone",
+      "nullable": "YES",
+      "default": null
+     }
+    ],
+    "rows_in_table": 0,
+    "rows_with_extraction_values": 0,
+    "objects_held": 4
+   },
+   "unresolved_before_promotion": [
+    {
+     "id": "PR208-D1",
+     "question": "Is dealer company-document OCR adopted, and through the governed Document Intelligence pattern? Until then these four nullable, empty columns have no canonical writer.",
+     "requires": [
+      "Product Owner / OCR programme decision"
+     ],
+     "blocks": "promotion of the columns into this lineage"
+    }
+   ],
+   "enforcement": "database/scripts/lib/stagingMigrationRunner.mjs DEFERRED_LINEAGE refuses 20260903220000_dealer_onboarding_extensions.sql for every action."
+  }
+ ],
+ "candidates_absent_on_staging": {
+  "verified_at": "2026-10-07T09:27:12.244907+00:00",
+  "database/migration-candidates/oc3d (20261004130000, 20261004130100)": "absent: no ledger-guard triggers, carup_ledger_reject_mutation, blockchain_events_hash_format or uq_blockchain_events_vin_previous_hash; blockchain_events_vin_fkey is the lineage's ON DELETE CASCADE, not the candidate's RESTRICT",
+  "database/migration-candidates/oc4a (20261004140000, 20261004140100)": "absent: no carup_history_* functions and no ai_fraud_scans; partsentry_logs_vin_fkey / partsentry_logs_tenant_id_fkey are the lineage's ON DELETE CASCADE",
+  "database/migration-candidates/oc5c/20261004174000_o2_vehicle_evidence_upload_idempotency.sql": "absent: no vehicle_evidence.idempotency_key and no uq_vehicle_evidence_idempotency_key"
+ }
+}

@@ -32,6 +32,10 @@ jobs:
       ALLOW_OCR_MOCK: 'false'
       CARUP_OCR_PROVIDER: cloudflare
       NODE_ENV: production
+      # OC-5R-REL-01: NODE_ENV=production makes this a deployed runtime to OCR custody, which refuses
+      # any model but the canonical Qwen. This manual-only governed evaluation opens the seam that lets
+      # a candidate model be qualified here; a real deployment (Vercel / CARUP_ENV) can never open it.
+      CARUP_OCR_MODEL_EVALUATION: governed
       SUPABASE_URL: http://localhost:54321
       SUPABASE_SERVICE_ROLE_KEY: probe
       SUPABASE_ANON_KEY: probe

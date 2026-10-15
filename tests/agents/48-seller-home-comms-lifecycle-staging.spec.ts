@@ -404,15 +404,13 @@ test.describe('Seller Home, Communications and the commerce lifecycle — exact-
     await expect(card, 'the published listing must reach Home inside its run scope').toHaveCount(1, { timeout: 20_000 });
     await expectCover(card, 'Home live-inventory card');
 
-    // The hero is the newest listing with renderable media. Inside the scope that is normally this
-    // listing; if a human published one meanwhile it is theirs. Recorded either way, never silent.
-    const hero = page.getByTestId('featured-view-passport');
-    const heroIsOurs = (await hero.getAttribute('href'))?.startsWith(`/marketplace/${vin}`) ?? false;
-    testInfo.annotations.push({ type: 'home-hero', description: heroIsOurs ? `hero is ${vin}` : 'hero is another listing; hero branch not exercised' });
-    if (heroIsOurs) {
-      await expect(page.getByTestId('home-live-showroom-media-fallback')).toHaveCount(0);
-      await expectCover(hero, 'Home hero');
-    }
+    // OC-LAUNCH-02: the launch Home leads with search and shows every published listing as a card in
+    // the live showroom; it has NO separate listing hero. The showroom card above already proved this
+    // listing's cover. Assert the hero's absence (never wait on an element the launch Home does not
+    // render) and that no showroom media fallback replaced real listing media.
+    await expect(page.getByTestId('featured-view-passport'), 'the launch Home has no separate listing hero').toHaveCount(0);
+    await expect(page.getByTestId('home-live-showroom-media-fallback')).toHaveCount(0);
+    testInfo.annotations.push({ type: 'home-hero', description: 'launch Home: no separate listing hero; cover proven on the showroom card' });
     await page.screenshot({ path: testInfo.outputPath(`phase-p-home-published-${testInfo.project.name}.png`), fullPage: true });
 
     // ── R · unpublish withdraws it from Marketplace AND Home ──────────────────────────────────────

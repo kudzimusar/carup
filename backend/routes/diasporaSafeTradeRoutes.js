@@ -37,7 +37,8 @@ import {
   listEvidence,
   resolveDispute,
 } from '../services/diaspora/safetrade/diasporaSafeTradeDisputeService.js';
-import { getSharedSandboxPaymentProvider } from '../services/diaspora/safetrade/safeTradePaymentProvider.js';
+import { selectPaymentProvider } from '../services/diaspora/safetrade/safeTradePaymentProvider.js';
+import { isFixtureRuntime } from '../utils/runtimeEnvironment.js';
 import { computeAvailableActions } from '../services/diaspora/safetrade/diasporaSafeTradeAvailableActions.js';
 import { isPlatformAdmin } from '../services/diaspora/diasporaAuthorization.js';
 // ST-3 closure (Issue #127): durable provider-event ledger, maker-checker approvals and the operator
@@ -505,8 +506,22 @@ router.post('/safetrade/outbox/dead-letters/:id/replay', reviewerAuth, asyncHand
 // kept its own copy, so one event could be processed once per instance, and a redeploy wiped the
 // memory entirely, making an hours-later duplicate look new. Out-of-order deliveries are recorded and
 // marked superseded rather than applied backwards.
+// OC-5R-PROV-01 B3: the provider comes from the fail-closed selector, never straight from the
+// sandbox. A declared deployment has no approved live provider, so the selector refuses and the
+// route answers 503: a webhook for a provider CarUp does not run is UNAVAILABLE — it is never
+// verified against the sandbox's committed key and never reconciled into simulated payment truth.
+const SAFETRADE_WEBHOOK_UNAVAILABLE = Object.freeze({
+  error: 'SafeTrade payment webhooks are unavailable: no approved payment provider is configured for this runtime.',
+  code: 'SAFETRADE_WEBHOOK_UNAVAILABLE',
+});
+
 router.post('/safetrade/payment-webhook', express.json(), asyncHandler(async (req, res) => {
-  const provider = getSharedSandboxPaymentProvider();
+  let provider;
+  try {
+    provider = selectPaymentProvider();
+  } catch {
+    return res.status(503).json(SAFETRADE_WEBHOOK_UNAVAILABLE);
+  }
   const signature = req.headers['x-safetrade-signature'] || null;
   const timestamp = req.headers['x-safetrade-timestamp'] || null;
   // Prefer the exact bytes the provider signed; fall back to the parsed body only when no raw capture
@@ -517,9 +532,11 @@ router.post('/safetrade/payment-webhook', express.json(), asyncHandler(async (re
     rawBody,
     signature,
     timestamp: timestamp == null ? null : Number(timestamp),
-    now: req.fixedTimestamp ? Date.parse(req.fixedTimestamp) : null,
+    // A pinned clock is a test-harness facility. Anywhere else the wall clock decides freshness.
+    now: isFixtureRuntime(process.env) && req.fixedTimestamp ? Date.parse(req.fixedTimestamp) : null,
   });
   if (!verified.verified) {
+    if (verified.reason === 'webhook_secret_unconfigured') return res.status(503).json(SAFETRADE_WEBHOOK_UNAVAILABLE);
     return res.status(401).json({ error: 'invalid webhook signature' });
   }
   if (!verified.eventId) {

@@ -305,6 +305,7 @@ test('the shipment exception is registered end to end — listener AND policy', 
     'without a subscribed listener the emit reaches nothing');
   const policy = (policies.NOTIFICATION_POLICIES || {})['diaspora.shipment.exception'];
   assert.ok(policy, 'without a policy the event renders no notification');
+  assert.equal(policy.templateKey, 'shipment_exception_v1');
   assert.equal(policy.priority, 'high', 'a stopped shipment is not routine');
   assert.deepEqual(policy.channels, ['in_app']);
 });

@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Check, Copy, Mail, MessageCircle, MoreHorizontal, Send, Share2 } from 'lucide-react'
+import { Check, Copy, Mail, MoreHorizontal, Send, Share2 } from 'lucide-react'
+import { SiTelegram, SiWhatsapp } from 'react-icons/si'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -21,7 +22,8 @@ export function MarketplaceShareSheet({ open, onOpenChange, title, url }: Market
   const encodedText = encodeURIComponent(`Check out ${title} on CarUp`)
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(url)
+    if (!navigator.clipboard || !url) { toast.error('Copy is unavailable. Select the listing link manually.'); return }
+    try { await navigator.clipboard.writeText(url) } catch { toast.error('Could not copy the link. Select it manually.'); return }
     setCopied(true)
     toast.success('Listing link copied')
     window.setTimeout(() => setCopied(false), 1800)
@@ -37,7 +39,8 @@ export function MarketplaceShareSheet({ open, onOpenChange, title, url }: Market
   }
 
   const actions = [
-    { label: 'WhatsApp', icon: MessageCircle, action: () => popup(`https://wa.me/?text=${encodedText}%20${encodedUrl}`) },
+    { label: 'WhatsApp', icon: SiWhatsapp, action: () => popup(`https://wa.me/?text=${encodedText}%20${encodedUrl}`) },
+    { label: 'Telegram', icon: SiTelegram, action: () => popup(`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`) },
     { label: 'Facebook', icon: Share2, action: () => popup(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`) },
     { label: 'X', icon: Send, action: () => popup(`https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`) },
     { label: 'Email', icon: Mail, action: () => { window.location.href = `mailto:?subject=${encodeURIComponent(title)}&body=${encodedText}%0A%0A${encodedUrl}` } },
@@ -48,7 +51,7 @@ export function MarketplaceShareSheet({ open, onOpenChange, title, url }: Market
       <DialogContent className="sm:max-w-lg" data-testid="marketplace-share-sheet">
         <DialogHeader>
           <DialogTitle>Share this vehicle</DialogTitle>
-          <DialogDescription>Send the public CarUp listing directly, or copy the link.</DialogDescription>
+          <DialogDescription>Share the public listing using your own app, or copy its canonical CarUp link.</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

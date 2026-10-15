@@ -14,8 +14,42 @@
 
 import { askGeminiVision, GEMINI_VISION_MODEL } from './GeminiClient.js';
 import { askCloudflareVision, CLOUDFLARE_VISION_MODEL, isCloudflareVisionConfigured, TRANSPORTS } from './CloudflareVisionClient.js';
+import { isDeployedRuntime } from '../../utils/runtimeEnvironment.js';
 
 export const DEFAULT_OCR_PROVIDER = 'cloudflare';
+
+/**
+ * OC-5R-REL-01 — OCR CUSTODY. In a deployed runtime OCR is Cloudflare Workers AI running Qwen, and
+ * configuration cannot move it: a `CARUP_OCR_MODEL` that is not the canonical model, or a
+ * `CARUP_OCR_PROVIDER` that is not Cloudflare, FAILS CLOSED (OcrCustodyError) instead of quietly
+ * re-attributing every reading to another model. Gemma's role as the general advisory model is not
+ * touched by this — it was simply selectable as an OCR model too, which is what this closes.
+ *
+ * The one controlled seam: the manual-only governed evaluation workflows (o2-live-ocr-accuracy,
+ * o2-ocr-schema-probe) run with NODE_ENV=production — which the central classifier counts as
+ * deployed — to qualify a candidate model on the synthetic corpus. They may override only when they
+ * say so explicitly (`CARUP_OCR_MODEL_EVALUATION=governed`), and a DECLARED deployment (Vercel
+ * preview/production, CARUP_ENV staging/production) can never open the seam. Local and test runs
+ * keep their overrides unchanged.
+ */
+export const CANONICAL_OCR_PROVIDER = DEFAULT_OCR_PROVIDER;
+export const CANONICAL_OCR_MODEL = CLOUDFLARE_VISION_MODEL;
+export const OCR_EVALUATION_SEAM = 'CARUP_OCR_MODEL_EVALUATION';
+
+export class OcrCustodyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'OcrCustodyError';
+    this.code = 'OCR_CUSTODY_REFUSED';
+  }
+}
+
+/** True when this process may run OCR on something other than the canonical provider and model. */
+export function ocrOverrideSeamOpen(env = process.env) {
+  if (!isDeployedRuntime(env)) return true;
+  const declaredDeployment = isDeployedRuntime({ CARUP_ENV: env.CARUP_ENV, VERCEL_ENV: env.VERCEL_ENV });
+  return !declaredDeployment && String(env[OCR_EVALUATION_SEAM] ?? '').trim() === 'governed';
+}
 
 /**
  * Models this project has REJECTED, and may not silently become the selected model again.
@@ -32,9 +66,19 @@ export const REJECTED_MODELS = {
     'REJECTED 2026-09-05 — fabricated 8 identity fields from the non-document landscape fixture at confidence 1.',
 };
 
-/** The model Cloudflare OCR runs, overridable for a governed evaluation of another candidate. */
+/**
+ * The model Cloudflare OCR runs. Overridable only where the custody seam is open (see above): a
+ * deployed runtime runs the canonical model or refuses.
+ */
 export function resolveCloudflareModel(env = process.env) {
-  const model = String(env.CARUP_OCR_MODEL || CLOUDFLARE_VISION_MODEL).trim();
+  const override = String(env.CARUP_OCR_MODEL ?? '').trim();
+  if (override && override !== CANONICAL_OCR_MODEL && !ocrOverrideSeamOpen(env)) {
+    throw new OcrCustodyError(
+      `Refusing CARUP_OCR_MODEL "${override}" in a deployed runtime: OCR custody is ${CANONICAL_OCR_MODEL}. `
+      + 'Remove the override or set it to the canonical model — another model may not take over OCR.',
+    );
+  }
+  const model = override || CANONICAL_OCR_MODEL;
   if (REJECTED_MODELS[model]) {
     throw new Error(`Refusing to use "${model}": ${REJECTED_MODELS[model]}`);
   }
@@ -84,6 +128,11 @@ const PROVIDERS = new Map([
 
 export function resolveVisionProvider(env = process.env) {
   const requested = String(env.CARUP_OCR_PROVIDER || DEFAULT_OCR_PROVIDER).trim().toLowerCase();
+  if (requested !== CANONICAL_OCR_PROVIDER && !ocrOverrideSeamOpen(env)) {
+    throw new OcrCustodyError(
+      `Refusing CARUP_OCR_PROVIDER "${requested}" in a deployed runtime: OCR custody is ${CANONICAL_OCR_PROVIDER}/${CANONICAL_OCR_MODEL}.`,
+    );
+  }
   const provider = PROVIDERS.get(requested);
   if (!provider) {
     throw new Error(

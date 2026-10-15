@@ -151,6 +151,20 @@ test('R27-C: the passport route itself adds no status filter', () => {
   assert.match(route, /buildVehiclePassport\(vin, req/);
 });
 
+test('R27-C2 (PC01-J-R1): the record stays reachable after withdrawal — by VIN for anyone, by any key for a signed-in caller', async () => {
+  // The per-key route now answers the lookup policy of 2026-08-17 before it builds the passport
+  // (passportKeyAllowed). Withdrawal never closes the durable record: an ISO VIN resolves for an
+  // anonymous caller whatever the listing state, and a signed-in caller resolves every key. The one
+  // listing-dependent case is the policy's own: an ANONYMOUS caller using a plate/chassis/frame-shaped
+  // key, answered only while the vehicle is publicly listed (when that key is the listing's URL).
+  const { resolvePassportKeyAccess, LOOKUP_DECISIONS } = await import('../utils/passportLookupPolicy.js');
+  for (const publiclyListed of [true, false]) {
+    assert.equal(resolvePassportKeyAccess({ key: 'JTDKARFP0H3000731', actor: null, publiclyListed }).decision, LOOKUP_DECISIONS.ALLOW);
+    assert.equal(resolvePassportKeyAccess({ key: 'GFC27-027051', actor: { id: 'u_signed_in' }, publiclyListed }).decision, LOOKUP_DECISIONS.ALLOW);
+  }
+  assert.equal(resolvePassportKeyAccess({ key: 'GFC27-027051', actor: null, publiclyListed: false }).decision, LOOKUP_DECISIONS.REQUIRE_AUTHENTICATION);
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════════
 // E / F. THE DURABLE HISTORY ITSELF — identical across the commerce lifecycle
 // ═══════════════════════════════════════════════════════════════════════════════════

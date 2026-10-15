@@ -20,7 +20,8 @@ const sensitiveStore = createRateLimitStore();
 function resolveCsrfSecret() {
   const secret = process.env.JWT_SECRET;
   if (secret) return secret;
-  if (process.env.NODE_ENV === 'test') {
+  // The fixture runtime only: NODE_ENV=test inside a declared deployment is not the test suite.
+  if (isTestRuntime()) {
     return 'test-only-insecure-csrf-secret-DO-NOT-USE-IN-PROD';
   }
   throw new Error('[Security] JWT_SECRET is required for CSRF/JWT signing and is not set. Refusing to operate with an unsafe service-role-key fallback.');
@@ -241,8 +242,9 @@ export function csrfMiddleware(req, res, next) {
     return next();
   }
 
-  // In test environment, bypass CSRF checks by default unless x-verify-csrf header is 'true'
-  if (process.env.NODE_ENV === 'test' && req.headers['x-verify-csrf'] !== 'true') {
+  // In the test suite's fixture runtime, bypass CSRF checks by default unless x-verify-csrf is
+  // 'true'. NODE_ENV=test alone is not enough: a declared deployment never gets the bypass.
+  if (isTestRuntime() && req.headers['x-verify-csrf'] !== 'true') {
     return next();
   }
 

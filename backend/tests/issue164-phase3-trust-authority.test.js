@@ -115,10 +115,13 @@ const fullCompleteness = {
 };
 
 /** Three live registry connections. Sandbox rows are added to prove they contribute +0. */
+// Three AUTHENTICATED connected sources. Until trust-decision-1.1.0 the vid row here was a
+// partner-file review, which 1.0.0 counted as connected; that is the defect OC-5R-PROV-01 A1
+// closed, and the partner-file case now lives in oc5r-prov01-trust-authority-boundary.test.js.
 const connectedCoverage = [
   { provider: 'zimra', coverage_status: 'source_connected' },
   { provider: 'cid', coverage_status: 'source_connected' },
-  { provider: 'vid', coverage_status: 'partner_file_reviewed' },
+  { provider: 'vid', coverage_status: 'source_connected' },
   { provider: 'cvr', coverage_status: 'sandbox_demonstration' },
 ];
 

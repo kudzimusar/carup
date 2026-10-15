@@ -24,6 +24,8 @@ import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { emitInquiryCreated } from '../intelligence/marketplaceActivityEmitters.js';
 import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
+import { summarizeProvenance } from '../provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../provenance/provenanceContext.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -361,7 +363,7 @@ export async function listInquiriesForSeller(client, actor) {
   return mine.map(toSellerInquiry);
 }
 
-export async function listInquiriesForAdmin(client, filters = {}, actor = filters.actor) {
+async function readAdminInquiryRows(client, filters, actor) {
   assertReviewer(actor);
   const rows = await fetchInquiries(client);
   let out = rows;
@@ -372,7 +374,29 @@ export async function listInquiriesForAdmin(client, filters = {}, actor = filter
     out = out.filter((r) => r.inquiry_type === filters.inquiry_type);
   }
   if (filters.risk_status) out = out.filter((r) => (r.risk_status || 'clear') === filters.risk_status);
-  return out.map(toAdminInquiry);
+  return out;
+}
+
+export async function listInquiriesForAdmin(client, filters = {}, actor = filters.actor) {
+  return (await readAdminInquiryRows(client, filters, actor)).map(toAdminInquiry);
+}
+
+/**
+ * PC01-K2B — the Admin inquiry queue as operational truth. Every inquiry is classified by the
+ * provenance authority (asker + listing) on its raw row; the queue shows operational ones and reports,
+ * by class, how many it set aside — including those that need human review. Nothing is deleted.
+ */
+export async function listInquiriesForAdminWithProvenance(client, filters = {}, actor = filters.actor) {
+  const rows = await readAdminInquiryRows(client, filters, actor);
+  const index = await loadProvenanceIndex(client, {
+    userIds: rows.map((r) => r.buyer_id),
+    vins: rows.map((r) => r.listing_id),
+  });
+  const classified = rows.map((row) => ({ row, provenance: index.inquiry(row) }));
+  return {
+    inquiries: classified.filter((c) => c.provenance.operational).map((c) => toAdminInquiry(c.row)),
+    provenance: { ...summarizeProvenance(classified.map((c) => c.provenance)), view: 'operational_only' },
+  };
 }
 
 async function fetchInquiries(client, refine) {

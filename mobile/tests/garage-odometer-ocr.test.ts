@@ -47,15 +47,28 @@ async function main() {
     assert.equal(odometerOcrUrl('https://b', 'V1', 'e1'), `https://b${CONTRACT.ocr.path.replace(':vin', 'V1').replace(':evidenceId', 'e1')}`);
   });
 
+  // PC01-J-R1: both mutating calls (upload, run-ocr) carry a session-bound CSRF token, fetched from
+  // the security endpoint first. The stubs answer that endpoint and record which token each call sent.
+  const CSRF_PATH = '/api/security/csrf-token';
+  const csrfSent: string[] = [];
+  const csrfAware = (handler: (url: string, init: any) => any) => async (url: string, init: any = {}) => {
+    if (String(url).endsWith(CSRF_PATH)) {
+      return { ok: true, status: 200, json: async () => ({ csrfToken: `csrf-for-${init.headers?.['x-session-token'] ?? 'guest'}` }) };
+    }
+    if (init.headers?.['x-csrf-token']) csrfSent.push(`${String(url).split('/').pop()}:${init.headers['x-csrf-token']}`);
+    return handler(url, init);
+  };
+
   await test('journey: upload → governed OCR read of THAT evidence → a candidate pending review', async () => {
     __resetUploadQueueForTest(memPersistence());
     const queued = useUploadQueueStore.getState().enqueue(CAPTURE);
     const urls: string[] = [];
-    (globalThis as any).fetch = async (url: string) => {
+    csrfSent.length = 0;
+    (globalThis as any).fetch = csrfAware((url: string) => {
       urls.push(String(url));
-      if (String(url).endsWith('/evidence/upload')) return { ok: true, json: async () => ({ id: 'ev-1' }) };
-      return { ok: true, json: async () => ({ success: true, reading: { odometer_reading: 84213, odometer_unit: 'km', status: CONTRACT.ocr.candidateStatus }, authority_effects: { mileage_recorded: false } }) };
-    };
+      if (String(url).endsWith('/evidence/upload')) return { ok: true, status: 200, json: async () => ({ id: 'ev-1' }) };
+      return { ok: true, status: 200, json: async () => ({ success: true, reading: { odometer_reading: 84213, odometer_unit: 'km', status: CONTRACT.ocr.candidateStatus }, authority_effects: { mileage_recorded: false } }) };
+    });
     let outcome: any = null;
     const res = await drainUploadQueue({
       resolvePayload: async (it) => it.localFileRef,
@@ -69,14 +82,15 @@ async function main() {
       `https://api.example/api/vehicles/${CAPTURE.vin}/evidence/ev-1/run-ocr`,
     ]);
     assert.ok(urls.every((u) => !u.includes('/api/ai/')), 'the app never calls an AI endpoint for OCR');
+    assert.deepEqual(csrfSent, ['upload:csrf-for-tok', 'run-ocr:csrf-for-tok'], 'both mutating calls carry the session-bound CSRF token');
   });
 
   await test('an OCR failure never un-uploads the capture: the evidence stays stored for manual review', async () => {
     __resetUploadQueueForTest(memPersistence());
     useUploadQueueStore.getState().enqueue(CAPTURE);
-    (globalThis as any).fetch = async (url: string) => (String(url).endsWith('/evidence/upload')
-      ? { ok: true, json: async () => ({ id: 'ev-2' }) }
-      : { ok: false, status: 503, json: async () => ({}) });
+    (globalThis as any).fetch = csrfAware((url: string) => (String(url).endsWith('/evidence/upload')
+      ? { ok: true, status: 200, json: async () => ({ id: 'ev-2' }) }
+      : { ok: false, status: 503, json: async () => ({}) }));
     let outcome: any = null;
     await drainUploadQueue({
       resolvePayload: async (it) => it.localFileRef,
@@ -91,7 +105,7 @@ async function main() {
   await test('a follow-up that THROWS after the upload still never un-uploads the capture', async () => {
     __resetUploadQueueForTest(memPersistence());
     useUploadQueueStore.getState().enqueue(CAPTURE);
-    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ id: 'ev-thrown' }) });
+    (globalThis as any).fetch = csrfAware(() => ({ ok: true, status: 200, json: async () => ({ id: 'ev-thrown' }) }));
     const res = await drainUploadQueue({
       resolvePayload: async (it) => it.localFileRef,
       uploadOne: makeHttpUploader('https://api.example', 'tok'),
@@ -117,10 +131,10 @@ async function main() {
     const restored = useUploadQueueStore.getState().items;
     assert.equal(restored.length, 1);
     let uploads = 0;
-    (globalThis as any).fetch = async (url: string) => {
+    (globalThis as any).fetch = csrfAware((url: string) => {
       if (String(url).endsWith('/evidence/upload')) uploads += 1;
-      return { ok: true, json: async () => ({ id: 'ev-3' }) };
-    };
+      return { ok: true, status: 200, json: async () => ({ id: 'ev-3' }) };
+    });
     const later = Date.now() + 24 * 3600 * 1000; // past any backoff
     await drainUploadQueue({ resolvePayload: async (it) => it.localFileRef, uploadOne: makeHttpUploader('https://api.example', 'tok'), now: () => later });
     await drainUploadQueue({ resolvePayload: async (it) => it.localFileRef, uploadOne: makeHttpUploader('https://api.example', 'tok'), now: () => later });

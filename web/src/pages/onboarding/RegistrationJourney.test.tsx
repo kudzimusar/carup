@@ -15,6 +15,8 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import RegistrationJourney from './RegistrationJourney'
+import userEvent from '@testing-library/user-event'
+import { installTailwindVisibility, tabTo } from '@/test/keyboardReach'
 
 const fetchRegistrationJourney = vi.fn()
 const fetchRegistrationCandidates = vi.fn()
@@ -319,5 +321,24 @@ describe('RegistrationJourney', () => {
 
     fireEvent.click(screen.getByTestId('submit-identity'))
     await waitFor(() => expect(submitIdentitySession).toHaveBeenCalledWith('vs-3'))
+  })
+
+  it('PC01-F F4: every identity upload tile is reachable by keyboard — Tab lands on its file input (WCAG 2.1.1)', async () => {
+    fetchRegistrationJourney.mockResolvedValue(withIdentity(
+      { state: 'draft', session_id: 'vs-k', double_sided: true, uploaded_sides: {}, guidance: 'Finish uploading your identity document evidence and selfie.' },
+      { identity_session: { id: 'vs-k', status: 'draft' } },
+    ))
+    const restore = installTailwindVisibility()
+    try {
+      const user = userEvent.setup()
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('upload-tiles')).toBeTruthy())
+      for (const side of ['front', 'back', 'selfie']) {
+        const picker = screen.getByTestId(`upload-${side}`).querySelector('input[type="file"]')!
+        expect(await tabTo(user, picker), `${side}: Tab never reaches the file input`).toBe(true)
+      }
+    } finally {
+      restore()
+    }
   })
 })

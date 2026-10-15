@@ -33,10 +33,15 @@ export function SecureSessionProvider({ children }: SecureSessionProviderProps) 
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const appState = useRef(AppState.currentState);
   const backgroundTime = useRef<number | null>(null);
+  // PC01-J-R1: the lock could only be lifted by biometrics. On a device with none enrolled the prompt
+  // never appeared and nothing else unlocked — the only way out was force-quitting. The app now locks
+  // only when biometrics can unlock it, and the lock screen always offers Sign out.
+  const biometricsAvailableRef = useRef(false);
 
   useEffect(() => {
     async function checkSupport() {
       const available = await checkBiometricsSupport();
+      biometricsAvailableRef.current = available;
       setBiometricsAvailable(available);
     }
     if (isAuthenticated) {
@@ -51,8 +56,8 @@ export function SecureSessionProvider({ children }: SecureSessionProviderProps) 
       // Returning from background to active state
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         const now = Date.now();
-        if (backgroundTime.current && now - backgroundTime.current > GRACE_PERIOD) {
-          // Grace period elapsed, enforce screen lock
+        if (backgroundTime.current && now - backgroundTime.current > GRACE_PERIOD && biometricsAvailableRef.current) {
+          // Grace period elapsed and biometrics can unlock: enforce the screen lock.
           setIsLocked(true);
           await triggerBiometrics();
         }
@@ -102,7 +107,7 @@ export function SecureSessionProvider({ children }: SecureSessionProviderProps) 
           </View>
           <Text className="text-white text-2xl font-bold tracking-tight text-center">Session Secured</Text>
           <Text className="text-slate-400 text-sm mt-2 text-center">
-            Your CarUp Kimi session is locked to secure platform transactions.
+            Your CarUp session is locked. Unlock it to carry on.
           </Text>
         </View>
 
@@ -113,14 +118,18 @@ export function SecureSessionProvider({ children }: SecureSessionProviderProps) 
             style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
           >
             <Text className="text-white text-base font-semibold">
-              {biometricsAvailable ? 'Unlock with Biometrics' : 'Enter PIN / Passcode'}
+              {biometricsAvailable ? 'Unlock with Biometrics' : 'Unlock'}
             </Text>
           </Pressable>
+          <Pressable
+            onPress={async () => { setIsLocked(false); await useAuthStore.getState().logout(); }}
+            className="w-full rounded-xl h-14 justify-center items-center border border-slate-700 mt-3"
+            accessibilityRole="button"
+            testID="lock-sign-out"
+          >
+            <Text className="text-slate-200 text-base font-semibold">Sign out</Text>
+          </Pressable>
         </View>
-
-        <Text className="text-slate-600 text-xxs mt-16 tracking-wider uppercase">
-          fintech bank-escrow safety protocol active
-        </Text>
       </View>
     );
   }

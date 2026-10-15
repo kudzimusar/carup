@@ -315,51 +315,31 @@ test.describe('Feature Registry & Navigation Map', () => {
       await expect(sidebar.getByText('Credit Risk Analysis')).toBeVisible();
     });
 
-    test('bank role appears in Navbar role switcher', async ({ page }) => {
+    // PC01-K1: this used to assert that an OWNER's menu offered "Change to Banker". The server lets a
+    // session assume only its own platform role (or one an active organisation lends), so that switch
+    // was always refused — the shell now states the active portal instead of offering a catalogue.
+    test('the account menu states the active portal and offers no platform-role catalogue', async ({ page }) => {
       await setupMocksForRole(page, 'owner');
       await page.goto('http://localhost:5173/marketplace');
       await page.waitForLoadState('networkidle');
 
-      // Open user dropdown
-      const userAvatar = page.locator('header button img[alt=""]').first();
-      if (await userAvatar.isVisible()) {
-        await userAvatar.click();
-
-        // Look for the role switcher section
-        const roleSwitcher = page.getByText('Switch Portal Role');
-        if (await roleSwitcher.isVisible()) {
-          // Bank should now appear as a role option
-          await expect(page.getByText('Change to Banker')).toBeVisible();
-        }
-      }
+      await page.getByRole('button', { name: /Account menu for/ }).click();
+      await expect(page.getByTestId('navbar-active-portal')).toHaveText('Car Owner');
+      await expect(page.getByText('Switch Portal Role')).toHaveCount(0);
+      await expect(page.getByText('Change to Banker')).toHaveCount(0);
     });
   });
 
-  // ─── Dashboard Role Switcher ─────────────────────────────────────────
+  // ─── Dashboard active portal (PC01-K1) ───────────────────────────────
 
-  test.describe('Dashboard Role Switcher', () => {
-    test('role selector lists all 7 roles', async ({ page }) => {
+  test.describe('Dashboard active portal', () => {
+    test('the sidebar states the active portal rather than listing all 7 roles as switches', async ({ page }) => {
       await setupMocksForRole(page, 'owner');
       await page.goto('http://localhost:5173/dashboard');
       await page.waitForLoadState('networkidle');
 
-      // The sidebar should have a <select> with all role options
-      const roleSelect = page.locator('aside select');
-      await expect(roleSelect).toBeVisible();
-
-      const options = roleSelect.locator('option');
-      const count = await options.count();
-      expect(count).toBe(7);
-
-      // Verify each role label is present
-      const optionTexts = await options.allTextContents();
-      expect(optionTexts).toContain('Car Owner');
-      expect(optionTexts).toContain('Dealer');
-      expect(optionTexts).toContain('Mechanic');
-      expect(optionTexts).toContain('Insurance');
-      expect(optionTexts).toContain('Government');
-      expect(optionTexts).toContain('Administrator');
-      expect(optionTexts).toContain('Banker');
+      await expect(page.getByTestId('active-portal')).toHaveText('Car Owner');
+      await expect(page.locator('aside select')).toHaveCount(0);
     });
   });
 

@@ -10,6 +10,7 @@
 // Rendered accessibly (label + non-colour meaning) by <ChannelIcon> (ChannelIcon.tsx).
 
 import type { ComponentType } from 'react'
+import { CHANNEL_IMPLEMENTATION } from '@/lib/communicationChannels'
 import { Bell, BellRing, Globe, Mail, MessageSquareText, Smartphone } from 'lucide-react'
 import { SiInstagram, SiLine, SiMessenger, SiTelegram, SiWhatsapp, SiX } from 'react-icons/si'
 
@@ -18,11 +19,11 @@ export type ChannelIconComponent = ComponentType<{ size?: number | string; class
 
 export type ChannelKey =
   | 'whatsapp' | 'telegram' | 'facebook' | 'instagram' | 'line' | 'x'
-  | 'email' | 'sms' | 'push' | 'in_app' | 'web_chat' | 'mobile_chat'
+  | 'email' | 'email_marketing' | 'sms' | 'push' | 'in_app' | 'web_chat' | 'mobile_chat'
 
 export type IdentityFormat = 'phone' | 'handle' | 'email' | 'chat_id' | 'device_token' | 'app_user'
 
-// Static baseline. Live provider health (from the backend adapter registry) overrides this.
+// Source implementation baseline only. Never use this as runtime or physical delivery evidence.
 export type ChannelAvailability = 'available' | 'planned' | 'not_configured'
 
 export interface ChannelCapabilities {
@@ -89,10 +90,16 @@ export const CHANNELS: Record<ChannelKey, ChannelDefinition> = {
     webhookPath: '/api/communications/webhooks/x/dm', supportsDiagnostics: true, availability: 'planned',
   },
   email: {
-    key: 'email', label: 'Email', shortLabel: 'Email', providerLabel: 'sendgrid',
+    key: 'email', label: 'Email', shortLabel: 'Email', providerLabel: CHANNEL_IMPLEMENTATION.email.provider,
     icon: Mail, brandColor: '#EA4335', identityFormat: 'email',
     capabilities: CAP({ inbound: true, outbound: true, media: true }),
-    webhookPath: '/api/communications/webhooks/sendgrid/email', supportsDiagnostics: true, availability: 'available',
+    webhookPath: '/api/communications/webhooks/resend/email', supportsDiagnostics: true, availability: 'available',
+  },
+  email_marketing: {
+    key: 'email_marketing', label: 'Marketing Email', shortLabel: 'Marketing', providerLabel: CHANNEL_IMPLEMENTATION.email_marketing.provider,
+    icon: Mail, brandColor: '#EA4335', identityFormat: 'email',
+    capabilities: CAP({ outbound: true, templates: true }),
+    webhookPath: '/api/communications/webhooks/brevo/email', supportsDiagnostics: true, availability: 'available',
   },
   sms: {
     key: 'sms', label: 'SMS', shortLabel: 'SMS', providerLabel: 'twilio',
@@ -134,7 +141,7 @@ export const UNKNOWN_CHANNEL: ChannelDefinition = {
 
 // Rail order (docs §5): messaging-first, then email/sms, then app surfaces, planned channels last.
 export const CHANNEL_ORDER: ChannelKey[] = [
-  'whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'sms',
+  'whatsapp', 'telegram', 'facebook', 'instagram', 'email', 'email_marketing', 'sms',
   'in_app', 'web_chat', 'mobile_chat', 'push', 'line', 'x',
 ]
 

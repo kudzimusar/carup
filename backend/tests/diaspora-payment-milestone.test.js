@@ -40,6 +40,7 @@ function useClient(seed = {}) {
     diaspora_payment_milestones: [],
     diaspora_import_audit_log: [],
     notification_queue: [],
+    domain_events: [],
     ...seed,
   });
   Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: client.from });
@@ -109,6 +110,7 @@ test('a queued notification is created for the buyer on milestone creation', asy
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].recipient_id, 'buyer-1');
   assert.match(notifications[0].message, /reference record only/i);
+  assert.equal(client._rows('domain_events').length, 0, 'direct milestone notification must not dual-write an unconsumed domain event');
 });
 
 test('missing import order returns 404', async () => {

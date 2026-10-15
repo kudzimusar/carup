@@ -1,0 +1,145 @@
+{
+ "schema": "oc5r-pc01-h-exactness/v1",
+ "captured_pre": "2026-10-10T13:31:23.580900+00:00",
+ "captured_post": "2026-10-10T13:34:47.641394+00:00",
+ "changes": {
+  "con": {
+   "removed": [],
+   "added": [
+    "[\"dealer_workbook_mapping_confirmations_mapping_check\", \"dealer_workbook_mapping_confirmations\", true]",
+    "[\"dealer_workbook_mapping_confirmations_workbook_checksum_check\", \"dealer_workbook_mapping_confirmations\", true]"
+   ]
+  },
+  "funcs": {
+   "removed": [
+    "[\"activate_garage_application\", \"p_application_id uuid, p_actor_user_id text\", \"06da4e43f0fade0ab14cbd5172776475\", \"f\"]"
+   ],
+   "added": [
+    "[\"activate_garage_application\", \"p_application_id uuid, p_actor_user_id text\", \"e497c9fa456b00f2949f824fb511cec2\", \"f\"]"
+   ]
+  },
+  "coldefs": {
+   "removed": [
+    "[\"dealer_workbook_mapping_confirmations\", \"dealer_id\", \"uuid\", \"YES\", null]",
+    "[\"diaspora_workbook_import_receipts\", \"tenant_id\", \"uuid\", \"YES\", null]"
+   ],
+   "added": [
+    "[\"dealer_workbook_mapping_confirmations\", \"dealer_id\", \"uuid\", \"NO\", null]",
+    "[\"diaspora_workbook_import_receipts\", \"tenant_id\", \"uuid\", \"NO\", null]"
+   ]
+  },
+  "fsrc": {
+   "removed": [
+    "{\"a\": \"\", \"cfg\": null, \"n\": \"identity_lifecycle_events_append_only\", \"ret\": \"trigger\", \"sd\": false, \"src\": \"\\nBEGIN\\n  RAISE EXCEPTION 'identity_lifecycle_events is append-only: % is not permitted', TG_OP;\\nEND;\\n\"}",
+    "{\"a\": \"p_application_id uuid, p_actor_user_id text\", \"cfg\": null, \"n\": \"activate_garage_application\", \"ret\": \"TABLE(tenant_id uuid, membership_id uuid, founder_user_id text, founding_role text, created boolean)\", \"sd\": false, \"src\": \"\\nDECLARE\\n  v_app        public.garage_applications%ROWTYPE;\\n  v_tenant_id  UUID;\\n  v_member_id  UUID;\\n  v_name       TEXT;\\n  v_role       TEXT;\\nBEGIN\\n  SELECT * INTO v_app\\n  FROM public.garage_applications\\n  WHERE id = p_application_id\\n  FOR UPDATE;\\n\\n  IF NOT FOUND THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_NOT_FOUND' USING ERRCODE = 'no_data_found';\\n  END IF;\\n\\n  IF v_app.status <> 'approved' THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_NOT_APPROVED:%', v_app.status\\n      USING ERRCODE = 'check_violation';\\n  END IF;\\n\\n  IF v_app.activated_tenant_id IS NOT NULL THEN\\n    SELECT tu.id, tu.role INTO v_member_id, v_role\\n    FROM public.tenant_users tu\\n    WHERE tu.tenant_id = v_app.activated_tenant_id\\n      AND tu.user_id = v_app.applicant_user_id;\\n\\n    RETURN QUERY SELECT v_app.activated_tenant_id, v_member_id, v_app.applicant_user_id, v_role, FALSE;\\n    RETURN;\\n  END IF;\\n\\n  v_name := NULLIF(BTRIM(COALESCE(v_app.trading_name, '')), '');\\n  IF v_name IS NULL THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_HAS_NO_NAME' USING ERRCODE = 'check_violation';\\n  END IF;\\n\\n  INSERT INTO public.tenants (name, type, status)\\n  VALUES (v_name, 'garage', 'active')\\n  RETURNING id INTO v_tenant_id;\\n\\n  INSERT INTO public.tenant_users (tenant_id, user_id, role)\\n  VALUES (v_tenant_id, v_app.applicant_user_id, 'admin')\\n  RETURNING id, role INTO v_member_id, v_role;\\n\\n  UPDATE public.garage_applications\\n  SET activated_tenant_id = v_tenant_id,\\n      activated_at        = NOW(),\\n      updated_at          = NOW()\\n  WHERE id = p_application_id\\n    AND activated_tenant_id IS NULL;\\n\\n  IF NOT FOUND THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_ALREADY_ACTIVATED' USING ERRCODE = 'unique_violation';\\n  END IF;\\n\\n  RETURN QUERY SELECT v_tenant_id, v_member_id, v_app.applicant_user_id, v_role, TRUE;\\nEND;\\n\"}"
+   ],
+   "added": [
+    "{\"a\": \"\", \"cfg\": [\"search_path=public, pg_temp\"], \"n\": \"identity_lifecycle_events_append_only\", \"ret\": \"trigger\", \"sd\": false, \"src\": \"\\nBEGIN\\n  RAISE EXCEPTION 'identity_lifecycle_events is append-only: % is not permitted', TG_OP;\\nEND;\\n\"}",
+    "{\"a\": \"p_application_id uuid, p_actor_user_id text\", \"cfg\": [\"search_path=public, pg_temp\"], \"n\": \"activate_garage_application\", \"ret\": \"TABLE(tenant_id uuid, membership_id uuid, founder_user_id text, founding_role text, created boolean)\", \"sd\": false, \"src\": \"\\nDECLARE\\n  v_app        public.garage_applications%ROWTYPE;\\n  v_tenant_id  UUID;\\n  v_member_id  UUID;\\n  v_name       TEXT;\\n  v_role       TEXT;\\nBEGIN\\n  -- The row lock is the race guard. A second concurrent activation of this application blocks\\n  -- here until the first commits, then observes activated_tenant_id already set.\\n  SELECT * INTO v_app\\n  FROM public.garage_applications\\n  WHERE id = p_application_id\\n  FOR UPDATE;\\n\\n  IF NOT FOUND THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_NOT_FOUND' USING ERRCODE = 'no_data_found';\\n  END IF;\\n\\n  -- Only an approved application may become a workspace.\\n  IF v_app.status <> 'approved' THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_NOT_APPROVED:%', v_app.status\\n      USING ERRCODE = 'check_violation';\\n  END IF;\\n\\n  -- Already activated: return what exists \\u2014 the SAME membership, never a second one.\\n  IF v_app.activated_tenant_id IS NOT NULL THEN\\n    SELECT tu.id, tu.role INTO v_member_id, v_role\\n    FROM public.tenant_users tu\\n    WHERE tu.tenant_id = v_app.activated_tenant_id\\n      AND tu.user_id = v_app.applicant_user_id;\\n\\n    RETURN QUERY SELECT v_app.activated_tenant_id, v_member_id, v_app.applicant_user_id, v_role, FALSE;\\n    RETURN;\\n  END IF;\\n\\n  -- Every value below is derived from the approved application. Nothing is supplied by a caller.\\n  v_name := NULLIF(BTRIM(COALESCE(v_app.trading_name, '')), '');\\n  IF v_name IS NULL THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_HAS_NO_NAME' USING ERRCODE = 'check_violation';\\n  END IF;\\n\\n  INSERT INTO public.tenants (name, type, status)\\n  VALUES (v_name, 'garage', 'active')\\n  RETURNING id INTO v_tenant_id;\\n\\n  -- PO-1: tenant-scoped `admin`. The founder is the APPLICANT, never the actor who ran this. No ON\\n  -- CONFLICT: the tenant is two statements old, so no membership can exist for it (and an ON CONFLICT\\n  -- on (tenant_id, user_id) would be ambiguous with this function's output columns).\\n  INSERT INTO public.tenant_users (tenant_id, user_id, role)\\n  VALUES (v_tenant_id, v_app.applicant_user_id, 'admin')\\n  RETURNING id, role INTO v_member_id, v_role;\\n\\n  -- The claim is GUARDED on activated_tenant_id still being NULL, and a claim that wins no rows aborts\\n  -- the whole transaction \\u2014 rolling back the tenant and membership created above. Correct even if the\\n  -- lock were removed: a loser rolls back completely and leaves no orphan tenant.\\n  UPDATE public.garage_applications\\n  SET activated_tenant_id = v_tenant_id,\\n      activated_at        = NOW(),\\n      updated_at          = NOW()\\n  WHERE id = p_application_id\\n    AND activated_tenant_id IS NULL;\\n\\n  IF NOT FOUND THEN\\n    RAISE EXCEPTION 'GARAGE_APPLICATION_ALREADY_ACTIVATED' USING ERRCODE = 'unique_violation';\\n  END IF;\\n\\n  -- The role is returned rather than assumed, so the audit records what the database actually wrote.\\n  RETURN QUERY SELECT v_tenant_id, v_member_id, v_app.applicant_user_id, v_role, TRUE;\\nEND;\\n\"}"
+   ]
+  }
+ },
+ "checks": [
+  {
+   "check": "re-read session is read-only",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D1 identity user FK RESTRICT, validated",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D2 confirmations user FK RESTRICT, validated",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D2 confirmations dealer FK RESTRICT, validated",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D3 checksum + mapping CHECKs present",
+   "ok": true,
+   "detail": "{\"dealer_workbook_mapping_confirmations_mapping_check\": \"CHECK ((jsonb_typeof(mapping) = 'array'::text))\", \"dealer_workbook_mapping_confirmations_workbook_checksum_check\": \"CHECK ((workbook_checksum ~ '^[0-9a-f]{64}$'::text))\"}"
+  },
+  {
+   "check": "D4 dealer_id NOT NULL",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D5 receipts tenant_id NOT NULL",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D6 append-only function search_path = public, pg_temp",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D7 activate_garage_application search_path = public, pg_temp",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "D7 body is no longer the unexplained 06da4e43\u2026",
+   "ok": true,
+   "detail": "e497c9fa456b00f2949f824fb511cec2"
+  },
+  {
+   "check": "both rebuilt tables still RLS enabled + forced",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "tables empty; no data was touched",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "migration ledger rows untouched by the correction",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "LIVE converged catalog == clean-source catalog (every key)",
+   "ok": true,
+   "detail": "11 keys identical"
+  },
+  {
+   "check": "only constraints, column definitions and the two functions changed in the whole catalog",
+   "ok": true,
+   "detail": "changed sections: ['coldefs', 'con', 'fsrc', 'funcs']"
+  },
+  {
+   "check": "constraints: +2 CHECKs exactly, none removed (the 3 FKs keep their names)",
+   "ok": true,
+   "detail": "+['dealer_workbook_mapping_confirmations_mapping_check', 'dealer_workbook_mapping_confirmations_workbook_checksum_check'] -[]"
+  },
+  {
+   "check": "column definitions: exactly dealer_id and tenant_id became NOT NULL",
+   "ok": true,
+   "detail": "[[\"dealer_workbook_mapping_confirmations\", \"dealer_id\", \"NO\"], [\"diaspora_workbook_import_receipts\", \"tenant_id\", \"NO\"]]"
+  },
+  {
+   "check": "function sources: exactly the two functions changed",
+   "ok": true,
+   "detail": "[\"activate_garage_application\", \"identity_lifecycle_events_append_only\"]"
+  },
+  {
+   "check": "function bodies: only activate_garage_application (the append-only body was already exact)",
+   "ok": true,
+   "detail": "[\"activate_garage_application\"]"
+  },
+  {
+   "check": "migration ledger: 265 rows, unchanged",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "verdict": "EXACT"
+}

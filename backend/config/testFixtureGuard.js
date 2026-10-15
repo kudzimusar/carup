@@ -18,16 +18,11 @@
  * for the deployment markers (a ' Production ' typo still declares production).
  */
 
-const DEPLOYED_VERCEL_ENVS = Object.freeze(['production', 'preview']);
-const DEPLOYED_CARUP_ENVS = Object.freeze(['production', 'staging']);
+// The deployment declaration is the CENTRAL classifier (utils/runtimeEnvironment.js), not a copy:
+// a second hand-kept list is how the variants above drifted (OC-5R-PROV-01 B1).
+import { isDeployedRuntime } from '../utils/runtimeEnvironment.js';
 
-const normalise = (value) => String(value ?? '').trim().toLowerCase();
-
-/** True when the runtime declares a deployment, whatever NODE_ENV says. */
-export function isDeployedRuntime(env = process.env) {
-  return DEPLOYED_VERCEL_ENVS.includes(normalise(env.VERCEL_ENV))
-    || DEPLOYED_CARUP_ENVS.includes(normalise(env.CARUP_ENV));
-}
+export { isDeployedRuntime };
 
 /** True only inside the test suite's explicit fixture runtime. */
 export function isTestFixtureAllowed(env = process.env) {

@@ -419,7 +419,7 @@ export default function VehicleProfile() {
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
 
   return (
-    <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
+    <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-label vehicle-passport-title">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" className="gap-1" asChild>
           <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
@@ -452,6 +452,9 @@ export default function VehicleProfile() {
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
+                {/* OC-5R-REL-02: this loaded page IS the owner's Vehicle Passport, and now says so. A label
+                    only — it asserts nothing about the vehicle; loading and error states keep their own words. */}
+                <p id="vehicle-passport-label" className="text-xs font-semibold tracking-wide text-orange-200" data-testid="vehicle-passport-label">Vehicle Passport</p>
                 <div className="flex items-center gap-2 mb-1">
                   <h1 id="vehicle-passport-title" className="text-xl sm:text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
                   <Badge className="bg-white/20 text-white">{vehicle.registration}</Badge>

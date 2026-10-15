@@ -1,4 +1,4 @@
-import { MetaWhatsAppAdapter, trimmedEnvValue } from './adapters/providerAdapters.js';
+import { MetaWhatsAppAdapter, trimmedEnvValue, unprovenAcceptance } from './adapters/providerAdapters.js';
 
 function parseProviderTemplateReference(reference) {
   const raw = String(reference || '').trim();
@@ -97,10 +97,14 @@ export class CommunicationMetaWhatsAppGovernedAdapter extends MetaWhatsAppAdapte
       },
     );
     if (!response.ok) return this.providerFailure(response);
+    // OC-5R-REL-01: a template send is proven by Meta's message id like a session send is; a 2xx
+    // without one was recorded as sent with a null id that no receipt could ever match.
+    const templateMessageId = response.body?.messages?.[0]?.id || null;
+    if (!templateMessageId) return unprovenAcceptance('Meta WhatsApp (template)');
     return {
       accepted: true,
-      providerRequestId: response.body?.messages?.[0]?.id || null,
-      providerMessageId: response.body?.messages?.[0]?.id || null,
+      providerRequestId: templateMessageId,
+      providerMessageId: templateMessageId,
       providerStatus: 'accepted',
       deliveryMode: 'template',
       providerTemplateName: template.name,

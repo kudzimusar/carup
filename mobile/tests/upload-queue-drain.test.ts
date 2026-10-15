@@ -72,18 +72,44 @@ async function main() {
     assert.equal(res.uploaded, 1);
   });
 
-  await test('makeHttpUploader sends the Idempotency-Key header', async () => {
+  // PC01-J-R1: the backend refuses a mutating request without a session-bound CSRF token. The real
+  // uploader (not an injected stub) must fetch one for THIS session and send it on the upload.
+  const CSRF_PATH = '/api/security/csrf-token';
+  const csrfAware = (onUpload: (url: string, init: any) => any) => async (url: string, init: any = {}) => {
+    if (String(url).endsWith(CSRF_PATH)) {
+      return { ok: true, status: 200, json: async () => ({ csrfToken: `csrf-for-${init.headers?.['x-session-token'] ?? 'guest'}` }) };
+    }
+    return onUpload(url, init);
+  };
+
+  await test('makeHttpUploader sends the Idempotency-Key header and a session-bound CSRF token', async () => {
     const calls: any[] = [];
-    (globalThis as any).fetch = async (url: string, init: any) => {
+    (globalThis as any).fetch = csrfAware((url: string, init: any) => {
       calls.push({ url, headers: init.headers });
-      return { ok: true, json: async () => ({ id: 'ev-99' }) };
-    };
+      return { ok: true, status: 200, json: async () => ({ id: 'ev-99' }) };
+    });
     const uploader = makeHttpUploader('https://staging.example', 'tok');
     const item = { vin: 'VINH', idempotencyKey: 'idem-h', evidenceType: 'odometer_reading', pageOrder: 0 } as UploadQueueItem;
     const id = await uploader(item, 'data:image/png;base64,AAAA');
     assert.equal(id, 'ev-99');
     assert.equal(calls[0].headers['Idempotency-Key'], 'idem-h');
+    assert.equal(calls[0].headers['x-csrf-token'], 'csrf-for-tok', 'the CSRF token is bound to the uploading session');
+    assert.equal(calls[0].headers['x-session-token'], 'tok');
     assert.ok(String(calls[0].url).includes('/api/vehicles/VINH/evidence/upload'));
+  });
+
+  await test('a 403 (stale CSRF token) is retried once with a fresh token; a second 403 is a real failure', async () => {
+    let uploads = 0;
+    (globalThis as any).fetch = csrfAware(() => { uploads += 1; return { ok: uploads > 1, status: uploads > 1 ? 200 : 403, json: async () => ({ id: 'ev-retry' }) }; });
+    const uploader = makeHttpUploader('https://staging.example', 'tok');
+    const item = { vin: 'VINR', idempotencyKey: 'idem-r', evidenceType: 'odometer_reading', pageOrder: 0 } as UploadQueueItem;
+    assert.equal(await uploader(item, 'data:image/png;base64,AAAA'), 'ev-retry');
+    assert.equal(uploads, 2);
+
+    let refusals = 0;
+    (globalThis as any).fetch = csrfAware(() => { refusals += 1; return { ok: false, status: 403, json: async () => ({}) }; });
+    await assert.rejects(() => uploader(item, 'data:image/png;base64,AAAA'), /HTTP 403/);
+    assert.equal(refusals, 2, 'exactly one retry');
   });
 
   // OC-4C: the BODY is the contract the server actually reads. The uploader used to send the bytes as
@@ -95,10 +121,10 @@ async function main() {
     const contractPath = fileURLToPath(new URL('../../shared/contracts/native-odometer-capture.contract.json', import.meta.url).href);
     const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
     const bodies: any[] = [];
-    (globalThis as any).fetch = async (_url: string, init: any) => {
+    (globalThis as any).fetch = csrfAware((_url: string, init: any) => {
       bodies.push(JSON.parse(init.body));
-      return { ok: true, json: async () => ({ id: 'ev-100' }) };
-    };
+      return { ok: true, status: 200, json: async () => ({ id: 'ev-100' }) };
+    });
     const uploader = makeHttpUploader('https://staging.example', 'tok');
     const item = { vin: 'VINB', idempotencyKey: 'idem-b', evidenceType: contract.nativeEvidenceType, pageOrder: 0 } as UploadQueueItem;
     await uploader(item, 'data:image/jpeg;base64,/9j/AAAA');

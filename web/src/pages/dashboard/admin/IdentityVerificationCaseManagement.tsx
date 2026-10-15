@@ -42,6 +42,7 @@ import type {
 } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useStepUpGuard } from '@/hooks/useStepUpGuard'
+import { ProvenanceNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import {
   EVIDENCE_CLASSIFICATION_LABELS,
   EXTRACTION_TRUST_LABELS,
@@ -136,7 +137,7 @@ function bindingColor(status?: string | null): string {
 
 export default function IdentityVerificationCaseManagement() {
   const {
-    fetchVerificationReviewQueue,
+    fetchVerificationReviewQueueDetailed,
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
     reviewVerificationCase,
@@ -148,6 +149,7 @@ export default function IdentityVerificationCaseManagement() {
   const [sessions, setSessions] = useState<ExtendedAdminVerificationSession[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [provenance, setProvenance] = useState<ProvenanceSummary | null>(null)
   const [selectedSession, setSelectedSession] = useState<ExtendedAdminVerificationSession | null>(null)
   const [sessionDetail, setSessionDetail] = useState<ExtendedAdminVerificationSession | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -170,8 +172,9 @@ export default function IdentityVerificationCaseManagement() {
     try {
       const tab = OPERATIONAL_TABS.find(t => t.id === tabId)
       const filter = tab?.phase ? { workflow_phase: tab.phase } : tab?.status ? { status: tab.status } : undefined
-      const data = await fetchVerificationReviewQueue(filter)
-      setSessions((data || []) as ExtendedAdminVerificationSession[])
+      const data = await fetchVerificationReviewQueueDetailed(filter)
+      setSessions((data.sessions || []) as ExtendedAdminVerificationSession[])
+      setProvenance(data.provenance)
       setLoadError(false)
     } catch {
       toast.error('Failed to load verification sessions')
@@ -179,11 +182,12 @@ export default function IdentityVerificationCaseManagement() {
       // queue with zero counts (round-4 staging regression showed "0" cases
       // while the API was returning 500).
       setSessions([])
+      setProvenance(null)
       setLoadError(true)
     } finally {
       setLoading(false)
     }
-  }, [fetchVerificationReviewQueue])
+  }, [fetchVerificationReviewQueueDetailed])
 
   useEffect(() => {
     if (!fetchedRef.current) {
@@ -298,14 +302,18 @@ export default function IdentityVerificationCaseManagement() {
         <p className="text-gray-500">Case management and review queue</p>
       </div>
 
+      <ProvenanceNotice provenance={provenance} noun="verification sessions" />
+
       {/* Operational Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="w-full flex-wrap">
           {OPERATIONAL_TABS.map(tab => (
             <TabsTrigger key={tab.id} value={tab.id} className="text-xs">
               {tab.label}
-              {!loading && tab.id !== 'all' && (
-                <span className="ml-1.5 text-gray-400">
+              {/* Only the tab that was actually read has a count. Every other tab used to show a
+                  number derived from THIS tab's result — "(0)" for queues nobody counted. */}
+              {!loading && tab.id !== 'all' && tab.id === activeTab && (
+                <span className="ml-1.5 text-gray-400" data-testid={`verification-tab-count-${tab.id}`}>
                   {loadError
                     ? '(—)'
                     : `(${sessions.filter(s => {

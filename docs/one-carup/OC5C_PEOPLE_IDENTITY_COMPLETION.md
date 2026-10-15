@@ -90,10 +90,10 @@ anywhere.
 - **#208's own X5A workbook catalogue (`06ef4b9a`)** and `workbook.import.completed`. Not part of this port.
 - **#208's per-stage passport timing log.** It would add a free name to a function that four harnesses execute from source.
 
-## Candidate migrations (not applied anywhere)
+## Candidate migrations (not promoted)
 
-- `database/migration-candidates/oc5c/20261004174000_o2_vehicle_evidence_upload_idempotency.sql`: the actor-scoped unique index. Until it is promoted and applied, concurrent dedupe is not in force on any deployment.
-- `…/20261004175000_o2_x4_identity_biometric_consents.sql` and `…/20261004175100_o2_x4_verification_assessments_biometrics.sql`: these move only with a selected provider.
+- `database/migration-candidates/oc5c/20261004174000_o2_vehicle_evidence_upload_idempotency.sql`: the actor-scoped unique index. Not applied anywhere (verified absent on canonical staging by OC-5R). Until it is promoted and applied, concurrent dedupe is not in force on any deployment.
+- `…/20261004175000_o2_x4_identity_biometric_consents.sql` and `…/20261004175100_o2_x4_verification_assessments_biometrics.sql`: these move only with a selected provider. Correction (OC-5R): they are **present on canonical staging**, applied by PR #208's runs with no ledger row, and held under custody exception X4-BIOMETRIC-CONSENT-LEDGER in `database/convergence/oc5r-lineage-exceptions.json`.
 
 ## Open owner decisions recorded by this phase
 

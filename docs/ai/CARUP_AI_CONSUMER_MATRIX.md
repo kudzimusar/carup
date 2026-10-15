@@ -70,7 +70,7 @@ Guests get deterministic, non-provider content until a guest-AI commercial polic
 |---|---|---|---|
 | `POST /api/marketplace/ai/buyer-assistant` | `BuyerAssistantDrawer` on the public Landing page | Public. Any visitor triggered Gemini. | **Public deterministic for guests; authenticated provider call for sessions.** A guest gets safe guidance with `ai_reason: 'sign_in_required'`, and the drawer says "Sign in for AI-assisted guidance". |
 | `POST /api/marketplace/ai/listing-draft` | None. The hook exists; no component calls it. | Public, paid. | Same split. Dormant in the UI. |
-| `POST /api/marketplace/ai/price-estimate` | None (hook only). | Public, paid. | Same split. The deterministic all-in price stays authoritative; AI may only annotate. |
+| `POST /api/marketplace/ai/price-estimate` | None (hook only). | Public, paid. | **No inference for any caller** since OC-5R-REL-01 (`5b55db00`). There is no approved valuation provider, so nothing is requested: the deterministic all-in cost estimate is the whole answer, with `ai_reason: 'valuation_not_configured'` for guests and sessions alike. |
 | `POST /api/marketplace/ai/share-copy` | None (hook only). | Public, paid. | Same split. |
 | `POST /api/admin/marketplace/ai/moderation-summary` | `MarketplaceModeration` (admin) | Admin/government session. | **Authenticated provider call.** Advisory; a human decides. |
 | `POST /api/ai/fraud-scan` | None (hook `runFraudScan` only). | Any authenticated user. | **Authenticated provider call.** Input bounded (`vin` ≤ 64, `listingTitle` ≤ 300, numeric `price`), otherwise 400 `AI_INPUT_REJECTED` before inference. |
@@ -86,12 +86,14 @@ Supporting rules:
 
 ## PR #217 disposition
 
-**Converged in parts; not merged wholesale.** OC-3C re-homed these onto the shared transport, with request bodies proven byte-identical:
+**Converged in parts; not merged wholesale.** OC-3C re-homed these onto the shared transport, with request bodies proven byte-identical at the time:
 
 - the gateway;
 - capabilities;
 - runtime config;
 - the Gemma provider;
 - the gateway test suite (34 of 36 cases unmodified).
+
+**One intentional difference since:** OC-5R-REL-02 E (`e8d5eede`) adds `chat_template_kwargs: { enable_thinking: false }` to the Gemma request body, so Gemma's body is no longer byte-identical to #217's. Gemma 4 reasons by default; the deployed buyer assistant spent about 16 s on hidden reasoning and never answered within its 12 s interactive bound. The change belongs to the Gemma policy only. The shared transport still sends every policy's body verbatim, and the OCR/Qwen body is unchanged.
 
 OC-3E wave 1 gave the gateway its first consumers. #217's own matrix is superseded by this document. #217's master-plan document remains a planning reference and is not carried onto the lineage.

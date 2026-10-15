@@ -20,7 +20,7 @@ import {
   WORKFLOW_PHASE,
   LEGACY_REVIEWABLE_STATUSES,
 } from './caseWorkflow.js';
-import { getReasonConfig } from './reasonCodes.js';
+import { getReasonConfig, REASON_CODES } from './reasonCodes.js';
 import { onVerificationApproved } from './identityLifecycleService.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
@@ -34,6 +34,38 @@ const APPLICANT_FACING_DECISIONS = Object.freeze([
 ]);
 
 export class VerificationDecisionRecorder {
+  /**
+   * May a reviewer action move the case's PRIMARY reason to `incomingCode`?
+   *
+   * The approve gate reads the case's primary reason. Every action used to write the reviewer's code
+   * over it, so a system-assigned blocker could be relaxed by a later action: a submission the
+   * classifier refused as a non-document (DOCUMENT_NOT_VISIBLE, not approvable) could be escalated
+   * with OTHER (approvable) and then approved (PC01-F F1; violates PO ruling §12D invariant 4:
+   * "NON_DOCUMENT → blocked even if text was extracted", and invariant 9).
+   *
+   *   - REQUEST_RESUBMISSION and REJECT assign the case's reason, as before. The first sends the case
+   *     back to the applicant, where approval is refused anyway; the second closes it.
+   *   - An escalation, an internal note (and an approval's annotation) may TIGHTEN or replace a
+   *     reason, but may never replace a blocking evidence/quality/document/extraction/identity/
+   *     system/fraud/biometric reason with an approvable one. Those are facts about the evidence; only
+   *     new evidence (a resubmission) changes them. The reviewer's own code is always kept on the
+   *     action's immutable decision row.
+   *   - The one blocking category a reviewer may lift is `escalation` (SPECIALIST_REVIEW_REQUIRED). The
+   *     system never assigns it — it is a reviewer's own workflow marker — and once a case is escalated
+   *     a note is the ONLY action left that can resolve it (escalate and reject are refused there), so
+   *     the specialist resolution path stays exactly as it was.
+   */
+  static mayChangePrimaryReason(action, currentCode, incomingCode) {
+    if (!incomingCode) return false;
+    if (action === DECISION_ACTION.REQUEST_RESUBMISSION || action === DECISION_ACTION.REJECT) return true;
+    if (!currentCode) return true;
+    const current = REASON_CODES[currentCode] || null;
+    const incoming = REASON_CODES[incomingCode] || null;
+    if (!current || !incoming) return false;
+    const relaxes = current.approveAllowed === false && incoming.approveAllowed === true;
+    return !(relaxes && current.category !== 'escalation');
+  }
+
   /**
    * Record a decision and update the session.
    * All legacy fields are synchronized for existing compatibility.
@@ -65,6 +97,12 @@ export class VerificationDecisionRecorder {
       if (!reasonConfig) {
         throw new ValidationError(`Unknown reason code: ${reasonCode}`);
       }
+    }
+    // Any reason a reviewer supplies must be a KNOWN code. getReasonConfig() maps an unknown code to
+    // OTHER, which is approvable — so an unvalidated code on an escalation or a note was a way to turn
+    // a typo, or anything at all, into an approvable reason (PC01-F F1).
+    if (reasonCode && !Object.hasOwn(REASON_CODES, reasonCode)) {
+      throw new ValidationError(`Unknown reason code: ${reasonCode}`);
     }
 
     // Validate applicant message for resubmission
@@ -195,7 +233,7 @@ export class VerificationDecisionRecorder {
     if (disposition) {
       sessionUpdate.final_disposition = disposition;
     }
-    if (reasonCode) {
+    if (reasonCode && VerificationDecisionRecorder.mayChangePrimaryReason(action, session.primary_reason_code, reasonCode)) {
       sessionUpdate.primary_reason_code = reasonCode;
     }
 

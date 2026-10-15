@@ -129,6 +129,27 @@ const TEMPLATES = Object.freeze({
     subject: 'Shipping request {{reference}}',
     body: 'Shipping request {{reference}} update: {{status}}. Route: {{route}}.',
   },
+  // Trade OS T9 — the durable intake payload already contains the public reference and a bounded
+  // factual headline. It deliberately has no route or commercial conclusion.
+  warehouse_intake_update_v1: {
+    transactional: true,
+    subject: 'Warehouse intake {{reference}}',
+    body: '{{headline}} Reference: {{reference}}.',
+  },
+  // Trade OS T10 — loading is not departure. This repeats only the headline recorded by the load
+  // event and its reference; no sailing, customs or payment state is inferred.
+  container_loading_update_v1: {
+    transactional: true,
+    subject: 'Container loading {{reference}}',
+    body: '{{headline}} Reference: {{reference}}.',
+  },
+  // Trade OS T7 — the shipment authority recorded an exception stage. Optional operator notes are
+  // not part of the governed rendering contract.
+  shipment_exception_v1: {
+    transactional: true,
+    subject: 'Shipment exception {{reference}}',
+    body: 'Shipment {{reference}} stage: {{stage}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',
@@ -164,4 +185,3 @@ export class CommunicationTemplateService {
     return Object.keys(TEMPLATES);
   }
 }
-

@@ -118,7 +118,22 @@ export class TrustEnforcementEngine {
     if (!assessment.match) {
       const penalties = assessment.penalties;
       const totalPenalty = assessment.totalPenalty;
-      const originalScore = assessment.vehicleTrustScore || 80.0;
+      const originalScore = assessment.vehicleTrustScore == null ? null : Number(assessment.vehicleTrustScore);
+      if (!Number.isFinite(originalScore)) {
+        logger.warn('TRUST_ENGINE', 'Mismatch observed but no measured vehicle Trust score exists; refusing to invent a baseline.', {
+          vin,
+          penalties,
+          totalPenalty,
+        });
+        metricsHub.recordTrustMismatch();
+        return {
+          match: false,
+          penalties,
+          totalPenalty,
+          newScore: null,
+          trustMutation: 'not_applied_unscored',
+        };
+      }
       const newScore = Math.max(0.0, originalScore - totalPenalty);
 
       logger.warn('TRUST_ENGINE', `Mismatch detected! Degrading vehicle trust: ${originalScore} -> ${newScore} (Penalty: -${totalPenalty})`, {
@@ -209,7 +224,14 @@ export class TrustEnforcementEngine {
         metricsHub.recordReputationDegradation();
         
         for (const v of vehicles) {
-          const baseScore = v.trust_score || 80.0;
+          const baseScore = v.trust_score == null ? null : Number(v.trust_score);
+          if (!Number.isFinite(baseScore)) {
+            logger.warn('TRUST_ENGINE', 'Skipping stakeholder risk propagation for an unscored vehicle; no baseline may be invented.', {
+              vin: v.vin,
+              stakeholderId,
+            });
+            continue;
+          }
           const penalty = baseScore * degradationMultiplier;
           const finalScore = Math.max(0.0, parseFloat((baseScore - penalty).toFixed(1)));
 

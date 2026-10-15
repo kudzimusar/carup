@@ -1,3 +1,5 @@
+import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
+
 /**
  * Fail-closed enablement gates for the registry source adapters — Workstream 12.
  *
@@ -10,15 +12,16 @@
  * Per-provider override: SOURCE_<PROVIDER>_ENABLED = '1' | '0'.
  */
 export function buildFlagGates(env = process.env) {
-  const isProduction = (env.NODE_ENV === 'production') || (env.CARUP_ENV === 'production');
-  const liveAllowed = env.SOURCE_VERIFICATION_LIVE === '1';
+  const deployed = isProductionLikeRuntime(env);
 
   const gateFor = (provider) => () => {
+    // Every adapter registered today is sandbox/demonstration-only. No flag can turn one into
+    // registry truth in staging/preview/production. A future live adapter needs its own selector.
+    if (deployed) return false;
     const explicit = env[`SOURCE_${provider.toUpperCase()}_ENABLED`];
     if (explicit === '1') return true;
     if (explicit === '0') return false;
-    // Default: enabled outside production; in production only when live is allowed.
-    return isProduction ? liveAllowed : true;
+    return true;
   };
 
   return {

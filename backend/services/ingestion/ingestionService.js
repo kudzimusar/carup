@@ -11,6 +11,7 @@
  */
 import crypto from 'crypto';
 import { computePerceptualHash } from '../evidence/perceptualHash.js';
+import { isPrivateByTypeRow } from '../evidence/evidenceTaxonomy.js';
 import { recordProvenanceEvent } from '../evidence/provenanceService.js';
 import { logger } from '../../utils/logger.js';
 import { resolveIdentity } from './identityResolution.js';
@@ -171,8 +172,24 @@ export async function processRecord(supabase, { provider, job, raw, lookups }) {
   }
 
   // Import assets as evidence with provenance.
+  //
+  // OC-5R-REL-01: an asset that is PRIVATE BY TYPE (an odometer photo) is not imported. This path
+  // records the provider's own URL under the public image bucket and stores no bytes, so it cannot
+  // hold such a photo privately; it is skipped and logged rather than published under a private
+  // meaning. A partner odometer image has to arrive through a path that stores it privately.
   let assetCount = 0;
   for (const asset of normalized.assets || []) {
+    const assetClassification = {
+      evidence_class: asset.evidence_class || normalized.evidence_class || 'auction',
+      evidence_subtype: asset.evidence_subtype || normalized.evidence_subtype || null,
+      evidence_type: asset.legacy_evidence_type || 'auction_photo',
+    };
+    if (isPrivateByTypeRow(assetClassification)) {
+      logger.warn('[ingestion] private-by-type asset not imported (no private storage on this path)', {
+        adapter: provider?.id ?? null, source_record_id: sourceRecordId, ...assetClassification,
+      });
+      continue;
+    }
     await importAssetAsEvidence(supabase, { provider, vin, sourceId, sourceRecordId, normalized, asset });
     assetCount += 1;
   }
