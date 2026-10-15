@@ -217,7 +217,10 @@ test('R1 mutation guards kill every requested temporal-authority regression clas
     -- removed corporate_authority_finalize(
       p_actor_user_id, p_actor_session_id, v_subject, v_node, v_caps,`)],
     ['omit DECIDE request serialization',
-      sql.replace('FROM public.corporate_membership_requests WHERE request_id = p_request_id FOR UPDATE;', 'FROM public.corporate_membership_requests WHERE request_id = p_request_id;', 1)],
+      (() => {
+        const body = phaseCFunction(sql, 'corporate_authority_request_decide');
+        return sql.replace(body, body.replace('FOR UPDATE;', ';'));
+      })()],
     ['omit EXECUTE request serialization',
       (() => {
         const body = phaseCFunction(sql, 'corporate_authority_request_execute');
