@@ -967,6 +967,13 @@ test('time: an assignment window is judged against the WALL CLOCK and a governed
   assert.match(String(held.result.mutation.error), /CORPORATE_GOVERNANCE\/AUTHORITY_DENIED/, 'and so does the mutation entry point: an expired grant authorizes nothing');
   assert.equal((await owner(db, `SELECT count(*)::int AS n FROM corporate_memberships WHERE user_id = 'm-eve'`))[0].n, 0, 'nothing was created');
 
+  // A granted decision's timestamp is the ACTUAL decision wall clock, not transaction start.
+  const stamped = await heldTransaction(db, 650, async (tx) => (await tx.query(evalSql, ['g-alice', 'm-eve', NODE, [MANAGE]])).rows[0].r);
+  assert.equal(stamped.result.decision, 'granted');
+  const decidedMs = Date.parse(stamped.result.decided_at);
+  assert.ok(decidedMs - (+stamped.pinned) >= 500, 'decided_at advanced with wall time rather than transaction-pinned now()');
+  assert.ok(Math.abs(decidedMs - (+stamped.clock.w)) < 1000, 'decided_at is close to the actual wall clock at evaluation');
+
   // the bound: a transaction older than corporate_authority_max_transaction_age() is refused outright, even for a fully authorised governor with a fresh A1 session
   assert.equal((await owner(db, 'SELECT public.corporate_authority_max_transaction_age()::text AS v'))[0].v, '00:00:05');
   const stale = await heldTransaction(db, 5400, async (tx) => tx.query(createSql, ['g-alice', alice]).then((r) => r.rows[0].r, (e) => ({ error: String(e.message) })));
