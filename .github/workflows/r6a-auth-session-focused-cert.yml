@@ -69,7 +69,7 @@ jobs:
     env:
       NODE_ENV: test
       EXPO_PUBLIC_API_URL: https://staging.example.invalid
-      CANDIDATE_SHA: 0bef036b9e508e852bcbebdb09db8a681bc282bf
+      CANDIDATE_SHA: 1dd189b98d0590bd7b92a0533f376fb446a2bb9a
       BASE_SHA: 266c9c7608ab3476d188132ef4b3f6503c606830
     steps:
       - uses: actions/checkout@v4
