@@ -3,44 +3,38 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const secureStore = new Map<string, string>();
-const events: string[] = [];
-let failSecureDeletes = false;
-
-const secureDelete = vi.fn(async (key: string) => {
-  events.push(`secure-delete:${key}`);
-  if (failSecureDeletes) throw new Error('secure store unavailable');
-  secureStore.delete(key);
-});
+const mocks = vi.hoisted(() => ({
+  secureStore: new Map<string, string>(),
+  events: [] as string[],
+  flags: { failSecureDeletes: false },
+  secureDelete: vi.fn(),
+  verificationClear: vi.fn(),
+  governanceRefresh: vi.fn(async () => undefined),
+  releasePushRegistration: vi.fn(),
+}));
 
 vi.mock('expo-secure-store', () => ({
-  getItemAsync: vi.fn(async (key: string) => secureStore.get(key) ?? null),
+  getItemAsync: vi.fn(async (key: string) => mocks.secureStore.get(key) ?? null),
   setItemAsync: vi.fn(async (key: string, value: string) => {
-    secureStore.set(key, value);
+    mocks.secureStore.set(key, value);
   }),
-  deleteItemAsync: secureDelete,
+  deleteItemAsync: mocks.secureDelete,
 }));
 
-const verificationClear = vi.fn();
 vi.mock('../store/verificationStore', () => ({
   useVerificationStore: {
-    getState: () => ({ clear: verificationClear }),
+    getState: () => ({ clear: mocks.verificationClear }),
   },
 }));
 
-const governanceRefresh = vi.fn(async () => undefined);
 vi.mock('../store/featureGovernanceStore', () => ({
   useFeatureGovernanceStore: {
-    getState: () => ({ refresh: governanceRefresh }),
+    getState: () => ({ refresh: mocks.governanceRefresh }),
   },
 }));
 
-const releasePushRegistration = vi.fn(async () => {
-  events.push('push-release');
-  return { state: 'released' as const };
-});
 vi.mock('../utils/pushRegistration', () => ({
-  releasePushRegistration,
+  releasePushRegistration: mocks.releasePushRegistration,
 }));
 
 import { queryClient } from '../utils/queryClient';
@@ -72,23 +66,23 @@ function stubBackend(overrides: {
     calls.push({ url: href, init });
 
     if (href.includes('/api/security/csrf-token')) {
-      events.push('csrf');
+      mocks.events.push('csrf');
       if (overrides.throwOnCsrf) throw new Error('network down');
       return response(200, { csrfToken: 'csrf-r6a' });
     }
     if (href.includes('/api/auth/logout')) {
-      events.push('logout-post');
+      mocks.events.push('logout-post');
       return response(overrides.logoutStatus ?? 200, { success: overrides.logoutStatus ? overrides.logoutStatus < 400 : true });
     }
     if (href.includes('/api/auth/switch-role')) {
-      events.push('role-switch');
+      mocks.events.push('role-switch');
       return response(200, overrides.switchRoleBody ?? {
         token: 'token-a-role',
         user: { id: 'user-a', role: 'dealer', active_tenant_id: null, tenant_role: null },
       });
     }
     if (href.includes('/api/auth/active-tenant')) {
-      events.push('tenant-switch');
+      mocks.events.push('tenant-switch');
       return response(200, overrides.tenantBody ?? {
         user: { active_tenant_id: 'tenant-2', tenant_role: 'dealer', tenant_context: 'selected' },
       });
@@ -101,13 +95,27 @@ function stubBackend(overrides: {
 beforeEach(() => {
   process.env.EXPO_PUBLIC_API_URL = 'https://staging.example.test';
   vi.unstubAllGlobals();
-  secureStore.clear();
-  events.length = 0;
-  failSecureDeletes = false;
-  secureDelete.mockClear();
-  releasePushRegistration.mockClear();
-  verificationClear.mockClear();
-  governanceRefresh.mockClear();
+  mocks.secureStore.clear();
+  mocks.events.length = 0;
+  mocks.flags.failSecureDeletes = false;
+
+  mocks.secureDelete.mockReset();
+  mocks.secureDelete.mockImplementation(async (key: string) => {
+    mocks.events.push(`secure-delete:${key}`);
+    if (mocks.flags.failSecureDeletes) throw new Error('secure store unavailable');
+    mocks.secureStore.delete(key);
+  });
+
+  mocks.releasePushRegistration.mockReset();
+  mocks.releasePushRegistration.mockImplementation(async () => {
+    mocks.events.push('push-release');
+    return { state: 'released' as const };
+  });
+
+  mocks.verificationClear.mockClear();
+  mocks.governanceRefresh.mockClear();
+  mocks.governanceRefresh.mockImplementation(async () => undefined);
+
   queryClient.clear();
   useAuthStore.setState({
     user: null,
@@ -144,8 +152,8 @@ describe('current-session server logout', () => {
 describe('logout identity boundary', () => {
   it('releases push, attempts server revocation while the token exists, then clears local auth + cache + PII state', async () => {
     const calls = stubBackend();
-    secureStore.set('carup_secure_user', JSON.stringify(USER_A));
-    secureStore.set('carup_secure_token', 'token-a');
+    mocks.secureStore.set('carup_secure_user', JSON.stringify(USER_A));
+    mocks.secureStore.set('carup_secure_token', 'token-a');
     useAuthStore.setState({ user: USER_A, token: 'token-a', isAuthenticated: true });
     queryClient.setQueryData(['private', 'account'], { owner: 'A-only' });
 
@@ -156,20 +164,20 @@ describe('logout identity boundary', () => {
     expect(state.user).toBeNull();
     expect(state.token).toBeNull();
     expect(queryClient.getQueryData(['private', 'account'])).toBeUndefined();
-    expect(secureStore.has('carup_secure_user')).toBe(false);
-    expect(secureStore.has('carup_secure_token')).toBe(false);
-    expect(verificationClear).toHaveBeenCalledOnce();
-    expect(governanceRefresh).toHaveBeenCalled();
+    expect(mocks.secureStore.has('carup_secure_user')).toBe(false);
+    expect(mocks.secureStore.has('carup_secure_token')).toBe(false);
+    expect(mocks.verificationClear).toHaveBeenCalledOnce();
+    expect(mocks.governanceRefresh).toHaveBeenCalled();
 
     const post = calls.find((call) => call.url.includes('/api/auth/logout'));
     expect(post).toBeTruthy();
-    expect(events.indexOf('push-release')).toBeLessThan(events.indexOf('logout-post'));
-    expect(events.indexOf('logout-post')).toBeLessThan(events.findIndex((event) => event.startsWith('secure-delete:')));
+    expect(mocks.events.indexOf('push-release')).toBeLessThan(mocks.events.indexOf('logout-post'));
+    expect(mocks.events.indexOf('logout-post')).toBeLessThan(mocks.events.findIndex((event) => event.startsWith('secure-delete:')));
   });
 
   it('always completes local sign-out when backend and SecureStore cleanup fail', async () => {
     stubBackend({ throwOnCsrf: true });
-    failSecureDeletes = true;
+    mocks.flags.failSecureDeletes = true;
     useAuthStore.setState({ user: USER_A, token: 'token-a', isAuthenticated: true });
     queryClient.setQueryData(['private', 'account'], { owner: 'A-only' });
 
@@ -179,9 +187,9 @@ describe('logout identity boundary', () => {
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
     expect(queryClient.getQueryData(['private', 'account'])).toBeUndefined();
-    expect(secureDelete).toHaveBeenCalledTimes(2);
-    expect(verificationClear).toHaveBeenCalledOnce();
-    expect(governanceRefresh).toHaveBeenCalled();
+    expect(mocks.secureDelete).toHaveBeenCalledTimes(2);
+    expect(mocks.verificationClear).toHaveBeenCalledOnce();
+    expect(mocks.governanceRefresh).toHaveBeenCalled();
   });
 
   it('A logout -> anonymous -> B login cannot reuse A cached data', async () => {
