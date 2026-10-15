@@ -166,7 +166,9 @@ function temporalInvariantViolations(sql) {
     failures.push('final A1 wall clock');
   }
   const evaluatorBody = phaseCFunction(sql, 'corporate_authority_evaluate');
-  if (!evaluatorBody.includes("'decided_at', to_char(v_now AT TIME ZONE 'UTC'") || evaluatorBody.includes("'decided_at', to_char(now()")) {
+  if (!evaluatorBody.includes('v_now timestamptz := clock_timestamp()')
+      || !evaluatorBody.includes("'decided_at', to_char(v_now AT TIME ZONE 'UTC'")
+      || evaluatorBody.includes("'decided_at', to_char(now()")) {
     failures.push('decision timestamp wall clock');
   }
   const wrapperFinalizeCalls = (sql.match(/:=\s*public\.corporate_authority_finalize\(/g) ?? []).length;
@@ -186,17 +188,27 @@ test('R1 mutation guards kill every requested temporal-authority regression clas
     RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE' USING DETAIL = 'a governed call must run in a fresh transaction: time rules are judged against the transaction start';
   END IF;`, '')],
     ['move require stale gate before a blocking membership lock',
-      sql.replace(
-        `  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+      (() => {
+        const body = phaseCFunction(sql, 'corporate_authority_require');
+        const stale = `  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
     RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE' USING DETAIL = 'a governed call must run in a fresh transaction: time rules are judged against the transaction start';
-  END IF;`,
-        `  -- mutant: stale gate moved before membership serialization
-  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
-    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE';
-  END IF;`)
-         .replace('  FOR r IN\n', '  -- mutant blocking point follows the stale gate\n  FOR r IN\n')],
+  END IF;
+
+`;
+        const without = body.replace(stale, '');
+        const moved = without.replace('  FOR r IN\n', stale + '  FOR r IN\n');
+        return sql.replace(body, moved);
+      })()],
+    ['change evaluator wall-clock authority time back to transaction time',
+      (() => {
+        const body = phaseCFunction(sql, 'corporate_authority_evaluate');
+        return sql.replace(body, body.replace('v_now timestamptz := clock_timestamp();', 'v_now timestamptz := now();'));
+      })()],
     ['change final A1 back to transaction time',
-      sql.replace('v_now timestamptz := clock_timestamp();', 'v_now timestamptz := now();')],
+      (() => {
+        const body = phaseCFunction(sql, 'corporate_authority_assert_a1_wall_clock');
+        return sql.replace(body, body.replace('v_now timestamptz := clock_timestamp();', 'v_now timestamptz := now();'));
+      })()],
     ['bypass final rollback-producing validation on CREATE',
       sql.replace(
         `    v_decision := public.corporate_authority_finalize(
