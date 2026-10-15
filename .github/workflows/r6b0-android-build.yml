@@ -1,0 +1,130 @@
+name: R6-B0 Android Exact Pairing
+
+on:
+  push:
+    branches:
+      - evidence/r6b0-exact-pairing
+    paths:
+      - '.github/workflows/r6b0-android-build.yml'
+
+permissions:
+  contents: read
+
+env:
+  NATIVE_SHA: 1dd189b98d0590bd7b92a0533f376fb446a2bb9a
+  BACKEND_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  BACKEND_DEPLOYMENT_ID: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
+  SUPABASE_PROJECT: eoyenigwevnxwwhyhaer
+  EXTERNAL_SENDS: disabled
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.NATIVE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Exact native custody and prebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$NATIVE_SHA"
+          npm ci
+          cd mobile
+          npx expo prebuild --platform android --clean --no-install
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build, install, and prove anonymous login
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          R6B0_ANDROID_SCRIPT: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/r6b0-android"
+            mkdir -p "$OUT"
+            DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
+            test -n "$DEVICE_ID"
+            DEVICE_NAME="$(adb shell getprop ro.product.model | tr -d '\r')"
+            API_LEVEL="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+
+            cd mobile/android
+            BUILD_OK=false
+            for attempt in 1 2 3; do
+              if [ "$attempt" -eq 1 ]; then
+                ./gradlew assembleRelease --no-daemon && BUILD_OK=true && break
+              else
+                ./gradlew assembleRelease --no-daemon --refresh-dependencies && BUILD_OK=true && break
+              fi
+              sleep $((attempt * 10))
+            done
+            test "$BUILD_OK" = true
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            test -n "$APK"
+
+            mkdir -p "$RUNNER_TEMP/apk-unpack"
+            unzip -q "$APK" -d "$RUNNER_TEMP/apk-unpack"
+            grep -R -a -m1 -F "$EXPO_PUBLIC_API_URL" "$RUNNER_TEMP/apk-unpack" >/dev/null
+
+            adb install "$APK"
+            adb shell pm clear com.carup.mobile >/dev/null
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile >/dev/null
+            sleep 4
+
+            export MAESTRO_VERSION=2.11.0
+            curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
+            "$HOME/.maestro/bin/maestro" --device "$DEVICE_ID" test - <<'YAML'
+            appId: com.carup.mobile
+            ---
+            - assertVisible: "Sign in to CarUp"
+            - assertVisible: "Email"
+            - assertVisible: "Password"
+            - assertVisible: "Sign in"
+            YAML
+
+            adb exec-out screencap -p > "$OUT/login-anonymous.png"
+            cp "$APK" "$OUT/CarUp-R6B0-Android.apk"
+            cat > "$OUT/custody.json" <<EOF
+            {
+              "native_source_sha":"$NATIVE_SHA",
+              "backend_source_sha":"$BACKEND_SHA",
+              "backend_deployment_id":"$BACKEND_DEPLOYMENT_ID",
+              "backend_deployment_url":"$EXPO_PUBLIC_API_URL",
+              "supabase_project":"$SUPABASE_PROJECT",
+              "external_sends":"$EXTERNAL_SENDS",
+              "auth_state":"anonymous",
+              "platform":"android-emulator",
+              "device":"$DEVICE_NAME",
+              "os_api":"Android API $API_LEVEL",
+              "java":"$(java -version 2>&1 | head -n 1 | sed 's/"/\\"/g')",
+              "node":"$(node --version)",
+              "api_base_embedded":"$EXPO_PUBLIC_API_URL",
+              "login_screen_proven":"YES",
+              "credential_entry_performed":"NO",
+              "recording_stopped_before_owner_login":"YES"
+            }
+            EOF
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash -c "$R6B0_ANDROID_SCRIPT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r6b0-android-emulator-${{ env.NATIVE_SHA }}
+          path: ${{ runner.temp }}/r6b0-android
+          if-no-files-found: error
+          retention-days: 30
