@@ -9,13 +9,13 @@
 //   cd backend/tests/realpg
 //   npm install
 //   node ca-k3-auth-04-r1-temporal-realpg.mjs
-import EmbeddedPostgres from 'embedded-postgres';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 const DATA_DIR = fileURLToPath(new URL('./.pgdata-ca-k3-auth-04-r1', import.meta.url));
 const PORT = 54461;
+const EXTERNAL_DATABASE_URL = process.env.CA_R1_DATABASE_URL || '';
 const PHASE_A = fileURLToPath(new URL('../../../database/migrations/20261014010000_ca_k3_auth_02_corporate_membership_foundation.sql', import.meta.url));
 const PHASE_B = fileURLToPath(new URL('../../../database/migrations/20261014020000_ca_k3_auth_03_corporate_membership_governance.sql', import.meta.url));
 const PHASE_C = fileURLToPath(new URL('../../../database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql', import.meta.url));
@@ -40,7 +40,9 @@ const upBlock = (path) => {
   return (idx >= 0 ? raw.slice(0, idx) : raw).replace('-- +migrate Up', '');
 };
 const connect = async (role = null) => {
-  const client = new pg.Client({ host: '127.0.0.1', port: PORT, user: 'postgres', password: 'postgres', database: 'postgres' });
+  const client = new pg.Client(EXTERNAL_DATABASE_URL
+    ? { connectionString: EXTERNAL_DATABASE_URL }
+    : { host: '127.0.0.1', port: PORT, user: 'postgres', password: 'postgres', database: 'postgres' });
   await client.connect();
   if (role) await client.query(`SET ROLE ${role}`);
   await client.query(`SET lock_timeout = '8s'; SET statement_timeout = '15s'`);
@@ -206,14 +208,18 @@ async function shortQueuedExpiry(label, blocker, call, releaseBlocker, expectedE
   await verify(result);
 }
 
-const epg = new EmbeddedPostgres({ databaseDir: DATA_DIR, user: 'postgres', password: 'postgres', port: PORT, persistent: false });
+let epg = null;
 const clients = [];
 const openClient = async (role = null) => { const c = await connect(role); clients.push(c); return c; };
 
 async function main() {
-  await epg.initialise();
-  await epg.start();
-  await epg.createDatabase('postgres').catch(() => {});
+  if (!EXTERNAL_DATABASE_URL) {
+    const { default: EmbeddedPostgres } = await import('embedded-postgres');
+    epg = new EmbeddedPostgres({ databaseDir: DATA_DIR, user: 'postgres', password: 'postgres', port: PORT, persistent: false });
+    await epg.initialise();
+    await epg.start();
+    await epg.createDatabase('postgres').catch(() => {});
+  }
 
   const admin = await openClient();
   await admin.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
@@ -249,7 +255,9 @@ async function main() {
   await admin.query('RESET ROLE');
 
   const version = (await admin.query('SHOW server_version')).rows[0].server_version;
-  rec('real PostgreSQL booted (not PGlite / not a mock)', Boolean(version), `server_version=${version}`);
+  const pgMajor = Number.parseInt(String(version).split('.')[0], 10);
+  rec('real PostgreSQL booted (not PGlite / not a mock)', Boolean(version),
+    `server_version=${version}; source=${EXTERNAL_DATABASE_URL ? 'external disposable service' : 'embedded'}`);
 
   const owner = await openClient('mig_owner');
   const service = await openClient('service_role');
@@ -263,7 +271,7 @@ async function main() {
     acl[role] = {};
     for (const rel of ['corporate_permission_assignments','corporate_permission_assignment_events','corporate_permission_assignment_effective']) {
       const held = [];
-      for (const p of ['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) {
+      for (const p of ['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER', ...(pgMajor >= 17 ? ['MAINTAIN'] : [])]) {
         if ((await admin.query('SELECT has_table_privilege($1,$2,$3) ok', [role, `public.${rel}`, p])).rows[0].ok) held.push(p);
       }
       acl[role][rel] = held;
@@ -508,5 +516,5 @@ main().catch((e)=>{
   process.exitCode=2;
 }).finally(async()=>{
   for(const c of clients.reverse()) await c.end().catch(()=>{});
-  await epg.stop().catch(()=>{});
+  if (epg) await epg.stop().catch(()=>{});
 });
