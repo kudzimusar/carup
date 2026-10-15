@@ -37,6 +37,13 @@
 -- Data classification, geography and delegation are not modelled yet: only the two capabilities Phase B needs can be assigned.
 -- A2 does not exist: an assignment whose floor is A2_STRONG is stored but inert. Never applied to staging or Production here.
 --
+-- TIME. PostgreSQL pins now() at the START of the transaction. Every time rule must therefore be judged against the wall clock, and no
+-- time rule below the entry points may be judged against an old instant: the assignment and membership windows here use clock_timestamp(),
+-- and the entry points refuse to run in a transaction older than corporate_authority_max_transaction_age() (5 s) — which bounds the
+-- Phase-B rules that still read now() (the A1 window, the approval and request lifetimes, session expiry) without rewriting Phase B. A
+-- caller that holds a transaction open past a deadline and then calls is refused (TRANSACTION_STALE); an assignment whose period has
+-- really ended can not authorize inside such a transaction either. Proved on a real server, including a 31-minute real-time run.
+--
 -- Residual trust, stated plainly: the database proves that the NAMED account currently holds the authority and a live A1 session
 -- row; which human is behind that account is still established by the backend's session authentication. A holder of service_role can
 -- therefore act as an account that holds authority and has a live A1 session — but can no longer manufacture authority.
@@ -70,6 +77,17 @@ IMMUTABLE
 SET search_path = public, pg_temp
 AS $$
   SELECT ARRAY['corporate.people.membership.manage', 'corporate.people.session.revoke']::text[];
+$$;
+
+-- How old a transaction may be when a governed call reaches its authority check. A legitimate call is one RPC in its own short transaction
+-- (milliseconds); lock waits count, so a call that queued for seconds behind a revocation is asked to retry rather than judged against a stale clock.
+CREATE OR REPLACE FUNCTION public.corporate_authority_max_transaction_age()
+RETURNS interval
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT interval '5 seconds';
 $$;
 
 -- Does a scope (explicit nodes, optionally their descendants) cover THIS node? Explicit nodes only unless include_descendants is
@@ -384,7 +402,7 @@ CREATE TRIGGER corporate_permission_assignments_record_event
   FOR EACH ROW EXECUTE FUNCTION public.corporate_permission_assignment_events_record();
 
 -- ── The rows that can take part in a decision — and only those ───────────────────────────────────────────────────
--- ACTIVE · inside its effective period · the underlying membership is the subject's own, ACTIVE and effective · and the floor is one
+-- ACTIVE · inside its effective period (judged against the WALL CLOCK, never the transaction start) · the underlying membership is the subject's own, ACTIVE and effective · and the floor is one
 -- this platform can satisfy today (A1). An A2_STRONG floor is inert until a strong authenticator exists AND this view is deliberately
 -- revised. REQUESTED / APPROVED / SUSPENDED / REVOKED / EXPIRED rows are simply not here.
 CREATE OR REPLACE VIEW public.corporate_permission_assignment_effective WITH (security_invoker = true) AS
@@ -394,8 +412,8 @@ CREATE OR REPLACE VIEW public.corporate_permission_assignment_effective WITH (se
     FROM public.corporate_permission_assignments a
     JOIN public.corporate_memberships m ON m.membership_id = a.membership_id AND m.user_id = a.subject_user_id
    WHERE a.state = 'ACTIVE'
-     AND a.effective_from <= now() AND now() < a.effective_until
-     AND m.state = 'ACTIVE' AND m.effective_from <= now() AND (m.effective_until IS NULL OR now() < m.effective_until)
+     AND a.effective_from <= clock_timestamp() AND clock_timestamp() < a.effective_until
+     AND m.state = 'ACTIVE' AND m.effective_from <= clock_timestamp() AND (m.effective_until IS NULL OR clock_timestamp() < m.effective_until)
      AND a.assurance_floor = 'A1_RECENT_REAUTH';
 
 -- ── The trusted evaluator (read-only) ──────────────────────────────────────────────────────────────────────────
@@ -414,13 +432,14 @@ CREATE OR REPLACE FUNCTION public.corporate_authority_evaluate(
   p_target_membership_id uuid DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
-STABLE
+VOLATILE   -- reads the wall clock (clock_timestamp), never the transaction start; it still writes nothing and runs in a READ ONLY transaction
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_policy jsonb := public.corporate_governance_policy();
   v_manage text := v_policy->>'capability_membership_manage';
+  v_now timestamptz := clock_timestamp();
   v_caps text[];
   v_cap text;
   c record;
@@ -459,12 +478,12 @@ BEGIN
       -- Ordered checks; the first that fails is this assignment's reason. The assignment that got FURTHEST names the denial.
       IF c.state <> 'ACTIVE' THEN
         v_reason := 'STATE_' || c.state; v_rank := 0;
-      ELSIF NOT (c.effective_from <= now() AND now() < c.effective_until) THEN
+      ELSIF NOT (c.effective_from <= v_now AND v_now < c.effective_until) THEN
         v_reason := 'OUT_OF_WINDOW'; v_rank := 1;
       ELSIF NOT public.corporate_authority_scope_covers(c.scope_node_ids, c.include_descendants, p_org_node_id) THEN
         v_reason := 'OUT_OF_SCOPE'; v_rank := 2;
       ELSIF c.m_state IS DISTINCT FROM 'ACTIVE' OR c.m_user IS DISTINCT FROM c.subject_user_id
-            OR NOT (c.m_from <= now() AND (c.m_until IS NULL OR now() < c.m_until)) THEN
+            OR NOT (c.m_from <= v_now AND (c.m_until IS NULL OR v_now < c.m_until)) THEN
         v_reason := 'MEMBERSHIP_NOT_EFFECTIVE'; v_rank := 3;
       ELSIF c.assurance_floor IS DISTINCT FROM 'A1_RECENT_REAUTH' THEN
         v_reason := 'ASSURANCE_FLOOR_UNMET'; v_rank := 4;
@@ -585,6 +604,12 @@ BEGIN
       PERFORM 1 FROM public.corporate_memberships WHERE membership_id = r.membership_id FOR SHARE;
     END IF;
   END LOOP;
+
+  -- Judged AFTER the locks, so time spent queueing counts. now() is the transaction START: if it is older than the bound, every Phase-B time rule the
+  -- procedure below is about to apply (A1 window, approval / request lifetime, session expiry) would be judged against an old instant.
+  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE' USING DETAIL = 'a governed call must run in a fresh transaction: time rules are judged against the transaction start';
+  END IF;
 
   v_decision := public.corporate_authority_evaluate(p_actor_user_id, p_subject_user_id, p_org_node_id, p_capabilities, p_need_continuity, p_target_membership_id);
   IF v_decision->>'decision' IS DISTINCT FROM 'granted' THEN
@@ -788,6 +813,7 @@ GRANT SELECT ON TABLE public.corporate_permission_assignment_effective TO servic
 
 REVOKE ALL ON FUNCTION public.corporate_authority_grantable_capabilities() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_authority_scope_covers(text[], boolean, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_authority_max_transaction_age() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_permission_assignments_guard() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_permission_assignment_events_guard() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_permission_assignment_events_record() FROM PUBLIC, anon, authenticated, service_role;
@@ -838,4 +864,5 @@ DROP FUNCTION IF EXISTS public.corporate_permission_assignment_events_record();
 DROP FUNCTION IF EXISTS public.corporate_permission_assignment_events_guard();
 DROP FUNCTION IF EXISTS public.corporate_permission_assignments_guard();
 DROP FUNCTION IF EXISTS public.corporate_authority_scope_covers(text[], boolean, text);
+DROP FUNCTION IF EXISTS public.corporate_authority_max_transaction_age();
 DROP FUNCTION IF EXISTS public.corporate_authority_grantable_capabilities();

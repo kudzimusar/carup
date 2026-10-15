@@ -803,6 +803,58 @@ test('assignment revocation is observed on the NEXT decision for every operation
   }
 });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * What a caller with direct SQL can do: open a transaction, hold it, and only then call. PostgreSQL pins now() at the START of the transaction, so a time
+ * rule written against now() would be judged against the old instant. Runs `run` as service_role inside a transaction held for `holdMs`; always rolled back.
+ */
+async function heldTransaction(db, holdMs, run) {
+  await db.exec('SET ROLE service_role');
+  try {
+    await db.exec('BEGIN');
+    const pinned = (await db.query('SELECT now() AS n')).rows[0].n;
+    await sleep(holdMs);
+    const clock = (await db.query('SELECT now() AS n, clock_timestamp() AS w')).rows[0];
+    let result = null; let error = null;
+    try { result = await run(db); } catch (e) { error = String(e?.message ?? e); }
+    return { pinned, clock, result, error };
+  } finally { await db.exec('ROLLBACK').catch(() => {}); await db.exec(`SET ROLE ${OWNER}`); }
+}
+
+test('time: an assignment window is judged against the WALL CLOCK and a governed call must run in a YOUNG transaction — a transaction held open past a deadline cannot outlive it', async () => {
+  const { db } = await world(['g-alice', 'g-bob', 'g-carol']);
+  await ensureUsers(db, ['g-dave']);
+  await seedGovernor(db, 'g-dave', { untilOffsetMs: 1500, withRevoke: false });      // a grant that REALLY ends about a second and a half from now
+  const daveSession = await sess(db, 'g-dave');
+  const alice = await sess(db, 'g-alice');
+  const evalSql = 'SELECT public.corporate_authority_evaluate($1, $2, $3, $4::text[], false, NULL) AS r';
+  const createSql = `SELECT public.corporate_authority_apply_direct('CREATE', $1, $2, 'm-eve', '${NODE}', NULL, 'r', 'x', NULL, NULL, 'ROUTINE', NULL) AS r`;
+
+  // control: while the grant is live a fresh transaction authorizes
+  assert.equal((await evaluate(db, { actor: 'g-dave', subject: 'm-eve', node: NODE })).decision, 'granted');
+
+  // the attack: BEGIN while the grant is live, wait until it has really ended, then ask
+  const held = await heldTransaction(db, 1900, async (tx) => ({
+    preview: (await tx.query(evalSql, ['g-dave', 'm-eve', NODE, [MANAGE]])).rows[0].r,
+    mutation: await tx.query(createSql, ['g-dave', daveSession]).then((r) => r.rows[0].r, (e) => ({ error: String(e.message) })),
+  }));
+  assert.equal(+held.clock.n, +held.pinned, 'precondition: now() is pinned for the held transaction');
+  assert.ok(held.clock.w - held.pinned >= 1800, 'precondition: the wall clock has moved on');
+  assert.deepEqual([held.result.preview.decision, held.result.preview.denials[0].reason], ['denied', 'OUT_OF_WINDOW'], 'the evaluator judges the window by the wall clock');
+  assert.match(String(held.result.mutation.error), /CORPORATE_GOVERNANCE\/AUTHORITY_DENIED/, 'and so does the mutation entry point: an expired grant authorizes nothing');
+  assert.equal((await owner(db, `SELECT count(*)::int AS n FROM corporate_memberships WHERE user_id = 'm-eve'`))[0].n, 0, 'nothing was created');
+
+  // the bound: a transaction older than corporate_authority_max_transaction_age() is refused outright, even for a fully authorised governor with a fresh A1 session
+  assert.equal((await owner(db, 'SELECT public.corporate_authority_max_transaction_age()::text AS v'))[0].v, '00:00:05');
+  const stale = await heldTransaction(db, 5400, async (tx) => tx.query(createSql, ['g-alice', alice]).then((r) => r.rows[0].r, (e) => ({ error: String(e.message) })));
+  assert.match(String(stale.result.error), /CORPORATE_GOVERNANCE\/TRANSACTION_STALE/);
+  assert.equal((await owner(db, `SELECT count(*)::int AS n FROM corporate_memberships WHERE user_id = 'm-eve'`))[0].n, 0, 'nothing was created');
+
+  // …while a young held transaction, and an ordinary call, are not refused (the bound is not what stops the attack above)
+  const young = await heldTransaction(db, 300, async (tx) => tx.query(createSql, ['g-alice', alice]).then((r) => r.rows[0].r, (e) => ({ error: String(e.message) })));
+  assert.equal(young.result.outcome, 'EXECUTED', JSON.stringify(young));
+});
+
 test('SECURITY_COMPROMISE needs BOTH capabilities from persistent authority, each covering the node on its own; the session-revocation record is still required and the live-session refusal is unchanged', async () => {
   const db = await openDatabase({ migrate: 'all' });
   const manageOnly = await seedGovernor(db, 'g-alice', { withRevoke: false });

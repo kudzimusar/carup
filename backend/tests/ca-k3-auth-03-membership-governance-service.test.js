@@ -374,6 +374,8 @@ test('S2 authority cannot be supplied: a decision, snapshot, capability, grant, 
     ['governanceDecision', legacyDecision], ['governance_decision', legacyDecision], ['decisionSnapshot', legacyDecision], ['snapshot', {}],
     ['capabilities', [MANAGE]], ['capability', MANAGE], ['permissions', ['*']], ['permission', 'all'], ['grant', true], ['grants', []], ['roles', ['super_admin']],
     ['scope', { kind: 'GLOBAL' }], ['entitlements', []], ['assignment', {}], ['assignmentId', 'x'], ['authority', {}], ['provenance', {}], ['evaluator', {}], ['source', 'target_corporate_governance'],
+    // near-miss spellings are authority assertions too: any key that CONTAINS one of the words is refused, never silently ignored
+    ['scopeNode', 'BU_MARKETPLACE'], ['myRoles', ['super_admin']], ['grantedBy', 'g-alice'], ['evaluatorName', 'corporate_authority_evaluate'], ['resourceScope', 'GLOBAL'], ['capabilityList', [MANAGE]],
   ];
   const before = { rpc: client.calls.rpc.length, from: client.calls.from.length };
   for (const name of SERVICE_ENTRYPOINTS) {
@@ -1285,6 +1287,8 @@ test('S11 a database outage or a malformed answer is a denial, never a silent su
   // the database's own denial keeps its code and its reasons; a mangled DETAIL never turns a denial into anything else
   const grantId = governors['g-alice'].manageId;
   const detail = JSON.stringify([denial(MANAGE, 'STATE_REVOKED', grantId)]);
+  const staleTx = await thrown(svc.createPendingMembership(mutatingWith(async () => ({ data: null, error: { code: 'P0001', message: 'CORPORATE_GOVERNANCE/TRANSACTION_STALE', details: 'a governed call must run in a fresh transaction' } })), input));
+  assert.deepEqual([staleTx.code, staleTx.details.source], ['TRANSACTION_STALE', 'database'], 'a stale transaction keeps its own code: the caller retries in a fresh one');
   const denied = await thrown(svc.createPendingMembership(mutatingWith(async () => ({ data: null, error: { code: 'P0001', message: 'CORPORATE_GOVERNANCE/AUTHORITY_DENIED', details: detail } })), input));
   assert.deepEqual([denied.code, denialsOf(denied)], ['AUTHORITY_DENIED', [denial(MANAGE, 'STATE_REVOKED', grantId)]]);
   for (const details of ['{not json', '', null, '{"capability":"x"}', '[1,2]']) {

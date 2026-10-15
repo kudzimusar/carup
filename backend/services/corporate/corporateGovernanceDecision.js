@@ -159,11 +159,12 @@ export async function evaluateCorporateGovernanceAuthorization(client, { actorUs
 
 /**
  * Names that would mean a caller is trying to hand this layer an AUTHORITY instead of earning one from persistent assignments: a governance
- * decision, a snapshot, capabilities, a grant, a permission, a scope, a role, an assignment. Refused, never ignored — the same discipline the
- * service applies to a client-asserted assurance. (`governanceDecision` / `governance_decision` is exactly the field Phase B accepted, and is gone;
- * the checker's `decision: 'APPROVE' | 'REFUSE'` is a different thing and is parsed explicitly by the service.)
+ * decision, a snapshot, capabilities, a grant, a permission, a scope, a role, an assignment — in ANY spelling that contains them (`scopeNode`,
+ * `myRoles`, `grantedBy`, `evaluatorName`). Refused, never ignored — the same discipline the service applies to a client-asserted assurance.
+ * (`governanceDecision` / `governance_decision` is exactly the field Phase B accepted, and is gone; the checker's `decision: 'APPROVE' | 'REFUSE'`
+ * is a different thing and is parsed explicitly by the service. No field the service accepts contains any of these words.)
  */
-export const CLIENT_AUTHORITY_KEY = /^governance_?decision$|snapshot|^authority$|capabilit|^grants?$|permission|^scope$|^roles?$|entitle|assignment|provenance|^evaluator$|^source$/i;
+export const CLIENT_AUTHORITY_KEY = /governance_?decision|snapshot|authority|capabilit|grant|permission|scope|role|entitle|assignment|provenance|evaluator|source/i;
 export function assertNoClientAssertedAuthority(object, where = 'input') {
   if (object === null || typeof object !== 'object') return;
   for (const key of Object.keys(object)) {
