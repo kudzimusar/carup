@@ -80,19 +80,35 @@ jobs:
 
             adb install "$APK"
             adb shell pm clear com.carup.mobile >/dev/null
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile >/dev/null
-            sleep 4
+            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.carup.mobile | tr -d '\r' | tail -n 1)"
+            case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "Invalid launcher: $LAUNCH_COMPONENT"; exit 1 ;; esac
+            adb shell am start -W -n "$LAUNCH_COMPONENT" >/dev/null
+            sleep 5
 
             export MAESTRO_VERSION=2.11.0
+            export MAESTRO_CLI_NO_ANALYTICS=1
             curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
-            "$HOME/.maestro/bin/maestro" --device "$DEVICE_ID" test - <<'YAML'
+            cat > "$RUNNER_TEMP/r6b0-login.yaml" <<'YAML'
             appId: com.carup.mobile
             ---
-            - assertVisible: "Sign in to CarUp"
+            - extendedWaitUntil:
+                visible: "Profile"
+                timeout: 45000
+            - tapOn: "Profile"
+            - extendedWaitUntil:
+                visible: "Your CarUp account"
+                timeout: 15000
+            - tapOn:
+                text: "^Sign in$"
+            - extendedWaitUntil:
+                visible: "Sign in to CarUp"
+                timeout: 15000
             - assertVisible: "Email"
             - assertVisible: "Password"
-            - assertVisible: "Sign in"
+            - assertVisible:
+                text: "^Sign in$"
             YAML
+            "$HOME/.maestro/bin/maestro" --device "$DEVICE_ID" test "$RUNNER_TEMP/r6b0-login.yaml"
 
             adb exec-out screencap -p > "$OUT/login-anonymous.png"
             cp "$APK" "$OUT/CarUp-R6B0-Android.apk"
@@ -123,6 +139,7 @@ jobs:
           disable-animations: true
           script: bash -c "$R6B0_ANDROID_SCRIPT"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: r6b0-android-emulator-${{ env.NATIVE_SHA }}
           path: ${{ runner.temp }}/r6b0-android
