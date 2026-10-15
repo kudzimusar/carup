@@ -24,7 +24,7 @@ const NODE = 'BU_MARKETPLACE';
 const MANAGE = 'corporate.people.membership.manage';
 const MAX_AGE_MS = 5000;
 const LONG_WAIT_MS = 5400;
-const SHORT_EXPIRY_MS = 2300;
+const SHORT_EXPIRY_MS = 3600;
 const results = [];
 let refSeq = 0;
 
@@ -247,6 +247,7 @@ async function main() {
 
   const owner = await openClient('mig_owner');
   const service = await openClient('service_role');
+  const service2 = await openClient('service_role');
   const blocker = await openClient();
   const other = await openClient('mig_owner');
 
@@ -365,7 +366,7 @@ async function main() {
     });
 
   // Expiry while queued — assignment and membership are evaluated after the serialization wait.
-  const expAssignment = await seedGovernor(owner, 'g-exp-assignment', { assignmentUntilMs: 1300 });
+  const expAssignment = await seedGovernor(owner, 'g-exp-assignment', { assignmentUntilMs: 2800 });
   await ensureUsers(owner, ['m-exp-assignment']);
   const expAssignmentBefore=await countSubject(admin,'m-exp-assignment');
   await holdAdvisory(blocker,'m-exp-assignment');
@@ -375,7 +376,7 @@ async function main() {
     () => release(blocker), /AUTHORITY_DENIED|OUT_OF_WINDOW/,
     async()=>rec('assignment expiry commits zero mutation',JSON.stringify(await countSubject(admin,'m-exp-assignment'))===JSON.stringify(expAssignmentBefore)));
 
-  const expMembership = await seedGovernor(owner, 'g-exp-membership', { membershipUntilMs: 1300 });
+  const expMembership = await seedGovernor(owner, 'g-exp-membership', { membershipUntilMs: 2800 });
   await ensureUsers(owner, ['m-exp-membership']);
   const expMembershipBefore=await countSubject(admin,'m-exp-membership');
   await holdAdvisory(blocker,'m-exp-membership');
@@ -386,7 +387,7 @@ async function main() {
     async()=>rec('membership expiry commits zero mutation',JSON.stringify(await countSubject(admin,'m-exp-membership'))===JSON.stringify(expMembershipBefore)));
 
   // Session / A1 remain apparently fresh to frozen Phase B now(), so these specifically prove the FINAL wall-clock rollback boundary.
-  const expSession = await seedGovernor(owner, 'g-exp-session', { session: { expiresInMs: 1300 } });
+  const expSession = await seedGovernor(owner, 'g-exp-session', { session: { expiresInMs: 2800 } });
   await ensureUsers(owner, ['m-exp-session']);
   const expSessionBefore=await countSubject(admin,'m-exp-session');
   await holdAdvisory(blocker,'m-exp-session');
@@ -396,7 +397,7 @@ async function main() {
     () => release(blocker), /ASSURANCE_SESSION_INVALID/,
     async()=>rec('session expiry rolls back Phase-B writes',JSON.stringify(await countSubject(admin,'m-exp-session'))===JSON.stringify(expSessionBefore)));
 
-  const expA1 = await seedGovernor(owner, 'g-exp-a1', { session: { stepUpAgeMs: 899_000 } });
+  const expA1 = await seedGovernor(owner, 'g-exp-a1', { session: { stepUpAgeMs: 898_000 } });
   await ensureUsers(owner, ['m-exp-a1']);
   const expA1Before=await countSubject(admin,'m-exp-a1');
   await holdAdvisory(blocker,'m-exp-a1');
@@ -461,7 +462,7 @@ async function main() {
   rec('continuity precondition: ending one of four governors leaves at least two independent governors',
     cont.decision==='granted' && cont.governance_continuity?.remaining_independent_governors>=2,JSON.stringify(cont.governance_continuity));
   const endA=observed(direct(service,{op:'END',actor:ends[2].userId,session:ends[2].sessionId,subject:ends[0].userId,node:ROOT,membership:ends[0].membershipId}));
-  const endB=observed(direct(service,{op:'END',actor:ends[3].userId,session:ends[3].sessionId,subject:ends[1].userId,node:ROOT,membership:ends[1].membershipId}));
+  const endB=observed(direct(service2,{op:'END',actor:ends[3].userId,session:ends[3].sessionId,subject:ends[1].userId,node:ROOT,membership:ends[1].membershipId}));
   const [endRa,endRb]=await Promise.all([endA,endB]);
   const ended=(await admin.query('SELECT count(*)::int n FROM corporate_memberships WHERE membership_id=ANY($1::uuid[]) AND state=\'ENDED\'',
     [[ends[0].membershipId,ends[1].membershipId]])).rows[0].n;
