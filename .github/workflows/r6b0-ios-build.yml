@@ -71,7 +71,7 @@ jobs:
 
           export MAESTRO_VERSION=2.11.0
           curl -Ls https://get.maestro.mobile.dev | bash >/dev/null 2>&1
-          "$HOME/.maestro/bin/maestro" --device "$UDID" test - <<'YAML'
+          cat > "$RUNNER_TEMP/r6b0-login.yaml" <<'YAML'
           appId: com.carup.mobile
           ---
           - assertVisible: "Sign in to CarUp"
@@ -79,6 +79,7 @@ jobs:
           - assertVisible: "Password"
           - assertVisible: "Sign in"
           YAML
+          "$HOME/.maestro/bin/maestro" --device "$UDID" test "$RUNNER_TEMP/r6b0-login.yaml"
 
           xcrun simctl io "$UDID" screenshot "$OUT/login-anonymous.png"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/CarUp-R6B0-iOS-Simulator.app.zip"
