@@ -37,12 +37,13 @@
 -- Data classification, geography and delegation are not modelled yet: only the two capabilities Phase B needs can be assigned.
 -- A2 does not exist: an assignment whose floor is A2_STRONG is stored but inert. Never applied to staging or Production here.
 --
--- TIME. PostgreSQL pins now() at the START of the transaction. Every time rule must therefore be judged against the wall clock, and no
--- time rule below the entry points may be judged against an old instant: the assignment and membership windows here use clock_timestamp(),
--- and the entry points refuse to run in a transaction older than corporate_authority_max_transaction_age() (5 s) — which bounds the
--- Phase-B rules that still read now() (the A1 window, the approval and request lifetimes, session expiry) without rewriting Phase B. A
--- caller that holds a transaction open past a deadline and then calls is refused (TRANSACTION_STALE); an assignment whose period has
--- really ended can not authorize inside such a transaction either. Proved on a real server, including a 31-minute real-time run.
+-- TIME. PostgreSQL pins now() at the START of the transaction. Phase C therefore uses clock_timestamp() for current authority and
+-- pre-acquires every Phase-B serialization resource that can otherwise block after authority is checked: CREATE's advisory key, or the
+-- request row for DECIDE / EXECUTE / CANCEL. corporate_authority_require() then takes the assignment/membership locks, refuses a
+-- transaction older than corporate_authority_max_transaction_age() (5 s), and derives the trusted decision. The unchanged Phase-B
+-- procedure re-acquires only locks already owned by this transaction. Before any wrapper may return, corporate_authority_finalize()
+-- re-checks transaction age, A1/session freshness and persistent authority against the wall clock; failure raises and rolls back every
+-- Phase-B write in the transaction. Thus a queued call cannot carry pre-wait authority through an expired real-world deadline.
 --
 -- Residual trust, stated plainly: the database proves that the NAMED account currently holds the authority and a live A1 session
 -- row; which human is behind that account is still established by the backend's session authentication, and service_role can write
@@ -515,7 +516,7 @@ BEGIN
     'decision', 'granted',
     'source', v_policy->>'decision_source',
     'evaluator', jsonb_build_object('name', 'corporate_authority_evaluate', 'version', '1'),
-    'decided_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'decided_at', to_char(v_now AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
     'actor_user_id', p_actor_user_id,
     'subject_user_id', p_subject_user_id,
     'capabilities', to_jsonb(v_caps),
@@ -622,6 +623,105 @@ BEGIN
 END;
 $$;
 
+-- A1 re-check at the FINAL boundary. Phase B remains byte-identical and still uses transaction-pinned now(); this
+-- Phase-C helper deliberately does not. It is internal-only and runs after every possible Phase-B wait, so a session
+-- or password re-authentication that expires while the caller is queued cannot survive to commit.
+CREATE OR REPLACE FUNCTION public.corporate_authority_assert_a1_wall_clock(
+  p_session_id text,
+  p_user_id text)
+RETURNS timestamptz
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row public.user_sessions%ROWTYPE;
+  v_step timestamptz;
+  v_exp timestamptz;
+  v_now timestamptz := clock_timestamp();
+  v_policy jsonb := public.corporate_governance_policy();
+  v_ttl interval := ((v_policy->>'a1_ttl_seconds')::int) * interval '1 second';
+  v_skew interval := ((v_policy->>'clock_skew_seconds')::int) * interval '1 second';
+BEGIN
+  IF p_session_id IS NULL OR btrim(p_session_id) = '' OR p_user_id IS NULL OR btrim(p_user_id) = '' THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/ASSURANCE_A1_REQUIRED';
+  END IF;
+  SELECT * INTO v_row FROM public.user_sessions WHERE id = p_session_id;
+  IF NOT FOUND OR v_row.user_id IS DISTINCT FROM p_user_id OR v_row.is_valid IS NOT TRUE THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/ASSURANCE_SESSION_INVALID';
+  END IF;
+  BEGIN
+    v_exp := v_row.expires_at::timestamptz;
+    v_step := v_row.step_up_at::timestamptz;
+  EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/ASSURANCE_UNREADABLE';
+  END;
+  IF v_exp IS NULL OR v_exp <= v_now THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/ASSURANCE_SESSION_INVALID';
+  END IF;
+  IF v_row.step_up_method IS DISTINCT FROM 'password_reauth' OR v_step IS NULL THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/ASSURANCE_A1_REQUIRED';
+  END IF;
+  IF v_step > v_now + v_skew OR v_step < v_now - v_ttl THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/ASSURANCE_A1_REQUIRED';
+  END IF;
+  RETURN v_step;
+END;
+$$;
+
+-- Final rollback-producing boundary. The wrapper has already executed Phase B at this point, but it has not returned
+-- and the transaction has not committed. Any failure below raises through the SECURITY DEFINER wrapper, so all Phase-B
+-- membership/request/event writes are rolled back atomically.
+CREATE OR REPLACE FUNCTION public.corporate_authority_finalize(
+  p_actor_user_id text,
+  p_actor_session_id text,
+  p_subject_user_id text,
+  p_org_node_id text,
+  p_capabilities text[],
+  p_need_session_revoke boolean,
+  p_need_continuity boolean,
+  p_target_membership_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_decision jsonb;
+BEGIN
+  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE'
+      USING DETAIL = 'governed mutation exceeded the maximum transaction age before final authority validation';
+  END IF;
+
+  PERFORM public.corporate_authority_assert_a1_wall_clock(p_actor_session_id, p_actor_user_id);
+
+  v_decision := public.corporate_authority_evaluate(
+    p_actor_user_id, p_subject_user_id, p_org_node_id, p_capabilities,
+    p_need_continuity, p_target_membership_id);
+
+  IF v_decision->>'decision' IS DISTINCT FROM 'granted' THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/AUTHORITY_DENIED'
+      USING DETAIL = COALESCE((v_decision->'denials')::text, '[]');
+  END IF;
+
+  -- Reuse Phase B's frozen structural/continuity verifier on a decision that Phase C just derived.
+  PERFORM public.corporate_governance_check_decision(
+    v_decision, p_actor_user_id, p_subject_user_id, p_org_node_id,
+    COALESCE(p_need_session_revoke, FALSE), COALESCE(p_need_continuity, FALSE));
+
+  -- Nothing after this statement may block before the wrapper returns.
+  IF clock_timestamp() - now() > public.corporate_authority_max_transaction_age() THEN
+    RAISE EXCEPTION 'CORPORATE_GOVERNANCE/TRANSACTION_STALE'
+      USING DETAIL = 'governed mutation exceeded the maximum transaction age at the final commit boundary';
+  END IF;
+
+  RETURN v_decision;
+END;
+$$;
+
 -- ── The entry points service_role may execute: no decision comes from the caller ──────────────────────────────────
 -- Each resolves the (actor, subject, node) the governed Phase-B procedure will itself use, requires persistent authority for exactly
 -- that, and passes the decision it generated. If the tuple cannot be resolved (unknown membership / request / operation, missing
@@ -663,11 +763,24 @@ BEGIN
     v_caps := CASE WHEN COALESCE(p_classification, 'ROUTINE') = 'SECURITY_COMPROMISE'
                    THEN ARRAY[v_policy->>'capability_membership_manage', v_policy->>'capability_session_revoke']
                    ELSE ARRAY[v_policy->>'capability_membership_manage'] END;
+
+    -- Phase B takes this advisory lock for CREATE. Take it BEFORE the final trusted authority decision,
+    -- so Phase B's later acquisition is transaction-reentrant and cannot introduce a post-check wait.
+    IF p_operation = 'CREATE' THEN
+      PERFORM pg_advisory_xact_lock(hashtextextended('corporate_membership_create|' || v_subject || '|' || v_node, 0));
+    END IF;
+
     v_decision := public.corporate_authority_require(p_actor_user_id, v_subject, v_node, v_caps, p_operation = 'END',
                                                      CASE WHEN p_operation = 'CREATE' THEN NULL ELSE p_membership_id END, TRUE);
   END IF;
   v_result := public.corporate_membership_apply_direct(p_operation, p_actor_user_id, p_actor_session_id, p_subject_user_id, p_org_node_id,
                 p_membership_id, p_reason, p_reference, p_effective_from, p_effective_until, p_classification, p_session_revocation, v_decision);
+  IF v_decision IS NOT NULL THEN
+    v_decision := public.corporate_authority_finalize(
+      p_actor_user_id, p_actor_session_id, v_subject, v_node, v_caps,
+      COALESCE(p_classification, 'ROUTINE') = 'SECURITY_COMPROMISE', p_operation = 'END',
+      CASE WHEN p_operation = 'CREATE' THEN NULL ELSE p_membership_id END);
+  END IF;
   RETURN v_result || jsonb_build_object('authority', v_decision->'provenance');
 END;
 $$;
@@ -698,6 +811,11 @@ BEGIN
     v_decision := public.corporate_authority_require(p_requester_user_id, v_subject, v_node, ARRAY[v_policy->>'capability_membership_manage'], FALSE, p_membership_id, FALSE);
   END IF;
   v_result := public.corporate_membership_request_submit(p_operation, p_membership_id, p_requester_user_id, p_requester_session_id, p_reason, p_reference, v_decision);
+  IF v_decision IS NOT NULL THEN
+    v_decision := public.corporate_authority_finalize(
+      p_requester_user_id, p_requester_session_id, v_subject, v_node,
+      ARRAY[v_policy->>'capability_membership_manage'], FALSE, FALSE, p_membership_id);
+  END IF;
   RETURN v_result || jsonb_build_object('authority', v_decision->'provenance');
 END;
 $$;
@@ -725,13 +843,21 @@ DECLARE
   v_result jsonb;
 BEGIN
   IF p_request_id IS NOT NULL THEN
-    SELECT subject_user_id, org_node_id, membership_id INTO v_req FROM public.corporate_membership_requests WHERE request_id = p_request_id;
+    -- Phase B DECIDE takes this row FOR UPDATE. Own it before authority evaluation so its later
+    -- acquisition cannot wait after the transaction-age gate.
+    SELECT subject_user_id, org_node_id, membership_id INTO v_req
+      FROM public.corporate_membership_requests WHERE request_id = p_request_id FOR UPDATE;
   END IF;
   IF v_req.subject_user_id IS NOT NULL AND p_checker_user_id IS NOT NULL AND btrim(p_checker_user_id) <> '' THEN
     v_decision := public.corporate_authority_require(p_checker_user_id, v_req.subject_user_id, v_req.org_node_id, ARRAY[v_policy->>'capability_membership_manage'], FALSE, v_req.membership_id, FALSE);
   END IF;
   v_result := public.corporate_membership_request_decide(p_request_id, p_checker_user_id, p_checker_session_id, p_decision, p_reason,
                 p_expected_subject_user_id, p_expected_membership_id, p_expected_org_node_id, p_expected_operation, p_expected_binding_digest, v_decision);
+  IF v_decision IS NOT NULL THEN
+    v_decision := public.corporate_authority_finalize(
+      p_checker_user_id, p_checker_session_id, v_req.subject_user_id, v_req.org_node_id,
+      ARRAY[v_policy->>'capability_membership_manage'], FALSE, FALSE, v_req.membership_id);
+  END IF;
   RETURN v_result || jsonb_build_object('authority', v_decision->'provenance');
 END;
 $$;
@@ -753,12 +879,19 @@ DECLARE
   v_result jsonb;
 BEGIN
   IF p_request_id IS NOT NULL THEN
-    SELECT subject_user_id, org_node_id, membership_id INTO v_req FROM public.corporate_membership_requests WHERE request_id = p_request_id;
+    -- Phase B EXECUTE takes this row FOR UPDATE before inspecting the approval. Own it first.
+    SELECT subject_user_id, org_node_id, membership_id INTO v_req
+      FROM public.corporate_membership_requests WHERE request_id = p_request_id FOR UPDATE;
   END IF;
   IF v_req.subject_user_id IS NOT NULL AND p_executor_user_id IS NOT NULL AND btrim(p_executor_user_id) <> '' THEN
     v_decision := public.corporate_authority_require(p_executor_user_id, v_req.subject_user_id, v_req.org_node_id, ARRAY[v_policy->>'capability_membership_manage'], FALSE, v_req.membership_id, TRUE);
   END IF;
   v_result := public.corporate_membership_request_execute(p_request_id, p_executor_user_id, p_executor_session_id, p_expected_binding_digest, v_decision);
+  IF v_decision IS NOT NULL THEN
+    v_decision := public.corporate_authority_finalize(
+      p_executor_user_id, p_executor_session_id, v_req.subject_user_id, v_req.org_node_id,
+      ARRAY[v_policy->>'capability_membership_manage'], FALSE, FALSE, v_req.membership_id);
+  END IF;
   RETURN v_result || jsonb_build_object('authority', v_decision->'provenance');
 END;
 $$;
@@ -780,12 +913,19 @@ DECLARE
   v_result jsonb;
 BEGIN
   IF p_request_id IS NOT NULL THEN
-    SELECT subject_user_id, org_node_id, membership_id INTO v_req FROM public.corporate_membership_requests WHERE request_id = p_request_id;
+    -- Phase B CANCEL takes this row FOR UPDATE. Own it before authority evaluation.
+    SELECT subject_user_id, org_node_id, membership_id INTO v_req
+      FROM public.corporate_membership_requests WHERE request_id = p_request_id FOR UPDATE;
   END IF;
   IF v_req.subject_user_id IS NOT NULL AND p_actor_user_id IS NOT NULL AND btrim(p_actor_user_id) <> '' THEN
     v_decision := public.corporate_authority_require(p_actor_user_id, v_req.subject_user_id, v_req.org_node_id, ARRAY[v_policy->>'capability_membership_manage'], FALSE, v_req.membership_id, FALSE);
   END IF;
   v_result := public.corporate_membership_request_cancel(p_request_id, p_actor_user_id, p_actor_session_id, p_reason, v_decision);
+  IF v_decision IS NOT NULL THEN
+    v_decision := public.corporate_authority_finalize(
+      p_actor_user_id, p_actor_session_id, v_req.subject_user_id, v_req.org_node_id,
+      ARRAY[v_policy->>'capability_membership_manage'], FALSE, FALSE, v_req.membership_id);
+  END IF;
   RETURN v_result || jsonb_build_object('authority', v_decision->'provenance');
 END;
 $$;
@@ -821,6 +961,8 @@ REVOKE ALL ON FUNCTION public.corporate_permission_assignments_guard() FROM PUBL
 REVOKE ALL ON FUNCTION public.corporate_permission_assignment_events_guard() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_permission_assignment_events_record() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_authority_require(text, text, text, text[], boolean, uuid, boolean) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_authority_assert_a1_wall_clock(text, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.corporate_authority_finalize(text, text, text, text, text[], boolean, boolean, uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_authority_evaluate(text, text, text, text[], boolean, uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_authority_apply_direct(text, text, text, text, text, uuid, text, text, timestamptz, timestamptz, text, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.corporate_authority_request_submit(text, uuid, text, text, text, text) FROM PUBLIC, anon, authenticated, service_role;
@@ -858,6 +1000,8 @@ DROP FUNCTION IF EXISTS public.corporate_authority_request_execute(uuid, text, t
 DROP FUNCTION IF EXISTS public.corporate_authority_request_decide(uuid, text, text, text, text, text, uuid, text, text, text);
 DROP FUNCTION IF EXISTS public.corporate_authority_request_submit(text, uuid, text, text, text, text);
 DROP FUNCTION IF EXISTS public.corporate_authority_apply_direct(text, text, text, text, text, uuid, text, text, timestamptz, timestamptz, text, jsonb);
+DROP FUNCTION IF EXISTS public.corporate_authority_finalize(text, text, text, text, text[], boolean, boolean, uuid);
+DROP FUNCTION IF EXISTS public.corporate_authority_assert_a1_wall_clock(text, text);
 DROP FUNCTION IF EXISTS public.corporate_authority_require(text, text, text, text[], boolean, uuid, boolean);
 DROP FUNCTION IF EXISTS public.corporate_authority_evaluate(text, text, text, text[], boolean, uuid);
 DROP VIEW IF EXISTS public.corporate_permission_assignment_effective;
