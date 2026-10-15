@@ -143,7 +143,10 @@ function temporalInvariantViolations(sql) {
     ['corporate_authority_request_execute', 'corporate_membership_request_execute'],
     ['corporate_authority_request_cancel', 'corporate_membership_request_cancel'],
   ]) {
-    const body = phaseCFunction(sql, wrapper);
+    // Mutation checks must inspect executable SQL, not explanatory comments such as
+    // "Phase B ... takes this row FOR UPDATE". Otherwise removing the real row lock
+    // leaves the comment behind and creates a false surviving mutant.
+    const body = phaseCFunction(sql, wrapper).replace(/--.*$/gm, '');
     if (!ordered(body, ['FOR UPDATE', 'corporate_authority_require', phaseB, 'corporate_authority_finalize'])) {
       failures.push(`${wrapper} serialization/finalization order`);
     }
