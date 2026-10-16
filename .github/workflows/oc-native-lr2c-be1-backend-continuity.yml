@@ -97,6 +97,9 @@ jobs:
           node --test backend/tests/r6a-current-session-logout.test.js
           node --test backend/tests/auth-session-row.test.js
 
+      - name: Garage projection regression
+        run: node --test backend/tests/service-network-s9-garage-surfaces.test.js
+
       - name: Record BE1 exact-head receipt
         if: always()
         shell: bash
