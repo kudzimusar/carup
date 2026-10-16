@@ -1,5 +1,5 @@
 import { supabase } from '../db/supabase.js';
-import { resolveSessionByToken } from '../services/auth/sessionAuthority.js';
+import { resolveSessionAssuranceByToken } from '../services/auth/sessionAuthority.js';
 import {
   ACTION_CLASSES,
   deriveSessionAssurance,
@@ -39,7 +39,7 @@ export function requireAuthenticationAssurance(actionClass) {
       }
 
       const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-      const sessionRow = await resolveSessionByToken(supabase, token);
+      const sessionRow = await resolveSessionAssuranceByToken(supabase, token);
       // Only a session that is genuinely not there is a 401. Resolver/read failures are caught
       // below and remain a 503 so the client never signs out on an infrastructure fault.
       if (!sessionRow || sessionRow.user_id !== userContext.id || sessionRow.is_valid !== true) {
