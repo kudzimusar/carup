@@ -1,0 +1,153 @@
+name: CA-CERT-04 R2 Executable Mutants
+
+# Certification-only. No environment gates, no repository secrets, no Supabase,
+# no staging/Production credentials, no deployment and no product mutation.
+on:
+  push:
+    branches:
+      - test/ca-cert04-r2-executable-mutants
+    paths:
+      - 'certification/ca-cert04-r2-executable-mutants.mjs'
+      - '.github/workflows/ca-cert04-r2-executable-mutants.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'certification/ca-cert04-r2-executable-mutants.mjs'
+      - '.github/workflows/ca-cert04-r2-executable-mutants.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ca-cert04-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: 082c73d85c1ae9e9d3b64674cdcb9d8dccbcd568
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  NODE_ENV: test
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+
+jobs:
+  custody-and-focused:
+    name: Custody + focused regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Prove exact frozen product custody and certification-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          test "$(git hash-object database/migrations/20261014010000_ca_k3_auth_02_corporate_membership_foundation.sql)" = "a6f7d0ec15236056b3b1c3f6f1f55c1fbf024cda"
+          test "$(git hash-object database/migrations/20261014020000_ca_k3_auth_03_corporate_membership_governance.sql)" = "433ae3bf85e53455b48f0bee5ff3c35028a22169"
+          test "$(git hash-object database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql)" = "747404734641952ca7f80ccaddb2ee2eafa0a677"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA" HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = ".github/workflows/ca-cert04-r2-executable-mutants.yml"
+          test "${changed[1]}" = "certification/ca-cert04-r2-executable-mutants.mjs"
+      - name: Install dependencies
+        run: npm ci
+      - name: Phase C and predecessor Corporate suites
+        run: |
+          node --test             backend/tests/ca-k3-auth-04-permission-authority-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-service.test.js             backend/tests/ca-k3-auth-01-corporate-access.test.js             backend/tests/ca-k3-auth-02-corporate-membership.test.js             backend/tests/ca-k3-auth-02-migration-pglite.test.js             backend/tests/ca-k3-auth-02-r1-membership-events-pglite.test.js
+      - name: Web Corporate tests
+        working-directory: web
+        run: |
+          npx vitest run             src/App.corporateContinuity.test.tsx             src/App.routeConvergence.test.tsx             src/components/corporate/CorporateShell.test.tsx             src/lib/corporate/access.test.ts             src/lib/corporate/truthState.test.ts
+      - name: Web TypeScript
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+      - name: Certification diff hygiene
+        run: git diff --check "$PRODUCT_SHA" HEAD
+
+  real-postgres:
+    name: PG${{ matrix.pg }} · ${{ matrix.case }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['16', '17']
+        case:
+          - BASELINE
+          - M1_LITERAL
+          - M1_SUBSTITUTE
+          - M2_LITERAL
+          - M2_SUBSTITUTE
+          - M3_LITERAL
+          - M4_LITERAL
+          - M5_LITERAL
+          - M6_LITERAL
+          - M6_SUBSTITUTE
+          - M7_LITERAL
+          - M7_SUBSTITUTE
+          - M8_LITERAL
+          - M8_SUBSTITUTE
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CA_R2_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CA_R2_CASE: ${{ matrix.case }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Prove frozen SQL before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object database/migrations/20261014010000_ca_k3_auth_02_corporate_membership_foundation.sql)" = "a6f7d0ec15236056b3b1c3f6f1f55c1fbf024cda"
+          test "$(git hash-object database/migrations/20261014020000_ca_k3_auth_03_corporate_membership_governance.sql)" = "433ae3bf85e53455b48f0bee5ff3c35028a22169"
+          test "$(git hash-object database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql)" = "747404734641952ca7f80ccaddb2ee2eafa0a677"
+      - name: Install dependencies
+        run: npm ci
+      - name: Execute isolated behavioral mutation case
+        shell: bash
+        run: |
+          set -o pipefail
+          node certification/ca-cert04-r2-executable-mutants.mjs 2>&1 | tee "ca-cert04-r2-${CA_R2_CASE}-pg${{ matrix.pg }}.log"
+      - name: Prove frozen SQL restored
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql)" = "747404734641952ca7f80ccaddb2ee2eafa0a677"
+          git diff --exit-code -- database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql
+      - name: Upload installation / behavior evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ca-cert04-r2-pg${{ matrix.pg }}-${{ matrix.case }}
+          path: ca-cert04-r2-${{ matrix.case }}-pg${{ matrix.pg }}.log
+          if-no-files-found: error
+          retention-days: 14
