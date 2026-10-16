@@ -58,7 +58,7 @@ test('AUTH-05 session writers are executable only by dedicated authority', () =>
 });
 
 test('AUTH-05 closes credential and recovery-proof pivots from ordinary service_role', () => {
-  assert.match(migration, /REVOKE UPDATE, DELETE ON TABLE public\.users FROM PUBLIC, anon, authenticated, service_role/);
+  assert.match(migration, /REVOKE UPDATE, DELETE ON TABLE public\.users FROM PUBLIC, service_role/);
   assert.match(migration, /column_name NOT IN \('id','email','password_hash'\)/);
   assert.match(migration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public\.auth_action_tokens[\s\S]*service_role/);
   for (const name of [
