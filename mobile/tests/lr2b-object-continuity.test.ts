@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  CommunicationApiError,
   resolveMarketplaceInquiryConversation,
 } from '../utils/communicationApi';
 import {
@@ -83,7 +82,7 @@ describe('LR2-B inquiry to exact canonical conversation', () => {
           { id: 'thread-b', subject_type: 'marketplace_inquiry', subject_id: 'inquiry-3', marketplace_listing_id: 'VIN-003' },
         ],
       }),
-    })).rejects.toMatchObject<Partial<CommunicationApiError>>({ statusCode: 409 });
+    })).rejects.toMatchObject({ statusCode: 409 });
   });
 });
 
