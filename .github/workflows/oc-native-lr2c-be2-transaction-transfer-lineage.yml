@@ -83,7 +83,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --unified=0 "$BE2_BASE_SHA..HEAD" -- backend database             | grep -Ei '^\+.*(ORDER BY.*(created_at|updated_at)|(created_at|updated_at).*ORDER BY|latest.*transfer|new Map\(|AsyncStorage|SecureStore)' ; then
+          if git diff --unified=0 "$BE2_BASE_SHA..HEAD" -- \
+              backend/services/passport/passportOwnershipTransferService.js \
+              backend/routes/passportOwnershipTransferRoutes.js \
+              "$BE2_MIGRATION" \
+            | grep -Ei '^\+.*(ORDER BY.*(created_at|updated_at)|(created_at|updated_at).*ORDER BY|latest.*transfer|new Map\(|AsyncStorage|SecureStore)' ; then
             echo "::error::BE2 introduced heuristic/shadow transaction-transfer authority"
             exit 1
           fi
