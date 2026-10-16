@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,19 +15,17 @@ import {
   markCommunicationThreadRead,
   sendCommunicationMessage,
 } from '../../utils/communicationApi';
+import {
+  communicationChannelLabel,
+  communicationParticipantContext,
+  communicationThreadContext,
+  communicationThreadTitle,
+} from '../../utils/communicationPresentation';
+import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
-function channelLabel(value: unknown): string {
-  const raw = String(value || '').toLowerCase();
-  if (raw.includes('whatsapp')) return 'WhatsApp';
-  if (raw.includes('telegram')) return 'Telegram';
-  if (raw.includes('email')) return 'Email';
-  if (raw.includes('push')) return 'Push';
-  return 'CarUp';
-}
-
-function channelIcon(label: string): React.ComponentProps<typeof Ionicons>['name'] {
+function channelIcon(label: string | null): React.ComponentProps<typeof Ionicons>['name'] {
   if (label === 'WhatsApp') return 'logo-whatsapp';
   if (label === 'Telegram') return 'paper-plane-outline';
   if (label === 'Email') return 'mail-outline';
@@ -58,12 +56,14 @@ export default function NativeConversationScreen() {
   const loading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
+  const scope = communicationQueryScope(user);
+  const threadListKey = communicationQueryKeys.threads(scope);
   const [draft, setDraft] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
 
   const enabled = Boolean(!loading && isAuthenticated && user?.role === 'owner' && threadId);
   const query = useQuery({
-    queryKey: ['native-conversation', threadId],
+    queryKey: communicationQueryKeys.thread(scope, String(threadId || '')),
     queryFn: () => getCommunicationThread(String(threadId)),
     enabled,
   });
@@ -71,13 +71,14 @@ export default function NativeConversationScreen() {
   useEffect(() => {
     if (!enabled || !threadId) return;
     void markCommunicationThreadRead(String(threadId))
-      .then(() => {
-        void queryClient.invalidateQueries({ queryKey: ['native-inbox-threads'] });
+      .then(async () => {
+        await queryClient.invalidateQueries({ queryKey: threadListKey });
+        await queryClient.refetchQueries({ queryKey: threadListKey });
       })
       .catch(() => {
         // Keep server unread truth if the receipt cannot be persisted.
       });
-  }, [enabled, queryClient, threadId]);
+  }, [enabled, queryClient, threadId, scope.userId, scope.tenantId, scope.role]);
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -92,7 +93,8 @@ export default function NativeConversationScreen() {
     onSuccess: async () => {
       setDraft('');
       await query.refetch();
-      await queryClient.invalidateQueries({ queryKey: ['native-inbox-threads'] });
+      await queryClient.invalidateQueries({ queryKey: threadListKey });
+      await queryClient.refetchQueries({ queryKey: threadListKey });
     },
     onError: (error) => {
       setSendError(error instanceof Error ? error.message : 'CarUp could not send this message.');
@@ -139,7 +141,7 @@ export default function NativeConversationScreen() {
           actionLabel="Try again"
           onAction={() => void query.refetch()}
           secondaryLabel="Back to Inbox"
-          onSecondary={() => router.back()}
+          onSecondary={() => router.replace('/(tabs)/inbox' as never)}
         />
       </View>
     );
@@ -147,18 +149,10 @@ export default function NativeConversationScreen() {
 
   const thread = query.data.thread || {};
   const messages = query.data.messages || [];
-  const subject =
-    thread?.metadata?.vehicle_title ||
-    thread?.metadata?.subject ||
-    thread?.subject ||
-    (thread?.thread_type === 'support' ? 'CarUp support' : 'CarUp conversation');
-  const vehicleContext =
-    thread?.metadata?.vehicle_label ||
-    thread?.metadata?.listing_title ||
-    thread?.metadata?.vin ||
-    thread?.marketplace_listing_id ||
-    null;
-  const primaryChannel = channelLabel(thread?.primary_channel || thread?.channel);
+  const subject = communicationThreadTitle(thread);
+  const contextRows = communicationThreadContext(thread);
+  const participantRows = communicationParticipantContext(query.data.participants || []);
+  const primaryChannel = communicationChannelLabel(thread?.primary_channel);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
@@ -167,29 +161,47 @@ export default function NativeConversationScreen() {
         contentContainerStyle={{ padding: spacing[5], paddingTop: spacing[5], paddingBottom: spacing[8] }}
         keyboardShouldPersistTaps="handled"
       >
-        <Button label="Back to Inbox" variant="tertiary" onPress={() => router.back()} />
+        <Button label="Back to Inbox" variant="tertiary" onPress={() => router.replace('/(tabs)/inbox' as never)} />
 
         <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary, marginTop: spacing[4] }}>
           {subject}
         </Text>
-        {vehicleContext ? (
-          <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
-            {String(vehicleContext)}
-          </Text>
+
+        {(contextRows.length > 0 || participantRows.length > 0) ? (
+          <View
+            style={{
+              marginTop: spacing[3],
+              borderRadius: radius.card,
+              borderWidth: 1,
+              borderColor: theme.border.default,
+              backgroundColor: theme.background.surface,
+              padding: spacing[3],
+              gap: spacing[2],
+            }}
+          >
+            {[...contextRows.filter((row) => row.label !== 'Channel'), ...participantRows].map((row) => (
+              <View key={`${row.label}:${row.value}`} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing[3] }}>
+                <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>{row.label}</Text>
+                <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.secondary, flex: 1, textAlign: 'right' }}>{row.value}</Text>
+              </View>
+            ))}
+          </View>
         ) : null}
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginTop: spacing[3] }}>
-          <Ionicons name={channelIcon(primaryChannel)} size={18} color={theme.text.secondary} />
-          <StatusPill label={primaryChannel} />
-          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, flex: 1 }}>
-            Delivery channel
-          </Text>
-        </View>
+        {primaryChannel ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginTop: spacing[3] }}>
+            <Ionicons name={channelIcon(primaryChannel)} size={18} color={theme.text.secondary} />
+            <StatusPill label={primaryChannel} />
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, flex: 1 }}>
+              Primary delivery channel
+            </Text>
+          </View>
+        ) : null}
 
         <View style={{ marginTop: spacing[4] }}>
           <Notice
             title="CarUp is the conversation record"
-            body="WhatsApp, Telegram, Email or Push may carry a message when enabled, but they do not replace this CarUp conversation."
+            body="Provider transport is shown only when the canonical thread or message payload identifies it. CarUp does not guess a missing channel."
             tone="info"
           />
         </View>
@@ -204,7 +216,7 @@ export default function NativeConversationScreen() {
               const text = messageText(message);
               if (!text) return null;
               const mine = Boolean(message?.author?.is_self);
-              const channel = channelLabel(message?.channel);
+              const channel = communicationChannelLabel(message?.channel);
               return (
                 <View
                   key={String(message.id || index)}
@@ -224,12 +236,14 @@ export default function NativeConversationScreen() {
                   <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.primary, marginTop: spacing[1] }}>
                     {text}
                   </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[1], marginTop: spacing[2] }}>
-                    <Ionicons name={channelIcon(channel)} size={14} color={theme.text.muted} />
-                    <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
-                      {channel}
-                    </Text>
-                  </View>
+                  {channel ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[1], marginTop: spacing[2] }}>
+                      <Ionicons name={channelIcon(channel)} size={14} color={theme.text.muted} />
+                      <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
+                        {channel}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               );
             })
