@@ -11,6 +11,7 @@ import {
 import { AUTH_ROUTES, buildAuthActionUrl } from '../services/communication/authEmailTemplates.js';
 import { createAuthEmailService } from '../services/auth/authEmailService.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
+import { revokeSessionScope } from '../services/auth/sessionAuthority.js';
 import { EMAIL_VERIFIED_EVENT } from '../services/communication/producers/leadershipWelcomeProducer.js';
 
 /**
@@ -153,12 +154,14 @@ export function authRecoveryRouter({
 
         // Revoke every existing session: a password reset must sign out anyone holding the old
         // credential, including an attacker with a live session.
-        const { error: sessionError } = await db
-          .from('user_sessions')
-          .update({ is_valid: false })
-          .eq('user_id', consumed.token.user_id)
-          .eq('is_valid', true);
-        if (sessionError) console.error('[auth] session revocation after reset failed:', sessionError.message);
+        try {
+          await revokeSessionScope(
+            { userId: consumed.token.user_id, scope: 'all' },
+            { legacyTestClient: db },
+          );
+        } catch (sessionError) {
+          console.error('[auth] session revocation after reset failed:', sessionError?.message);
+        }
 
         // Any other live reset token for this user is now moot.
         await tokenService.revokeLiveTokens({
