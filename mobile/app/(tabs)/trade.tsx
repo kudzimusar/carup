@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Notice, StatusPill } from '../../components/ui/NativePrimitives';
-import { getTradeGatewaySnapshot, TRADE_READ_AUTHORITIES } from '../../utils/tradeApi';
+import { getTradeGatewaySnapshot, TRADE_READ_AUTHORITIES, isTradeRecordKind } from '../../utils/tradeApi';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -159,6 +159,14 @@ export default function TradeScreen() {
                     <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.secondary, marginTop: spacing[2] }}>
                       {capability.count} current record{capability.count === 1 ? '' : 's'} returned by this governed read.
                     </Text>
+                  ) : null}
+                  {capability.state === 'available' && isTradeRecordKind(capability.key) ? (
+                    <Button
+                      label="Open records"
+                      variant="secondary"
+                      onPress={() => router.push(`/trade/${capability.key}` as never)}
+                      style={{ marginTop: spacing[3] }}
+                    />
                   ) : null}
                 </View>
               </View>
