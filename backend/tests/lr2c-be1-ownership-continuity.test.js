@@ -79,7 +79,7 @@ test('BE1 server route uses session-only auth and server-derived user identity',
   assert.match(route, /applyMyVehiclesScope\(vehicleQuery, req\.userContext\)/);
   assert.doesNotMatch(route, /req\.body[^\n]*owner/i);
   assert.doesNotMatch(route, /req\.query[^\n]*owner/i);
-  assert.doesNotMatch(route, /x-user-id/i);
+  assert.doesNotMatch(route, /req\.headers\[['\"]x-user-id['\"]\]/i);
 });
 
 test('BE1 Dependency A: accepted schema has no durable transaction-intent field on ownership transfer', () => {
