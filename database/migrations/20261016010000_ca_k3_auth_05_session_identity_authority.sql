@@ -258,6 +258,14 @@ BEGIN
 END;
 $$;
 
+-- Cutover containment: a row minted before this authority boundary has no cryptographic/provenance
+-- marker that can distinguish it from a legitimate session. Invalidate the old population exactly
+-- once so no session potentially manufactured under the former service_role write authority survives
+-- the security cutover. Users authenticate again through session_authority_issue.
+UPDATE public.user_sessions
+   SET is_valid=false, step_up_at=NULL, step_up_method=NULL
+ WHERE is_valid=true OR step_up_at IS NOT NULL OR step_up_method IS NOT NULL;
+
 -- BYPASSRLS is irrelevant once table privileges are removed. Ordinary service_role can resolve an
 -- already-presented token and list display metadata, but cannot read token material or mutate rows.
 REVOKE ALL ON TABLE public.user_sessions FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
