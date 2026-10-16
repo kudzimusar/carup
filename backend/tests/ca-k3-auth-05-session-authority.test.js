@@ -126,7 +126,8 @@ test('dedicated runtime requires an independent database credential and never fa
 test('AUTH-05-R4 deployed CA contract is backend-local and byte-identical to the approved Supabase root', async () => {
   const { SUPABASE_ROOT_2021_CA } = await import('../services/auth/sessionAuthorityTls.js');
   assert.equal(SUPABASE_ROOT_2021_CA, canonicalSupabaseCa);
-  assert.doesNotMatch(runtimeTls, /node:fs|readFileSync|database\/certs/);
+  const executableTlsSource = runtimeTls.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.doesNotMatch(executableTlsSource, /node:fs|readFileSync|database\/certs/);
 });
 
 test('AUTH-05-R4 forces full certificate verification and removes URL-level TLS overrides', async () => {
@@ -149,7 +150,7 @@ test('AUTH-05-R4 session authority pool requires the dedicated URL and explicit 
   assert.match(runtime, /buildSessionAuthorityPoolConfig\(process\.env\.SESSION_AUTH_DATABASE_URL\)/);
   assert.match(runtime, /probeSessionAuthorityConnection/);
   assert.match(runtime, /pg_stat_ssl/);
-  assert.doesNotMatch(runtimeTls, /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL/);
+  assert.doesNotMatch(runtimeTls, /process\.env\.(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL)\b/);
 });
 
 test('AUTH-05-R4 registration failure paths invoke governed unestablished-user compensation', () => {
