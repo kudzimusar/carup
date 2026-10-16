@@ -10,6 +10,7 @@
  * never replaces Express authorization, RLS, or service ownership checks.
  */
 import fs from 'fs';
+import { resolveSessionByToken } from '../auth/sessionAuthority.js';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -77,11 +78,7 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
     let session = null;
     let userId = null;
     if (token) {
-      const { data } = await client
-        .from('user_sessions')
-        .select('user_id, active_role, active_organization_id, is_valid, expires_at')
-        .eq('token', token);
-      const row = (data || [])[0];
+      const row = await resolveSessionByToken(client, token);
       if (row && row.is_valid && new Date(row.expires_at) >= new Date()) {
         session = row;
         userId = row.user_id;
