@@ -26,6 +26,7 @@
  * process-wide singleton.
  */
 import { revokeSessionsForUser } from '../auth/sessionSecurityService.js';
+import { executeCorporateAuthorityRpc } from '../auth/sessionAuthority.js';
 import {
   CorporateGovernanceError, GOVERNANCE_CAPABILITIES, assertNoClientAssertedAuthority, evaluateCorporateGovernanceAuthorization, parseAuthorityDenials,
 } from './corporateGovernanceDecision.js';
@@ -132,15 +133,14 @@ function mapDatabaseError(error) {
 }
 
 async function callProcedure(client, name, params) {
-  let response;
+  let data;
   try {
-    response = await client.rpc(name, params);
+    data = await executeCorporateAuthorityRpc(name, params, { legacyTestClient: client });
   } catch (error) {
     throw mapDatabaseError(error);
   }
-  if (response?.error) throw mapDatabaseError(response.error);
-  if (!isPlainObject(response?.data) || typeof response.data.outcome !== 'string') throw fail('GOVERNANCE_UNAVAILABLE', 'The governance store returned an unreadable result.');
-  return response.data;
+  if (!isPlainObject(data) || typeof data.outcome !== 'string') throw fail('GOVERNANCE_UNAVAILABLE', 'The governance store returned an unreadable result.');
+  return data;
 }
 
 async function readOne(client, table, columns, filterColumn, filterValue) {
