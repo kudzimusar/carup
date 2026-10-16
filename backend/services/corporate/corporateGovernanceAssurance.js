@@ -14,6 +14,7 @@
  * The database re-proves the same fact from the same row inside every governed procedure (corporate_governance_assert_a1), so a caller
  * that bypassed this module still cannot mutate; this module exists to refuse BEFORE any side effect (notably session revocation).
  */
+import { resolveSessionByToken } from '../auth/sessionAuthority.js';
 import {
   ACTION_CLASSES,
   deriveSessionAssurance,
@@ -38,18 +39,8 @@ export async function proveActorAssuranceA1(client, actor, { now = Date.now() } 
 
   let row;
   try {
-    const { data, error } = await client
-      .from('user_sessions')
-      .select('id, user_id, created_at, expires_at, is_valid, auth_method, step_up_at, step_up_method')
-      .eq('token', token)
-      .eq('user_id', userId)
-      .eq('is_valid', true)
-      .single();
-    // PGRST116 is "no row". Anything else is a read that FAILED, which is not the same as "no session" and is never an allow.
-    if (error && error.code !== 'PGRST116') throw new CorporateGovernanceError('ASSURANCE_UNREADABLE');
-    row = data ?? null;
-  } catch (error) {
-    if (error instanceof CorporateGovernanceError) throw error;
+    row = await resolveSessionByToken(client, token);
+  } catch {
     throw new CorporateGovernanceError('ASSURANCE_UNREADABLE');
   }
   if (!row || row.user_id !== userId || row.is_valid !== true) throw new CorporateGovernanceError('ASSURANCE_SESSION_INVALID');
