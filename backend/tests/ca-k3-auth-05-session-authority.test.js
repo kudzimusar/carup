@@ -57,6 +57,24 @@ test('AUTH-05 session writers are executable only by dedicated authority', () =>
   }
 });
 
+test('AUTH-05 closes credential and recovery-proof pivots from ordinary service_role', () => {
+  assert.match(migration, /REVOKE UPDATE, DELETE ON TABLE public\.users FROM PUBLIC, anon, authenticated, service_role/);
+  assert.match(migration, /column_name NOT IN \('id','email','password_hash'\)/);
+  assert.match(migration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public\.auth_action_tokens[\s\S]*service_role/);
+  for (const name of [
+    'session_authority_set_password_hash',
+    'session_authority_auth_token_insert',
+    'session_authority_auth_token_consume',
+    'session_authority_auth_token_revoke',
+  ]) {
+    assert.match(migration, new RegExp('GRANT EXECUTE ON FUNCTION public\\.' + name + '[^;]+ TO carup_session_authority;'));
+    assert.doesNotMatch(
+      migration.split('-- +migrate Down')[0],
+      new RegExp('GRANT EXECUTE ON FUNCTION public\\.' + name + '[^;]+ TO service_role;'),
+    );
+  }
+});
+
 test('AUTH-05 removes ordinary service_role from all five Phase-C mutation wrappers', () => {
   for (const name of [
     'corporate_authority_apply_direct',
