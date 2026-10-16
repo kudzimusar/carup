@@ -71,7 +71,7 @@ describe('LR2-B inquiry to exact canonical conversation', () => {
           marketplace_listing_id: 'VIN-OTHER',
         }],
       }),
-    })).rejects.toMatchObject<Partial<CommunicationApiError>>({ statusCode: 409 });
+    })).rejects.toMatchObject({ statusCode: 409 });
   });
 
   it('fails closed if canonical authority ever exposes duplicate threads for one inquiry', async () => {
