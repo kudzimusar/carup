@@ -147,7 +147,7 @@ const directCreate = (over) => ({ p_operation: 'CREATE', p_actor_user_id: 'g-ali
 // ── S1 — boundary: internal, non-routed, writes only through the five database entry points ──────────────────────────────
 
 test('S1 the four core modules exist and import only the sanctioned collaborators', () => {
-  const allowed = new Set(['../auth/sessionSecurityService.js', './corporateGovernanceDecision.js', './corporateGovernanceAssurance.js',
+  const allowed = new Set(['../auth/sessionSecurityService.js', '../auth/sessionAuthority.js', './corporateGovernanceDecision.js', './corporateGovernanceAssurance.js',
     './corporateAuthorizationInvalidation.js', '../auth/authenticationAssuranceService.js']);
   for (const file of CORE) {
     const imports = [...stripComments(read(file)).matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
@@ -171,7 +171,8 @@ test('S1 the service writes nothing itself: no DML, only the five authority entr
   assert.equal(AUTHORITY_EVALUATOR_RPC, 'corporate_authority_evaluate');
   const tables = [...src.matchAll(/(?:readOne\(client,|\.from\()\s*'([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(tables)].sort(), ['corporate_membership_request_status', 'corporate_membership_requests', 'corporate_memberships']);
-  assert.match(stripComments(read(CORE[1])), /\.from\('user_sessions'\)/, 'A1 is read from the actor\'s own session row');
+  assert.match(stripComments(read(CORE[1])), /resolveSessionAssuranceByToken/, 'A1 is resolved from the actor\'s exact presented session token through the AUTH-05 read boundary');
+  assert.doesNotMatch(stripComments(read(CORE[1])), /\.from\('user_sessions'\)/, 'the Phase-C preflight no longer requires direct service_role table access after AUTH-05');
 });
 
 test('S1 no legacy platform role, tenant relationship, header or bridge is an input to any core module', () => {
@@ -191,7 +192,18 @@ test('S1 the core is NOT routed: nothing outside it (and its tests) imports it o
     }
   };
   for (const dir of ['backend', 'web/src', 'mobile']) { try { walk(path.join(ROOT, dir)); } catch { /* a surface that does not exist has nothing to leak */ } }
-  assert.deepEqual(offenders, [], 'no route, middleware, server, web or mobile file may reach the mutation core');
+  assert.deepEqual(offenders, ['backend/services/auth/sessionAuthority.js'], 'the only non-Corporate production bridge to mutation RPC names is the AUTH-05 dedicated database authority boundary');
+  const bridgeUsers = [];
+  const findBridgeCallers = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === 'tests' || name === 'dist') continue;
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) findBridgeCallers(full);
+      else if (/\.(js|mjs|cjs|ts|tsx)$/.test(name) && /executeCorporateAuthorityRpc/.test(readFileSync(full, 'utf8'))) bridgeUsers.push(path.relative(ROOT, full));
+    }
+  };
+  findBridgeCallers(path.join(ROOT, 'backend'));
+  assert.deepEqual(bridgeUsers.sort(), ['backend/services/auth/sessionAuthority.js', 'backend/services/corporate/corporateMembershipGovernanceService.js'], 'only the Corporate core may consume the dedicated Phase-C RPC bridge');
   // and the only corporate route is still the frozen read-only access bridge
   const server = read('backend/server.js');
   assert.deepEqual([...server.matchAll(/corporate\w*Router/g)].map((m) => m[0]).filter((v, i, a) => a.indexOf(v) === i), ['corporateAccessRouter']);
@@ -462,7 +474,7 @@ test('S3 defence in depth: a session row that is another account\'s, or no longe
   const returning = (row) => ({ from: (table) => { seen.push(['from', table]); const q = { select: () => q, eq: (column, value) => { seen.push([column, value]); return q; }, single: async () => ({ data: row, error: null }) }; return q; } });
   const live = { id: 's-evil', user_id: 'g-bob', is_valid: true, created_at: iso(-HOUR), expires_at: iso(HOUR), auth_method: 'password', step_up_at: iso(0), step_up_method: 'password_reauth' };
   assert.equal((await proveActorAssuranceA1(returning({ ...live, user_id: 'g-alice' }), { userId: 'g-alice', sessionToken: 'tok-x' })).assurance_class, 'A1_RECENT_REAUTH', 'positive control: the same row for the right account is accepted');
-  assert.deepEqual(seen, [['from', 'user_sessions'], ['token', 'tok-x'], ['user_id', 'g-alice'], ['is_valid', true]], 'the lookup is scoped to the token, the actor and live sessions — the store is asked for the right row, not trusted to return it');
+  assert.deepEqual(seen, [['from', 'user_sessions'], ['token', 'tok-x']], 'AUTH-05 resolves by the exact high-entropy token; the returned identity and validity are still independently re-checked below rather than trusted');
   assert.equal(await proveActorAssuranceA1(returning(live), { userId: 'g-alice', sessionToken: 'tok-x' }).catch((e) => e.code), 'ASSURANCE_SESSION_INVALID', 'someone else\'s row');
   assert.equal(await proveActorAssuranceA1(returning({ ...live, user_id: 'g-alice', is_valid: false }), { userId: 'g-alice', sessionToken: 'tok-x' }).catch((e) => e.code), 'ASSURANCE_SESSION_INVALID', 'a revoked row');
 });
