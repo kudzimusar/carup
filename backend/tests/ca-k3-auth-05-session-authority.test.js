@@ -14,6 +14,9 @@ const read = (p) => readFileSync(path.join(ROOT, p), 'utf8');
 const migration = read('database/migrations/20261016010000_ca_k3_auth_05_session_identity_authority.sql');
 const phaseC = read('database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql');
 const runtime = read('backend/services/auth/sessionAuthority.js');
+const runtimeTls = read('backend/services/auth/sessionAuthorityTls.js');
+const serverSource = read('backend/server.js');
+const canonicalSupabaseCa = read('database/certs/supabase-prod-ca-2021.crt');
 
 function gitBlob(text) {
   const b = Buffer.from(text);
@@ -118,4 +121,51 @@ test('dedicated runtime requires an independent database credential and never fa
   assert.match(runtime, /SESSION_AUTH_DATABASE_URL/);
   assert.doesNotMatch(runtime, /process\\.env\\.(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL)\\b/);
   assert.match(runtime, /executeCorporateAuthorityRpc/);
+});
+
+test('AUTH-05-R4 deployed CA contract is backend-local and byte-identical to the approved Supabase root', async () => {
+  const { SUPABASE_ROOT_2021_CA } = await import('../services/auth/sessionAuthorityTls.js');
+  assert.equal(SUPABASE_ROOT_2021_CA, canonicalSupabaseCa);
+  assert.doesNotMatch(runtimeTls, /node:fs|readFileSync|database\/certs/);
+});
+
+test('AUTH-05-R4 forces full certificate verification and removes URL-level TLS overrides', async () => {
+  const { buildSessionAuthorityPoolConfig } = await import('../services/auth/sessionAuthorityTls.js');
+  const config = buildSessionAuthorityPoolConfig(
+    'postgresql://runtime:placeholder@example.invalid/postgres'
+      + '?sslmode=disable&sslrootcert=%2Fvar%2Ftask%2Fdatabase%2Fcerts%2Fmissing.crt'
+      + '&ssl=true&application_name=carup-auth05',
+  );
+  const parsed = new URL(config.connectionString);
+  assert.equal(parsed.searchParams.has('sslmode'), false);
+  assert.equal(parsed.searchParams.has('sslrootcert'), false);
+  assert.equal(parsed.searchParams.has('ssl'), false);
+  assert.equal(parsed.searchParams.get('application_name'), 'carup-auth05');
+  assert.equal(config.ssl.rejectUnauthorized, true);
+  assert.equal(config.ssl.ca, canonicalSupabaseCa);
+});
+
+test('AUTH-05-R4 session authority pool requires the dedicated URL and explicit verified TLS config', () => {
+  assert.match(runtime, /buildSessionAuthorityPoolConfig\(process\.env\.SESSION_AUTH_DATABASE_URL\)/);
+  assert.match(runtime, /probeSessionAuthorityConnection/);
+  assert.match(runtime, /pg_stat_ssl/);
+  assert.doesNotMatch(runtimeTls, /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL/);
+});
+
+test('AUTH-05-R4 registration failure paths invoke governed unestablished-user compensation', () => {
+  const routeStart = serverSource.indexOf("app.post('/api/auth/register'");
+  const routeEnd = serverSource.indexOf('/**\n * ISSUE #164 PHASE 4', routeStart);
+  assert.ok(routeStart >= 0 && routeEnd > routeStart);
+  const route = serverSource.slice(routeStart, routeEnd);
+  assert.match(route, /catch \(sessionError\)[\s\S]*compensateUnestablishedRegistration/);
+  assert.match(route, /if \(!token\)[\s\S]*compensateUnestablishedRegistration/);
+  assert.doesNotMatch(route, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
+});
+
+test('AUTH-05-R4 Preview preflight is read-only, opt-in and suppressed in production-like runtimes', () => {
+  assert.match(serverSource, /req\.query\?\.auth05 === 'session-authority'/);
+  assert.match(serverSource, /!isProductionLikeRuntime\(process\.env\)/);
+  assert.match(serverSource, /probeSessionAuthorityConnection\(\)/);
+  assert.match(runtime, /SELECT[\s\S]*current_user[\s\S]*pg_stat_ssl/);
+  assert.doesNotMatch(runtime.slice(runtime.indexOf('probeSessionAuthorityConnection'), runtime.indexOf('async function authorityScalar')), /INSERT|UPDATE|DELETE|TRUNCATE/);
 });

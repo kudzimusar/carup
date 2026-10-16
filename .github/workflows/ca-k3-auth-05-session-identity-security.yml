@@ -53,7 +53,7 @@ jobs:
         run: npm ci
       - name: AUTH-05 + auth/session regressions
         run: |
-          node --test             backend/tests/ca-k3-auth-05-session-authority.test.js             backend/tests/o2-x3-authentication-assurance.test.js             backend/tests/o2-x3-identity-lifecycle.test.js             backend/tests/auth-recovery-security.test.js             backend/tests/user-sessions-auth-contract.test.js
+          node --test             backend/tests/ca-k3-auth-05-session-authority.test.js             backend/tests/auth-register-privilege.test.js             backend/tests/o2-x3-authentication-assurance.test.js             backend/tests/o2-x3-identity-lifecycle.test.js             backend/tests/auth-recovery-security.test.js             backend/tests/user-sessions-auth-contract.test.js
       - name: Corporate focused regressions
         run: |
           node --test             backend/tests/ca-k3-auth-04-permission-authority-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-service.test.js             backend/tests/ca-k3-auth-01-corporate-access.test.js             backend/tests/ca-k3-auth-02-corporate-membership.test.js

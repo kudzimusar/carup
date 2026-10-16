@@ -76,6 +76,7 @@ import {
   revokeCurrentSession,
   setSessionActiveOrganization,
   deleteUnestablishedRegistrationUser,
+  probeSessionAuthorityConnection,
 } from './services/auth/sessionAuthority.js';
 import {
   resolveVerifiedActiveTenant,
@@ -375,6 +376,32 @@ app.get('/api/health', async (req, res) => {
   const snapshot = metricsHub.getSnapshot();
   const communicationConfiguration = validateCommunicationConfiguration();
 
+  // AUTH-05-R4: explicit, read-only Preview preflight. It is opt-in so ordinary health polling does
+  // not open the dedicated authentication-authority connection. Production-like runtimes never
+  // expose this diagnostic field. The probe returns only safe state: no DSN, credentials or CA body.
+  let sessionAuthorityPreflight = null;
+  if (!isProductionLikeRuntime(process.env) && req.query?.auth05 === 'session-authority') {
+    try {
+      const probe = await probeSessionAuthorityConnection();
+      sessionAuthorityPreflight = {
+        status: probe.connected === true && probe.tls_active === true ? 'healthy' : 'unhealthy',
+        connected: probe.connected === true,
+        database_tls: probe.tls_active === true,
+        tls_verification: probe.verification,
+        trust_anchor: probe.trust_anchor,
+      };
+    } catch (error) {
+      sessionAuthorityPreflight = {
+        status: 'unhealthy',
+        connected: false,
+        database_tls: false,
+        tls_verification: 'verify-full',
+        trust_anchor: 'Supabase Root 2021 CA',
+        error_code: error?.code || error?.name || 'SESSION_AUTHORITY_UNAVAILABLE',
+      };
+    }
+  }
+
   // Canonical OCR runtime projection — the AUTHORITATIVE, non-secret description of the CURRENT
   // Document Intelligence OCR boundary. Derived from the same resolveVisionProvider() /
   // provider.isConfigured() / isOcrMockAllowed() the runtime uses, so it never drifts from what
@@ -424,6 +451,7 @@ app.get('/api/health', async (req, res) => {
     },
     // OC-5R-REL-01: which Supabase project this runtime reaches — project refs only, never a URL.
     database: resolveDatabaseTarget(process.env),
+    ...(sessionAuthorityPreflight ? { sessionAuthority: sessionAuthorityPreflight } : {}),
     // Truthful: a DSN without an installed SDK is `unavailable`, never `enabled` (OC-5R-PROV-01 C3).
     sentry: sentryHealth(),
     // Canonical current OCR runtime status (authoritative for "is OCR available").
@@ -2802,6 +2830,20 @@ app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: fals
 // authenticated paths — never the public register route.
 const PUBLIC_REGISTRATION_ROLE = 'owner';
 
+async function compensateUnestablishedRegistration(userId, expectedEmail) {
+  try {
+    const result = await deleteUnestablishedRegistrationUser(
+      { userId, expectedEmail },
+      { legacyTestClient: supabase },
+    );
+    return Number(result?.deleted_count || 0) === 1;
+  } catch (error) {
+    // Do not expose DB URLs, certificate paths, credentials or raw driver errors from this boundary.
+    console.error('[auth] registration compensation failed:', error?.code || error?.name || 'UNKNOWN');
+    return false;
+  }
+}
+
 // --- AUTH: Register ---
 // Public registration is UNAUTHENTICATED, so it must NEVER honor a client-supplied platform role.
 // The server always assigns the unprivileged PUBLIC_REGISTRATION_ROLE ('owner'); any request that
@@ -2862,28 +2904,44 @@ app.post('/api/auth/register', async (req, res) => {
       if (profileError) {
         // Never tell the person signup succeeded while silently discarding the identity/onboarding
         // answers we just asked them for. Compensate the user row and fail the registration.
-        await deleteUnestablishedRegistrationUser(
-          { userId: id, expectedEmail: normalizedEmail },
-          { legacyTestClient: supabase },
-        ).catch(() => null);
-        console.error('Failed to persist registration profile:', profileError.message);
+        const compensated = await compensateUnestablishedRegistration(id, normalizedEmail);
+        console.error(
+          'Failed to persist registration profile; compensation=' + (compensated ? 'complete' : 'incomplete') + ':',
+          profileError.message,
+        );
         return res.status(503).json({ error: 'Could not save your registration profile. Please try again.' });
       }
     }
 
     // Automatically issue a session through the dedicated session authority. Email verification
     // remains independent from identity/KYC and does not block the Seller draft handoff.
-    const issuedSession = await issueInteractiveSession({
-      userId: id,
-      activeRole: assignedRole,
-      activeOrganizationId: null,
-      ipAddress: req.ip || '127.0.0.1',
-      userAgent: req.headers?.['user-agent'] || null,
-      authMethod: 'password',
-    }, { legacyTestClient: supabase });
+    let issuedSession;
+    try {
+      issuedSession = await issueInteractiveSession({
+        userId: id,
+        activeRole: assignedRole,
+        activeOrganizationId: null,
+        ipAddress: req.ip || '127.0.0.1',
+        userAgent: req.headers?.['user-agent'] || null,
+        authMethod: 'password',
+      }, { legacyTestClient: supabase });
+    } catch (sessionError) {
+      const compensated = await compensateUnestablishedRegistration(id, normalizedEmail);
+      console.error(
+        '[auth] registration session issuance failed; compensation=' + (compensated ? 'complete' : 'incomplete')
+          + '; reason=' + (sessionError?.code || sessionError?.name || 'UNKNOWN'),
+      );
+      return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
+    }
+
     const token = issuedSession?.token;
     if (!token) {
-      return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
+      const compensated = await compensateUnestablishedRegistration(id, normalizedEmail);
+      console.error(
+        '[auth] registration session issuance returned no token; compensation='
+          + (compensated ? 'complete' : 'incomplete'),
+      );
+      return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
     }
 
     const newUser = {

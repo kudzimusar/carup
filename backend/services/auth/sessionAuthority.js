@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
 
+import { buildSessionAuthorityPoolConfig, SESSION_AUTHORITY_TLS_CONTRACT } from './sessionAuthorityTls.js';
+
 import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
 import { buildSessionRow } from './sessionRow.js';
 
@@ -39,13 +41,29 @@ function pool() {
   if (!isSessionAuthorityConfigured()) throw new SessionAuthorityUnavailableError();
   if (!authorityPool) {
     authorityPool = new pg.Pool({
-      connectionString: process.env.SESSION_AUTH_DATABASE_URL,
+      ...buildSessionAuthorityPoolConfig(process.env.SESSION_AUTH_DATABASE_URL),
       max: 4,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 8000,
     });
   }
   return authorityPool;
+}
+
+export async function probeSessionAuthorityConnection() {
+  const result = await pool().query(`
+    SELECT
+      current_user::text AS runtime_role,
+      COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), false) AS tls_active
+  `);
+  const row = result.rows?.[0] || {};
+  return {
+    connected: true,
+    tls_active: row.tls_active === true,
+    runtime_role: typeof row.runtime_role === 'string' ? row.runtime_role : null,
+    verification: SESSION_AUTHORITY_TLS_CONTRACT.verification,
+    trust_anchor: SESSION_AUTHORITY_TLS_CONTRACT.trustAnchor,
+  };
 }
 
 async function authorityScalar(sql, params = []) {

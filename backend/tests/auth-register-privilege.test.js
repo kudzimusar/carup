@@ -20,8 +20,10 @@ const { supabase } = await import('../db/supabase.js');
 const { hashPassword } = await import('../utils/passwordAuth.js');
 
 let store;
+let failSessionInsert = false;
 function resetStore() {
   store = { users: [], sessions: {}, misc: [] };
+  failSessionInsert = false;
 }
 
 function handle(op) {
@@ -35,6 +37,14 @@ function handle(op) {
       store.users.push({ ...row });
       return { data: op.single ? row : [row], error: null };
     }
+    if (op.action === 'delete') {
+      const before = store.users.length;
+      store.users = store.users.filter((u) => !(
+        ('id' in op.filters ? u.id === op.filters.id : true)
+        && ('email' in op.filters ? u.email.toLowerCase() === String(op.filters.email).toLowerCase() : true)
+      ));
+      return { data: [], error: null, count: before - store.users.length };
+    }
     if (op.action === 'update') {
       const u = store.users.find((x) => (op.filters.id ? x.id === op.filters.id : x.email === op.filters.email));
       if (u) Object.assign(u, op.payload);
@@ -46,6 +56,9 @@ function handle(op) {
   }
   if (t === 'user_sessions') {
     if (op.action === 'insert') {
+      if (failSessionInsert) {
+        return { data: null, error: { code: 'SESSION_TEST_UNAVAILABLE', message: 'simulated dedicated authority failure' } };
+      }
       const row = Array.isArray(op.payload) ? op.payload[0] : op.payload;
       store.sessions[row.token] = { ...row };
       return { data: op.single ? row : [row], error: null };
@@ -146,6 +159,20 @@ test('tenant / stakeholder headers cannot elevate registration', async () => {
     { 'x-stakeholder-role': 'admin', 'x-tenant-id': 't1' });
   assert.ok(bad.status === 403 || bad.status === 400);
   assert.equal(store.users.length, 0);
+});
+
+test('session issuance failure compensates the just-created ordinary user and leaves no orphan', async () => {
+  failSessionInsert = true;
+  const reg = await post('/api/auth/register', {
+    name: 'Compensated Owner',
+    email: 'compensated-owner@x.test',
+    password: 'password123',
+  });
+  assert.equal(reg.status, 503);
+  assert.match(reg.body.error, /secure session/i);
+  assert.equal(store.users.length, 0, 'failed registration must not leave the ordinary user row');
+  assert.equal(Object.keys(store.sessions).length, 0, 'failed registration must not leave a session row');
+  assert.doesNotMatch(JSON.stringify(reg.body), /simulated dedicated authority failure/i);
 });
 
 test('successful owner registration persists a session whose token works with /api/auth/me', async () => {
