@@ -87,6 +87,14 @@ async function authorityScalar(sql, params = []) {
   return result.rows?.[0]?.data ?? null;
 }
 
+/** Public registration has no legacy/service-role write adapter: one dedicated DB statement. */
+export async function registerOwnerWithSession({ user, profile = null, ipAddress = null, userAgent = null }) {
+  return authorityScalar(
+    'SELECT public.session_authority_register_owner($1::jsonb,$2::jsonb,$3::text,$4::text) AS data',
+    [JSON.stringify(user), profile === null ? null : JSON.stringify(profile), ipAddress, userAgent],
+  );
+}
+
 function legacyOrThrow(legacyTestClient) {
   if (isLegacySessionTestAdapterAllowed() && legacyTestClient?.from) return legacyTestClient;
   throw new SessionAuthorityUnavailableError();

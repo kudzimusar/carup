@@ -153,13 +153,16 @@ test('AUTH-05-R4 session authority pool requires the dedicated URL and explicit 
   assert.doesNotMatch(runtimeTls, /process\.env\.(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL)\b/);
 });
 
-test('AUTH-05-R4 registration failure paths invoke governed unestablished-user compensation', () => {
+test('AUTH-05-R4-R1 registration establishes user/profile/session only through one atomic RPC', () => {
   const routeStart = serverSource.indexOf("app.post('/api/auth/register'");
   const routeEnd = serverSource.indexOf('/**\n * ISSUE #164 PHASE 4', routeStart);
   assert.ok(routeStart >= 0 && routeEnd > routeStart);
   const route = serverSource.slice(routeStart, routeEnd);
-  assert.match(route, /catch \(sessionError\)[\s\S]*compensateUnestablishedRegistration/);
-  assert.match(route, /if \(!token\)[\s\S]*compensateUnestablishedRegistration/);
+  assert.match(route, /registerOwnerWithSession\(/);
+  assert.doesNotMatch(route, /\.insert\(|issueInteractiveSession\(|compensateUnestablishedRegistration/);
+  const atomicFunction = runtime.slice(runtime.indexOf('export async function registerOwnerWithSession'), runtime.indexOf('function legacyOrThrow'));
+  assert.match(atomicFunction, /authorityScalar\(/);
+  assert.doesNotMatch(atomicFunction, /legacyTestClient|\.rpc\(|\.from\(/);
   assert.doesNotMatch(route, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
 });
 

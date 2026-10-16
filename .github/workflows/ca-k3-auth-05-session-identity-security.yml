@@ -54,6 +54,8 @@ jobs:
       - name: AUTH-05 + auth/session regressions
         run: |
           node --test             backend/tests/ca-k3-auth-05-session-authority.test.js             backend/tests/auth-register-privilege.test.js             backend/tests/o2-x3-authentication-assurance.test.js             backend/tests/o2-x3-identity-lifecycle.test.js             backend/tests/auth-recovery-security.test.js             backend/tests/user-sessions-auth-contract.test.js
+      - name: Atomic registration rollback and ACL regressions
+        run: node --test backend/tests/ca-k3-auth-05-atomic-registration.test.js
       - name: Corporate focused regressions
         run: |
           node --test             backend/tests/ca-k3-auth-04-permission-authority-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-service.test.js             backend/tests/ca-k3-auth-01-corporate-access.test.js             backend/tests/ca-k3-auth-02-corporate-membership.test.js
@@ -110,6 +112,42 @@ jobs:
         run: npm ci
       - name: Execute pre-compromise + AUTH-05 I1-I6
         run: node backend/tests/realpg/ca-k3-auth-05-session-authority-realpg.mjs
+
+  atomic-postgres:
+    name: Atomic registration PostgreSQL ${{ matrix.pg }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify rollback and authority ACLs on disposable PostgreSQL
+        run: node --test backend/tests/ca-k3-auth-05-atomic-registration.test.js
+        env:
+          CA_ATOMIC_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
 
   full-backend:
     name: Full backend exact head
