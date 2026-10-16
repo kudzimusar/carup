@@ -91,6 +91,7 @@ describe('LR2-B canonical object routing contract', () => {
     expect(canonicalObjectRouteFromCommunicationNotification({
       title: 'VIN-EVIL should not be parsed',
       message: 'Open thread-not-authority',
+      notification_type: 'conversation_message',
       thread_id: 'thread-4',
       payload: { listing_id: 'VIN-004' },
     })).toEqual({ type: 'conversation', id: 'thread-4' });
