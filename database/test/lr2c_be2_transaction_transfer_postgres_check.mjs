@@ -211,7 +211,7 @@ try {
       `INSERT INTO public.vehicle_ownership_transfers(
          vin,previous_owner_id,incoming_owner_id,state,idempotency_key,initiated_by,transaction_intent_id
        ) VALUES($1,$2,$3,'initiated',$4,$2,$5)`,
-      ['VIN-EXTRA','seller-extra','buyer-extra','duplicate-tx','seller-extra',TX_A],
+      ['VIN-EXTRA','seller-extra','buyer-extra','duplicate-tx',TX_A],
     ),
     '23505',
     'SCHEMA_TRANSACTION_TRANSFER_UNIQUE',
