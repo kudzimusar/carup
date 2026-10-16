@@ -380,7 +380,8 @@ app.get('/api/health', async (req, res) => {
   // not open the dedicated authentication-authority connection. Production-like runtimes never
   // expose this diagnostic field. The probe returns only safe state: no DSN, credentials or CA body.
   let sessionAuthorityPreflight = null;
-  if (!isProductionLikeRuntime(process.env) && req.query?.auth05 === 'session-authority') {
+  if (String(process.env.VERCEL_ENV || '').trim().toLowerCase() === 'preview'
+      && req.query?.auth05 === 'session-authority') {
     try {
       const probe = await probeSessionAuthorityConnection();
       sessionAuthorityPreflight = {

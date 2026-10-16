@@ -163,10 +163,15 @@ test('AUTH-05-R4 registration failure paths invoke governed unestablished-user c
   assert.doesNotMatch(route, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
-test('AUTH-05-R4 Preview preflight is read-only, opt-in and suppressed in production-like runtimes', () => {
-  assert.match(serverSource, /req\.query\?\.auth05 === 'session-authority'/);
-  assert.match(serverSource, /!isProductionLikeRuntime\(process\.env\)/);
-  assert.match(serverSource, /probeSessionAuthorityConnection\(\)/);
+test('AUTH-05-R4 preflight is Vercel Preview-only, opt-in, read-only, and unavailable in Production', () => {
+  const healthStart = serverSource.indexOf("app.get('/api/health'");
+  const healthEnd = serverSource.indexOf("// Mount payment gateway unified routes", healthStart);
+  assert.ok(healthStart >= 0 && healthEnd > healthStart);
+  const healthRoute = serverSource.slice(healthStart, healthEnd);
+  assert.match(healthRoute, /VERCEL_ENV[^\n]+=== 'preview'/);
+  assert.match(healthRoute, /req\.query\?\.auth05 === 'session-authority'/);
+  assert.doesNotMatch(healthRoute, /VERCEL_ENV[^\n]+=== 'production'/);
+  assert.match(healthRoute, /probeSessionAuthorityConnection\(\)/);
   assert.match(runtime, /SELECT[\s\S]*current_user[\s\S]*pg_stat_ssl/);
   assert.doesNotMatch(runtime.slice(runtime.indexOf('probeSessionAuthorityConnection'), runtime.indexOf('async function authorityScalar')), /INSERT|UPDATE|DELETE|TRUNCATE/);
 });
