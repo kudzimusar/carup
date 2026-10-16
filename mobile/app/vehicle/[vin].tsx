@@ -435,6 +435,22 @@ function VehicleDetailScreenInner() {
             </View>
           ) : null}
 
+          <View style={{ marginTop: spacing[6], gap: spacing[3] }}>
+            <SectionHeader title="Buyer journey" />
+            <Button
+              label="Open Vehicle Passport"
+              variant="secondary"
+              onPress={() => router.push(`/vehicle/${encodeURIComponent(vehicle.vin)}/passport` as never)}
+            />
+            <Button
+              label="Reservation & SafePay"
+              onPress={() => router.push(`/vehicle/${encodeURIComponent(vehicle.vin)}/transaction` as never)}
+            />
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
+              Both continue with VIN {vehicle.vin}. Transaction, payment and ownership status come from CarUp backend authority, not this screen.
+            </Text>
+          </View>
+
           {vehicle.safety_warnings?.length ? (
             <View style={{ marginTop: spacing[4], gap: spacing[2] }}>
               {vehicle.safety_warnings.map((warning) => (
