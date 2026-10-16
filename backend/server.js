@@ -75,6 +75,7 @@ import {
   issueInteractiveSession,
   revokeCurrentSession,
   setSessionActiveOrganization,
+  deleteUnestablishedRegistrationUser,
 } from './services/auth/sessionAuthority.js';
 import {
   resolveVerifiedActiveTenant,
@@ -2861,7 +2862,10 @@ app.post('/api/auth/register', async (req, res) => {
       if (profileError) {
         // Never tell the person signup succeeded while silently discarding the identity/onboarding
         // answers we just asked them for. Compensate the user row and fail the registration.
-        await supabase.from('users').delete().eq('id', id);
+        await deleteUnestablishedRegistrationUser(
+          { userId: id, expectedEmail: normalizedEmail },
+          { legacyTestClient: supabase },
+        ).catch(() => null);
         console.error('Failed to persist registration profile:', profileError.message);
         return res.status(503).json({ error: 'Could not save your registration profile. Please try again.' });
       }
