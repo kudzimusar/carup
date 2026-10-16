@@ -48,15 +48,37 @@ AS $$
     'is_valid', s.is_valid,
     'created_at', s.created_at,
     'expires_at', s.expires_at,
-    'auth_method', s.auth_method,
-    'step_up_at', s.step_up_at,
-    'step_up_method', s.step_up_method,
     'user_agent', s.user_agent
   ) END
   FROM (SELECT * FROM public.user_sessions
          WHERE token = p_token AND p_token IS NOT NULL AND btrim(p_token) <> ''
          LIMIT 1) s;
 $$;
+
+-- Assurance resolver is deliberately separate from core authentication resolution. This preserves
+-- the pre-existing fail-closed distinction: a missing/failed assurance surface may refuse step-up
+-- with 503 without turning an otherwise valid session into a login failure.
+CREATE OR REPLACE FUNCTION public.session_authority_resolve_assurance(p_token text)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $
+  SELECT CASE WHEN s.id IS NULL THEN NULL ELSE jsonb_build_object(
+    'id', s.id,
+    'user_id', s.user_id,
+    'is_valid', s.is_valid,
+    'created_at', s.created_at,
+    'expires_at', s.expires_at,
+    'auth_method', s.auth_method,
+    'step_up_at', s.step_up_at,
+    'step_up_method', s.step_up_method
+  ) END
+  FROM (SELECT * FROM public.user_sessions
+         WHERE token = p_token AND p_token IS NOT NULL AND btrim(p_token) <> ''
+         LIMIT 1) s;
+$;
 
 -- Display-only session inventory. Token values never leave the function.
 CREATE OR REPLACE FUNCTION public.session_authority_list_user_sessions(
@@ -271,6 +293,7 @@ UPDATE public.user_sessions
 REVOKE ALL ON TABLE public.user_sessions FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 
 REVOKE ALL ON FUNCTION public.session_authority_resolve_token(text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
+REVOKE ALL ON FUNCTION public.session_authority_resolve_assurance(text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 REVOKE ALL ON FUNCTION public.session_authority_list_user_sessions(text,text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 REVOKE ALL ON FUNCTION public.session_authority_issue(text,text,text,text,text,text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 REVOKE ALL ON FUNCTION public.session_authority_set_active_organization(text,text,text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
@@ -280,6 +303,7 @@ REVOKE ALL ON FUNCTION public.session_authority_record_password_reauth(text,text
 REVOKE ALL ON FUNCTION public.session_authority_clear_password_reauth(text,text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 
 GRANT EXECUTE ON FUNCTION public.session_authority_resolve_token(text) TO service_role, carup_session_authority;
+GRANT EXECUTE ON FUNCTION public.session_authority_resolve_assurance(text) TO service_role, carup_session_authority;
 GRANT EXECUTE ON FUNCTION public.session_authority_list_user_sessions(text,text) TO service_role, carup_session_authority;
 
 GRANT EXECUTE ON FUNCTION public.session_authority_issue(text,text,text,text,text,text) TO carup_session_authority;
@@ -322,6 +346,7 @@ REVOKE ALL ON FUNCTION public.session_authority_set_active_organization(text,tex
 REVOKE ALL ON FUNCTION public.session_authority_issue(text,text,text,text,text,text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 REVOKE ALL ON FUNCTION public.session_authority_list_user_sessions(text,text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 REVOKE ALL ON FUNCTION public.session_authority_resolve_token(text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
+REVOKE ALL ON FUNCTION public.session_authority_resolve_assurance(text) FROM PUBLIC, anon, authenticated, service_role, carup_session_authority;
 
 DROP FUNCTION IF EXISTS public.session_authority_clear_password_reauth(text,text);
 DROP FUNCTION IF EXISTS public.session_authority_record_password_reauth(text,text);
@@ -330,4 +355,5 @@ DROP FUNCTION IF EXISTS public.session_authority_revoke_current(text,text);
 DROP FUNCTION IF EXISTS public.session_authority_set_active_organization(text,text,text);
 DROP FUNCTION IF EXISTS public.session_authority_issue(text,text,text,text,text,text);
 DROP FUNCTION IF EXISTS public.session_authority_list_user_sessions(text,text);
+DROP FUNCTION IF EXISTS public.session_authority_resolve_assurance(text);
 DROP FUNCTION IF EXISTS public.session_authority_resolve_token(text);
