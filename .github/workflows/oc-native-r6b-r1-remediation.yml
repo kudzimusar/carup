@@ -52,8 +52,7 @@ jobs:
           git diff --check "$R6B_R1_START_SHA..HEAD"
           mapfile -t CHANGED < <(git diff --name-only "$R6B_R1_START_SHA..HEAD")
           test "${#CHANGED[@]}" -gt 0
-          printf '%s
-' "${CHANGED[@]}"
+          printf '%s\\n' "${CHANGED[@]}"
           for file in "${CHANGED[@]}"; do
             case "$file" in
               mobile/*|.github/workflows/oc-native-r6b-r1-remediation.yml)
