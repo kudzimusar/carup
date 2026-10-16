@@ -124,7 +124,7 @@ async function main(){
   `);
   await admin.query('SET ROLE mig_owner');
   await admin.query(`
-    CREATE TABLE users(id text PRIMARY KEY,email text UNIQUE,role text NOT NULL);
+    CREATE TABLE users(id text PRIMARY KEY,email text UNIQUE,role text NOT NULL,password_hash text);
     CREATE TABLE tenants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text,type text);
     CREATE TABLE tenant_users(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id uuid NOT NULL REFERENCES tenants(id),user_id text NOT NULL REFERENCES users(id),role text NOT NULL);
     CREATE TABLE user_sessions(
@@ -141,6 +141,21 @@ async function main(){
       auth_method text,
       step_up_at text,
       step_up_method text
+    );
+    CREATE TABLE auth_action_tokens(
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      purpose text NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz,
+      revoked_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      requested_ip text,
+      user_agent text,
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_by text,
+      source text NOT NULL DEFAULT 'api'
     );
     CREATE TABLE organizations(id text PRIMARY KEY,name text);
     CREATE TABLE organization_users(organization_id text REFERENCES organizations(id),user_id text REFERENCES users(id),role text);
@@ -162,6 +177,7 @@ async function main(){
   const owner=await connect({role:'mig_owner'});
   const service=await connect({role:'service_role'});
   const governor=await seedGovernor(owner,'governor-auth05');
+  await owner.query(`UPDATE users SET password_hash='scrypt:aaaa:bbbb' WHERE id=$1`,[governor.userId]);
 
   // PRE-REMEDIATION THREAT REPRODUCTION.
   const craftedId='svc-crafted-a1';
@@ -177,6 +193,18 @@ async function main(){
   rec('PRE: ordinary service_role marks it valid with future expiry',crafted?.is_valid===true && Date.parse(crafted.expires_at)>Date.now());
   rec('PRE: ordinary service_role fabricates password-re-auth A1',crafted?.step_up_method==='password_reauth' && Boolean(crafted.step_up_at));
 
+  await service.query(`UPDATE users SET password_hash='scrypt:deadbeef:cafebabe' WHERE id=$1`,[governor.userId]);
+  const prePassword=(await admin.query('SELECT password_hash FROM users WHERE id=$1',[governor.userId])).rows[0]?.password_hash;
+  rec('PRE: ordinary service_role can replace governor password credential',prePassword==='scrypt:deadbeef:cafebabe');
+
+  const forgedResetHash='a'.repeat(64);
+  await service.query(
+    `INSERT INTO auth_action_tokens(user_id,purpose,token_hash,expires_at,source)
+      VALUES ($1,'password_reset',$2,clock_timestamp()+interval '1 hour','service-role-forgery')`,
+    [governor.userId,forgedResetHash]);
+  const forgedReset=(await admin.query('SELECT id FROM auth_action_tokens WHERE token_hash=$1',[forgedResetHash])).rowCount;
+  rec('PRE: ordinary service_role can fabricate password-reset proof state',forgedReset===1);
+
   await ensureUsers(owner,['pre-impersonated-target']);
   const preResult=await direct(service,{actor:governor.userId,session:craftedId,subject:'pre-impersonated-target'});
   rec('PRE: manufactured A1 session executes governed Corporate operation',
@@ -188,6 +216,11 @@ async function main(){
     insert:await tablePriv(admin,'service_role','INSERT'),
     update:await tablePriv(admin,'service_role','UPDATE'),
     delete:await tablePriv(admin,'service_role','DELETE'),
+    users_update_password: (await admin.query("SELECT has_column_privilege('service_role','public.users','password_hash','UPDATE') ok")).rows[0].ok,
+    users_update_email: (await admin.query("SELECT has_column_privilege('service_role','public.users','email','UPDATE') ok")).rows[0].ok,
+    users_delete: (await admin.query("SELECT has_table_privilege('service_role','public.users','DELETE') ok")).rows[0].ok,
+    auth_token_insert: (await admin.query("SELECT has_table_privilege('service_role','public.auth_action_tokens','INSERT') ok")).rows[0].ok,
+    auth_token_update: (await admin.query("SELECT has_table_privilege('service_role','public.auth_action_tokens','UPDATE') ok")).rows[0].ok,
     phase_c_write:await fnPriv(admin,'service_role','public.corporate_authority_apply_direct(text,text,text,text,text,uuid,text,text,timestamptz,timestamptz,text,jsonb)'),
   };
   console.log('PRIVILEGE_BEFORE '+JSON.stringify(before));
@@ -208,6 +241,13 @@ async function main(){
       resolve:await fnPriv(admin,'service_role','public.session_authority_resolve_token(text)'),
       issue:await fnPriv(admin,'service_role','public.session_authority_issue(text,text,text,text,text,text)'),
       phase_c_write:await fnPriv(admin,'service_role','public.corporate_authority_apply_direct(text,text,text,text,text,uuid,text,text,timestamptz,timestamptz,text,jsonb)'),
+      users_update_password:(await admin.query("SELECT has_column_privilege('service_role','public.users','password_hash','UPDATE') ok")).rows[0].ok,
+      users_update_email:(await admin.query("SELECT has_column_privilege('service_role','public.users','email','UPDATE') ok")).rows[0].ok,
+      users_delete:(await admin.query("SELECT has_table_privilege('service_role','public.users','DELETE') ok")).rows[0].ok,
+      auth_token_insert:(await admin.query("SELECT has_table_privilege('service_role','public.auth_action_tokens','INSERT') ok")).rows[0].ok,
+      auth_token_update:(await admin.query("SELECT has_table_privilege('service_role','public.auth_action_tokens','UPDATE') ok")).rows[0].ok,
+      auth_token_writer:await fnPriv(admin,'service_role','public.session_authority_auth_token_insert(text,text,text,timestamptz,text,text,jsonb,text,text)'),
+      password_writer:await fnPriv(admin,'service_role','public.session_authority_set_password_hash(text,text)'),
     },
     session_runtime:{
       select:await tablePriv(admin,'session_runtime','SELECT'),
@@ -218,6 +258,8 @@ async function main(){
       reauth:await fnPriv(admin,'session_runtime','public.session_authority_record_password_reauth(text,text)'),
       revoke:await fnPriv(admin,'session_runtime','public.session_authority_revoke_scope(text,text,text,text)'),
       phase_c_write:await fnPriv(admin,'session_runtime','public.corporate_authority_apply_direct(text,text,text,text,text,uuid,text,text,timestamptz,timestamptz,text,jsonb)'),
+      auth_token_writer:await fnPriv(admin,'session_runtime','public.session_authority_auth_token_insert(text,text,text,timestamptz,text,text,jsonb,text,text)'),
+      password_writer:await fnPriv(admin,'session_runtime','public.session_authority_set_password_hash(text,text)'),
     }
   };
   console.log('PRIVILEGE_AFTER '+JSON.stringify(after));
@@ -225,9 +267,14 @@ async function main(){
     !after.service_role.select&&!after.service_role.insert&&!after.service_role.update&&!after.service_role.delete);
   rec('ACL: ordinary service_role can resolve exact presented token but cannot issue',after.service_role.resolve&&!after.service_role.issue);
   rec('ACL: ordinary service_role cannot execute Phase-C write wrapper',!after.service_role.phase_c_write);
+  rec('ACL: ordinary service_role cannot rewrite login identity or credential',
+    !after.service_role.users_update_password&&!after.service_role.users_update_email&&!after.service_role.users_delete&&!after.service_role.password_writer);
+  rec('ACL: ordinary service_role cannot fabricate/consume auth-action proof state',
+    !after.service_role.auth_token_insert&&!after.service_role.auth_token_update&&!after.service_role.auth_token_writer);
   rec('ACL: dedicated session runtime has function authority but zero direct table DML',
     after.session_runtime.issue&&after.session_runtime.reauth&&after.session_runtime.revoke&&after.session_runtime.phase_c_write
-      &&!after.session_runtime.select&&!after.session_runtime.insert&&!after.session_runtime.update&&!after.session_runtime.delete);
+      &&!after.session_runtime.select&&!after.session_runtime.insert&&!after.session_runtime.update&&!after.session_runtime.delete
+      &&after.session_runtime.auth_token_writer&&after.session_runtime.password_writer);
 
   const postCrafted=(await admin.query('SELECT is_valid,step_up_at,step_up_method FROM user_sessions WHERE id=$1',[craftedId])).rows[0];
   rec('CUTOVER: all pre-boundary session/A1 state invalidated',
@@ -253,6 +300,16 @@ async function main(){
   await denied('I4 revoked-session revival by ordinary service_role = DENIED',()=>service.query(
     `UPDATE user_sessions SET is_valid=true WHERE id=$1`,[craftedId]));
 
+  await denied('I4b governor password replacement by ordinary service_role = DENIED',()=>service.query(
+    `UPDATE users SET password_hash='scrypt:ffff:eeee' WHERE id=$1`,[governor.userId]));
+  await denied('I4c governor email replacement by ordinary service_role = DENIED',()=>service.query(
+    `UPDATE users SET email='attacker@x.invalid' WHERE id=$1`,[governor.userId]));
+  await denied('I4d auth reset-token fabrication by ordinary service_role = DENIED',()=>service.query(
+    `INSERT INTO auth_action_tokens(user_id,purpose,token_hash,expires_at) VALUES ($1,'password_reset',$2,clock_timestamp()+interval '1 hour')`,
+    [governor.userId,'b'.repeat(64)]));
+  await denied('I4e ordinary service_role cannot call dedicated password writer',()=>service.query(
+    `SELECT public.session_authority_set_password_hash($1,'scrypt:ffff:eeee')`,[governor.userId]));
+
   // I5 — Corporate impersonation with only ordinary service_role.
   await denied('I5 ordinary service_role cannot enumerate bearer-token table',()=>service.query(
     `SELECT token FROM user_sessions WHERE user_id=$1`,[governor.userId]));
@@ -270,6 +327,20 @@ async function main(){
     sessionUrl=u.toString();
   }
   const sessionRuntime=await connect({url:sessionUrl});
+  const resetTokenHash='c'.repeat(64);
+  const resetRecord=(await sessionRuntime.query(
+    `SELECT public.session_authority_auth_token_insert(
+      $1,'password_reset',$2,clock_timestamp()+interval '1 hour',NULL,NULL,'{}'::jsonb,NULL,'auth05-proof') data`,
+    [governor.userId,resetTokenHash])).rows[0].data;
+  rec('I6 legitimate dedicated recovery-token issuance = PASS',resetRecord?.user_id===governor.userId);
+
+  const passwordWrite=(await sessionRuntime.query(
+    `SELECT public.session_authority_set_password_hash($1,'scrypt:1234abcd:5678efab') data`,
+    [governor.userId])).rows[0].data;
+  const passwordAfter=(await admin.query('SELECT password_hash FROM users WHERE id=$1',[governor.userId])).rows[0]?.password_hash;
+  rec('I6 legitimate dedicated password credential update = PASS',
+    passwordWrite?.updated===true&&passwordAfter==='scrypt:1234abcd:5678efab');
+
   const issued=(await sessionRuntime.query(
     `SELECT public.session_authority_issue($1,'owner',NULL,'127.0.0.1','auth05-test','password') data`,
     [governor.userId])).rows[0].data;
