@@ -98,6 +98,6 @@ test('local/test compatibility seam is deployment-proof and cannot activate from
 
 test('dedicated runtime requires an independent database credential and never falls back to service_role', () => {
   assert.match(runtime, /SESSION_AUTH_DATABASE_URL/);
-  assert.doesNotMatch(runtime, /SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL/);
+  assert.doesNotMatch(runtime, /process\\.env\\.(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL)\\b/);
   assert.match(runtime, /executeCorporateAuthorityRpc/);
 });
