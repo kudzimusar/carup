@@ -319,14 +319,16 @@ async function main(){
   }));
 
   // I6 — legitimate dedicated authority lifecycle.
-  const localUrl=DB_URL || `postgres://session_runtime:auth05-test-only@127.0.0.1:${PORT}/postgres`;
-  let sessionUrl=localUrl;
+  const sessionRuntimePassword='auth05-test-only';
+  let sessionRuntime;
   if(DB_URL){
     const u=new URL(DB_URL);
-    u.username='session_runtime'; u.password='auth05-test-only';
-    sessionUrl=u.toString();
+    u.username='session_runtime';
+    u.password=sessionRuntimePassword;
+    sessionRuntime=await connect({url:u.toString()});
+  } else {
+    sessionRuntime=await connect({user:'session_runtime',password:sessionRuntimePassword});
   }
-  const sessionRuntime=await connect({url:sessionUrl});
   const resetTokenHash='c'.repeat(64);
   const resetRecord=(await sessionRuntime.query(
     `SELECT public.session_authority_auth_token_insert(
