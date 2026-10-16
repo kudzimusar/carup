@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, AppState, InteractionManager, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -9,6 +9,9 @@ import { SecureSessionProvider } from '../providers/SecureSessionProvider';
 import { ensurePushRegistration } from '../utils/pushRegistration';
 import { queryClient } from '../utils/queryClient';
 import { communicationQueryKeys } from '../utils/communicationQueries';
+import { getCommunicationThread } from '../utils/communicationApi';
+import { getMarketplaceListingDetail } from '../utils/marketplaceApi';
+import { routeCanonicalPushPayload } from '../utils/pushNavigation';
 import {
   markColdStartUsable,
   markWarmResumeStart,
@@ -19,11 +22,13 @@ import '../global.css';
 
 export default function RootLayout() {
   const theme = useNativeTheme();
+  const router = useRouter();
   const initializeAuth = useAuthStore((state) => state.initialize);
   const loading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const sessionToken = useAuthStore((state) => state.token);
   const appState = useRef(AppState.currentState);
+  const handledPushResponses = useRef(new Set<string>());
 
   useEffect(() => {
     initializeAuth();
@@ -53,6 +58,65 @@ export default function RootLayout() {
     if (loading || !isAuthenticated || !sessionToken) return;
     void ensurePushRegistration();
   }, [loading, isAuthenticated, sessionToken]);
+
+  useEffect(() => {
+    if (loading) return;
+    let disposed = false;
+    let subscription: { remove: () => void } | null = null;
+
+    const handleResponse = async (response: any) => {
+      const identifier = String(response?.notification?.request?.identifier || '');
+      if (identifier && handledPushResponses.current.has(identifier)) return;
+      if (identifier) handledPushResponses.current.add(identifier);
+
+      const data = response?.notification?.request?.content?.data;
+      await routeCanonicalPushPayload(data, {
+        isAuthenticated: () => useAuthStore.getState().isAuthenticated,
+        authorizeConversation: async (threadId) => {
+          try {
+            await getCommunicationThread(threadId);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        authorizeVehicle: async (listingId) => {
+          try {
+            await getMarketplaceListingDetail(listingId);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        navigate: (href) => router.push(href as never),
+        navigateToLogin: () => router.push('/(auth)/login' as never),
+        navigateToInbox: () => {
+          const currentUser = useAuthStore.getState().user;
+          router.push((currentUser?.role === 'owner' ? '/(tabs)/inbox' : '/(tabs)/account') as never);
+        },
+        navigateToMarketplace: () => router.push('/(tabs)/marketplace' as never),
+      });
+    };
+
+    void (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (lastResponse && !disposed) await handleResponse(lastResponse);
+        if (disposed) return;
+        subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+          void handleResponse(response);
+        });
+      } catch {
+        // Push-response routing is optional infrastructure. Failure must not block app start.
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      subscription?.remove();
+    };
+  }, [loading, router]);
 
   return (
     <QueryClientProvider client={queryClient}>
