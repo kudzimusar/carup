@@ -311,7 +311,7 @@ REVOKE ALL ON TABLE public.user_sessions FROM PUBLIC, anon, authenticated, servi
 -- Protect the credential state that can feed the legitimate issuer. Preserve ordinary non-credential
 -- profile/admin updates with column grants, but remove table-level UPDATE/DELETE so password_hash,
 -- email and immutable identity cannot be rewritten by ordinary service_role.
-REVOKE UPDATE, DELETE ON TABLE public.users FROM PUBLIC, anon, authenticated, service_role;
+REVOKE UPDATE, DELETE ON TABLE public.users FROM PUBLIC, service_role;
 DO $
 DECLARE
   v_cols text;
