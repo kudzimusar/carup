@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CarUpWordmark } from '../brand/CarUpBrand';
 import { listCommunicationThreads } from '../../utils/communicationApi';
+import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -74,9 +75,10 @@ export function NativeSharedHeader() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const loading = useAuthStore((state) => state.loading);
   const canReadInbox = !loading && isAuthenticated && user?.role === 'owner';
+  const communicationScope = communicationQueryScope(user);
 
   const threadsQuery = useQuery({
-    queryKey: ['native-shared-header-threads', user?.id],
+    queryKey: communicationQueryKeys.threads(communicationScope),
     queryFn: () => listCommunicationThreads(),
     enabled: canReadInbox,
     staleTime: 30_000,
