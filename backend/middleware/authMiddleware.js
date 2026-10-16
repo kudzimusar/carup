@@ -328,11 +328,7 @@ export function optionalAuth() {
       let fallbackDerived = false;
       let sessionTenantId = null;
       if (sessionToken) {
-        const { data: session } = await supabase
-          .from('user_sessions')
-          .select('user_id, is_valid, expires_at, active_organization_id')
-          .eq('token', sessionToken)
-          .single();
+        const session = await resolveSessionByToken(supabase, sessionToken);
         if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
           activeUserId = session.user_id;
           sessionTenantId = session.active_organization_id || null;
