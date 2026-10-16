@@ -42,7 +42,7 @@ function changeFn(sql, name, changer) {
   const before = fn(sql, name);
   const after = changer(before);
   must(after !== before, name + ': requested mutation was a no-op');
-  return sql.replace(before, after);
+  return sql.replace(before, () => after);
 }
 const marker = (id) => 'CA-CERT-04-R2 ' + id;
 
