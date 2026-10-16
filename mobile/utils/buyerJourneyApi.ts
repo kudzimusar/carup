@@ -252,28 +252,44 @@ export async function disputeBuyerTransaction(transactionIntentId: string, reaso
   return body.session;
 }
 
-function timestamp(value: string | null | undefined): number {
-  const parsed = Date.parse(value || '');
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+export type BuyerTransactionResolution =
+  | { state: 'resolved'; transaction: BuyerTransactionSession }
+  | { state: 'unavailable' }
+  | { state: 'ambiguous'; count: number };
 
-export function selectLatestCanonicalBuyerTransaction(
+/**
+ * Resolve transaction continuity only from canonical identifiers.
+ *
+ * A VIN can legitimately have multiple participant-visible historical transaction sessions.
+ * Timestamp ordering is presentation, not authority, so Native must never guess that the newest
+ * row is the transaction created by the current reservation. When reservation returns an exact
+ * transactionIntentId, that identifier is the only permitted tie-breaker.
+ */
+export function resolveCanonicalBuyerTransaction(
   vin: string,
   sessions: BuyerTransactionSession[],
-): BuyerTransactionSession | null {
+  transactionIntentId?: string | null,
+): BuyerTransactionResolution {
   const exactVin = String(vin || '').trim();
-  if (!exactVin) return null;
+  if (!exactVin) return { state: 'unavailable' };
+
   const matching = (sessions || []).filter((session) => (
     String(session?.vin || '') === exactVin
     && typeof session?.transaction_intent_id === 'string'
     && session.transaction_intent_id.length > 0
   ));
-  return matching
-    .slice()
-    .sort((a, b) => (
-      Math.max(timestamp(b.updated_at), timestamp(b.created_at))
-      - Math.max(timestamp(a.updated_at), timestamp(a.created_at))
-    ))[0] || null;
+
+  const exactIntent = String(transactionIntentId || '').trim();
+  if (exactIntent) {
+    const exact = matching.filter((session) => session.transaction_intent_id === exactIntent);
+    return exact.length === 1
+      ? { state: 'resolved', transaction: exact[0] }
+      : { state: 'unavailable' };
+  }
+
+  if (matching.length === 1) return { state: 'resolved', transaction: matching[0] };
+  if (matching.length > 1) return { state: 'ambiguous', count: matching.length };
+  return { state: 'unavailable' };
 }
 
 /**

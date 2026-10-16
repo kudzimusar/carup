@@ -5,7 +5,7 @@ import {
   getCanonicalOwnershipProof,
   OWNERSHIP_TRANSFER_DISCOVERY_DEPENDENCY,
   resolveExistingVehicleConversation,
-  selectLatestCanonicalBuyerTransaction,
+  resolveCanonicalBuyerTransaction,
   type BuyerTransactionSession,
 } from '../utils/buyerJourneyApi';
 
@@ -27,20 +27,40 @@ function session(overrides: Partial<BuyerTransactionSession> = {}): BuyerTransac
 }
 
 describe('LR2-C canonical VIN and transaction authority', () => {
-  it('selects only transactions bound to the exact requested VIN', () => {
-    const result = selectLatestCanonicalBuyerTransaction('VIN-001', [
-      session({ transaction_intent_id: 'tx-other', vin: 'VIN-OTHER', updated_at: '2026-10-16T03:00:00Z' }),
+  it('resolves the only participant transaction bound to the exact requested VIN', () => {
+    const result = resolveCanonicalBuyerTransaction('VIN-001', [
+      session({ transaction_intent_id: 'tx-other', vin: 'VIN-OTHER' }),
+      session({ transaction_intent_id: 'tx-1' }),
+    ]);
+    expect(result.state).toBe('resolved');
+    if (result.state === 'resolved') {
+      expect(result.transaction.transaction_intent_id).toBe('tx-1');
+      expect(result.transaction.vin).toBe('VIN-001');
+    }
+  });
+
+  it('preserves the exact reservation transaction intent when multiple historical sessions exist', () => {
+    const result = resolveCanonicalBuyerTransaction('VIN-001', [
+      session({ transaction_intent_id: 'tx-old', updated_at: '2026-10-16T03:00:00Z' }),
+      session({ transaction_intent_id: 'tx-reservation', updated_at: '2026-10-16T01:00:00Z' }),
+    ], 'tx-reservation');
+    expect(result.state).toBe('resolved');
+    if (result.state === 'resolved') {
+      expect(result.transaction.transaction_intent_id).toBe('tx-reservation');
+    }
+  });
+
+  it('fails closed instead of choosing the newest transaction when VIN history is ambiguous', () => {
+    expect(resolveCanonicalBuyerTransaction('VIN-001', [
       session({ transaction_intent_id: 'tx-old', updated_at: '2026-10-16T01:00:00Z' }),
       session({ transaction_intent_id: 'tx-new', updated_at: '2026-10-16T02:00:00Z' }),
-    ]);
-    expect(result?.transaction_intent_id).toBe('tx-new');
-    expect(result?.vin).toBe('VIN-001');
+    ])).toEqual({ state: 'ambiguous', count: 2 });
   });
 
   it('does not manufacture a transaction when the participant projection has no exact VIN', () => {
-    expect(selectLatestCanonicalBuyerTransaction('VIN-MISSING', [
+    expect(resolveCanonicalBuyerTransaction('VIN-MISSING', [
       session({ vin: 'VIN-001' }),
-    ])).toBeNull();
+    ])).toEqual({ state: 'unavailable' });
   });
 });
 
@@ -141,6 +161,8 @@ describe('LR2-C source integration and authority boundaries', () => {
     expect(vehicle).toContain('encodeURIComponent(vehicle.vin)');
     expect(passport).toContain('getBuyerVehiclePassport(canonicalVin)');
     expect(transaction).toContain('getBuyerTransactionsForVin(canonicalVin)');
+    expect(transaction).toContain('setSelectedTransactionIntentId(result.transactionIntentId)');
+    expect(transaction).toContain('resolveCanonicalBuyerTransaction');
   });
 
   it('consumes canonical reservation and transaction endpoints without a Native state writer', () => {

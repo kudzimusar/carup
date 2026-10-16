@@ -22,7 +22,7 @@ import {
   prepareBuyerPaymentIntent,
   reserveBuyerVehicle,
   resolveExistingVehicleConversation,
-  selectLatestCanonicalBuyerTransaction,
+  resolveCanonicalBuyerTransaction,
   type BuyerDepositEligibility,
   type BuyerPaymentIntentResult,
 } from '../../../utils/buyerJourneyApi';
@@ -62,6 +62,7 @@ function BuyerTransactionScreenInner() {
   const [acting, setActing] = useState<string | null>(null);
   const [eligibility, setEligibility] = useState<BuyerDepositEligibility | null>(null);
   const [paymentPreparation, setPaymentPreparation] = useState<BuyerPaymentIntentResult | null>(null);
+  const [selectedTransactionIntentId, setSelectedTransactionIntentId] = useState<string | null>(null);
 
   const queryScope = [
     user?.id || 'anonymous',
@@ -87,10 +88,17 @@ function BuyerTransactionScreenInner() {
     enabled: Boolean(canonicalVin && token && user?.id),
   });
 
-  const transaction = useMemo(
-    () => selectLatestCanonicalBuyerTransaction(canonicalVin, transactionsQuery.data || []),
-    [canonicalVin, transactionsQuery.data],
+  const transactionResolution = useMemo(
+    () => resolveCanonicalBuyerTransaction(
+      canonicalVin,
+      transactionsQuery.data || [],
+      selectedTransactionIntentId,
+    ),
+    [canonicalVin, transactionsQuery.data, selectedTransactionIntentId],
   );
+  const transaction = transactionResolution.state === 'resolved'
+    ? transactionResolution.transaction
+    : null;
 
   const runAction = async (label: string, action: () => Promise<void>) => {
     setActing(label);
@@ -109,6 +117,8 @@ function BuyerTransactionScreenInner() {
   const reserve = () => runAction('reserve', async () => {
     const result = await reserveBuyerVehicle(canonicalVin);
     if (result.vin !== canonicalVin) throw new Error('Reservation authority returned a different VIN.');
+    if (!result.transactionIntentId) throw new Error('Reservation authority returned no canonical transaction intent.');
+    setSelectedTransactionIntentId(result.transactionIntentId);
     setEligibility(null);
     setPaymentPreparation(null);
     await Promise.all([transactionsQuery.refetch(), detailQuery.refetch()]);
@@ -270,6 +280,12 @@ function BuyerTransactionScreenInner() {
             title="Canonical transaction"
             body={`Transaction intent ${transaction.transaction_intent_id} was returned by CarUp's participant-scoped transaction authority for VIN ${transaction.vin}. Native does not maintain a second transaction state machine.`}
             tone="info"
+          />
+        ) : transactionResolution.state === 'ambiguous' ? (
+          <Notice
+            title="Transaction selection requires canonical identity"
+            body={`CarUp returned ${transactionResolution.count} participant transaction records for this VIN. Native will not choose one by timestamp. A reservation response with an exact transaction intent is required to continue safely.`}
+            tone="warning"
           />
         ) : token && !transactionsQuery.isLoading ? (
           <Notice
