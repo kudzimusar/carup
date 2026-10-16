@@ -1,41 +1,18 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, EmptyState, Notice, SectionHeader, StatusPill } from '../../components/ui/NativePrimitives';
 import { listCommunicationNotifications, listCommunicationThreads } from '../../utils/communicationApi';
+import {
+  communicationChannelLabel,
+  communicationThreadContext,
+  communicationThreadTitle,
+} from '../../utils/communicationPresentation';
+import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
-
-function conversationTitle(thread: any): string {
-  return (
-    thread?.metadata?.vehicle_title ||
-    thread?.metadata?.subject ||
-    thread?.subject ||
-    (thread?.thread_type === 'support' ? 'CarUp support' : 'CarUp conversation')
-  );
-}
-
-function conversationContext(thread: any): string | null {
-  const vehicle =
-    thread?.metadata?.vehicle_label ||
-    thread?.metadata?.listing_title ||
-    thread?.metadata?.vin ||
-    null;
-  return typeof vehicle === 'string' && vehicle.trim() ? vehicle.trim() : null;
-}
-
-function channelLabel(thread: any): string | null {
-  const raw = String(thread?.primary_channel || thread?.channel || '').toLowerCase();
-  if (!raw) return null;
-  if (raw.includes('whatsapp')) return 'WhatsApp';
-  if (raw.includes('telegram')) return 'Telegram';
-  if (raw.includes('email')) return 'Email';
-  if (raw.includes('push')) return 'Push';
-  if (raw.includes('mobile') || raw.includes('in_app')) return 'CarUp';
-  return null;
-}
 
 function channelIcon(label: string | null): React.ComponentProps<typeof Ionicons>['name'] {
   if (label === 'WhatsApp') return 'logo-whatsapp';
@@ -51,18 +28,23 @@ export default function InboxScreen() {
   const loading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
+  const scope = communicationQueryScope(user);
 
   const enabled = !loading && isAuthenticated && user?.role === 'owner';
   const threadsQuery = useQuery({
-    queryKey: ['native-inbox-threads', user?.id],
+    queryKey: communicationQueryKeys.threads(scope),
     queryFn: () => listCommunicationThreads(),
     enabled,
   });
   const notificationsQuery = useQuery({
-    queryKey: ['native-inbox-notifications', user?.id],
+    queryKey: communicationQueryKeys.notifications(scope),
     queryFn: () => listCommunicationNotifications(),
     enabled,
   });
+
+  const refreshInbox = async () => {
+    await Promise.all([threadsQuery.refetch(), notificationsQuery.refetch()]);
+  };
 
   if (loading) {
     return (
@@ -104,12 +86,13 @@ export default function InboxScreen() {
   const notifications = notificationsQuery.data?.notifications || [];
   const hasError = threadsQuery.isError || notificationsQuery.isError;
   const isLoading = threadsQuery.isLoading || notificationsQuery.isLoading;
+  const refreshing = threadsQuery.isRefetching || notificationsQuery.isRefetching;
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.background.canvas }}
       contentContainerStyle={{ paddingHorizontal: spacing[5], paddingTop: spacing[6], paddingBottom: spacing[10] }}
-      refreshControl={undefined}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshInbox()} />}
     >
       <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary }}>Inbox</Text>
       <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1], marginBottom: spacing[4] }}>
@@ -140,15 +123,18 @@ export default function InboxScreen() {
         <View style={{ gap: spacing[3] }}>
           <SectionHeader title="Conversations" />
           {threads.map((thread: any) => {
-            const channel = channelLabel(thread);
-            const context = conversationContext(thread);
-            const unread = Number(thread?.unread_count || 0);
+            const title = communicationThreadTitle(thread);
+            const contextRows = communicationThreadContext(thread);
+            const channel = communicationChannelLabel(thread?.primary_channel);
+            const unread = Math.max(0, Number(thread?.unread_count || 0));
             return (
               <Pressable
                 key={String(thread.id)}
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${conversationTitle(thread)}`}
-                accessibilityHint={context ? `Vehicle context: ${context}` : 'Open this CarUp conversation'}
+                accessibilityLabel={`Open ${title}`}
+                accessibilityHint={contextRows.length
+                  ? contextRows.map((row) => `${row.label}: ${row.value}`).join('. ')
+                  : 'Open this CarUp conversation'}
                 onPress={() => router.push(`/inbox/${thread.id}` as never)}
                 style={({ pressed }) => ({
                   borderRadius: radius.card,
@@ -176,13 +162,21 @@ export default function InboxScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
-                    {conversationTitle(thread)}
+                    {title}
                   </Text>
-                  {context ? (
-                    <Text allowFontScaling numberOfLines={1} style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 3 }}>
-                      {context}
-                    </Text>
-                  ) : null}
+                  {contextRows
+                    .filter((row) => row.label !== 'Channel')
+                    .slice(0, 3)
+                    .map((row) => (
+                      <Text
+                        key={`${row.label}:${row.value}`}
+                        allowFontScaling
+                        numberOfLines={1}
+                        style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 3 }}
+                      >
+                        {row.label}: {row.value}
+                      </Text>
+                    ))}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], marginTop: spacing[2] }}>
                     {channel ? <StatusPill label={channel} tone="neutral" /> : null}
                     {unread > 0 ? <StatusPill label={`${unread} unread`} tone="info" /> : null}
@@ -217,10 +211,7 @@ export default function InboxScreen() {
         <Button
           label="Try again"
           variant="secondary"
-          onPress={() => {
-            void threadsQuery.refetch();
-            void notificationsQuery.refetch();
-          }}
+          onPress={() => void refreshInbox()}
           style={{ marginTop: spacing[5] }}
         />
       ) : null}
