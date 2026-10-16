@@ -64,11 +64,11 @@ export async function resolveSessionByToken(readClient, token) {
     const client = legacyOrThrow(readClient);
     const { data, error } = await client
       .from('user_sessions')
-      .select('id,user_id,active_role,active_organization_id,is_valid,created_at,expires_at,auth_method,step_up_at,step_up_method,user_agent')
+      .select('id,user_id,active_role,active_organization_id,is_valid,created_at,expires_at,user_agent')
       .eq('token', token)
       .single();
     if (error) {
-      if (error.code === 'PGRST116') return null;
+      if (error.code === 'PGRST116' || /no session|not found/i.test(String(error.message || ''))) return null;
       const e = new Error(error.message || 'Session read failed');
       e.code = error.code;
       throw e;
@@ -80,6 +80,34 @@ export async function resolveSessionByToken(readClient, token) {
   const { data, error } = await readClient.rpc('session_authority_resolve_token', { p_token: token });
   if (error) {
     const e = new Error(error.message || 'Session resolver failed');
+    e.code = error.code;
+    throw e;
+  }
+  return data || null;
+}
+
+export async function resolveSessionAssuranceByToken(readClient, token) {
+  if (!token) return null;
+  if (isLegacySessionTestAdapterAllowed()) {
+    const client = legacyOrThrow(readClient);
+    const { data, error } = await client
+      .from('user_sessions')
+      .select('id,user_id,is_valid,created_at,expires_at,auth_method,step_up_at,step_up_method')
+      .eq('token', token)
+      .single();
+    if (error) {
+      if (error.code === 'PGRST116' || /no session|not found/i.test(String(error.message || ''))) return null;
+      const e = new Error(error.message || 'Session assurance read failed');
+      e.code = error.code;
+      throw e;
+    }
+    return data || null;
+  }
+
+  if (!readClient?.rpc) throw new SessionAuthorityUnavailableError('Session assurance resolver client is unavailable.');
+  const { data, error } = await readClient.rpc('session_authority_resolve_assurance', { p_token: token });
+  if (error) {
+    const e = new Error(error.message || 'Session assurance resolver failed');
     e.code = error.code;
     throw e;
   }
@@ -335,6 +363,7 @@ export async function closeSessionAuthorityPoolForTests() {
 export default {
   isSessionAuthorityConfigured,
   resolveSessionByToken,
+  resolveSessionAssuranceByToken,
   issueInteractiveSession,
   setSessionActiveOrganization,
   revokeCurrentSession,
