@@ -307,6 +307,142 @@ export async function clearPasswordReauth({
   );
 }
 
+export async function setUserPasswordHash({
+  userId,
+  passwordHash,
+} = {}, { legacyTestClient = null } = {}) {
+  if (isLegacySessionTestAdapterAllowed()) {
+    const client = legacyOrThrow(legacyTestClient);
+    const { error } = await client.from('users').update({ password_hash: passwordHash }).eq('id', userId);
+    if (error) throw new Error(error.message || 'Password update failed');
+    return { updated: true, user_id: userId };
+  }
+
+  return authorityScalar(
+    'SELECT public.session_authority_set_password_hash($1::text,$2::text) AS data',
+    [userId, passwordHash],
+  );
+}
+
+export async function deleteUnestablishedRegistrationUser({
+  userId,
+  expectedEmail,
+} = {}, { legacyTestClient = null } = {}) {
+  if (isLegacySessionTestAdapterAllowed()) {
+    const client = legacyOrThrow(legacyTestClient);
+    const { error } = await client.from('users').delete().eq('id', userId).eq('email', expectedEmail);
+    if (error) throw new Error(error.message || 'Registration compensation failed');
+    return { deleted_count: 1 };
+  }
+
+  return authorityScalar(
+    'SELECT public.session_authority_delete_unestablished_user($1::text,$2::text) AS data',
+    [userId, expectedEmail],
+  );
+}
+
+export async function insertAuthActionToken({
+  userId,
+  purpose,
+  tokenHash,
+  expiresAt,
+  requestedIp = null,
+  userAgent = null,
+  metadata = {},
+  createdBy = null,
+  source = 'api',
+} = {}, { legacyTestClient = null } = {}) {
+  if (isLegacySessionTestAdapterAllowed()) {
+    const client = legacyOrThrow(legacyTestClient);
+    const { data, error } = await client
+      .from('auth_action_tokens')
+      .insert({
+        user_id: userId,
+        purpose,
+        token_hash: tokenHash,
+        expires_at: expiresAt,
+        requested_ip: requestedIp,
+        user_agent: userAgent,
+        metadata,
+        created_by: createdBy,
+        source,
+      })
+      .select('id, user_id, purpose, expires_at, created_at')
+      .single();
+    if (error) throw new Error(error.message || 'Failed to issue auth action token');
+    return data;
+  }
+
+  return authorityScalar(
+    'SELECT public.session_authority_auth_token_insert($1::text,$2::text,$3::text,$4::timestamptz,$5::text,$6::text,$7::jsonb,$8::text,$9::text) AS data',
+    [userId, purpose, tokenHash, expiresAt, requestedIp, userAgent, JSON.stringify(metadata || {}), createdBy, source],
+  );
+}
+
+export async function consumeAuthActionToken({
+  tokenHash,
+  purpose,
+} = {}, { legacyTestClient = null } = {}) {
+  if (isLegacySessionTestAdapterAllowed()) {
+    const client = legacyOrThrow(legacyTestClient);
+    const nowIso = new Date().toISOString();
+    const { data, error } = await client
+      .from('auth_action_tokens')
+      .update({ used_at: nowIso })
+      .eq('token_hash', tokenHash)
+      .eq('purpose', purpose)
+      .is('used_at', null)
+      .is('revoked_at', null)
+      .gt('expires_at', nowIso)
+      .select('id, user_id, purpose, metadata, expires_at, created_at')
+      .maybeSingle();
+
+    if (error) return { ok: false, reason: `consume_failed:${error.message}` };
+    if (data) return { ok: true, token: data };
+
+    const { data: existing } = await client
+      .from('auth_action_tokens')
+      .select('id, used_at, revoked_at, expires_at, purpose')
+      .eq('token_hash', tokenHash)
+      .maybeSingle();
+    if (!existing) return { ok: false, reason: 'unknown_token' };
+    if (existing.purpose !== purpose) return { ok: false, reason: 'wrong_purpose' };
+    if (existing.revoked_at) return { ok: false, reason: 'revoked' };
+    if (existing.used_at) return { ok: false, reason: 'already_used' };
+    return { ok: false, reason: 'expired' };
+  }
+
+  return authorityScalar(
+    'SELECT public.session_authority_auth_token_consume($1::text,$2::text) AS data',
+    [tokenHash, purpose],
+  );
+}
+
+export async function revokeAuthActionTokens({
+  userId,
+  purpose = null,
+} = {}, { legacyTestClient = null } = {}) {
+  if (isLegacySessionTestAdapterAllowed()) {
+    const client = legacyOrThrow(legacyTestClient);
+    const nowIso = new Date().toISOString();
+    let query = client
+      .from('auth_action_tokens')
+      .update({ revoked_at: nowIso })
+      .eq('user_id', userId)
+      .is('used_at', null)
+      .is('revoked_at', null);
+    if (purpose) query = query.eq('purpose', purpose);
+    const { error } = await query;
+    if (error) throw new Error(error.message || 'Failed to revoke auth action tokens');
+    return { revoked_count: 0 };
+  }
+
+  return authorityScalar(
+    'SELECT public.session_authority_auth_token_revoke($1::text,$2::text) AS data',
+    [userId, purpose],
+  );
+}
+
 const CORPORATE_RPC = Object.freeze({
   corporate_authority_apply_direct: {
     keys: ['p_operation','p_actor_user_id','p_actor_session_id','p_subject_user_id','p_org_node_id','p_membership_id',
@@ -371,5 +507,10 @@ export default {
   revokeSessionScope,
   recordPasswordReauth,
   clearPasswordReauth,
+  setUserPasswordHash,
+  deleteUnestablishedRegistrationUser,
+  insertAuthActionToken,
+  consumeAuthActionToken,
+  revokeAuthActionTokens,
   executeCorporateAuthorityRpc,
 };
