@@ -1,0 +1,157 @@
+name: CA-K3-AUTH-05 Session Identity Security
+
+# Source/disposable certification only. No environments, no repository secrets, no Supabase,
+# no staging/Production credentials and no deployment actions.
+on:
+  push:
+    branches:
+      - fix/ca-k3-auth-05-session-authority
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ca-k3-auth-05-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 15b08700ad51451968ba3b728a48c7bb2b9cd329
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  NODE_ENV: test
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+
+jobs:
+  custody-focused:
+    name: Custody + auth/Corporate regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Exact custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git hash-object database/migrations/20261014010000_ca_k3_auth_02_corporate_membership_foundation.sql)" = "a6f7d0ec15236056b3b1c3f6f1f55c1fbf024cda"
+          test "$(git hash-object database/migrations/20261014020000_ca_k3_auth_03_corporate_membership_governance.sql)" = "433ae3bf85e53455b48f0bee5ff3c35028a22169"
+          test "$(git hash-object database/migrations/20261015010000_ca_k3_auth_04_corporate_permission_authority.sql)" = "747404734641952ca7f80ccaddb2ee2eafa0a677"
+          git diff --check "$BASE_SHA" HEAD
+      - name: Install
+        run: npm ci
+      - name: AUTH-05 + auth/session regressions
+        run: |
+          node --test             backend/tests/ca-k3-auth-05-session-authority.test.js             backend/tests/o2-x3-authentication-assurance.test.js             backend/tests/o2-x3-identity-lifecycle.test.js             backend/tests/auth-recovery-security.test.js             backend/tests/user-sessions-auth-contract.test.js
+      - name: Corporate focused regressions
+        run: |
+          node --test             backend/tests/ca-k3-auth-04-permission-authority-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-pglite.test.js             backend/tests/ca-k3-auth-03-membership-governance-service.test.js             backend/tests/ca-k3-auth-01-corporate-access.test.js             backend/tests/ca-k3-auth-02-corporate-membership.test.js
+      - name: Web auth regression
+        working-directory: web
+        run: npm run test:unit
+      - name: Web TypeScript
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+      - name: Native auth/logout contract + TypeScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "/api/auth/logout" mobile/store/authStore.ts
+          grep -q "/api/auth/logout" web/src/context/AuthContext.tsx
+          npm --workspace mobile run ts:check
+      - name: Native auth static regressions
+        run: npm --workspace mobile run test:static
+
+  real-postgres:
+    name: Real PostgreSQL ${{ matrix.pg }} · I1-I6
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CA_AUTH05_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Execute pre-compromise + AUTH-05 I1-I6
+        run: node backend/tests/realpg/ca-k3-auth-05-session-authority-realpg.mjs
+
+  full-backend:
+    name: Full backend exact head
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Full backend candidate truth
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test backend/tests/*.test.js 2>&1 | tee candidate-backend.log
+          echo "---- candidate totals ----"
+          grep -E '^# (tests|pass|fail|cancelled|skipped|todo) ' candidate-backend.log | tail -n 6
+
+  baseline-backend:
+    name: Full backend accepted 15b087 baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 15b08700ad51451968ba3b728a48c7bb2b9cd329
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Full backend accepted baseline truth
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test backend/tests/*.test.js 2>&1 | tee baseline-backend.log
+          echo "---- baseline totals ----"
+          grep -E '^# (tests|pass|fail|cancelled|skipped|todo) ' baseline-backend.log | tail -n 6
