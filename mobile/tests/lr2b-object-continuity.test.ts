@@ -123,6 +123,29 @@ describe('LR2-B canonical object routing contract', () => {
       payload: { object_type: 'trade_order', object_id: 'order-1' },
     })).toBeNull();
   });
+
+  it('never promotes a generic notification or event id into canonical object authority', () => {
+    expect(canonicalObjectRouteFromCommunicationNotification({
+      id: 'notification-row-1',
+      payload: { object_type: 'vehicle', id: 'event-row-99' },
+    })).toBeNull();
+  });
+
+  it('uses an actual notification row thread only for conversation messages', () => {
+    expect(canonicalObjectRouteFromCommunicationNotification({
+      id: 'notification-row-2',
+      notification_type: 'listing_moderation',
+      thread_id: 'trust-safety-thread',
+      payload: { safe_payload: { vin: 'VIN-009' } },
+    })).toEqual({ type: 'marketplace_listing', id: 'VIN-009' });
+
+    expect(canonicalObjectRouteFromCommunicationNotification({
+      id: 'notification-row-3',
+      notification_type: 'conversation_message',
+      thread_id: 'thread-9',
+      payload: {},
+    })).toEqual({ type: 'conversation', id: 'thread-9' });
+  });
 });
 
 describe('LR2-B push tap authorization and safe fallback', () => {
