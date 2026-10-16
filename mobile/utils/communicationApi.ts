@@ -71,12 +71,92 @@ export function listCommunicationThreads(): Promise<{ threads: any[] }> {
   return requestJson('/api/communications/threads');
 }
 
+export interface MarketplaceConversationResolution {
+  state: 'resolved' | 'pending';
+  inquiry_id: string;
+  listing_id: string | null;
+  thread?: any;
+}
+
+export interface MarketplaceConversationResolverOptions {
+  attempts?: number;
+  intervalMs?: number;
+  listThreads?: () => Promise<{ threads: any[] }>;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * LR2-B continuity contract.
+ *
+ * The canonical backend already exposes only conversations the authenticated
+ * caller participates in. Resolve the asynchronous Marketplace inquiry thread by
+ * exact canonical subject/listing identifiers rather than opening Inbox root or
+ * creating any client-side conversation state.
+ */
+export async function resolveMarketplaceInquiryConversation(
+  inquiryId: string,
+  listingId: string | null = null,
+  options: MarketplaceConversationResolverOptions = {},
+): Promise<MarketplaceConversationResolution> {
+  const inquiry = String(inquiryId || '').trim();
+  const listing = listingId ? String(listingId).trim() : null;
+  if (!inquiry) throw new CommunicationApiError('Marketplace inquiry id is required.', 400);
+
+  const attempts = Math.max(1, Math.min(20, options.attempts ?? 5));
+  const intervalMs = Math.max(0, Math.min(5_000, options.intervalMs ?? 500));
+  const listThreads = options.listThreads || listCommunicationThreads;
+  const sleep = options.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const { threads } = await listThreads();
+    const matches = (threads || []).filter((thread: any) => (
+      String(thread?.subject_type || '').toLowerCase() === 'marketplace_inquiry'
+      && String(thread?.subject_id || '') === inquiry
+    ));
+
+    if (matches.length > 1) {
+      throw new CommunicationApiError('More than one canonical conversation matched this inquiry.', 409);
+    }
+
+    const thread = matches[0] || null;
+    if (thread) {
+      const canonicalListingId = thread?.marketplace_listing_id == null
+        ? null
+        : String(thread.marketplace_listing_id);
+      if (listing && canonicalListingId !== listing) {
+        throw new CommunicationApiError('Canonical conversation does not match the Marketplace listing.', 409);
+      }
+      return {
+        state: 'resolved',
+        inquiry_id: inquiry,
+        listing_id: canonicalListingId || listing,
+        thread,
+      };
+    }
+
+    if (attempt < attempts - 1 && intervalMs > 0) await sleep(intervalMs);
+  }
+
+  return {
+    state: 'pending',
+    inquiry_id: inquiry,
+    listing_id: listing,
+  };
+}
+
 export function getCommunicationThread(threadId: string): Promise<{ thread: any; messages: any[]; participants?: any[]; read_at?: string | null }> {
   return requestJson(`/api/communications/threads/${encodeURIComponent(threadId)}`);
 }
 
 export function markCommunicationThreadRead(threadId: string): Promise<{ ok?: boolean; thread_id?: string; last_read_at?: string | null }> {
   return requestJson(`/api/communications/threads/${encodeURIComponent(threadId)}/read`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export function markCommunicationNotificationRead(notificationId: string): Promise<{ success?: boolean }> {
+  return requestJson(`/api/communications/notifications/${encodeURIComponent(notificationId)}/read`, {
     method: 'POST',
     body: JSON.stringify({}),
   });

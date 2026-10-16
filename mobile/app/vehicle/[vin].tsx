@@ -25,7 +25,11 @@ import {
   type MobileListingDetail,
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
-import { createCommunicationShare } from '../../utils/communicationApi';
+import {
+  createCommunicationShare,
+  resolveMarketplaceInquiryConversation,
+} from '../../utils/communicationApi';
+import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
 import { marketplaceReturnFromParam } from '../../utils/marketplaceNavigation';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -243,6 +247,38 @@ function VehicleDetailScreenInner() {
     enabled: Boolean(vin && token && notPublic),
   });
 
+  const openResolvedInquiryConversation = async (inquiryId: string, listingId: string): Promise<boolean> => {
+    try {
+      const resolution = await resolveMarketplaceInquiryConversation(inquiryId, listingId);
+      if (resolution.state === 'resolved' && resolution.thread?.id) {
+        router.push(nativeCanonicalObjectHref({
+          type: 'conversation',
+          id: String(resolution.thread.id),
+        }) as never);
+        return true;
+      }
+
+      Alert.alert(
+        'Conversation is being prepared',
+        'Your inquiry is saved. CarUp has not finished canonicalizing the conversation yet, so no substitute Inbox or second thread will be opened.',
+        [
+          { text: 'Stay here', style: 'cancel' },
+          {
+            text: 'Try exact conversation',
+            onPress: () => void openResolvedInquiryConversation(inquiryId, listingId),
+          },
+        ],
+      );
+      return false;
+    } catch (error) {
+      Alert.alert(
+        'Conversation unavailable',
+        error instanceof Error ? error.message : 'CarUp could not resolve the canonical conversation.',
+      );
+      return false;
+    }
+  };
+
   const messageSeller = async () => {
     if (!token) {
       Alert.alert(
@@ -258,19 +294,12 @@ function VehicleDetailScreenInner() {
 
     setMessaging(true);
     try {
-      await createMarketplaceInquiry({
+      const { inquiry } = await createMarketplaceInquiry({
         listing_id: String(vin),
         inquiry_type: 'vehicle_purchase_interest',
         message: 'I am interested in this vehicle.',
       });
-      Alert.alert(
-        'Message sent through CarUp',
-        'Keep the conversation and any transaction steps inside CarUp.',
-        [
-          { text: 'Stay here', style: 'cancel' },
-          { text: 'Open Inbox', onPress: () => router.push('/(tabs)/inbox' as never) },
-        ],
-      );
+      await openResolvedInquiryConversation(inquiry.id, String(vin));
     } catch (error) {
       Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
     } finally {

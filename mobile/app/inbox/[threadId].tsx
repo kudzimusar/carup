@@ -22,6 +22,10 @@ import {
   communicationThreadTitle,
 } from '../../utils/communicationPresentation';
 import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
+import {
+  canonicalObjectRouteFromThread,
+  nativeCanonicalObjectHref,
+} from '../../utils/nativeObjectRouting';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -153,6 +157,7 @@ export default function NativeConversationScreen() {
   const contextRows = communicationThreadContext(thread);
   const participantRows = communicationParticipantContext(query.data.participants || []);
   const primaryChannel = communicationChannelLabel(thread?.primary_channel);
+  const productRoute = canonicalObjectRouteFromThread(thread);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
@@ -195,6 +200,17 @@ export default function NativeConversationScreen() {
             <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, flex: 1 }}>
               Primary delivery channel
             </Text>
+          </View>
+        ) : null}
+
+        {productRoute ? (
+          <View style={{ marginTop: spacing[3] }}>
+            <Button
+              label="Open vehicle"
+              variant="secondary"
+              onPress={() => router.push(nativeCanonicalObjectHref(productRoute) as never)}
+              icon={<Ionicons name="car-outline" size={19} color={theme.text.primary} />}
+            />
           </View>
         ) : null}
 

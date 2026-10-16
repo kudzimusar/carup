@@ -2,15 +2,23 @@ import React from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, EmptyState, Notice, SectionHeader, StatusPill } from '../../components/ui/NativePrimitives';
-import { listCommunicationNotifications, listCommunicationThreads } from '../../utils/communicationApi';
+import {
+  listCommunicationNotifications,
+  listCommunicationThreads,
+  markCommunicationNotificationRead,
+} from '../../utils/communicationApi';
 import {
   communicationChannelLabel,
   communicationThreadContext,
   communicationThreadTitle,
 } from '../../utils/communicationPresentation';
 import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
+import {
+  canonicalObjectRouteFromCommunicationNotification,
+  nativeCanonicalObjectHref,
+} from '../../utils/nativeObjectRouting';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -25,6 +33,7 @@ function channelIcon(label: string | null): React.ComponentProps<typeof Ionicons
 export default function InboxScreen() {
   const theme = useNativeTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const loading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
@@ -44,6 +53,16 @@ export default function InboxScreen() {
 
   const refreshInbox = async () => {
     await Promise.all([threadsQuery.refetch(), notificationsQuery.refetch()]);
+  };
+
+  const openNotification = async (item: any) => {
+    const target = canonicalObjectRouteFromCommunicationNotification(item);
+    if (!target) return;
+    if (item?.id) {
+      await markCommunicationNotificationRead(String(item.id)).catch(() => null);
+      await queryClient.invalidateQueries({ queryKey: communicationQueryKeys.notifications(scope) });
+    }
+    router.push(nativeCanonicalObjectHref(target) as never);
   };
 
   if (loading) {
@@ -192,18 +211,44 @@ export default function InboxScreen() {
       {notifications.length > 0 ? (
         <View style={{ marginTop: spacing[6] }}>
           <SectionHeader title="Recent updates" />
-          {notifications.slice(0, 3).map((item: any) => (
-            <View key={String(item.id)} style={{ paddingVertical: spacing[3], borderBottomWidth: 1, borderBottomColor: theme.border.default }}>
-              <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
-                {item.title || 'CarUp update'}
-              </Text>
-              {item.message ? (
-                <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
-                  {item.message}
-                </Text>
-              ) : null}
-            </View>
-          ))}
+          {notifications.slice(0, 3).map((item: any) => {
+            const target = canonicalObjectRouteFromCommunicationNotification(item);
+            return (
+              <Pressable
+                key={String(item.id)}
+                accessibilityRole={target ? 'button' : undefined}
+                accessibilityLabel={target ? `Open ${item.title || 'CarUp update'}` : undefined}
+                disabled={!target}
+                onPress={() => void openNotification(item)}
+                style={({ pressed }) => ({
+                  paddingVertical: spacing[3],
+                  borderBottomWidth: 1,
+                  borderBottomColor: theme.border.default,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing[3],
+                  opacity: pressed ? 0.72 : 1,
+                })}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
+                    {item.title || 'CarUp update'}
+                  </Text>
+                  {item.message ? (
+                    <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
+                      {item.message}
+                    </Text>
+                  ) : null}
+                  {!target ? (
+                    <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[1] }}>
+                      No governed Native destination is attached to this update.
+                    </Text>
+                  ) : null}
+                </View>
+                {target ? <Ionicons name="chevron-forward" size={18} color={theme.text.muted} /> : null}
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
 
