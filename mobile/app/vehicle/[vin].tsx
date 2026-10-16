@@ -26,6 +26,7 @@ import {
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
 import { createCommunicationShare } from '../../utils/communicationApi';
+import { marketplaceReturnFromParam } from '../../utils/marketplaceNavigation';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function titleCase(value: string | null | undefined): string | null {
@@ -219,7 +220,11 @@ function OwnerPassportFallback({ vin, passport }: { vin: string; passport: Await
 function VehicleDetailScreenInner() {
   const theme = useNativeTheme();
   const router = useRouter();
-  const { vin } = useLocalSearchParams<{ vin?: string }>();
+  const { vin, marketReturn } = useLocalSearchParams<{ vin?: string; marketReturn?: string | string[] }>();
+  const marketplaceReturn = marketplaceReturnFromParam(marketReturn);
+  const backToMarketplace = () => {
+    router.replace((marketplaceReturn || '/(tabs)/marketplace') as never);
+  };
   const token = useAuthStore((state) => state.token);
   const [messaging, setMessaging] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -342,7 +347,7 @@ function VehicleDetailScreenInner() {
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: spacing[5], paddingTop: spacing[5], paddingBottom: spacing[3] }}>
-          <Button label="Back to Market" variant="tertiary" onPress={() => router.back()} />
+          <Button label="Back to Market" variant="tertiary" onPress={backToMarketplace} />
         </View>
 
         <View style={{ position: 'relative', backgroundColor: theme.background.surfaceSunken }}>
