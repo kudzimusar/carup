@@ -11,7 +11,7 @@ import {
 import { AUTH_ROUTES, buildAuthActionUrl } from '../services/communication/authEmailTemplates.js';
 import { createAuthEmailService } from '../services/auth/authEmailService.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
-import { revokeSessionScope } from '../services/auth/sessionAuthority.js';
+import { revokeSessionScope, setUserPasswordHash } from '../services/auth/sessionAuthority.js';
 import { EMAIL_VERIFIED_EVENT } from '../services/communication/producers/leadershipWelcomeProducer.js';
 
 /**
@@ -146,11 +146,10 @@ export function authRecoveryRouter({
       try {
         const passwordHash = await hashPassword(password);
 
-        const { error: updateError } = await db
-          .from('users')
-          .update({ password_hash: passwordHash })
-          .eq('id', consumed.token.user_id);
-        if (updateError) throw new Error(updateError.message);
+        await setUserPasswordHash(
+          { userId: consumed.token.user_id, passwordHash },
+          { legacyTestClient: db },
+        );
 
         // Revoke every existing session: a password reset must sign out anyone holding the old
         // credential, including an attacker with a live session.
