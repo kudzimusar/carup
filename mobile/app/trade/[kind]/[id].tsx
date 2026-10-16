@@ -85,9 +85,10 @@ export default function TradeRecordDetailScreen() {
     );
   }
 
-  const denied = query.error instanceof TradeApiError && [401, 403].includes(query.error.statusCode || 0);
-  const dependency = query.error instanceof TradeApiError && query.error.statusCode === 424;
-  const missing = query.error instanceof TradeApiError && query.error.statusCode === 404;
+  const tradeError = query.error instanceof TradeApiError ? query.error : null;
+  const denied = Boolean(tradeError && [401, 403].includes(tradeError.statusCode || 0));
+  const dependency = tradeError?.statusCode === 424;
+  const missing = tradeError?.statusCode === 404;
 
   if (query.isLoading) {
     return (
@@ -112,7 +113,7 @@ export default function TradeRecordDetailScreen() {
           body={denied
             ? 'The current account or workspace is not authorized to read this record.'
             : dependency
-              ? query.error.message
+              ? tradeError?.message || 'This Trade detail needs additional backend context.'
               : missing
                 ? 'The authorized Trade service did not return this record.'
                 : 'CarUp could not read this record and will not substitute an explanatory or synthetic record.'}
