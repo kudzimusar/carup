@@ -4,6 +4,7 @@ import { AuthUser, UserRole } from '@shared/types';
 import { withServerTenantContext } from '@shared/auth/sessionTenant';
 import { apiUrl, resolveApiBaseUrl } from '../utils/apiBase';
 import { fetchCsrfToken } from '../utils/verificationApi';
+import { revokeCurrentServerSession } from '../utils/sessionLogout';
 
 /**
  * Refresh governed feature states after an identity change (login/logout/role
@@ -169,36 +170,50 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
-    // OC-EXPO-02 — release this device's push registration WHILE the session still exists: the
-    // next account to sign in here must not inherit the previous person's notifications, and must
-    // not be refused the device. Bounded and non-throwing, so sign-out always completes.
+    const currentToken = get().token;
+
+    // Preserve the existing push-registration release while the session is still valid. It is
+    // intentionally attempted before server logout because the release endpoint needs this token.
     try {
       const { releasePushRegistration } = await import('../utils/pushRegistration');
       await releasePushRegistration();
     } catch {
       // never block sign-out on push cleanup
     }
-    try {
-      await SecureStore.deleteItemAsync(SECURE_USER_KEY);
-      await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);
-      set({
-        user: null,
-        token: null,
-        isAuthenticated: false,
-      });
-      // Clear sensitive in-memory verification state (captured ID document images + OCR PII)
-      // so it cannot persist across a session change. Lazy-imported to avoid an import cycle.
+
+    // Preserve the accepted Native logout contract: terminate only the presenting backend session
+    // through POST /api/auth/logout while its credential still exists locally. A backend/network
+    // failure must never trap the person signed in on this device.
+    if (currentToken) {
       try {
-        const { useVerificationStore } = await import('./verificationStore');
-        useVerificationStore.getState().clear();
+        await revokeCurrentServerSession(currentToken);
       } catch {
-        // best-effort; never block logout on sensitive-state cleanup
+        // defense in depth: local sign-out remains authoritative for this device
       }
-      // Drop any identity-specific governed state back to anonymous defaults.
-      await refreshFeatureGovernance();
-    } catch (error) {
-      console.error('Failed to clear secure session credentials:', error);
     }
+
+    // SecureStore cleanup is best-effort, but the in-memory identity boundary must always be crossed.
+    await Promise.allSettled([
+      SecureStore.deleteItemAsync(SECURE_USER_KEY),
+      SecureStore.deleteItemAsync(SECURE_TOKEN_KEY),
+    ]);
+    set({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+    });
+
+    // Clear sensitive in-memory verification state (captured ID document images + OCR PII)
+    // so it cannot persist across a session change. Lazy-imported to avoid an import cycle.
+    try {
+      const { useVerificationStore } = await import('./verificationStore');
+      useVerificationStore.getState().clear();
+    } catch {
+      // best-effort; never block logout on sensitive-state cleanup
+    }
+
+    // Drop any identity-specific governed state back to anonymous defaults.
+    await refreshFeatureGovernance();
   },
 
   switchRole: async (role: UserRole, tenantId?: string): Promise<RoleSwitchResult> => {
