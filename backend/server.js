@@ -71,7 +71,11 @@ import {
   parseCookies
 } from './middleware/securityMiddleware.js';
 import { corsOptions } from './config/corsOptions.js';
-import { buildSessionRow } from './services/auth/sessionRow.js';
+import {
+  issueInteractiveSession,
+  revokeCurrentSession,
+  setSessionActiveOrganization,
+} from './services/auth/sessionAuthority.js';
 import {
   resolveVerifiedActiveTenant,
   listVerifiedMemberships,
@@ -660,17 +664,18 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       throw new ForbiddenError(`Forbidden. Role '${role}' is not verified for this user context.`);
     }
     
-    // Generate secure session
-    const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-    
-    const { error: switchSessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId, activeRole: role, token, expiresAt: expiresAt.toISOString(), req, tenantId: verifiedTenantId })
-    );
-    if (switchSessionError) {
-      throw new Error('Could not establish a session for the switched role.');
-    }
+    // Session issuance is held by the dedicated AUTH-05 database authority. The ordinary
+    // service_role can verify the user/tenant but cannot mint the resulting bearer identity.
+    const switchedSession = await issueInteractiveSession({
+      userId,
+      activeRole: role,
+      activeOrganizationId: verifiedTenantId,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers?.['user-agent'] || null,
+      authMethod: 'session_switch',
+    }, { legacyTestClient: supabase });
+    const token = switchedSession?.token;
+    if (!token) throw new Error('Could not establish a session for the switched role.');
 
     await logAuditEvent(supabase, {
       ...auditBase,
@@ -2590,17 +2595,18 @@ app.post('/api/auth/login', async (req, res) => {
     }
     delete user.password_hash;
 
-    // Generate actual session token in the database (No more mocks)
-    const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-    
-    const { error: sessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId: user.id, activeRole: user.role, token, expiresAt: expiresAt.toISOString(), req })
-    );
-    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
-    if (sessionError) {
-      console.error('Failed to persist user session on login:', sessionError.message);
+    // Credential verification happened above under ordinary service_role reads. Only the distinct
+    // AUTH-05 session authority may turn that verified identity into a bearer session.
+    const issuedSession = await issueInteractiveSession({
+      userId: user.id,
+      activeRole: user.role,
+      activeOrganizationId: null,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers?.['user-agent'] || null,
+      authMethod: 'password',
+    }, { legacyTestClient: supabase });
+    const token = issuedSession?.token;
+    if (!token) {
       return res.status(500).json({ error: 'Could not establish a session. Please try again.' });
     }
 
@@ -2682,17 +2688,11 @@ app.post('/api/auth/logout', authorizeRole([], { allowUserIdFallback: false, ign
   const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
   const userId = req.userContext.id;
   try {
-    const { data: revokedRows, error } = await supabase
-      .from('user_sessions')
-      .update({ is_valid: false })
-      .eq('token', token)
-      .eq('user_id', userId)
-      .eq('is_valid', true)
-      .select('user_id');
-    if (error) {
-      return res.status(503).json({ error: 'Your session could not be ended right now. Please try again.', code: 'SESSION_REVOCATION_UNAVAILABLE' });
-    }
-    const revoked = Array.isArray(revokedRows) ? revokedRows.length : revokedRows ? 1 : 0;
+    const revokedResult = await revokeCurrentSession(
+      { token, userId },
+      { legacyTestClient: supabase },
+    );
+    const revoked = Number(revokedResult?.revoked_count || 0);
     // Audited after the fact: the revocation is the security action and stands even if the record
     // fails. Never the token — only that this person's current session ended.
     await logAuditEvent(supabase, {
@@ -2743,26 +2743,16 @@ app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: fals
       }
     }
 
-    const { data: sessionRows, error: readError } = await supabase
-      .from('user_sessions')
-      .select('active_organization_id')
-      .eq('token', token)
-      .eq('user_id', userId);
-    if (readError) {
-      return res.status(503).json({ error: 'Your session could not be read right now. Please try again shortly.', code: 'SESSION_UNAVAILABLE' });
-    }
-    const sessionRow = (Array.isArray(sessionRows) ? sessionRows : sessionRows ? [sessionRows] : [])[0];
-    if (!sessionRow) return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
-    const previousTenantId = sessionRow.active_organization_id || null;
-
-    const { error: writeError } = await supabase
-      .from('user_sessions')
-      .update({ active_organization_id: tenantId })
-      .eq('token', token)
-      .eq('user_id', userId);
-    if (writeError) {
+    let selection;
+    try {
+      selection = await setSessionActiveOrganization(
+        { token, userId, activeOrganizationId: tenantId },
+        { legacyTestClient: supabase },
+      );
+    } catch {
       return res.status(503).json({ error: 'Your organisation could not be selected right now. Please try again shortly.', code: 'ACTIVE_TENANT_NOT_SAVED' });
     }
+    const previousTenantId = selection?.previous_active_organization_id || null;
 
     const audit = await logAuditEvent(supabase, {
       req,
@@ -2775,16 +2765,16 @@ app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: fals
       new_value: { tenantId, tenantRole: tenant ? tenant.role : null, tenantType: tenant ? tenant.type : null },
     });
     if (!audit?.success) {
-      const { error: revertError } = await supabase
-        .from('user_sessions')
-        .update({ active_organization_id: previousTenantId })
-        .eq('token', token)
-        .eq('user_id', userId);
-      if (revertError) {
-        // The selection stands with no audit record and could not be withdrawn: invalidate the session
-        // rather than leave unaudited authority in place. The person signs in again.
+      try {
+        await setSessionActiveOrganization(
+          { token, userId, activeOrganizationId: previousTenantId },
+          { legacyTestClient: supabase },
+        );
+      } catch {
+        // The selection stands with no audit record and could not be withdrawn: invalidate the
+        // presenting session through the dedicated authority rather than leave unaudited authority.
         console.error('[active-tenant] audit failed and the selection could not be withdrawn; invalidating the session');
-        await supabase.from('user_sessions').update({ is_valid: false }).eq('token', token).eq('user_id', userId);
+        await revokeCurrentSession({ token, userId }, { legacyTestClient: supabase }).catch(() => null);
       }
       return res.status(503).json({ error: 'Your organisation could not be selected right now. Please try again shortly.', code: 'ACTIVE_TENANT_AUDIT_UNAVAILABLE' });
     }
@@ -2877,17 +2867,18 @@ app.post('/api/auth/register', async (req, res) => {
       }
     }
 
-    // Automatically issue a session. Email verification is independent from identity/KYC and does
-    // not block this Seller draft handoff; it secures the mailbox and is surfaced explicitly.
-    const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-
-    const { error: sessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId: id, activeRole: assignedRole, token, expiresAt: expiresAt.toISOString(), req })
-    );
-    if (sessionError) {
-      console.error('Failed to persist user session on register:', sessionError.message);
+    // Automatically issue a session through the dedicated session authority. Email verification
+    // remains independent from identity/KYC and does not block the Seller draft handoff.
+    const issuedSession = await issueInteractiveSession({
+      userId: id,
+      activeRole: assignedRole,
+      activeOrganizationId: null,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers?.['user-agent'] || null,
+      authMethod: 'password',
+    }, { legacyTestClient: supabase });
+    const token = issuedSession?.token;
+    if (!token) {
       return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
     }
 
