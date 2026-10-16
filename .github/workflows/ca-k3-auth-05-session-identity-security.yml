@@ -66,7 +66,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "/api/auth/logout" mobile/store/authStore.ts
+          grep -q "revokeCurrentServerSession" mobile/store/authStore.ts
+          grep -q "apiUrl('/api/auth/logout')" mobile/utils/sessionLogout.ts
           grep -q "/api/auth/logout" web/src/context/AuthContext.tsx
           npm --workspace mobile run ts:check
       - name: Native auth static regressions
