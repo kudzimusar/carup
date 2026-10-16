@@ -179,7 +179,6 @@ export class AuthActionTokenService {
     if (error) throw new Error(`Failed to revoke auth action tokens: ${error.message}`);
   }
 }
-}
 
 export function createAuthActionTokenService(deps) {
   return new AuthActionTokenService(deps);
