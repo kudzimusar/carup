@@ -1,0 +1,129 @@
+name: OC-NATIVE LR2-C-BE1 Backend Ownership Continuity
+
+on:
+  push:
+    branches:
+      - fix/lr2c-be1-ownership-continuity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-lr2c-be1-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BE1_BASE_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  BE1_BACKEND_DEPLOYMENT: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  BE1_TRANSACTION_TRANSFER_LINK: requires_schema_authority
+
+jobs:
+  certify:
+    name: BE1 Exact-Head Ownership Continuity Certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exact-head and bounded-backend scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "$BE1_BASE_SHA^{commit}"
+          test "$(git merge-base "$BE1_BASE_SHA" HEAD)" = "$BE1_BASE_SHA"
+          git diff --check "$BE1_BASE_SHA..HEAD"
+          mapfile -t CHANGED < <(git diff --name-only "$BE1_BASE_SHA..HEAD")
+          test "${#CHANGED[@]}" -gt 0
+          printf '%s\n' "${CHANGED[@]}"
+          for file in "${CHANGED[@]}"; do
+            case "$file" in
+              backend/*|.github/workflows/oc-native-lr2c-be1-backend-continuity.yml)
+                ;;
+              *)
+                echo "::error::BE1 changed unauthorized path: $file"
+                exit 1
+                ;;
+            esac
+          done
+          if git diff --name-only "$BE1_BASE_SHA..HEAD" | grep -Eq '^(mobile|web|database/migrations)/'; then
+            echo "::error::BE1 must not modify Native/Web or apply/propose an executable migration in this authorization"
+            exit 1
+          fi
+
+      - name: No heuristic transaction-transfer linkage
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --unified=0 "$BE1_BASE_SHA..HEAD" -- backend | grep -E '^\+.*(order\(.+(created_at|updated_at)|latest.*transfer|new Map\(|AsyncStorage|SecureStore)' ; then
+            echo "::error::BE1 introduced heuristic/shadow transaction-transfer authority"
+            exit 1
+          fi
+
+      - name: Syntax checks
+        run: |
+          node --check backend/server.js
+          node --check backend/services/ownership/ownedVehicleAccessService.js
+
+      - name: Focused BE1 ownership continuity
+        run: node --test backend/tests/lr2c-be1-ownership-continuity.test.js
+
+      - name: Ownership transfer authority regressions
+        run: |
+          node --test backend/tests/passport-v16-ownership-authority.test.js
+          node --test backend/tests/o2-transfer-authority-supersession.test.js
+          node --test backend/tests/oc5j-ownership-transfer-refusals.test.js
+
+      - name: Transaction and reservation authority regressions
+        run: |
+          node --test backend/tests/issue164-phase6-transaction-authority.test.js
+          node --test backend/tests/issue164-phase6-session-governance-auth.test.js
+          node --test backend/tests/issue164-phase6-marketplace-reservation-convergence.test.js
+
+      - name: Session identity regressions
+        run: |
+          node --test backend/tests/r6a-current-session-logout.test.js
+          node --test backend/tests/auth-session-row.test.js
+
+      - name: Record BE1 exact-head receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/be1-certification"
+          {
+            echo "task=OC-NATIVE-LR2-C-BE1"
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "accepted_backend_base=$BE1_BASE_SHA"
+            echo "merge_base=$(git merge-base "$BE1_BASE_SHA" HEAD)"
+            echo "accepted_backend_deployment=$BE1_BACKEND_DEPLOYMENT"
+            echo "transaction_to_transfer=$BE1_TRANSACTION_TRANSFER_LINK"
+            echo "migration_applied=NO"
+            echo "staging_mutation=NO"
+            echo "production_touched=NO"
+            echo "deployment_created=NO"
+            echo "external_communications=NO"
+          } > "$RUNNER_TEMP/be1-certification/custody.txt"
+          git diff --name-only "$BE1_BASE_SHA..HEAD" > "$RUNNER_TEMP/be1-certification/changed-files.txt"
+          git log --oneline --reverse "$BE1_BASE_SHA..HEAD" > "$RUNNER_TEMP/be1-certification/commit-lineage.txt"
+
+      - name: Upload BE1 certification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-lr2c-be1-certification-${{ github.sha }}
+          path: ${{ runner.temp }}/be1-certification
+          if-no-files-found: error
+          retention-days: 30
