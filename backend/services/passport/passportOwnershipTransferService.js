@@ -19,6 +19,38 @@ function assertActor(actor) {
   return { id, role: actorRole(actor) };
 }
 
+function projectOwnershipTransfer(data, identity) {
+  const privileged = GOVERNANCE_ROLES.has(identity.role);
+  if (!privileged && ![data.previous_owner_id, data.incoming_owner_id].includes(identity.id)) {
+    throw new ForbiddenError('You are not a participant in this ownership transfer.');
+  }
+
+  if (privileged) return data;
+  return {
+    id: data.id,
+    vin: data.vin,
+    state: data.state,
+    registry_authority: data.registry_authority || null,
+    completed_at: data.completed_at || null,
+    version: data.version,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    relationship: identity.id === data.previous_owner_id ? 'previous_owner' : 'incoming_owner',
+  };
+}
+
+async function readCanonicalTransactionLineage(client, transactionIntentId) {
+  const { data, error } = await client
+    .from('escrow_trust_sessions')
+    .select('id,vin,buyer_id,seller_id')
+    .eq('id', transactionIntentId)
+    .maybeSingle();
+
+  if (error) throw new DatabaseError('Failed to read canonical transaction lineage.', { reason: error.message });
+  if (!data) throw new NotFoundError('Transaction intent not found.');
+  return data;
+}
+
 /**
  * OC-5J (ported from PR #208 4002dbea, an owner-UAT defect OC-5C's port dropped). The transfer
  * functions refuse in a deliberate vocabulary — a specific message and SQLSTATE for every governed
@@ -65,6 +97,68 @@ export async function beginOwnershipTransfer(client, {
     idempotency_key: key,
     legal_ownership_completed: false,
   };
+}
+
+export async function beginOwnershipTransferFromTransaction(client, {
+  transactionIntentId,
+  idempotencyKey,
+} = {}, actor = {}) {
+  const identity = assertActor(actor);
+  if (!transactionIntentId) throw new ValidationError('transactionIntentId is required.');
+  if (!idempotencyKey) throw new ValidationError('idempotencyKey is required.');
+
+  const { data, error } = await client.rpc('passport_begin_ownership_transfer_from_transaction_atomic', {
+    p_transaction_intent_id: String(transactionIntentId),
+    p_actor_id: String(identity.id),
+    p_actor_role: identity.role || null,
+    p_idempotency_key: String(idempotencyKey),
+  });
+  if (error) throw translateTransferError(error, 'Failed to begin ownership transfer from transaction.');
+
+  if (!data || String(data.transaction_intent_id || '') !== String(transactionIntentId)) {
+    throw new ConflictError('Ownership transfer authority returned mismatched transaction lineage.');
+  }
+
+  return {
+    transfer: projectOwnershipTransfer(data, identity),
+    transaction_intent_id: String(transactionIntentId),
+    idempotency_key: String(idempotencyKey),
+    legal_ownership_completed: false,
+  };
+}
+
+export async function getOwnershipTransferByTransaction(client, transactionIntentId, actor = {}) {
+  const identity = assertActor(actor);
+  if (!transactionIntentId) throw new ValidationError('transactionIntentId is required.');
+
+  const transaction = await readCanonicalTransactionLineage(client, String(transactionIntentId));
+  const privileged = GOVERNANCE_ROLES.has(identity.role);
+  if (!privileged && ![transaction.buyer_id, transaction.seller_id].includes(identity.id)) {
+    throw new ForbiddenError('You are not a participant in this transaction.');
+  }
+
+  const { data, error } = await client
+    .from('vehicle_ownership_transfers')
+    .select('id,transaction_intent_id,vin,previous_owner_id,incoming_owner_id,tenant_id,state,registry_authority,completed_at,version,created_at,updated_at')
+    .eq('transaction_intent_id', String(transactionIntentId))
+    .limit(2);
+
+  if (error) throw translateTransferError(error, 'Failed to resolve ownership transfer from transaction.');
+  const rows = Array.isArray(data) ? data : (data ? [data] : []);
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) {
+    throw new ConflictError('Ownership-transfer lineage is ambiguous; refusing to choose a transfer.');
+  }
+
+  const transfer = rows[0];
+  if (String(transfer.transaction_intent_id || '') !== String(transaction.id)
+      || transfer.vin !== transaction.vin
+      || transfer.incoming_owner_id !== transaction.buyer_id
+      || transfer.previous_owner_id !== transaction.seller_id) {
+    throw new ConflictError('Stored ownership-transfer lineage conflicts with canonical transaction truth.');
+  }
+
+  return projectOwnershipTransfer(transfer, identity);
 }
 
 export async function transitionOwnershipTransfer(client, {
@@ -165,29 +259,15 @@ export async function getOwnershipTransfer(client, transferId, actor = {}) {
   if (error) throw translateTransferError(error, 'Failed to read ownership transfer.');
   if (!data) return null;
 
-  const privileged = GOVERNANCE_ROLES.has(identity.role);
-  if (!privileged && ![data.previous_owner_id,data.incoming_owner_id].includes(identity.id)) {
-    throw new ForbiddenError('You are not a participant in this ownership transfer.');
-  }
-
-  if (privileged) return data;
-  return {
-    id: data.id,
-    vin: data.vin,
-    state: data.state,
-    registry_authority: data.registry_authority || null,
-    completed_at: data.completed_at || null,
-    version: data.version,
-    created_at: data.created_at,
-    updated_at: data.updated_at,
-    relationship: identity.id === data.previous_owner_id ? 'previous_owner' : 'incoming_owner',
-  };
+  return projectOwnershipTransfer(data, identity);
 }
 
 export default {
   beginOwnershipTransfer,
+  beginOwnershipTransferFromTransaction,
   transitionOwnershipTransfer,
   getOwnershipTransfer,
+  getOwnershipTransferByTransaction,
 };
 
 /**
