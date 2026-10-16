@@ -34,6 +34,7 @@ import {
   serializeMarketplaceFilters,
   type MarketplaceFilters,
 } from '../../utils/marketplaceFilters';
+import { marketplaceResultsReturnHref, marketplaceVehicleHref } from '../../utils/marketplaceNavigation';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -155,6 +156,11 @@ function ResultsInner() {
     );
   }
 
+  const vehicleReturnHref = marketplaceResultsReturnHref(filters, {
+    savedMode,
+    savedSearch: search,
+  });
+
   const renderItem = ({ item, index }: { item: MobileListingSummary; index: number }) => (
     <View
       style={{
@@ -166,7 +172,7 @@ function ResultsInner() {
     >
       <VehicleCard
         item={item}
-        onPress={() => router.push(`/vehicle/${item.vin}` as never)}
+        onPress={() => router.push(marketplaceVehicleHref(item.vin, vehicleReturnHref) as never)}
         compact={expanded}
         saved={savedVins.has(item.vin)}
         saveBusy={saveBusyVin === item.vin}
@@ -189,7 +195,7 @@ function ResultsInner() {
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[3] }}>
-            <Button label="Back" variant="tertiary" onPress={() => router.back()} />
+            <Button label="Back" variant="tertiary" onPress={() => router.replace('/(tabs)/marketplace' as never)} />
             <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary, flex: 1 }}>
               {savedMode ? 'Saved cars' : 'Buy'}
             </Text>

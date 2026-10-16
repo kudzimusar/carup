@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/authStore';
 import { SecureSessionProvider } from '../providers/SecureSessionProvider';
 import { ensurePushRegistration } from '../utils/pushRegistration';
 import { queryClient } from '../utils/queryClient';
+import { communicationQueryKeys } from '../utils/communicationQueries';
 import {
   markColdStartUsable,
   markWarmResumeStart,
@@ -37,6 +38,10 @@ export default function RootLayout() {
       const previous = appState.current;
       if (previous !== 'active' && nextState === 'active') {
         markWarmResumeStart();
+        if (useAuthStore.getState().isAuthenticated) {
+          void queryClient.invalidateQueries({ queryKey: communicationQueryKeys.root });
+          void queryClient.refetchQueries({ queryKey: communicationQueryKeys.root, type: 'active' });
+        }
         InteractionManager.runAfterInteractions(() => markWarmResumeUsable());
       }
       appState.current = nextState;
