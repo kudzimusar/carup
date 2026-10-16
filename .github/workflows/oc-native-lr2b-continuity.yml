@@ -22,6 +22,8 @@ env:
   LR2B_BACKEND_DEPLOYMENT: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
   EXPO_PUBLIC_API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
   LR2B_EXTERNAL_SENDS: disabled
+  VERCEL_TOKEN_PRIMARY: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_TOKEN_FALLBACK: ${{ secrets.VERCEL_ACCESS_TOKEN }}
 
 jobs:
   certify:
@@ -68,18 +70,46 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve Vercel read-only runtime credential
+        id: vercel-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$VERCEL_TOKEN_PRIMARY" ]; then
+            echo "token=$VERCEL_TOKEN_PRIMARY" >> "$GITHUB_OUTPUT"
+          elif [ -n "$VERCEL_TOKEN_FALLBACK" ]; then
+            echo "token=$VERCEL_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No repository Vercel token is available to read the protected accepted deployment"
+            exit 1
+          fi
+
       - name: Accepted backend immutable runtime smoke
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
           test "$EXPO_PUBLIC_API_URL" = "https://carup-backend-staging-ilhu3leml-11-11.vercel.app"
-          health_code="$(curl --retry 3 --retry-delay 2 --silent --show-error --output "$RUNNER_TEMP/health.json" --write-out '%{http_code}' "$EXPO_PUBLIC_API_URL/health")"
+
+          # The accepted immutable deployment is protected by Vercel Authentication.
+          # Vercel CLI curl uses existing repository auth to cross deployment
+          # protection read-only; it does not modify protection or create a deployment.
+          health_code="$(npx --yes vercel@latest curl "$EXPO_PUBLIC_API_URL/health" \
+            --token "$VERCEL_TOKEN" --scope pay-pass-project \
+            --silent --show-error --output "$RUNNER_TEMP/health.json" --write-out '%{http_code}')"
           test "$health_code" = "200"
-          auth_code="$(curl --retry 2 --silent --show-error --output "$RUNNER_TEMP/threads-unauth.json" --write-out '%{http_code}' "$EXPO_PUBLIC_API_URL/api/communications/threads")"
+
+          set +e
+          auth_code="$(npx --yes vercel@latest curl "$EXPO_PUBLIC_API_URL/api/communications/threads" \
+            --token "$VERCEL_TOKEN" --scope pay-pass-project \
+            --silent --show-error --output "$RUNNER_TEMP/threads-unauth.json" --write-out '%{http_code}')"
+          curl_status=$?
+          set -e
           case "$auth_code" in
             401|403) ;;
             *)
-              echo "::error::Communications threads did not fail closed for an unauthenticated request (HTTP $auth_code)"
+              echo "::error::Communications threads did not fail closed for an unauthenticated application request (HTTP $auth_code, command=$curl_status)"
               cat "$RUNNER_TEMP/threads-unauth.json" || true
               exit 1
               ;;
