@@ -1,6 +1,5 @@
 import { fetchCsrfToken, getVerificationApiBaseUrl } from './verificationApi';
-import { useAuthStore } from '../store/authStore';
-import { getMyVehicles, type NativeOwnedVehicle } from './ownerGarageApi';
+import type { NativeOwnedVehicle } from './ownerGarageApi';
 import { listCommunicationThreads } from './communicationApi';
 
 export class BuyerJourneyApiError extends Error {
@@ -131,6 +130,7 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 let csrfCache: { sessionKey: string; token: string; fetchedAt: number } | null = null;
 
 async function authHeaders(): Promise<Record<string, string>> {
+  const { useAuthStore } = await import('../store/authStore');
   const { token, user } = useAuthStore.getState();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -146,6 +146,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function csrf(baseUrl: string, force = false): Promise<string> {
+  const { useAuthStore } = await import('../store/authStore');
   const sessionToken = useAuthStore.getState().token;
   const sessionKey = sessionToken || 'none';
   if (!force && csrfCache?.sessionKey === sessionKey && Date.now() - csrfCache.fetchedAt < 90 * 60 * 1000) {
@@ -283,7 +284,7 @@ export function selectLatestCanonicalBuyerTransaction(
 export async function getCanonicalOwnershipProof(
   vin: string,
   userId: string,
-  readVehicles: () => Promise<NativeOwnedVehicle[]> = getMyVehicles,
+  readVehicles?: () => Promise<NativeOwnedVehicle[]>,
 ): Promise<OwnershipProof> {
   const expectedVin = String(vin || '').trim();
   const expectedOwner = String(userId || '').trim();
@@ -292,7 +293,11 @@ export async function getCanonicalOwnershipProof(
   }
 
   try {
-    const vehicles = await readVehicles();
+    const reader = readVehicles || (async () => {
+      const { getMyVehicles } = await import('./ownerGarageApi');
+      return getMyVehicles();
+    });
+    const vehicles = await reader();
     const matching = (vehicles || []).find((vehicle) => String(vehicle?.vin || '') === expectedVin);
     if (!matching || String(matching.owner_id || '') !== expectedOwner) {
       return { state: 'not_owned', vin: expectedVin };
