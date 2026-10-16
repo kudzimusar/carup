@@ -6,6 +6,9 @@ import { nativeNow, recordNetworkResponse } from './nativePerformance';
 
 export interface NativeOwnedVehicle {
   vin: string;
+  /** Canonical ownership authority from /api/vehicles/me. Presence in the array alone is not ownership proof. */
+  owner_id?: string | null;
+  current_seller_id?: string | null;
   make: string;
   model: string;
   year: number | null;
