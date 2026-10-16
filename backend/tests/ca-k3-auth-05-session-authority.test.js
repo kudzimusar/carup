@@ -36,7 +36,7 @@ test('AUTH-05 keeps accepted Phase-C migration byte-identical', () => {
 });
 
 test('AUTH-05 ordinary service_role has no direct user_sessions table privilege after migration', () => {
-  assert.match(migration, /REVOKE ALL ON TABLE public\.user_sessions FROM PUBLIC, anon, authenticated, service_role, carup_session_authority/);
+  assert.match(migration, /REVOKE ALL ON TABLE public\.user_sessions\s+FROM PUBLIC, anon, authenticated, service_role, carup_session_authority/);
   assert.doesNotMatch(migration.split('-- +migrate Down')[0], /GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE|ALL)[^;]*user_sessions[^;]*service_role/i);
 });
 
