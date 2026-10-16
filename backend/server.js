@@ -88,6 +88,7 @@ import {
   normalizeFinanceDisclosure,
 } from './services/seller/vehicleHistoryDisclosures.js';
 import { hasVerifiedOwnershipAuthorityEvidence, isSellerAuthorityEffectivelyDenied } from './services/seller/sellerAuthorityService.js';
+import { applyMyVehiclesScope } from './services/ownership/ownedVehicleAccessService.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -4258,12 +4259,17 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 // ============================================================================
 
 // GET /api/vehicles/me - Get vehicles owned by the current user
-app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+app.get('/api/vehicles/me', authorizeSessionRole([]), async (req, res) => {
   try {
-    const { data, error } = await supabase
+    // Legal ownership is a canonical relationship fact, not an account role. A buyer-role account
+    // that is now vehicles.owner_id must be able to read its Vehicle without role escalation.
+    // Existing owner/dealer/admin Seller-workspace compatibility remains scoped by the helper.
+    // authorizeSessionRole deliberately rejects x-user-id fallback for this consequential read.
+    let vehicleQuery = supabase
       .from('vehicles')
-      .select('*')
-      .or(`owner_id.eq.${req.userContext.id},current_seller_id.eq.${req.userContext.id}`)
+      .select('*');
+    vehicleQuery = applyMyVehiclesScope(vehicleQuery, req.userContext);
+    const { data, error } = await vehicleQuery
 
     if (error) throw error
     // An owner is shown their vehicle's trust position through the same authority as everyone else.
