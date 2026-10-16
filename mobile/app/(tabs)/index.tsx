@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -17,6 +17,8 @@ import {
   getSellerMarketplaceInquiries,
 } from '../../utils/marketplaceApi';
 import { getMyVehicles } from '../../utils/ownerGarageApi';
+import { resolveMarketplaceInquiryConversation } from '../../utils/communicationApi';
+import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -24,6 +26,7 @@ export default function HomeScreen() {
   const theme = useNativeTheme();
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [openingSellerInquiry, setOpeningSellerInquiry] = useState(false);
   const authLoading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
@@ -60,13 +63,51 @@ export default function HomeScreen() {
   });
 
   const listings = marketplaceQuery.data?.listings || [];
-  const newSellerInquiryCount = (sellerInquiriesQuery.data?.inquiries || []).filter(
+  const sellerInquiriesForListing = (sellerInquiriesQuery.data?.inquiries || []).filter(
+    (inquiry) => String(inquiry.listing_id || '') === String(publishedOwnedVehicle?.vin || ''),
+  );
+  const newSellerInquiries = sellerInquiriesForListing.filter(
     (inquiry) => String(inquiry.status || '').toLowerCase() === 'new',
-  ).length;
+  );
+  const newSellerInquiryCount = newSellerInquiries.length;
+  const latestSellerInquiry = newSellerInquiries[0] || sellerInquiriesForListing[0] || null;
 
   const submitSearch = () => {
     const query = search.trim();
     router.push((query ? '/market/results?q=' + encodeURIComponent(query) : '/market/results') as never);
+  };
+
+  const openLatestSellerInquiry = async () => {
+    if (!latestSellerInquiry?.id || !latestSellerInquiry?.listing_id || openingSellerInquiry) return;
+    setOpeningSellerInquiry(true);
+    try {
+      const resolution = await resolveMarketplaceInquiryConversation(
+        String(latestSellerInquiry.id),
+        String(latestSellerInquiry.listing_id),
+      );
+      if (resolution.state === 'resolved' && resolution.thread?.id) {
+        router.push(nativeCanonicalObjectHref({
+          type: 'conversation',
+          id: String(resolution.thread.id),
+        }) as never);
+        return;
+      }
+      Alert.alert(
+        'Conversation is being prepared',
+        'This seller inquiry is real, but its canonical CarUp conversation is not ready yet. CarUp will not open a generic Inbox or manufacture another thread.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Try exact conversation', onPress: () => void openLatestSellerInquiry() },
+        ],
+      );
+    } catch (error) {
+      Alert.alert(
+        'Conversation unavailable',
+        error instanceof Error ? error.message : 'CarUp could not resolve this seller inquiry.',
+      );
+    } finally {
+      setOpeningSellerInquiry(false);
+    }
   };
 
   return (
@@ -310,8 +351,9 @@ export default function HomeScreen() {
             {newSellerInquiryCount > 0 ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={'Open Inbox. ' + newSellerInquiryCount + ' new seller inquiries'}
-                onPress={() => router.push('/(tabs)/inbox' as never)}
+                accessibilityLabel={'Open exact conversation for newest seller inquiry. ' + newSellerInquiryCount + ' new seller inquiries'}
+                disabled={openingSellerInquiry}
+                onPress={() => void openLatestSellerInquiry()}
                 android_ripple={{ color: theme.brand.primarySubtle }}
                 style={{
                   minHeight: touchTarget.minimum,
@@ -326,12 +368,20 @@ export default function HomeScreen() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   overflow: 'hidden',
+                  opacity: openingSellerInquiry ? 0.65 : 1,
                 }}
               >
-                <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
-                  {newSellerInquiryCount} new seller {newSellerInquiryCount === 1 ? 'inquiry' : 'inquiries'}
-                </Text>
-                <Ionicons name="chevron-forward" size={20} color={theme.brand.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
+                    {newSellerInquiryCount} new seller {newSellerInquiryCount === 1 ? 'inquiry' : 'inquiries'}
+                  </Text>
+                  <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>
+                    Open the newest inquiry in its exact CarUp conversation.
+                  </Text>
+                </View>
+                {openingSellerInquiry
+                  ? <ActivityIndicator color={theme.brand.primary} />
+                  : <Ionicons name="chevron-forward" size={20} color={theme.brand.primary} />}
               </Pressable>
             ) : null}
           </View>
