@@ -1,0 +1,133 @@
+name: OC-NATIVE LR2-B Conversation Object Continuity
+
+on:
+  push:
+    branches:
+      - feat/oc-native-lr2b-conversation-object-continuity
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/oc-native-lr2b-continuity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-lr2b-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LR2B_BASE_SHA: fe61163c3b24abbd40596b063204189a6efd37bc
+  LR2B_BACKEND_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  LR2B_BACKEND_DEPLOYMENT: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
+  LR2B_EXTERNAL_SENDS: disabled
+
+jobs:
+  certify:
+    name: LR2-B Exact-Head Continuity Certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exact-head custody and R6-B-R1 preservation guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "$LR2B_BASE_SHA^{commit}"
+          test "$(git merge-base "$LR2B_BASE_SHA" HEAD)" = "$LR2B_BASE_SHA"
+          git diff --check "$LR2B_BASE_SHA..HEAD"
+          mapfile -t CHANGED < <(git diff --name-only "$LR2B_BASE_SHA..HEAD")
+          test "${#CHANGED[@]}" -gt 0
+          printf '%s\n' "${CHANGED[@]}"
+          for file in "${CHANGED[@]}"; do
+            case "$file" in
+              mobile/*|.github/workflows/oc-native-lr2b-continuity.yml)
+                ;;
+              *)
+                echo "::error::LR2-B changed unauthorized path: $file"
+                exit 1
+                ;;
+            esac
+          done
+          if git diff --name-only "$LR2B_BASE_SHA..HEAD" | grep -Eq '^(backend|database|web)/'; then
+            echo "::error::LR2-B must consume the accepted backend authority without backend/database/web mutation"
+            exit 1
+          fi
+
+      - name: Accepted backend immutable runtime smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_API_URL" = "https://carup-backend-staging-ilhu3leml-11-11.vercel.app"
+          health_code="$(curl --retry 3 --retry-delay 2 --silent --show-error --output "$RUNNER_TEMP/health.json" --write-out '%{http_code}' "$EXPO_PUBLIC_API_URL/health")"
+          test "$health_code" = "200"
+          auth_code="$(curl --retry 2 --silent --show-error --output "$RUNNER_TEMP/threads-unauth.json" --write-out '%{http_code}' "$EXPO_PUBLIC_API_URL/api/communications/threads")"
+          case "$auth_code" in
+            401|403) ;;
+            *)
+              echo "::error::Communications threads did not fail closed for an unauthenticated request (HTTP $auth_code)"
+              cat "$RUNNER_TEMP/threads-unauth.json" || true
+              exit 1
+              ;;
+          esac
+
+      - name: Mobile Vitest including LR2-B and R6-B-R1 regressions
+        run: npm run test --workspace=mobile
+
+      - name: Native deterministic suite
+        run: npm run test:native --workspace=mobile
+
+      - name: Native static suite
+        run: npm run test:static --workspace=mobile
+
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+
+      - name: Expo dependency compatibility
+        working-directory: mobile
+        run: npx expo install --check
+
+      - name: Record LR2-B exact-head receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lr2b-certification"
+          {
+            echo "task=OC-NATIVE-LR2-B"
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "accepted_native_base=$LR2B_BASE_SHA"
+            echo "merge_base=$(git merge-base "$LR2B_BASE_SHA" HEAD)"
+            echo "backend_sha=$LR2B_BACKEND_SHA"
+            echo "backend_deployment=$LR2B_BACKEND_DEPLOYMENT"
+            echo "backend_immutable_url=$EXPO_PUBLIC_API_URL"
+            echo "external_sends=$LR2B_EXTERNAL_SENDS"
+            echo "production_touched=NO"
+            echo "migration_applied=NO"
+            echo "staging_mutation=NO"
+          } > "$RUNNER_TEMP/lr2b-certification/custody.txt"
+          git diff --name-only "$LR2B_BASE_SHA..HEAD" > "$RUNNER_TEMP/lr2b-certification/changed-files.txt"
+          git log --oneline --reverse "$LR2B_BASE_SHA..HEAD" > "$RUNNER_TEMP/lr2b-certification/commit-lineage.txt"
+
+      - name: Upload LR2-B certification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-lr2b-certification-${{ github.sha }}
+          path: ${{ runner.temp }}/lr2b-certification
+          if-no-files-found: error
+          retention-days: 30
