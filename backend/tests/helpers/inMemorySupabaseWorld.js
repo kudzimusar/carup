@@ -61,6 +61,12 @@ function readField(row, key) {
 
 export function createSupabaseWorld(seed = {}, { serialTables = [] } = {}) {
   const tables = Object.fromEntries(Object.entries(seed).map(([name, rows]) => [name, clone(rows)]));
+  // public.user_sessions.id is a real TEXT primary key with a database default. Older journey
+  // fixtures omitted it because no caller observed the id; AUTH-05's audited step-up boundary does.
+  // Give those legacy in-memory rows deterministic ids so the test world matches the database contract.
+  for (const [index, row] of (tables.user_sessions || []).entries()) {
+    if (row.id === undefined || row.id === null) row.id = `seed-session-${index + 1}`;
+  }
   const serial = new Set(serialTables);
   const nextId = (table) => {
     if (!serial.has(table)) return randomUUID();
