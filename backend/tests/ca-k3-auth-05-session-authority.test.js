@@ -173,5 +173,9 @@ test('AUTH-05-R4 preflight is Vercel Preview-only, opt-in, read-only, and unavai
   assert.doesNotMatch(healthRoute, /VERCEL_ENV[^\n]+=== 'production'/);
   assert.match(healthRoute, /probeSessionAuthorityConnection\(\)/);
   assert.match(runtime, /SELECT[\s\S]*current_user[\s\S]*pg_stat_ssl/);
+  assert.match(runtime, /client\.connection\?\.stream/);
+  assert.match(runtime, /stream\?\.encrypted === true/);
+  assert.match(runtime, /stream\?\.authorized === true/);
+  assert.match(serverSource, /tls_peer_authorized/);
   assert.doesNotMatch(runtime.slice(runtime.indexOf('probeSessionAuthorityConnection'), runtime.indexOf('async function authorityScalar')), /INSERT|UPDATE|DELETE|TRUNCATE/);
 });

@@ -51,19 +51,35 @@ function pool() {
 }
 
 export async function probeSessionAuthorityConnection() {
-  const result = await pool().query(`
-    SELECT
-      current_user::text AS runtime_role,
-      COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), false) AS tls_active
-  `);
-  const row = result.rows?.[0] || {};
-  return {
-    connected: true,
-    tls_active: row.tls_active === true,
-    runtime_role: typeof row.runtime_role === 'string' ? row.runtime_role : null,
-    verification: SESSION_AUTHORITY_TLS_CONTRACT.verification,
-    trust_anchor: SESSION_AUTHORITY_TLS_CONTRACT.trustAnchor,
-  };
+  const client = await pool().connect();
+  try {
+    const result = await client.query(`
+      SELECT
+        current_user::text AS runtime_role,
+        COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), false) AS postgres_backend_tls
+    `);
+    const row = result.rows?.[0] || {};
+
+    // With Supabase/Supavisor, pg_stat_ssl describes the pooler -> PostgreSQL backend hop, not
+    // necessarily this Vercel process -> pooler hop. Inspect node-postgres' actual client stream so
+    // certification proves that the network connection made by THIS runtime is TLS-encrypted and
+    // its peer certificate was authorized against the explicit Supabase Root 2021 CA.
+    const stream = client.connection?.stream;
+    const clientTls = stream?.encrypted === true;
+    const clientTlsAuthorized = clientTls && stream?.authorized === true;
+
+    return {
+      connected: true,
+      client_tls: clientTls,
+      client_tls_authorized: clientTlsAuthorized,
+      postgres_backend_tls: row.postgres_backend_tls === true,
+      runtime_role: typeof row.runtime_role === 'string' ? row.runtime_role : null,
+      verification: SESSION_AUTHORITY_TLS_CONTRACT.verification,
+      trust_anchor: SESSION_AUTHORITY_TLS_CONTRACT.trustAnchor,
+    };
+  } finally {
+    client.release();
+  }
 }
 
 async function authorityScalar(sql, params = []) {

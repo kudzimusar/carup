@@ -385,9 +385,13 @@ app.get('/api/health', async (req, res) => {
     try {
       const probe = await probeSessionAuthorityConnection();
       sessionAuthorityPreflight = {
-        status: probe.connected === true && probe.tls_active === true ? 'healthy' : 'unhealthy',
+        status: probe.connected === true
+          && probe.client_tls === true
+          && probe.client_tls_authorized === true ? 'healthy' : 'unhealthy',
         connected: probe.connected === true,
-        database_tls: probe.tls_active === true,
+        database_tls: probe.client_tls === true,
+        tls_peer_authorized: probe.client_tls_authorized === true,
+        postgres_backend_tls: probe.postgres_backend_tls === true,
         tls_verification: probe.verification,
         trust_anchor: probe.trust_anchor,
       };
