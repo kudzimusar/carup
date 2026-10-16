@@ -1,6 +1,7 @@
 import { supabase } from '../db/supabase.js';
 import { isLendableTenantRole } from '../services/auth/tenantRoleCatalogue.js';
 import { resolveVerifiedActiveTenant, TenantContextUnavailableError } from '../services/auth/activeTenantContext.js';
+import { resolveSessionByToken } from '../services/auth/sessionAuthority.js';
 import { isProductionLikeRuntime } from '../utils/runtimeEnvironment.js';
 
 /**
@@ -120,13 +121,9 @@ export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true, i
 
       // 1. Validate Session Token
       if (sessionToken) {
-        const { data: session, error: sessionError } = await supabase
-          .from('user_sessions')
-          .select('user_id, is_valid, expires_at, active_organization_id')
-          .eq('token', sessionToken)
-          .single();
+        const session = await resolveSessionByToken(supabase, sessionToken);
 
-        if (sessionError || !session || !session.is_valid || new Date(session.expires_at) < new Date()) {
+        if (!session || !session.is_valid || new Date(session.expires_at) < new Date()) {
           return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
         }
         activeUserId = session.user_id;
