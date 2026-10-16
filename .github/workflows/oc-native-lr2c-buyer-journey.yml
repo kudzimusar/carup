@@ -1,0 +1,192 @@
+name: OC-NATIVE LR2-C Buyer Trust Transaction Ownership
+
+on:
+  push:
+    branches:
+      - feat/oc-native-lr2c-buyer-trust-transaction-ownership
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/oc-native-lr2c-buyer-journey.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-lr2c-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LR2C_BASE_SHA: 2a60e7c5f9d21d6a3d28792cf3f4d5867d5898fc
+  LR2C_BACKEND_SHA: 5b603d452aa5ca50fa95934da454a5a8ca802778
+  LR2C_BACKEND_DEPLOYMENT: dpl_2ctFSxXieYvvwGE4iDmH2Ey1LvFC
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-ilhu3leml-11-11.vercel.app
+  LR2C_EXTERNAL_SENDS: disabled
+  LR2C_OWNERSHIP_TRANSFER_DISCOVERY: backend_dependency
+  VERCEL_TOKEN_PRIMARY: ${{ secrets.VERCEL_TOKEN }}
+  VERCEL_TOKEN_FALLBACK: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+
+jobs:
+  certify:
+    name: LR2-C Exact-Head Buyer Journey Certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exact-head custody and Wave-1 scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "$LR2C_BASE_SHA^{commit}"
+          test "$(git merge-base "$LR2C_BASE_SHA" HEAD)" = "$LR2C_BASE_SHA"
+          git diff --check "$LR2C_BASE_SHA..HEAD"
+          mapfile -t CHANGED < <(git diff --name-only "$LR2C_BASE_SHA..HEAD")
+          test "${#CHANGED[@]}" -gt 0
+          printf '%s\n' "${CHANGED[@]}"
+          for file in "${CHANGED[@]}"; do
+            case "$file" in
+              mobile/*|.github/workflows/oc-native-lr2c-buyer-journey.yml)
+                ;;
+              *)
+                echo "::error::LR2-C changed unauthorized path: $file"
+                exit 1
+                ;;
+            esac
+          done
+          if git diff --name-only "$LR2C_BASE_SHA..HEAD" | grep -Eq '^(backend|database|web)/'; then
+            echo "::error::LR2-C must consume accepted backend authority without backend/database/web mutation"
+            exit 1
+          fi
+
+      - name: Prohibit shadow transaction and ownership authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number -E '/sandbox/capture|/inspection/start|/release/approve|/api/safepay/.*/update|/escrow/.*/transition'             mobile/utils/buyerJourneyApi.ts mobile/app/vehicle/'[vin]'/transaction.tsx; then
+            echo "::error::LR2-C introduced a prohibited transaction-state action"
+            exit 1
+          fi
+          if grep -R --line-number -E 'POST.+ownership-transfers|PATCH.+ownership-transfers|createCommunicationThread'             mobile/utils/buyerJourneyApi.ts mobile/app/vehicle/'[vin]'/transaction.tsx; then
+            echo "::error::LR2-C introduced shadow ownership or conversation authority"
+            exit 1
+          fi
+
+      - name: Resolve Vercel read-only runtime credential
+        id: vercel-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$VERCEL_TOKEN_PRIMARY" ]; then
+            echo "token=$VERCEL_TOKEN_PRIMARY" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$VERCEL_TOKEN_FALLBACK" ]; then
+            echo "token=$VERCEL_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Accepted immutable backend is Vercel-auth protected and no repository read credential is available."
+          fi
+
+      - name: Accepted backend immutable read-only smoke
+        if: steps.vercel-auth.outputs.available == 'true'
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_API_URL" = "https://carup-backend-staging-ilhu3leml-11-11.vercel.app"
+
+          health_code="$(npx --yes vercel@latest curl "$EXPO_PUBLIC_API_URL/api/health"             --token "$VERCEL_TOKEN" --scope pay-pass-project             --silent --show-error --output "$RUNNER_TEMP/health.json" --write-out '%{http_code}')"
+          test "$health_code" = "200"
+
+          set +e
+          escrow_code="$(npx --yes vercel@latest curl "$EXPO_PUBLIC_API_URL/api/escrow"             --token "$VERCEL_TOKEN" --scope pay-pass-project             --silent --show-error --output "$RUNNER_TEMP/escrow-unauth.json" --write-out '%{http_code}')"
+          curl_status=$?
+          set -e
+          case "$escrow_code" in
+            401|403) ;;
+            *)
+              echo "::error::Participant transaction projection did not fail closed for unauthenticated access (HTTP $escrow_code, command=$curl_status)"
+              cat "$RUNNER_TEMP/escrow-unauth.json" || true
+              exit 1
+              ;;
+          esac
+
+      - name: Record protected-runtime external gate
+        if: steps.vercel-auth.outputs.available != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXPO_PUBLIC_API_URL" = "https://carup-backend-staging-ilhu3leml-11-11.vercel.app"
+          echo "::notice::LIVE_IMMUTABLE_RUNTIME_SMOKE=BLOCKED_DEPLOYMENT_AUTH"
+          echo "::notice::Deployment identity frozen to $LR2C_BACKEND_DEPLOYMENT / $LR2C_BACKEND_SHA; no moving alias or stale deployment substituted."
+
+      - name: Focused LR2-C buyer journey tests
+        working-directory: mobile
+        run: npx vitest run tests/lr2c-buyer-journey.test.ts --config vitest.config.ts
+
+      - name: Mobile Vitest including LR2-B and LR2-C regressions
+        run: npm run test --workspace=mobile
+
+      - name: Native deterministic suite
+        run: npm run test:native --workspace=mobile
+
+      - name: Native static suite
+        run: npm run test:static --workspace=mobile
+
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+
+      - name: Expo dependency compatibility
+        working-directory: mobile
+        run: npx expo install --check
+
+      - name: Record LR2-C exact-head receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lr2c-certification"
+          {
+            echo "task=OC-NATIVE-LR2-C"
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "accepted_native_base=$LR2C_BASE_SHA"
+            echo "merge_base=$(git merge-base "$LR2C_BASE_SHA" HEAD)"
+            echo "backend_sha=$LR2C_BACKEND_SHA"
+            echo "backend_deployment=$LR2C_BACKEND_DEPLOYMENT"
+            echo "backend_immutable_url=$EXPO_PUBLIC_API_URL"
+            echo "ownership_transfer_discovery=$LR2C_OWNERSHIP_TRANSFER_DISCOVERY"
+            echo "external_sends=$LR2C_EXTERNAL_SENDS"
+            echo "production_touched=NO"
+            echo "migration_applied=NO"
+            echo "staging_mutation=NO"
+            if [ "${{ steps.vercel-auth.outputs.available }}" = "true" ]; then
+              echo "live_immutable_runtime_smoke=ATTEMPTED"
+            else
+              echo "live_immutable_runtime_smoke=BLOCKED_DEPLOYMENT_AUTH"
+            fi
+          } > "$RUNNER_TEMP/lr2c-certification/custody.txt"
+          git diff --name-only "$LR2C_BASE_SHA..HEAD" > "$RUNNER_TEMP/lr2c-certification/changed-files.txt"
+          git log --oneline --reverse "$LR2C_BASE_SHA..HEAD" > "$RUNNER_TEMP/lr2c-certification/commit-lineage.txt"
+
+      - name: Upload LR2-C certification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-lr2c-certification-${{ github.sha }}
+          path: ${{ runner.temp }}/lr2c-certification
+          if-no-files-found: error
+          retention-days: 30
