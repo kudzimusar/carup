@@ -18,6 +18,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import crypto from 'crypto';
+import { assertNotSqliteDialect } from '../../backend/db/migrationParser.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIG = join(ROOT, 'database', 'migrations');
@@ -50,6 +51,7 @@ const MANIFEST = [
 ];
 
 function upSection(file) {
+  assertNotSqliteDialect(file); // OC-4A: SQLite-era files are never executed against PostgreSQL
   const raw = readFileSync(join(MIG, file), 'utf-8');
   const i = raw.indexOf('-- +migrate Down');
   const up = (i >= 0 ? raw.slice(0, i) : raw).replace('-- +migrate Up', '').trim();

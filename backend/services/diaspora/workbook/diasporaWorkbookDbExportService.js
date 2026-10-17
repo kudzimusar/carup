@@ -6,7 +6,7 @@
  * The table-specific contract prevents PostgREST from compiling predicates that reference columns
  * absent from that table.
  */
-import { ValidationError } from '../../../utils/errors.js';
+import { DatabaseError, ValidationError } from '../../../utils/errors.js';
 import {
   getXlsxTemplate,
   listSupportedXlsxTemplateTypes,
@@ -279,6 +279,12 @@ export async function exportWorkbookFromDatabase(templateType, userContext, opti
     redactedHeaders,
   };
 
+  // OC-4A classification: SECURITY / AUTHORITY AUDIT. A database export is data leaving the platform;
+  // an export whose audit record can be skipped is an untraceable one. No audit, no export: the
+  // workbook is built but NOT released when its WORKBOOK_DB_EXPORTED row cannot be written. (Track W
+  // had made the opposite call — "an audit-sink failure must not fail an already-built export".)
+  // The audit is written through the SAME client the export read with; it used to go to the global
+  // singleton, so an injected client's export was never actually audited where it read.
   try {
     await writeDiasporaAudit({
       actorId: context.id,
@@ -294,9 +300,10 @@ export async function exportWorkbookFromDatabase(templateType, userContext, opti
         redactedHeaders,
       },
       req: options.req ?? null,
+      supabaseClient: client,
     });
   } catch (err) {
-    console.warn(`⚠️ Workbook DB export audit write skipped: ${err.message}`);
+    throw new DatabaseError(`Workbook export was not released: its audit record could not be written (${err.message}).`);
   }
 
   return { buffer, meta };

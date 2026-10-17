@@ -28,23 +28,37 @@ const jsonResponse = (body, status = 200) =>
 
 const chatOk = (text) => jsonResponse({ choices: [{ message: { content: text } }] });
 
-// ── 1. explicit provider selection ────────────────────────────────────────────────────────────
-test('provider selection is explicit and supports groq and gemini', () => {
-  assert.deepEqual(SUPPORTED_AI_PROVIDERS.sort(), ['gemini', 'groq']);
+// ── 1. explicit provider selection (OC-4B) ───────────────────────────────────────────────────
+// General text has ONE route — the CarUp AI gateway. COMMUNICATION_AI_PROVIDER selects only the MEDIA
+// provider (MULTIMODAL DEFERRED): groq, the certified one. Gemini is retired, not preserved.
+const unconfiguredGateway = {
+  inspect: () => ({ ok: true, runtime: { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', configured: false } }),
+  generateText: async () => ({ ok: false, machine_output: false, authority: 'advisory',
+    error: { code: 'AI_PROVIDER_UNAVAILABLE', message: 'not configured', retryable: false },
+    provenance: { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', execution: 'failed' } }),
+};
 
-  const groq = createCommunicationAiProvider({ env: { COMMUNICATION_AI_PROVIDER: 'groq' }, apiKey: KEY, fetchImpl: async () => {} });
-  assert.equal(groq.health().provider, 'groq');
+test('provider selection is explicit: text is the CarUp AI gateway; the media provider is groq; gemini is retired', () => {
+  assert.deepEqual(SUPPORTED_AI_PROVIDERS, ['groq'], 'the supported MEDIA providers');
 
-  const gemini = createCommunicationAiProvider({ env: { COMMUNICATION_AI_PROVIDER: 'gemini' }, apiKey: KEY, fetchImpl: async () => {} });
-  assert.equal(gemini.health().provider, 'google', 'the existing Gemini provider is preserved, not deleted');
+  const groq = createCommunicationAiProvider({ env: { COMMUNICATION_AI_PROVIDER: 'groq' }, gateway: unconfiguredGateway, apiKey: KEY, fetchImpl: async () => {} });
+  assert.equal(groq.health().routes.text, 'carup_ai_gateway');
+  assert.equal(groq.health().provider, 'cloudflare');
+  assert.equal(groq.health().media.provider, 'groq');
+
+  const gemini = createCommunicationAiProvider({ env: { COMMUNICATION_AI_PROVIDER: 'gemini' }, gateway: unconfiguredGateway, apiKey: KEY, fetchImpl: async () => {} });
+  assert.equal(gemini.health().media.available, false);
+  assert.match(gemini.health().media.reason, /retired/, 'a key becoming available does not bring Gemini back');
 });
 
-test('an unrecognised provider fails closed instead of silently substituting another vendor', async () => {
-  const provider = createCommunicationAiProvider({ env: { COMMUNICATION_AI_PROVIDER: 'definitely-not-a-provider' } });
+test('an unrecognised media provider fails closed instead of silently substituting another vendor', async () => {
+  const provider = createCommunicationAiProvider({ env: { COMMUNICATION_AI_PROVIDER: 'definitely-not-a-provider' }, gateway: unconfiguredGateway });
   const health = provider.health();
-  assert.equal(health.available, false);
-  assert.equal(health.mode, 'unconfigured');
-  await assert.rejects(() => provider.generate({ userPrompt: 'x' }), (e) => e.statusCode === 503 && e.code === 'communication_ai_provider_unavailable');
+  assert.equal(health.media.available, false);
+  assert.equal(health.media.mode, 'unconfigured');
+  assert.equal(health.capabilities.audio_transcription, false);
+  await assert.rejects(() => provider.generate({ userPrompt: 'x', media: [{ mimeType: 'audio/wav', dataBase64: 'AAAA' }] }),
+    (e) => e.statusCode === 503 && e.code === 'communication_ai_provider_unavailable');
 });
 
 // ── 2. health only when genuinely configured ─────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { uploadToStorage, generateSecureReadUrl, generateSecureUploadUrl } from 
 import { authorizeRole, requireProvenIdentity } from '../../middleware/authMiddleware.js';
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { hasGovernedDealerVehicleAuthority } from '../dealer/dealerListingAuthority.js';
 
 const router = express.Router();
 
@@ -114,7 +115,11 @@ router.post('/upload/vehicle', authorizeRole(['owner', 'dealer', 'admin']), asyn
     if (vehicleRow) {
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
       const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+      // L-2 — organisational membership is not seller authority over this vehicle's media.
+      // Consulted only after owner and current-seller have failed.
+      const sameTenant = (!ownsVehicle && !isCurrentSeller)
+        ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow)
+        : false;
       if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         await logAuditEvent(supabase, {
           req,
@@ -213,7 +218,11 @@ router.post('/upload/document', authorizeRole(), async (req, res) => {
     if (vehicleRow) {
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
       const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+      // L-2 — organisational membership is not seller authority over this vehicle's media.
+      // Consulted only after owner and current-seller have failed.
+      const sameTenant = (!ownsVehicle && !isCurrentSeller)
+        ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow)
+        : false;
       if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         await logAuditEvent(supabase, {
           req,
@@ -338,7 +347,11 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
     if (vehicleRow) {
       const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
       const isCurrentSeller = vehicleRow.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
-      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+      // L-2 — organisational membership is not seller authority over this vehicle's media.
+      // Consulted only after owner and current-seller have failed.
+      const sameTenant = (!ownsVehicle && !isCurrentSeller)
+        ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow)
+        : false;
       if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
         await logAuditEvent(supabase, {
           req,
@@ -413,7 +426,12 @@ router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner'
     }
     const ownsVehicle = vehicleRow?.owner_id && vehicleRow.owner_id === req.userContext?.id;
     const isCurrentSeller = vehicleRow?.current_seller_id && vehicleRow.current_seller_id === req.userContext?.id;
-    const sameTenant = vehicleRow?.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+    // L-2 — a private DOCUMENT read is consequential, and its tenant clause was raw membership.
+    // Only a governed dealership relationship qualifies; the route's own role list
+    // (admin/government/owner) and `requireProvenIdentity` continue to apply on top.
+    const sameTenant = (!ownsVehicle && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicleRow || {})
+      : false;
     if (!ownsVehicle && !isCurrentSeller && !sameTenant) {
       await logAuditEvent(supabase, {
         req,

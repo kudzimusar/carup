@@ -33,6 +33,7 @@ const { supabase } = await import('../db/supabase.js');
 // triggers a Node 20 test-runner IPC "Unable to deserialize cloned data" crash
 // (worker-thread structured clone races with the module's top-level side effects).
 const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
+const { isTestFixtureAllowed } = await import('../config/testFixtureGuard.js');
 
 let db;
 function resetDb() {
@@ -207,13 +208,26 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/**
+ * OC-3B-R: a scripted AI scenario (`metadata.mock_ai_scenario`) exists only in the test-fixture
+ * runtime — NODE_ENV=test AND ALLOW_OCR_MOCK=true (config/testFixtureGuard.js). The cases that
+ * drive one opt in explicitly, so they still exercise it when the offline gate runs this suite
+ * with ALLOW_OCR_MOCK=false; the opt-in is restored when the case ends.
+ */
+function useFixtureRuntime(t) {
+  const saved = process.env.ALLOW_OCR_MOCK;
+  process.env.ALLOW_OCR_MOCK = 'true';
+  t.after(() => { if (saved === undefined) delete process.env.ALLOW_OCR_MOCK; else process.env.ALLOW_OCR_MOCK = saved; });
+}
+
 // Helper base64 data to upload
 const pngPayload = `data:image/png;base64,${Buffer.from('test-image-bytes').toString('base64')}`;
 
 // --- Tests ------------------------------------------------------------------
 
-test('AI Unavailable fails safely without blocking evidence upload flow', async () => {
-  // Scenario: simulated provider_error
+test('AI Unavailable fails safely without blocking evidence upload flow', async (t) => {
+  // Scenario: simulated provider_error (a test fixture — OC-3B-R)
+  useFixtureRuntime(t);
   const res = await fetch(`${baseUrl}/api/vehicles/VIN123/evidence/upload`, {
     method: 'POST',
     headers: {
@@ -241,8 +255,9 @@ test('AI Unavailable fails safely without blocking evidence upload flow', async 
   assert.equal(ev.metadata.ai_analysis.recommended_action, 'inspect');
 });
 
-test('AI flagged evidence sets ai_flagged but verification_status remains pending', async () => {
-  // Scenario: flagged manipulation
+test('AI flagged evidence sets ai_flagged but verification_status remains pending', async (t) => {
+  // Scenario: flagged manipulation (a test fixture — OC-3B-R)
+  useFixtureRuntime(t);
   const res = await fetch(`${baseUrl}/api/vehicles/VIN123/evidence/upload`, {
     method: 'POST',
     headers: {
@@ -287,6 +302,19 @@ test('Public endpoint sanitizes and does not expose raw AI analysis metadata', a
   
   await sleep(100);
 
+  // OC-3B / OC-5B: what was stored is labelled for what it is. Read before the GETs below, which
+  // sanitize the shared in-memory row in place. In the test-fixture runtime the labelled simulator
+  // ran; anywhere else (the offline gate runs this suite with ALLOW_OCR_MOCK=false) NOTHING ran, and
+  // the row says so — no executor, no score, no confidence.
+  const stored = db.evidence[data.id].metadata.ai_analysis;
+  if (isTestFixtureAllowed()) {
+    assert.equal(stored.provider, 'simulated');
+    assert.equal(stored.execution, 'simulated');
+  } else {
+    assert.deepEqual([stored.ai_status, stored.execution, stored.provider, stored.confidence], ['ai_not_configured', 'not_run', null, null]);
+  }
+  assert.equal(stored.public_safe_summary, null);
+
   // Mark as verified by admin (this makes it visible to public)
   db.evidence[data.id].verification_status = 'verified';
 
@@ -304,10 +332,26 @@ test('Public endpoint sanitizes and does not expose raw AI analysis metadata', a
   // Verify that raw ai_analysis object is NOT present in the metadata
   const item = list.find(e => e.id === data.id);
   assert.ok(item);
-  assert.equal(item.metadata.ai_analysis, undefined);
-  
-  // Exposes public summary
-  assert.equal(item.metadata.ai_public_summary, 'AI analysis: image verified clean.');
+  assert.equal(item.metadata?.ai_analysis, undefined);
+
+  // OC-3B: this used to assert the public saw "AI analysis: image verified clean." — produced by a
+  // SIMULATOR that examined nothing. The analysis is stored, labelled simulated, and the public
+  // sees no AI summary at all.
+  assert.equal(item.metadata?.ai_public_summary, undefined);
+  assert.doesNotMatch(JSON.stringify(list), /verified clean/i);
+
+  // The vehicle owner's (authorized, non-admin) view takes the same validated source.
+  const ownerRes = await fetch(`${baseUrl}/api/vehicles/VIN123/evidence`, {
+    method: 'GET',
+    headers: { 'x-user-id': 'owner-1', 'x-stakeholder-role': 'owner' }
+  });
+  assert.equal(ownerRes.status, 200);
+  const ownerList = await ownerRes.json();
+  const ownerItem = ownerList.find(e => e.id === data.id);
+  assert.ok(ownerItem);
+  assert.equal(ownerItem.metadata?.ai_analysis, undefined);
+  assert.equal(ownerItem.metadata?.ai_public_summary, undefined);
+  assert.doesNotMatch(JSON.stringify(ownerList), /verified clean/i);
 });
 
 test('Trust score remains unchanged until admin review approval', async () => {
@@ -359,7 +403,10 @@ test('Duplicate photo checksum check flags duplicates automatically', async () =
   await runAiAnalysis(data.id, Buffer.from('test-image-bytes'), 'image/png', 'odometer_photo');
 
   const ev = db.evidence[data.id];
-  assert.equal(ev.metadata.ai_analysis.ai_status, 'ai_flagged');
+  // The duplicate check is a deterministic checksum comparison: it flags the duplicate in EVERY runtime.
+  // OC-5B: only where an analyser ran does the analysis status say "flagged"; with no provider the
+  // status stays truthful ('ai_not_configured') and the duplicate is carried by the finding itself.
+  assert.equal(ev.metadata.ai_analysis.ai_status, isTestFixtureAllowed() ? 'ai_flagged' : 'ai_not_configured');
   assert.equal(ev.metadata.ai_analysis.recommended_action, 'reject');
   assert.equal(ev.metadata.ai_analysis.duplicate_match.is_duplicate, true);
   assert.equal(ev.metadata.ai_analysis.duplicate_match.original_evidence_id, 'ev-existing-duplicate');

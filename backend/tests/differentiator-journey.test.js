@@ -152,7 +152,9 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
 
   // 5-8. Mobile offline upload resumes ONCE (idempotency): same key -> one evidence row.
   let creates = 0;
-  const mk = () => withUploadIdempotency('idem-doc-1', 'JOURNEYVEH000001', async () => { creates++; const r = { id: `ev-${creates}`, vin: 'JOURNEYVEH000001' }; db.vehicle_evidence.push(r); return r; }, { supabase });
+  // OC-5C (O2-X5A): the key is scoped to the ACTOR that sent it — the uploader is named, and the row it
+  // writes carries `uploaded_by` and the key mirror, exactly as the route writes them.
+  const mk = () => withUploadIdempotency('idem-doc-1', 'JOURNEYVEH000001', async () => { creates++; const r = { id: `ev-${creates}`, vin: 'JOURNEYVEH000001', uploaded_by: 'dealer-u', metadata: { idempotency_key: 'idem-doc-1' } }; db.vehicle_evidence.push(r); return r; }, { supabase, actorId: 'dealer-u' });
   const up1 = await mk(); const up2 = await mk();
   assert.equal(up1.evidenceId, up2.evidenceId); assert.equal(creates, 1, 'step5-8: offline retry deduped to one upload');
 

@@ -466,24 +466,42 @@ test('P1: a mechanic must hold a relationship to the vehicle before writing its 
   assert.doesNotMatch(src, /role !== 'mechanic'/,
     'the mechanic role must not be exempted from the vehicle relationship check');
 
-  // Only platform-wide roles bypass, and that decision comes from the ONE definition of it.
-  assert.match(src, /if \(!hasPlatformWideVehicleAuthority\(req\.userContext\)\)/);
-  // A mechanic is admitted by a real relationship, not by their role.
-  assert.match(src, /req\.userContext\.role === 'mechanic'\s*\n?\s*\?\s*await mechanicIsAssignedToVehicle\(/);
+  // OC-5A: ONE authority decides, before anything is recorded; the route itself grants nothing.
+  const authorityAt = src.indexOf('resolvePartSentryWriteAuthority(');
+  assert.ok(authorityAt > 0 && src.indexOf('recordPartSentryEntry(') > authorityAt);
+  const authority = readFileSync(new URL('../services/partsentry/partsentryServiceAuthority.js', import.meta.url), 'utf8');
+  assert.match(authority, /if \(effectiveRole === 'mechanic'\) \{\s*const relationship = await resolveMechanicServiceRelationship\(/,
+    'a mechanic is admitted by a real relationship, not by their role');
+  // Only the platform role carries platform-wide reach (never the lent or requested effective role).
+  assert.match(authority, /PLATFORM_ADMIN_ROLES\.has\(norm\(userContext\.platformRole\)\)/);
 });
 
-test('P1: the mechanic relationship is a tenant link or an assigned work order, and fails closed', () => {
-  const fn = SERVER.slice(SERVER.indexOf('async function mechanicIsAssignedToVehicle'));
-  const body = fn.slice(0, fn.indexOf('\n}\n') + 2);
+test('P1 (OC-5A): the mechanic relationship is an OWNER-AUTHORIZED, open work order of a service organisation the mechanic verifiably belongs to — and it fails closed', () => {
+  const authority = readFileSync(new URL('../services/partsentry/partsentryServiceAuthority.js', import.meta.url), 'utf8');
+  const start = authority.indexOf('export async function resolveMechanicServiceRelationship');
+  const body = authority.slice(start, authority.indexOf('\n}\n', start) + 2);
 
-  assert.match(body, /vehicleRow\.tenant_id === userContext\.tenantId/,
-    'the vehicle must belong to the mechanic’s organisation');
   assert.match(body, /\.from\('mechanic_work_orders'\)/);
   assert.match(body, /\.eq\('vin', vin\)/, 'the work order must be for THIS vin');
-  assert.match(body, /\.eq\('mechanic_id', userContext\.id\)/, 'and assigned to THIS mechanic');
+  assert.match(body, /\.eq\('mechanic_id', mechanicId\)/, 'and assigned to THIS mechanic');
+  assert.match(body, /order\.owner_authorization === 'authorized'/, 'a self-issued work order is a request, not a relationship');
+  assert.match(body, /OPEN_WORK_ORDER_STATUSES\.includes\(order\.status\)/, 'and the work is open');
+  // The organisation is the WORK ORDER's, re-verified by the ONE membership check (shared with
+  // full-record reading) — never the caller's header.
+  assert.match(body, /verifyServiceOrganisationMembership\(client, \{ tenantId: order\.tenant_id, mechanicId \}\)/);
+  const hStart = authority.indexOf('export async function verifyServiceOrganisationMembership');
+  const helper = authority.slice(hStart, authority.indexOf('\n}\n', hStart) + 2);
+  assert.match(helper, /\.from\('tenant_users'\)\.select\('role'\)\.eq\('tenant_id', tenantId\)\.eq\('user_id', mechanicId\)/);
+  assert.match(helper, /SERVICE_MEMBERSHIP_ROLES\.includes\(norm\(membership\.role\)\)/);
+  assert.match(helper, /SERVICE_ORGANISATION_TYPES\.includes\(norm\(tenant\.type\)\)/);
+  assert.match(helper, /norm\(tenant\.status\) !== 'active'/);
+  // RC1's raw tenant link — "the vehicle belongs to the mechanic's organisation" — is gone.
+  assert.doesNotMatch(authority, /vehicleRow\.tenant_id === userContext\.tenantId/);
+  assert.doesNotMatch(body, /userContext/, 'the relationship reads no request context at all');
+  assert.doesNotMatch(helper, /userContext/, 'nor does the membership check');
   // A failed lookup must refuse, not admit.
-  assert.match(body, /if \(error\) return false;/);
-  assert.doesNotMatch(body, /if \(error\) return true;/);
+  assert.match(body, /if \(error\) return \{ ok: false, status: 503/);
+  assert.match(helper, /if \(membershipError \|\| tenantError\) \{\s*return \{ ok: false, status: 503/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -539,24 +557,22 @@ test('B7: the canonical vehicle trust column has exactly the known governed writ
   // Pinning the SET is what makes this discriminating: a new writer anywhere fails, which is the
   // "one trust authority" invariant the Seller Join Battery's B7 exists to hold.
   //
-  // THREE writers, and the set is pinned rather than asserted to be one. All three are governed by
-  // the same discipline — each owns the NUMBER and none of the provenance behind it, so each clears
+  // TWO writers, and the set is pinned rather than asserted to be one. Both are governed by the
+  // same discipline — each owns the NUMBER and none of the provenance behind it, so each clears
   // UNSTAMPED_TRUST_CACHE in the SAME update. Only refreshCanonicalTrust may STAMP a canonical
-  // score, and none of these does. A write that kept a previous refresh's calculation_version would
-  // be published as canonical with a band and confidence describing the score it replaced.
+  // score, and neither of these does. A write that kept a previous refresh's calculation_version
+  // would be published as canonical with a band and confidence describing the score it replaced.
   //
-  //   trustGraphService              the deprecated graph writer
   //   trustEnforcementEngine         stakeholder-risk penalties (two multi-line chains)
-  //   documentIntelligenceService    the OCR approval write, now reachable only behind
-  //                                  authorizeSessionRole(['admin','government']) -- see the CLOSED
-  //                                  P0 in AUTHORITY_AUDIT_REGISTER.md. Its `(trust_score || 80) + 20`
-  //                                  arithmetic remains a recorded residual there: the finding's
-  //                                  authorization half is closed, its "route through
-  //                                  refreshCanonicalTrust" half is not.
+  //
+  // documentIntelligenceService was the third writer (the OCR approval `(trust_score || 80) + 20`
+  // write). OCR 1.0-C1 removed its vehicle trust/status writes, and OC-2A (converging on O2-X1)
+  // deleted the approval method outright (see o2-x1-document-intelligence-authority and
+  // issue164-phase3-trust-authority). The set shrank, so the pin shrinks with it — re-adding that
+  // writer, or any other, fails here. OC-4A shrank it again: trustGraphService's deprecated graph
+  // writer (calculateVehicleTrustScore, no runtime caller since OC-3) is retired.
   assert.deepEqual(vehicleTrustWriters(), [
-    'services/document-intelligence/documentIntelligenceService.js',
     'services/trust-service/trustEnforcementEngine.js',
-    'services/trustGraph/trustGraphService.js',
   ]);
 });
 

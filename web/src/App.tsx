@@ -1,12 +1,18 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useState, createContext, useContext, useEffect, lazy, Suspense } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useState, createContext, useContext, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './context/AuthContext'
+import { RouteMetadata } from './components/routing/RouteMetadata'
 import { WifiOff } from 'lucide-react'
 import type { AuthUser, Notification } from '@shared/types'
 
 // Layout
 import MainLayout from './components/layout/MainLayout'
+import TradeOSWorkspaceLayout from './components/layout/TradeOSWorkspaceLayout'
+const TradeRequestQuotes = lazy(() => import('./pages/diaspora/TradeRequestQuotes'))
+const TradeMyRequests = lazy(() => import('./pages/diaspora/TradeMyRequests'))
+const TradeRequestDetail = lazy(() => import('./pages/diaspora/TradeRequestDetail'))
+const TradeBuyerRequests = lazy(() => import('./pages/diaspora/TradeBuyerRequests'))
 import DashboardLayout from './components/layout/DashboardLayout'
 import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
@@ -15,111 +21,143 @@ import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 
 // Public Pages
 import Landing from './pages/Landing'
-import GuestSell from './pages/GuestSell'
+const GuestSell = lazy(() => import('./pages/GuestSell'))
+// CA-K3-01 — Corporate Admin shell (coexists with /admin; its own fail-closed gate lives in CorporateLayout).
+const CorporateLayout = lazy(() => import('./components/corporate/CorporateLayout'))
+const CorporateOverview = lazy(() => import('./pages/corporate/CorporateOverview'))
+const CorporateBusinessUnits = lazy(() => import('./pages/corporate/CorporateBusinessUnits'))
+const CorporateFinance = lazy(() => import('./pages/corporate/CorporateFinance'))
+const CorporateGrowth = lazy(() => import('./pages/corporate/CorporateGrowth'))
+const CorporateOperations = lazy(() => import('./pages/corporate/CorporateOperations'))
+const CorporateTrustRisk = lazy(() => import('./pages/corporate/CorporateTrustRisk'))
+const CorporateDataIntelligence = lazy(() => import('./pages/corporate/CorporateDataIntelligence'))
+const CorporatePeopleAccess = lazy(() => import('./pages/corporate/CorporatePeopleAccess'))
+const CorporateReports = lazy(() => import('./pages/corporate/CorporateReports'))
+const CorporatePlatform = lazy(() => import('./pages/corporate/CorporatePlatform'))
 import Marketplace from './pages/Marketplace'
-import MarketplaceCompare from './pages/MarketplaceCompare'
-import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
-import VehicleDetail from './pages/VehicleDetail'
-import VehicleSearch from './pages/VehicleSearch'
-import SharedReport from './pages/SharedReport'
-import DealerDirectory from './pages/DealerDirectory'
-import GarageDirectory from './pages/GarageDirectory'
-import InsuranceDirectory from './pages/InsuranceDirectory'
-import Pricing from './pages/Pricing'
-import About from './pages/About'
-import Contact from './pages/Contact'
+const MarketplaceCompare = lazy(() => import('./pages/MarketplaceCompare'))
+const MarketplaceCategoryPage = lazy(() => import('./pages/MarketplaceCategoryPage'))
+const VehicleDetail = lazy(() => import('./pages/VehicleDetail'))
+const VehicleSearch = lazy(() => import('./pages/VehicleSearch'))
+const SharedReport = lazy(() => import('./pages/SharedReport'))
+const DealerDirectory = lazy(() => import('./pages/DealerDirectory'))
+const GarageDirectory = lazy(() => import('./pages/GarageDirectory'))
+const GarageDetail = lazy(() => import('./pages/GarageDetail'))
+const ServiceLink = lazy(() => import('./pages/ServiceLink'))
+const InsuranceDirectory = lazy(() => import('./pages/InsuranceDirectory'))
+const Pricing = lazy(() => import('./pages/Pricing'))
+const About = lazy(() => import('./pages/About'))
+const Contact = lazy(() => import('./pages/Contact'))
 import ScrollToTop from './components/layout/ScrollToTop'
 import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
 // New Footer Pages
-import Careers from './pages/Careers'
-import PressKit from './pages/PressKit'
-import Blog from './pages/Blog'
-import HelpCenter from './pages/HelpCenter'
-import TrustSafety from './pages/TrustSafety'
-import PrivacyPolicy from './pages/PrivacyPolicy'
-import TermsOfService from './pages/TermsOfService'
-import Support from './pages/Support'
-import Security from './pages/Security'
-import APIDocs from './pages/APIDocs'
-import {
-  DiasporaComplianceAdmin,
-  DiasporaImportDetail,
-  DiasporaImportDocuments,
-  DiasporaImportList,
-  DiasporaImportShipment,
-  DiasporaLanding,
-  NewDiasporaImportOrder,
-} from './pages/diaspora/DiasporaTrade'
-import DiasporaOrderPassport from './pages/diaspora/DiasporaOrderPassport'
-import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
-import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
-import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
-import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
-import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
-import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
-import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
-import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
-import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
-import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
-import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
-import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
-import DiasporaTradeGraph from './pages/diaspora/DiasporaTradeGraph'
-import DiasporaSafeTradeOperations from './pages/diaspora/DiasporaSafeTradeOperations'
-import DiasporaConfirmedImport from './pages/diaspora/DiasporaConfirmedImport'
+const Careers = lazy(() => import('./pages/Careers'))
+const PressKit = lazy(() => import('./pages/PressKit'))
+const Blog = lazy(() => import('./pages/Blog'))
+const HelpCenter = lazy(() => import('./pages/HelpCenter'))
+const TrustSafety = lazy(() => import('./pages/TrustSafety'))
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
+const TermsOfService = lazy(() => import('./pages/TermsOfService'))
+const Support = lazy(() => import('./pages/Support'))
+const Security = lazy(() => import('./pages/Security'))
+const APIDocs = lazy(() => import('./pages/APIDocs'))
+const DiasporaComplianceAdmin = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaComplianceAdmin })))
+const DiasporaImportDetail = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportDetail })))
+const DiasporaImportDocuments = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportDocuments })))
+const DiasporaImportList = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportList })))
+const DiasporaImportShipment = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaImportShipment })))
+const DiasporaLanding = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.DiasporaLanding })))
+const NewDiasporaImportOrder = lazy(() => import('./pages/diaspora/DiasporaTrade').then(module => ({ default: module.NewDiasporaImportOrder })))
+const DiasporaOrderPassport = lazy(() => import('./pages/diaspora/DiasporaOrderPassport'))
+const TradeTransactionPassport = lazy(() => import('./pages/diaspora/TradeTransactionPassport'))
+const DiasporaStockPassport = lazy(() => import('./pages/diaspora/DiasporaStockPassport'))
+const DiasporaWorkbookDryRun = lazy(() => import('./pages/diaspora/DiasporaWorkbookDryRun'))
+const DiasporaWorkbookOperatorConsole = lazy(() => import('./pages/diaspora/DiasporaWorkbookOperatorConsole'))
+const DiasporaStockManager = lazy(() => import('./pages/diaspora/DiasporaStockManager'))
+const DiasporaTradeProfile = lazy(() => import('./pages/diaspora/DiasporaTradeProfile'))
+const DiasporaAiCommandCenter = lazy(() => import('./pages/diaspora/DiasporaAiCommandCenter'))
+const DiasporaContainerMarketplace = lazy(() => import('./pages/diaspora/DiasporaContainerMarketplace'))
+const TradeRateResearch = lazy(() => import('./pages/diaspora/TradeRateResearch'))
+const TradeDocumentsWorkspace = lazy(() => import('./pages/diaspora/TradeDocumentsWorkspace'))
+const WarehouseIntakeWorkspace = lazy(() => import('./pages/diaspora/WarehouseIntakeWorkspace'))
+const MyCargoIntake = lazy(() => import('./pages/diaspora/MyCargoIntake'))
+const ContainerLoadingWorkspace = lazy(() => import('./pages/diaspora/ContainerLoadingWorkspace'))
+const MyCargoLoading = lazy(() => import('./pages/diaspora/MyCargoLoading'))
+const ShipmentTimelineWorkspace = lazy(() => import('./pages/diaspora/ShipmentTimelineWorkspace'))
+const MyShipmentTracking = lazy(() => import('./pages/diaspora/MyShipmentTracking'))
+const CustomsDestinationWorkspace = lazy(() => import('./pages/diaspora/CustomsDestinationWorkspace'))
+const MyCustomsDestination = lazy(() => import('./pages/diaspora/MyCustomsDestination'))
+const DiasporaDriveConnections = lazy(() => import('./pages/diaspora/DiasporaDriveConnections'))
+const DiasporaSubscription = lazy(() => import('./pages/diaspora/DiasporaSubscription'))
+const DiasporaSafeTrade = lazy(() => import('./pages/diaspora/DiasporaSafeTrade'))
+const DiasporaSafeTradeDetail = lazy(() => import('./pages/diaspora/DiasporaSafeTradeDetail'))
+const DiasporaTradeGraph = lazy(() => import('./pages/diaspora/DiasporaTradeGraph'))
+const DiasporaSafeTradeOperations = lazy(() => import('./pages/diaspora/DiasporaSafeTradeOperations'))
+const DiasporaConfirmedImport = lazy(() => import('./pages/diaspora/DiasporaConfirmedImport'))
 
 // Auth Pages
-import Login from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import ForgotPassword from './pages/auth/ForgotPassword'
-import ResetPassword from './pages/auth/ResetPassword'
-import VerifyEmail from './pages/auth/VerifyEmail'
-import KYCVerification from './pages/auth/KYCVerification'
+const Login = lazy(() => import('./pages/auth/Login'))
+const Register = lazy(() => import('./pages/auth/Register'))
+const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'))
+const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'))
+const VerifyEmail = lazy(() => import('./pages/auth/VerifyEmail'))
+const KYCVerification = lazy(() => import('./pages/auth/KYCVerification'))
+const RegistrationJourney = lazy(() => import('./pages/onboarding/RegistrationJourney'))
+const DealerOnboarding = lazy(() => import('./pages/dealer/DealerOnboarding'))
 
 // Owner Dashboard
-import OwnerDashboard from './pages/dashboard/owner/OwnerDashboard'
-import MyGarage from './pages/dashboard/owner/MyGarage'
-import EvidenceVault from './pages/dashboard/owner/EvidenceVault'
-import VehicleProfile from './pages/dashboard/owner/VehicleProfile'
-import ServiceHistory from './pages/dashboard/owner/ServiceHistory'
-import InsuranceRecords from './pages/dashboard/owner/InsuranceRecords'
-import PartSentry from './pages/dashboard/owner/PartSentry'
-import MyListings from './pages/dashboard/owner/MyListings'
-import SavedCars from './pages/dashboard/owner/SavedCars'
-import SellVehicle from './pages/dashboard/owner/SellVehicle'
+const OwnerDashboard = lazy(() => import('./pages/dashboard/owner/OwnerDashboard'))
+const MyGarage = lazy(() => import('./pages/dashboard/owner/MyGarage'))
+const GarageSetup = lazy(() => import('./pages/dashboard/garage/GarageSetup'))
+const EvidenceVault = lazy(() => import('./pages/dashboard/owner/EvidenceVault'))
+const VehicleProfile = lazy(() => import('./pages/dashboard/owner/VehicleProfile'))
+const ServiceHistory = lazy(() => import('./pages/dashboard/owner/ServiceHistory'))
+const ServiceRequests = lazy(() => import('./pages/dashboard/owner/ServiceRequests'))
+const InsuranceRecords = lazy(() => import('./pages/dashboard/owner/InsuranceRecords'))
+const PartSentry = lazy(() => import('./pages/dashboard/owner/PartSentry'))
+const MyListings = lazy(() => import('./pages/dashboard/owner/MyListings'))
+const SavedCars = lazy(() => import('./pages/dashboard/owner/SavedCars'))
+const SellVehicle = lazy(() => import('./pages/dashboard/owner/SellVehicle'))
 import { SellerRouteErrorBoundary } from './components/sell/SellerRouteErrorBoundary'
-import AIDashboard from './pages/dashboard/owner/AIDashboard'
-import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
-import Communications from './pages/dashboard/owner/Communications'
-import SellerIntelligence from './pages/dashboard/owner/SellerIntelligence'
+const AIDashboard = lazy(() => import('./pages/dashboard/owner/AIDashboard'))
+const ReferralWallet = lazy(() => import('./pages/dashboard/owner/ReferralWallet'))
+const Communications = lazy(() => import('./pages/dashboard/owner/Communications'))
+const SellerIntelligence = lazy(() => import('./pages/dashboard/owner/SellerIntelligence'))
 
 // Dealer Dashboard
-import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
-import Inventory from './pages/dashboard/dealer/Inventory'
-import Leads from './pages/dashboard/dealer/Leads'
-import Promotions from './pages/dashboard/dealer/Promotions'
-import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
+const DealerDashboard = lazy(() => import('./pages/dashboard/dealer/DealerDashboard'))
+const Inventory = lazy(() => import('./pages/dashboard/dealer/Inventory'))
+const Leads = lazy(() => import('./pages/dashboard/dealer/Leads'))
+const Promotions = lazy(() => import('./pages/dashboard/dealer/Promotions'))
+const SalesAnalytics = lazy(() => import('./pages/dashboard/dealer/SalesAnalytics'))
 
 // Mechanic Dashboard
-import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
-import WorkOrders from './pages/dashboard/mechanic/WorkOrders'
-import ServiceLogs from './pages/dashboard/mechanic/ServiceLogs'
-import PartsTracking from './pages/dashboard/mechanic/PartsTracking'
-import CustomerRecords from './pages/dashboard/mechanic/CustomerRecords'
+const MechanicDashboard = lazy(() => import('./pages/dashboard/mechanic/MechanicDashboard'))
+// Garage operator workspace (R5) — the queue, cases, job cards, assignment and service records
+// that were certified in Foundation 1.0 and had no product surface at all.
+const GarageWorkspace = lazy(() => import('./pages/dashboard/garage/GarageWorkspace'))
+const GarageCaseDetail = lazy(() => import('./pages/dashboard/garage/GarageCaseDetail'))
+const GarageCustomers = lazy(() => import('./pages/dashboard/garage/GarageCustomers'))
+const GarageProfileEditor = lazy(() => import('./pages/dashboard/garage/GarageProfileEditor'))
+const WorkOrders = lazy(() => import('./pages/dashboard/mechanic/WorkOrders'))
+const ServiceLogs = lazy(() => import('./pages/dashboard/mechanic/ServiceLogs'))
+const PartsTracking = lazy(() => import('./pages/dashboard/mechanic/PartsTracking'))
+const CustomerRecords = lazy(() => import('./pages/dashboard/mechanic/CustomerRecords'))
 
 // Insurance Dashboard
-import InsuranceDashboard from './pages/dashboard/insurance/InsuranceDashboard'
-import Claims from './pages/dashboard/insurance/Claims'
-import RiskAnalysis from './pages/dashboard/insurance/RiskAnalysis'
-import FraudAlerts from './pages/dashboard/insurance/FraudAlerts'
+const InsuranceDashboard = lazy(() => import('./pages/dashboard/insurance/InsuranceDashboard'))
+const Claims = lazy(() => import('./pages/dashboard/insurance/Claims'))
+const RiskAnalysis = lazy(() => import('./pages/dashboard/insurance/RiskAnalysis'))
+const FraudAlerts = lazy(() => import('./pages/dashboard/insurance/FraudAlerts'))
 
 // Government Dashboard
-import GovernmentDashboard from './pages/dashboard/government/GovernmentDashboard'
-import RegistryVerification from './pages/dashboard/government/RegistryVerification'
-import ComplianceReports from './pages/dashboard/government/ComplianceReports'
+const GovernmentDashboard = lazy(() => import('./pages/dashboard/government/GovernmentDashboard'))
+const RegistryVerification = lazy(() => import('./pages/dashboard/government/RegistryVerification'))
+const ComplianceReports = lazy(() => import('./pages/dashboard/government/ComplianceReports'))
 
 // Admin Dashboard
-import AdminDashboard from './pages/dashboard/admin/AdminDashboard'
+const AdminDashboard = lazy(() => import('./pages/dashboard/admin/AdminDashboard'))
 // Feature Governance Console is route-level lazy-loaded (Milestone D): it is a
 // heavy admin-only surface, so it ships as a SEPARATE chunk fetched on demand
 // rather than bloating the main entry bundle. The single dynamic import below is
@@ -140,29 +178,33 @@ function preloadFeatureGovernanceConsole() {
        (with Suspense + LazyRouteBoundary) handles errors and retries. */
   })
 }
-import UserManagement from './pages/dashboard/admin/UserManagement'
-import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
-import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
-import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
-import VehicleOperationsReview from './pages/dashboard/admin/VehicleOperationsReview'
-import FraudQueue from './pages/dashboard/admin/FraudQueue'
-import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
-import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
-import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
-import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
-import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
-import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
-import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
-import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
-import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
-import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
-import AdminCommunications from './pages/dashboard/admin/Communications'
+const UserManagement = lazy(() => import('./pages/dashboard/admin/UserManagement'))
+const AIMonitoring = lazy(() => import('./pages/dashboard/admin/AIMonitoring'))
+const MarketplaceModeration = lazy(() => import('./pages/dashboard/admin/MarketplaceModeration'))
+const EvidenceReview = lazy(() => import('./pages/dashboard/admin/EvidenceReview'))
+const VehicleOperationsReview = lazy(() => import('./pages/dashboard/admin/VehicleOperationsReview'))
+const PeopleComplianceReview = lazy(() => import('./pages/dashboard/admin/PeopleComplianceReview'))
+const FraudQueue = lazy(() => import('./pages/dashboard/admin/FraudQueue'))
+const DealerCompliance = lazy(() => import('./pages/dashboard/admin/DealerCompliance'))
+const GarageApplications = lazy(() => import('./pages/dashboard/admin/GarageApplications'))
+const GarageTeam = lazy(() => import('./pages/dashboard/garage/GarageTeam'))
+const JoinGarage = lazy(() => import('./pages/JoinGarage'))
+const IdentityVerificationCaseManagement = lazy(() => import('./pages/dashboard/admin/IdentityVerificationCaseManagement'))
+const TrustReviewQueue = lazy(() => import('./pages/dashboard/shared/TrustReviewQueue'))
+const GovernanceReviewQueue = lazy(() => import('./pages/dashboard/shared/GovernanceReviewQueue'))
+const ReferralCampaigns = lazy(() => import('./pages/dashboard/admin/ReferralCampaigns'))
+const ReferralCodes = lazy(() => import('./pages/dashboard/admin/ReferralCodes'))
+const ReferralLocalLeads = lazy(() => import('./pages/dashboard/admin/ReferralLocalLeads'))
+const ReferralImportRoutes = lazy(() => import('./pages/dashboard/admin/ReferralImportRoutes'))
+const ReferralMarketing = lazy(() => import('./pages/dashboard/admin/ReferralMarketing'))
+const ReferralTrustReview = lazy(() => import('./pages/dashboard/admin/ReferralTrustReview'))
+const AdminCommunications = lazy(() => import('./pages/dashboard/admin/Communications'))
 
 // Bank Dashboard
-import BankDashboard from './pages/dashboard/bank/BankDashboard'
-import LendingQueue from './pages/dashboard/bank/LendingQueue'
-import CollateralMap from './pages/dashboard/bank/CollateralMap'
-import CreditRiskAnalysis from './pages/dashboard/bank/CreditRiskAnalysis'
+const BankDashboard = lazy(() => import('./pages/dashboard/bank/BankDashboard'))
+const LendingQueue = lazy(() => import('./pages/dashboard/bank/LendingQueue'))
+const CollateralMap = lazy(() => import('./pages/dashboard/bank/CollateralMap'))
+const CreditRiskAnalysis = lazy(() => import('./pages/dashboard/bank/CreditRiskAnalysis'))
 
 // Context
 interface AppContextType {
@@ -185,7 +227,38 @@ export const AppContext = createContext<AppContextType>({
 
 export const useApp = () => useContext(AppContext)
 
+/**
+ * CA-K3-AUTH-01-R1 (D-5) — the key of the app-wide LazyRouteBoundary below.
+ *
+ * A pathname key resets a failed lazy route on every navigation. For the Corporate family it also
+ * destroyed the mounted Corporate shell — and with it the server's Corporate access decision for this
+ * session — on every in-shell click, so each click blanked the shell and asked the server again. The
+ * Corporate family therefore shares ONE key: child navigation keeps the shell and its decision, while
+ * leaving and re-entering Corporate, a reload, a new tab or a new session still mounts a fresh shell
+ * that asks the server. Every other route keeps its pathname key, unchanged.
+ */
+const CORPORATE_ROUTE_FAMILY = '/corporate'
+function routeBoundaryKey(pathname: string): string {
+  const path = pathname.toLowerCase()
+  return path === CORPORATE_ROUTE_FAMILY || path.startsWith(`${CORPORATE_ROUTE_FAMILY}/`) ? CORPORATE_ROUTE_FAMILY : pathname
+}
+
+/**
+ * The per-page reset the app-wide boundary used to give Corporate pages, now INSIDE the shell: a page
+ * whose chunk fails is caught here, in the content area, and cleared by the next Corporate navigation —
+ * without remounting the shell or touching its access decision.
+ */
+function CorporatePageBoundary({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  return (
+    <LazyRouteBoundary key={pathname} onRetry={() => window.location.reload()}>
+      <Suspense fallback={<AuthBootstrapLoading />}>{children}</Suspense>
+    </LazyRouteBoundary>
+  )
+}
+
 export default function App() {
+  const location = useLocation()
   const [currency, setCurrency] = useState<'USD' | 'ZiG' | 'ZAR' | 'BWP'>('USD')
   const { user, isAuthenticated } = useAuth()
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -235,13 +308,16 @@ export default function App() {
       {isOffline && (
         <div id="offline-banner" className="fixed top-0 left-0 right-0 z-50 bg-red-600/95 backdrop-blur-md text-white text-center py-2.5 text-xs font-semibold tracking-wider uppercase flex items-center justify-center gap-2 shadow-lg border-b border-red-500/50 animate-in fade-in slide-in-from-top duration-300">
           <WifiOff className="w-4 h-4 animate-pulse text-red-100" />
-          <span>You are currently offline. CarUp is running in offline local sync mode.</span>
+          <span>You are offline. Saved app screens may open, but current records and actions need a connection.</span>
         </div>
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
+      <RouteMetadata />
       <ActivityInstrumentation />
       <FeatureGovernanceLoader>
+      <LazyRouteBoundary key={routeBoundaryKey(location.pathname)} onRetry={() => window.location.reload()}>
+      <Suspense fallback={<AuthBootstrapLoading />}>
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
@@ -257,6 +333,15 @@ export default function App() {
           <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
+          {/* Public garage profile. Lost when the post-#194 reconciliation took main's side of this
+              file wholesale, which left GarageDetail on disk with zero importers. Guarded by
+              web/src/__tests__/app-route-convergence.test.tsx. */}
+          <Route path="/garages/:slug" element={<GarageDetail />} />
+          {/* Where every CarUp QR code lands (R8). The backend resolved service links from the
+              start; this route did not exist, so every scan opened the 404 page. Public by
+              design: the resolver — not this route — decides what a scanner may see, and shows an
+              anonymous scanner only that the link is real. */}
+          <Route path="/s/:token" element={<ServiceLink />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
@@ -275,18 +360,10 @@ export default function App() {
           <Route path="/security" element={<Security />} />
           <Route path="/api-docs" element={<APIDocs />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
-          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
-          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
-          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
-          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
-          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
-          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/diaspora/trade-profile" element={<DiasporaTradeProfile />} />
           <Route path="/diaspora/stock/:id/passport" element={<DiasporaStockPassport />} />
-          <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
-          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
           <Route path="/diaspora/safetrade" element={<DiasporaSafeTrade />} />
@@ -304,12 +381,77 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+          {/* O2-X2 (ported by OC-5C) — the signed-in person's own onboarding journey. A product
+              surface, not an auth step: it renders inside the canonical shell (#208 88000de9 moved it
+              out of the chromeless auth group for exactly that reason). Unregistered, so routeAccess
+              renders it for any signed-in caller (U1) and the page + backend decide the rest. */}
+          <Route path="/onboarding" element={<RegistrationJourney />} />
+          {/* O2-X5 (ported by OC-5C) — a dealer APPLICANT's own application. Deliberately outside the
+              Dealer workspace routes: an applicant is not an active Dealer (onboarding ≠ authority). */}
+          <Route path="/dealer/onboarding" element={<DealerOnboarding />} />
+        </Route>
+
+        {/* Trade OS operational workspace (owner UAT #1): the client-demo journey — Container
+            Co-Loading + the linked Import Order/Passport surfaces — runs in an AUTHENTICATED
+            operating shell (compact top bar + local Trade OS nav), not the public marketing
+            MainLayout. Other Diaspora routes stay in MainLayout until deliberately migrated. */}
+        <Route element={<TradeOSWorkspaceLayout />}>
+          {/* T2 — Request Quotes: buyer sourcing + supplier opportunity marketplace. */}
+          {/* The legacy /diaspora/rfq surface is retired: its buyer-facing term is now
+              "Request Quotes" and its mechanics live in the T2 surfaces below. The path is kept
+              as a redirect so existing links and bookmarks still land somewhere correct. */}
+          <Route path="/diaspora/rfq" element={<Navigate to="/diaspora/request-quotes" replace />} />
+          <Route path="/diaspora/request-quotes" element={<TradeRequestQuotes />} />
+          <Route path="/diaspora/requests" element={<TradeMyRequests />} />
+          <Route path="/diaspora/requests/:id" element={<TradeRequestDetail />} />
+          <Route path="/diaspora/buyer-requests" element={<TradeBuyerRequests />} />
+          {/* The SAME canonical Communications surface as /dashboard/communications, mounted in the
+              participant-neutral Trade OS shell. The dashboard path lives in the owner-only layout,
+              so suppliers were bounced to /dealer and could never read the thread they created. */}
+          <Route path="/diaspora/messages" element={<Communications />} />
+          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
+          {/* T6.5 — CarUp's own rate research. Platform authority only, enforced server-side; the
+              page renders an honest refusal rather than a blank screen for anyone else. */}
+          <Route path="/diaspora/rate-research" element={<TradeRateResearch />} />
+          {/* T8.3 — one Documents & Evidence workspace for any authoritative Trade OS object.
+              Access is derived from the transaction server-side; the page shows an honest refusal
+              rather than an empty list when it cannot be read. */}
+          <Route path="/diaspora/documents/:subjectType/:subjectId" element={<TradeDocumentsWorkspace />} />
+          {/* T9.3 — warehouse intake. Receiving authority is derived from the WAREHOUSE server-side,
+              so a customer reaching this route sees an empty queue rather than a locked door: there
+              is nothing here that is theirs to be refused. */}
+          <Route path="/diaspora/warehouse" element={<WarehouseIntakeWorkspace />} />
+          {/* T9.3 — the customer's own cargo. Authorized from the SUBJECT, not the warehouse. */}
+          <Route path="/diaspora/cargo/:subjectType/:subjectId" element={<MyCargoIntake />} />
+          {/* T10.3 — the operator's loading workspace. Sailing authority is resolved server-side
+              (coordinator, tenant admin, platform admin), so a caller without it is refused there
+              rather than hidden here. */}
+          <Route path="/diaspora/loading" element={<ContainerLoadingWorkspace />} />
+          {/* T10.3 — a participant's own cargo against the container. Authorized from the CARGO. */}
+          <Route path="/diaspora/cargo-loading/:subjectType/:subjectId" element={<MyCargoLoading />} />
+          {/* T11.2 — the operator's shipment movement timeline. Sailing authority server-side. */}
+          <Route path="/diaspora/shipments" element={<ShipmentTimelineWorkspace />} />
+          {/* T11.3 — a participant's own cargo journey. Authorized from the CARGO. */}
+          <Route path="/diaspora/tracking/:subjectType/:subjectId" element={<MyShipmentTracking />} />
+          <Route path="/diaspora/customs" element={<CustomsDestinationWorkspace />} />
+          <Route path="/diaspora/my-customs/:subjectType/:subjectId" element={<MyCustomsDestination />} />
+          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
+          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
+          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
+          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
+          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
+          {/* T4 — the operating transaction passport. `kind` is in the path so a purchase and a
+              shipment can never be conflated by a missing parameter. */}
+          <Route path="/diaspora/transactions/:kind/:id" element={<TradeTransactionPassport />} />
         </Route>
 
         {/* Auth Routes */}
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          {/* GMO-6 (OC-5E): an invitation must be readable before the person has an account. */}
+          <Route path="/join-garage" element={<JoinGarage />} />
           {/*
             SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
             with no server verification. No backend OTP flow exists and nothing linked to it, so
@@ -327,9 +469,13 @@ export default function App() {
         <Route element={<DashboardLayout role="owner" />}>
           <Route path="/dashboard" element={<OwnerDashboard />} />
           <Route path="/dashboard/garage" element={<MyGarage />} />
+          <Route path="/dashboard/garage-setup" element={<GarageSetup />} />
           <Route path="/dashboard/evidence" element={<EvidenceVault />} />
           <Route path="/dashboard/garage/:id" element={<VehicleProfile />} />
           <Route path="/dashboard/service-history" element={<ServiceHistory />} />
+          {/* R3 — a successful service request must remain findable. This is a view of the
+              canonical Service Cases the owner already owns, not a second request ledger. */}
+          <Route path="/dashboard/service-requests" element={<ServiceRequests />} />
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
@@ -358,6 +504,16 @@ export default function App() {
           <Route path="/mechanic/service-logs" element={<ServiceLogs />} />
           <Route path="/mechanic/parts" element={<PartsTracking />} />
           <Route path="/mechanic/customers" element={<CustomerRecords />} />
+          {/* The garage's own work, in the garage-side portal. OC-5D: no platform role admits these —
+              the registry's tenant scope does (the SELECTED, verified garage, in the roles the
+              backend's requireActiveTenant accepts), and this layout and the route boundary both
+              evaluate it, so the surface's answer to "who may act for a garage" is the API's. */}
+          <Route path="/garage" element={<GarageWorkspace />} />
+          <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
+          <Route path="/garage/customers" element={<GarageCustomers />} />
+          <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
+          <Route path="/garage/team" element={<GarageTeam />} />
         </Route>
 
         {/* Insurance Dashboard */}
@@ -413,8 +569,11 @@ export default function App() {
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/vehicles/:vin/review" element={<VehicleOperationsReview />} />
+          <Route path="/admin/people/:userId/review" element={<PeopleComplianceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+          {/* GMO-3/4 (OC-5E): the platform administrator decides garage applications; approval builds the workspace. */}
+          <Route path="/admin/garage-applications" element={<GarageApplications />} />
           <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
@@ -433,9 +592,27 @@ export default function App() {
           <Route path="/dashboard/admin/communications/:section" element={<AdminCommunications />} />
         </Route>
 
+        {/* CA-K3-01 — Corporate Admin. A separate shell beside /admin (which is unchanged); the layout
+            renders only on the server's Corporate access decision (CA-K3-AUTH-01) and nothing otherwise.
+            The family shares one app-wide boundary key (routeBoundaryKey); each page has its own. */}
+        <Route element={<CorporateLayout />}>
+          <Route path="/corporate" element={<CorporatePageBoundary><CorporateOverview /></CorporatePageBoundary>} />
+          <Route path="/corporate/business-units" element={<CorporatePageBoundary><CorporateBusinessUnits /></CorporatePageBoundary>} />
+          <Route path="/corporate/finance" element={<CorporatePageBoundary><CorporateFinance /></CorporatePageBoundary>} />
+          <Route path="/corporate/growth" element={<CorporatePageBoundary><CorporateGrowth /></CorporatePageBoundary>} />
+          <Route path="/corporate/operations" element={<CorporatePageBoundary><CorporateOperations /></CorporatePageBoundary>} />
+          <Route path="/corporate/trust-risk" element={<CorporatePageBoundary><CorporateTrustRisk /></CorporatePageBoundary>} />
+          <Route path="/corporate/data-intelligence" element={<CorporatePageBoundary><CorporateDataIntelligence /></CorporatePageBoundary>} />
+          <Route path="/corporate/people-access" element={<CorporatePageBoundary><CorporatePeopleAccess /></CorporatePageBoundary>} />
+          <Route path="/corporate/reports" element={<CorporatePageBoundary><CorporateReports /></CorporatePageBoundary>} />
+          <Route path="/corporate/platform" element={<CorporatePageBoundary><CorporatePlatform /></CorporatePageBoundary>} />
+        </Route>
+
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </Suspense>
+      </LazyRouteBoundary>
       </FeatureGovernanceLoader>
     </AppContext.Provider>
   )

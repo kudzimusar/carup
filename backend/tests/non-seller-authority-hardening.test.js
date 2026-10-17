@@ -10,7 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
@@ -43,9 +43,15 @@ test('hardening: NODE_ENV alone cannot open the x-user-id fallback in a producti
       isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, CARUP_ENV: 'production' }), false,
       `NODE_ENV=${nodeEnv} must not open the fallback when CARUP_ENV=production`,
     );
-    // Non-production deployments are unchanged, so local development and CI still work.
+    // OC-5R-PROV-01 B1: NOT only production. A preview or staging deployment is just as reachable,
+    // and NODE_ENV=test there opened the same credential-free identity. Every declared deployment
+    // (the central classifier) now refuses the inference.
+    assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, VERCEL_ENV: 'preview' }), false,
+      `NODE_ENV=${nodeEnv} must not open the fallback in a Vercel preview`);
+    assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, CARUP_ENV: 'staging' }), false,
+      `NODE_ENV=${nodeEnv} must not open the fallback on staging`);
+    // Local development and CI declare no deployment, so they still work.
     assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv }), true);
-    assert.equal(isUserIdFallbackAllowed({ NODE_ENV: nodeEnv, VERCEL_ENV: 'preview' }), true);
   }
 
   // NODE_ENV=production was already closed and stays closed.
@@ -63,27 +69,27 @@ test('hardening: NODE_ENV alone cannot open the x-user-id fallback in a producti
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════
-// 2. The document-intelligence router is no longer a second, unauthenticated authority
-//    over vehicle trust, registry records and identity verification level.
+// 2. The document-intelligence router is RETIRED (O2-X1, converged by OC-2A): there is no
+//    second authority over vehicle trust, registry records or identity verification level
+//    left to gate — and no prefix gate left to shadow the routes that share its prefix.
 // ═══════════════════════════════════════════════════════════════════════════════════
 
-test('hardening: /api/verification is gated at the mount, with the fallback disabled', () => {
+test('hardening: the /api/verification authority surface is retired — no mount, no router, no import', () => {
   const server = read('../server.js');
 
-  // Gated AT THE MOUNT, so a route added to this router later is closed by default rather
-  // than inheriting the original omission.
-  assert.match(
-    server,
-    /app\.use\('\/api\/verification',\s*authorizeSessionRole\(\['admin',\s*'government'\]\),\s*documentIntelligenceRouter\)/,
-    'the verification router must be mounted behind an admin/government session gate',
-  );
-  assert.doesNotMatch(
-    server, /app\.use\('\/api\/verification',\s*documentIntelligenceRouter\)/,
-    'the bare, unauthenticated mount must not return',
+  // O2-X1/OC-2A went past the V16 gate: gating proved WHO could call the second authority; the
+  // retirement removed what there was to call. Neither a bare nor a gated mount may return — and
+  // no prefix middleware at all, because a prefix gate shadowed the Trust Fact and PartSentry
+  // routes' own route-level authorization (behaviour: oc2a-verification-route-convergence.test.js).
+  assert.doesNotMatch(server, /app\.use\(\s*\[?\s*['"`]\/api\/verification\b/, 'no /api/verification mount of any kind may exist');
+  assert.doesNotMatch(server, /documentIntelligenceRouter/, 'the retired router must not be imported');
+  assert.equal(
+    existsSync(new URL('../services/document-intelligence/documentIntelligenceRouter.js', import.meta.url)), false,
+    'the retired router file must not exist',
   );
 
-  // authorizeSessionRole, not authorizeRole: a registry/trust decision requires a PROVEN
-  // session. authorizeRole would still admit the asserted x-user-id header.
+  // authorizeSessionRole, not authorizeRole, stays the mount-gate idiom elsewhere: a
+  // registry/trust decision requires a PROVEN session. Pinned because many mounts rely on it.
   const middleware = read('../middleware/authMiddleware.js');
   assert.match(
     middleware,
@@ -92,19 +98,14 @@ test('hardening: /api/verification is gated at the mount, with the fallback disa
   );
 });
 
-test('hardening: the OCR approval reviewer is the caller, never the request body', () => {
-  const router = read('../services/document-intelligence/documentIntelligenceRouter.js');
-  const approve = router.slice(router.indexOf("router.post('/ocr/:id/approve'"), router.indexOf("router.post('/fraud-scan'"));
-
-  assert.match(approve, /const actorId = req\.userContext\?\.id;/, 'the actor must come from the session');
-  assert.doesNotMatch(
-    approve, /const \{[^}]*\bactorId\b[^}]*\} = req\.body/,
-    'actorId must not be destructured from the request body',
-  );
-  // The override is written to administrative_overrides with this id as its accountable
-  // reviewer, so a body-supplied actor let any caller attribute their override to someone else.
+test('hardening: the OCR approval authority chain is gone from document intelligence', () => {
+  // The V16 fix made the approval audit row attribute the REAL caller. O2-X1/OC-2A removed the
+  // approval outright: no override writes, no registry writes, no vehicle writes remain.
   const service = read('../services/document-intelligence/documentIntelligenceService.js');
-  assert.match(service, /administrative_overrides/, 'the override table is still the audit sink');
+  assert.doesNotMatch(service, /approveDocumentVerification/, 'the approval writer must not return');
+  assert.doesNotMatch(service, /administrative_overrides/, 'document intelligence writes no override audit rows');
+  assert.doesNotMatch(service, /cvr_ownership_records|zimra_declarations/, 'document intelligence writes no registry rows');
+  assert.doesNotMatch(service, /from\(['"]vehicles['"]\)/, 'document intelligence does not touch vehicles');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════
@@ -115,12 +116,17 @@ test('hardening: the OCR approval reviewer is the caller, never the request body
 test('hardening: the diaspora handoff ledger writer signs with the canonical system signer', () => {
   const src = read('../services/diaspora/diasporaOwnershipHandoffService.js');
 
-  assert.match(
-    src, /import \{ signSystemLedgerHash \} from '\.\.\/blockchain\/blockchainKeyCustodyService\.js';/,
-    'the handoff writer must import the canonical system signer',
-  );
-  assert.match(src, /const systemSignature = signSystemLedgerHash\(currentHash\);/);
-  assert.match(src, /signature: `system:\$\{systemSignature\}`/);
+  // OC-3D 4J: the handoff no longer builds its own ledger envelope. It submits the event to the
+  // ledger's single write boundary with the signer named explicitly, and that boundary signs system
+  // events with the canonical system signer — so the pin follows the signing to where it happens.
+  assert.match(src, /import \{ addEvent \} from '\.\.\/blockchain\/blockchainService\.js';/,
+    'the handoff writer must submit through the canonical ledger writer');
+  assert.match(src, /addEvent\(vin, HANDOFF_EVENT_TYPE, payload, 'SYSTEM_SIGNATURE', \{ client, signerId: 'system' \}\)/);
+  assert.doesNotMatch(src, /signature:\s*`/, 'the handoff writer no longer hand-builds a signature');
+  assert.doesNotMatch(src, /calculateHash|signSystemLedgerHash/, 'nor a hash or signature of its own');
+  const ledger = read('../services/blockchain/blockchainService.js');
+  assert.match(ledger, /dynamicSignature = `system:\$\{signSystemLedgerHash\(currentHash\)\}`/,
+    'the canonical writer signs system events with the canonical system signer');
 
   // The local HMAC over a hardcoded literal must be gone entirely.
   assert.doesNotMatch(
@@ -229,11 +235,11 @@ test('hardening: a production deployment never signs the ledger with an ephemera
   const custody = read('../services/blockchain/blockchainKeyCustodyService.js');
 
   assert.match(custody, /function isEphemeralTestSecretAllowed\(\)/);
-  assert.match(
-    custody,
-    /CARUP_ENV === 'production' \|\| process\.env\.VERCEL_ENV === 'production'\) return false/,
-    'the deployment environment must override the NODE_ENV inference',
-  );
+  // OC-5R-PROV-01 B1: the deployment declaration is the CENTRAL classifier, so every deployment —
+  // staging and previews, not only production — overrides the NODE_ENV inference.
+  assert.match(custody, /import \{ isFixtureRuntime \} from '\.\.\/\.\.\/utils\/runtimeEnvironment\.js'/);
+  assert.match(custody, /return isFixtureRuntime\(process\.env\);/,
+    'the deployment environment must override the NODE_ENV inference');
   // Neither resolver may branch on NODE_ENV directly any more.
   for (const resolver of ['function masterSecret', 'function currentSystemSecret']) {
     const start = custody.indexOf(resolver);
@@ -245,20 +251,26 @@ test('hardening: a production deployment never signs the ledger with an ephemera
     assert.match(body, /isEphemeralTestSecretAllowed\(\)/);
   }
 
-  // Behavioural: with the deployment marked production and no configured secret, signing throws.
+  // Behavioural: with ANY deployment declared and no configured secret, signing throws.
   const savedVercel = process.env.VERCEL_ENV;
+  const savedCarup = process.env.CARUP_ENV;
   const savedMaster = process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET;
   const savedSystem = process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET;
   try {
-    process.env.VERCEL_ENV = 'production';
     delete process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET;
     delete process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET;
-    // Fresh module instance so the module-level cached test secrets cannot mask the branch.
-    const fresh = await import(`../services/blockchain/blockchainKeyCustodyService.js?production-probe`);
-    assert.throws(() => fresh.signSystemLedgerHash('abc'), /CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET is required/);
-    assert.throws(() => fresh.deriveStakeholderKey('u1'), /CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET is required/);
+    for (const [key, value, probe] of [['VERCEL_ENV', 'production', 'production-probe'], ['VERCEL_ENV', 'preview', 'preview-probe'], ['CARUP_ENV', 'staging', 'staging-probe']]) {
+      delete process.env.VERCEL_ENV;
+      delete process.env.CARUP_ENV;
+      process.env[key] = value;
+      // Fresh module instance so the module-level cached test secrets cannot mask the branch.
+      const fresh = await import(`../services/blockchain/blockchainKeyCustodyService.js?${probe}`);
+      assert.throws(() => fresh.signSystemLedgerHash('abc'), /CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET is required/, `${key}=${value}`);
+      assert.throws(() => fresh.deriveStakeholderKey('u1'), /CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET is required/, `${key}=${value}`);
+    }
   } finally {
     if (savedVercel === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = savedVercel;
+    if (savedCarup === undefined) delete process.env.CARUP_ENV; else process.env.CARUP_ENV = savedCarup;
     process.env.CARUP_BLOCKCHAIN_SIGNING_MASTER_SECRET = savedMaster;
     process.env.CARUP_BLOCKCHAIN_SYSTEM_HMAC_SECRET = savedSystem;
   }

@@ -42,10 +42,19 @@ test('completeness endpoint is ownership-scoped for non-admin/non-reviewer sessi
     /current_seller_id === req\.userContext\.id/,
     'current-seller match must key on the session identity',
   );
-  assert.match(
+  // M4 — INVERTED, not deleted. This used to require the raw comparison
+  // `tenant_id === req.userContext.tenantId`, which was precisely the defect: belonging to the
+  // vehicle's organisation is not Seller scope over its completeness. The session tenant is still
+  // what decides, but only through the governed Dealer-business decision.
+  assert.doesNotMatch(
     section,
     /tenant_id === req\.userContext\.tenantId/,
-    'tenant match must key on the session tenant',
+    'raw tenant equality must not be the completeness scope any more',
+  );
+  assert.match(
+    section,
+    /hasGovernedDealerVehicleAuthority\(supabase, req\.userContext/,
+    'the session actor is still what decides — through the canonical governed authority',
   );
   assert.match(
     section,

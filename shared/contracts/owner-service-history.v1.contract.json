@@ -1,0 +1,52 @@
+{
+  "$comment": "OC-5D (P6): GET /api/service-history/me, the vehicle owner's service history. Pinned on BOTH sides of the wire: backend/tests/oc5d-owner-service-history-contract.test.js runs the mounted route against every row shape the schema has produced, and mobile/tests/garage-service-history-contract.test.ts holds the native renderer to it. RC1 returned select('*') rows, so the native screen read a `cost` key that never existed (F1, a TypeError on the first non-empty history), and the owner received other people's identifiers: after a sale, customer_name / customer_id name the PREVIOUS owner. The response is now built from this allow-list, never from the row.",
+  "contract": "carup.owner_service_history.v1",
+  "endpoint": { "method": "GET", "path": "/api/service-history/me" },
+  "response": "array",
+  "entry": {
+    "required": {
+      "id": "string",
+      "vin": "string",
+      "status": "string|null",
+      "description": "string|null",
+      "issue_description": "string|null",
+      "total_cost": "number|null",
+      "labor_cost": "number|null",
+      "created_at": "string|null",
+      "updated_at": "string|null",
+      "owner_authorization": "string|null",
+      "money": "object"
+    },
+    "optional": {
+      "service_case_id": "string|null",
+      "service_category": "string|null",
+      "work_performed": "string|null",
+      "provenance": "string",
+      "provider": "object",
+      "completed_at": "string|null",
+      "cancelled_at": "string|null",
+      "performed_at": "string|null",
+      "mileage_observation": "object|null"
+    },
+    "money": {
+      "$comment": "Money is shown with its currency or not at all. mechanic_work_orders has no currency column, so on this schema every amount is recorded:false — a number without a currency is not displayable as money (and total_cost DEFAULT 0 cannot tell free from unrecorded).",
+      "recorded": "boolean",
+      "amount": "number|null",
+      "currency": "string|null"
+    },
+    "ownerAuthorization": ["pending", "authorized", "declined", "revoked"],
+    "forbidden": [
+      "cost",
+      "mileage",
+      "parts_replaced",
+      "work_type",
+      "customer_id",
+      "customer_name",
+      "mechanic_id",
+      "tenant_id",
+      "organization_id",
+      "owner_authorized_by"
+    ]
+  },
+  "failure": { "status": 503, "code": "SERVICE_HISTORY_UNAVAILABLE", "$comment": "An unreadable ownership or work-order read is never reported as an empty history." }
+}

@@ -12,7 +12,8 @@
  * for tracking only — CarUp does not hold, receive or guarantee funds.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { AlertTriangle, ArrowLeft, BookOpenCheck, CheckCircle2, Loader2, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -149,6 +150,8 @@ function UnavailableNote({ testId, children }: { testId: string; children: React
 
 export default function DiasporaOrderPassport() {
   const { id = '' } = useParams<{ id: string }>()
+  // PC01-J-R1: every Sign in link returns the visitor here.
+  const location = useLocation()
   const { isAuthenticated, loading: authLoading } = useAuth()
   const api = useCarUpApi()
 
@@ -211,7 +214,7 @@ export default function DiasporaOrderPassport() {
           <AlertTitle>Sign in required</AlertTitle>
           <AlertDescription>
             Please sign in to view this order passport.
-            <Button asChild size="sm" variant="default" className="ml-2"><Link to="/login">Sign in</Link></Button>
+            <Button asChild size="sm" variant="default" className="ml-2"><Link to={buildLoginRedirect(`${location.pathname}${location.search}`)}>Sign in</Link></Button>
           </AlertDescription>
         </Alert>
       </main>
@@ -228,7 +231,7 @@ export default function DiasporaOrderPassport() {
             {fatal.message}
             <span className="ml-2 inline-flex gap-2">
               {fatal.kind === 'error' && <Button size="sm" variant="outline" onClick={() => void load()} data-testid="order-passport-retry">Retry</Button>}
-              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to="/login" data-testid="order-passport-signin">Sign in</Link></Button>}
+              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to={buildLoginRedirect(`${location.pathname}${location.search}`)} data-testid="order-passport-signin">Sign in</Link></Button>}
               <Button asChild size="sm" variant="ghost"><Link to="/diaspora/imports" data-testid="order-passport-back">Back to import orders</Link></Button>
             </span>
           </AlertDescription>
@@ -276,6 +279,23 @@ export default function DiasporaOrderPassport() {
       </header>
 
       <div className="space-y-4">
+        {/* T4 — this page is the COMPLIANCE record (government footprint, audit, milestones,
+            ownership handoff). The operating transaction — what was agreed, what is being moved,
+            where it stands and what happens next — lives on the transaction passport, so the two
+            surfaces point at each other instead of one quietly becoming obsolete. */}
+        <div className="mb-4 border border-orange-200 bg-orange-50 p-4" data-testid="order-passport-operating-link">
+          <p className="text-sm text-orange-900">
+            This is the compliance record for the order. To see the live transaction — the agreement,
+            the cargo, shipping and what happens next — open the transaction view.
+          </p>
+          <Link
+            to={`/diaspora/transactions/procurement/${order.id}`}
+            className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-700 hover:underline"
+          >
+            Open the transaction <BookOpenCheck className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
+
         {/* 1 — Order identity & state */}
         <PassportSection title="Order identity & state" testId="order-passport-identity">
           <Field label="Order id" value={shortId(order.id)} testId="order-passport-id" />

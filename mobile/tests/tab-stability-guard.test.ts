@@ -35,6 +35,46 @@ function test(name: string, fn: () => void) {
 //    (marketplaceApi), which is itself asserted below to resolve the base
 //    safely and send the ngrok header. Either way the intent holds: no
 //    hardcoded host, ngrok-safe fetches, handled failures.
+/** The text of every `fetch( … )` call, balanced from its opening parenthesis. */
+function fetchCalls(src: string): string[] {
+  const calls: string[] = [];
+  const re = /\bfetch\(/g; // \b excludes React Query's refetch()
+  for (let m = re.exec(src); m; m = re.exec(src)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < src.length && depth > 0; i += 1) {
+      if (src[i] === '(') depth += 1;
+      else if (src[i] === ')') depth -= 1;
+    }
+    calls.push(src.slice(m.index, i));
+  }
+  return calls;
+}
+
+/** Identifiers bound to an object literal that carries the header: `const headers = { …ngrok-skip-browser-warning… }`. */
+function headerCarriers(src: string): Set<string> {
+  const carriers = new Set<string>();
+  const re = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*\{/g;
+  for (let m = re.exec(src); m; m = re.exec(src)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < src.length && depth > 0; i += 1) {
+      if (src[i] === '{') depth += 1;
+      else if (src[i] === '}') depth -= 1;
+    }
+    if (src.slice(m.index, i).includes('ngrok-skip-browser-warning')) carriers.add(m[1]);
+  }
+  return carriers;
+}
+
+/** A call sends the header if it carries it inline or passes, as `headers`, an object that carries it. */
+function sendsNgrokHeader(call: string, carriers: Set<string>): boolean {
+  if (call.includes('ngrok-skip-browser-warning')) return true;
+  const named = /\bheaders\s*:\s*([A-Za-z_$][\w$]*)/.exec(call);
+  if (named) return carriers.has(named[1]);
+  return carriers.has('headers') && /[{,]\s*headers\s*[,}]/.test(call);
+}
+
 const TABS = ['garage', 'escrow', 'marketplace'] as const;
 const DELEGATED: Record<string, string | undefined> = { marketplace: 'marketplaceApi' };
 
@@ -64,14 +104,17 @@ for (const tab of TABS) {
   test(`${tab}: every fetch sends the ngrok-skip-browser-warning header`, () => {
     // \bfetch\( excludes React Query's refetch() (no word boundary inside "refetch").
     const fetchCount = (src.match(/\bfetch\(/g) || []).length;
-    const skipCount = (src.match(/ngrok-skip-browser-warning/g) || []).length;
     if (delegatedUtil && fetchCount === 0) {
       // All fetching is delegated to the canonical util (asserted separately).
       assert.ok(src.includes(delegatedUtil), `${tab} delegates fetching to ${delegatedUtil}`);
       return;
     }
     assert.ok(fetchCount > 0, `${tab} performs at least one fetch`);
-    assert.ok(skipCount >= fetchCount, `${tab} sends the ngrok-skip header on all ${fetchCount} fetch call(s) (found ${skipCount})`);
+    // Judged per call, not by counting: a shared headers object (escrow) is one literal serving two calls,
+    // and a count would also pass one call with two literals beside another call with none.
+    const carriers = headerCarriers(src);
+    const missing = fetchCalls(src).filter((call) => !sendsNgrokHeader(call, carriers));
+    assert.equal(missing.length, 0, `${tab}: ${missing.length} of ${fetchCount} fetch call(s) send no ngrok-skip header: ${missing.map((c) => c.slice(0, 60)).join(' | ')}`);
   });
 
   test(`${tab}: fetch failures are handled (try/catch or React Query)`, () => {

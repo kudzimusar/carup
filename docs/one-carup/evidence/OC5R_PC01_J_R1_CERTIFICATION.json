@@ -1,0 +1,105 @@
+{
+ "schema": "oc5r-pc01-j-r1-exact-head-certification/v1",
+ "code_sha": "896ee73f753bb73ca232da04904cdd8272fbeeb1",
+ "worktree": "a clean detached worktree at the code head (git status empty), outside any path containing a space",
+ "started_at": "2026-10-10T19:00:41Z",
+ "finished_at": "2026-10-10T19:06:22Z",
+ "toolchain": {
+  "backend": "node v26.8.2 arm64",
+  "web_mobile_ci": "node v22.13.0 arm64"
+ },
+ "backend_env": "the ci.yml contract (NODE_ENV=test, local Supabase URL, test keys, ALLOW_OCR_MOCK=true) — no repository .env read",
+ "results": [
+  {
+   "check": "backend full suite",
+   "tests": 8441,
+   "pass": 8417,
+   "fail": 1,
+   "skipped": 23,
+   "failure": {
+    "test": "navigation-analytics.test.js:417 — rate limit returns 429 after N (without bypass header)",
+    "error": "TypeError: fetch failed (transport — no assertion reached), while swap stood at 13.6 of 14.3 GB",
+    "touched_by_j_r1": false,
+    "earlier_full_run_same_tree": "passed (294 ms)",
+    "isolated_reruns": "4/4 pass on the same worktree — the file 25/25 (2026-10-10T19:06:47Z)",
+    "disposition": "environmental: the test opens and closes 130 local servers in sequence; not a product or test defect introduced here"
+   }
+  },
+  {
+   "check": "migration integrity",
+   "result": "pass"
+  },
+  {
+   "check": "web full suite (vitest, from web/)",
+   "files": 246,
+   "tests": 2311,
+   "pass": 2311
+  },
+  {
+   "check": "web typecheck (tsconfig.app.json) and tsc -b",
+   "result": "pass"
+  },
+  {
+   "check": "web build",
+   "result": "pass"
+  },
+  {
+   "check": "production bundle carries no demo identity (VERCEL_ENV=production build + scan)",
+   "result": "pass"
+  },
+  {
+   "check": "mobile vitest",
+   "files": 6,
+   "tests": 66,
+   "pass": 66
+  },
+  {
+   "check": "mobile standalone tsx scripts (17 of the 23 tests/*.test.ts files, run directly, + verification-flow-smoke; the other 6 are the vitest files above — together a superset of test:native and test:static)",
+   "pass": 18,
+   "of": 18
+  },
+  {
+   "check": "mobile tsc --noEmit",
+   "result": "pass"
+  },
+  {
+   "check": "PGlite database checks (ci.yml list + diaspora glob)",
+   "pass": 30,
+   "of": 30
+  },
+  {
+   "check": "assert-gate-assertions-intact",
+   "result": "pass"
+  },
+  {
+   "check": "ci-staging-shard-aggregate tripwires",
+   "result": "pass"
+  },
+  {
+   "check": "assert-db-connections-released",
+   "result": "pass"
+  },
+  {
+   "check": "CR-1 credential scan",
+   "result": "pass"
+  },
+  {
+   "check": "evidence-certification guard",
+   "result": "104 receipts, 56 capability rows — no impossible promotion"
+  },
+  {
+   "check": "git diff --check (closure evidence..HEAD, bcd7076a..HEAD, b0e094d1..HEAD)",
+   "result": "clean"
+  },
+  {
+   "check": "eslint, the 53 web files J-R1 added or changed",
+   "result": "13 errors + 1 warning, every one pre-existing (per file and rule identical to the d13c2e78 baseline); 0 new",
+   "note": "scripts/lint-baseline-gate.mjs is not run locally (it re-shallows the clone); CI runs it"
+  },
+  {
+   "check": "responsive audit (stub API) at the code head",
+   "result": "0 phone overflow rows, 0 sub-44 px controls at 320/360/375/390/430, phone h1 ≤ 36 px, desktop 0 overflow — OC5R_PC01_J_R1_RESPONSIVE_LOCAL.json"
+  }
+ ],
+ "verdict": "exact-head certified; the single red is environmental and passes in isolation"
+}

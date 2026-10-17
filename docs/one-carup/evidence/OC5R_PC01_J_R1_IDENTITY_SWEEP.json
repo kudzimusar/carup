@@ -1,0 +1,312 @@
+{
+ "schema": "oc5r-pc01-j-r1-identity-sweep/v1",
+ "scope": "web/src, web/index.html, web/public, mobile/app, mobile/components, mobile/app.json, backend/server.js, backend/services/communication, backend/routes (the native lock screen, biometric prompt and verification-intro claims were reviewed in §H and are held by publicIdentity.test.ts)",
+ "method": "git archive of each commit, then one line scan per category. 'Shipped' excludes test files and lines that open with a comment marker; every residual shipped line was then read in source and classified. Before = d13c2e7821551e8d3adfee2930a6f312f8f9ed4b; after = 896ee73f753bb73ca232da04904cdd8272fbeeb1.",
+ "regression_guard": "web/src/config/publicIdentity.test.ts (comments stripped; 14 assertions; restoring the previous footer fails three)",
+ "authority": [
+  "docs/communications/CARUP_PUBLIC_IDENTITY_SAFE_REMEDIATION_PACKET.md",
+  "docs/communications/EMAIL_EXPERIENCE_1_0_CONTACT_IDENTITY_MAPPING.md",
+  "backend/services/communication/emailExperience/emailBrandIdentity.js"
+ ],
+ "counts": {
+  "stale_domain_co_zw": {
+   "before_shipped": 23,
+   "after_shipped": 1,
+   "before_all_lines": 25,
+   "after_all_lines": 8
+  },
+  "unowned_domain_app": {
+   "before_shipped": 0,
+   "after_shipped": 0,
+   "before_all_lines": 1,
+   "after_all_lines": 1
+  },
+  "phone_263": {
+   "before_shipped": 7,
+   "after_shipped": 1,
+   "before_all_lines": 19,
+   "after_all_lines": 14
+  },
+  "street_address": {
+   "before_shipped": 8,
+   "after_shipped": 0,
+   "before_all_lines": 14,
+   "after_all_lines": 9
+  },
+  "demo_staff": {
+   "before_shipped": 7,
+   "after_shipped": 3,
+   "before_all_lines": 20,
+   "after_all_lines": 18
+  },
+  "entity_variants": {
+   "before_shipped": 10,
+   "after_shipped": 4,
+   "before_all_lines": 16,
+   "after_all_lines": 14
+  },
+  "unverified_claims": {
+   "before_shipped": 1,
+   "after_shipped": 0,
+   "before_all_lines": 1,
+   "after_all_lines": 1
+  },
+  "hours": {
+   "before_shipped": 7,
+   "after_shipped": 6,
+   "before_all_lines": 17,
+   "after_all_lines": 19
+  },
+  "harare_hq": {
+   "before_shipped": 10,
+   "after_shipped": 5,
+   "before_all_lines": 16,
+   "after_all_lines": 14
+  },
+  "vercel_app_visible": {
+   "before_shipped": 2,
+   "after_shipped": 2,
+   "before_all_lines": 38,
+   "after_all_lines": 38
+  },
+  "staff_alias_pending": {
+   "before_shipped": 1,
+   "after_shipped": 2,
+   "before_all_lines": 2,
+   "after_all_lines": 4
+  },
+  "zimbabwes_superlative": {
+   "before_shipped": 0,
+   "after_shipped": 0,
+   "before_all_lines": 0,
+   "after_all_lines": 0
+  },
+  "tagline_present": {
+   "before_shipped": 1,
+   "after_shipped": 3,
+   "before_all_lines": 1,
+   "after_all_lines": 4
+  }
+ },
+ "residual_shipped_lines_after": [
+  {
+   "category": "stale_domain_co_zw",
+   "file": "web/src/pages/PressKit.tsx",
+   "line": 728,
+   "kind": "comment",
+   "disposition": "JSX comment recording what was removed"
+  },
+  {
+   "category": "phone_263",
+   "file": "web/src/pages/APIDocs.tsx",
+   "line": 410,
+   "kind": "planned_page",
+   "disposition": "API Documentation is PLANNED and does not render (§D)"
+  },
+  {
+   "category": "demo_staff",
+   "file": "web/src/pages/auth/Register.tsx",
+   "line": 320,
+   "kind": "product_placeholder",
+   "disposition": "example.com form placeholder — product fixture under the packet's §0.1 scope boundary, not an identity claim"
+  },
+  {
+   "category": "demo_staff",
+   "file": "web/src/pages/dashboard/mechanic/MechanicDashboard.tsx",
+   "line": 273,
+   "kind": "product_placeholder",
+   "disposition": "signed-in mechanic form placeholder ('e.g. …') — §0.1"
+  },
+  {
+   "category": "demo_staff",
+   "file": "backend/services/communication/emailExperience/authEquivalence.js",
+   "line": 114,
+   "kind": "not_visible",
+   "disposition": "a guard asserting the name is ABSENT from email HTML"
+  },
+  {
+   "category": "entity_variants",
+   "file": "web/src/pages/HelpCenter.tsx",
+   "line": 505,
+   "kind": "comment",
+   "disposition": "JSX comment recording what was removed"
+  },
+  {
+   "category": "entity_variants",
+   "file": "web/src/pages/APIDocs.tsx",
+   "line": 756,
+   "kind": "planned_page",
+   "disposition": "PLANNED page — does not render"
+  },
+  {
+   "category": "entity_variants",
+   "file": "web/src/pages/auth/Register.tsx",
+   "line": 407,
+   "kind": "product_placeholder",
+   "disposition": "organisation-name placeholder — §0.1"
+  },
+  {
+   "category": "entity_variants",
+   "file": "backend/services/communication/authEmailTemplates.js",
+   "line": 101,
+   "kind": "deferred",
+   "disposition": "auth email footer 'CarUp Automotive Intelligence' — superseded under Email X2's own golden-fixture migration; no email is sent while the kill switch is active"
+  },
+  {
+   "category": "hours",
+   "file": "web/src/pages/HelpCenter.tsx",
+   "line": 522,
+   "kind": "truthful_none",
+   "disposition": "rendered: 'CarUp publishes no telephone line, opening hours or response time.'"
+  },
+  {
+   "category": "hours",
+   "file": "web/src/pages/Contact.tsx",
+   "line": 29,
+   "kind": "truthful_none",
+   "disposition": "rendered: 'Opening hours and response times — CarUp publishes none, because it measures none.'"
+  },
+  {
+   "category": "hours",
+   "file": "web/src/pages/PressKit.tsx",
+   "line": 796,
+   "kind": "truthful_none",
+   "disposition": "rendered: 'CarUp does not publish a response time it cannot commit to.'"
+  },
+  {
+   "category": "hours",
+   "file": "web/src/pages/APIDocs.tsx",
+   "line": 416,
+   "kind": "planned_page",
+   "disposition": "PLANNED page — does not render"
+  },
+  {
+   "category": "hours",
+   "file": "backend/services/communication/authEmailTemplates.js",
+   "line": 173,
+   "kind": "false_positive",
+   "disposition": "link expiry ('within 24 hours'), not business hours"
+  },
+  {
+   "category": "hours",
+   "file": "backend/services/communication/communicationSlaSchedule.js",
+   "line": 68,
+   "kind": "false_positive",
+   "disposition": "code comment '24/7' in an SLA calculator"
+  },
+  {
+   "category": "harare_hq",
+   "file": "web/src/config/publicIdentity.ts",
+   "line": 22,
+   "kind": "approved",
+   "disposition": "regionalOffice 'Harare, Zimbabwe' — the approved location"
+  },
+  {
+   "category": "harare_hq",
+   "file": "web/src/components/layout/Footer.tsx",
+   "line": 83,
+   "kind": "comment",
+   "disposition": "JSX comment recording what was removed"
+  },
+  {
+   "category": "harare_hq",
+   "file": "web/src/pages/PressKit.tsx",
+   "line": 267,
+   "kind": "approved",
+   "disposition": "label 'Headquarters' whose value is PUBLIC_IDENTITY.headquarters (Tokyo, Japan)"
+  },
+  {
+   "category": "harare_hq",
+   "file": "web/src/pages/About.tsx",
+   "line": 103,
+   "kind": "approved",
+   "disposition": "value PUBLIC_IDENTITY.headquarters (Tokyo, Japan)"
+  },
+  {
+   "category": "harare_hq",
+   "file": "backend/services/communication/emailExperience/emailBrandIdentity.js",
+   "line": 20,
+   "kind": "approved",
+   "disposition": "Email's identity module — the web module is held equal to it by test"
+  },
+  {
+   "category": "vercel_app_visible",
+   "file": "web/src/lib/apiClient.ts",
+   "line": 44,
+   "kind": "not_visible",
+   "disposition": "staging API constant; never rendered"
+  },
+  {
+   "category": "vercel_app_visible",
+   "file": "web/src/lib/apiClient.ts",
+   "line": 66,
+   "kind": "not_visible",
+   "disposition": "staging host list; never rendered"
+  },
+  {
+   "category": "staff_alias_pending",
+   "file": "web/src/config/publicIdentity.ts",
+   "line": 35,
+   "kind": "approved",
+   "disposition": "questions@carup.dev — inbound routing certified 2026-08-18"
+  },
+  {
+   "category": "staff_alias_pending",
+   "file": "web/src/pages/Support.tsx",
+   "line": 21,
+   "kind": "approved",
+   "disposition": "questions@carup.dev — inbound routing certified 2026-08-18"
+  },
+  {
+   "category": "tagline_present",
+   "file": "web/src/config/publicIdentity.ts",
+   "line": 20,
+   "kind": "approved",
+   "disposition": "the tagline"
+  },
+  {
+   "category": "tagline_present",
+   "file": "web/index.html",
+   "line": 7,
+   "kind": "approved",
+   "disposition": "meta description carrying the descriptor and tagline"
+  },
+  {
+   "category": "tagline_present",
+   "file": "backend/services/communication/emailExperience/emailBrandIdentity.js",
+   "line": 18,
+   "kind": "approved",
+   "disposition": "Email's consumer tagline"
+  }
+ ],
+ "residual_rendered_and_unapproved": [
+  {
+   "category": "demo_staff",
+   "file": "web/src/pages/auth/Register.tsx",
+   "line": 320,
+   "kind": "product_placeholder",
+   "disposition": "example.com form placeholder — product fixture under the packet's §0.1 scope boundary, not an identity claim"
+  },
+  {
+   "category": "demo_staff",
+   "file": "web/src/pages/dashboard/mechanic/MechanicDashboard.tsx",
+   "line": 273,
+   "kind": "product_placeholder",
+   "disposition": "signed-in mechanic form placeholder ('e.g. …') — §0.1"
+  },
+  {
+   "category": "entity_variants",
+   "file": "web/src/pages/auth/Register.tsx",
+   "line": 407,
+   "kind": "product_placeholder",
+   "disposition": "organisation-name placeholder — §0.1"
+  },
+  {
+   "category": "entity_variants",
+   "file": "backend/services/communication/authEmailTemplates.js",
+   "line": 101,
+   "kind": "deferred",
+   "disposition": "auth email footer 'CarUp Automotive Intelligence' — superseded under Email X2's own golden-fixture migration; no email is sent while the kill switch is active"
+  }
+ ]
+}

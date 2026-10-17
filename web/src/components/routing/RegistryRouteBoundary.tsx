@@ -8,6 +8,7 @@
  */
 import { type ReactNode, useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { activeTenantScopeOf } from '@/config/featureRegistry'
 import { useAuth } from '@/context/AuthContext'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { evaluateRouteAccess, loginWithReturnTo } from '@/lib/routeAccess'
@@ -57,6 +58,11 @@ export function RegistryRouteBoundary({
     isBootstrapping: loading,
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
+    // A garage employee is an `owner` platform-wide and a `mechanic` in their garage. Omitting this
+    // here while DashboardLayout passed it produced an infinite /garage <-> /dashboard loop: this
+    // boundary redirected to the owner dashboard on the platform role, and the owner dashboard sent
+    // a confirmed garage member straight back. OC-5D: the SELECTED, verified organisation's scope.
+    activeTenant: activeTenantScopeOf(user),
     effectiveStates,
     enforceAuth,
   })

@@ -245,7 +245,7 @@ test('O6 marketing never reaches Resend, and Brevo provenance is unchanged', asy
   assert.equal(router.selectAdapter({ content: { data: { classification: 'marketing' } } }).adapter.provider, 'brevo');
 
   let resendCalls = 0;
-  const resendish = new ResendEmailAdapter({ env: RESEND_ENV, fetchImpl: async () => { resendCalls += 1; return { ok: true, status: 200, text: async () => '{}', headers: new Map() }; } });
+  const resendish = new ResendEmailAdapter({ env: RESEND_ENV, fetchImpl: async () => { resendCalls += 1; return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'resend-email-id' }), headers: new Map() }; } });
   const refused = await resendish.send(notificationFor({ classification: 'transactional' }));
   assert.equal(refused.accepted, true);
   assert.equal(resendCalls, 1, 'sanity: this adapter does call out when permitted');

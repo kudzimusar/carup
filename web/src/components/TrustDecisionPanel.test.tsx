@@ -50,6 +50,18 @@ describe('TrustDecisionPanel', () => {
     expect(scored).not.toContain('50 · moderate')
     expect(scored).not.toContain('>50<')
   })
+  // OC-5R-PROV-01 A1: reviewed-only coverage (partner-file / manual review) is not a connected
+  // source. It renders as a caution with its honest 0/5 count — never in the green connected tone.
+  it('renders reviewed-only source coverage as a caution, not as connected', () => {
+    const html = renderToStaticMarkup(<TrustDecisionPanel vin="V1" initialData={decision({
+      dimensions: { ...decision().dimensions, source_coverage: { status: 'reviewed_only', value: '0/5', reason_codes: ['reviewed_not_connected:2'] } },
+    })} />)
+    const start = html.indexOf('data-testid="decision-row-source_coverage"')
+    const row = html.slice(start, html.indexOf('</div>', start))
+    expect(row).toContain('0/5')
+    expect(row).toContain('text-amber-700')
+    expect(row).not.toContain('text-green-700')
+  })
   it('shows known limitations', () => {
     const html = renderToStaticMarkup(<TrustDecisionPanel vin="V1" initialData={decision()} />)
     expect(html).toContain('Known limitations')

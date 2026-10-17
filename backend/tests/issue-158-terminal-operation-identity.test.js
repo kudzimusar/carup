@@ -26,7 +26,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, unlinkSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -283,7 +286,10 @@ test('Issue #158: every stakeholder ledger writer supplies a DURABLE operation i
   // retry recomputes it. An identity minted inside the write path (randomUUID, Date.now)
   // is a new value on every attempt and therefore proves nothing.
   const writers = [
-    ['../services/partsentry/partsentryService.js', /operationId: `partsentry_log:\$\{encodeURIComponent\(String\(newId\)\)\}`/],
+    // OC-5A: PartSentry's ledger write moved behind a durable intent. The identity is minted INSIDE the
+    // committing transaction from the committed row id (migration 20261004160200), and the one drain
+    // that writes the event passes exactly that stored identity — never one minted at write time.
+    ['../services/blockchain/ledgerIntentService.js', /operationId: intent\.operation_id,/],
     ['../services/insurance/insuranceService.js', /operationId: `insurance_policy:\$\{encodeURIComponent\(id\)\}`/],
     ['../services/finance/financeService.js', /operationId: `finance_application:\$\{encodeURIComponent\(id\)\}`/],
     ['../services/security/securityService.js', /operationId: `stolen_alert:/],
@@ -293,6 +299,9 @@ test('Issue #158: every stakeholder ledger writer supplies a DURABLE operation i
     const src = readFileSync(new URL(rel, import.meta.url), 'utf8');
     assert.match(src, pattern, `${rel} must bind its ledger write to a durable operation identity`);
   }
+  const intentSql = readFileSync(new URL('../../database/migrations/20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql', import.meta.url), 'utf8');
+  assert.match(intentSql, /RETURNING \* INTO v_log;[\s\S]*'partsentry_log:' \|\| v_log\.id::text/,
+    'the PartSentry operation identity is the committed log row id, minted after the row exists');
 
   // addEvent must never manufacture an identity for itself.
   const service = readFileSync(SERVICE_SOURCE_URL, 'utf8');
@@ -302,13 +311,16 @@ test('Issue #158: every stakeholder ledger writer supplies a DURABLE operation i
 });
 
 test('Issue #158: PartSentry refuses to write an unidentifiable ledger event', () => {
-  // The durable identity is the COMMITTED parts-log row id. If the insert returned no id
-  // there is nothing durable to key on, and the service must abort rather than fall back
-  // to an identity a retry could not reproduce.
-  const src = readFileSync(new URL('../services/partsentry/partsentryService.js', import.meta.url), 'utf8');
-  assert.match(src, /refusing to write an unidentifiable ledger event/i);
-  const guardAt = src.indexOf('refusing to write an unidentifiable ledger event');
-  const addEventAt = src.indexOf("addEvent(\n    vin,\n    'Mechanic Inspection'");
+  // The durable identity is the COMMITTED parts-log row id. OC-5A moved the write behind a durable
+  // intent: the intent cannot exist without the committed log (same transaction), and the drain
+  // refuses an intent whose payload does not name itself — so no event is ever written that a retry,
+  // or the exactly-once check, could not trace back to its record.
+  const service = readFileSync(new URL('../services/partsentry/partsentryService.js', import.meta.url), 'utf8');
+  assert.match(service, /The service record could not be confirmed/, 'no committed log id → the record is not confirmed');
+  assert.doesNotMatch(service, /\baddEvent\(/, 'PartSentry no longer writes the ledger inline');
+  const drain = readFileSync(new URL('../services/blockchain/ledgerIntentService.js', import.meta.url), 'utf8');
+  const guardAt = drain.indexOf('refusing to write an untraceable event');
+  const addEventAt = drain.indexOf('await addEvent(intent.vin');
   assert.ok(guardAt > 0 && addEventAt > guardAt, 'the guard must precede the ledger write');
 });
 
@@ -679,8 +691,17 @@ test('Issue #158: every terminal guard is load-bearing under mutation', async (t
       }
     });
 
-    const mutantUrl = new URL(`../services/blockchain/__mutant__${index}.blockchainService.js`, import.meta.url);
-    writeFileSync(mutantUrl, source.replace(mutant.find, mutant.replace), 'utf8');
+    // OC-5J: the copy is written OUTSIDE the repository. It used to sit beside the real module as
+    // `__mutant__N.blockchainService.js`, where every test that walks backend/services could list it
+    // and then find it gone (a full-suite ENOENT flake). Its relative imports are made absolute
+    // against the real module, so it loads the SAME modules (same URLs, same supabase singleton);
+    // `.mjs` because a temp directory has no package.json declaring ESM.
+    const mutantDir = mkdtempSync(join(tmpdir(), 'issue158-mutant-'));
+    const mutated = source.replace(mutant.find, mutant.replace)
+      .replace(/(\bfrom\s*)(['"])(\.{1,2}\/[^'"]+)\2/g, (_, from, quote, spec) => `${from}${quote}${new URL(spec, SERVICE_SOURCE_URL).href}${quote}`);
+    assert.doesNotMatch(mutated, /\bfrom\s*['"]\.{1,2}\//, 'every relative import of the copy resolves to the real tree');
+    const mutantUrl = pathToFileURL(join(mutantDir, `mutant-${index}.blockchainService.mjs`));
+    writeFileSync(mutantUrl, mutated, 'utf8');
     try {
       await t.test(`mutant fails: ${mutant.name}`, async (st) => {
         withKeyVersion(st, `mu${index}m`);
@@ -692,7 +713,7 @@ test('Issue #158: every terminal guard is load-bearing under mutation', async (t
           .finally(() => db.close());
       });
     } finally {
-      try { unlinkSync(mutantUrl); } catch { /* already removed */ }
+      rmSync(mutantDir, { recursive: true, force: true });
     }
   }
 });

@@ -19,12 +19,47 @@ import {
   initiateProviderEscrow, transitionProviderEscrow, requireDualControl,
   ingestEscrowProviderWebhook, runEscrowReconciliation, setEscrowKillSwitch, getProviderState,
 } from '../services/escrow/escrowProviderService.js';
+import { getSession } from '../services/escrow/escrowTrustService.js';
+import { ForbiddenError } from '../utils/errors.js';
 
 const router = express.Router();
+
+/**
+ * OC-5R-PROV-01 B4 — participant authority. The role gate on these routes admits EVERY buyer,
+ * owner and dealer account, so on its own it let an authenticated user who is party to nothing
+ * move someone else's provider escrow. Authority over THIS escrow is the canonical rule the rest
+ * of the escrow surface already uses (escrowTrustService.getSession -> assertReadable): the
+ * session's buyer or seller, or a privileged reviewer/admin. Anyone else is refused before the
+ * service is reached; an unknown session is a 404. The escrow engine itself is unchanged.
+ */
+async function escrowParticipantOrRefuse(req, res) {
+  const actor = {
+    id: req.userContext?.id || req.userContext?.userId || null,
+    role: req.userContext?.effectiveRole || req.userContext?.role || null,
+  };
+  try {
+    const session = await getSession(req.params.id, actor);
+    if (!session) {
+      res.status(404).json({ error: 'escrow session not found' });
+      return null;
+    }
+    return session;
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      res.status(403).json({
+        error: 'Only a participant of this escrow, or a reviewer/admin, may act on it.',
+        code: 'ESCROW_PARTICIPANT_REQUIRED',
+      });
+      return null;
+    }
+    throw err;
+  }
+}
 
 // POST initiate — buyer/owner/dealer/admin.
 router.post('/api/escrow/:id/provider/initiate', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
   try {
+    if (!(await escrowParticipantOrRefuse(req, res))) return undefined;
     const result = await initiateProviderEscrow(req.params.id, {
       providerKey: req.body?.provider_key,
       amountCents: Number(req.body?.amount_cents),
@@ -44,6 +79,7 @@ router.post('/api/escrow/:id/provider/initiate', authorizeRole(['buyer', 'owner'
 // PATCH transition — participants + reviewer/admin.
 router.patch('/api/escrow/:id/provider/transition', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
   try {
+    if (!(await escrowParticipantOrRefuse(req, res))) return undefined;
     const result = await transitionProviderEscrow(req.params.id, req.body?.to_state, {
       actor: { id: req.userContext?.userId, role: req.userContext?.role },
       reason: req.body?.reason,

@@ -69,7 +69,7 @@ function VerificationIntro() {
             Trust & Identity Verification
           </Text>
           <Text style={{ color: '#94A3B8', fontSize: 14, lineHeight: 22, marginBottom: 32 }}>
-            To prevent fraud and enable features like CBZ SafePay Escrow, vehicle listings, and automatic ownership transfer, we need to verify your physical identity.
+            To protect buyers and sellers from fraud, CarUp verifies your identity before some actions, such as listing a vehicle.
           </Text>
 
           {/* Benefits Grid */}
@@ -91,9 +91,11 @@ function VerificationIntro() {
                 <Text style={{ color: '#22C55E', fontWeight: '700' }}>$</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={benefitTitleStyle}>Escrow & Financing Ready</Text>
+                {/* PC01-J-R1: this card named a real bank (CBZ) and promised bank transfers and loan
+                    pre-approval. CarUp has no bank integration and no live payment, so it promises nothing. */}
+                <Text style={benefitTitleStyle}>Kept private</Text>
                 <Text style={benefitBodyStyle}>
-                  Unlock access to direct secure bank transfers and CBZ pre-approval loans.
+                  Your identity documents are used to verify you. They are not shown to other CarUp users.
                 </Text>
               </View>
             </View>

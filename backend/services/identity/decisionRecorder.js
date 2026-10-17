@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { logger } from '../../utils/logger.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
 import {
   DECISION_ACTION,
@@ -19,7 +20,8 @@ import {
   WORKFLOW_PHASE,
   LEGACY_REVIEWABLE_STATUSES,
 } from './caseWorkflow.js';
-import { getReasonConfig } from './reasonCodes.js';
+import { getReasonConfig, REASON_CODES } from './reasonCodes.js';
+import { onVerificationApproved } from './identityLifecycleService.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 // Decisions that materially change the applicant's verification outcome and
@@ -32,6 +34,38 @@ const APPLICANT_FACING_DECISIONS = Object.freeze([
 ]);
 
 export class VerificationDecisionRecorder {
+  /**
+   * May a reviewer action move the case's PRIMARY reason to `incomingCode`?
+   *
+   * The approve gate reads the case's primary reason. Every action used to write the reviewer's code
+   * over it, so a system-assigned blocker could be relaxed by a later action: a submission the
+   * classifier refused as a non-document (DOCUMENT_NOT_VISIBLE, not approvable) could be escalated
+   * with OTHER (approvable) and then approved (PC01-F F1; violates PO ruling §12D invariant 4:
+   * "NON_DOCUMENT → blocked even if text was extracted", and invariant 9).
+   *
+   *   - REQUEST_RESUBMISSION and REJECT assign the case's reason, as before. The first sends the case
+   *     back to the applicant, where approval is refused anyway; the second closes it.
+   *   - An escalation, an internal note (and an approval's annotation) may TIGHTEN or replace a
+   *     reason, but may never replace a blocking evidence/quality/document/extraction/identity/
+   *     system/fraud/biometric reason with an approvable one. Those are facts about the evidence; only
+   *     new evidence (a resubmission) changes them. The reviewer's own code is always kept on the
+   *     action's immutable decision row.
+   *   - The one blocking category a reviewer may lift is `escalation` (SPECIALIST_REVIEW_REQUIRED). The
+   *     system never assigns it — it is a reviewer's own workflow marker — and once a case is escalated
+   *     a note is the ONLY action left that can resolve it (escalate and reject are refused there), so
+   *     the specialist resolution path stays exactly as it was.
+   */
+  static mayChangePrimaryReason(action, currentCode, incomingCode) {
+    if (!incomingCode) return false;
+    if (action === DECISION_ACTION.REQUEST_RESUBMISSION || action === DECISION_ACTION.REJECT) return true;
+    if (!currentCode) return true;
+    const current = REASON_CODES[currentCode] || null;
+    const incoming = REASON_CODES[incomingCode] || null;
+    if (!current || !incoming) return false;
+    const relaxes = current.approveAllowed === false && incoming.approveAllowed === true;
+    return !(relaxes && current.category !== 'escalation');
+  }
+
   /**
    * Record a decision and update the session.
    * All legacy fields are synchronized for existing compatibility.
@@ -63,6 +97,12 @@ export class VerificationDecisionRecorder {
       if (!reasonConfig) {
         throw new ValidationError(`Unknown reason code: ${reasonCode}`);
       }
+    }
+    // Any reason a reviewer supplies must be a KNOWN code. getReasonConfig() maps an unknown code to
+    // OTHER, which is approvable — so an unvalidated code on an escalation or a note was a way to turn
+    // a typo, or anything at all, into an approvable reason (PC01-F F1).
+    if (reasonCode && !Object.hasOwn(REASON_CODES, reasonCode)) {
+      throw new ValidationError(`Unknown reason code: ${reasonCode}`);
     }
 
     // Validate applicant message for resubmission
@@ -193,7 +233,7 @@ export class VerificationDecisionRecorder {
     if (disposition) {
       sessionUpdate.final_disposition = disposition;
     }
-    if (reasonCode) {
+    if (reasonCode && VerificationDecisionRecorder.mayChangePrimaryReason(action, session.primary_reason_code, reasonCode)) {
       sessionUpdate.primary_reason_code = reasonCode;
     }
 
@@ -277,8 +317,48 @@ export class VerificationDecisionRecorder {
       },
     });
 
-    if (!auditResult.success) {
-      console.warn('Decision audit write failed:', auditResult.error);
+    // OC-4A classification: BUSINESS HISTORY + SECURITY AUDIT. The decision is already durable — the
+    // idempotency-keyed verification_decisions row above IS the domain record — so failing the request
+    // now would misreport a decision that happened (and invite a retry against a moved session). The
+    // cross-domain trust_audit_events row is therefore not allowed to fail SILENTLY instead: the failure
+    // is logged as an error and the response carries audit_recorded: false, so the reviewer surface and
+    // reconciliation can see the gap (it is re-derivable from verification_decisions).
+    const auditRecorded = auditResult.success === true;
+    if (!auditRecorded) {
+      logger.error('IDENTITY', 'verification decision audit was NOT recorded; the decision is durable in verification_decisions', {
+        decision_id: decisionId, session_id: session.id, event_type: eventType, error: auditResult.error || null,
+      });
+    }
+
+    // O2-X3 (ported by OC-5C): a durable APPROVE also advances the CURRENT identity lifecycle
+    // (verified, or recovered from compromised). The approval above is already immutable history, so
+    // the hook cannot fail the decision — but it is never silent (#208 used .catch(console.warn), an
+    // OC-4A violation on an identity-history write): a policy refusal (a revoked identity, or evidence
+    // that predates a restriction) is recorded as lifecycle_outcome 'refused'; any other failure is a
+    // logged error with lifecycle_recorded false, which the reviewer surface can see.
+    let lifecycleOutcome = 'not_applicable';
+    if (action === DECISION_ACTION.APPROVE) {
+      try {
+        const lifecycle = await onVerificationApproved(client, {
+          userId: session.user_id,
+          sessionId: session.id,
+          reviewerId,
+          reviewerRole,
+        }, { req });
+        lifecycleOutcome = lifecycle.noop ? 'unchanged' : 'recorded';
+      } catch (lifecycleError) {
+        if (lifecycleError instanceof ForbiddenError) {
+          lifecycleOutcome = 'refused';
+          logger.warn('IDENTITY', 'verification approval did not advance the identity lifecycle (policy refusal)', {
+            decision_id: decisionId, session_id: session.id, reason: lifecycleError.message,
+          });
+        } else {
+          lifecycleOutcome = 'failed';
+          logger.error('IDENTITY', 'identity lifecycle was NOT updated after a durable approval', {
+            decision_id: decisionId, session_id: session.id, error: lifecycleError.message,
+          });
+        }
+      }
     }
 
     // Bridge the persisted decision into the communication engine (seam-E E5).
@@ -325,6 +405,9 @@ export class VerificationDecisionRecorder {
         reviewer_id: reviewerId,
         created_at: timestamp,
         audit_event_type: eventType,
+        audit_recorded: auditRecorded,
+        lifecycle_outcome: lifecycleOutcome,
+        lifecycle_recorded: lifecycleOutcome === 'recorded' || lifecycleOutcome === 'unchanged',
       },
       session: updatedSession,
       allowed_actions: newAssessment.allowed_actions,

@@ -202,7 +202,8 @@ test('a seller report is built from the projection and needs a session', async (
 
   const report = await buildSellerReport({
     availability: AVAILABILITY.VALUE,
-    metrics: { views: value(120), inquiries: value(4), unique_visitors: value(88) },
+    // The pulse's real key (OC-5F): a fixture keyed `unique_visitors` hid that the report read a key nothing emits.
+    metrics: { views: value(120), inquiries: value(4), unique_viewers: value(88) },
   }, { actor: OWNER, period: 'weekly', now: new Date('2026-08-28T00:00:00.000Z') });
 
   assert.equal(report.period, PERIODS.WEEKLY);
@@ -210,6 +211,7 @@ test('a seller report is built from the projection and needs a session', async (
   assert.equal(report.subject.id, 'u1');
   const byKey = Object.fromEntries(report.rows.map((r) => [r.key, r]));
   assert.equal(byKey.listing_views.value, 120);
+  assert.equal(byKey.unique_visitors.value, 88, 'unique visitors are read from the pulse\'s unique_viewers');
   // Completeness and lost opportunity were not in the projection, so they are
   // unavailable rather than absent or zero.
   assert.equal(byKey.listing_completeness.available, false);
@@ -222,4 +224,35 @@ test('the period resolver defaults to monthly and accepts weekly', () => {
   assert.equal(resolvePeriod('monthly'), PERIODS.MONTHLY);
   assert.equal(resolvePeriod('nonsense'), PERIODS.MONTHLY);
   assert.equal(resolvePeriod(undefined), PERIODS.MONTHLY);
+});
+
+test('drift guard (OC-5F): every I4 catalogue entry describes the rollup that is actually computed', async () => {
+  // The JSON report and the CSV export label each number with its entry's calculation_version. A
+  // rollup bump that leaves these behind would label rollup@2 numbers as rollup@1 — so a bump fails
+  // here until someone re-reads the explanations and moves them.
+  const { ROLLUP_CALCULATION_VERSION } = await import('../services/intelligence/rollupService.js');
+  const { KPI_CATALOGUE } = await import('../services/intelligence/kpiCatalogue.js');
+  const i4 = KPI_CATALOGUE.filter((k) => k.phase === 'I4');
+  assert.ok(i4.length >= 3, 'the I4 entries are where they were');
+  for (const entry of i4) assert.equal(entry.calculation_version, ROLLUP_CALCULATION_VERSION, entry.key);
+  assert.equal(KPI_CATALOGUE_VERSION, 'kpi_catalogue@2');
+});
+
+test('wiring (OC-5F): every seller-report metric is one the seller pulse actually emits', async () => {
+  // A report that reads a key the projection never produces renders "Not measured" forever and every
+  // fixture-based test stays green. Two rows are knowingly unavailable today (no projection emits them).
+  const { readFileSync } = await import('node:fs');
+  const report = readFileSync(new URL('../services/intelligence/reportService.js', import.meta.url), 'utf8');
+  const pulse = readFileSync(new URL('../services/intelligence/intelligenceProjectionService.js', import.meta.url), 'utf8');
+  const sellerReport = report.slice(report.indexOf('const metrics = sellerPulse.metrics'), report.indexOf('return {', report.indexOf('const metrics = sellerPulse.metrics')));
+  const read = [...sellerReport.matchAll(/metrics\.(\w+)/g)].map((m) => m[1]);
+  const pulseBody = pulse.slice(pulse.indexOf('export async function getSellerPulse'));
+  const metricsBlock = pulseBody.slice(pulseBody.indexOf('metrics: {'), pulseBody.indexOf('},', pulseBody.indexOf('metrics: {')));
+  const emitted = new Set([...metricsBlock.matchAll(/^\s+(\w+):/gm)].map((m) => m[1]));
+  assert.ok(emitted.has('unique_viewers') && emitted.size >= 8, 'the pulse metrics block was found');
+  const KNOWN_UNAVAILABLE = new Set(['completeness', 'lost_opportunity']);
+  for (const key of read) {
+    if (KNOWN_UNAVAILABLE.has(key)) continue;
+    assert.ok(emitted.has(key), `the seller report reads metrics.${key}, which getSellerPulse never emits`);
+  }
 });

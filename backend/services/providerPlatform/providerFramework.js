@@ -18,6 +18,7 @@ import { supabase } from '../../db/supabase.js';
 import { isCallable } from './providerRegistry.js';
 import { simulateProvider } from './simulators.js';
 import { isCapabilityEnabled } from '../featureFlags/capabilityFlags.js';
+import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
 
 const TRANSIENT = new Set(['timeout', 'rate_limited']);
 // Outcomes that count as an infrastructure failure for the circuit breaker. Valid provider
@@ -97,6 +98,24 @@ export async function executeProviderRequest(provider, req = {}, opts = {}) {
   const idempotencyKey = opts.idempotencyKey || null;
   const invoke = opts.invoke || defaultInvoke;
   const maxRetries = opts.maxRetries ?? 2;
+
+  // Synthetic provider execution is a local/test harness only. In any deployed runtime the
+  // absence of a real/manual/partner-file invoker is an explicit unavailable state, regardless of
+  // what activation_mode says in the database.
+  if (isProductionLikeRuntime(process.env) && !opts.invoke) {
+    await recordAttempt(provider, req, 'unavailable', {
+      correlationId,
+      error_category: 'synthetic_provider_not_permitted',
+    });
+    return {
+      ok: false,
+      outcome: 'unavailable',
+      mode: provider.activation_mode,
+      blocked_reason: 'synthetic_provider_not_permitted',
+      correlation_id: correlationId,
+      attempts: 0,
+    };
+  }
 
   // 0. Idempotency: a repeated key for THE SAME PROVIDER returns the recorded outcome (no
   //    re-execution). Scoped by provider_id so a client may reuse one key across providers.

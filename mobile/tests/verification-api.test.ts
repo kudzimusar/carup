@@ -21,7 +21,6 @@ function session(status: VerificationSession['status'], overrides: Partial<Verif
     ocr_result: null,
     confidence_score: null,
     failure_reason: null,
-    review_notes: null,
     retry_reason: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -74,11 +73,9 @@ test('maps verified backend sessions to verified mobile state', () => {
 });
 
 test('maps pending manual review to needs_review without verified claim', () => {
-  const outcome = mapSessionToVerificationOutcome(session('pending_manual_review', {
-    review_notes: 'Reviewer must inspect document quality.',
-  }));
+  const outcome = mapSessionToVerificationOutcome(session('pending_manual_review'));
   assert.equal(outcome.status, 'needs_review');
-  assert.match(outcome.processingError || '', /Reviewer/);
+  assert.match(outcome.processingError || '', /manual review/);
 });
 
 test('maps OCR failure to ocr_failed', () => {
@@ -91,12 +88,22 @@ test('maps OCR failure to ocr_failed', () => {
 });
 
 test('maps rejected backend session to rejected with the reviewer reason', () => {
+  // failure_reason is what the reviewer wrote TO the applicant (the decision recorder's applicant message).
   const outcome = mapSessionToVerificationOutcome(session('rejected', {
-    review_notes: 'Document is illegible.',
+    failure_reason: 'Document is illegible.',
   }));
   assert.equal(outcome.status, 'rejected');
   assert.equal(outcome.sessionStatus, 'rejected');
   assert.match(outcome.processingError || '', /illegible/);
+});
+
+test('OC-5C: a reviewer INTERNAL note is never shown to the applicant, whatever a session carries', () => {
+  // The applicant projection no longer carries review_notes; an older backend still might.
+  const internal = { review_notes: 'INTERNAL: applicant looks like a repeat fraud attempt' } as unknown as Partial<VerificationSession>;
+  for (const status of ['pending_manual_review', 'retry_requested', 'rejected'] as const) {
+    const outcome = mapSessionToVerificationOutcome(session(status, internal));
+    assert.doesNotMatch(outcome.processingError || '', /INTERNAL|fraud/, status);
+  }
 });
 
 test('maps retry_requested with the retry reason and a retry-capable status', () => {

@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Target, Eye, Shield, Brain, Users, Globe } from 'lucide-react'
+import { PUBLIC_IDENTITY } from '@/config/publicIdentity'
 
 const values = [
   { icon: Shield, title: 'Trust First', desc: 'Every feature we build prioritizes transparency and trust between all parties.' },
@@ -45,7 +46,7 @@ export default function About() {
               <p className="text-gray-600 leading-relaxed">
                 To become Zimbabwe's trusted source of truth for every vehicle. We aim to give every 
                 car in Zimbabwe a digital identity — complete with ownership history, service records, 
-                insurance data, and an AI-generated trust score.
+                insurance data, and a versioned Trust position derived from the evidence CarUp holds.
               </p>
             </CardContent>
           </Card>
@@ -83,7 +84,7 @@ export default function About() {
 
         {/* Stats */}
         <div className="bg-gradient-to-r from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] rounded-2xl p-8 text-white">
-          <div className="grid grid-cols-1 gap-8 text-center">
+          <div className="grid grid-cols-1 gap-8 text-center sm:grid-cols-3" data-testid="about-identity">
             {/*
               * "12,000+ Vehicles Registered", "850+ Partner Dealers" and "98.7%
               * Fraud Detection" stood here as string literals with no source. The
@@ -92,11 +93,18 @@ export default function About() {
               * and that the partner figure asserted relationships that do not
               * exist. This page was a surviving copy of the same claim.
               */}
+            {/*
+              * PC01-J-R1: "2024 / Founded" was the last unverified fact here. What remains is the
+              * frozen public identity (config/publicIdentity.ts): the company, its HQ and its regional
+              * office — and no street address, because none is approved.
+              */}
             {[
-              { value: '2024', label: 'Founded' },
+              { value: PUBLIC_IDENTITY.legalEntity, label: 'Company' },
+              { value: PUBLIC_IDENTITY.headquarters, label: 'Headquarters' },
+              { value: PUBLIC_IDENTITY.regionalOffice, label: 'Regional office' },
             ].map((stat) => (
               <div key={stat.label}>
-                <p className="text-3xl font-bold">{stat.value}</p>
+                <p className="text-2xl font-bold sm:text-3xl">{stat.value}</p>
                 <p className="text-sm text-gray-400 mt-1">{stat.label}</p>
               </div>
             ))}

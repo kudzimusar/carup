@@ -28,8 +28,13 @@ test('switch-role only grants the user\'s current role or a verified tenant role
 });
 
 test('admin can NEVER be assumed via the tenant-role path (must be the primary role)', () => {
-  // The tenant-role branch explicitly excludes admin, so owner->admin is blocked.
-  assert.match(serverSrc, /verifiedTenantRole && role === verifiedTenantRole && role !== 'admin'/);
+  // OC-5D: the tenant-role branch admits ONLY a lendable role (tenantRoleCatalogue — 'mechanic' and
+  // 'dealer'), a strictly narrower rule than "anything but admin" (which let a tenant row reading
+  // 'government' mint a government session). That admin is outside the lendable set is pinned in
+  // oc5a-tenant-role-catalogue.test.js; the switch itself is exercised over HTTP in
+  // oc5d-active-tenant-context.test.js.
+  assert.match(serverSrc, /verifiedTenantRole && role === verifiedTenantRole && isLendableTenantRole\(role\)/);
+  assert.doesNotMatch(serverSrc, /role === verifiedTenantRole && role !== 'admin'/);
 });
 
 test('switch-role preserves the "not verified for this user context" forbidden response', () => {

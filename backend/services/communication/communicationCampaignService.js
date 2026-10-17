@@ -239,6 +239,19 @@ export class CommunicationCampaignService {
       .filter((row) => !['opted_out', 'revoked'].includes(row.consent_status))
       .filter((row) => row.verified !== false)
       .sort((a, b) => (Date.parse(b.last_seen_at || b.updated_at || 0) || 0) - (Date.parse(a.last_seen_at || a.updated_at || 0) || 0))[0] || null;
+    // OC-EXPO-02R — push is decided here and ADDRESSED at dispatch. The campaign only establishes that
+    // the person has a governed device registration (verified, Expo, not released), and queues a
+    // reference to it. The token itself is resolved from channel_identities by the delivery worker,
+    // so it never lands in a durable notification_queue payload.
+    if (campaign.channel === 'push') {
+      const device = (identities || [])
+        .filter((row) => row.provider === 'expo_push' && row.verified === true)
+        .filter((row) => !['opted_out', 'revoked'].includes(row.consent_status))
+        .sort((a, b) => (Date.parse(b.last_seen_at || b.updated_at || 0) || 0) - (Date.parse(a.last_seen_at || a.updated_at || 0) || 0))[0] || null;
+      if (!device) return { allowed: false, reason: 'no_governed_channel_identity', prefs };
+      return { allowed: true, recipientUserId: user.id, recipientIdentityId: device.id, provider: 'expo_push', payload: {} };
+    }
+
     let address = identity?.normalized_address || identity?.external_id || null;
     if (!address && campaign.channel === 'email') address = user.email || null;
     if (!address) return { allowed: false, reason: 'no_governed_channel_identity', prefs };
@@ -247,7 +260,6 @@ export class CommunicationCampaignService {
     if (campaign.channel === 'email') payload.email = address;
     if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') payload.phone_number = address;
     if (campaign.channel === 'telegram') payload.telegram_chat_id = identity?.external_id || address;
-    if (campaign.channel === 'push') payload.push_token = identity?.external_id || address;
     return {
       allowed: true,
       recipientUserId: user.id,

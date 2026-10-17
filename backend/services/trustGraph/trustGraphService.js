@@ -1,4 +1,5 @@
 import { supabase } from '../../db/supabase.js';
+import { isGenuineRegistryRecord } from '../evidence/vehicleFactResolver.js';
 import { verifyChain } from '../blockchain/blockchainService.js';
 
 // AGENT A3 — Rolling checkpoint-accelerated timeline fetcher
@@ -310,79 +311,102 @@ export async function runOdometerAudit(vin) {
 }
 
 // AGENT E2 — Trust mutation historian
-async function recordTrustScoreHistory(entityType, entityId, previousScore, newScore, triggerEvent) {
-  // trust_score_history table — insert if table exists, graceful fallback
-  try {
-    await supabase.from('trust_score_history').insert({
-      entity_type: entityType,
-      entity_id: entityId,
-      previous_score: previousScore,
-      new_score: newScore,
-      trigger_event: triggerEvent,
-      timestamp: new Date().toISOString()
-    });
-  } catch (e) {
-    // Table may not exist yet — log but don't break
-    console.warn('trust_score_history insert skipped:', e.message);
-  }
-}
+//
+// O2 · U2 (re-authored by OC-5C from #208 bbfce741). The passport waited on this function, and it
+// waited on eleven reads ONE AFTER ANOTHER — a staging passport took 9s warm / 15.6s cold while a single
+// row read takes 0.28s. Every signal read now STARTS together (one wave) and the scoring below consumes
+// them in exactly the order it always did, so the number cannot move; the registry reads stay
+// `select('*')` behind `isGenuineRegistryRecord` (T12.1). Two optional inputs let the passport share
+// what it already has: `vehicleRow` (the row it just read) and `ledgerVerdict` (its ONE verifyChain, so
+// `blockchain_audit_valid` always agrees with the passport's chainVerification). Read-only: writes nothing.
+async function computeVehicleTrustScoreContext(vin, { vehicleRow, ledgerVerdict } = {}) {
+  const vehicle = vehicleRow !== undefined
+    ? vehicleRow
+    : (await supabase.from('vehicles').select('*').eq('vin', vin).single()).data;
 
-async function computeVehicleTrustScoreContext(vin) {
-  const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
-  
   if (!vehicle) return 0;
 
   const previousScore = vehicle.trust_score;
   let baseScore = 70.0; // Baseline starting score
 
+  const [
+    { data: zimra },
+    { data: cid },
+    { data: cvr },
+    { data: vid },
+    odoAudit,
+    ledgerAudit,
+    { count: serviceCount },
+    { data: evidenceImpacts },
+    { data: stolenRecord },
+    { count: duplicateVinCount },
+  ] = await Promise.all([
+    supabase.from('zimra_declarations').select('*').eq('vin', vin).single(),
+    supabase.from('cid_clearance_records').select('stolen_check_status').eq('vin', vin).single(),
+    supabase.from('cvr_ownership_records').select('*').eq('vin', vin).single(),
+    supabase
+      .from('vid_inspections')
+      .select('inspection_status')
+      .eq('vin', vin)
+      .order('inspected_at', { ascending: false })
+      .limit(1),
+    runOdometerAudit(vin),
+    ledgerVerdict ?? verifyChain(vin),
+    supabase
+      .from('partsentry_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('vin', vin),
+    supabase
+      .from('vehicle_evidence')
+      .select('verification_status, trust_score_impact, trust_impact')
+      .eq('vin', vin)
+      .in('verification_status', ['verified', 'rejected']),
+    // Check persistent stolen vehicle registry
+    supabase
+      .from('stolen_vehicles')
+      .select('vin')
+      .eq('vin', vin)
+      .eq('status', 'ACTIVE_POLICE_ALERT')
+      .single(),
+    // C. (below) Plate maps to multiple VINs — only when there is a normalized plate to compare.
+    vehicle.normalized_plate_number
+      ? supabase
+        .from('vehicles')
+        .select('vin', { count: 'exact', head: true })
+        .eq('normalized_plate_number', vehicle.normalized_plate_number)
+        .neq('vin', vin)
+      : Promise.resolve({ count: 0 }),
+  ]);
+
   // 1. ZIMRA Customs Ingestion Check
-  const { data: zimra } = await supabase.from('zimra_declarations').select('id').eq('vin', vin).single();
-  const dutyPaidReal = !!zimra || !!vehicle.duty_paid;
+  //
+  // T12.1 — the EXISTENCE of a row is not the same as an authority having done something. This
+  // scored +10 for any row at all, including the ones `documentIntelligenceService` used to
+  // synthesise on OCR approval, with a random `CUS_` reference, a defaulted duty of 50000 and an
+  // officer signature derived from our own document id. The fact resolver already refused those;
+  // this reader did not, so a forged declaration was worth +10 here and nothing there.
+  const dutyPaidReal = isGenuineRegistryRecord('zimra_declarations', zimra) || !!vehicle.duty_paid;
   if (dutyPaidReal) baseScore += 10.0;
 
   // 2. CID Police Clearance Check
-  const { data: cid } = await supabase
-    .from('cid_clearance_records')
-    .select('stolen_check_status')
-    .eq('vin', vin)
-    .single();
   const policeVerifiedReal = (cid && cid.stolen_check_status === 'Cleared') || !!vehicle.police_verified;
   if (policeVerifiedReal) baseScore += 10.0;
 
-  // 3. CVR Ownership Registry Sync Check
-  const { data: cvr } = await supabase.from('cvr_ownership_records').select('id').eq('vin', vin).single();
-  const cvrSyncedReal = !!cvr;
+  // 3. CVR Ownership Registry Sync Check — same rule, same reason.
+  const cvrSyncedReal = isGenuineRegistryRecord('cvr_ownership_records', cvr);
   if (cvrSyncedReal) baseScore += 5.0;
 
   // 4. VID Inspection Mechanical Health Check
-  const { data: vid } = await supabase
-    .from('vid_inspections')
-    .select('inspection_status')
-    .eq('vin', vin)
-    .order('inspected_at', { ascending: false })
-    .limit(1);
   const vidStatus = vid?.[0]?.inspection_status;
   if (vidStatus === 'Passed') baseScore += 5.0;
   else if (vidStatus === 'Failed_Unroadworthy') baseScore -= 20.0;
 
   // Odometer and ledger audits
-  const odoAudit = await runOdometerAudit(vin);
   if (!odoAudit.verified) baseScore -= 40.0;
 
-  const ledgerAudit = await verifyChain(vin);
   if (!ledgerAudit.verified) baseScore -= 50.0;
 
-  const { count: serviceCount } = await supabase
-    .from('partsentry_logs')
-    .select('*', { count: 'exact', head: true })
-    .eq('vin', vin);
   if (serviceCount >= 3) baseScore += 5.0;
-
-  const { data: evidenceImpacts } = await supabase
-    .from('vehicle_evidence')
-    .select('verification_status, trust_score_impact, trust_impact')
-    .eq('vin', vin)
-    .in('verification_status', ['verified', 'rejected']);
 
   const evidenceTrustImpact = (evidenceImpacts || []).reduce((sum, item) => {
     const impact = Number(item.trust_score_impact ?? item.trust_impact ?? 0);
@@ -390,13 +414,6 @@ async function computeVehicleTrustScoreContext(vin) {
   }, 0);
   baseScore += evidenceTrustImpact;
 
-  // Check persistent stolen vehicle registry
-  const { data: stolenRecord } = await supabase
-    .from('stolen_vehicles')
-    .select('vin')
-    .eq('vin', vin)
-    .eq('status', 'ACTIVE_POLICE_ALERT')
-    .single();
   if (stolenRecord) baseScore -= 80.0;
 
   // --- NEW ZIMBABWE PLATE TRUST RULES ---
@@ -412,13 +429,8 @@ async function computeVehicleTrustScoreContext(vin) {
     baseScore -= 50.0;
   }
 
-  // C. Plate maps to multiple VINs or belongs to another vehicle
+  // C. Plate maps to multiple VINs or belongs to another vehicle (read in the wave above, guarded)
   if (vehicle.normalized_plate_number) {
-    const { count: duplicateVinCount } = await supabase
-      .from('vehicles')
-      .select('vin', { count: 'exact', head: true })
-      .eq('normalized_plate_number', vehicle.normalized_plate_number)
-      .neq('vin', vin);
     if (duplicateVinCount && duplicateVinCount > 0) {
       baseScore -= 50.0;
     }
@@ -459,22 +471,13 @@ async function computeVehicleTrustScoreContext(vin) {
   return { report, previousScore, triggerEvents };
 }
 
-export async function computeVehicleTrustScore(vin) {
-  const context = await computeVehicleTrustScoreContext(vin);
+export async function computeVehicleTrustScore(vin, options = {}) {
+  const context = await computeVehicleTrustScoreContext(vin, options);
   return context?.report || 0;
 }
 
-export async function calculateVehicleTrustScore(vin) {
-  const context = await computeVehicleTrustScoreContext(vin);
-  if (!context) return 0;
-
-  const { report, previousScore, triggerEvents } = context;
-
-  await supabase.from('vehicles').update({ trust_score: report.trustScore }).eq('vin', vin);
-
-  if (Math.abs(report.trustScore - previousScore) > 0.01) {
-    await recordTrustScoreHistory('VEHICLE', vin, previousScore, report.trustScore, triggerEvents.join('|'));
-  }
-
-  return report;
-}
+// OC-4A: `calculateVehicleTrustScore` — the deprecated 70-baseline writer that stamped
+// vehicles.trust_score outside canonical Trust and recorded trust_score_history through a helper that
+// swallowed every failure — is RETIRED. It had no runtime caller (pinned since OC-3); canonical Trust
+// (trustDecision/canonicalTrustService.refreshCanonicalTrust) is the one writer of a vehicle score.
+// computeVehicleTrustScore above is the read-only form and writes nothing.

@@ -1,0 +1,556 @@
+{
+ "schema": "oc5r-pc01-j-smoke/v1",
+ "deploy_commit": "d13c2e7821551e8d3adfee2930a6f312f8f9ed4b",
+ "frontend": "https://carup-staging-oc5r-pc01-11-11.vercel.app",
+ "backend": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app",
+ "mode": "anonymous, real browser (Chromium), no stubbing; desktop 1440x900 and phone 393x852",
+ "backend_api": {
+  "/api/health": 200,
+  "/api/marketplace/listings": "200 (0 public listings \u2014 truthful: staging holds 17 published rows, all Sold carup-staging.test gate fixtures, which the eligibility contract keeps off the public marketplace)",
+  "/api/marketplace/categories": 200,
+  "/api/security/csrf-token": 200,
+  "/api/auth/me (anonymous)": "401 governed",
+  "/api/vehicles/:vin/verify-ledger (anonymous)": "401 governed (P0L containment holds)"
+ },
+ "pages": [
+  {
+   "viewport": "desktop",
+   "path": "/",
+   "status": 200,
+   "finalPath": "/",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": [
+    "POST /api/analytics/navigation"
+   ]
+  },
+  {
+   "viewport": "desktop",
+   "path": "/marketplace",
+   "status": 200,
+   "finalPath": "/marketplace",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/search",
+   "status": 200,
+   "finalPath": "/search",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/marketplace/parts",
+   "status": 200,
+   "finalPath": "/marketplace/parts",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": [
+    "POST /api/analytics/navigation"
+   ]
+  },
+  {
+   "viewport": "desktop",
+   "path": "/marketplace/services",
+   "status": 200,
+   "finalPath": "/marketplace/services",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/garages",
+   "status": 200,
+   "finalPath": "/garages",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/dealers",
+   "status": 200,
+   "finalPath": "/dealers",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/login",
+   "status": 200,
+   "finalPath": "/login",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/register",
+   "status": 200,
+   "finalPath": "/register",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/sell",
+   "status": 200,
+   "finalPath": "/sell",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/trust",
+   "status": 200,
+   "finalPath": "/trust",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/pricing",
+   "status": 200,
+   "finalPath": "/pricing",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/help",
+   "status": 200,
+   "finalPath": "/help",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/onboarding",
+   "status": 200,
+   "finalPath": "/login",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/dealer/onboarding",
+   "status": 200,
+   "finalPath": "/login",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/dashboard",
+   "status": 200,
+   "finalPath": "/login\u2026",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "desktop",
+   "path": "/diaspora",
+   "status": 200,
+   "finalPath": "/diaspora",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/",
+   "status": 200,
+   "finalPath": "/",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/marketplace",
+   "status": 200,
+   "finalPath": "/marketplace",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/search",
+   "status": 200,
+   "finalPath": "/search",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/marketplace/parts",
+   "status": 200,
+   "finalPath": "/marketplace/parts",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": [
+    "POST /api/analytics/navigation"
+   ]
+  },
+  {
+   "viewport": "phone",
+   "path": "/marketplace/services",
+   "status": 200,
+   "finalPath": "/marketplace/services",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": [
+    "POST /api/analytics/navigation"
+   ]
+  },
+  {
+   "viewport": "phone",
+   "path": "/garages",
+   "status": 200,
+   "finalPath": "/garages",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/dealers",
+   "status": 200,
+   "finalPath": "/dealers",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/login",
+   "status": 200,
+   "finalPath": "/login",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/register",
+   "status": 200,
+   "finalPath": "/register",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/sell",
+   "status": 200,
+   "finalPath": "/sell",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/trust",
+   "status": 200,
+   "finalPath": "/trust",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/pricing",
+   "status": 200,
+   "finalPath": "/pricing",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/help",
+   "status": 200,
+   "finalPath": "/help",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/onboarding",
+   "status": 200,
+   "finalPath": "/login",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/dealer/onboarding",
+   "status": 200,
+   "finalPath": "/login",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/dashboard",
+   "status": 200,
+   "finalPath": "/login\u2026",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  },
+  {
+   "viewport": "phone",
+   "path": "/diaspora",
+   "status": 200,
+   "finalPath": "/diaspora",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "page_errors": 0,
+   "console_errors": 0,
+   "server_5xx": 0,
+   "failed_requests": 0,
+   "api_hosts": [
+    "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+   ],
+   "writes": []
+  }
+ ],
+ "summary": {
+  "page_loads": 34,
+  "page_errors": 0,
+  "console_errors": 0,
+  "server_5xx": 0,
+  "failed_requests": 0,
+  "api_hosts": [
+   "carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+  ],
+  "writes": [
+   "POST /api/analytics/navigation"
+  ],
+  "gated_redirect_to_login": [
+   "/onboarding",
+   "/dealer/onboarding",
+   "/dashboard"
+  ],
+  "public_landing_not_gated": [
+   "/diaspora (DiasporaLanding)"
+  ]
+ }
+}

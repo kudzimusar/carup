@@ -15,6 +15,9 @@ const addRepairLog = vi.fn()
 const verifyLedger = vi.fn()
 const fetchOwnedVehicles = vi.fn()
 const fetchRepairHistory = vi.fn()
+// OC-5A: the page also shows the vehicle's service requests (work orders awaiting the owner).
+const fetchVehicleWorkOrders = vi.fn()
+const decideWorkOrderAuthorization = vi.fn()
 
 const toastSuccess = vi.fn()
 const toastError = vi.fn()
@@ -23,7 +26,7 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory }),
+  useCarUpApi: () => ({ addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory, fetchVehicleWorkOrders, decideWorkOrderAuthorization }),
 }))
 
 const PartSentry = (await import('./PartSentry')).default
@@ -34,13 +37,14 @@ const FORBIDDEN_STATIC_PARTS = ['Engine Oil & Filter', 'Brake Pads (Front)', 'Ai
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fetchVehicleWorkOrders.mockResolvedValue([])
 })
 
 describe('PartSentry owner page truthfulness', () => {
   it('renders an honest empty state with no static parts when the API returns nothing', async () => {
     fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
     fetchRepairHistory.mockResolvedValue([])
-    verifyLedger.mockResolvedValue({ integrity: 'verified' })
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
 
     const { container } = render(<PartSentry />)
     await waitFor(() => expect(fetchRepairHistory).toHaveBeenCalledWith('VIN0000000000001'))
@@ -83,7 +87,7 @@ describe('PartSentry owner page truthfulness', () => {
   it('surfaces a history load failure as an error state, not fabricated rows', async () => {
     fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
     fetchRepairHistory.mockRejectedValue(new Error('history unavailable'))
-    verifyLedger.mockResolvedValue({ integrity: 'verified' })
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
 
     render(<PartSentry />)
     expect(await screen.findByTestId('parts-ledger-error')).toBeInTheDocument()
@@ -95,7 +99,7 @@ describe('PartSentry owner page truthfulness', () => {
     fetchRepairHistory.mockResolvedValue([
       { id: 7, vin: 'VIN0000000000001', part_name: 'Radiator', part_oem: 'RAD-77', action_type: 'Replaced', mileage: 52000, timestamp: '2026-08-01T10:00:00Z' },
     ])
-    verifyLedger.mockResolvedValue({ integrity: 'verified' })
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
 
     render(<PartSentry />)
     expect(await screen.findByTestId('part-row-7')).toBeInTheDocument()
@@ -111,9 +115,94 @@ describe('PartSentry owner page truthfulness', () => {
     expect(SRC).not.toMatch(/setLedgerVerified\(true\)/)
   })
 
+  // OC-3B: the route now answers { vin, verified, count, integrity, verified_at } only. A vehicle
+  // with no ledger events is `integrity: 'empty'` — the old page read `verified === true` and so
+  // showed "Ledger Verified" for a ledger that verified nothing.
+  it('OC-3B: an EMPTY ledger shows neither "Ledger Verified" nor "Tampered"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    // OC-3B-R: the route's real empty-ledger answer — `verified` is false because nothing was verified.
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: false, count: 0, integrity: 'empty', verified_at: '2026-10-04T00:00:00.000Z' })
+
+    render(<PartSentry />)
+    await waitFor(() => expect(verifyLedger).toHaveBeenCalled())
+    expect(await screen.findByTestId('parts-ledger-empty')).toBeInTheDocument()
+    expect(screen.queryByText(/Ledger Verified/)).not.toBeInTheDocument()
+    // `verified: false` on an EMPTY ledger is not a tamper finding: the page must not read the boolean.
+    expect(screen.queryByText(/Tampered/)).not.toBeInTheDocument()
+  })
+
+  it('OC-3B-R source: the integrity badge is derived from `integrity`, never from the `verified` boolean', () => {
+    // verified:false means "broken" OR "empty"; a page that reads it shows an empty ledger as tampered.
+    expect(SRC).toMatch(/data\?\.integrity === 'verified'/)
+    expect(SRC).toMatch(/data\?\.integrity === 'broken'/)
+    expect(SRC).not.toMatch(/data\??\.verified\b/)
+  })
+
+  it('OC-3B: a BROKEN ledger shows "Tampered", and a verified one shows "Ledger Verified"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: false, count: null, integrity: 'broken', failed_at_index: 1, verified_at: '2026-10-04T00:00:00.000Z' })
+    const first = render(<PartSentry />)
+    expect(await screen.findByText(/Tampered/)).toBeInTheDocument()
+    first.unmount()
+
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: true, count: 3, integrity: 'verified', authenticated: true, verified_at: '2026-10-04T00:00:00.000Z' })
+    render(<PartSentry />)
+    expect(await screen.findByText(/Ledger Verified/)).toBeInTheDocument()
+  })
+
+  // OC-3D: intact hash links are not authenticated history. A chain whose events carry placeholders or
+  // unverifiable signatures must not be called "Ledger Verified" — nor "Tampered": nothing is broken.
+  it('OC-3D: an intact but UNAUTHENTICATED ledger says so — neither "Ledger Verified" nor "Tampered"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    verifyLedger.mockResolvedValue({ vin: 'VIN0000000000001', verified: true, count: 2, integrity: 'verified', authenticated: false, verified_at: '2026-10-04T00:00:00.000Z' })
+    render(<PartSentry />)
+    expect((await screen.findByTestId('parts-ledger-state')).textContent).toBe('Hash chain intact — signatures unverified')
+    expect(screen.queryByText(/Ledger Verified/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Tampered/)).not.toBeInTheDocument()
+  })
+
+  it('OC-3D source: "Ledger Verified" requires authenticated === true', () => {
+    expect(SRC).toMatch(/data\?\.authenticated === true \? 'verified' : 'unauthenticated'/)
+  })
+
   it('source: action options are exactly the DB CHECK enum', () => {
     expect(SRC).toMatch(/const ACTION_TYPES = \['Replaced', 'Repaired', 'Inspected', 'Diagnosed'\] as const/)
     expect(SRC).not.toContain("'Upgraded'")
     expect(SRC).not.toContain("'Removed'")
+  })
+
+  // ── OC-5A ──────────────────────────────────────────────────────────────────────────────────────
+  it('OC-5A: every row says who stands behind it — an owner statement is labelled as one', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([
+      { id: 1, vin: 'VIN0000000000001', part_name: 'Pads', action_type: 'Replaced', mileage: 50000, timestamp: '2026-10-01T00:00:00Z', attestation: 'mechanic_service' },
+      { id: 2, vin: 'VIN0000000000001', part_name: 'Wipers', action_type: 'Replaced', mileage: 50100, timestamp: '2026-10-02T00:00:00Z', attestation: 'owner_stated' },
+      { id: 3, vin: 'VIN0000000000001', part_name: 'Belt', action_type: 'Replaced', mileage: 49000, timestamp: '2026-09-01T00:00:00Z' },
+    ])
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
+    render(<PartSentry />)
+    expect((await screen.findByTestId('part-attestation-1')).textContent).toBe('Mechanic service')
+    expect(screen.getByTestId('part-attestation-2').textContent).toBe('Owner statement')
+    expect(screen.getByTestId('part-attestation-3').textContent).toBe('Not attested')
+  })
+
+  it('OC-5A: the service requests panel is shown for the selected vehicle', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: 'VIN0000000000001', make: 'Toyota', model: 'Corolla' }])
+    fetchRepairHistory.mockResolvedValue([])
+    verifyLedger.mockResolvedValue({ integrity: 'verified', authenticated: true })
+    render(<PartSentry />)
+    expect(await screen.findByTestId('work-order-requests')).toBeInTheDocument()
+    await waitFor(() => expect(fetchVehicleWorkOrders).toHaveBeenCalledWith('VIN0000000000001'))
+  })
+
+  it('OC-5A source: one idempotency key per entry, reused on retry, discarded on any edit; outcome wording comes from the server\'s answer', () => {
+    expect(SRC).toMatch(/submitKey\.current = submitKey\.current \?\? newIdempotencyKey\(\)/)
+    expect(SRC).toMatch(/\{ idempotencyKey: submitKey\.current \}/)
+    expect(SRC).toMatch(/useEffect\(\(\) => \{ submitKey\.current = null \}, \[repairForm\]\)/)
+    expect(SRC).toMatch(/toast\.success\(recordOutcomeMessage\(result\)/)
+    expect(SRC).not.toMatch(/recorded on the PartSentry ledger\$\{/)
   })
 })

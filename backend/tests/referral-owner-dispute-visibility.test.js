@@ -220,7 +220,8 @@ class AuthClient {
       eq(key, value) { state.filters.push([key, value]); return api; },
       single() {
         const row = rows.find((entry) => state.filters.every(([key, value]) => entry[key] === value));
-        return Promise.resolve({ data: row || null, error: row ? null : { message: 'not found' } });
+        // PostgREST's real zero-row .single() answer (PGRST116). OC-5D: a code-less error is a FAILED read.
+        return Promise.resolve({ data: row || null, error: row ? null : { code: 'PGRST116', message: 'not found' } });
       },
     };
     return api;

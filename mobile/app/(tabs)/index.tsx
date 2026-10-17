@@ -230,9 +230,9 @@ export default function DashboardScreen() {
     );
   }
 
-  // 2. Confirmed anonymous (init finished, still no role) → login.
+  // 2. Confirmed anonymous (init finished, still no role) → the public Marketplace (dashboardGate.ts).
   if (gate.kind === 'redirect') {
-    return <Redirect href="/login" />;
+    return <Redirect href={gate.to} />;
   }
 
   // 3. Role-owned governed boundary (role is known here — never a fabricated owner).

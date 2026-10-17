@@ -91,3 +91,34 @@ export function createCommunicationShare(payload: Record<string, unknown>): Prom
   return requestJson('/api/communications/share', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+
+/**
+ * OC-EXPO-02 — register this device's Expo push token for the SIGNED-IN account. Goes through the
+ * same session and CSRF path as every other Communications call; the server, not this payload,
+ * decides which account owns the device, so no user or tenant id is ever sent.
+ */
+export interface PushDeviceRegistrationPayload {
+  expo_push_token: string;
+  platform?: string;
+  device_name?: string | null;
+  app_version?: string | null;
+}
+
+export interface PushDeviceRevocationPayload {
+  expo_push_token: string;
+  reason?: 'logout' | 'user_request';
+}
+
+export interface PushDeviceRegistrationResponse {
+  registered: boolean;
+  created: boolean;
+  identity: { id: string; channel: string; provider: string; verified: boolean; consent_status: string };
+}
+
+export function registerPushDevice(payload: PushDeviceRegistrationPayload): Promise<PushDeviceRegistrationResponse> {
+  return requestJson('/api/communications/push/devices', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function revokePushDevice(payload: PushDeviceRevocationPayload): Promise<{ revoked: number }> {
+  return requestJson('/api/communications/push/devices/revoke', { method: 'POST', body: JSON.stringify(payload) });
+}

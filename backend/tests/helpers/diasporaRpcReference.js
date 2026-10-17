@@ -155,6 +155,80 @@ export function appendStockMovementAtomic(params, { table, nextId, faults }) {
 }
 
 /** Mirrors diaspora_accept_quote_atomic. */
+/**
+ * Reference mirror of `diaspora_accept_logistics_quote_atomic`
+ * (database/migrations/20260905090000_trade_os_logistics_rfq.sql).
+ *
+ * Mirrors the SQL branch-for-branch so service/route tests exercise the same invariants: only the
+ * requester (or a privileged actor) may award, a provider can never award to itself, only a
+ * SUBMITTED offer can win, re-accepting the same offer is an idempotent replay, and every other
+ * SUBMITTED sibling is rejected in the same all-or-nothing step.
+ */
+export function acceptLogisticsQuoteAtomic(params, { table, faults }) {
+  const ts = new Date(2026, 8, 5).toISOString();
+  const requests = table('diaspora_logistics_requests');
+  const quotes = table('diaspora_logistics_quotes');
+  const audit = table('diaspora_import_audit_log');
+
+  if (!params.p_actor_id) fail('DIASPORA_LOGISTICS/UNAUTHENTICATED');
+
+  const request = requests.find((row) => row.id === params.p_request_id && !row.deleted_at);
+  if (!request) fail('DIASPORA_LOGISTICS/NOT_FOUND_REQUEST');
+
+  const owner = params.p_actor_is_privileged
+    || request.requester_id === params.p_actor_id
+    || request.created_by === params.p_actor_id;
+  if (!owner) fail('DIASPORA_LOGISTICS/FORBIDDEN');
+
+  if (request.accepted_quote_id != null) {
+    if (request.accepted_quote_id === params.p_quote_id) {
+      const existing = quotes.find((row) => row.id === params.p_quote_id);
+      return { request: { ...request }, acceptedQuote: existing ? { ...existing } : null, idempotentReplay: true };
+    }
+    fail('DIASPORA_LOGISTICS/ALREADY_ACCEPTED_DIFFERENT');
+  }
+
+  const quote = quotes.find((row) => row.id === params.p_quote_id && !row.deleted_at);
+  if (!quote) fail('DIASPORA_LOGISTICS/NOT_FOUND_QUOTE');
+  if (quote.logistics_request_id !== params.p_request_id) fail('DIASPORA_LOGISTICS/QUOTE_NOT_IN_REQUEST');
+  if (quote.status !== 'SUBMITTED') fail('DIASPORA_LOGISTICS/NOT_SUBMITTED');
+  if (quote.provider_id === params.p_actor_id) fail('DIASPORA_LOGISTICS/SELF_AWARD');
+
+  if (faults.failLogisticsAward) fail('DIASPORA_LOGISTICS/AWARD_FAILED');
+
+  quote.status = 'ACCEPTED';
+  quote.updated_by = params.p_actor_id;
+  quote.updated_at = ts;
+  for (const sibling of quotes) {
+    if (sibling.id !== params.p_quote_id
+      && sibling.logistics_request_id === params.p_request_id
+      && sibling.status === 'SUBMITTED'
+      && !sibling.deleted_at) {
+      sibling.status = 'REJECTED';
+      sibling.updated_by = params.p_actor_id;
+      sibling.updated_at = ts;
+    }
+  }
+  request.accepted_quote_id = params.p_quote_id;
+  request.status = 'AWARDED';
+  request.updated_by = params.p_actor_id;
+  request.updated_at = ts;
+
+  audit.push({
+    import_order_id: null,
+    tenant_id: request.tenant_id || null,
+    actor_id: params.p_actor_id,
+    action: 'LOGISTICS_QUOTE_ACCEPTED',
+    resource_type: 'diaspora_logistics_quote',
+    resource_id: String(params.p_quote_id),
+    new_state: { ...quote },
+    metadata: { logisticsRequestId: String(params.p_request_id) },
+    cryptographic_seal: `seal-${params.p_quote_id}`,
+  });
+
+  return { request: { ...request }, acceptedQuote: { ...quote }, idempotentReplay: false };
+}
+
 export function acceptQuoteAtomic(params, { table, nextId, faults }) {
   const ts = new Date(2026, 5, 21).toISOString();
   const orders = table('diaspora_import_orders');
@@ -631,6 +705,7 @@ export function revokeEntitlementOverrideAtomic(params, { table, nextId }) {
 export const DIASPORA_RPCS = {
   diaspora_append_stock_movement_atomic: appendStockMovementAtomic,
   diaspora_accept_quote_atomic: acceptQuoteAtomic,
+  diaspora_accept_logistics_quote_atomic: acceptLogisticsQuoteAtomic,
   diaspora_approve_cargo_reservation_atomic: approveCargoReservationAtomic,
   diaspora_reserve_usage_atomic: reserveUsageAtomic,
   diaspora_release_usage_atomic: releaseUsageAtomic,

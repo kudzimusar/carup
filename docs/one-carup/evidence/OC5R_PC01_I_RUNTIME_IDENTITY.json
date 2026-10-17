@@ -1,0 +1,176 @@
+{
+ "schema": "oc5r-pc01-i-runtime-identity/v1",
+ "deploy_commit": "d13c2e7821551e8d3adfee2930a6f312f8f9ed4b",
+ "code_sha": "a120772d62cd6b01f9e9ff9bc8cb606ee016c24c",
+ "frontend": {
+  "deployment_id": "dpl_6xx8XLib6uEyUQL8jq2vNfys1RQH",
+  "url": "https://carup-staging-bmfqxyatp-11-11.vercel.app",
+  "alias": "https://carup-staging-oc5r-pc01-11-11.vercel.app",
+  "provenance": {
+   "commit_sha": "d13c2e7821551e8d3adfee2930a6f312f8f9ed4b",
+   "git_ref": "fix/oc5r-real-runtime-source-closure",
+   "provenance_source": "explicit_build_input",
+   "api_base_url": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app",
+   "api_base_source": "paired from preview-backend-pairing.json for \"fix/oc5r-real-runtime-source-closure\"",
+   "unpaired": false
+  }
+ },
+ "backend": {
+  "deployment_id": "dpl_BRaaDMFZVr7wSKj6V8peiMpT8613",
+  "url": "https://carup-backend-staging-jhqfn19ja-11-11.vercel.app",
+  "alias": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app",
+  "health": {
+   "status": "UP",
+   "build": {
+    "commit_sha": "d13c2e7821551e8d3adfee2930a6f312f8f9ed4b",
+    "commit_sha_short": "d13c2e78",
+    "branch": "fix/oc5r-real-runtime-source-closure",
+    "deployment_id": "dpl_BRaaDMFZVr7wSKj6V8peiMpT8613",
+    "environment": "preview",
+    "source": "explicit_build_input",
+    "provenance_available": true
+   },
+   "supabase": {
+    "status": "healthy",
+    "outboxBacklog": 0,
+    "ledgerIntentBacklog": 0
+   },
+   "database": {
+    "supabase_project_ref": "eoyenigwevnxwwhyhaer",
+    "postgres_project_refs": [
+     "eoyenigwevnxwwhyhaer"
+    ],
+    "unrecognised_endpoints": 0,
+    "unrecognised_endpoint_names": [],
+    "consistent": true
+   },
+   "ocr": {
+    "selectedProvider": "cloudflare",
+    "selectedModel": "@cf/qwen/qwen3.8-27b",
+    "configured": true,
+    "mockRuntimeAllowed": false,
+    "custody": {
+     "canonical_provider": "cloudflare",
+     "canonical_model": "@cf/qwen/qwen3.8-27b",
+     "status": "canonical"
+    }
+   },
+   "ai": {
+    "provider": "cloudflare",
+    "model": "@cf/google/gemma-4-26b-a4b-it",
+    "configured": true,
+    "authority": "advisory"
+   },
+   "outbound": {
+    "kill_switch": "active",
+    "external_sends": "disabled",
+    "internal_channels": "enabled",
+    "control": "COMMUNICATION_OUTBOUND_DISABLED"
+   }
+  }
+ },
+ "served_chunks": 3,
+ "checks": [
+  {
+   "check": "frontend /carup-provenance.json serves the deploy commit",
+   "ok": true,
+   "detail": "{\"commit_sha\": \"d13c2e7821551e8d3adfee2930a6f312f8f9ed4b\", \"git_ref\": \"fix/oc5r-real-runtime-source-closure\", \"provenance_source\": \"explicit_build_input\", \"api_base_url\": \"https://carup-backend-staging-oc5r-pc01-11-11.vercel.app\", \"api_base_source\": \"paired from preview-backend-pairing.json for \\\"fi"
+  },
+  {
+   "check": "frontend is PAIRED (not unpaired)",
+   "ok": true,
+   "detail": "api_base_url=https://carup-backend-staging-oc5r-pc01-11-11.vercel.app source=paired from preview-backend-pairing.json for \"fix/oc5r-real-runtime-source-closure\""
+  },
+  {
+   "check": "frontend API base is the paired PC01 backend alias",
+   "ok": true,
+   "detail": "https://carup-backend-staging-oc5r-pc01-11-11.vercel.app"
+  },
+  {
+   "check": "backend /api/health serves the deploy commit",
+   "ok": true,
+   "detail": "{\"commit_sha\": \"d13c2e7821551e8d3adfee2930a6f312f8f9ed4b\", \"commit_sha_short\": \"d13c2e78\", \"branch\": \"fix/oc5r-real-runtime-source-closure\", \"deployment_id\": \"dpl_BRaaDMFZVr7wSKj6V8peiMpT8613\", \"environment\": \"preview\", \"source\": \"explicit_build_input\", \"provenance_available\": true}"
+  },
+  {
+   "check": "backend database healthy",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "backend reaches the staging project only (consistent)",
+   "ok": true,
+   "detail": "{\"supabase_project_ref\": \"eoyenigwevnxwwhyhaer\", \"postgres_project_refs\": [\"eoyenigwevnxwwhyhaer\"], \"unrecognised_endpoints\": 0, \"unrecognised_endpoint_names\": [], \"consistent\": true}"
+  },
+  {
+   "check": "no production project ref in the health body",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "OCR: cloudflare / Qwen, configured, custody canonical, no mock",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "general AI: cloudflare / Gemma, configured, advisory",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "outbound kill switch active (external sends disabled)",
+   "ok": true,
+   "detail": "{\"kill_switch\": \"active\", \"external_sends\": \"disabled\", \"internal_channels\": \"enabled\", \"control\": \"COMMUNICATION_OUTBOUND_DISABLED\"}"
+  },
+  {
+   "check": "served chunks fetched",
+   "ok": true,
+   "detail": "3 chunks"
+  },
+  {
+   "check": "no production project ref in ANY served chunk",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "a served chunk names the staging project",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "the served bundle calls the paired PC01 backend alias",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "the served bundle does NOT call the REL-02 backend alias",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "PC01 aliases point at the deploy-commit deployments",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "REL-02 aliases NOT moved",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "check": "stable aliases still serve their own (non-PC01) builds",
+   "ok": true,
+   "detail": "carup-staging.vercel.app serves bb9d9900c700, carup-backend-staging.vercel.app serves bb9d9900c700"
+  },
+  {
+   "check": "stable aliases not listed against a PC01 deployment",
+   "ok": true,
+   "detail": "{\"carup-staging.vercel.app\": null, \"carup-backend-staging.vercel.app\": null}"
+  },
+  {
+   "check": "ACCEPTANCE: frontend SHA == backend SHA == deploy commit; database = staging",
+   "ok": true,
+   "detail": ""
+  }
+ ],
+ "verdict": "DEPLOYED RUNTIME VERIFIED"
+}

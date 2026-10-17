@@ -1,3 +1,5 @@
+import { isProductionLikeRuntime } from '../../utils/runtimeEnvironment.js';
+
 /**
  * Phase 7 — Drive integration constants.
  *
@@ -38,15 +40,15 @@ export const DRIVE_FOLDER_STRUCTURE = Object.freeze({
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 export function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isProductionLikeRuntime(process.env);
 }
 
 export function isDriveEnabled() {
   return String(process.env.DIASPORA_DRIVE_ENABLED || '').toLowerCase() === 'true';
 }
 
-// Fail closed: production NEVER auto-selects the mock provider. The mock is only used in dev/test or
-// when DIASPORA_DRIVE_MOCK is explicitly set outside production.
+// Fail closed: deployed runtimes NEVER auto-select the mock provider. The mock is only used in dev/test or
+// when DIASPORA_DRIVE_MOCK is explicitly set outside deployed/production-like runtimes.
 export function shouldUseMockProvider() {
   if (isProduction()) return false;
   if (String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') return true;
@@ -54,10 +56,10 @@ export function shouldUseMockProvider() {
   return false;
 }
 
-// Reject an attempt to force the mock provider in production.
+// Reject an attempt to force the mock provider in a deployed runtime.
 export function assertDriveProductionSafety() {
   if (isProduction() && String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') {
-    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in production');
+    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in production or any deployed runtime');
   }
 }
 

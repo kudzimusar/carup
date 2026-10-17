@@ -1,0 +1,1797 @@
+{
+ "schema": "oc5r-staging-migration-plan/v1",
+ "target_ref": "eoyenigwevnxwwhyhaer",
+ "description": "OC-5R DB2C convergence: ledger-only repairs (effect proven present), then the rehearsed execution set in dependency order; Issue-158 chain atomic; Email 1.0 atomic with the SN-O4 replay.",
+ "collisions": {
+  "002": {
+   "resolved": true,
+   "files": [
+    "002_add_notification_queue.sql",
+    "002_multi_tenant_and_auth_schema.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "013": {
+   "resolved": true,
+   "files": [
+    "013_diaspora_trade_schema.sql",
+    "013_zimbabwe_plate_and_owner_privacy.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "014": {
+   "resolved": true,
+   "files": [
+    "014_diaspora_rls_recursion_fix.sql",
+    "014_passport_evidence_architecture.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "20260621120000": {
+   "resolved": true,
+   "files": [
+    "20260621120000_diaspora_phase8_subscription_entitlements.sql",
+    "20260621120000_feature_rollout_overrides.sql",
+    "20260621120000_referral_pin_function_search_path.sql",
+    "20260621120000_vehicle_life_evidence_taxonomy_provenance.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "20260621130000": {
+   "resolved": true,
+   "files": [
+    "20260621130000_diaspora_phase9_safetrade.sql",
+    "20260621130000_external_source_ingestion.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "20260621140000": {
+   "resolved": true,
+   "files": [
+    "20260621140000_ai_temporal_disclosure_intelligence.sql",
+    "20260621140000_diaspora_phase10_trade_graph.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "20260624120000": {
+   "resolved": true,
+   "files": [
+    "20260624120000_communication_provider_runtime.sql",
+    "20260624120000_vehicle_trust_security_hardening.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  },
+  "20260626120000": {
+   "resolved": true,
+   "files": [
+    "20260626120000_communication_supabase_cron.sql",
+    "20260626120000_source_verification_network.sql"
+   ],
+   "evidence": "identity is the full filename; every ledger row is matched to at most one file and the version-only rows name their own file by slug"
+  }
+ },
+ "never_apply": [
+  {
+   "file": "001_add_financial_ledger.sql",
+   "reason": "Legacy SQLite-flavoured DDL (TEXT timestamps, FK to the retired safepay_escrows). Only financial_ledger exists live; payments/payouts/refunds are absent by design. Not in a parser registry (recommend RETIRED_UNAPPLIABLE); never apply."
+  },
+  {
+   "file": "002_add_notification_queue.sql",
+   "reason": "Legacy SQLite-flavoured; notification_queue exists live in a different PostgreSQL shape; outbox_events/gateway_integration_logs/sync_reconciliation_queue absent by design. Not in a parser registry (recommend RETIRED_UNAPPLIABLE); never apply."
+  },
+  {
+   "file": "003_add_user_sessions.sql",
+   "reason": "Parser registry SQLITE_DIALECT_ONLY: SQLite-dialect file, never executed against PostgreSQL."
+  },
+  {
+   "file": "004_add_tamper_proofing.sql",
+   "reason": "Parser registry SQLITE_DIALECT_ONLY: SQLite-dialect file, never executed against PostgreSQL."
+  },
+  {
+   "file": "009_phase4_schema.sql",
+   "reason": "Parser registry RETIRED_UNAPPLIABLE: superseded shape; its absent indexes are the documented 42703 hazard."
+  },
+  {
+   "file": "20260712100000_communication_scheduler_production_activation.sql",
+   "reason": "Schedules a PRODUCTION-alias communication worker. Staging runs the 20260626120000 cron variant; applying this would point staging cron at production (misrouted-production-comms-cron hazard). Never apply to staging."
+  },
+  {
+   "file": "supabase_schema.sql",
+   "reason": "Parser registry NON_MIGRATION_FILES: schema snapshot, not executable lineage."
+  }
+ ],
+ "operations": [
+  {
+   "file": "002_multi_tenant_and_auth_schema.sql",
+   "sha256": "6de3590a9a97396f4975ccad2abf2f907752fe77c82075e2745ae75351710dc4",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.tenants') is not null",
+    "to_regclass('public.tenant_users') is not null",
+    "to_regclass('public.tenant_settings') is not null",
+    "to_regclass('public.tenant_branding') is not null",
+    "to_regclass('public.tenant_feature_flags') is not null",
+    "to_regclass('public.tenant_billing') is not null",
+    "to_regclass('public.tenant_api_keys') is not null",
+    "to_regclass('public.user_sessions') is not null",
+    "to_regclass('public.login_attempts') is not null",
+    "to_regclass('public.device_sessions') is not null",
+    "to_regclass('public.trusted_devices') is not null",
+    "to_regclass('public.identity_documents') is not null",
+    "to_regclass('public.kyc_profiles') is not null",
+    "to_regclass('public.idx_organizations_tenant') is not null",
+    "to_regclass('public.idx_vehicles_tenant') is not null",
+    "to_regclass('public.idx_safepay_escrows_tenant') is not null",
+    "to_regclass('public.idx_partsentry_logs_tenant') is not null",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'vehicles' and policyname = 'tenant_vehicles_isolation')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'tenants' and policyname = 'tenant_isolation')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'organizations' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'safepay_escrows' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'blockchain_events' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'finance_applications' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'insurance_records' and column_name = 'tenant_id')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'current_tenant_id')"
+   ]
+  },
+  {
+   "file": "005_persist_private_keys.sql",
+   "sha256": "82481542f204593fdbf44381533cc80d040f8a18e1d2b4127d109ea64e19bea3",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'public_keys' and column_name = 'private_key_pem')"
+   ]
+  },
+  {
+   "file": "006_domain1.sql",
+   "sha256": "20ad85cd27f7c55132d6c53f539d7d338b5a7ebbac47bc7e9aebfe13f4146dad",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.dealer_leads') is not null",
+    "to_regclass('public.dealer_promotions') is not null",
+    "to_regclass('public.mechanic_work_orders') is not null",
+    "to_regclass('public.mechanic_parts') is not null"
+   ]
+  },
+  {
+   "file": "007_domain2.sql",
+   "sha256": "18e23b2d50e910ad28b593a8956c7ca77aadd74cb4ed1e4e4368c3ae9be7b41e",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.insurance_claims') is not null",
+    "to_regclass('public.fraud_alerts') is not null",
+    "to_regclass('public.vehicle_telemetry') is not null"
+   ]
+  },
+  {
+   "file": "008_domain3.sql",
+   "sha256": "2d7f61bcfef784d45717ce88ba49a19aa5147be5d072f7f15bb4d5d6362b5eda",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.compliance_reports') is not null",
+    "to_regclass('public.registry_verifications') is not null",
+    "to_regclass('public.server_health') is not null"
+   ]
+  },
+  {
+   "file": "010_phase5_schema.sql",
+   "sha256": "a7f2467cb402fdb078f1b0778fe62f6b6f7c252ffcf37c7914b7b6e9b3456780",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.saved_vehicles') is not null"
+   ]
+  },
+  {
+   "file": "011_phase6_schema.sql",
+   "sha256": "32a805f6d4653a126c166c39a927c494f9a5db8da7111b83eadcc46bd5266351",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.domain_events') is not null",
+    "to_regclass('public.payment_transactions') is not null",
+    "to_regclass('public.currency_rates') is not null",
+    "to_regclass('public.idx_domain_events_pending') is not null"
+   ]
+  },
+  {
+   "file": "012_storage_and_media_schema.sql",
+   "sha256": "b0aad5fb461206b14b57e4bf0523d1cd0b432a78f56bbb715ee1e1ce4dd15bd6",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.listing_images') is not null",
+    "to_regclass('public.vehicle_documents') is not null",
+    "to_regclass('public.idx_listing_images_vin') is not null"
+   ]
+  },
+  {
+   "file": "013_diaspora_trade_schema.sql",
+   "sha256": "1bf309663e40dfebe9eda002770a2d7008c28121baeedae03910a9335be50d30",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.trade_document_types') is not null",
+    "to_regclass('public.trade_document_templates') is not null",
+    "to_regclass('public.trade_document_rules') is not null",
+    "to_regclass('public.diaspora_import_orders') is not null",
+    "to_regclass('public.diaspora_import_order_participants') is not null",
+    "to_regclass('public.diaspora_trade_profiles') is not null",
+    "to_regclass('public.diaspora_import_quotes') is not null",
+    "to_regclass('public.diaspora_trade_documents') is not null",
+    "to_regclass('public.diaspora_trade_document_extractions') is not null",
+    "to_regclass('public.diaspora_trade_document_verifications') is not null",
+    "to_regclass('public.diaspora_container_shipments') is not null",
+    "to_regclass('public.diaspora_cargo_reservations') is not null",
+    "to_regclass('public.diaspora_shipments') is not null",
+    "to_regclass('public.diaspora_shipment_stage_events') is not null",
+    "to_regclass('public.diaspora_compliance_reviews') is not null",
+    "to_regclass('public.diaspora_payment_milestones') is not null",
+    "to_regclass('public.diaspora_reputation_records') is not null",
+    "to_regclass('public.diaspora_import_audit_log') is not null",
+    "to_regclass('public.diaspora_notification_preferences') is not null",
+    "to_regclass('public.vehicle_import_records') is not null",
+    "to_regclass('public.vehicle_government_documents') is not null",
+    "to_regclass('public.idx_diaspora_orders_tenant') is not null",
+    "to_regclass('public.idx_diaspora_orders_buyer') is not null",
+    "to_regclass('public.idx_diaspora_orders_status') is not null",
+    "to_regclass('public.idx_diaspora_orders_linked_vehicle') is not null",
+    "to_regclass('public.idx_diaspora_participants_order') is not null",
+    "to_regclass('public.idx_diaspora_trade_profiles_user') is not null",
+    "to_regclass('public.idx_diaspora_trade_docs_order') is not null",
+    "to_regclass('public.idx_diaspora_trade_docs_status') is not null",
+    "to_regclass('public.idx_diaspora_containers_status') is not null",
+    "to_regclass('public.idx_diaspora_reservations_container') is not null",
+    "to_regclass('public.idx_diaspora_reservations_order') is not null",
+    "to_regclass('public.idx_diaspora_shipments_order') is not null",
+    "to_regclass('public.idx_diaspora_stage_events_shipment') is not null",
+    "to_regclass('public.idx_diaspora_compliance_order') is not null",
+    "to_regclass('public.idx_diaspora_audit_order') is not null",
+    "to_regclass('public.idx_vehicle_government_docs_order') is not null",
+    "to_regclass('public.idx_vehicle_government_docs_vin') is not null",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'tenant_users' and policyname = 'tenant_users_self_read_for_diaspora')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'trade_document_types' and policyname = 'diaspora_reference_documents_read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'trade_document_templates' and policyname = 'diaspora_reference_templates_read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'trade_document_rules' and policyname = 'diaspora_reference_rules_read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'diaspora_container_shipments' and policyname = 'diaspora_containers_read_participants')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_participants_trade_profile_fk')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'set_diaspora_updated_at' and md5(prosrc) = any (array['da5ac28a58c8b4bb30209bf0d3d7082c']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'is_diaspora_platform_admin')"
+   ]
+  },
+  {
+   "file": "013_zimbabwe_plate_and_owner_privacy.sql",
+   "sha256": "fd85347aab8037a8c58def983fe44698b20a13d1947adac008bb3a6a4aa116d8",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.vehicle_plate_history') is not null",
+    "to_regclass('public.idx_vehicles_normalized_plate') is not null",
+    "to_regclass('public.idx_vehicles_chassis') is not null",
+    "to_regclass('public.idx_vehicle_plate_history_vin') is not null",
+    "to_regclass('public.idx_vehicle_plate_history_normalized') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'plate_number')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'normalized_plate_number')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'plate_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'chassis_number')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'engine_number')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'registration_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'registration_country')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'registration_authority')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'temporary_identification_number')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'plate_verified_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'plate_verification_source')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'current_seller_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'current_seller_type')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'public_seller_display_enabled')"
+   ]
+  },
+  {
+   "file": "014_diaspora_rls_recursion_fix.sql",
+   "sha256": "08abfcc4150da05404f64e63f0a467e010c860798726b405398c20a35c0e47c5",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'diaspora_import_orders' and policyname = 'diaspora_orders_owner_participant_tenant')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'diaspora_import_audit_log' and policyname = 'diaspora_audit_access')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'diaspora_can_access_order')"
+   ]
+  },
+  {
+   "file": "014_passport_evidence_architecture.sql",
+   "sha256": "b9c9468e936c5aff0cf78aac2642b852808c9a98ec40ef979c13a7dd3e5d08cc",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.vehicle_evidence') is not null",
+    "to_regclass('public.idx_vehicle_evidence_vin') is not null",
+    "to_regclass('public.idx_vehicle_evidence_timeline') is not null",
+    "to_regclass('public.idx_vehicle_evidence_type') is not null"
+   ]
+  },
+  {
+   "file": "015_vehicle_evidence_timeline.sql",
+   "sha256": "9793b2bbb09e249eeba3cf518588cf171c720da0bf7b351a592840a83895a8f3",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_vehicle_evidence_linked_registry_event') is not null",
+    "to_regclass('public.idx_vehicle_evidence_status_uploaded') is not null",
+    "to_regclass('public.idx_vehicle_evidence_public_timeline') is not null",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'vehicle_evidence' and policyname = 'vehicle evidence authenticated insert')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'vehicle_evidence' and policyname = 'vehicle evidence authenticated update own pending')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'event_type')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'linked_registry_event_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'trust_score_impact')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'checksum')"
+   ]
+  },
+  {
+   "file": "20260603132036_marketplace_listing_summary_infra.sql",
+   "sha256": "7286958834ebd3386cebf6ce50d5961b87e51ffe325979c096df6743b77d9d96",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_vehicles_marketplace_condition') is not null",
+    "to_regclass('public.idx_vehicles_marketplace_flags') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicles_vehicle_condition_category_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'partsentry_logs_verification_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'partsentry_logs_part_verification_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'partsentry_logs_suspicion_status_check')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'vehicle_condition_category')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'passport_verified')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'passport_verified_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'passport_verification_source')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'zimra_verified')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'zimra_verified_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'safe_pay_ready')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'inspection_ready')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'verification_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'part_verification_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'suspicion_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'public_card_eligible')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'listing_images' and column_name = 'vin')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'listing_images' and column_name = 'display_order')"
+   ]
+  },
+  {
+   "file": "20260603233640_governance_foundation_trust_audit_events.sql",
+   "sha256": "04c9b7307a057f3bfda4d20940e28b9b8aecff76217253fdc5b395b44c250225",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.trust_audit_events') is not null",
+    "to_regclass('public.idx_trust_audit_events_event_type') is not null",
+    "to_regclass('public.idx_trust_audit_events_vin') is not null",
+    "to_regclass('public.idx_trust_audit_events_trust_fact') is not null",
+    "to_regclass('public.idx_trust_audit_events_actor_user_id') is not null",
+    "to_regclass('public.idx_trust_audit_events_created_at') is not null",
+    "to_regclass('public.idx_trust_audit_events_request_id') is not null"
+   ]
+  },
+  {
+   "file": "20260604002000_trust_fact_requests_phase2a.sql",
+   "sha256": "f03eb23a589db6ff01554992e50500d5f6aa87ff7200e7b900cd095bd76596ad",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.trust_fact_requests') is not null",
+    "to_regclass('public.idx_trust_fact_requests_vin') is not null",
+    "to_regclass('public.idx_trust_fact_requests_trust_fact') is not null",
+    "to_regclass('public.idx_trust_fact_requests_status') is not null",
+    "to_regclass('public.idx_trust_fact_requests_requested_by') is not null",
+    "to_regclass('public.idx_trust_fact_requests_reviewed_by') is not null",
+    "to_regclass('public.idx_trust_fact_requests_created_at') is not null",
+    "to_regclass('public.idx_trust_fact_requests_vin_fact_status') is not null",
+    "to_regclass('public.idx_trust_fact_requests_one_pending') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trust_fact_requests_fact_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trust_fact_requests_status_check')"
+   ]
+  },
+  {
+   "file": "20260605042424_verification_sessions_phase7b.sql",
+   "sha256": "9c7f0450c7703807515b984da5822beb4874293cad75ac8f39984ed4cb6b3ed6",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.verification_sessions') is not null",
+    "to_regclass('public.idx_verification_sessions_user_id') is not null",
+    "to_regclass('public.idx_verification_sessions_status') is not null",
+    "to_regclass('public.idx_verification_sessions_document_type') is not null",
+    "to_regclass('public.idx_verification_sessions_ocr_document_id') is not null",
+    "to_regclass('public.idx_verification_sessions_created_at') is not null"
+   ]
+  },
+  {
+   "file": "20260611061849_diaspora_trade_os_phase1b_foundation.sql",
+   "sha256": "223c31b5f9c0992e9e7777ae2ae6202156a48546680ff4fdf2e25f872f9ae9c5",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.diaspora_workbook_import_batches') is not null",
+    "to_regclass('public.diaspora_workbook_import_rows') is not null",
+    "to_regclass('public.diaspora_supply_documents') is not null",
+    "to_regclass('public.diaspora_stock_items') is not null",
+    "to_regclass('public.diaspora_order_documents') is not null",
+    "to_regclass('public.diaspora_ai_commands') is not null",
+    "to_regclass('public.diaspora_stock_ledger') is not null",
+    "to_regclass('public.diaspora_drive_connections') is not null",
+    "to_regclass('public.diaspora_drive_files') is not null",
+    "to_regclass('public.idx_diaspora_workbook_batches_tenant_status') is not null",
+    "to_regclass('public.idx_diaspora_workbook_rows_batch') is not null",
+    "to_regclass('public.idx_diaspora_supply_documents_seller_status') is not null",
+    "to_regclass('public.idx_diaspora_stock_items_tenant_seller') is not null",
+    "to_regclass('public.idx_diaspora_stock_items_part_lookup') is not null",
+    "to_regclass('public.idx_diaspora_order_documents_buyer_status') is not null",
+    "to_regclass('public.idx_diaspora_ai_commands_requestor_status') is not null",
+    "to_regclass('public.idx_diaspora_stock_ledger_item_created') is not null",
+    "to_regclass('public.idx_diaspora_drive_connections_user_provider') is not null",
+    "to_regclass('public.idx_diaspora_drive_files_linked_entity') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_workbook_import_batches_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_workbook_import_rows_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_supply_documents_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_stock_items_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_order_documents_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_ai_commands_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_stock_ledger_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_drive_connections_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'set_diaspora_drive_files_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_workbook_import_batches_idempotency_unique')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_workbook_import_rows_unique_row')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_supply_documents_number_unique')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_stock_items_sku_unique')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_order_documents_number_unique')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_drive_connections_unique_provider')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'diaspora_drive_files_unique_provider_file')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'set_diaspora_trade_os_updated_at' and md5(prosrc) = any (array['2116c9671c9bf8d2124074310ed3d55d','f802ce0337fc19f65e26c2ea5576d648']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'diaspora_trade_os_current_user_id' and md5(prosrc) = any (array['c674188bfcb1a51485e26112ff5133b5','de784cf8c8d45ecc325ce16d5afaacb2']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'diaspora_trade_os_is_platform_admin')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'diaspora_trade_os_is_tenant_member')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'diaspora_trade_os_can_access_row' and md5(prosrc) = any (array['0cd4443b8a36e20eed90d6374704bca1','d1339e671c34a82e29e34459ca874ce7']))"
+   ]
+  },
+  {
+   "file": "20260613010000_users_password_hash.sql",
+   "sha256": "7a5b7280fd0b2481eeae0b0d372fa601674613ad085bf06aae19803091003059",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'password_hash')"
+   ]
+  },
+  {
+   "file": "20260613020000_verification_admin_review.sql",
+   "sha256": "00ff2891d2b0ffcf45a9b5b02722be37e00ba3adb5a69ca2135e3feebc3f412a",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_verification_sessions_reviewed_by') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'verification_sessions_status_check')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'verification_sessions' and column_name = 'review_decision')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'verification_sessions' and column_name = 'retry_reason')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'verification_sessions' and column_name = 'liveness_status')"
+   ]
+  },
+  {
+   "file": "20260618030000_verification_ocr_provenance.sql",
+   "sha256": "3e9b8d4dc359a4d9a7a4add6b62cec56ead4962b535045ae7b25f7d65481c609",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.verification_ocr_provenance') is not null",
+    "to_regclass('public.idx_ocr_provenance_session_id') is not null",
+    "to_regclass('public.idx_ocr_provenance_user_id') is not null",
+    "to_regclass('public.idx_ocr_provenance_is_mock') is not null",
+    "to_regclass('public.idx_ocr_provenance_created_at') is not null"
+   ]
+  },
+  {
+   "file": "20260621120000_vehicle_life_evidence_taxonomy_provenance.sql",
+   "sha256": "983393661b71d5186a1f3d256c3906ada718487e9df45d4fab7ed0c81f569e90",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.evidence_class_taxonomy') is not null",
+    "to_regclass('public.evidence_sources') is not null",
+    "to_regclass('public.evidence_sets') is not null",
+    "to_regclass('public.evidence_provenance_events') is not null",
+    "to_regclass('public.evidence_sources_public') is not null",
+    "to_regclass('public.idx_evidence_taxonomy_class') is not null",
+    "to_regclass('public.idx_evidence_sources_type') is not null",
+    "to_regclass('public.idx_evidence_sources_active') is not null",
+    "to_regclass('public.idx_evidence_sets_vin') is not null",
+    "to_regclass('public.idx_vehicle_evidence_class_event') is not null",
+    "to_regclass('public.idx_vehicle_evidence_perceptual_hash') is not null",
+    "to_regclass('public.idx_vehicle_evidence_set') is not null",
+    "to_regclass('public.idx_vehicle_evidence_source') is not null",
+    "to_regclass('public.idx_provenance_evidence') is not null",
+    "to_regclass('public.idx_provenance_vin') is not null",
+    "to_regclass('public.idx_provenance_event_type') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_provenance_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_provenance_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicle_evidence_event_date_precision_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicle_evidence_evidence_class_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicle_evidence_original_asset_fk')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'evidence_class')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'evidence_subtype')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'event_date')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'event_date_precision')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'capture_country')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'odometer_value')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'odometer_unit')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'component_tags')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'declared_condition')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'source_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'source_record_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'received_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'perceptual_hash')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'checksum_algorithm')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'original_asset_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'evidence_set_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_evidence' and column_name = 'retention_class')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_provenance_block_mutation' and md5(prosrc) = any (array['e207068dace5729f33faec093d1cb0b2']))"
+   ]
+  },
+  {
+   "file": "20260621130000_external_source_ingestion.sql",
+   "sha256": "d3da9207544c6c418aeb9024833196ce180f5fbc64615550171df311dadeb00d",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.ingestion_jobs') is not null",
+    "to_regclass('public.source_records') is not null",
+    "to_regclass('public.vehicle_identity_candidates') is not null",
+    "to_regclass('public.listing_snapshots') is not null",
+    "to_regclass('public.idx_ingestion_jobs_status') is not null",
+    "to_regclass('public.idx_ingestion_jobs_source') is not null",
+    "to_regclass('public.idx_source_records_job') is not null",
+    "to_regclass('public.idx_source_records_status') is not null",
+    "to_regclass('public.idx_source_records_vin') is not null",
+    "to_regclass('public.idx_identity_candidates_record') is not null",
+    "to_regclass('public.idx_identity_candidates_status') is not null",
+    "to_regclass('public.idx_listing_snapshots_vin') is not null",
+    "to_regclass('public.idx_listing_snapshots_record') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_listing_snapshot_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_listing_snapshot_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ingestion_jobs' and policyname = 'ingestion jobs authenticated read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'source_records' and policyname = 'source records authenticated read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'vehicle_identity_candidates' and policyname = 'identity candidates authenticated read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'listing_snapshots' and policyname = 'listing snapshots authenticated read')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_listing_snapshot_block_mutation' and md5(prosrc) = any (array['80d8b206285bc9d6fd11f3f6eb5c702b']))"
+   ]
+  },
+  {
+   "file": "20260621140000_ai_temporal_disclosure_intelligence.sql",
+   "sha256": "8400808f9e5f4a1df87b653865b30bd37c7124f40f8c461e8214d7f591f19817",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.ai_analysis_jobs') is not null",
+    "to_regclass('public.ai_observations') is not null",
+    "to_regclass('public.temporal_findings') is not null",
+    "to_regclass('public.disclosure_claims') is not null",
+    "to_regclass('public.disclosure_conflicts') is not null",
+    "to_regclass('public.idx_ai_jobs_evidence') is not null",
+    "to_regclass('public.idx_ai_jobs_status') is not null",
+    "to_regclass('public.idx_ai_jobs_task') is not null",
+    "to_regclass('public.idx_ai_obs_evidence') is not null",
+    "to_regclass('public.idx_ai_obs_job') is not null",
+    "to_regclass('public.idx_temporal_findings_vin') is not null",
+    "to_regclass('public.idx_temporal_findings_state') is not null",
+    "to_regclass('public.idx_disclosure_claims_vin') is not null",
+    "to_regclass('public.idx_disclosure_conflicts_vin') is not null",
+    "to_regclass('public.idx_disclosure_conflicts_state') is not null",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ai_analysis_jobs' and policyname = 'ai jobs authenticated read')"
+   ]
+  },
+  {
+   "file": "20260621150000_report_versions.sql",
+   "sha256": "249f85792561ba34bf98e93fd156a1a3137fe2b6f0947a96191d8659e24abca2",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.report_versions') is not null",
+    "to_regclass('public.idx_report_versions_vin') is not null",
+    "to_regclass('public.idx_report_versions_share') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_report_version_guard' and not tgisinternal)",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_report_version_guard' and md5(prosrc) = any (array['39b9b12d46059a98bc93aaf1e3ab4391']))"
+   ]
+  },
+  {
+   "file": "20260621160000_governance_disputes_corrections.sql",
+   "sha256": "5923050b5dec8f5d1012db0e394bee546c798343025ff85dbdc85126fc3a7314",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.review_tasks') is not null",
+    "to_regclass('public.review_decisions') is not null",
+    "to_regclass('public.disputes') is not null",
+    "to_regclass('public.dispute_events') is not null",
+    "to_regclass('public.trust_change_log') is not null",
+    "to_regclass('public.idx_review_tasks_status') is not null",
+    "to_regclass('public.idx_review_tasks_type') is not null",
+    "to_regclass('public.idx_review_tasks_vin') is not null",
+    "to_regclass('public.idx_review_tasks_target') is not null",
+    "to_regclass('public.idx_review_decisions_task') is not null",
+    "to_regclass('public.idx_review_decisions_target') is not null",
+    "to_regclass('public.idx_review_decisions_vin') is not null",
+    "to_regclass('public.idx_review_decisions_reviewer') is not null",
+    "to_regclass('public.idx_disputes_vin') is not null",
+    "to_regclass('public.idx_disputes_status') is not null",
+    "to_regclass('public.idx_disputes_subject') is not null",
+    "to_regclass('public.idx_dispute_events_dispute') is not null",
+    "to_regclass('public.idx_trust_change_log_vin') is not null",
+    "to_regclass('public.idx_trust_change_log_decision') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'review_decisions_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'review_decisions_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'dispute_events_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'dispute_events_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'governance_block_mutation' and md5(prosrc) = any (array['ba0ddcdfdbe97bd7cc9d16db330c8a7b']))"
+   ]
+  },
+  {
+   "file": "20260621170000_outbox_dead_letter.sql",
+   "sha256": "a9be2252d2d9da893d5c36c6831076f30a6d5c9ca39ee09eb4140ce818ba0d16",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_domain_events_dead_letter') is not null"
+   ]
+  },
+  {
+   "file": "20260623143000_omnichannel_communication_engine.sql",
+   "sha256": "a5a25c0e0ebced15a3c3989832918ae24010001622e2f5cc84c41e3fcff41b18",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.message_threads') is not null",
+    "to_regclass('public.channel_identities') is not null",
+    "to_regclass('public.message_participants') is not null",
+    "to_regclass('public.messages') is not null",
+    "to_regclass('public.message_delivery_attempts') is not null",
+    "to_regclass('public.webhook_logs') is not null",
+    "to_regclass('public.communication_preferences') is not null",
+    "to_regclass('public.communication_escalations') is not null",
+    "to_regclass('public.idx_message_threads_tenant_key') is not null",
+    "to_regclass('public.idx_message_threads_user_updated') is not null",
+    "to_regclass('public.idx_message_threads_status_priority_sla') is not null",
+    "to_regclass('public.idx_message_threads_assignee_status') is not null",
+    "to_regclass('public.idx_message_threads_subject') is not null",
+    "to_regclass('public.idx_message_threads_marketplace') is not null",
+    "to_regclass('public.idx_message_threads_referral_campaign') is not null",
+    "to_regclass('public.idx_message_threads_escrow') is not null",
+    "to_regclass('public.idx_message_threads_finance') is not null",
+    "to_regclass('public.idx_channel_identities_unique') is not null",
+    "to_regclass('public.idx_channel_identities_user') is not null",
+    "to_regclass('public.idx_channel_identities_address') is not null",
+    "to_regclass('public.idx_message_participants_thread') is not null",
+    "to_regclass('public.idx_message_participants_user') is not null",
+    "to_regclass('public.idx_message_participants_admin') is not null",
+    "to_regclass('public.idx_message_participants_identity') is not null",
+    "to_regclass('public.idx_messages_provider_message') is not null",
+    "to_regclass('public.idx_messages_tenant_client') is not null",
+    "to_regclass('public.idx_messages_thread_created') is not null",
+    "to_regclass('public.idx_messages_sender_user') is not null",
+    "to_regclass('public.idx_messages_sender_participant') is not null",
+    "to_regclass('public.idx_messages_in_reply_to') is not null",
+    "to_regclass('public.idx_notification_queue_dedupe') is not null",
+    "to_regclass('public.idx_notification_queue_recipient_created') is not null",
+    "to_regclass('public.idx_notification_queue_recipient_id') is not null",
+    "to_regclass('public.idx_notification_queue_recipient_identity') is not null",
+    "to_regclass('public.idx_notification_queue_thread') is not null",
+    "to_regclass('public.idx_notification_queue_message') is not null",
+    "to_regclass('public.idx_delivery_attempts_notification') is not null",
+    "to_regclass('public.idx_delivery_attempts_message') is not null",
+    "to_regclass('public.idx_webhook_logs_dedupe') is not null",
+    "to_regclass('public.idx_webhook_logs_provider_received') is not null",
+    "to_regclass('public.idx_comm_preferences_user_tenant') is not null",
+    "to_regclass('public.idx_comm_escalations_thread') is not null",
+    "to_regclass('public.idx_comm_escalations_status_due') is not null",
+    "to_regclass('public.idx_domain_events_dedupe') is not null",
+    "to_regclass('public.idx_domain_events_available') is not null",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'channel_identities' and policyname = 'channel_identities_user_read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'communication_preferences' and policyname = 'communication_preferences_user_all')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'communication_escalations' and policyname = 'communication_escalations_admin_read')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'notification_queue_channel_agent8_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'notification_queue_status_agent8_check')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'tenant_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'recipient_user_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'recipient_identity_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'thread_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'message_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'event_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'type')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'notification_type')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'title')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'message')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'channel')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'provider')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'template_key')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'payload')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'priority')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'dedupe_key')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'scheduled_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'next_attempt_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'attempt_count')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'max_attempts')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'last_error_code')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'last_error_message')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'locked_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'locked_by')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'sent_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'delivered_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'dead_lettered_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'updated_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'read')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'notification_queue' and column_name = 'metadata')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'aggregate_type')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'aggregate_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'correlation_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'causation_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'dedupe_key')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'available_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'processed_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'locked_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'domain_events' and column_name = 'locked_by')"
+   ]
+  },
+  {
+   "file": "20260624120000_communication_provider_runtime.sql",
+   "sha256": "98a91716097337f6fed82c1343c5bb98bf748568e3b55ecfc7939447d18b7435",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_delivery_attempts_provider_message') is not null",
+    "to_regclass('public.idx_notification_queue_processing_lock') is not null",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'claim_due_communication_notifications' and md5(prosrc) = any (array['eb36d0ce7ce21b76f080a55234de9fbd']))"
+   ]
+  },
+  {
+   "file": "20260624120000_vehicle_trust_security_hardening.sql",
+   "sha256": "b392d486c73b44b6309b4787ef76c65a39e6fbc5acc7cc3265a1a2a7cd3544f1",
+   "action": "ledger_repair",
+   "expect": [
+    "(select confdeltype from pg_constraint where conname = 'evidence_provenance_events_evidence_id_fkey' and conrelid = 'public.evidence_provenance_events'::regclass) = 'r'",
+    "(select confdeltype from pg_constraint where conname = 'evidence_sets_vin_fkey' and conrelid = 'public.evidence_sets'::regclass) = 'r'",
+    "(select confdeltype from pg_constraint where conname = 'report_versions_vin_fkey' and conrelid = 'public.report_versions'::regclass) = 'r'",
+    "(select relrowsecurity from pg_class where oid = 'public.ai_analysis_jobs'::regclass)",
+    "(select relrowsecurity from pg_class where oid = 'public.vehicle_evidence'::regclass)",
+    "(select relrowsecurity from pg_class where oid = 'public.vehicle_plate_history'::regclass)",
+    "not has_table_privilege('anon', 'public.vehicle_plate_history', 'SELECT')",
+    "not has_table_privilege('authenticated', 'public.vehicle_plate_history', 'SELECT')"
+   ]
+  },
+  {
+   "file": "20260624130000_vehicle_document_extractions.sql",
+   "sha256": "1fdba1a69c5033674cbf08428644cdd90383a4cf7786210129fcb3d6e9647f28",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.vehicle_document_extractions') is not null",
+    "to_regclass('public.idx_vde_evidence') is not null",
+    "to_regclass('public.idx_vde_vin') is not null",
+    "to_regclass('public.idx_vde_match_status') is not null",
+    "to_regclass('public.idx_vde_review_status') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_extraction_no_content_update' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'vehicle_document_extractions' and policyname = 'extractions admin or reviewer read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'vehicle_document_extractions' and policyname = 'extractions uploader read')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_extraction_guard' and md5(prosrc) = any (array['e5c44c9ee4151943a863205d7704e279']))"
+   ]
+  },
+  {
+   "file": "20260624140000_listing_publication_lifecycle.sql",
+   "sha256": "5640753d403de17fab54010c571c9716e016afb74d6efa77ad64be153a8d5e56",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_vehicles_publication_status') is not null",
+    "to_regclass('public.idx_vehicles_temp_plate') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'publication_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'temp_plate_id')"
+   ]
+  },
+  {
+   "file": "20260624150000_trust_change_log_immutability.sql",
+   "sha256": "04a2438aeefd7175c26b6e23d51f77f95ff3d7cadc743e6480ce821b1483d5ff",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_trigger where tgname = 'trust_change_log_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trust_change_log_no_delete' and not tgisinternal)"
+   ]
+  },
+  {
+   "file": "20260625031500_agent8_communication_legacy_queue_compatibility.sql",
+   "sha256": "1a1049ae1b381febc2eb2d23b6e4461cd1519b50ceb5b4ffaa6e06f1798924b2",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_notification_queue_status_due') is not null"
+   ]
+  },
+  {
+   "file": "20260626120000_source_verification_network.sql",
+   "sha256": "e958180029648a08bc5ff313a0e1798ba33851db6a7bf087ec563eb8bf39aa86",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.source_verification_results') is not null",
+    "to_regclass('public.source_verification_coverage_public') is not null",
+    "to_regclass('public.idx_svr_vin_provider') is not null",
+    "to_regclass('public.idx_svr_result') is not null",
+    "to_regclass('public.idx_svr_provider_mode') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'svr_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'svr_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'source_verification_results' and policyname = 'svr privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'source_verification_results' and policyname = 'svr owner read')"
+   ]
+  },
+  {
+   "file": "20260626130000_partner_api.sql",
+   "sha256": "a73e5ae7fc54c8d02ee277ac082e7f6e12ec4c70f93288c3ce0a718a27fdfec5",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.partner_clients') is not null",
+    "to_regclass('public.partner_api_requests') is not null",
+    "to_regclass('public.idx_partner_clients_key') is not null",
+    "to_regclass('public.idx_partner_requests_client') is not null",
+    "to_regclass('public.idx_partner_requests_idem') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'partner_requests_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'partner_requests_no_delete' and not tgisinternal)"
+   ]
+  },
+  {
+   "file": "20260626140000_fraud_engine.sql",
+   "sha256": "acdd3bd052cefaf18194cba48ade65ed6e8e3216be388f4872331a4e58d44453",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.fraud_signals') is not null",
+    "to_regclass('public.fraud_cases') is not null",
+    "to_regclass('public.fraud_case_events') is not null",
+    "to_regclass('public.fraud_case_resolutions') is not null",
+    "to_regclass('public.idx_fraud_signals_vin') is not null",
+    "to_regclass('public.idx_fraud_signals_code') is not null",
+    "to_regclass('public.idx_fraud_signals_tenant') is not null",
+    "to_regclass('public.idx_fraud_cases_vin') is not null",
+    "to_regclass('public.idx_fraud_cases_tenant') is not null",
+    "to_regclass('public.idx_fraud_cases_open') is not null",
+    "to_regclass('public.idx_fraud_case_events_case') is not null",
+    "to_regclass('public.idx_fraud_case_resolutions_case') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_signals_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_signals_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_cases_set_updated_at' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_case_events_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_case_events_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_case_resolutions_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fraud_case_resolutions_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'fraud_signals' and policyname = 'fraud_signals privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'fraud_cases' and policyname = 'fraud_cases privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'fraud_case_events' and policyname = 'fraud_case_events privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'fraud_case_resolutions' and policyname = 'fraud_case_resolutions privileged read')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'fraud_cases_touch_updated_at' and md5(prosrc) = any (array['da5ac28a58c8b4bb30209bf0d3d7082c']))"
+   ]
+  },
+  {
+   "file": "20260626150000_dealer_compliance.sql",
+   "sha256": "2648893ff03463c6e0d8b0fb5a956e92d89502df1f89d54bf2d42fd08b15d0a4",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.dealer_profiles') is not null",
+    "to_regclass('public.dealer_branches') is not null",
+    "to_regclass('public.dealer_compliance_documents') is not null",
+    "to_regclass('public.dealer_compliance_requirements') is not null",
+    "to_regclass('public.dealer_compliance_decisions') is not null",
+    "to_regclass('public.idx_dealer_profiles_user') is not null",
+    "to_regclass('public.idx_dealer_profiles_tenant') is not null",
+    "to_regclass('public.idx_dealer_profiles_review_state') is not null",
+    "to_regclass('public.idx_dealer_branches_dealer') is not null",
+    "to_regclass('public.idx_dealer_documents_dealer') is not null",
+    "to_regclass('public.idx_dealer_requirements_dealer') is not null",
+    "to_regclass('public.idx_dealer_decisions_dealer') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'dealer_decisions_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'dealer_decisions_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_profiles' and policyname = 'dealer_profiles owner read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_profiles' and policyname = 'dealer_profiles owner update')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_profiles' and policyname = 'dealer_profiles owner insert')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_profiles' and policyname = 'dealer_profiles oversight read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_branches' and policyname = 'dealer_branches owner read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_branches' and policyname = 'dealer_branches oversight read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_compliance_documents' and policyname = 'dealer_documents owner read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_compliance_documents' and policyname = 'dealer_documents oversight read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_compliance_requirements' and policyname = 'dealer_requirements owner read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_compliance_requirements' and policyname = 'dealer_requirements oversight read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_compliance_decisions' and policyname = 'dealer_decisions owner read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'dealer_compliance_decisions' and policyname = 'dealer_decisions oversight read')"
+   ]
+  },
+  {
+   "file": "20260626160000_eligibility_framework.sql",
+   "sha256": "afdf089871a100e2d51685c0bc3967ecda7a9e3ae672ec745a3bb13a628245b8",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.eligibility_requests') is not null",
+    "to_regclass('public.eligibility_decisions') is not null",
+    "to_regclass('public.eligibility_webhook_events') is not null",
+    "to_regclass('public.idx_elig_req_vin') is not null",
+    "to_regclass('public.idx_elig_req_status') is not null",
+    "to_regclass('public.idx_elig_req_idem') is not null",
+    "to_regclass('public.idx_elig_dec_request') is not null",
+    "to_regclass('public.idx_elig_wh_request') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'elig_dec_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'elig_dec_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'elig_wh_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'elig_wh_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'eligibility_requests' and policyname = 'elig req privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'eligibility_requests' and policyname = 'elig req owner read')"
+   ]
+  },
+  {
+   "file": "20260626180000_escrow_trust_sessions.sql",
+   "sha256": "7f7055c8ed6954a4d0ac89dc1790745724a39ddb36187a6cade1dca98891c53e",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.escrow_trust_sessions') is not null",
+    "to_regclass('public.escrow_trust_events') is not null",
+    "to_regclass('public.escrow_trust_webhook_events') is not null",
+    "to_regclass('public.idx_escrow_sessions_vin') is not null",
+    "to_regclass('public.idx_escrow_sessions_status') is not null",
+    "to_regclass('public.idx_escrow_events_session') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_events_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_events_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_wh_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_wh_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_trust_sessions' and policyname = 'escrow privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_trust_sessions' and policyname = 'escrow participant read')"
+   ]
+  },
+  {
+   "file": "20260703120000_provider_platform.sql",
+   "sha256": "e0f15cb9d77f963e8f085942ae15efd604547241b6d6771904aba81be94e7cc1",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.provider_registry') is not null",
+    "to_regclass('public.provider_contract_versions') is not null",
+    "to_regclass('public.provider_request_attempts') is not null",
+    "to_regclass('public.provider_health_checks') is not null",
+    "to_regclass('public.provider_incidents') is not null",
+    "to_regclass('public.reconciliation_jobs') is not null",
+    "to_regclass('public.reconciliation_mismatches') is not null",
+    "to_regclass('public.provider_activation_history') is not null",
+    "to_regclass('public.idx_provider_registry_cap') is not null",
+    "to_regclass('public.idx_provider_registry_key') is not null",
+    "to_regclass('public.idx_provider_contract_provider') is not null",
+    "to_regclass('public.idx_provider_attempts_provider') is not null",
+    "to_regclass('public.idx_provider_attempts_corr') is not null",
+    "to_regclass('public.idx_provider_health_provider') is not null",
+    "to_regclass('public.idx_provider_incidents_provider') is not null",
+    "to_regclass('public.idx_recon_jobs_provider') is not null",
+    "to_regclass('public.idx_recon_mismatch_job') is not null",
+    "to_regclass('public.idx_recon_mismatch_open') is not null",
+    "to_regclass('public.idx_provider_activation_provider') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'provider_attempts_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'provider_attempts_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'provider_activation_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'provider_activation_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'provider_registry' and policyname = 'provider_registry admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'provider_request_attempts' and policyname = 'provider_attempts admin read')"
+   ]
+  },
+  {
+   "file": "20260703130000_government_source_activation.sql",
+   "sha256": "7a343ab7866847bdfc43aa78c16fe8a5a57621fac7851777328afdefc1125d82",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.government_source_config') is not null",
+    "to_regclass('public.government_source_batch_imports') is not null",
+    "to_regclass('public.idx_gov_source_config_provider') is not null",
+    "to_regclass('public.idx_gov_source_config_source') is not null",
+    "to_regclass('public.idx_gov_batch_provider') is not null",
+    "to_regclass('public.idx_gov_batch_source') is not null",
+    "to_regclass('public.idx_gov_batch_file_ref') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'gov_batch_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'gov_batch_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'government_source_config' and policyname = 'gov_source_config admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'government_source_batch_imports' and policyname = 'gov_batch admin read')"
+   ]
+  },
+  {
+   "file": "20260703140000_insurance_provider.sql",
+   "sha256": "0102a77cd53a690eba0a018495ec8e92c4fee6219d1a8005ed581006c47e7d6d",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.insurer_profiles') is not null",
+    "to_regclass('public.insurance_consents') is not null",
+    "to_regclass('public.insurance_provider_decisions') is not null",
+    "to_regclass('public.idx_insurer_profiles_provider') is not null",
+    "to_regclass('public.idx_insurer_profiles_active') is not null",
+    "to_regclass('public.idx_insurance_consents_vin') is not null",
+    "to_regclass('public.idx_insurance_consents_user') is not null",
+    "to_regclass('public.idx_insurance_consents_insurer') is not null",
+    "to_regclass('public.idx_insurance_consents_active') is not null",
+    "to_regclass('public.idx_ins_decisions_request') is not null",
+    "to_regclass('public.idx_ins_decisions_insurer') is not null",
+    "to_regclass('public.idx_ins_decisions_vin') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'insurance_consent_guard_upd' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'insurance_consent_guard_del' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'ins_decisions_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'ins_decisions_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'insurer_profiles' and policyname = 'insurer_profiles admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'insurance_consents' and policyname = 'insurance_consents privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'insurance_consents' and policyname = 'insurance_consents owner read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'insurance_provider_decisions' and policyname = 'insurance_decisions privileged read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'insurance_provider_decisions' and policyname = 'insurance_decisions owner read')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'insurance_consent_guard' and md5(prosrc) = any (array['caeb1ae2a01ee4821c1bec6dc4e0e53a']))"
+   ]
+  },
+  {
+   "file": "20260703150000_finance_provider.sql",
+   "sha256": "713a037542420dc1086c7b93b4a823057ba891dd69c4f06c92b7ab4b412def26",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.lender_profiles') is not null",
+    "to_regclass('public.finance_consents') is not null",
+    "to_regclass('public.finance_provider_decisions') is not null",
+    "to_regclass('public.idx_lender_profiles_provider') is not null",
+    "to_regclass('public.idx_lender_profiles_active') is not null",
+    "to_regclass('public.idx_finance_consents_vin') is not null",
+    "to_regclass('public.idx_finance_consents_applicant') is not null",
+    "to_regclass('public.idx_finance_consents_active') is not null",
+    "to_regclass('public.idx_fin_dec_request') is not null",
+    "to_regclass('public.idx_fin_dec_provider') is not null",
+    "to_regclass('public.idx_fin_dec_vin') is not null",
+    "to_regclass('public.idx_fin_dec_consent') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'fin_dec_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'fin_dec_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_finance_consent_guard_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_finance_consent_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'lender_profiles' and policyname = 'lender_profiles admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'finance_consents' and policyname = 'finance_consents admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'finance_consents' and policyname = 'finance_consents applicant read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'finance_provider_decisions' and policyname = 'finance_decisions admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'finance_provider_decisions' and policyname = 'finance_decisions applicant read')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_finance_consent_guard' and md5(prosrc) = any (array['da01105e1fc90abdb6826f3f81c4fbcc']))"
+   ]
+  },
+  {
+   "file": "20260703160000_escrow_provider.sql",
+   "sha256": "8ac4325d98d140721c99dc69150ca4e629d0f602914f3140f7d390168d748234",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.escrow_provider_config') is not null",
+    "to_regclass('public.escrow_kyc_kyb_states') is not null",
+    "to_regclass('public.escrow_reconciliation_ledger') is not null",
+    "to_regclass('public.escrow_dual_control_approvals') is not null",
+    "to_regclass('public.idx_escrow_provider_config_provider') is not null",
+    "to_regclass('public.idx_escrow_provider_config_active') is not null",
+    "to_regclass('public.idx_escrow_kyc_provider') is not null",
+    "to_regclass('public.idx_escrow_kyc_subject') is not null",
+    "to_regclass('public.idx_escrow_kyc_status') is not null",
+    "to_regclass('public.idx_escrow_recon_ledger_session') is not null",
+    "to_regclass('public.idx_escrow_recon_ledger_provider') is not null",
+    "to_regclass('public.uq_escrow_recon_ledger_ext') is not null",
+    "to_regclass('public.idx_escrow_dual_control_session') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_recon_ledger_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_recon_ledger_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_dual_control_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'escrow_dual_control_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_provider_config' and policyname = 'escrow_provider_config admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_kyc_kyb_states' and policyname = 'escrow_kyc admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_kyc_kyb_states' and policyname = 'escrow_kyc subject read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_reconciliation_ledger' and policyname = 'escrow_recon admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_dual_control_approvals' and policyname = 'escrow_dual_control admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'escrow_dual_control_approvals' and policyname = 'escrow_dual_control participant read')"
+   ]
+  },
+  {
+   "file": "20260703170000_mobile_certification.sql",
+   "sha256": "f3d76bb4fec0196c474d36adfbea1a169a6f5eb6e5a92f7b2ce1a98696675aea",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.mobile_certification_runs') is not null",
+    "to_regclass('public.mobile_certification_results') is not null",
+    "to_regclass('public.idx_mobile_cert_runs_platform') is not null",
+    "to_regclass('public.idx_mobile_cert_runs_tenant') is not null",
+    "to_regclass('public.idx_mobile_cert_runs_created') is not null",
+    "to_regclass('public.idx_mobile_cert_results_run') is not null",
+    "to_regclass('public.idx_mobile_cert_results_check') is not null",
+    "to_regclass('public.idx_mobile_cert_results_result') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'mobile_cert_results_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'mobile_cert_results_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'mobile_certification_runs' and policyname = 'mobile_cert_runs admin read')",
+    "exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'mobile_certification_results' and policyname = 'mobile_cert_results admin read')"
+   ]
+  },
+  {
+   "file": "20260703190000_provider_storage.sql",
+   "sha256": "476ab84d3d3c0bb91809924d5325197d3c76146eb3ef5cf541b43730b7745487",
+   "action": "ledger_repair",
+   "expect": [
+    "(select count(*) from storage.buckets where id in ('provider-batch-files','reconciliation-reports','kyc-kyb-documents','dispute-evidence','mobile-cert-artifacts') and public = false) = 5",
+    "exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'provider_buckets_admin_read')",
+    "exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'provider_buckets_no_anon')"
+   ]
+  },
+  {
+   "file": "20260710120000_provider_request_attempts_provider_scope.sql",
+   "sha256": "d78ec5afff88708b6661a21a4dd23595ac5344a538d9c2c833545d0ba612c96b",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_provider_attempts_idem') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'provider_request_attempts_provider_idem_key')"
+   ]
+  },
+  {
+   "file": "20260710130000_partsentry_review_requests.sql",
+   "sha256": "b16c9228f1529c34808bfc25ec7e381f57d54b2b07d12d38fcbcad9a85eec917",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.partsentry_logs') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'verification_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'part_verification_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'suspicion_status')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'public_card_eligible')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'approved_by')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'approved_at')"
+   ]
+  },
+  {
+   "file": "20260810120000_trust_side_convergence.sql",
+   "sha256": "239c6490a888f2bd7f8e042688ed588e0ecace7c02a4a3c35ef87e4412be71c4",
+   "action": "ledger_repair",
+   "expect": [
+    "(select is_nullable from information_schema.columns where table_schema='public' and table_name='trust_score_history' and column_name='previous_score') = 'YES'",
+    "(select is_nullable from information_schema.columns where table_schema='public' and table_name='trust_score_history' and column_name='new_score') = 'YES'",
+    "(select is_nullable from information_schema.columns where table_schema='public' and table_name='trust_score_history' and column_name='trigger_event') = 'YES'",
+    "(select data_type||'|'||is_nullable from information_schema.columns where table_schema='public' and table_name='trust_score_history' and column_name='timestamp') = 'timestamp with time zone|NO'",
+    "pg_get_serial_sequence('public.trust_score_history','id') is not null",
+    "(select data_type||'|'||is_nullable from information_schema.columns where table_schema='public' and table_name='rolling_integrity_checkpoints' and column_name='last_verified_event_id') = 'bigint|YES'",
+    "(select confdeltype from pg_constraint where conname = 'rolling_integrity_checkpoints_vin_fkey') = 'c'"
+   ]
+  },
+  {
+   "file": "20260814080000_issue101_staging_parity.sql",
+   "sha256": "e378bc2c2ba551cea85066b209ee52639f31c73e24a51556e3451fff072076f4",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.public_keys') is not null",
+    "to_regclass('public.cid_clearance_records') is not null",
+    "to_regclass('public.cvr_ownership_records') is not null",
+    "to_regclass('public.ocr_customs_declarations') is not null",
+    "to_regclass('public.ocr_national_ids') is not null",
+    "to_regclass('public.ocr_registration_books') is not null",
+    "to_regclass('public.performance_telemetry') is not null",
+    "to_regclass('public.signature_verification_logs') is not null",
+    "to_regclass('public.system_failures') is not null",
+    "to_regclass('public.vid_inspections') is not null",
+    "to_regclass('public.zimra_declarations') is not null",
+    "to_regclass('public.zinara_licensing_records') is not null",
+    "to_regclass('public.idx_public_keys_user') is not null",
+    "to_regclass('public.idx_cid_vin') is not null",
+    "to_regclass('public.idx_cvr_vin') is not null",
+    "to_regclass('public.idx_ocr_customs_ref') is not null",
+    "to_regclass('public.idx_ocr_nid_ref') is not null",
+    "to_regclass('public.idx_ocr_regbook_ref') is not null",
+    "to_regclass('public.idx_vid_vin') is not null",
+    "to_regclass('public.idx_zimra_vin') is not null",
+    "to_regclass('public.idx_zinara_vin') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'public_keys_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'public_keys_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'public_keys_user_id_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cid_clearance_records_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cid_clearance_records_clearance_ref_number_key')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cid_clearance_records_stolen_check_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cid_clearance_records_vin_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cvr_ownership_records_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cvr_ownership_records_logbook_serial_number_key')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cvr_ownership_records_registration_number_key')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cvr_ownership_records_owner_id_type_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cvr_ownership_records_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'cvr_ownership_records_vin_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_customs_declarations_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_customs_declarations_ocr_document_id_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_national_ids_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_national_ids_sex_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_national_ids_ocr_document_id_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_registration_books_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ocr_registration_books_ocr_document_id_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'performance_telemetry_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'signature_verification_logs_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'signature_verification_logs_public_key_id_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'system_failures_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'system_failures_severity_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vid_inspections_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vid_inspections_certificate_serial_number_key')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vid_inspections_exhaust_emissions_rating_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vid_inspections_inspection_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vid_inspections_inspector_id_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vid_inspections_vin_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zimra_declarations_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zimra_declarations_customs_ref_number_key')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zimra_declarations_vin_fkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zinara_licensing_records_pkey')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zinara_licensing_records_receipt_number_key')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zinara_licensing_records_status_check')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'zinara_licensing_records_vin_fkey')"
+   ]
+  },
+  {
+   "file": "20260817160000_email_reply_tokens.sql",
+   "sha256": "8c1c26c2ee9a27eb6fcff14c0e497cc31431a66926a81847b1e520efd0412c19",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.email_reply_tokens') is not null",
+    "to_regclass('public.communication_suppressions') is not null",
+    "to_regclass('public.idx_email_reply_tokens_thread') is not null",
+    "to_regclass('public.idx_email_reply_tokens_live') is not null",
+    "to_regclass('public.uq_delivery_attempts_provider_message') is not null",
+    "to_regclass('public.idx_delivery_attempts_provider_request') is not null",
+    "to_regclass('public.idx_suppressions_address') is not null"
+   ]
+  },
+  {
+   "file": "20260827140000_intelligence_post_review_hardening.sql",
+   "sha256": "ca1a6a1b8c4fc915fab1bf7691a52a187acd0a58f1fdb5f57ddfa370ba957ae2",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'intelligence_erase_actor' and md5(prosrc) = any (array['8404aa1dda4972e4e1d94e7de78802b1']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'intelligence_bump_ingestion_stats' and md5(prosrc) = any (array['7fbf5ee163a480327ab60e45f7f5e70c']))"
+   ]
+  },
+  {
+   "file": "20260828203000_passport_ownership_transfer_authority.sql",
+   "sha256": "c395ce5b789473823e0a30b8e829f89eb54e2ed4c71b00ad5735f1ab195ac34b",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.vehicle_ownership_transfers') is not null",
+    "to_regclass('public.vehicle_ownership_transfer_events') is not null",
+    "to_regclass('public.uq_vehicle_ownership_transfer_active_vin') is not null",
+    "to_regclass('public.idx_vehicle_ownership_transfers_incoming') is not null",
+    "to_regclass('public.idx_vehicle_ownership_transfer_events_transfer') is not null",
+    "to_regclass('public.uq_vehicle_ownership_history_transfer') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicle_ownership_history' and column_name = 'transfer_id')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'passport_begin_ownership_transfer_atomic' and md5(prosrc) = any (array['740558c6fd3caf16f46cca548b3d1116']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'passport_transition_ownership_transfer_atomic')"
+   ]
+  },
+  {
+   "file": "20260830123000_seller_listing_photo_labels.sql",
+   "sha256": "2b57ef5451444c2d3d12ca04fd9588812a71b06451b7e6f1443acb88941c1190",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'listing_images_photo_label_length_check')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'listing_images' and column_name = 'photo_label')"
+   ]
+  },
+  {
+   "file": "20260831100000_seller_listing_submission_id.sql",
+   "sha256": "7452ce9f5ef05c1c4cb6c6c617c215b0853c97943ac7370c26582070dfd3654b",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.vehicles_seller_listing_submission_id_unique') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicles_seller_listing_submission_id_shape_check')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'seller_listing_submission_id')"
+   ]
+  },
+  {
+   "file": "20260831150000_seller_vehicle_history_disclosures.sql",
+   "sha256": "7d9f3ea206c75901863d8a0f2c6e0c364c91008ede5d8ff79191708ff01eb648",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicles_seller_accident_disclosure_state_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicles_seller_insurance_disclosure_state_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicles_seller_finance_disclosure_state_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vehicles_seller_finance_disclosure_privacy_chk')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'seller_accident_disclosure')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'seller_insurance_disclosure')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'seller_finance_disclosure')"
+   ]
+  },
+  {
+   "file": "20260902110000_zimbabwe_registration_lifecycle_and_evidence.sql",
+   "sha256": "7060a933ab8e622452daf86a8821d182f46e536eb17491192c19a14ddf4a16f9",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_constraint where conname = 'vehicles_registration_status_canonical_when_sourced')",
+    "(select count(*) from pg_constraint where conname in ('evidence_class_taxonomy_evidence_class_check','evidence_sets_evidence_class_check','vehicle_evidence_evidence_class_check') and pg_get_constraintdef(oid) like '%registration%') = 3",
+    "(select count(*) from public.evidence_class_taxonomy where (evidence_class, subtype_code) in (('import','commercial_invoice'),('import','payment_receipt'),('import','transit_declaration'),('registration','cvr_first_registration'),('registration','police_clearance_first_registration'),('registration','registration_book'),('registration','registration_plate_record'),('registration','reregistration_record'),('registration','temporary_import_permit'))) = 9",
+    "(select count(*) from public.evidence_sources where code in ('owner_upload','dealer_upload','government_registry_sandbox') and 'registration' = any (permitted_evidence_classes)) = 3"
+   ]
+  },
+  {
+   "file": "20260903120000_ownership_transfer_retires_tenant_relationship.sql",
+   "sha256": "43ece41cd3552b3e4ddedfcb7525a8256fcebf2c3d1c079627832badeddcd7d6",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'passport_transition_ownership_transfer_atomic' and md5(prosrc) = any (array['764532502bac9040c0329acc9d40815c']))"
+   ]
+  },
+  {
+   "file": "20260909090000_trade_os_t8_document_subject_binding.sql",
+   "sha256": "2d6f38877ea56dd98d90abe7b19c4d8904b87cb8d123d1ef23c55379683ad539",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_trade_documents_subject') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trade_document_subject_pairing')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trade_document_exactly_one_owner')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'diaspora_trade_documents' and column_name = 'subject_type')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'diaspora_trade_documents' and column_name = 'subject_id')"
+   ]
+  },
+  {
+   "file": "20260910090000_trade_os_t8_document_versioning.sql",
+   "sha256": "d29c06b73b308ba256e602d4865b8bf231673e9add154d9c922d21df2c1f3fc1",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.uq_trade_document_single_successor') is not null",
+    "to_regclass('public.idx_trade_documents_current') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trade_document_no_self_supersede')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trade_document_version_positive')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'trade_document_supersession_dated')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'diaspora_trade_documents' and column_name = 'version')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'diaspora_trade_documents' and column_name = 'supersedes_document_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'diaspora_trade_documents' and column_name = 'superseded_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'diaspora_trade_documents' and column_name = 'superseded_by')"
+   ]
+  },
+  {
+   "file": "20260911090000_trade_os_t9_warehouse_intake.sql",
+   "sha256": "d6a798fa350e1f05c81fc215ce58b26952739b759b071d5f2e866d480bb44658",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.diaspora_warehouses') is not null",
+    "to_regclass('public.diaspora_warehouse_intakes') is not null",
+    "to_regclass('public.diaspora_warehouse_measurements') is not null",
+    "to_regclass('public.uq_warehouse_intake_subject') is not null",
+    "to_regclass('public.idx_warehouse_intakes_warehouse') is not null",
+    "to_regclass('public.idx_warehouse_measurements_intake') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'intake_receipt_is_attributed')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'intake_exception_has_reason')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'measurement_dimensions_complete')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'measurement_weight_has_unit')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'measurement_observes_something')"
+   ]
+  },
+  {
+   "file": "20260918090000_ocr_c3_garage_applications.sql",
+   "sha256": "125036d84653e5aaf6e84bcf839449ac6b0b49454aac2c744aec4151fdc5fb54",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.garage_applications') is not null",
+    "to_regclass('public.garage_application_decisions') is not null",
+    "to_regclass('public.idx_garage_applications_one_live_per_applicant') is not null",
+    "to_regclass('public.idx_garage_applications_one_activation_per_tenant') is not null",
+    "to_regclass('public.idx_garage_applications_status') is not null",
+    "to_regclass('public.idx_garage_applications_applicant') is not null",
+    "to_regclass('public.idx_garage_application_decisions_application') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_applications_decision_coherent')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_applications_activation_requires_approval')"
+   ]
+  },
+  {
+   "file": "20260918100000_ocr_c3_garage_application_evidence.sql",
+   "sha256": "c39f41f34591cb152fc0a485dca1d57e00e5d911541a3d70fcd6d2157759fb11",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.garage_application_documents') is not null",
+    "to_regclass('public.idx_garage_application_documents_application') is not null",
+    "to_regclass('public.idx_garage_application_documents_live') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_application_documents_extraction_coherent')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_application_documents_candidates_need_extraction')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_application_documents_removal_coherent')"
+   ]
+  },
+  {
+   "file": "20260918110000_ocr_c3_garage_onboarding_rls.sql",
+   "sha256": "cc3cd56118d86b4557dbdb26ab0789844528558e2b0961ac4c38d8b503460f91",
+   "action": "ledger_repair",
+   "expect": [
+    "(select relrowsecurity from pg_class where oid = 'public.garage_applications'::regclass)",
+    "(select relforcerowsecurity from pg_class where oid = 'public.garage_applications'::regclass)",
+    "(select relrowsecurity from pg_class where oid = 'public.garage_application_decisions'::regclass)",
+    "(select relforcerowsecurity from pg_class where oid = 'public.garage_application_decisions'::regclass)",
+    "(select relrowsecurity from pg_class where oid = 'public.garage_application_documents'::regclass)",
+    "(select relforcerowsecurity from pg_class where oid = 'public.garage_application_documents'::regclass)"
+   ]
+  },
+  {
+   "file": "20261004160000_oc5a_tenant_users_role_catalogue.sql",
+   "sha256": "7912bfe6c49519dd560a1a45697341e77bbcee0047c3b9b858f3cbfe2174fbf8",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_constraint where conname = 'tenant_users_role_catalogue' and conrelid = 'public.tenant_users'::regclass and convalidated and pg_get_constraintdef(oid) like '%admin%' and pg_get_constraintdef(oid) like '%mechanic%' and pg_get_constraintdef(oid) like '%dealer%' and pg_get_constraintdef(oid) like '%member%')"
+   ]
+  },
+  {
+   "file": "20261004170000_o2_x3_identity_lifecycle_events.sql",
+   "sha256": "20434fc21cc55e122e56d32966db9c0f79310da126a02fed84cd3f4dd040904d",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.identity_lifecycle_events') is not null",
+    "to_regclass('public.idx_identity_lifecycle_events_user') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_identity_lifecycle_events_append_only' and not tgisinternal)",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'identity_lifecycle_actor')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'identity_lifecycle_events_append_only' and md5(prosrc) = any (array['7eb508fb6de1ee11f61f277162e23682']))"
+   ]
+  },
+  {
+   "file": "20261004170100_o2_x3_user_sessions_authentication_assurance.sql",
+   "sha256": "ef314966b74349c86c26e6400d3ae318e073690959f788e23118efcaca0e49c6",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'user_sessions' and column_name = 'auth_method')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'user_sessions' and column_name = 'step_up_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'user_sessions' and column_name = 'step_up_method')"
+   ]
+  },
+  {
+   "file": "20261004173000_o2_x5_dealer_workbook_mapping_confirmations.sql",
+   "sha256": "e6d94161e67bdf4a8e795f3b1c4bca6b1ef9bdacddd568bbcacab91aeffa79eb",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.dealer_workbook_mapping_confirmations') is not null",
+    "to_regclass('public.idx_dealer_workbook_mapping_confirmations_lookup') is not null"
+   ]
+  },
+  {
+   "file": "20261004180000_service_network_s1_garage_identity.sql",
+   "sha256": "2252a74be8c7481b77431badf4789ef408a6693567cd961ec13a57fc48b92551",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.garage_public_profiles') is not null",
+    "to_regclass('public.garage_branches') is not null",
+    "to_regclass('public.idx_garage_public_profiles_status') is not null",
+    "to_regclass('public.idx_garage_branches_tenant') is not null"
+   ]
+  },
+  {
+   "file": "20261004180100_service_network_s2_service_cases.sql",
+   "sha256": "da93d9c044a3bafd1adfdf5c387a423bccaabdeccaec4bb565ce7030bced7e24",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.service_cases') is not null",
+    "to_regclass('public.service_case_events') is not null",
+    "to_regclass('public.uq_service_cases_source_inquiry') is not null",
+    "to_regclass('public.idx_service_cases_garage_tenant') is not null",
+    "to_regclass('public.idx_service_cases_vin') is not null",
+    "to_regclass('public.idx_service_cases_requester') is not null",
+    "to_regclass('public.idx_service_case_events_case') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_service_case_events_append_only' and not tgisinternal)",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'service_cases_branch_within_tenant')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'service_case_events_append_only' and md5(prosrc) = any (array['8b5e75f381ca560b8d70d9b0cc8282f4']))"
+   ]
+  },
+  {
+   "file": "20261004180200_service_network_s3_inquiry_target_garage.sql",
+   "sha256": "80363aef16da1bbc3bc1eb99b250bf6e9b0f6bd9782adb8cbb85770913f2e55d",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.idx_mpi_target_provider_tenant') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'marketplace_inquiries' and column_name = 'target_provider_tenant_id')"
+   ]
+  },
+  {
+   "file": "20261004180300_service_network_s4_work_order_assignment.sql",
+   "sha256": "ed93aac1febd0990e34d5de48970f4e25b43aa4a3a46cc686f1264d707ec0be2",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.work_order_assignments') is not null",
+    "to_regclass('public.uq_mechanic_work_orders_service_case') is not null",
+    "to_regclass('public.idx_mechanic_work_orders_branch') is not null",
+    "to_regclass('public.uq_work_order_assignments_live') is not null",
+    "to_regclass('public.idx_work_order_assignments_mechanic') is not null",
+    "to_regclass('public.idx_work_order_assignments_tenant') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'service_case_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'branch_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'service_category')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'completed_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'cancelled_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'cancellation_reason_code')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'currency')"
+   ]
+  },
+  {
+   "file": "20261004180400_service_network_s5_service_records.sql",
+   "sha256": "6890485b3fefaa3417307c779e63ea4cc01f60cefdacf5db4af281ee39fdd573",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.service_records') is not null",
+    "to_regclass('public.service_mileage_observations') is not null",
+    "to_regclass('public.service_record_parts') is not null",
+    "to_regclass('public.service_record_evidence') is not null",
+    "to_regclass('public.idx_service_records_work_order') is not null",
+    "to_regclass('public.idx_service_records_vin') is not null",
+    "to_regclass('public.idx_service_records_tenant') is not null",
+    "to_regclass('public.idx_service_mileage_observations_vin') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'service_records_cost_needs_currency')"
+   ]
+  },
+  {
+   "file": "20261004180500_service_network_s8_service_links.sql",
+   "sha256": "a0e79a2e412654950f4c26aec6df477c08562708c7cd2472d03ba7b44bf6521b",
+   "action": "ledger_repair",
+   "expect": [
+    "to_regclass('public.service_links') is not null",
+    "to_regclass('public.service_capability_grants') is not null",
+    "to_regclass('public.idx_service_links_resource') is not null",
+    "to_regclass('public.idx_service_capability_grants_resource') is not null",
+    "to_regclass('public.idx_service_capability_grants_expiry') is not null"
+   ]
+  },
+  {
+   "file": "20261004180600_service_network_o4_event_dedupe.sql",
+   "sha256": "1a63283d48d0dc972cee4a54ab02e4b9c794d9e0aba35fd92407a321f650e962",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_trigger where tgname = 'trg_domain_events_communication_dedupe' and not tgisinternal)",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'communication_domain_event_dedupe_key' and md5(prosrc) = any (array['65ff7ac704fb3b9211120331e3f792f1','f9003e081f8f1128ecb1ef710e7e4819']))"
+   ]
+  },
+  {
+   "file": "20261004180700_service_network_o5_thread_type.sql",
+   "sha256": "4cc91d17159235074abcf53ebd53423d80802590fac914382bab5e4ac83fad7b",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'message_threads_thread_type_check')"
+   ]
+  },
+  {
+   "file": "20261004190100_gmo4_garage_business_activation.sql",
+   "sha256": "bf329110136efa577dbfccf662975caa493a4dfbe89b731610c87245566eba57",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'activate_garage_application' and md5(prosrc) = any (array['06da4e43f0fade0ab14cbd5172776475','e497c9fa456b00f2949f824fb511cec2']))"
+   ]
+  },
+  {
+   "file": "20261004200000_seller_intelligence_compare_funnel.sql",
+   "sha256": "7519398eba897dfc6a795dc281821da1da97522bbb20d50a0b777e1eb4b4c87b",
+   "action": "ledger_repair",
+   "expect": [
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'sdm_compare_adds_nonnegative')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'seller_daily_metrics' and column_name = 'compare_adds')"
+   ]
+  },
+  {
+   "file": "20260826120000_email_1_0_hardening.sql",
+   "sha256": "bf8c1cbfbec807cc2839720416521e584964457c1264bfd9ae9fa20d4ff680e0",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'communication_domain_event_dedupe_key')",
+    "to_regclass('public.communication_reconciliation_work') is not null",
+    "to_regclass('public.idx_vehicles_trust_unannounced') is not null",
+    "to_regclass('public.idx_communication_reconciliation_work_scan') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'trg_users_enqueue_welcome_reconciliation' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_vehicles_enqueue_trust_reconciliation' and not tgisinternal)",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'uq_communication_reconciliation_work')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'vehicles' and column_name = 'trust_presentation_announced_fingerprint')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'enqueue_email_welcome_reconciliation' and md5(prosrc) = any (array['c8f34b230e1c8c285bd22c6b93b5f087']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'enqueue_trust_presentation_reconciliation' and md5(prosrc) = any (array['455d76b1d9fdc67c23465cbb63f10787']))"
+   ],
+   "precondition": [
+    "exists (select 1 from pg_index ix join pg_class t on t.oid = ix.indrelid where t.relname = 'email_reply_tokens' and ix.indisunique and pg_get_indexdef(ix.indexrelid) like '%token_hash%')"
+   ],
+   "group": "email-1-0-with-sn-o4-replay"
+  },
+  {
+   "file": "20261004180600_service_network_o4_event_dedupe.sql",
+   "sha256": "1a63283d48d0dc972cee4a54ab02e4b9c794d9e0aba35fd92407a321f650e962",
+   "action": "replay",
+   "group": "email-1-0-with-sn-o4-replay",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'communication_domain_event_dedupe_key' and md5(prosrc) = any (array['65ff7ac704fb3b9211120331e3f792f1','f9003e081f8f1128ecb1ef710e7e4819']))",
+    "exists (select 1 from pg_trigger where tgname = 'trg_domain_events_communication_dedupe' and tgrelid = 'public.domain_events'::regclass and not tgisinternal)"
+   ]
+  },
+  {
+   "file": "20260828220000_passport_ownership_transfer_communications.sql",
+   "sha256": "f723969d4b6208a0c725814e832332f57b478528d9bd65ea1d9808bedb99b4a2",
+   "action": "execute",
+   "expect": [
+    "(select count(*) from public.communication_templates where template_key in ('ownership_transfer_v1')) = 1",
+    "(select count(distinct t.template_key) from public.communication_templates t join public.communication_template_versions v on v.template_id = t.id where t.template_key in ('ownership_transfer_v1')) = 1"
+   ]
+  },
+  {
+   "file": "20260828210000_issue158_private_key_custody.sql",
+   "sha256": "7e8c3695b20cac3b071e5c03c7db95792c6eb1b8dc3f1f8d41a1c866b551facb",
+   "action": "execute",
+   "expect": [
+    "to_regclass('public.blockchain_custody_rollout') is not null",
+    "to_regclass('public.uq_public_keys_one_active_per_user') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'public_keys' and column_name = 'key_ref')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'public_keys' and column_name = 'key_version')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'public_keys' and column_name = 'custody_provider')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_custody_rollout_state' and md5(prosrc) = any (array['13a5caac8bbfb4342aa2e0cc96b8d476']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_activate_public_key_atomic')"
+   ],
+   "precondition": [
+    "to_regclass('public.public_keys') is not null",
+    "to_regclass('public.blockchain_custody_rollout') is null",
+    "not exists (select 1 from public.public_keys where status = 'ACTIVE' group by user_id having count(*) > 1)",
+    "not exists (select 1 from public.blockchain_events where \"timestamp\" = '9999-12-31T23:59:59.999Z')"
+   ],
+   "group": "issue158-custody-chain"
+  },
+  {
+   "file": "20260829003000_issue158_custody_rollout_upgrade.sql",
+   "sha256": "42e5c5c31a39c3bb605f23d66105fc559d3d3efa8ddee27b7ba44cf2637e1de5",
+   "action": "execute",
+   "expect": [
+    "to_regclass('public.blockchain_custody_rollout') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'blockchain_custody_rollout' and column_name = 'authorized_generation')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_custody_rollout_contract' and md5(prosrc) = any (array['bd59eca5118ddf6d677511ba432e424b']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_authorize_custody_generation' and md5(prosrc) = any (array['2fae8fd84052d54431c2c0dbe5ed2d07']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_activate_public_key_atomic')"
+   ],
+   "group": "issue158-custody-chain"
+  },
+  {
+   "file": "20260829020000_issue158_activation_boundary_hardening.sql",
+   "sha256": "a88ae4571360f440bfb7711b2b59129da26ac09990f1a04507cdb40dfb88a480",
+   "action": "execute",
+   "expect": [
+    "to_regclass('public.blockchain_signing_watermarks') is not null",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_boundary_parse_ts' and md5(prosrc) = any (array['9885ac04ddfa1e162af5d40f379b9ed8']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_reseed_signing_watermarks' and md5(prosrc) = any (array['d45fcdb760c214a14a0f6009e714a738']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_activate_public_key_boundary')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_activate_public_key_atomic' and md5(prosrc) = any (array['4e6b06c05bd063f362f67e8117a7cbac']))"
+   ],
+   "group": "issue158-custody-chain"
+  },
+  {
+   "file": "20260829040000_issue158_terminal_event_uniqueness.sql",
+   "sha256": "5d2a8432882698bcb9926151ce22043d8fade2cad4400a0562c1fa77efd3b1a1",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'blockchain_activate_public_key_boundary' and md5(prosrc) = any (array['43c75c9c8b2d580d5bacb6f21c4e4f2a']))"
+   ],
+   "group": "issue158-custody-chain"
+  },
+  {
+   "file": "20260830060000_issue158_terminal_operation_identity.sql",
+   "sha256": "1296755a9209ded6243564f96471b8accc18f8aad4cb1c6fb17ab04a9bd4839a",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'blockchain_events' and column_name = 'operation_id')",
+    "exists (select 1 from pg_constraint where conname = 'blockchain_events_terminal_operation_id_required' and convalidated)",
+    "to_regclass('public.uq_blockchain_events_signer_operation_id') is not null"
+   ],
+   "group": "issue158-custody-chain"
+  },
+  {
+   "file": "20260901120000_vehicle_finance_obligation_authority.sql",
+   "sha256": "ad74f895f67c31876b7dadcb327d17e0044f1c7322447d84d15c7b18bbe18fba",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'disclosure_claims_claim_type_check')",
+    "to_regclass('public.vehicle_finance_obligations') is not null",
+    "to_regclass('public.vehicle_finance_obligation_events') is not null",
+    "to_regclass('public.idx_vfo_vin') is not null",
+    "to_regclass('public.idx_vfo_governed_blocking') is not null",
+    "to_regclass('public.uq_vfo_supersedes') is not null",
+    "to_regclass('public.idx_vfo_events_obligation') is not null",
+    "to_regclass('public.idx_vfo_events_vin') is not null",
+    "exists (select 1 from pg_trigger where tgname = 'vfo_events_no_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'vfo_events_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_vfo_guard_update' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_vfo_no_delete' and not tgisinternal)",
+    "exists (select 1 from pg_trigger where tgname = 'trg_block_encumbered_owner_change' and not tgisinternal)",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_source_ref_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_valuation_group_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_lender_disclosure_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_settled_stamp_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_released_stamp_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_disputed_reason_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_no_self_supersede_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_settlement_context_shape_chk')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'vfo_settlement_context_notes_scalar_chk')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'finance_obligation_terminal_state_permitted' and md5(prosrc) = any (array['8b25f7aad43b010d2383b4c783d0ed44']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_finance_obligation_guard' and md5(prosrc) = any (array['31cd61f779f4235f84ea1c887939f266']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'finance_obligation_record_atomic' and md5(prosrc) = any (array['24e11a5b6ac019fc95ebf05daa9c1f8d']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'finance_obligation_transition_atomic' and md5(prosrc) = any (array['acd7eece54a31048e2ce3a9ba6cdc13c']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'carup_block_encumbered_owner_change' and md5(prosrc) = any (array['00a506e60cbb6365caa2c298bea05314']))"
+   ]
+  },
+  {
+   "file": "20260902123000_auth_activity_not_conversation.sql",
+   "sha256": "dd13638c71ce9ae8e6d6108cf7f731525e5992afe686c1dd32dfca41cee69d94",
+   "action": "execute",
+   "expect": [
+    "not exists (select 1 from public.message_threads t where t.thread_type = 'general' and exists (select 1 from public.notification_queue n where n.thread_id = t.id and n.channel = 'email' and n.template_key in ('auth_email_verification_v1','auth_password_reset_v1','auth_password_changed_v1')))"
+   ]
+  },
+  {
+   "file": "20261003100000_ocr_c3_garage_evidence_lineage_reconciliation.sql",
+   "sha256": "1f296a93653efbd7681d0762189c9055691469fc97d4f28eec77f06a27248762",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'garage_application_documents' and column_name = 'extraction_model')"
+   ]
+  },
+  {
+   "file": "20261004150000_o2_dealer_compliance_decision_template.sql",
+   "sha256": "05e3ffc5522146df553d36e1ef1b60b52cc3d86f0fdfbc6b4e54285d0d015111",
+   "action": "execute",
+   "expect": [
+    "(select count(*) from public.communication_templates where template_key in ('dealer_compliance_decision_v1')) = 1",
+    "(select count(distinct t.template_key) from public.communication_templates t join public.communication_template_versions v on v.template_id = t.id where t.template_key in ('dealer_compliance_decision_v1')) = 1"
+   ]
+  },
+  {
+   "file": "20261004160100_oc5a_work_order_owner_authorization.sql",
+   "sha256": "ec54df418f36ae6b07f0e7701a243d11297acca34dee9af9c395830aa6600db6",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'mechanic_id')",
+    "to_regclass('public.idx_mechanic_work_orders_vin_mechanic') is not null",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'updated_at')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'owner_authorization')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'owner_authorized_by')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'mechanic_work_orders' and column_name = 'owner_authorized_at')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'mechanic_work_order_decide_authorization' and md5(prosrc) = any (array['83fa0fae29d277d0fa7e9591bbb5b57a']))"
+   ]
+  },
+  {
+   "file": "20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql",
+   "sha256": "671f512ed5d8f29760890decd2b55eca8f97cb41089d7edce394fb45eddd18ab",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'tenant_id')",
+    "to_regclass('public.ledger_event_intents') is not null",
+    "to_regclass('public.uq_partsentry_logs_actor_idempotency_key') is not null",
+    "to_regclass('public.idx_ledger_event_intents_due') is not null",
+    "to_regclass('public.idx_ledger_event_intents_vin') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ledger_event_intents_source_unique')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ledger_event_intents_operation_unique')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ledger_event_intents_recorded_names_event')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'ledger_event_intents_claim_shape')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'attestation')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'work_order_id')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'odometer_applied')",
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partsentry_logs' and column_name = 'idempotency_key')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'partsentry_record_service' and md5(prosrc) = any (array['ac556b520b61c8b892486033b47f05ea']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'ledger_event_intents_claim' and md5(prosrc) = any (array['8967b0884908ecc1609b17729089bae8']))"
+   ],
+   "precondition": [
+    "to_regclass('public.partsentry_logs') is not null"
+   ]
+  },
+  {
+   "file": "20261004172000_o2_x6_semantic_event_templates.sql",
+   "sha256": "c68cf295c43e72c2aabfa63503e127ddb7a4494913b03851ad48479b028257c1",
+   "action": "execute",
+   "expect": [
+    "(select count(*) from public.communication_templates where template_key in ('identity_lifecycle_v1','dealer_evidence_required_v1','seller_authority_superseded_v1')) = 3",
+    "(select count(distinct t.template_key) from public.communication_templates t join public.communication_template_versions v on v.template_id = t.id where t.template_key in ('identity_lifecycle_v1','dealer_evidence_required_v1','seller_authority_superseded_v1')) = 3"
+   ]
+  },
+  {
+   "file": "20261004180800_service_network_case_status_template.sql",
+   "sha256": "3cb58ad791d9ba5dd3042e6a7afd677f5872c46209cd6273984d441ec22817b1",
+   "action": "execute",
+   "expect": [
+    "(select count(*) from public.communication_templates where template_key in ('service_case_status_v1')) = 1",
+    "(select count(distinct t.template_key) from public.communication_templates t join public.communication_template_versions v on v.template_id = t.id where t.template_key in ('service_case_status_v1')) = 1"
+   ]
+  },
+  {
+   "file": "20261004190000_gmo3_garage_application_decision.sql",
+   "sha256": "e9034d122ad039b3aa4cb274f1aeb3aa44424d7b47e8425c224d8eb655f05b91",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'record_garage_application_decision' and md5(prosrc) = any (array['cffddbe17eb7902efd703172167bc836']))"
+   ],
+   "precondition": [
+    "to_regclass('public.garage_applications') is not null and to_regclass('public.garage_application_decisions') is not null"
+   ]
+  },
+  {
+   "file": "20261004190200_gmo6_garage_invitations.sql",
+   "sha256": "86012b0752a52e1e9257daea5227747c9ba231827bbfb18d87473714d542cf85",
+   "action": "execute",
+   "expect": [
+    "to_regclass('public.garage_invitations') is not null",
+    "to_regclass('public.idx_garage_invitations_one_live_per_email') is not null",
+    "to_regclass('public.idx_garage_invitations_tenant') is not null",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_invitations_acceptance_coherent')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_invitations_revocation_coherent')",
+    "exists (select 1 from pg_constraint where connamespace = 'public'::regnamespace and conname = 'garage_invitations_not_both')",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'accept_garage_invitation' and md5(prosrc) = any (array['5c71f76430430bffc4eacb5128775f02']))"
+   ],
+   "precondition": [
+    "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'email_verified_at')"
+   ]
+  },
+  {
+   "file": "20261004190300_gmo7_garage_membership_guard.sql",
+   "sha256": "3b99dae4528f44e0acb2db459e7f7906765f48ce81a837437ca38b1da9255c76",
+   "action": "execute",
+   "expect": [
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'remove_garage_member' and md5(prosrc) = any (array['b171a4c84adf6d1d3d7fbdcb102ab634']))",
+    "exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'change_garage_member_role' and md5(prosrc) = any (array['ab6e7d67de4820085bce3e20932abf78']))"
+   ]
+  },
+  {
+   "file": "20261004210000_oc5g_policy_notification_templates.sql",
+   "sha256": "056ae60d866adf5a51390d5ec041132c21aa7dac50c744e35de96fdd80acde9a",
+   "action": "execute",
+   "expect": [
+    "(select count(*) from public.communication_templates where template_key in ('verification_decision_v1','listing_moderation_v1','evidence_review_v1','seller_authority_v1','vehicle_trust_update_v1','safetrade_transaction_v1')) = 6",
+    "(select count(distinct t.template_key) from public.communication_templates t join public.communication_template_versions v on v.template_id = t.id where t.template_key in ('verification_decision_v1','listing_moderation_v1','evidence_review_v1','seller_authority_v1','vehicle_trust_update_v1','safetrade_transaction_v1')) = 6"
+   ]
+  }
+ ]
+}

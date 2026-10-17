@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://carup.dev/contracts/evidence-certification.schema.json",
+  "title": "One CarUp evidence certification manifest (carup.evidence_certification.v1)",
+  "description": "Structural contract for docs/one-carup/certification/ONE_CARUP_CERTIFICATION_MANIFEST.json. Cross-field rules that JSON Schema cannot express (impossible promotions, ladder cells backed by a receipt of the SAME level, authority facts never established by mocks) are enforced by scripts/ci/evidence-certification-guard.mjs. Policy: docs/one-carup/ONE_CARUP_EVIDENCE_CERTIFICATION_POLICY.md.",
+  "type": "object",
+  "required": ["schema", "programme", "levels", "receipts", "capabilities"],
+  "additionalProperties": false,
+  "definitions": {
+    "level": {
+      "type": "string",
+      "enum": ["SOURCE-CERTIFIED", "DATABASE-CERTIFIED", "LIVE-PROVIDER-CERTIFIED", "DEPLOYED-CERTIFIED", "OWNER-UAT-CERTIFIED"]
+    },
+    "ladderCell": { "type": "string", "enum": ["PASS", "PENDING", "N/A", "FAIL"] },
+    "receipt": {
+      "type": "object",
+      "required": ["id", "phase", "capability", "sha", "level", "environment", "proof_mechanism", "provider", "database", "mocked_provider", "mocked_components", "remaining", "recorded_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "phase": { "type": "string", "minLength": 1 },
+        "capability": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$", "description": "The exact commit the evidence was produced on (never the receipt's own commit)." },
+        "level": { "$ref": "#/definitions/level" },
+        "environment": { "type": "string", "enum": ["localhost", "local", "ci", "test", "sandbox", "staging", "preview", "production"] },
+        "proof_mechanism": { "type": "string", "minLength": 1 },
+        "provider": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["name", "model", "mocked"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "model": { "type": "string" },
+                "mocked": { "type": "boolean", "description": "true when the provider was intercepted or substituted — such evidence is SOURCE-CERTIFIED at most." }
+              }
+            }
+          ]
+        },
+        "database": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["engine", "migrations"],
+              "additionalProperties": false,
+              "properties": {
+                "engine": { "type": "string", "enum": ["pglite", "postgres-disposable"] },
+                "migrations": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "note": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "mocked_provider": { "type": "boolean" },
+        "mocked_components": { "type": "array", "items": { "type": "string" } },
+        "claims": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "object" },
+        "remaining": { "type": "array", "items": { "$ref": "#/definitions/level" } },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "properties": {
+    "schema": { "const": "carup.evidence_certification.v1" },
+    "programme": { "type": "string" },
+    "levels": { "type": "array", "items": { "$ref": "#/definitions/level" }, "minItems": 5, "maxItems": 5 },
+    "receipts": { "type": "array", "items": { "$ref": "#/definitions/receipt" } },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["SOURCE-CERTIFIED", "DATABASE-CERTIFIED", "LIVE-PROVIDER-CERTIFIED", "DEPLOYED-CERTIFIED", "OWNER-UAT-CERTIFIED"],
+        "additionalProperties": false,
+        "properties": {
+          "SOURCE-CERTIFIED": { "$ref": "#/definitions/ladderCell" },
+          "DATABASE-CERTIFIED": { "$ref": "#/definitions/ladderCell" },
+          "LIVE-PROVIDER-CERTIFIED": { "$ref": "#/definitions/ladderCell" },
+          "DEPLOYED-CERTIFIED": { "$ref": "#/definitions/ladderCell" },
+          "OWNER-UAT-CERTIFIED": { "$ref": "#/definitions/ladderCell" },
+          "notes": { "type": "string", "description": "Names prior evidence that does NOT count for this lineage (other SHA, other environment), or why a cell is N/A." }
+        }
+      }
+    }
+  }
+}

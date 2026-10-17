@@ -80,13 +80,15 @@ const tenantMemberships = {
   'tenant-B:out-1': { role: 'member' },
 };
 
-// A fully eligible domain seed for tenant-A order ord-1 (so creation works when needed).
+// A fully eligible domain seed for tenant-A order ord-1 (so creation works when needed). T13: the
+// accepted quote carries the complete seller/amount/currency triple, because SafeTrade creation fails
+// closed on an incomplete one.
 function eligibleSeed(extra = {}) {
   return {
     diaspora_import_orders: [
       { id: 'ord-1', tenant_id: 'tenant-A', buyer_id: 'buyer-1', status: 'SELLER_ASSIGNED', metadata: { rfq: { acceptedQuoteId: 'q-1' } }, created_by: 'buyer-1' },
     ],
-    diaspora_import_quotes: [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A' }],
+    diaspora_import_quotes: [{ id: 'q-1', import_order_id: 'ord-1', status: 'ACCEPTED', tenant_id: 'tenant-A', seller_id: 'seller-1', quote_amount: 1000, quote_currency: 'USD' }],
     diaspora_cargo_reservations: [{ id: 'res-1', import_order_id: 'ord-1', reservation_status: 'APPROVED', tenant_id: 'tenant-A' }],
     diaspora_trade_profiles: [
       { id: 'tp-b', user_id: 'buyer-1', verification_status: 'VERIFIED', tenant_id: 'tenant-A' },

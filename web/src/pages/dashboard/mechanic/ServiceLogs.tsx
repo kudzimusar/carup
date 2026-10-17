@@ -3,8 +3,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Wrench, Search, Plus, Calendar, FileText, Loader2, AlertCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { newIdempotencyKey, recordOutcomeMessage, refusalMessage } from '@/lib/partsentry'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -60,20 +61,30 @@ export default function ServiceLogs() {
     }
   }
 
+  // OC-5A: one idempotency key per entry — a retry of the SAME entry reuses it, so a lost response
+  // never records the service twice. Any edit makes it a different entry with a new key.
+  const submitKey = useRef<string | null>(null)
+  useEffect(() => { submitKey.current = null }, [formData])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
     try {
+      submitKey.current = submitKey.current ?? newIdempotencyKey()
       const res = await addRepairLog(
         formData.vin,
         formData.partName,
         formData.partOem,
         formData.actionType,
         formData.description,
-        Number(formData.mileage)
+        Number(formData.mileage),
+        { idempotencyKey: submitKey.current },
       )
       if (res?.id) {
-        toast.success(`Service log #${res.id} recorded securely to PartSentry`)
+        submitKey.current = null
+        // The server says what this entry is (a mechanic service only under an owner-authorized work
+        // order) and whether its ledger entry is recorded yet; the message repeats exactly that.
+        toast.success(recordOutcomeMessage(res))
         setIsModalOpen(false)
         // Reload the real history for the VIN we just wrote to.
         setVinQuery(formData.vin)
@@ -83,7 +94,7 @@ export default function ServiceLogs() {
         toast.error('The server did not confirm the log was recorded')
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add log')
+      toast.error(refusalMessage(err, 'Failed to add log'))
     } finally {
       setIsSubmitting(false)
     }

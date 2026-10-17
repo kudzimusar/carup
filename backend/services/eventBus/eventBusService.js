@@ -26,7 +26,30 @@ const DETERMINISTIC_EVENT_IDENTITY_FIELDS = Object.freeze({
   // R1 — one verification per account, so one welcome work item per account. A replayed emit
   // recovers the existing row instead of queueing a second welcome.
   'user.email.verified': ['recipientUserId'],
+  // Service Network (O4). Each of these is a ONCE-PER-CASE state transition: a case is requested
+  // once, accepted once, completed once. The identity is therefore the case itself, scoped by the
+  // event type, so `service.case.accepted` and `service.case.completed` for the same case remain
+  // distinct rows while a replay of either recovers the one that exists.
+  //
+  // A payload comparison could not do this job: eventPayload() stamps a fresh `occurredAt` on
+  // every emit, so a replayed event is never byte-identical to the original.
+  'service.case.requested': ['serviceCaseId', 'service_case_id'],
+  'service.case.accepted': ['serviceCaseId', 'service_case_id'],
+  'service.case.declined': ['serviceCaseId', 'service_case_id'],
+  'service.case.cancelled': ['serviceCaseId', 'service_case_id'],
+  'service.case.completed': ['serviceCaseId', 'service_case_id'],
+  'service.work.started': ['serviceCaseId', 'service_case_id'],
 });
+
+/** The Service Network event types registered above, for the migration-agreement test. */
+export const SERVICE_NETWORK_DEDUPED_EVENTS = Object.freeze([
+  'service.case.requested',
+  'service.case.accepted',
+  'service.case.declined',
+  'service.case.cancelled',
+  'service.case.completed',
+  'service.work.started',
+]);
 
 /**
  * The deterministic identity of an event, or null when the type has none.

@@ -1,0 +1,1324 @@
+{
+ "schema": "oc5r-pc01-j-r1-nav-before/v1",
+ "target": "https://carup-staging-oc5r-pc01-11-11.vercel.app (deploy commit d13c2e7821551e8d3adfee2930a6f312f8f9ed4b), anonymous, Chromium, desktop 1440 and phone 393, real network",
+ "summary": {
+  "rendered_items": 131,
+  "disabled": 21,
+  "destinations": 35,
+  "redirected_to_login": [
+   "/bank",
+   "/dashboard",
+   "/dealer",
+   "/government",
+   "/insurance-dash",
+   "/login",
+   "/mechanic"
+  ]
+ },
+ "items": [
+  {
+   "surface": "navbar-link",
+   "viewport": "desktop",
+   "label": "Dealers",
+   "href": "/dealers",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-link",
+   "viewport": "desktop",
+   "label": "Garages",
+   "href": "/garages",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-cta",
+   "viewport": "desktop",
+   "label": "Sign In",
+   "href": "/login",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-cta",
+   "viewport": "desktop",
+   "label": "Sell Your Car",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Shop All Cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Brand New Cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Recently Imported",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Locally Used",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Second Hand Cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Dealer Verified Cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Passport Verified Cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "SUVs SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Pickups SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Hatchbacks SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Sedans SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Toyota",
+   "href": "/marketplace?make=Toyota",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Honda",
+   "href": "/marketplace?make=Honda",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Mazda",
+   "href": "/marketplace?make=Mazda",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Under $5,000",
+   "href": "/marketplace?maxPrice=5000",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Under $10,000",
+   "href": "/marketplace?maxPrice=10000",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Verify Before You Buy",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "View Vehicle Passport",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Highest Trust Listings",
+   "href": "/marketplace?sort=trust",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "PartSentry Checked Vehicles",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "Brand New vs Imported vs Locally Used",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-buy",
+   "viewport": "desktop",
+   "label": "How to check a vehicle Passport before paying",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Sell Your Car",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Create Vehicle Passport",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Dealer Listing",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Sell as Private Owner",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Start with Plate / VIN",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Upload Vehicle Evidence",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Add Service History",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "SafePay / Reservation Ready",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Sell Car Parts SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Sell Accessories SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "Mechanic / Garage Parts Listing",
+   "href": "/garages",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "How to sell with a verified Passport",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-sell",
+   "viewport": "desktop",
+   "label": "How PartSentry protects honest sellers",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Verify by Plate",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Verify by VIN",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Verify by Chassis",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Open Vehicle Passport",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Ownership Privacy Summary",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Evidence Timeline",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "ZIMRA / Duty Signals",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "CID / Theft Signals",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Odometer / Mileage Signals",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Check Part History",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Check Repair Logs",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Check Swapped Parts",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-verify",
+   "viewport": "desktop",
+   "label": "Check Stolen/Suspicious Parts",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Browse Car Parts",
+   "href": "/marketplace/parts",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Verified Parts SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Engines SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Gearboxes SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "ECUs SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Body Panels SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Lights SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Tyres & Wheels SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Batteries SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Accessories SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Sell a Part SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "List Accessories SOON",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Garage Parts Inventory",
+   "href": "/garages",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Mechanic Parts Catalog",
+   "href": "/marketplace/parts",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Verify Part Origin",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Check Repair History",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Report Stolen Part",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Link Part to Vehicle Passport",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Mechanic Work Orders",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "How PartSentry protects parts buyers",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-mega-parts",
+   "viewport": "desktop",
+   "label": "Why verified parts matter for used cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Insurance",
+   "href": "/insurance",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Pricing",
+   "href": "/pricing",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Diaspora Trade",
+   "href": "/diaspora",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "How It Works",
+   "href": "/",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Trust & Safety",
+   "href": "/trust",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Help",
+   "href": "/help",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Contact",
+   "href": "/contact",
+   "disabled": false
+  },
+  {
+   "surface": "navbar-more",
+   "viewport": "desktop",
+   "label": "Blog",
+   "href": "/blog",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Buy Cars",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Parts Marketplace",
+   "href": "/marketplace/parts",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Garages & Services",
+   "href": "/marketplace/services",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Verify Vehicle",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Dealers",
+   "href": "/dealers",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Garages",
+   "href": "/garages",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Insurance",
+   "href": "/insurance",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Pricing",
+   "href": "/pricing",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Diaspora Trade",
+   "href": "/diaspora",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "About CarUp",
+   "href": "/about",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Contact Us",
+   "href": "/contact",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Careers",
+   "href": "/careers",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Press Kit",
+   "href": "/press",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Blog",
+   "href": "/blog",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Help Center",
+   "href": "/help",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Trust & Safety",
+   "href": "/trust",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "API Documentation",
+   "href": "/api-docs",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Car Owners",
+   "href": "/dashboard",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Dealers",
+   "href": "/dealer",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Mechanics",
+   "href": "/mechanic",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Insurance",
+   "href": "/insurance-dash",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Government",
+   "href": "/government",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Bankers",
+   "href": "/bank",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Privacy Policy",
+   "href": "/privacy",
+   "disabled": false
+  },
+  {
+   "surface": "footer",
+   "viewport": "desktop",
+   "label": "Terms of Service",
+   "href": "/terms",
+   "disabled": false
+  },
+  {
+   "surface": "footer-social",
+   "viewport": "desktop",
+   "label": "CarUp on Facebook — coming soon",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "footer-social",
+   "viewport": "desktop",
+   "label": "CarUp on X (Twitter) — coming soon",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "footer-social",
+   "viewport": "desktop",
+   "label": "CarUp on Instagram — coming soon",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "footer-social",
+   "viewport": "desktop",
+   "label": "CarUp on LinkedIn — coming soon",
+   "href": null,
+   "disabled": true
+  },
+  {
+   "surface": "mobile-bottom-bar",
+   "viewport": "phone",
+   "label": "Home",
+   "href": "/",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-bottom-bar",
+   "viewport": "phone",
+   "label": "Market",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-bottom-bar",
+   "viewport": "phone",
+   "label": "Verify",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-bottom-bar",
+   "viewport": "phone",
+   "label": "Sell",
+   "href": "/sell",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-bottom-bar",
+   "viewport": "phone",
+   "label": "Account",
+   "href": "/login",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Buy",
+   "href": "/marketplace",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Sell",
+   "href": "/register",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Verify",
+   "href": "/search",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Parts",
+   "href": "/marketplace/parts",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Dealers",
+   "href": "/dealers",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Garages & Services",
+   "href": "/marketplace/services",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Insurance",
+   "href": "/insurance",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Pricing",
+   "href": "/pricing",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Diaspora Trade",
+   "href": "/diaspora",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "How It Works",
+   "href": "/",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Trust & Safety",
+   "href": "/trust",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Help",
+   "href": "/help",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Contact",
+   "href": "/contact",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Blog",
+   "href": "/blog",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Sign In",
+   "href": "/login",
+   "disabled": false
+  },
+  {
+   "surface": "mobile-drawer",
+   "viewport": "phone",
+   "label": "Create account",
+   "href": "/register",
+   "disabled": false
+  }
+ ],
+ "destinations": {
+  "/": {
+   "status": 200,
+   "final": "/",
+   "redirectedToLogin": false,
+   "h1": "Buy. Sell. Verify. Keep the whole car journey connected.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/about": {
+   "status": 200,
+   "final": "/about",
+   "redirectedToLogin": false,
+   "h1": "Building Zimbabwe's Automotive Future",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/api-docs": {
+   "status": 200,
+   "final": "/api-docs",
+   "redirectedToLogin": false,
+   "h1": "CarUp Developer Portal",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/bank": {
+   "status": 200,
+   "final": "/login?returnTo=%2Fbank",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/blog": {
+   "status": 200,
+   "final": "/blog",
+   "redirectedToLogin": false,
+   "h1": "The CarUp Drive",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/careers": {
+   "status": 200,
+   "final": "/careers",
+   "redirectedToLogin": false,
+   "h1": "Drive the Future of Zimbabwe's Auto Tech",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/contact": {
+   "status": 200,
+   "final": "/contact",
+   "redirectedToLogin": false,
+   "h1": "Get in Touch",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/dashboard": {
+   "status": 200,
+   "final": "/login?returnTo=%2Fdashboard",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/dealer": {
+   "status": 200,
+   "final": "/login?returnTo=%2Fdealer",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/dealers": {
+   "status": 200,
+   "final": "/dealers",
+   "redirectedToLogin": false,
+   "h1": "Dealer Directory",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/diaspora": {
+   "status": 200,
+   "final": "/diaspora",
+   "redirectedToLogin": false,
+   "h1": "Diaspora Trade",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/garages": {
+   "status": 200,
+   "final": "/garages",
+   "redirectedToLogin": false,
+   "h1": "Garage Directory",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/government": {
+   "status": 200,
+   "final": "/login?returnTo=%2Fgovernment",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/help": {
+   "status": 200,
+   "final": "/help",
+   "redirectedToLogin": false,
+   "h1": "How can we help you today?",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/insurance": {
+   "status": 200,
+   "final": "/insurance",
+   "redirectedToLogin": false,
+   "h1": "Insurance Directory",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/insurance-dash": {
+   "status": 200,
+   "final": "/login?returnTo=%2Finsurance-dash",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/login": {
+   "status": 200,
+   "final": "/login",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace": {
+   "status": 200,
+   "final": "/marketplace",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace/parts": {
+   "status": 200,
+   "final": "/marketplace/parts",
+   "redirectedToLogin": false,
+   "h1": "Parts Marketplace",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace/services": {
+   "status": 200,
+   "final": "/marketplace/services",
+   "redirectedToLogin": false,
+   "h1": "Garages & Services",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace?make=Honda": {
+   "status": 200,
+   "final": "/marketplace?make=Honda",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace?make=Mazda": {
+   "status": 200,
+   "final": "/marketplace?make=Mazda",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace?make=Toyota": {
+   "status": 200,
+   "final": "/marketplace?make=Toyota",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace?maxPrice=10000": {
+   "status": 200,
+   "final": "/marketplace?maxPrice=10000",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace?maxPrice=5000": {
+   "status": 200,
+   "final": "/marketplace?maxPrice=5000",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/marketplace?sort=trust": {
+   "status": 200,
+   "final": "/marketplace?sort=trust",
+   "redirectedToLogin": false,
+   "h1": "Find the car. Know what stands behind it.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/mechanic": {
+   "status": 200,
+   "final": "/login?returnTo=%2Fmechanic",
+   "redirectedToLogin": true,
+   "h1": "Welcome Back",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/press": {
+   "status": 200,
+   "final": "/press",
+   "redirectedToLogin": false,
+   "h1": "CarUp Media Hub",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/pricing": {
+   "status": 200,
+   "final": "/pricing",
+   "redirectedToLogin": false,
+   "h1": "CarUp Plans",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/privacy": {
+   "status": 200,
+   "final": "/privacy",
+   "redirectedToLogin": false,
+   "h1": "Privacy & Data Handling",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/register": {
+   "status": 200,
+   "final": "/register",
+   "redirectedToLogin": false,
+   "h1": "Create your CarUp profile",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/search": {
+   "status": 200,
+   "final": "/search",
+   "redirectedToLogin": false,
+   "h1": "Verify before commitment. Silence is not evidence.",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/sell": {
+   "status": 200,
+   "final": "/sell",
+   "redirectedToLogin": false,
+   "h1": "Which vehicle are you selling?",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/terms": {
+   "status": 200,
+   "final": "/terms",
+   "redirectedToLogin": false,
+   "h1": "Terms of Service",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  },
+  "/trust": {
+   "status": 200,
+   "final": "/trust",
+   "redirectedToLogin": false,
+   "h1": "Buying a car with your eyes open",
+   "title": "CarUp - Zimbabwe's Automotive Intelligence Platform",
+   "notFound": false,
+   "consoleErrors": 0,
+   "api401": 0,
+   "api5xx": 0
+  }
+ }
+}

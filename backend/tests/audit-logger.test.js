@@ -108,8 +108,11 @@ test('valid user + valid (explicit) organization writes the legacy audit', async
     metadata: { token: 'secret-token', safeField: 'visible' }
   });
 
-  assert.equal(result.success, true);
-  assert.match(result.warning, /trust_audit_events failed/);
+  // OC-4A: the mirror is written, but a failed AUTHORITATIVE write is never reported as a success —
+  // required-audit callers read `success` as "the trust_audit_events trail holds this event".
+  assert.equal(result.success, false);
+  assert.equal(result.mirrored, true);
+  assert.match(result.error, /trust_audit_events failed/);
   const legacy = legacyInserts(client);
   assert.equal(legacy.length, 1);
   assert.equal(legacy[0].payload.user_id, 'u3');
@@ -123,7 +126,7 @@ test('valid user + valid (explicit) organization writes the legacy audit', async
 test('valid user with a resolvable (membership) organization writes the legacy audit', async () => {
   const client = mockClient({ failTrustInsert: true, memberships: [{ user_id: 'u3', organization_id: 'org-resolved' }] });
   const result = await logAuditEvent(client, { action: 'X', actorId: 'u3', actorRole: 'owner' }); // no explicit org
-  assert.equal(result.success, true);
+  assert.deepEqual([result.success, result.mirrored], [false, true]); // OC-4A: a mirror never makes a failed authoritative write a success
   const legacy = legacyInserts(client);
   assert.equal(legacy.length, 1);
   assert.equal(legacy[0].payload.organization_id, 'org-resolved');
@@ -205,7 +208,7 @@ test('no candidate organization uses a valid single-membership fallback', async 
   const client = mockClient({ failTrustInsert: true, memberships: [{ user_id: 'u3', organization_id: 'org-only' }] });
   const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3' }); // no org anywhere
   await tick();
-  assert.equal(result.success, true);
+  assert.deepEqual([result.success, result.mirrored], [false, true]); // OC-4A: a mirror never makes a failed authoritative write a success
   const legacy = legacyInserts(client);
   assert.equal(legacy.length, 1);
   assert.equal(legacy[0].payload.organization_id, 'org-only'); // membership fallback used
@@ -220,7 +223,7 @@ test('multi-membership user is attributed to the EXPLICIT candidate, not another
   });
   const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3', organization_id: 'org-B' });
   await tick();
-  assert.equal(result.success, true);
+  assert.deepEqual([result.success, result.mirrored], [false, true]); // OC-4A: a mirror never makes a failed authoritative write a success
   const legacy = legacyInserts(client);
   assert.equal(legacy.length, 1);
   assert.equal(legacy[0].payload.organization_id, 'org-B'); // exact explicit org, never org-A

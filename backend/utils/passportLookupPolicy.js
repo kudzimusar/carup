@@ -33,13 +33,29 @@ const VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/i;
 export const LOOKUP_KINDS = Object.freeze({
   VIN: 'vin',
   RESTRICTED: 'restricted',
+  /**
+   * Service Network (O6): a single-use-ish `service_links.public_token` printed on a windscreen
+   * sticker or job card. Unlike a plate, this identifier is not an attribute of the vehicle — it is
+   * an opaque random token CarUp itself issued, so possessing it is the only way to know it. It
+   * therefore carries no enumeration risk: guessing one reveals nothing, because there is nothing
+   * to correlate it against.
+   */
+  SERVICE_LINK: 'service_link',
 });
 
 /**
- * Identifier kinds an anonymous caller may resolve. Deliberately a list of ONE — a new public
- * kind has to be added here, in the open, rather than by loosening a condition somewhere.
+ * Identifier kinds an anonymous caller may resolve. A new public kind has to be added HERE, in the
+ * open, rather than by loosening a condition somewhere.
+ *
+ * SERVICE_LINK was added by O6. It was already anonymously resolvable through
+ * `GET /api/service-links/:publicToken`, which is deliberate — scanning a sticker must not demand a
+ * login — but that route never consulted this policy, so CarUp had a second public lookup surface
+ * that this list did not know about. The point of the list is that it is the whole answer to "what
+ * can a stranger resolve?", and it was not. Registering it does not widen anything; it makes the
+ * existing surface visible, and `resolveServiceLink` now asks this module for permission, so
+ * removing the entry genuinely closes the route rather than merely contradicting it.
  */
-export const PUBLIC_LOOKUP_KINDS = Object.freeze([LOOKUP_KINDS.VIN]);
+export const PUBLIC_LOOKUP_KINDS = Object.freeze([LOOKUP_KINDS.VIN, LOOKUP_KINDS.SERVICE_LINK]);
 
 export const LOOKUP_DECISIONS = Object.freeze({
   ALLOW: 'allow',
@@ -55,7 +71,7 @@ export const LOOKUP_DECISIONS = Object.freeze({
 export const NON_ENUMERABLE_LOOKUP_RESPONSE = Object.freeze({
   status: 401,
   body: Object.freeze({
-    error: 'Sign in to look up a vehicle by plate or temporary identifier. Exact VIN lookup is open to everyone.',
+    error: 'Sign in to look up a vehicle by plate, chassis or frame number, or temporary identifier. Exact VIN lookup is open to everyone.',
     code: 'LOOKUP_REQUIRES_AUTHENTICATION',
   }),
 });
@@ -102,7 +118,7 @@ export function isVerifiedActor(actor) {
  *                                     Always false today; see resolveSellerLookupOptIn.
  */
 export function resolveLookupAccess({ kind, actor, sellerOptIn = false }) {
-  if (kind !== LOOKUP_KINDS.VIN && kind !== LOOKUP_KINDS.RESTRICTED) {
+  if (!Object.values(LOOKUP_KINDS).includes(kind)) {
     return { decision: LOOKUP_DECISIONS.INVALID, kind };
   }
 
@@ -119,6 +135,40 @@ export function resolveLookupAccess({ kind, actor, sellerOptIn = false }) {
   }
 
   return { decision: LOOKUP_DECISIONS.REQUIRE_AUTHENTICATION, kind, reason: 'restricted_kind' };
+}
+
+/**
+ * The per-key passport route (`GET /api/vehicles/:vin/passport`) — PC01-J-R1.
+ *
+ * That route never consulted this policy. A vehicle's key is not always a VIN: seller intake stores
+ * a documented Japanese frame number as `vehicles.vin` (the real UAT vehicle GFC27-027051), so the
+ * route answered an anonymous caller with the full passport of an UNPUBLISHED vehicle for exactly
+ * the identifier the lookup route refuses. Measured on staging on 2026-10-10: lookup 401, per-key
+ * passport 200, public listing 404.
+ *
+ * The same decision now governs both routes, with one addition that widens nothing: a restricted-
+ * class key resolves anonymously when its vehicle is PUBLICLY LISTED. Publishing a listing publishes
+ * its key — it is the listing's own URL — so this exposes nothing a buyer cannot already see, and it
+ * keeps a published import's passport readable on its public listing. Unpublished and nonexistent
+ * keys alike receive NON_ENUMERABLE_LOOKUP_RESPONSE, and the caller must treat a failed listing read
+ * as "not listed", so every uncertainty refuses.
+ *
+ * @param {object} args
+ * @param {string} args.key                 the route's `:vin` parameter
+ * @param {object|null} args.actor          req.userContext, or null when anonymous
+ * @param {boolean} [args.publiclyListed]   true only when the vehicle with this key is publicly listed
+ */
+export function resolvePassportKeyAccess({ key, actor, publiclyListed = false }) {
+  const classified = classifyLookupIdentifier(key);
+  // A key this module cannot classify cannot be a vehicle key either (every stored key is
+  // [A-Z0-9-]); letting it through resolves nothing and keeps the route's existing 404.
+  if (!classified) return { decision: LOOKUP_DECISIONS.ALLOW, kind: null, reason: 'unclassifiable_key' };
+  const access = resolveLookupAccess({ kind: classified.kind, actor });
+  if (access.decision === LOOKUP_DECISIONS.ALLOW) return access;
+  if (publiclyListed === true) {
+    return { decision: LOOKUP_DECISIONS.ALLOW, kind: classified.kind, reason: 'publicly_listed' };
+  }
+  return access;
 }
 
 /**

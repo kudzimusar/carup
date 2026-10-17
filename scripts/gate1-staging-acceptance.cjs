@@ -136,6 +136,16 @@ async function scenario2() {
   const sid = results.sessionIds[0];
   if (!sid) { assert('2. Resubmission', false, 'No session from scenario 1'); return; }
 
+  // OC-5C (O2-X3): the identity decision is step-up gated. The admin re-proves their password on
+  // THIS session first (GATE1_ADMIN_PASSWORD, never committed); without it the decision is refused
+  // with STEP_UP_REQUIRED and 2a records that refusal truthfully instead of a pass.
+  const adminPassword = process.env.GATE1_ADMIN_PASSWORD;
+  if (adminPassword) {
+    const stepUp = await api('/api/auth/step-up', { method: 'POST', ...withToken(ADMIN_TOKEN), body: { password: adminPassword } });
+    assert('2-pre. Admin step-up', stepUp.ok, `status=${stepUp.status}`);
+  } else {
+    results.limitations.push('GATE1_ADMIN_PASSWORD not set: the step-up-gated review is expected to answer STEP_UP_REQUIRED.');
+  }
   const rv = await api(`/api/admin/identity/verification-sessions/${sid}/review`, {
     method: 'POST', ...withToken(ADMIN_TOKEN), body: {
       action: 'request_resubmission', reasonCode: 'DOCUMENT_NOT_VISIBLE',

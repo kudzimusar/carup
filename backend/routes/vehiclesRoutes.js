@@ -1,6 +1,10 @@
 import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
+import { resolveSessionByToken } from '../services/auth/sessionAuthority.js';
+import { readAllPages } from '../services/intelligence/rollupService.js';
+import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
+import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
 // ONE public-evidence authority. #175 shipped a deliberately self-contained
@@ -12,6 +16,8 @@ import { logAuditEvent } from '../services/auditLogger.js';
 // `isPrivateEvidenceFallbackAllowed` (not the looser `isUserIdFallbackAllowed`) is retained: an
 // environment inference must not authorise a private-document capability.
 import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../middleware/authMiddleware.js';
+import { requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.js';
 import {
   toPublicEvidence,
   toPublicTimelineEvent,
@@ -28,6 +34,9 @@ import {
   evidenceToTimelineItem,
   evidenceTypeLabel,
   isDocumentUpload,
+  isPrivateByTypeUpload,
+  evidenceStorageBucket,
+  PRIVATE_EVIDENCE_BUCKET,
   resolveEvidenceVisibility,
   isSupportedMimeType,
   normalizeEvidenceRecord,
@@ -56,7 +65,15 @@ import {
   correctEvidenceClassification,
   ClassificationCorrectionError,
 } from '../services/evidence/evidenceClassificationCorrectionService.js';
-import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import {
+  withUploadIdempotency,
+  normalizeIdempotencyKey,
+  assertLocatorConsistency,
+  deriveRemoteReference,
+  insertEvidenceWithKey,
+  CHECKSUM_SOURCES,
+} from '../services/evidence/uploadIdempotency.js';
+import { hasGovernedDealerVehicleAuthority } from '../services/dealer/dealerListingAuthority.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import {
   OPERATIONS_CAPABILITIES,
@@ -130,7 +147,11 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    // L-2 (OC-4D port of #208) — raw tenant equality is NOT selling authority. Consulted only after
+    // owner and current-seller have failed, so the seller's own hot path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
@@ -198,7 +219,11 @@ async function loadScopedVehicle(req, vin) {
   if (req.userContext.role !== 'admin') {
     const isOwner = vehicle.owner_id === req.userContext.id;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === req.userContext.id;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    // L-2 (OC-4D port of #208) — raw tenant equality is NOT selling authority. Consulted only after
+    // owner and current-seller have failed, so the seller's own hot path adds no query.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
     }
@@ -463,10 +488,16 @@ router.get('/api/vehicles/:vin/seller-authority', authorizeRole(), asyncHandler(
   }
 
   try {
+    // L-2 — whether the actor's TENANT counts as their seller relationship is a governed
+    // dealership question, resolved here and passed down rather than re-derived from raw equality.
+    const dealerTenantAuthorized = sellerUserId === req.userContext.id
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, { tenant_id: req.userContext.tenantId })
+      : false;
     const state = await getSellerAuthorityState(supabase, {
       vin,
       sellerUserId,
       sellerTenantId: sellerUserId === req.userContext.id ? (req.userContext.tenantId || null) : null,
+      dealerTenantAuthorized,
     });
     return res.json({
       success: true,
@@ -498,6 +529,9 @@ router.post(
   '/api/vehicles/:vin/seller-authority/review',
   authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
   requireOperationsCapability(OPERATIONS_CAPABILITIES.SELLER_AUTHORITY_REVIEW),
+  // O2-X3: an authority-changing reviewer decision — recent step-up required on top of the
+  // capability; neither substitutes for the other.
+  requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
   asyncHandler(async (req, res) => {
   const vin = String(req.params.vin || '').trim().toUpperCase();
   const sellerUserId = String(req.body?.seller_user_id || '').trim();
@@ -567,13 +601,17 @@ async function loadVehicleForEvidence(vin) {
   return vehicle;
 }
 
-function assertEvidenceOwnershipScope(vehicle, userContext) {
+async function assertEvidenceOwnershipScope(vehicle, userContext) {
   const activeRole = userContext.role;
   if (activeRole === 'admin' || activeRole === 'government') return;
 
   const isOwner = vehicle.owner_id === userContext.id;
   const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === userContext.id;
-  const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === userContext.tenantId;
+  // L-2 — evidence ownership scope is a SELLER-owner question, so tenant membership alone does not
+  // answer it. The canonical uploader-role policy still applies on top: this composes with it.
+  const isDealerTenant = (!isOwner && !isCurrentSeller)
+    ? await hasGovernedDealerVehicleAuthority(supabase, userContext, vehicle)
+    : false;
   if (!isOwner && !isCurrentSeller && !isDealerTenant) {
     throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.');
   }
@@ -609,7 +647,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   }
 
   try {
-    assertEvidenceOwnershipScope(vehicle, req.userContext);
+    await assertEvidenceOwnershipScope(vehicle, req.userContext);
   } catch (scopeError) {
     // A claimant may contribute ONLY documents that can prove seller authority:
     // ownership/registration documents or the permanent-import purchase chain
@@ -660,10 +698,16 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   // else is clamped back to the default rather than refused, because the artifact itself is
   // legitimate and losing the upload would punish the seller for a client's choice; the refusal is
   // recorded on the row instead, so it is visible to review rather than silent.
+  //
+  // OC-5R-REL-01: an odometer photo is PRIVATE BY TYPE. The mobile client asks for 'private', but a
+  // client request is not a control — the server derives it here, and below it pins the private
+  // bucket for the bytes and refuses any locator that would point the row at a public object.
+  const privateByType = isPrivateByTypeUpload(normalized);
   const { visibility: visibilityLevel, refused: visibilityRefused } = resolveEvidenceVisibility({
     requested: requestedVisibility,
     isDocument: isDocumentUpload(normalized),
     mayPublish: hasOperationsCapability(req.userContext, OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW),
+    privateByType,
   });
 
   let mimeType = req.body.mime_type || req.body.mimeType || null;
@@ -673,6 +717,10 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   let fileSize = Number(req.body.file_size || req.body.fileSize || 0);
   let checksum = req.body.checksum || req.body.image_hash || req.body.imageHash || null;
   let bucketName = req.body.storage_bucket || req.body.storageBucket || null;
+
+  // O2-X5A (OC-5C): a remote submission naming two locators that disagree is refused — the server
+  // cannot answer truthfully which object it is (and identity below would silently pick one).
+  if (!req.body.file) assertLocatorConsistency({ file_url: fileUrl, file_path: filePath });
 
   if (req.body.file) {
     let parsed;
@@ -690,8 +738,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     const randomString = crypto.randomBytes(6).toString('hex');
     filePath = `${vin.toUpperCase()}/${normalized.evidenceType}_${randomString}.${fileExt}`;
 
-    const isPrivate = ['private', 'restricted', 'government_only'].includes(visibilityLevel);
-    bucketName = (isDocumentUpload(normalized) || isPrivate) ? 'ocr-documents' : 'vehicle-images';
+    bucketName = evidenceStorageBucket({ isDocument: isDocumentUpload(normalized), privateByType, visibility: visibilityLevel });
     const uploadResult = await uploadToStorage(bucketName, filePath, fileBuffer, mimeType);
     fileUrl = uploadResult;
   } else if (!isSupportedMimeType(mimeType)) {
@@ -745,13 +792,20 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     }
   }
 
+  // OC-5R-REL-01: a remote create of a PRIVATE-BY-TYPE artifact must reference an object the server
+  // can show is private — a storage-relative path in the private bucket. An absolute URL (a public
+  // image link, or one minted by the public media upload) and an unnamed bucket are refused: the
+  // server cannot keep an odometer photo private if the row only points at someone else's copy.
+  if (privateByType && !req.body.file && (!looksLikeStoragePath || bucketName !== PRIVATE_EVIDENCE_BUCKET)) {
+    throw new ValidationError(
+      `an odometer photo is private evidence: upload the image itself, or reference a private object in "${PRIVATE_EVIDENCE_BUCKET}" under this vehicle`,
+    );
+  }
+
   // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
   // is what turns a public-image create into a private-document reference the read path will sign.
   if (bucketName) {
-    const expectedBucket = (isDocumentUpload(normalized)
-      || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
-      ? 'ocr-documents'
-      : 'vehicle-images';
+    const expectedBucket = evidenceStorageBucket({ isDocument: isDocumentUpload(normalized), privateByType, visibility: visibilityLevel });
     if (bucketName !== expectedBucket) {
       throw new ValidationError(
         `storage_bucket "${bucketName}" does not match this evidence type and visibility (expected "${expectedBucket}")`,
@@ -770,11 +824,15 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   });
 
   // WS-G: stamp the client idempotency key so a retried offline upload (same key) is
-  // deduped after an app restart via the Supabase-metadata fallback. Accept it from the
-  // standard header conventions OR the body, so any client convention dedupes correctly.
-  const clientIdempotencyKey =
-    req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
-    req.body.idempotency_key || req.body.idempotencyKey || null;
+  // deduped after an app restart. Accept it from the standard header conventions OR the body.
+  // O2-X5A (OC-5C): the key is validated (an opaque printable token) and the metadata mirror is
+  // SERVER-OWNED — a client-supplied `metadata.idempotency_key` is always replaced or removed, so no
+  // row can carry a key its uploader did not send through this channel.
+  const clientIdempotencyKey = normalizeIdempotencyKey(
+    req.headers['idempotency-key'] || req.headers['x-idempotency-key']
+    || req.body.idempotency_key || req.body.idempotencyKey || null,
+  );
+  delete metadata.idempotency_key;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
 
   // A clamped publication request is recorded, never silently dropped: review needs to see that an
@@ -784,7 +842,9 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     metadata.visibility_request_refused = {
       requested: requestedVisibility,
       applied: visibilityLevel,
-      reason: 'publishing a source document is a governed decision; uploader lacks evidence review capability',
+      reason: privateByType
+        ? 'an odometer photo is private evidence by type; the server stores it privately whatever is requested'
+        : 'publishing a source document is a governed decision; uploader lacks evidence review capability',
     };
   }
 
@@ -819,7 +879,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     event_type: normalized.eventType || req.body.event_source || req.body.eventSource || normalized.evidenceType,
     evidence_type: normalized.evidenceType,
     file_url: fileUrl,
-    storage_bucket: bucketName || (isDocumentUpload(normalized) ? 'ocr-documents' : 'vehicle-images'),
+    storage_bucket: bucketName || ((isDocumentUpload(normalized) || privateByType) ? 'ocr-documents' : 'vehicle-images'),
     file_path: filePath || fileUrl,
     mime_type: mimeType,
     file_size: fileSize,
@@ -839,18 +899,27 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     metadata
   };
 
-  // WS-G: server-side upload idempotency. The same idempotency key never creates a
-  // duplicate evidence row or provenance event; a retry returns the original.
+  // WS-G: server-side upload idempotency. The same idempotency key never creates a duplicate evidence
+  // row or provenance event; a retry returns the original.
+  //
+  // O2-X5A (OC-5C): the key is scoped to the ACTOR and bound to the vehicle and the operation (RC1
+  // handed a second user who reused a key the FIRST user's evidence row). The operation identity is
+  // the canonical columns this route writes; whether its checksum is server-computed is decided from
+  // THIS request (inline bytes) and never read back from a stored row.
+  const operation = {
+    evidence_class: insertData.evidence_class ?? null,
+    evidence_subtype: insertData.evidence_subtype ?? null,
+    evidence_type: insertData.evidence_type ?? null,
+    checksum: checksum ?? null,
+    checksum_source: fileBuffer ? CHECKSUM_SOURCES.SERVER_INLINE : CHECKSUM_SOURCES.CLIENT_ASSERTED,
+    remote_ref: deriveRemoteReference({ storage_bucket: insertData.storage_bucket, file_path: insertData.file_path, file_url: insertData.file_url }),
+  };
   const { evidenceId, deduped } = await withUploadIdempotency(
     clientIdempotencyKey,
     vin,
     async () => {
-      const { data: inserted, error: insertError } = await supabase
-        .from('vehicle_evidence')
-        .insert(insertData)
-        .select('*')
-        .single();
-      if (insertError) throw new DatabaseError(insertError.message);
+      // The canonical key column where it exists, the pre-migration row otherwise; native error kept.
+      const inserted = await insertEvidenceWithKey(supabase, insertData, clientIdempotencyKey);
 
       // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).
       await recordEvidenceUploadProvenance(supabase, { evidence: inserted, req, eventType: 'uploaded' });
@@ -861,10 +930,11 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
       });
       return inserted;
     },
-    { supabase },
+    { supabase, actorId: activeUserId, operation },
   );
 
-  const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).single();
+  // Read back THIS actor's row only (defence in depth: the scoped lookup already guarantees it).
+  const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).eq('uploaded_by', activeUserId).single();
   return normalizeEvidenceRecord(record || { id: evidenceId, vin, _deduped: deduped });
 }
 
@@ -926,11 +996,7 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
   let activeTenantIds = [];
 
   if (sessionToken) {
-    const { data: session } = await supabase
-      .from('user_sessions')
-      .select('user_id, is_valid, expires_at')
-      .eq('token', sessionToken)
-      .single();
+    const session = await resolveSessionByToken(supabase, sessionToken);
     if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
       activeUserId = session.user_id;
     }
@@ -974,7 +1040,10 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     (activeUserId && activeUserId === vehicle.owner_id) ||
     // `Boolean(vehicle.tenant_id && ...)` so a NULL-tenant vehicle cannot be unlocked by a caller
     // who also has no tenant: `null === null` would otherwise authorize everyone.
-    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id));
+    Boolean(vehicle.tenant_id && activeTenantIds.includes(vehicle.tenant_id)
+      // L-2 — a membership in the vehicle's organisation is not seller authority over its PRIVATE
+      // evidence; only a governed dealership relationship is.
+      && await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle));
 
   let query = supabase
     .from('vehicle_evidence')
@@ -1032,8 +1101,12 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     // Sanitize AI analysis for non-admin roles
     if (!hasAdminAccess) {
       if (enriched.metadata && enriched.metadata.ai_analysis) {
-        if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
-          enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
+        // OC-3B: the same validated source as the public projection — never the raw analysis
+        // field, which a simulator used to fill with "AI analysis: image verified clean."
+        if (enriched.verification_status === 'verified' && aiSummary) {
+          enriched.metadata.ai_public_summary = aiSummary;
+        } else {
+          delete enriched.metadata.ai_public_summary;
         }
         delete enriched.metadata.ai_analysis;
       }
@@ -1123,29 +1196,60 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
   if (!verificationStatuses.includes(status)) {
     throw new ValidationError(`Invalid verification status: ${status}`);
   }
+  // PC01-K2B: `paged=1` is the truthful queue — every matching row is read, classified by the
+  // provenance authority, and returned as an explicit page with its total, so "the first 100 rows"
+  // can no longer pass for "all evidence". The bare array form is kept for existing callers.
+  const paged = String(req.query.paged || '') === '1';
 
-  let query = supabase
-    .from('vehicle_evidence')
-    .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
-    .eq('verification_status', status)
-    .order('uploaded_at', { ascending: false })
-    .limit(100);
-
-  // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
-  // only admin and government review globally; a dealer/mechanic session with
-  // no tenant context gets nothing (previously, omitting the tenant header
-  // skipped the filter entirely and exposed every tenant's pending evidence).
-  if (['dealer', 'mechanic'].includes(req.userContext.role)) {
-    if (!req.userContext.tenantId) {
-      return res.json([]);
+  const buildQuery = () => {
+    let query = supabase
+      .from('vehicle_evidence')
+      .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
+      .eq('verification_status', status)
+      .order('uploaded_at', { ascending: false });
+    // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
+    // only admin and government review globally; a dealer/mechanic session with
+    // no tenant context gets nothing (previously, omitting the tenant header
+    // skipped the filter entirely and exposed every tenant's pending evidence).
+    if (['dealer', 'mechanic'].includes(req.userContext.role)) {
+      query = query.eq('tenant_id', req.userContext.tenantId);
     }
-    query = query.eq('tenant_id', req.userContext.tenantId);
+    return query;
+  };
+  const tenantBlocked = ['dealer', 'mechanic'].includes(req.userContext.role) && !req.userContext.tenantId;
+
+  if (!paged) {
+    if (tenantBlocked) return res.json([]);
+    const { data, error } = await buildQuery().limit(100);
+    if (error) throw new DatabaseError(error.message);
+    return res.json((data || []).map(normalizeEvidenceRecord));
   }
 
-  const { data, error } = await query;
-  if (error) throw new DatabaseError(error.message);
-
-  res.json((data || []).map(normalizeEvidenceRecord));
+  const pageSize = Math.min(Math.max(Number.parseInt(req.query.page_size, 10) || 50, 1), 100);
+  const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+  let rows = [];
+  if (!tenantBlocked) {
+    try {
+      rows = await readAllPages(buildQuery);
+    } catch (error) {
+      throw new DatabaseError(error.message);
+    }
+  }
+  const index = await loadProvenanceIndex(supabase, { vins: rows.map((r) => r.vin) });
+  const classified = rows.map((row) => ({ row, provenance: index.vehicle(row.vin) || { class: 'unknown_requires_review', operational: false } }));
+  const showAll = req.query.view === 'all';
+  const visible = classified
+    .filter((c) => showAll || c.provenance.operational)
+    .map((c) => (showAll ? { ...normalizeEvidenceRecord(c.row), provenance_class: c.provenance.class } : normalizeEvidenceRecord(c.row)));
+  const offset = (page - 1) * pageSize;
+  res.json({
+    items: visible.slice(offset, offset + pageSize),
+    page,
+    page_size: pageSize,
+    total: visible.length,
+    has_more: offset + pageSize < visible.length,
+    provenance: { ...summarizeProvenance(classified.map((c) => c.provenance)), view: showAll ? 'all_records' : 'operational_only' },
+  });
 }));
 
 // PATCH: Verify Evidence
@@ -1422,7 +1526,11 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/link-event', authorizeRole
   if (activeRole !== 'admin' && activeRole !== 'government') {
     const isOwner = vehicle.owner_id === activeUserId;
     const isCurrentSeller = vehicle.current_seller_id && vehicle.current_seller_id === activeUserId;
-    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === activeTenantId;
+    // M3 — the L-2 defect in another spelling: the tenant arrived through a local alias, so raw
+    // membership still linked evidence. Same governed primitive, same ordering.
+    const isDealerTenant = (!isOwner && !isCurrentSeller)
+      ? await hasGovernedDealerVehicleAuthority(supabase, req.userContext, vehicle)
+      : false;
     if (!isOwner && !isCurrentSeller && !isDealerTenant) {
       throw new ForbiddenError('Forbidden. You do not have owner, current-seller, or organizational scope to link evidence.');
     }

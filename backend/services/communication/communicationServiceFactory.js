@@ -1,5 +1,6 @@
 import { CommunicationRepository } from './communicationRepository.js';
 import { CommunicationIdentityService } from './communicationIdentityService.js';
+import { CommunicationPushDeviceService } from './communicationPushDeviceService.js';
 import { CommunicationThreadService } from './communicationThreadService.js';
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationGovernedTemplateService } from './communicationGovernedTemplateService.js';
@@ -154,6 +155,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     // The canonical outbox writer, so the durability reconciler and the auth route share one emitter.
     emitEvent: emitDomainEvent,
     identityService,
+    pushDeviceService: new CommunicationPushDeviceService({ repository: repo, identityService }),
     threadService,
     preferenceService,
     templateService,

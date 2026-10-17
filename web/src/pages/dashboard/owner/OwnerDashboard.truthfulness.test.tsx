@@ -189,10 +189,18 @@ describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () =>
     await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
     expect(runOcrParsing).not.toHaveBeenCalled()
 
-    // The control is disabled, so a click cannot start a document operation without a real file.
-    const button = screen.getByTestId('ocr-upload-btn') as HTMLButtonElement
-    expect(button.disabled).toBe(true)
-    await act(async () => { fireEvent.click(button) })
+    // The control used to be permanently disabled, which guaranteed truthfulness by making the
+    // dashboard do nothing at all. Owner UAT called that out: a dead, unexplained control was the
+    // page's only action. It now routes to the Evidence Vault, where uploading genuinely works.
+    //
+    // The property this test exists for is unchanged and is what is asserted: this dashboard never
+    // starts a document operation and never claims one happened. It now sends the owner somewhere
+    // real instead of pretending — the honest alternative to a disabled button is a true
+    // destination, not a simulated upload.
+    const control = screen.getByTestId('ocr-upload-btn')
+    expect(control.closest('a')?.getAttribute('href') ?? control.getAttribute('href'))
+      .toBe('/dashboard/evidence')
+    await act(async () => { fireEvent.click(control) })
 
     expect(runOcrParsing).not.toHaveBeenCalled()
   })

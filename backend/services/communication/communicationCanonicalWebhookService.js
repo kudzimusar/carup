@@ -73,11 +73,16 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
       };
     }
 
+    // OC-5R-PROV-01 G4: a receipt changes CarUp state ONLY through the delivery attempt it
+    // resolves to. A notification or message id carried in the request (tags, custom args,
+    // headers) may narrow that match — resolveDeliveryAttempt filters on it — but never stands in
+    // for one. Before this, a verified webhook naming any notification_id with no matching attempt
+    // marked that notification 'delivered': one provider's receipt could rewrite another's message.
     const attempt = resolved.attempt;
-    const notificationId = receipt.notificationId || attempt?.notification_id || null;
-    const messageId = receipt.messageId || attempt?.message_id || null;
+    const notificationId = attempt?.notification_id || null;
+    const messageId = attempt?.message_id || null;
 
-    if (!attempt && !receipt.notificationId && !receipt.messageId) {
+    if (!attempt) {
       await logCommunicationAuditEvent(this.repository, {
         event_type: COMMUNICATION_AUDIT_EVENTS.DELIVERY_RECEIPT,
         actor_type: 'system',
@@ -89,6 +94,9 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
           raw_status: receipt.rawStatus || null,
           provider: receipt.provider || null,
           attribution: 'unmatched',
+          // What the request CLAIMED, kept for diagnosis — never acted on.
+          claimed_notification_id: receipt.notificationId || null,
+          claimed_message_id: receipt.messageId || null,
         },
       });
       return {

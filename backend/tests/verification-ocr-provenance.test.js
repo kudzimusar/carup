@@ -31,13 +31,14 @@ class MockQuery {
   }
   select() { return this; }
   eq(key, value) { this.filters.push({ key, value }); return this; }
+  in(key, values) { this.filters.push({ key, value: values, op: 'in' }); return this; }
   insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
   update(payload) { this.operation = 'update'; this.payload = payload; return this; }
   maybeSingle() { return this.execute({ single: true, maybe: true }); }
   single() { return this.execute({ single: true, maybe: false }); }
   then(resolve, reject) { return this.execute({ single: false, maybe: false }).then(resolve, reject); }
   rows() { return (this.client.data[this.table] ||= []); }
-  matches(row) { return this.filters.every((f) => row[f.key] === f.value); }
+  matches(row) { return this.filters.every((f) => (f.op === 'in' ? f.value.includes(row[f.key]) : row[f.key] === f.value)); }
 
   async execute({ single, maybe }) {
     // Simulate the provenance table NOT existing (pre-migration) when asked.
@@ -81,7 +82,6 @@ function createMockClient() {
 }
 
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
-const image = 'data:image/jpeg;base64,' + Buffer.from('seed').toString('base64');
 
 let __imgSeq = 0;
 function validImage() {
@@ -89,6 +89,8 @@ function validImage() {
   buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff;
   return buf;
 }
+// Uploads are validated at the door (PC01-F F3): the upload fixture is a real JPEG, not arbitrary text.
+const image = 'data:image/jpeg;base64,' + validImage().toString('base64');
 
 async function uploadedSession(client) {
   const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });

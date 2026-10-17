@@ -4,19 +4,12 @@ import { resolvePostLoginRoute } from '@/lib/returnTo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import { Car, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { LoginErrorAlert } from './LoginErrorAlert'
 import { classifyLoginStatus, loginError, type LoginErrorState } from './loginError'
-
-const DEMO_USERS = {
-  owner: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', role: 'owner' as const },
-  dealer: { id: 'u3', name: 'Croco Motors', email: 'dealer@crocomoto.co.zw', phone: '+263 772 100 200', role: 'dealer' as const },
-  mechanic: { id: 'u2', name: 'Simba Mechanic', email: 'simba@garage.co.zw', phone: '+263 775 200 300', role: 'mechanic' as const },
-}
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -89,47 +82,12 @@ export default function Login() {
     }
   }
 
-  const handleDemoLogin = async (userKey: keyof typeof DEMO_USERS) => {
-    const demoUser = DEMO_USERS[userKey]
-    setFormError(null)
-    setLoading(true)
-    try {
-      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
-        method: 'GET',
-        credentials: 'include'
-      })
-      const csrfData = await csrfRes.json()
-      const csrfToken = csrfData.csrfToken
-
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken
-        },
-        credentials: 'include',
-        body: JSON.stringify({ email: demoUser.email, password: 'password123' }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        login(data.user, data.token)
-        toast.success(`Logged in as ${data.user.name}`)
-        navigate(resolvePostLoginRoute(returnTo, data.user.role))
-      } else {
-        setFormError(loginError(classifyLoginStatus(res.status)))
-      }
-    } catch {
-      setFormError(loginError('backend_unavailable'))
-    } finally {
-      setLoading(false)
-    }
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-6">
+          <Link to="/" className="inline-flex min-h-11 items-center gap-2 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
               <Car className="w-6 h-6 text-white" />
             </div>
@@ -150,7 +108,7 @@ export default function Login() {
                 <Input
                   value={form.email}
                   onChange={e => setForm({ ...form, email: e.target.value })}
-                  placeholder="tendai@email.co.zw or +263..."
+                  placeholder="you@example.co.zw or +263..."
                   className={errors.email ? 'border-red-400' : ''}
                   data-testid="email-input"
                   aria-label="Email or Phone"
@@ -178,7 +136,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center text-gray-400"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -190,33 +148,16 @@ export default function Login() {
                   </p>
                 )}
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="rounded" /> Remember me
-                </label>
-                <Link to="/auth/forgot-password" className="text-orange-600 hover:underline">Forgot password?</Link>
+              {/* PC01-J-R1: a "Remember me" checkbox stood here, bound to nothing — a control that did nothing. */}
+              <div className="flex items-center justify-end text-sm">
+                <Link to="/auth/forgot-password" className="inline-flex min-h-11 items-center text-orange-600 hover:underline">Forgot password?</Link>
               </div>
               <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading} data-testid="login-button">
                 {loading ? 'Signing in...' : 'Sign In'} <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </form>
 
-            <Separator className="my-6" />
 
-            <p className="text-xs text-gray-400 text-center mb-3 font-medium uppercase tracking-wider">Quick Demo Access</p>
-            <div className="space-y-2">
-              <Button variant="outline" className="w-full justify-start gap-2 text-sm" onClick={() => handleDemoLogin('owner')}>
-                <Car className="w-4 h-4 text-orange-500" /> Browse as Buyer (Tendai Moyo)
-              </Button>
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => handleDemoLogin('dealer')}>
-                  Demo: Dealer
-                </Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => handleDemoLogin('mechanic')}>
-                  Demo: Mechanic
-                </Button>
-              </div>
-            </div>
 
             <p className="text-center text-sm text-gray-500 mt-6">
               Don't have an account?{' '}

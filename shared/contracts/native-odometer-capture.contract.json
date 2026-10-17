@@ -1,0 +1,21 @@
+{
+  "$comment": "OC-4C: the native garage odometer capture contract. Pinned on BOTH sides of the wire — mobile/tests/garage-odometer-ocr.test.ts and backend/tests/oc4c-native-odometer-ocr.test.js read this file — so the client and the server cannot drift apart again (the offline queue used to send base64Data + evidence_type 'odometer_reading', which the server never accepted).",
+  "nativeEvidenceType": "odometer_reading",
+  "upload": {
+    "method": "POST",
+    "path": "/api/vehicles/:vin/evidence/upload",
+    "idempotencyHeader": "Idempotency-Key",
+    "fileField": "file",
+    "body": {
+      "evidence_class": "current_condition",
+      "evidence_subtype": "odometer",
+      "visibility_level": "private"
+    }
+  },
+  "ocr": {
+    "method": "POST",
+    "path": "/api/vehicles/:vin/evidence/:evidenceId/run-ocr",
+    "candidateStatus": "candidate_pending_review"
+  },
+  "retiredRoute": "/api/ai/ocr"
+}

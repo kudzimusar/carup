@@ -114,6 +114,28 @@ export default function MechanicDashboard() {
         </Button>
       </div>
 
+      {/* R6 — this dashboard reads the LEGACY work-order ledger only. Service requests that
+          customers send through CarUp become Service Cases in a different, canonical ledger, and
+          nothing here mentioned them: a mechanic could sit on this page while real jobs waited.
+          The two are not merged — that would fabricate a relationship between two ledgers — but the
+          page now says the other one exists and where it is. */}
+      <Card className="border-0 card-shadow bg-orange-50">
+        <CardContent className="p-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-semibold text-gray-900">Service requests from CarUp customers</p>
+            <p className="text-sm text-gray-600 mt-0.5">
+              Requests customers send to your garage are handled in the Workshop, separately from the
+              work orders below.
+            </p>
+          </div>
+          <Link to="/garage">
+            <Button variant="outline" className="min-h-11" data-testid="mechanic-open-workshop">
+              Open the Workshop
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
       {/* Governed practitioner intelligence (I9). PERSON scope: this mechanic's
           own work, never the garage's — the component states which on screen. */}
       <ServiceIntelligence scope="mechanic" />

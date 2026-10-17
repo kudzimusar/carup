@@ -21,7 +21,9 @@ import { evaluateCompleteness } from '../evidence/completenessEvaluator.js';
 import { getCoverage } from '../sourceVerification/sourceVerificationService.js';
 import { evaluateZimbabweRegistrationReadiness } from '../registration/zimbabweRegistrationLifecycle.js';
 
-export const CALCULATION_VERSION = 'trust-decision-1.0.0';
+import { CALCULATION_VERSION } from './calculationVersion.js';
+
+export { CALCULATION_VERSION };
 
 const PUBLIC = 'public';
 const PRIVATE = 'private';
@@ -61,20 +63,37 @@ function identityDimension(vehicle, sourceConflicts) {
     { rest: { present, missing } });
 }
 
+/**
+ * The authority contract for source coverage. A CONNECTED source is authenticated authority
+ * evidence: an approved live provider transport returned the verdict (`mode='live'`). That is
+ * the only coverage that may satisfy "connected authoritative source" — the score credit, the
+ * connected-source count, confidence, CarUp Gold and the eligibility source floor all read it.
+ *
+ * REVIEWED evidence — an approved partner-file import, an authorized CarUp manual review — is
+ * legitimate and keeps its provenance, but nothing authenticated it against the authority, so it
+ * is counted and disclosed separately and adds nothing. Sandbox output is a demonstration.
+ */
+export const CONNECTED_COVERAGE_STATUSES = Object.freeze(['source_connected']);
+export const REVIEWED_COVERAGE_STATUSES = Object.freeze(['partner_file_reviewed', 'carup_manual_reviewed']);
+
 /** Source coverage: how many of the 5 registries returned a usable result, by mode. */
 function sourceCoverageDimension(coverage) {
   const byStatus = {};
   for (const c of coverage) byStatus[c.coverage_status] = (byStatus[c.coverage_status] || 0) + 1;
-  const connected = coverage.filter((c) =>
-    ['source_connected', 'partner_file_reviewed', 'carup_manual_reviewed'].includes(c.coverage_status)).length;
+  const connected = coverage.filter((c) => CONNECTED_COVERAGE_STATUSES.includes(c.coverage_status)).length;
+  const reviewed = coverage.filter((c) => REVIEWED_COVERAGE_STATUSES.includes(c.coverage_status)).length;
   const sandbox = coverage.filter((c) => c.coverage_status === 'sandbox_demonstration').length;
   const total = 5;
   const reasons = [];
   if (sandbox > 0) reasons.push(`sandbox_demonstration:${sandbox}`);
+  if (reviewed > 0) reasons.push(`reviewed_not_connected:${reviewed}`);
   if (connected > 0) reasons.push(`connected:${connected}`);
-  const status = connected > 0 ? 'partial_coverage' : (sandbox > 0 ? 'demonstration_only' : 'no_coverage');
+  let status = 'no_coverage';
+  if (connected > 0) status = 'partial_coverage';
+  else if (reviewed > 0) status = 'reviewed_only';
+  else if (sandbox > 0) status = 'demonstration_only';
   return dim(status, `${connected}/${total}`, reasons, {
-    rest: { connected, sandbox, evaluated: coverage.length, by_status: byStatus },
+    rest: { connected, reviewed, sandbox, evaluated: coverage.length, by_status: byStatus },
   });
 }
 
@@ -258,7 +277,9 @@ function computeOverallScore(dimensions) {
 
   const cov = dimensions.source_coverage;
   if (cov.connected > 0) { score += cov.connected * 8; reasons.push(`sources_connected:+${cov.connected * 8}`); }
-  // Sandbox demonstration contributes nothing to a real trust score (honesty).
+  // Reviewed (partner-file / manual) and sandbox evidence are disclosed but add nothing: neither
+  // is an authenticated authority confirmation.
+  if (cov.reviewed > 0) reasons.push('reviewed_not_connected:+0');
   if (cov.sandbox > 0) reasons.push('sandbox_demonstration:+0');
 
   if (dimensions.identity.status === 'complete') { score += 10; reasons.push('identity_complete:+10'); }
@@ -279,6 +300,9 @@ function deriveLimitations(dimensions) {
   const lims = [];
   if (dimensions.source_coverage.sandbox > 0) {
     lims.push('Some source results are SANDBOX demonstrations, not live government confirmations.');
+  }
+  if (dimensions.source_coverage.reviewed > 0) {
+    lims.push('Some source results come from a partner-file import or a CarUp manual review. They are recorded with their provenance, but they are not connected authoritative sources and do not raise the score.');
   }
   if (dimensions.source_coverage.connected === 0) {
     lims.push('No live government/partner source is connected for this vehicle yet.');

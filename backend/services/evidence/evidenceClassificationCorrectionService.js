@@ -20,9 +20,10 @@
  * capability policy). This service additionally refuses uploader self-correction
  * (G5 — no self-certification).
  */
-import { isValidClass, isValidSubtype } from './evidenceTaxonomy.js';
+import { isValidClass, isValidSubtype, isPrivateByTypeRow } from './evidenceTaxonomy.js';
 import { recordProvenanceEvent } from './provenanceService.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { logger } from '../../utils/logger.js';
 
 export const EVIDENCE_CLASSIFICATION_CORRECTED_EVENT = 'EVIDENCE_CLASSIFICATION_CORRECTED';
 
@@ -92,7 +93,7 @@ export async function correctEvidenceClassification(client, {
 
   const { data: row, error: rowErr } = await client
     .from('vehicle_evidence')
-    .select('id, vin, evidence_type, evidence_class, evidence_subtype, visibility_level, uploaded_by, metadata')
+    .select('id, vin, evidence_type, evidence_class, evidence_subtype, visibility_level, uploaded_by, metadata, storage_bucket')
     .eq('id', evidenceId)
     .eq('vin', vin)
     .maybeSingle();
@@ -109,6 +110,26 @@ export async function correctEvidenceClassification(client, {
       'The uploader cannot correct the classification of their own evidence',
       'CLASSIFICATION_CORRECTION_SELF',
       403
+    );
+  }
+
+  // OC-5R-REL-01 — an odometer photo is PRIVATE BY TYPE. A correction changes meaning, never bytes,
+  // so: a row whose object sits in the public bucket cannot be given a private-by-type meaning (it
+  // would stay public under it — re-upload is the only honest path), and a private-by-type row
+  // cannot be corrected to a public visibility. The target meaning is judged on the canonical pair
+  // alone: a reviewer correcting a row AWAY from odometer is not bound by its legacy type.
+  const targetPrivateByType = isPrivateByTypeRow({ evidence_class: evidenceClass, evidence_subtype: evidenceSubtype });
+  if (targetPrivateByType && row.storage_bucket !== 'ocr-documents') {
+    throw new ClassificationCorrectionError(
+      'An odometer photo must be stored privately, and this artifact is in the public bucket — it must be re-uploaded as private evidence rather than reclassified',
+      'CLASSIFICATION_CORRECTION_PRIVATE_BY_TYPE',
+      409
+    );
+  }
+  if (targetPrivateByType && (visibilityLevel ?? row.visibility_level) === 'public_safe') {
+    throw new ClassificationCorrectionError(
+      'An odometer photo is private evidence and cannot be made public',
+      'CLASSIFICATION_CORRECTION_PRIVATE_BY_TYPE'
     );
   }
 
@@ -215,7 +236,11 @@ export async function correctEvidenceClassification(client, {
       details: historyEntry,
     });
   } catch (err) {
-    console.warn('[Provenance] failed to record classification correction:', err.message);
+    // OC-4A: the correction itself is already audited (required trust_audit_events row above); the
+    // custody event is non-blocking but its absence is an ERROR, never a quiet warning.
+    logger.error('PROVENANCE', 'chain-of-custody event NOT recorded for a classification correction', {
+      evidence_id: evidenceId, error_message: err.message,
+    });
   }
 
   return { changed: true, ...updated };

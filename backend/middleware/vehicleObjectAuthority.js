@@ -26,10 +26,17 @@ import { supabase } from '../db/supabase.js';
 
 const PLATFORM_WIDE_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government']);
 
-/** Whether the caller's role carries platform-wide vehicle authority. */
+/**
+ * Whether the caller's PLATFORM role carries platform-wide vehicle authority.
+ *
+ * The platform role decides. The effective role is whatever the caller asked to act as, and OC-5A
+ * found it reachable from a tenant row: reading it here let any value a membership could lend become
+ * platform-wide authority over every vin. Only a context with no platformRole — one the auth
+ * middleware did not build, such as an internal service context — falls back to its single role.
+ */
 export function hasPlatformWideVehicleAuthority(userContext) {
-  return PLATFORM_WIDE_ROLES.has(userContext?.role)
-    || PLATFORM_WIDE_ROLES.has(userContext?.platformRole);
+  const platformRole = userContext?.platformRole;
+  return PLATFORM_WIDE_ROLES.has(platformRole ?? userContext?.role);
 }
 
 /**
@@ -72,10 +79,12 @@ export function requireVehicleObjectAuthority({ param = 'vin' } = {}) {
       const { allowed, reason } = await resolveVehicleObjectAuthority(req.params?.[param], req.userContext);
       if (allowed) return next();
       // 'not_found' is answered with the same 403 as 'not_scoped' on purpose: a caller with no
-      // relationship to a VIN must not learn from the status code whether that VIN exists.
+      // relationship to a VIN must not learn from the status code whether that VIN exists — nor from
+      // the body, which therefore reports 'not_found' as 'not_scoped' (OC-4A: the body used to carry
+      // the distinction the status code was kept from carrying).
       return res.status(403).json({
         error: 'Forbidden. You do not have owner, current-seller, or organizational scope over this vehicle.',
-        reason,
+        reason: reason === 'not_found' ? 'not_scoped' : reason,
       });
     } catch (err) {
       return res.status(403).json({ error: 'Forbidden. Vehicle authority could not be established.', reason: 'lookup_failed' });

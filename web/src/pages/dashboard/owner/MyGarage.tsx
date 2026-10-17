@@ -21,7 +21,7 @@ import type { Vehicle } from '@/types'
 function publicationLabel(value: unknown) {
   switch (String(value || '').toLowerCase()) {
     case 'published': return 'Published on Marketplace'
-    case 'publishable': return 'Ready to publish'
+    case 'publishable': return 'Ready to publish — not on the public Marketplace yet'
     case 'review_pending': return 'Review pending'
     case 'documents_submitted': return 'Documents submitted'
     case 'identity_complete': return 'Identity complete'

@@ -124,6 +124,27 @@ export function assertCanManageLogistics(record = {}, userContext = {}) {
   }
 }
 
+/**
+ * Who runs a co-loaded sailing.
+ *
+ * T5, T7, T8, T10 and T11's read surface each carried their own copy of this predicate; this is the
+ * canonical one. It matters because `canManageLogistics` derives authority from the affected
+ * record's tenant, and a diaspora buyer's import order has NO tenant — it is a consumer purchase.
+ * So on a co-loaded container the container's own operator failed every logistics check: the person
+ * who planned the load, loaded it and sealed it could not create or move the shipment for it, while
+ * being able to read the shipment view of the very same container.
+ *
+ * A shipment on a co-loaded container belongs to the container operation, not to any one buyer's
+ * purchase. Authority for it is therefore read off the CONTAINER — the same test T10 applies before
+ * it will let anyone complete a load.
+ */
+export function isSailingOperator(container = {}, userContext = {}) {
+  const coordinator = normalizeId(container.coordinator_id ?? container.created_by);
+  const userId = normalizeId(userContext.id ?? userContext.userId);
+  if (coordinator && userId && coordinator === userId) return true;
+  return isPlatformAdmin(userContext) || isPlatformReviewer(userContext) || isTenantAdminForRecord(container, userContext);
+}
+
 export function isTenantAdminForRecord(record = {}, userContext = {}) {
   const role = String(userContext.tenantRole ?? userContext.tenant_role ?? '').toLowerCase();
   const userTenantId = normalizeId(userContext.tenantId ?? userContext.tenant_id);

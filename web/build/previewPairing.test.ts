@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { resolvePreviewApiUrl, loadPairingFile, UNPAIRED_PREVIEW_API_BASE_URL } from './previewPairing'
+import { resolvePreviewApiUrl, resolveBuildIdentity, loadPairingFile, UNPAIRED_PREVIEW_API_BASE_URL } from './previewPairing'
 import { UNPAIRED_PREVIEW_API_BASE_URL as RUNTIME_SENTINEL } from '../src/lib/apiClient'
 
 const PROGRAMME_BRANCH = 'integration/canonical-vehicle-truth-closure'
@@ -75,5 +75,44 @@ describe('build-time and runtime sentinels', () => {
   // runtime guard does not recognise, and the banner would misreport it as merely unreachable.
   it('agree on the unpaired sentinel', () => {
     expect(UNPAIRED_PREVIEW_API_BASE_URL).toBe(RUNTIME_SENTINEL)
+  })
+})
+
+/**
+ * OC-5R-REL-01 — a CLI release states its revision explicitly. The CarUp projects have no connected Git
+ * repository, so Vercel injects no VERCEL_GIT_* variables into a governed preview; the deployer passes
+ * CARUP_BUILD_SHA / CARUP_BUILD_REF instead. Vercel's own variables win, and a contradiction is refused.
+ */
+describe('resolveBuildIdentity', () => {
+  const SHA_A = 'a'.repeat(40)
+  const SHA_B = 'b'.repeat(40)
+
+  it('a Git-sourced build keeps Vercel\'s variables', () => {
+    expect(resolveBuildIdentity({ VERCEL_GIT_COMMIT_SHA: SHA_A, VERCEL_GIT_COMMIT_REF: 'feat/x' }))
+      .toEqual({ sha: SHA_A, ref: 'feat/x', source: 'vercel_git' })
+  })
+
+  it('a CLI release is paired and stamped from the explicit build inputs', () => {
+    const build = resolveBuildIdentity({ CARUP_BUILD_SHA: SHA_A, CARUP_BUILD_REF: PROGRAMME_BRANCH })
+    expect(build).toEqual({ sha: SHA_A, ref: PROGRAMME_BRANCH, source: 'explicit_build_input' })
+    // …and that ref pairs the preview exactly as Vercel's would.
+    const r = resolvePreviewApiUrl({ vercelEnv: 'preview', gitRef: build.ref, pairing })
+    expect(r.unpaired).toBe(false)
+    expect(r.apiUrl).toBe('https://backend-for-that-branch.example.app')
+  })
+
+  it('refuses a build that would claim two revisions or two branches', () => {
+    expect(() => resolveBuildIdentity({ VERCEL_GIT_COMMIT_SHA: SHA_A, CARUP_BUILD_SHA: SHA_B })).toThrow(/provenance conflict/)
+    expect(() => resolveBuildIdentity({ VERCEL_GIT_COMMIT_REF: 'a', CARUP_BUILD_REF: 'b' })).toThrow(/provenance conflict/)
+  })
+
+  it('refuses an explicit revision that is not a full commit SHA', () => {
+    expect(() => resolveBuildIdentity({ CARUP_BUILD_SHA: 'abc123' })).toThrow(/40-character/)
+  })
+
+  it('a build with no source states none — and stays unpaired as a preview (fail closed)', () => {
+    const build = resolveBuildIdentity({})
+    expect(build).toEqual({ sha: '', ref: '', source: 'none' })
+    expect(resolvePreviewApiUrl({ vercelEnv: 'preview', gitRef: build.ref, pairing }).unpaired).toBe(true)
   })
 })

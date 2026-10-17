@@ -233,5 +233,8 @@ export function selectBillingProvider(options = {}) {
   if (isBillingLiveEnabled()) {
     throw new BillingProviderError(`Live billing provider '${provider}' is not implemented`, 'EXTERNAL_ACTIVATION_REQUIRED');
   }
-  return getSharedSandboxProvider();
+  throw new BillingProviderError(
+    'Billing is not configured for this deployed runtime. Select and approve a real provider before enabling billing.',
+    'EXTERNAL_ACTIVATION_REQUIRED',
+  );
 }

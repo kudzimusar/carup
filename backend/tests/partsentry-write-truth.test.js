@@ -1,11 +1,14 @@
 /**
  * PartSentry write-path truth tests (trust-spine audit P0s).
  *
- * 1. Source contract: partsentryService must check the insert result error BEFORE
- *    any side effect (vehicles.mileage update, blockchain addEvent) so a failed
- *    insert can never silently mutate the odometer or emit a ghost event.
- * 2. Behavior: addRepairLog happy path returns the new log id and performs the
- *    side effects; an insert failure throws and performs NONE of them.
+ * 1. Source contract: a failed record can never mutate the odometer or emit a ghost
+ *    event. Since OC-5A this holds by construction — the record, the odometer and the
+ *    ledger intent are ONE database function in ONE transaction — so the pins assert
+ *    that the service makes no write of its own and that the function orders its
+ *    check before every write.
+ * 2. Behavior: recordPartSentryEntry sends one RPC carrying the attestation and the
+ *    work order's organisation as tenant; a refusal reaches no ledger attempt and keeps
+ *    its meaning; an unusable reading never reaches the database.
  * 3. Work orders route contract: PATCH is tenant-scoped in the UPDATE itself and
  *    only accepts the DB CHECK status set; create persists customer_name and the
  *    authenticated mechanic identity.
@@ -25,7 +28,6 @@ const SERVICE_SRC = readFileSync(join(ROOT, 'services', 'partsentry', 'partsentr
 const WORK_ORDERS_SRC = readFileSync(join(ROOT, 'routes', 'workOrdersRoutes.js'), 'utf8');
 
 const { supabase } = await import('../db/supabase.js');
-const { addRepairLog } = await import('../services/partsentry/partsentryService.js');
 const { custodyGeneration } = await import('../services/blockchain/blockchainKeyCustodyService.js');
 
 // ── In-memory supabase stub ─────────────────────────────────────────────────────
@@ -160,96 +162,120 @@ beforeEach(() => {
   };
 });
 
-// ── 1. Source contract: error check precedes every side effect ──────────────────
-test('source: insert result destructures the error', () => {
-  assert.match(SERVICE_SRC, /const\s*\{\s*data:\s*inserted\s*,\s*error\s*\}\s*=\s*await\s+supabase\.from\('partsentry_logs'\)\.insert\(/);
+// ── 1. Source contract (OC-5A): ONE commit boundary — the service makes no side effect of its own ─────
+// The truths this section pinned before OC-5A ("a failed insert performs no side effect") now hold by
+// construction: the record, the odometer and the ledger intent are written by ONE database function in
+// ONE transaction (partsentry_record_service, migration 20261004160200), and the ledger event follows
+// from the committed intent. Proven on real PostgreSQL in oc5a-partsentry-atomic-ledger-intent.test.js.
+const RECORD_SQL = readFileSync(join(ROOT, '..', 'database', 'migrations', '20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql'), 'utf8').split(/^-- \+migrate Down/m)[0];
+
+test('source: the service writes nothing itself — no log insert, no odometer update, no inline ledger event', () => {
+  assert.doesNotMatch(SERVICE_SRC, /\.from\('partsentry_logs'\)\.insert\(/);
+  assert.doesNotMatch(SERVICE_SRC, /\.from\('vehicles'\)\.update\(/);
+  assert.doesNotMatch(SERVICE_SRC, /\baddEvent\(/);
+  assert.match(SERVICE_SRC, /client\.rpc\('partsentry_record_service'/);
 });
 
-test('source: the insert error throw precedes the vehicles.mileage update and addEvent', () => {
-  const insertIdx = SERVICE_SRC.indexOf(".from('partsentry_logs').insert(");
-  assert.ok(insertIdx > -1, 'insert into partsentry_logs must exist');
-  const errorThrowMatch = /if\s*\(error\)\s*throw\s+new\s+Error\(error\.message\)/.exec(SERVICE_SRC);
-  assert.ok(errorThrowMatch, 'insert error must be rethrown');
-  const vehiclesUpdateIdx = SERVICE_SRC.indexOf(".from('vehicles').update(");
-  const addEventIdx = SERVICE_SRC.indexOf('await addEvent(');
-  assert.ok(vehiclesUpdateIdx > -1, 'vehicles mileage update must exist');
-  assert.ok(addEventIdx > -1, 'blockchain addEvent must exist');
-  assert.ok(errorThrowMatch.index > insertIdx, 'error check belongs to the insert result');
-  assert.ok(errorThrowMatch.index < vehiclesUpdateIdx, 'error must be checked BEFORE the odometer update');
-  assert.ok(errorThrowMatch.index < addEventIdx, 'error must be checked BEFORE the blockchain event');
+test('source: inside the one function, the odometer check precedes every write, and the odometer moves only for a mechanic service', () => {
+  const body = RECORD_SQL.slice(RECORD_SQL.indexOf('CREATE OR REPLACE FUNCTION public.partsentry_record_service'));
+  const check = body.indexOf('cannot be lower than vehicle current odometer');
+  const insertLog = body.indexOf('INSERT INTO public.partsentry_logs');
+  const moveOdometer = body.indexOf('UPDATE public.vehicles SET mileage');
+  const insertIntent = body.indexOf('INSERT INTO public.ledger_event_intents');
+  assert.ok(check > 0 && check < insertLog && insertLog < moveOdometer && moveOdometer < insertIntent, 'check → record → odometer → intent');
+  assert.match(body, /v_apply := \(p_attestation = 'mechanic_service'\);/);
+  assert.match(body, /IF v_apply THEN\s*UPDATE public\.vehicles SET mileage/);
+  assert.match(body, /FOR UPDATE;/, 'every write for the vehicle is serialized on its row');
 });
 
-// ── 2. Behavior: happy path and failure isolation ───────────────────────────────
-test('addRepairLog happy path returns the inserted log id and performs the side effects', async () => {
-  const result = await addRepairLog('VIN0000000000001', 'mech-9', 'Brake Pads', 'BP-01', 'Replaced', 'Front pads replaced', 45000);
+// ── 2. Behavior (OC-5A): what the writer sends, and what it never does on a refusal ─────────────────
+const { recordPartSentryEntry, PartSentryRecordError } = await import('../services/partsentry/partsentryService.js');
 
-  assert.equal(result.id, 'partsentry_logs-1');
-  assert.equal(result.vin, 'VIN0000000000001');
-  assert.equal(result.mechanicId, 'mech-9');
-  assert.ok(result.signature, 'log carries a signature');
-
-  assert.equal(db.partsentry_logs.length, 1);
-  assert.equal(db.partsentry_logs[0].mechanic_id, 'mech-9');
-
-  const vehicleUpdates = calls.updates.filter((u) => u.table === 'vehicles');
-  assert.equal(vehicleUpdates.length, 1, 'odometer updated exactly once');
-  assert.equal(db.vehicles[0].mileage, 45000);
-
-  assert.equal(db.blockchain_events.length, 1, 'one blockchain event emitted');
-  assert.equal(db.blockchain_events[0].event_type, 'Mechanic Inspection');
+function rpcClient(result) {
+  const calls = [];
+  return {
+    calls,
+    rpc: async (name, args) => { calls.push({ name, args }); return typeof result === 'function' ? result(args) : result; },
+    from: () => { throw new Error('the writer must not touch a table directly'); },
+  };
+}
+const MECHANIC_AUTHORITY = { allowed: true, attestation: 'mechanic_service', workOrderId: 'wo-1', tenantId: 'tenant-garage-1' };
+const OWNER_AUTHORITY = { allowed: true, attestation: 'owner_stated', workOrderId: null, tenantId: null };
+const committed = (args) => ({
+  data: { replayed: false,
+    log: { id: 7, vin: args.p_vin, mechanic_id: args.p_actor_id, part_name: args.p_part_name, part_oem: args.p_part_oem, action_type: args.p_action_type,
+      description: args.p_description, mileage: args.p_mileage, signature: args.p_signature, timestamp: args.p_timestamp, tenant_id: args.p_tenant_id,
+      attestation: args.p_attestation, work_order_id: args.p_work_order_id, odometer_applied: args.p_attestation === 'mechanic_service' },
+    intent: { id: 'intent-7', status: 'pending' } },
+  error: null,
 });
 
-test('a failed insert throws and performs NO side effect (no odometer mutation, no ghost event)', async () => {
-  insertErrors.partsentry_logs = 'new row for relation "partsentry_logs" violates check constraint "partsentry_logs_action_type_check"';
-
-  await assert.rejects(
-    () => addRepairLog('VIN0000000000001', 'mech-9', 'Brake Pads', 'BP-01', 'replaced', 'lowercase enum rejected by DB', 45000),
-    /violates check constraint/
-  );
-
-  assert.equal(db.partsentry_logs.length, 0, 'no log row persisted');
-  const vehicleUpdates = calls.updates.filter((u) => u.table === 'vehicles');
-  assert.equal(vehicleUpdates.length, 0, 'odometer must NOT be mutated after a failed insert');
-  assert.equal(db.vehicles[0].mileage, 40000, 'odometer unchanged');
-  assert.equal(db.blockchain_events.length, 0, 'no ghost blockchain event');
+test('a mechanic service: one RPC carrying the attestation, the work order\'s organisation as tenant, and a payload that names the mechanic', async () => {
+  const client = rpcClient(committed);
+  let ledgerCalls = 0;
+  const result = await recordPartSentryEntry({ vin: 'VIN0000000000001', actorId: 'mech-9', authority: MECHANIC_AUTHORITY, partName: 'Brake Pads', partOem: 'BP-01',
+    actionType: 'Replaced', description: 'Front pads replaced', mileage: 45000, client, recordLedger: async () => { ledgerCalls += 1; return { status: 'recorded', intentId: 'intent-7', eventId: 99 }; } });
+  assert.equal(client.calls.length, 1);
+  const { args } = client.calls[0];
+  assert.equal(args.p_attestation, 'mechanic_service');
+  assert.equal(args.p_tenant_id, 'tenant-garage-1', 'garage attribution comes from the work order\'s organisation, never a header');
+  assert.equal(args.p_work_order_id, 'wo-1');
+  assert.equal(args.p_ledger_event_type, 'Mechanic Inspection');
+  assert.equal(args.p_ledger_payload.mechanicId, 'mech-9');
+  assert.equal(result.id, 7);
+  assert.equal(result.odometerApplied, true);
+  assert.deepEqual(result.ledger, { status: 'recorded', intentId: 'intent-7', eventId: 99 });
+  assert.equal(ledgerCalls, 1, 'the ledger event is recorded from the committed intent');
 });
 
-test('addRepairLog stamps the actor tenant onto the log row (garage attribution)', async () => {
-  await addRepairLog('VIN0000000000001', 'mech-9', 'Brake Pads', 'BP-01', 'Replaced', 'Front pads replaced', 45000, 'tenant-garage-1');
-  assert.equal(db.partsentry_logs.length, 1);
-  assert.equal(db.partsentry_logs[0].tenant_id, 'tenant-garage-1');
+test('an owner statement: tenant null, ledgered as an Owner Maintenance Declaration, and no mechanic identity anywhere in the payload', async () => {
+  const client = rpcClient(committed);
+  await recordPartSentryEntry({ vin: 'VIN0000000000001', actorId: 'owner-1', authority: OWNER_AUTHORITY, partName: 'Air Filter', partOem: null,
+    actionType: 'Replaced', description: 'Owner-serviced', mileage: 45000, client, recordLedger: async () => ({ status: 'pending', intentId: 'intent-7' }) });
+  const { args } = client.calls[0];
+  assert.equal(args.p_tenant_id, null);
+  assert.equal(args.p_ledger_event_type, 'Owner Maintenance Declaration');
+  assert.equal('mechanicId' in args.p_ledger_payload, false);
 });
 
-test('addRepairLog stamps tenant_id null for tenant-less (owner) sessions', async () => {
-  await addRepairLog('VIN0000000000001', 'owner-1', 'Air Filter', 'AF-02', 'Replaced', 'Owner-serviced', 45000);
-  assert.equal(db.partsentry_logs[0].tenant_id, null);
+test('a refused record makes no ledger attempt, and the refusal keeps its meaning (400 / 404 / 409 / 503)', async () => {
+  for (const [code, status] of [['22023', 400], ['P0002', 404], ['23505', 409], ['40001', 503]]) {
+    const client = rpcClient({ data: null, error: { code, message: 'refused by the database' } });
+    let ledgerCalls = 0;
+    await assert.rejects(
+      () => recordPartSentryEntry({ vin: 'VIN0000000000001', actorId: 'mech-9', authority: MECHANIC_AUTHORITY, partName: 'Brake Pads', partOem: null,
+        actionType: 'Replaced', description: 'x', mileage: 45000, client, recordLedger: async () => { ledgerCalls += 1; } }),
+      (error) => error instanceof PartSentryRecordError && error.statusCode === status, `code ${code} → ${status}`);
+    assert.equal(ledgerCalls, 0, 'no ledger attempt for a record that does not exist');
+  }
 });
 
-test('source: the add route passes the session tenant and the read route never widens on the unverified tenant claim', () => {
+test('an unusable odometer, a bad action, an empty part or no authority is refused before the database is asked', async () => {
+  const cases = [
+    { mileage: 'NaN' }, { mileage: -1 }, { mileage: 1000.5 }, { mileage: undefined },
+    { actionType: 'replaced' }, { partName: '   ' },
+    { authority: { allowed: false } }, { authority: { allowed: true, attestation: 'mechanic_verified' } },
+  ];
+  for (const overrides of cases) {
+    const client = rpcClient(committed);
+    await assert.rejects(() => recordPartSentryEntry({ vin: 'VIN0000000000001', actorId: 'mech-9', authority: MECHANIC_AUTHORITY, partName: 'Brake Pads',
+      partOem: null, actionType: 'Replaced', description: 'x', mileage: 45000, client, ...overrides }), PartSentryRecordError, JSON.stringify(overrides));
+    assert.equal(client.calls.length, 0, `${JSON.stringify(overrides)} must not reach the database`);
+  }
+});
+
+test('source: the add route decides authority first and stamps no header tenant; the read route widens only through the governed read scope', () => {
   const serverSrc = readFileSync(join(ROOT, 'server.js'), 'utf8');
-  // Write path: tenant comes from the session context.
-  assert.match(
-    serverSrc,
-    /addRepairLog\(vin, actorId, partName, partOem, actionType, description, mileage, req\.userContext\.tenantId \?\? null\)/,
-    'POST /api/partsentry/add must stamp the session tenant onto the log',
-  );
-  // Read path: optionalAuth tenantId is an unverified header claim — full-history
-  // widening must key on the verified owner_id match only.
+  const add = serverSrc.slice(serverSrc.indexOf("app.post('/api/partsentry/add'"), serverSrc.indexOf("app.get('/api/partsentry/:vin'"));
+  const authorityAt = add.indexOf('resolvePartSentryWriteAuthority(');
+  const recordAt = add.indexOf('recordPartSentryEntry(');
+  assert.ok(authorityAt > 0 && recordAt > authorityAt, 'authority is decided before anything is recorded');
+  assert.doesNotMatch(add, /userContext\.tenantId/, 'the route never stamps the caller\'s tenant claim');
   const readIdx = serverSrc.indexOf("app.get('/api/partsentry/:vin'");
-  assert.ok(readIdx > -1, 'partsentry read route must exist');
   const readSection = serverSrc.slice(readIdx, serverSrc.indexOf('getRepairHistory(vin', readIdx));
-  assert.ok(readSection.includes("select('owner_id')"), 'read widening lookup must fetch owner_id only');
-  assert.ok(!readSection.includes('sameTenant'), 'read widening must not trust the unverified tenant header claim');
+  assert.match(readSection, /resolvePartSentryReadScope\(/);
   assert.ok(!readSection.includes('tenant_id ==='), 'no tenant comparison may widen the read');
-});
-
-test('odometer rollback is rejected before anything is written', async () => {
-  await assert.rejects(
-    () => addRepairLog('VIN0000000000001', 'mech-9', 'Brake Pads', 'BP-01', 'Replaced', 'rollback attempt', 30000),
-    /Mileage verification failure/
-  );
-  assert.equal(db.partsentry_logs.length, 0);
-  assert.equal(db.blockchain_events.length, 0);
+  assert.ok(!readSection.includes("role === 'mechanic'"), 'a role alone never widens the read');
 });
 
 // ── 3. Work orders route contract ───────────────────────────────────────────────

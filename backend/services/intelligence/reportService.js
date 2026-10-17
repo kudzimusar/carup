@@ -163,7 +163,9 @@ export async function buildSellerReport(sellerPulse, { period = PERIODS.MONTHLY,
   const metrics = sellerPulse.metrics || {};
   const rows = [
     reportRow('listing_views', metrics.views),
-    reportRow('unique_visitors', metrics.unique_visitors),
+    // The pulse emits `unique_viewers` (OC-5F): this read `unique_visitors`, a key nothing emits, so the
+    // Owner Dashboard report's "Unique visitors" row always read "Not measured".
+    reportRow('unique_visitors', metrics.unique_viewers),
     reportRow('inquiries', metrics.inquiries),
     reportRow('listing_completeness', metrics.completeness),
     reportRow('lost_opportunity', metrics.lost_opportunity),

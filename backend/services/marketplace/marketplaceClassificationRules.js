@@ -94,58 +94,28 @@ export function isLocalRegistration(registrationCountry) {
  * The locally_used candidate provenance review found all 35 candidates were fixtures (synthetic VINs,
  * placeholder owner_id, nil/default tenant_id, cloned rows). Real production rows must clear these
  * signals before they can be classified OR written by the backfill — even if allowlisted.
+ *
+ * PC01-K2B: the rules themselves now live in the one provenance authority
+ * (services/provenance/recordProvenance.js). This is the public-listing projection of it — the same
+ * rows, the same reasons — so there is a single definition of a fixture, not two.
  */
-export const SEED_OWNER_IDS = new Set(['u1', 'u2', 'u3', 'u4', 'u5', 'test', 'demo', 'seed', 'admin'])
-export const SEED_TENANT_IDS = new Set([
-  '00000000-0000-0000-0000-000000000000',
-  '00000000-0000-0000-0000-000000000001',
-])
-/** Vehicle identifier encodes an integration/QA fixture (only checked when not structurally valid). */
-const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([_-]|\d|$)/i
-/** Obviously synthetic identifier (starts with the literal letters "VIN" or a test/demo prefix). */
-const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i
-/**
- * Real-market Seller identifiers. Standard 17-char VINs remain accepted, while documented
- * Japanese domestic frame/chassis identifiers such as GFC27-027051 are valid 12–17 character
- * identifiers. Hyphen is permitted; underscore remains reserved/synthetic.
- */
-const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i
-/** Reserved Seller automation marker. Human listings using this exact prefix are treated as fixtures. */
-export const SELLER_AUTOMATION_DESCRIPTION_RE = /^Golden Dynamic Seller ([a-z0-9-]+):/i
+import { vehicleFixtureMarker } from '../provenance/recordProvenance.js'
+
+export {
+  SEED_OWNER_IDS,
+  SEED_TENANT_IDS,
+  SELLER_AUTOMATION_DESCRIPTION_RE,
+} from '../provenance/recordProvenance.js'
 
 /**
  * Return a fixture/seed/demo exclusion reason for a vehicle, or null when it looks like real data.
  * Pure. Used to keep demo/integration rows out of automatic classification AND out of backfill writes.
- * @returns {string|null} one of: integration_fixture_vin / synthetic_vin_prefix / invalid_vin_format /
- *   seed_owner_id / seed_tenant_id, each with the offending value, or null.
+ * @returns {string|null} one of: seller_automation_fixture / integration_fixture_vin /
+ *   synthetic_vin_prefix / invalid_vin_format / seed_owner_id / seed_tenant_id, each with the
+ *   offending value, or null.
  */
 export function getFixtureExclusion(vehicle = {}) {
-  const vin = String(vehicle.vin ?? '').trim()
-  const owner = norm(vehicle.owner_id ?? vehicle.seller_id ?? vehicle.user_id)
-  const tenant = norm(vehicle.tenant_id)
-
-  const sellerDescription = String(vehicle.seller_description ?? '').trim()
-  const automationMatch = sellerDescription.match(SELLER_AUTOMATION_DESCRIPTION_RE)
-  if (automationMatch) return `seller_automation_fixture(${automationMatch[1]})`
-
-  // Syntax widening for genuine Japanese frame IDs must never make an explicit fixture marker
-  // look real. Provenance markers win over shape: "VIN...", test/demo/seed prefixes and integration
-  // identifiers remain excluded even when their character count happens to fall inside 12–17.
-  //
-  // The INTEGRATION marker is asked FIRST because it is the more specific diagnosis. Asking the
-  // synthetic-prefix question first shadowed it completely: every integration fixture is also named
-  // `VIN...`, so `SYNTHETIC_VIN_RE` claimed it and the `integration_fixture_vin` branch below became
-  // unreachable — an operator reading an exclusion report was told "synthetic prefix" about a row
-  // that was excluded for being an integration fixture. Both orders exclude exactly the same rows
-  // (synthetic OR integration OR underscored); only the reported reason differs.
-  if (vin && INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
-  if (vin && (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_'))) return `synthetic_vin_prefix(${vin})`
-  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
-    return `invalid_vin_format(${vin})`
-  }
-  if (owner && (SEED_OWNER_IDS.has(owner) || /^u\d+$/.test(owner))) return `seed_owner_id(${owner})`
-  if (tenant && SEED_TENANT_IDS.has(tenant)) return `seed_tenant_id(${tenant})`
-  return null
+  return vehicleFixtureMarker(vehicle)?.reason ?? null
 }
 
 /**

@@ -120,8 +120,17 @@ export interface MarketplacePricingSummary {
    * about the listing. Present only when there is a denominated figure to attach it to.
    */
   estimate_denomination?: string;
-  estimated_fair_min?: number;
-  estimated_fair_max?: number;
+  /**
+   * OC-5R-REL-01: CarUp has no approved valuation provider, so no market value, fair price or price
+   * range is ever published (`estimated_fair_min`/`estimated_fair_max` — the asking price ±12% — were
+   * removed). This states the absence instead of leaving it to be inferred.
+   */
+  valuation_status?: 'not_configured';
+  valuation_notice?: string;
+  /**
+   * The confidence of CarUp's OWN cost components (flat and ratio placeholders) — fixed at 'low'.
+   * Not a statement about whether the asking price is fair; no AI path may change it.
+   */
   price_confidence: 'low' | 'medium' | 'high';
   inspection_estimate?: number;
   local_transport_estimate?: number;
@@ -132,8 +141,8 @@ export interface MarketplacePricingSummary {
   referral_discount_estimate?: number;
   estimated_total?: number;
   price_warnings: string[];
-  /** True when only deterministic static bands were used (AI price intelligence unavailable). */
-  estimate_basis: 'deterministic' | 'ai_assisted';
+  /** Always deterministic: there is no AI price intelligence (no valuation provider exists). */
+  estimate_basis: 'deterministic';
 }
 
 /**

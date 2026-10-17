@@ -1,0 +1,214 @@
+name: Seller Home & Lifecycle Staging UAT
+
+# OC-5F slice F — a SIBLING gate. #213 proved Home resilience, the republish-to-sold lifecycle and
+# the inquiry -> Communications -> reply path by editing CERTIFIED spec 38. Certified gates are never
+# edited, so those phases are spec 48, run here and only here:
+#   - Seller Exact-Head Staging UAT still names spec 38 on its own command line, unchanged;
+#   - spec 48 is NOT in playwright.staging.config.ts's testMatch, which the aggregate Diaspora gates
+#     run whole (see playwright.staging.seller-home.config.ts).
+#
+# Phase Q (Communications) is AUTHORED, NOT RUN: `test.fixme` until the owner decides #213's slice D
+# (ab9cc0e7). As #213 wrote it, the Seller's reply is a real WhatsApp message.
+#
+# Identities follow the Diaspora gate's pattern, not the media lifecycle gate's. Nothing is rotated
+# to a random password underneath another gate: the shared identities are set from the protected
+# STAGING_UAT_PASSWORD, and this run's three per-viewport Golden Sellers are NEW rows minted for this
+# run alone (golden-seller-identity.mjs), so no other spec's sweep can retire this spec's listings.
+#
+# A branch with no governed preview pair FAILS at "Prove the governed exact-head preview pair",
+# before any staging contact. That is the expected result until the RC2 runbook's staging step
+# governs a pair: OC-5 deploys nothing to staging while staging identity is unresolved.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/seller-home-lifecycle-staging-uat.yml'
+      - 'tests/agents/48-seller-home-comms-lifecycle-staging.spec.ts'
+      - 'tests/agents/staging-helpers.ts'
+      - 'tests/agents/staging-global-setup.ts'
+      - 'playwright.staging.config.ts'
+      - 'playwright.staging.seller-home.config.ts'
+      - 'scripts/ci/golden-seller-identity.mjs'
+      - 'scripts/ci/bootstrap-staging-uat-identities.mjs'
+      - 'scripts/ci/resolve-governed-preview-pair.mjs'
+      - 'web/preview-frontend-pairing.json'
+      - 'web/preview-backend-pairing.json'
+      - 'backend/**'
+      - 'web/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# The shared staging preview lock: every gate that drives THIS branch's preview queues behind the
+# others, and a certification run never cancels another.
+concurrency:
+  group: staging-preview-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  seller-home-lifecycle:
+    name: Seller Home and lifecycle (Communications authored, not run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      # marketplaceRoutes.js honours fixture_scope only as ^seller-[0-9]+-[0-9]+$, and the per-viewport
+      # Golden Sellers are derived from this same id.
+      STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      PAIRING_RECORD_PATH: ${{ github.workspace }}/staging-pairing.json
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert the exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require the staging-only secrets
+        run: |
+          missing=''
+          [ -n "$DIASPORA_STAGING_DATABASE_URL" ] || missing="$missing DIASPORA_STAGING_DATABASE_URL"
+          [ -n "$STAGING_UAT_PASSWORD" ] || missing="$missing STAGING_UAT_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured;$missing — the Seller Home lifecycle cannot be certified."
+            exit 1
+          fi
+
+      # Before a single identity is written. Refuses by name: ungoverned branch, production origin,
+      # stale or unpaired frontend/backend, wrong staging project.
+      - name: Prove the governed exact-head preview pair
+        run: node scripts/ci/resolve-governed-preview-pair.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Refuse to certify against a throttled staging database
+        run: node scripts/ci/assert-staging-capacity.mjs
+
+      # One transaction: the shared identities (set from the protected secret) and this run's three
+      # Golden Sellers. A production database holds none of these rows, so it cannot commit.
+      - name: Provision the staging-only identities and this run's Golden Sellers
+        id: provision
+        run: node scripts/ci/bootstrap-staging-uat-identities.mjs
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Freeze the exact candidate bundle
+        id: bundle
+        run: |
+          html="$(curl --fail --silent --show-error --location "$STAGING_WEB_URL/")"
+          bundle="$(printf '%s' "$html" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
+          if [ -z "$bundle" ]; then
+            echo '::error::The paired staging preview did not expose a Vite entry bundle.'
+            exit 1
+          fi
+          echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
+          printf 'STAGING_UAT_REVIEWER_PASSWORD=%s\n' "$STAGING_UAT_PASSWORD" >> "$GITHUB_ENV"
+          printf 'STAGING_GOLDEN_SELLER_PASSWORD=%s\n' "$STAGING_UAT_PASSWORD" >> "$GITHUB_ENV"
+          echo "Frozen the exact candidate bundle: $bundle"
+
+      # Each viewport runs as its OWN Seller. Every viewport is measured once the run is set up, so a
+      # desktop failure cannot hide what tablet and mobile would have shown.
+      - name: Seller Home and lifecycle — desktop Chromium
+        if: ${{ !cancelled() && steps.provision.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        run: |
+          STAGING_GOLDEN_SELLER_EMAIL="$(node scripts/ci/golden-seller-identity.mjs "$STAGING_RUN_ID" chromium)"
+          export STAGING_GOLDEN_SELLER_EMAIL
+          npx playwright test --config=playwright.staging.seller-home.config.ts --project=chromium
+
+      - name: Seller Home and lifecycle — tablet Chromium
+        if: ${{ !cancelled() && steps.provision.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        run: |
+          STAGING_GOLDEN_SELLER_EMAIL="$(node scripts/ci/golden-seller-identity.mjs "$STAGING_RUN_ID" tablet-chromium)"
+          export STAGING_GOLDEN_SELLER_EMAIL
+          npx playwright test --config=playwright.staging.seller-home.config.ts --project=tablet-chromium
+
+      - name: Seller Home and lifecycle — mobile Chromium
+        if: ${{ !cancelled() && steps.provision.outcome == 'success' && steps.bundle.outcome == 'success' }}
+        run: |
+          STAGING_GOLDEN_SELLER_EMAIL="$(node scripts/ci/golden-seller-identity.mjs "$STAGING_RUN_ID" mobile-chromium)"
+          export STAGING_GOLDEN_SELLER_EMAIL
+          npx playwright test --config=playwright.staging.seller-home.config.ts --project=mobile-chromium
+
+      # The spec retires its own listings. This is the independent check that it did and, when it did
+      # not (a cancelled or failed run), the remediation. Only THIS run's Sellers can hold spec 48's
+      # vehicles, so everything found here is attributed to this run, and the gate fails if anything
+      # was still in commerce — remediated or not.
+      - name: Retire anything this run left in commerce
+        if: ${{ always() && steps.provision.outcome == 'success' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { goldenSellerIdentitiesForRun } from './scripts/ci/golden-seller-identity.mjs';
+          const api = process.env.STAGING_API_URL;
+          const runId = process.env.STAGING_RUN_ID;
+          const password = process.env.STAGING_UAT_PASSWORD;
+          const isSpec48Vin = (vin) => typeof vin === 'string' && vin.startsWith('JTHL');
+          const json = async (response, what) => {
+            if (!response.ok) throw new Error(`${what} failed: ${response.status}`);
+            return response.json();
+          };
+          const leftInCommerce = [];
+          for (const seller of goldenSellerIdentitiesForRun(runId)) {
+            const { csrfToken } = await json(await fetch(`${api}/security/csrf-token`), 'guest CSRF');
+            const login = await fetch(`${api}/auth/login`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+              body: JSON.stringify({ email: seller.email, password }),
+            });
+            const session = await json(login, `login as ${seller.email}`);
+            const auth = {
+              'content-type': 'application/json',
+              'x-session-token': session.token,
+              'x-user-id': session.user.id,
+              'x-stakeholder-role': session.user.role,
+            };
+            const owned = await json(await fetch(`${api}/vehicles/me`, { headers: auth }), `owned vehicles of ${seller.email}`);
+            // The product's own rule: published and not sold. A sold listing keeps its publication
+            // history (R27) and is not touched.
+            const live = (Array.isArray(owned) ? owned : []).filter((v) => isSpec48Vin(v?.vin)
+              && v.publication_status === 'published' && !/^sold$/i.test(String(v.status || '')));
+            if (!live.length) continue;
+            const { csrfToken: mutateToken } = await json(await fetch(`${api}/security/csrf-token`, { headers: auth }), 'seller CSRF');
+            const mutate = { ...auth, 'x-csrf-token': mutateToken };
+            for (const vehicle of live) {
+              leftInCommerce.push(vehicle.vin);
+              const unpublish = await fetch(`${api}/vehicles/${vehicle.vin}/unpublish`, { method: 'POST', headers: mutate, body: '{}' });
+              const sold = await fetch(`${api}/vehicles/${vehicle.vin}/status`, { method: 'PATCH', headers: mutate, body: JSON.stringify({ status: 'sold' }) });
+              console.log(`retired ${vehicle.vin}: unpublish ${unpublish.status}, sold ${sold.status}`);
+            }
+          }
+          for (const vin of leftInCommerce) {
+            const body = await json(await fetch(`${api}/marketplace/listings?q=${encodeURIComponent(vin)}&fixture_scope=${encodeURIComponent(runId)}`), 'scoped discovery');
+            const rows = Array.isArray(body) ? body : (body.listings || []);
+            if (rows.some((row) => row?.vin === vin)) {
+              console.error(JSON.stringify({ error: 'still discoverable in its run scope after remediation', vin }));
+              process.exit(1);
+            }
+          }
+          if (leftInCommerce.length) {
+            console.error(JSON.stringify({ error: 'this run left listings in commerce; they were retired here, but the spec must do it itself', vins: leftInCommerce }));
+            process.exit(1);
+          }
+          console.log('No spec 48 listing of this run is left in commerce.');
+          NODE
+
+      - name: Upload Seller Home lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seller-home-lifecycle-${{ github.run_id }}
+          path: |
+            staging-pairing.json
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

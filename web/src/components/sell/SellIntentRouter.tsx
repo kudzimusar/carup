@@ -96,9 +96,9 @@ export function SellIntentRouter({
     <div className="min-h-screen bg-[#f6f7f9] text-slate-950" data-testid="sell-intent-router">
       <section className="relative overflow-hidden bg-[#07111f] text-white">
         <div className="absolute inset-0 opacity-90 [background-image:radial-gradient(circle_at_78%_18%,rgba(249,115,22,0.22),transparent_25%),linear-gradient(120deg,transparent_0%,transparent_62%,rgba(255,255,255,0.04)_62%,rgba(255,255,255,0.04)_63%,transparent_63%)]" />
-        <div className="section-padding relative mx-auto max-w-[1440px] py-14 sm:py-20">
+        <div className="section-padding relative mx-auto max-w-[1440px] py-10 sm:py-20">
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Sell with the vehicle thread intact</p>
-          <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[0.9] tracking-[-0.055em] sm:text-6xl">
+          <h1 className="mt-4 max-w-4xl text-[2.25rem] font-black leading-[0.95] tracking-[-0.045em] sm:text-6xl sm:leading-[0.9] sm:tracking-[-0.055em]">
             Which vehicle are you selling?
           </h1>
           <p className="mt-6 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">

@@ -10,7 +10,8 @@
  * render an unavailable number as zero without noticing.
  */
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, requireActiveTenant } from '../middleware/authMiddleware.js';
+import { GARAGE_TENANT_TYPE, GARAGE_WORKSPACE_ROLES } from '../services/serviceNetwork/serviceAuthority.js';
 import { supabase } from '../db/supabase.js';
 import { getInsuranceDemandIntelligence } from '../services/intelligence/insuranceIntelligenceService.js';
 import { getFinanceDemandIntelligence } from '../services/intelligence/financeIntelligenceService.js';
@@ -180,14 +181,20 @@ router.get(
 /**
  * Garage intelligence — TENANT / ORGANIZATION scope.
  *
- * Gated on the roles that can belong to a garage organization, and scoped to the
- * VERIFIED tenant on the session. There is deliberately no organization parameter,
- * and a caller with no verified tenant is refused rather than shown their own work
+ * Scoped to the VERIFIED active garage on the session. There is deliberately no organization
+ * parameter, and a caller with no verified tenant is refused rather than shown their own work
  * relabelled as the organization's.
+ *
+ * OC-5D: gated like every other garage-side route — the selected organisation must be an ACTIVE
+ * GARAGE and the caller a mechanic or admin inside it. It used to be gated on PLATFORM roles
+ * (mechanic/dealer/admin): a garage employee whose platform role is 'owner' was refused unless the
+ * client swapped a role header, while a dealership's admin acting for the dealership was served
+ * "garage intelligence" about it.
  */
 router.get(
   '/api/garage/analytics',
-  authorizeRole(['mechanic', 'dealer', 'admin']),
+  authorizeRole(),
+  requireActiveTenant({ types: [GARAGE_TENANT_TYPE], roles: GARAGE_WORKSPACE_ROLES }),
   asyncHandler(async (req, res) => {
     try {
       const windowDays = resolveWindowDays(req.query.window);

@@ -1,0 +1,477 @@
+name: OC-5R REL-03B-6 Safe Prefix Worker Drain
+
+# RETIRED after use (REL-03B6 safe-prefix worker): a one-shot staging mutation must never re-run because a file it
+# watches was edited. Dispatch-only workflows cannot be dispatched from this branch, so this is inert.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc5r-rel03b6-safe-prefix-worker
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact pushed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact SHA and branch custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = "fix/oc5r-real-runtime-source-closure"
+          echo "Exact checkout and branch custody proven."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies without staging credentials
+        run: npm ci
+
+      - name: Require protected staging runtime custody
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL" || { echo "::error::DIASPORA_STAGING_DATABASE_URL unavailable"; exit 1; }
+          test -n "$SUPABASE_URL" || { echo "::error::STAGING_SUPABASE_URL unavailable"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "::error::STAGING_SUPABASE_SERVICE_ROLE_KEY unavailable"; exit 1; }
+          case "$SUPABASE_URL" in
+            https://eoyenigwevnxwwhyhaer.supabase.co|https://eoyenigwevnxwwhyhaer.supabase.co/) ;;
+            *) echo "::error::SUPABASE_URL is not canonical CarUp staging"; exit 1 ;;
+          esac
+          echo "Protected staging runtime custody proven."
+
+      - name: Execute governed safe-prefix tranche
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          CARUP_ENV: staging
+          VERCEL_ENV: preview
+          NODE_ENV: production
+          COMMUNICATION_ENGINE_ENABLED: "true"
+          COMMUNICATION_OUTBOUND_DISABLED: "true"
+          EVENT_WORKER_INTERVAL_ENABLED: "false"
+          OC5R_REL03B6_MAX_CALLS: "10"
+          OC5R_REL03B6_MAX_EVENTS: "100"
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER_FILE="$GITHUB_WORKSPACE/.oc5r-rel03b6-runner.mjs"
+          trap 'rm -f "$RUNNER_FILE"' EXIT
+          cat > "$RUNNER_FILE" <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { spawnSync } from 'node:child_process';
+          import pg from 'pg';
+
+          const STAGING_REF = 'eoyenigwevnxwwhyhaer';
+          const EXPECTED_START_TOTALS = Object.freeze({
+            eligible_pending: 461,
+            dead_letter: 121,
+            processed: 964,
+            quarantined: 196,
+          });
+          const EXPECTED_FIRST_IDS = Object.freeze([
+            '815d6cd9-1db6-4804-9ad1-77eede23cbdd',
+            '321d35a5-105e-4b5c-a77a-86743a48dab6',
+            'e52747af-cc25-4151-a19f-31aba7f6c53d',
+            '7b1232d5-c705-4f5e-8d17-a801cd5e9748',
+            '04e565a7-2be4-4344-9df5-e9dc04fc40f6',
+            '91d9dfe4-0c63-4d27-9eea-fd43b4581572',
+            '186618c2-0cf5-4634-a256-de9b3e4d75c9',
+            '24b3f4b2-14f0-49a4-897d-764869bf7092',
+            '389ab0d1-bb67-4edb-8ed5-da0b232aba8c',
+            '869b261a-c31a-4150-9581-3f8162a59936',
+          ]);
+          const MAX_CALLS = Number(process.env.OC5R_REL03B6_MAX_CALLS || 10);
+          const MAX_EVENTS = Number(process.env.OC5R_REL03B6_MAX_EVENTS || 100);
+          const D7_PREFIX = 'diaspora.container_booking.';
+
+          const databaseUrl = String(process.env.DIASPORA_STAGING_DATABASE_URL || '');
+          const supabaseUrl = String(process.env.SUPABASE_URL || '');
+          const serviceRole = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '');
+          if (!databaseUrl || !supabaseUrl || !serviceRole) throw new Error('Required staging credentials are unavailable.');
+          if (!databaseUrl.includes(STAGING_REF)) throw new Error('Database URL is not canonical CarUp staging.');
+          if (new URL(supabaseUrl).hostname !== STAGING_REF + '.supabase.co') throw new Error('SUPABASE_URL is not canonical CarUp staging.');
+          if (process.env.COMMUNICATION_OUTBOUND_DISABLED !== 'true') throw new Error('COMMUNICATION_OUTBOUND_DISABLED=true is mandatory.');
+          if (process.env.CARUP_ENV !== 'staging') throw new Error('CARUP_ENV=staging is mandatory.');
+          if (process.env.NODE_ENV !== 'production') throw new Error('NODE_ENV=production deployed-like classification is mandatory.');
+
+          process.env.EVENT_WORKER_DATABASE_URL = databaseUrl;
+          delete process.env.SUPABASE_POOLER_DB_URL;
+          delete process.env.SUPABASE_TRANSACTION_POOLER_URL;
+          delete process.env.DATABASE_URL;
+          delete process.env.SUPABASE_DB_URL;
+
+          const cleaned = databaseUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } });
+          try { await client.connect(); } catch (e) { await client.end().catch(() => {}); throw e; }
+
+          const { eventWorker } = await import('./backend/services/eventBus/eventWorker.js');
+          const { registerCommunicationListeners } = await import('./backend/services/communication/communicationEventListeners.js');
+          registerCommunicationListeners(eventWorker);
+
+          const safeJson = (value) => JSON.stringify(value, null, 2);
+
+          async function queueTotals() {
+            const { rows } = await client.query(
+              "SELECT " +
+              "count(*) FILTER (WHERE status='pending' AND attempts < 5)::int AS eligible_pending," +
+              "count(*) FILTER (WHERE status='dead_letter')::int AS dead_letter," +
+              "count(*) FILTER (WHERE status='processed')::int AS processed," +
+              "count(*) FILTER (WHERE status='quarantined')::int AS quarantined " +
+              "FROM public.domain_events"
+            );
+            return Object.fromEntries(Object.entries(rows[0]).map(([k,v]) => [k, Number(v)]));
+          }
+
+          async function schedulerState() {
+            const { rows } = await client.query(
+              "SELECT jobid,jobname,schedule,active " +
+              "FROM cron.job " +
+              "WHERE jobname IN ('carup-events-outbox-every-minute','carup-communication-worker-every-minute') " +
+              "   OR command ILIKE '%/api/internal/events/process%' " +
+              "   OR command ILIKE '%/api/internal/communications/process%' " +
+              "ORDER BY jobid"
+            );
+            const eventJob = rows.find((row) => row.jobname === 'carup-events-outbox-every-minute');
+            const commJob = rows.find((row) => row.jobname === 'carup-communication-worker-every-minute');
+            if (!eventJob || eventJob.active !== false) throw new Error('Event scheduler is not proven inactive.');
+            if (!commJob || commJob.active !== false) throw new Error('Communication scheduler is not proven inactive.');
+            if (rows.some((row) => row.active === true)) throw new Error('A relevant scheduler became active.');
+            return rows.map((row) => ({ jobid: Number(row.jobid), jobname: row.jobname, schedule: row.schedule, active: row.active }));
+          }
+
+          function runInventory(label) {
+            const output = path.join(process.env.RUNNER_TEMP, 'oc5r-rel03b6-' + label + '.json');
+            const proc = spawnSync(process.execPath, [
+              'scripts/ci/oc5r-rel03-communications-backlog-inventory.mjs',
+              '--output', output,
+              '--format', 'human',
+            ], {
+              cwd: process.cwd(),
+              env: process.env,
+              encoding: 'utf8',
+              maxBuffer: 20 * 1024 * 1024,
+            });
+            if (proc.status !== 0) {
+              throw new Error('REL-03 inventory failed for ' + label + ': ' + (proc.stderr || proc.stdout || '').slice(-4000));
+            }
+            return JSON.parse(fs.readFileSync(output, 'utf8'));
+          }
+
+          function assertInventorySafe(inventory, label) {
+            assert.equal(inventory.target?.kind, 'staging', label + ': target kind drift');
+            assert.equal(inventory.target?.project_ref, STAGING_REF, label + ': target ref drift');
+            assert.equal(inventory.boundary?.worker_called, false, label + ': inventory unexpectedly called worker');
+            assert.equal(inventory.boundary?.mutating_sql, false, label + ': inventory became mutating');
+            const batch = inventory.next_worker_batch || [];
+            if (batch.length === 0) return { safe: false, reason: 'empty_queue', batch: [] };
+            if (batch.some((row) => row.event_type?.startsWith(D7_PREFIX))) return { safe: false, reason: 'd7_authority_boundary', batch };
+            const unsafeEffect = batch.find((row) => row.classification?.effect_class !== 'IN_APP_ONLY');
+            if (unsafeEffect) return { safe: false, reason: 'effect_class_boundary', row: unsafeEffect, batch };
+            const unsafeRender = batch.find((row) => row.render_contract?.render_contract_ready !== true);
+            if (unsafeRender) return { safe: false, reason: 'render_contract_boundary', row: unsafeRender, batch };
+            if (inventory.next_worker_batch_review?.combined_batch_gate_passes !== true) return { safe: false, reason: 'combined_gate_boundary', batch };
+            return { safe: true, batch };
+          }
+
+          async function assertQueueHead(ids) {
+            const { rows } = await client.query(
+              "SELECT id::text,event_type,status,attempts,tenant_id,created_at::text,locked_at::text,locked_by,error_log,dead_lettered_at::text " +
+              "FROM public.domain_events WHERE status='pending' AND attempts < 5 ORDER BY created_at ASC LIMIT 10"
+            );
+            assert.deepEqual(rows.map((row) => row.id), ids, 'Queue-order drift invalidated the inventory snapshot.');
+            return rows;
+          }
+
+          async function effectStats(ids) {
+            const { rows } = await client.query(
+              "WITH wanted AS (SELECT unnest($1::text[]) AS event_id), " +
+              "n AS (SELECT q.event_id,count(*)::int AS notifications," +
+              " count(*) FILTER (WHERE q.channel='in_app')::int AS in_app_notifications," +
+              " count(*) FILTER (WHERE q.channel IS DISTINCT FROM 'in_app')::int AS external_notifications" +
+              " FROM public.notification_queue q WHERE q.event_id = ANY($1::text[]) GROUP BY q.event_id), " +
+              "m AS (SELECT q.event_id,count(DISTINCT m.id)::int AS messages" +
+              " FROM public.notification_queue q JOIN public.messages m ON m.id=q.message_id" +
+              " WHERE q.event_id = ANY($1::text[]) GROUP BY q.event_id), " +
+              "a AS (SELECT q.event_id,count(a.id)::int AS delivery_attempts," +
+              " count(a.id) FILTER (WHERE a.channel IS DISTINCT FROM 'in_app')::int AS external_delivery_attempts," +
+              " count(a.id) FILTER (WHERE a.channel IS DISTINCT FROM 'in_app' AND (a.provider_message_id IS NOT NULL OR lower(coalesce(a.status,'')) IN ('accepted','sent','delivered')))::int AS external_send_evidence" +
+              " FROM public.notification_queue q LEFT JOIN public.message_delivery_attempts a" +
+              " ON a.notification_id=q.id::text OR a.message_id=q.message_id" +
+              " WHERE q.event_id = ANY($1::text[]) GROUP BY q.event_id) " +
+              "SELECT w.event_id,coalesce(n.notifications,0)::int AS notifications," +
+              " coalesce(n.in_app_notifications,0)::int AS in_app_notifications," +
+              " coalesce(n.external_notifications,0)::int AS external_notifications," +
+              " coalesce(m.messages,0)::int AS messages," +
+              " coalesce(a.delivery_attempts,0)::int AS delivery_attempts," +
+              " coalesce(a.external_delivery_attempts,0)::int AS external_delivery_attempts," +
+              " coalesce(a.external_send_evidence,0)::int AS external_send_evidence" +
+              " FROM wanted w LEFT JOIN n USING(event_id) LEFT JOIN m USING(event_id) LEFT JOIN a USING(event_id)" +
+              " ORDER BY array_position($1::text[],w.event_id)",
+              [ids]
+            );
+            return rows;
+          }
+
+          async function globalDeliveryStats() {
+            const { rows } = await client.query(
+              "SELECT count(*)::int AS attempts," +
+              " count(*) FILTER (WHERE channel IS DISTINCT FROM 'in_app')::int AS external_attempts," +
+              " count(*) FILTER (WHERE channel IS DISTINCT FROM 'in_app' AND (provider_message_id IS NOT NULL OR lower(coalesce(status,'')) IN ('accepted','sent','delivered')))::int AS external_send_evidence" +
+              " FROM public.message_delivery_attempts"
+            );
+            return Object.fromEntries(Object.entries(rows[0]).map(([k,v]) => [k, Number(v)]));
+          }
+
+          async function snapshotBatch(ids) {
+            await client.query('BEGIN');
+            try {
+              const { rows } = await client.query(
+                "SELECT id::text,event_type,status,attempts,tenant_id,created_at::text,locked_at::text,locked_by,error_log,dead_lettered_at::text " +
+                "FROM public.domain_events WHERE id::text = ANY($1::text[]) " +
+                "ORDER BY array_position($1::text[],id::text) FOR UPDATE NOWAIT",
+                [ids]
+              );
+              assert.equal(rows.length, ids.length, 'Batch snapshot lost exact IDs.');
+              assert.deepEqual(rows.map((row) => row.id), ids, 'Batch snapshot ID order drifted.');
+              assert.ok(rows.every((row) => row.status === 'pending'), 'Batch contains non-pending row.');
+              assert.ok(rows.every((row) => row.locked_at === null && row.locked_by === null), 'Candidate row has explicit lock metadata.');
+              const effects = await effectStats(ids);
+              const globalDelivery = await globalDeliveryStats();
+              await client.query('ROLLBACK');
+              return {
+                rows: rows.map((row) => ({
+                  id: row.id,event_type: row.event_type,status: row.status,attempts: Number(row.attempts),
+                  tenant_id: row.tenant_id,created_at: row.created_at,error_present: Boolean(row.error_log),
+                  dead_lettered_at: row.dead_lettered_at,
+                })),
+                effects,
+                global_delivery: globalDelivery,
+              };
+            } catch (error) {
+              await client.query('ROLLBACK').catch(() => {});
+              throw error;
+            }
+          }
+
+          async function trackedRows(ids) {
+            const { rows } = await client.query(
+              "SELECT id::text,event_type,status,attempts,tenant_id,created_at::text,error_log,dead_lettered_at::text " +
+              "FROM public.domain_events WHERE id::text = ANY($1::text[]) ORDER BY array_position($1::text[],id::text)",
+              [ids]
+            );
+            return rows;
+          }
+
+          const effectMap = (rows) => new Map(rows.map((row) => [row.event_id, row]));
+
+          const initialTotals = await queueTotals();
+          assert.deepEqual(initialTotals, EXPECTED_START_TOTALS, 'Initial queue totals drifted before B6 mutation.');
+          const initialSchedulers = await schedulerState();
+          const initialInventory = runInventory('initial');
+          const initialGate = assertInventorySafe(initialInventory, 'initial');
+          assert.equal(initialGate.safe, true, 'Initial batch is no longer safe.');
+          assert.deepEqual(initialGate.batch.map((row) => row.id), [...EXPECTED_FIRST_IDS], 'Initial certified ten changed.');
+
+          const receipts = [];
+          let calls = 0;
+          let greenEvents = 0;
+          let notificationsAdded = 0;
+          let messagesAdded = 0;
+          let externalAttemptDelta = 0;
+          let externalSendDelta = 0;
+          let stopReason = null;
+          let failedCycle = null;
+
+          while (calls < MAX_CALLS && greenEvents < MAX_EVENTS) {
+            const cycle = calls + 1;
+            const inventory = runInventory('cycle-' + cycle + '-pre');
+            const gate = assertInventorySafe(inventory, 'cycle-' + cycle);
+            if (!gate.safe) {
+              stopReason = gate.reason;
+              console.log(safeJson({ phase: 'safe-prefix-boundary', cycle, reason: gate.reason, next_batch: gate.batch?.map((row) => ({
+                id: row.id,event_type: row.event_type,effect_class: row.classification?.effect_class || null,
+                render_contract_ready: row.render_contract?.render_contract_ready === true,
+              })) || [] }));
+              break;
+            }
+
+            const ids = gate.batch.map((row) => String(row.id));
+            if (greenEvents + ids.length > MAX_EVENTS) {
+              stopReason = 'event_cap_boundary';
+              break;
+            }
+
+            const schedBefore = await schedulerState();
+            await assertQueueHead(ids);
+            const before = await snapshotBatch(ids);
+            await schedulerState();
+            await assertQueueHead(ids);
+
+            const poll = await eventWorker.pollEvents();
+            calls += 1;
+
+            const afterRows = await trackedRows(ids);
+            const afterEffects = await effectStats(ids);
+            const afterDelivery = await globalDeliveryStats();
+            const totalsAfter = await queueTotals();
+            const schedAfter = await schedulerState();
+
+            const beforeById = new Map(before.rows.map((row) => [row.id, row]));
+            const beforeEffects = effectMap(before.effects);
+            const afterEffectsMap = effectMap(afterEffects);
+
+            const rowResults = [];
+            let cycleOk = !poll?.error && Number(poll?.processed) === ids.length;
+            let cycleNotificationsAdded = 0;
+            let cycleMessagesAdded = 0;
+
+            for (const row of afterRows) {
+              const prior = beforeById.get(row.id);
+              const beforeFx = beforeEffects.get(row.id);
+              const afterFx = afterEffectsMap.get(row.id);
+              const attemptsOk = Number(row.attempts) === Number(prior.attempts) + 1;
+              const statusOk = row.status === 'processed';
+              const errorOk = !row.error_log;
+              const deadLetterOk = row.dead_lettered_at === prior.dead_lettered_at;
+              const inAppExists = Number(afterFx?.in_app_notifications || 0) > 0;
+              const externalNotifOk = Number(afterFx?.external_notifications || 0) === 0;
+              const externalAttemptOk = Number(afterFx?.external_delivery_attempts || 0) === 0;
+              const externalSendOk = Number(afterFx?.external_send_evidence || 0) === 0;
+              const notifDelta = Number(afterFx?.in_app_notifications || 0) - Number(beforeFx?.in_app_notifications || 0);
+              const messageDelta = Number(afterFx?.messages || 0) - Number(beforeFx?.messages || 0);
+              const effectProven = inAppExists && (notifDelta > 0 || (Number(beforeFx?.in_app_notifications || 0) > 0 && notifDelta === 0)) && Number(afterFx?.messages || 0) > 0;
+
+              cycleNotificationsAdded += Math.max(0, notifDelta);
+              cycleMessagesAdded += Math.max(0, messageDelta);
+              const rowOk = attemptsOk && statusOk && errorOk && deadLetterOk && effectProven && externalNotifOk && externalAttemptOk && externalSendOk;
+              cycleOk = cycleOk && rowOk;
+              rowResults.push({
+                id: row.id,event_type: row.event_type,before_attempts: Number(prior.attempts),after_attempts: Number(row.attempts),
+                after_status: row.status,effect: notifDelta > 0 ? 'in_app_created' : 'idempotent_dedupe',
+                notifications_before: Number(beforeFx?.in_app_notifications || 0),notifications_after: Number(afterFx?.in_app_notifications || 0),
+                messages_before: Number(beforeFx?.messages || 0),messages_after: Number(afterFx?.messages || 0),
+                external_notifications: Number(afterFx?.external_notifications || 0),
+                external_delivery_attempts: Number(afterFx?.external_delivery_attempts || 0),
+                external_send_evidence: Number(afterFx?.external_send_evidence || 0),ok: rowOk,
+              });
+            }
+
+            const cycleExternalAttempts = afterDelivery.external_attempts - before.global_delivery.external_attempts;
+            const cycleExternalSends = afterDelivery.external_send_evidence - before.global_delivery.external_send_evidence;
+            const newDeadLetters = totalsAfter.dead_letter - EXPECTED_START_TOTALS.dead_letter;
+            cycleOk = cycleOk && cycleExternalAttempts === 0 && cycleExternalSends === 0 && newDeadLetters === 0 && totalsAfter.quarantined === EXPECTED_START_TOTALS.quarantined;
+
+            const receipt = {
+              cycle,selected_ids: ids,selected_event_types: gate.batch.map((row) => row.event_type),
+              gate: { effect_classes: [...new Set(gate.batch.map((row) => row.classification?.effect_class))],
+                all_render_contract_ready: gate.batch.every((row) => row.render_contract?.render_contract_ready === true),
+                combined_batch_gate_passes: inventory.next_worker_batch_review?.combined_batch_gate_passes === true },
+              scheduler_before: schedBefore,snapshot: before.rows,poll_receipt: poll,row_reconciliation: rowResults,
+              notifications_added: cycleNotificationsAdded,messages_added: cycleMessagesAdded,
+              external_delivery_attempt_delta: cycleExternalAttempts,external_send_delta: cycleExternalSends,
+              queue_totals_after: totalsAfter,scheduler_after: schedAfter,green: cycleOk,
+            };
+            receipts.push(receipt);
+            console.log(safeJson({ phase: 'worker-cycle-receipt', ...receipt }));
+
+            notificationsAdded += cycleNotificationsAdded;
+            messagesAdded += cycleMessagesAdded;
+            externalAttemptDelta += cycleExternalAttempts;
+            externalSendDelta += cycleExternalSends;
+
+            if (!cycleOk) {
+              failedCycle = cycle;
+              stopReason = 'worker_anomaly';
+              break;
+            }
+            greenEvents += ids.length;
+          }
+
+          const finalInventory = runInventory('final');
+          const finalTotals = await queueTotals();
+          const finalSchedulers = await schedulerState();
+          const finalBatch = finalInventory.next_worker_batch || [];
+          const finalReport = {
+            authority_sha: process.env.GITHUB_SHA,staging_project_ref: STAGING_REF,calls_made: calls,
+            green_events_processed: greenEvents,notifications_added: notificationsAdded,messages_added: messagesAdded,
+            external_delivery_attempt_delta: externalAttemptDelta,external_send_delta: externalSendDelta,
+            dead_letter_delta: finalTotals.dead_letter - EXPECTED_START_TOTALS.dead_letter,
+            initial_totals: initialTotals,final_totals: finalTotals,
+            stop_reason: failedCycle ? 'worker_anomaly' : (greenEvents >= MAX_EVENTS || calls >= MAX_CALLS ? 'tranche_cap' : (stopReason || 'authority_boundary')),
+            failed_cycle: failedCycle,scheduler_initial: initialSchedulers,scheduler_final: finalSchedulers,cycle_receipts: receipts,
+            next_worker_batch: finalBatch.map((row) => ({
+              id: row.id,event_type: row.event_type,attempts: row.attempts,tenant_id: row.tenant_id,created_at: row.created_at,
+              effect_class: row.classification?.effect_class || 'UNKNOWN_REQUIRES_REVIEW',
+              render_contract_ready: row.render_contract?.render_contract_ready === true,
+            })),
+            next_batch_gate: {
+              default_classification_gate_passes: finalInventory.next_worker_batch_review?.default_classification_gate_passes === true,
+              render_contract_gate_passes: finalInventory.next_worker_batch_review?.render_contract_gate_passes === true,
+              combined_batch_gate_passes: finalInventory.next_worker_batch_review?.combined_batch_gate_passes === true,
+              stop_required: finalInventory.next_worker_batch_review?.stop_required === true,
+              contains_d7: finalBatch.some((row) => row.event_type?.startsWith(D7_PREFIX)),
+            },
+            worker_calls_bounded: calls <= MAX_CALLS,events_bounded: greenEvents <= MAX_EVENTS,
+            quarantined_rows_untouched: finalTotals.quarantined === EXPECTED_START_TOTALS.quarantined,
+            preexisting_dead_letters_untouched: finalTotals.dead_letter === EXPECTED_START_TOTALS.dead_letter,
+          };
+          console.log(safeJson({ phase: 'oc5r-rel03b6-final', ...finalReport }));
+
+          await eventWorker.stop().catch(() => {});
+          await client.end();
+
+          if (failedCycle) throw new Error('SAFE-PREFIX WORKER ANOMALY at exact cycle ' + failedCycle + '; no automatic retry authorized.');
+          if (externalAttemptDelta !== 0 || externalSendDelta !== 0) throw new Error('External delivery delta detected; B6 must remain zero.');
+          if (finalTotals.dead_letter !== EXPECTED_START_TOTALS.dead_letter) throw new Error('Dead-letter total changed during B6.');
+          NODE
+
+          echo "Preflight: proving generated runner module resolution without any worker call."
+          RUNNER_FILE="$RUNNER_FILE" node --input-type=module <<'NODE'
+          import { createRequire } from 'node:module';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+
+          const runnerFile = process.env.RUNNER_FILE;
+          if (!runnerFile || !runnerFile.startsWith(process.env.GITHUB_WORKSPACE + path.sep)) {
+            throw new Error('Generated B6 runner is not inside GITHUB_WORKSPACE.');
+          }
+          const runnerUrl = pathToFileURL(runnerFile);
+          const requireFromRunner = createRequire(runnerUrl);
+          const pgEntry = requireFromRunner.resolve('pg');
+          await import(pathToFileURL(pgEntry).href);
+          await import(pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, 'backend/services/eventBus/eventWorker.js')).href);
+          await import(pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, 'backend/services/communication/communicationEventListeners.js')).href);
+          console.log(JSON.stringify({
+            module_resolution_preflight: 'PASS',
+            runner_inside_workspace: true,
+            pg_resolved: true,
+            event_worker_imported: true,
+            communication_listeners_imported: true,
+            worker_called: false
+          }));
+          NODE
+
+          node "$RUNNER_FILE"

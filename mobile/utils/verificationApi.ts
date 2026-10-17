@@ -15,7 +15,7 @@ export interface VerificationSession {
   ocr_result: OcrResult | null;
   confidence_score: number | null;
   failure_reason: string | null;
-  review_notes: string | null;
+  // No review_notes: that is the reviewer's INTERNAL note, never part of the applicant's session (OC-5C).
   retry_reason: string | null;
   created_at: string;
   updated_at: string;
@@ -280,7 +280,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'needs_review',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.review_notes || session.failure_reason || 'Verification needs manual review before it can be marked verified.',
+      processingError: session.failure_reason || 'Verification needs manual review before it can be marked verified.',
       sessionStatus: session.status,
     };
   }
@@ -290,7 +290,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'retry_requested',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.retry_reason || session.review_notes || 'A reviewer asked you to retake and resubmit your verification.',
+      processingError: session.retry_reason || 'A reviewer asked you to retake and resubmit your verification.',
       sessionStatus: session.status,
     };
   }
@@ -300,7 +300,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       status: 'rejected',
       sessionId: session.id,
       ocrResult: session.ocr_result,
-      processingError: session.review_notes || session.failure_reason || 'Verification was rejected.',
+      processingError: session.failure_reason || 'Verification was rejected.',
       sessionStatus: session.status,
     };
   }
