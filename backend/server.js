@@ -75,9 +75,8 @@ import {
   issueInteractiveSession,
   revokeCurrentSession,
   setSessionActiveOrganization,
-  deleteUnestablishedRegistrationUser,
+  registerOwnerWithSession,
   probeSessionAuthorityConnection,
-  assertSessionAuthorityConnectionReady,
 } from './services/auth/sessionAuthority.js';
 import {
   resolveVerifiedActiveTenant,
@@ -2836,20 +2835,6 @@ app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: fals
 // authenticated paths — never the public register route.
 const PUBLIC_REGISTRATION_ROLE = 'owner';
 
-async function compensateUnestablishedRegistration(userId, expectedEmail) {
-  try {
-    const result = await deleteUnestablishedRegistrationUser(
-      { userId, expectedEmail },
-      { legacyTestClient: supabase },
-    );
-    return Number(result?.deleted_count || 0) === 1;
-  } catch (error) {
-    // Do not expose DB URLs, certificate paths, credentials or raw driver errors from this boundary.
-    console.error('[auth] registration compensation failed:', error?.code || error?.name || 'UNKNOWN');
-    return false;
-  }
-}
-
 // --- AUTH: Register ---
 // Public registration is UNAUTHENTICATED, so it must NEVER honor a client-supplied platform role.
 // The server always assigns the unprivileged PUBLIC_REGISTRATION_ROLE ('owner'); any request that
@@ -2888,91 +2873,30 @@ app.post('/api/auth/register', async (req, res) => {
 
     const password_hash = await hashPassword(password);
 
-    // AUTH-05-R4: deployed registration proves the dedicated session-authority connection before
-    // the ordinary service_role creates any user row. If verified PostgreSQL/TLS authority cannot
-    // initialize, the request fails closed with nothing to compensate.
-    if (isProductionLikeRuntime(process.env)) {
-      try {
-        await assertSessionAuthorityConnectionReady();
-      } catch (authorityError) {
-        console.error(
-          '[auth] registration session-authority preflight failed; reason='
-            + (authorityError?.code || authorityError?.name || 'SESSION_AUTHORITY_UNAVAILABLE'),
-        );
-        return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
-      }
-    }
-
-    const id = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
-    const { error } = await supabase.from('users').insert({
-      id,
-      name: String(name).trim(),
-      email: normalizedEmail,
-      phone: phone || '',
-      location: profileResult.userLocation,
-      role: assignedRole,
-      password_hash,
-      join_date: new Date().toISOString(),
-    });
-
-    if (error) throw error;
-
-    if (profileResult.profile) {
-      const { error: profileError } = await supabase.from('user_registration_profiles').insert({
-        user_id: id,
-        ...profileResult.profile,
-      });
-      if (profileError) {
-        // Never tell the person signup succeeded while silently discarding the identity/onboarding
-        // answers we just asked them for. Compensate the user row and fail the registration.
-        const compensated = await compensateUnestablishedRegistration(id, normalizedEmail);
-        console.error(
-          'Failed to persist registration profile; compensation=' + (compensated ? 'complete' : 'incomplete') + ':',
-          profileError.message,
-        );
-        return res.status(503).json({ error: 'Could not save your registration profile. Please try again.' });
-      }
-    }
-
-    // Automatically issue a session through the dedicated session authority. Email verification
-    // remains independent from identity/KYC and does not block the Seller draft handoff.
-    let issuedSession;
+    // R4-R1: user, optional profile and initial session share one database commit boundary.
+    // If the authority is unavailable, no user write has happened. SQL failures roll back all three.
+    let registration;
     try {
-      issuedSession = await issueInteractiveSession({
-        userId: id,
-        activeRole: assignedRole,
-        activeOrganizationId: null,
+      registration = await registerOwnerWithSession({
+        user: {
+          name: String(name).trim(), email: normalizedEmail, phone: phone || '',
+          location: profileResult.userLocation, role: assignedRole, password_hash,
+        },
+        profile: profileResult.profile,
         ipAddress: req.ip || '127.0.0.1',
         userAgent: req.headers?.['user-agent'] || null,
-        authMethod: 'password',
-      }, { legacyTestClient: supabase });
-    } catch (sessionError) {
-      const compensated = await compensateUnestablishedRegistration(id, normalizedEmail);
-      console.error(
-        '[auth] registration session issuance failed; compensation=' + (compensated ? 'complete' : 'incomplete')
-          + '; reason=' + (sessionError?.code || sessionError?.name || 'UNKNOWN'),
-      );
+      });
+    } catch (registrationError) {
+      if (registrationError?.code === '23505') {
+        return res.status(409).json({ error: 'An account with this email already exists' });
+      }
+      console.error('[auth] atomic registration failed:', registrationError?.code || 'REGISTRATION_UNAVAILABLE');
       return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
     }
-
-    const token = issuedSession?.token;
-    if (!token) {
-      const compensated = await compensateUnestablishedRegistration(id, normalizedEmail);
-      console.error(
-        '[auth] registration session issuance returned no token; compensation='
-          + (compensated ? 'complete' : 'incomplete'),
-      );
+    const { user: newUser, token } = registration || {};
+    if (!newUser?.id || !token) {
       return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
     }
-
-    const newUser = {
-      id,
-      name: String(name).trim(),
-      email: normalizedEmail,
-      phone: phone || '',
-      location: profileResult.userLocation,
-      role: assignedRole,
-    };
 
     let emailVerification = { status: 'queue_failed' };
     try {

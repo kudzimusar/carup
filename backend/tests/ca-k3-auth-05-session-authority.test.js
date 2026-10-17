@@ -153,34 +153,17 @@ test('AUTH-05-R4 session authority pool requires the dedicated URL and explicit 
   assert.doesNotMatch(runtimeTls, /process\.env\.(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_URL|DATABASE_URL)\b/);
 });
 
-test('AUTH-05-R4 deployed registration proves authority readiness before the first user write', () => {
+test('AUTH-05-R4-R1 registration establishes user/profile/session only through one atomic RPC', () => {
   const routeStart = serverSource.indexOf("app.post('/api/auth/register'");
   const routeEnd = serverSource.indexOf('/**\n * ISSUE #164 PHASE 4', routeStart);
   assert.ok(routeStart >= 0 && routeEnd > routeStart);
   const route = serverSource.slice(routeStart, routeEnd);
-  const readiness = route.indexOf('assertSessionAuthorityConnectionReady()');
-  const firstUserWrite = route.indexOf("supabase.from('users').insert");
-  assert.ok(readiness >= 0);
-  assert.ok(firstUserWrite > readiness, 'authority readiness must precede the ordinary-user write');
-  assert.match(route, /isProductionLikeRuntime\(process\.env\)/);
-
-  const helperStart = runtime.indexOf('export async function assertSessionAuthorityConnectionReady');
-  const helperEnd = runtime.indexOf('async function authorityScalar', helperStart);
-  assert.ok(helperStart >= 0 && helperEnd > helperStart);
-  const helper = runtime.slice(helperStart, helperEnd);
-  assert.match(helper, /SELECT 1::int AS ready/);
-  assert.doesNotMatch(helper, /INSERT|UPDATE|DELETE|TRUNCATE/);
-});
-
-test('AUTH-05-R4 registration failure paths invoke governed unestablished-user compensation', () => {
-  const routeStart = serverSource.indexOf("app.post('/api/auth/register'");
-  const routeEnd = serverSource.indexOf('/**\n * ISSUE #164 PHASE 4', routeStart);
-  assert.ok(routeStart >= 0 && routeEnd > routeStart);
-  const route = serverSource.slice(routeStart, routeEnd);
-  assert.match(route, /catch \(sessionError\)[\s\S]*compensateUnestablishedRegistration/);
-  assert.match(route, /if \(!token\)[\s\S]*compensateUnestablishedRegistration/);
-  const executableRoute = route.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  assert.doesNotMatch(executableRoute, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(route, /registerOwnerWithSession\(/);
+  assert.doesNotMatch(route, /\.insert\(|issueInteractiveSession\(|compensateUnestablishedRegistration/);
+  const atomicFunction = runtime.slice(runtime.indexOf('export async function registerOwnerWithSession'), runtime.indexOf('function legacyOrThrow'));
+  assert.match(atomicFunction, /authorityScalar\(/);
+  assert.doesNotMatch(atomicFunction, /legacyTestClient|\.rpc\(|\.from\(/);
+  assert.doesNotMatch(route, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test('AUTH-05-R4 preflight is Vercel Preview-only, opt-in, read-only, and unavailable in Production', () => {
