@@ -150,17 +150,16 @@ test('OC-3B invariants [positive control]: the same detector FINDS every sink cl
   assert.ok(found('routes/vehiclesRoutes.js', 'vehicles'), 'vehicles write detected');
   assert.ok(found('server.js', 'vehicle_ownership_history'), 'ownership write detected');
   assert.ok(found('services/identity/verificationSessionService.js', 'verification_sessions'), 'verification session write detected');
-  // Atomic registration deliberately removed the direct server.js users write. Prove that sink,
-  // together with registry sinks no backend module writes today, on the same detector fixture.
+  assert.ok(found('server.js', 'users'), 'users write detected');
+  // No backend module writes the registry tables today, so the detector is proven on a fixture.
   const fixture = `
-    await db.query("INSERT INTO public.users (id) VALUES ($1)", [id]);
     const T = 'zimra_declarations';
     await supabase.from('cvr_ownership_records').insert({ vin });
     await supabase.from(T).upsert(row);
     await db.query("UPDATE vehicles SET trust_score = 99");
     await supabase.rpc('approve_listing', {});`;
   const fx = tableWrites(fixture).map((w) => w.table);
-  for (const t of ['users', 'cvr_ownership_records', 'zimra_declarations', 'vehicles']) assert.ok(fx.includes(t), `fixture ${t}`);
+  for (const t of ['cvr_ownership_records', 'zimra_declarations', 'vehicles']) assert.ok(fx.includes(t), `fixture ${t}`);
   assert.deepEqual(rpcCalls(fixture), ['approve_listing']);
   // A forbidden match on the fixture proves the forbidden list itself is live.
   assert.ok(fx.some((t) => FORBIDDEN_TABLES.some((re) => re.test(t))));

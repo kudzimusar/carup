@@ -82,17 +82,22 @@ export async function probeSessionAuthorityConnection() {
   }
 }
 
+export async function assertSessionAuthorityConnectionReady() {
+  // pool() is configured only with the pinned Supabase Root 2021 CA and rejectUnauthorized=true.
+  // Therefore a successful read proves the dedicated authority connection can initialize without
+  // exposing credentials or mutating authentication state.
+  const result = await pool().query('SELECT 1::int AS ready');
+  if (result.rows?.[0]?.ready !== 1) {
+    const error = new Error('Dedicated session authority preflight failed.');
+    error.code = 'SESSION_AUTHORITY_UNAVAILABLE';
+    throw error;
+  }
+  return true;
+}
+
 async function authorityScalar(sql, params = []) {
   const result = await pool().query(sql, params);
   return result.rows?.[0]?.data ?? null;
-}
-
-/** Public registration has no legacy/service-role write adapter: one dedicated DB statement. */
-export async function registerOwnerWithSession({ user, profile = null, ipAddress = null, userAgent = null }) {
-  return authorityScalar(
-    'SELECT public.session_authority_register_owner($1::jsonb,$2::jsonb,$3::text,$4::text) AS data',
-    [JSON.stringify(user), profile === null ? null : JSON.stringify(profile), ipAddress, userAgent],
-  );
 }
 
 function legacyOrThrow(legacyTestClient) {
