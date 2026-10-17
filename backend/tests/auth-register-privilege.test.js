@@ -129,7 +129,7 @@ const H = { 'Content-Type': 'application/json', 'x-bypass-rate-limit': 'true' };
 async function post(path, body, extraHeaders = {}) {
   // Registration ALWAYS uses the dedicated RPC, even in local tests. Only the driver is mocked.
   const previous = process.env.SESSION_AUTH_DATABASE_URL;
-  if (path === '/api/auth/register') process.env.SESSION_AUTH_DATABASE_URL = 'postgres://fixture:fixture@localhost/fixture';
+  if (path === '/api/auth/register') process.env.SESSION_AUTH_DATABASE_URL = 'postgres://user:pass@localhost/fixture';
   try {
     const res = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { ...H, ...extraHeaders }, body: JSON.stringify(body) });
     return { status: res.status, body: await res.json().catch(() => ({})) };

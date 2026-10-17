@@ -133,7 +133,7 @@ test('AUTH-05-R4 deployed CA contract is backend-local and byte-identical to the
 test('AUTH-05-R4 forces full certificate verification and removes URL-level TLS overrides', async () => {
   const { buildSessionAuthorityPoolConfig } = await import('../services/auth/sessionAuthorityTls.js');
   const config = buildSessionAuthorityPoolConfig(
-    'postgresql://runtime:placeholder@example.invalid/postgres'
+    'postgresql://user:pass@example.invalid/postgres'
       + '?sslmode=disable&sslrootcert=%2Fvar%2Ftask%2Fdatabase%2Fcerts%2Fmissing.crt'
       + '&ssl=true&application_name=carup-auth05',
   );
