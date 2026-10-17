@@ -179,7 +179,8 @@ test('AUTH-05-R4 registration failure paths invoke governed unestablished-user c
   const route = serverSource.slice(routeStart, routeEnd);
   assert.match(route, /catch \(sessionError\)[\s\S]*compensateUnestablishedRegistration/);
   assert.match(route, /if \(!token\)[\s\S]*compensateUnestablishedRegistration/);
-  assert.doesNotMatch(route, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
+  const executableRoute = route.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.doesNotMatch(executableRoute, /service_role|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test('AUTH-05-R4 preflight is Vercel Preview-only, opt-in, read-only, and unavailable in Production', () => {
