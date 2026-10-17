@@ -226,7 +226,12 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
 
         <main id="corporate-main" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8" data-testid="corporate-main">
           {allowed ? (
-            <Outlet />
+            // The server's grant, for pages that state it (People & Access). Pages never derive authority from it.
+            <Outlet context={{ grant }} />
+          ) : current?.route === CORPORATE_ROOT && nav.length > 0 ? (
+            // CA-CLOSE-01: a governor admitted by persistent authority alone may hold no Overview read; the Corporate root
+            // then opens the first destination the grant does cover instead of a dead end.
+            <Navigate to={nav[0].route} replace />
           ) : (
             // Non-enumerating: names nothing about what the page would have shown.
             <div className="mx-auto max-w-xl rounded-md border border-slate-300 bg-white p-6 text-center" data-testid="corporate-forbidden" role="alert">

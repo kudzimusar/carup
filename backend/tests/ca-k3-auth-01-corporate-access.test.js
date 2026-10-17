@@ -12,8 +12,10 @@
  *     member, bank, lender, insurance, government, reviewer, plain member, tenant admin);
  *   · tenant role / selected or asserted organisation / x-stakeholder-role never mint or widen a grant,
  *     and the existing tenant-mismatch refusal is intact;
- *   · admin / platform_admin / super_admin → the one fixed READ-ONLY grant, labelled as the legacy
- *     Admin compatibility bridge, with no PII, no token, no tenant data and no mutation capability;
+ *   · CA-CLOSE-01 (F2): admission is PERSISTENT Corporate authority — admin / platform_admin / super_admin
+ *     who are ACTIVE governors get the persistent grant plus the bounded, separately labelled read-only
+ *     compatibility (no PII, no token, no tenant data, no governance capability from the role); the same
+ *     roles WITHOUT a Corporate membership are refused 403 — users.role alone confers nothing;
  *   · the decision writes nothing.
  */
 import test, { before, after, beforeEach } from 'node:test';
@@ -34,6 +36,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 
 const { createSupabaseWorld, installSupabaseWorld } = await import('./helpers/inMemorySupabaseWorld.js');
+// CA-CLOSE-01 (F2): admission is persistent Corporate authority, so the administrators below are ALSO real governors in a
+// real-SQL Corporate database (the accepted Phase A + B + C migrations); identity and sessions stay in the in-memory world.
+const { openDatabase, closeAll, seedGovernor } = await import('./helpers/corporateGovernanceDb.js');
+const { createServiceClient } = await import('./helpers/pgliteSupabaseClient.js');
 const { app } = await import('../server.js');
 const { supabase } = await import('../db/supabase.js');
 const {
@@ -41,6 +47,7 @@ const {
   CORPORATE_COMPATIBILITY_READ_CAPABILITIES,
   CORPORATE_COMPATIBILITY_PLATFORM_ROLES,
   CORPORATE_GRANT_SOURCE,
+  CORPORATE_COMPATIBILITY_SOURCE,
 } = await import('../services/corporate/corporateAccessService.js');
 
 const ROUTE = '/api/corporate/access';
@@ -67,7 +74,10 @@ const DENIED_ACTORS = [
   ['external tenant admin (owner + tenant admin, garage selected)', 'u-tenant-admin'],
   ['finance', 'u-finance'],
 ];
+/** Legacy platform administrators who are ALSO active governors (membership + persistent assignments) — admitted. */
 const GRANTED_ACTORS = [['admin', 'u-admin'], ['platform_admin', 'u-platform-admin'], ['super_admin', 'u-super-admin']];
+/** Legacy platform administrators WITHOUT a Corporate membership — users.role alone admits nobody (CA-CLOSE-01). */
+const NON_MEMBER_ADMINS = [['admin', 'u-admin-nonmember'], ['platform_admin', 'u-platform-admin-nonmember'], ['super_admin', 'u-super-admin-nonmember']];
 
 const PII = ['@example.invalid', 'Admin Person', 'tok-', 'u-admin', 'u-platform-admin', 'u-super-admin', GARAGE, 'password'];
 
@@ -83,6 +93,7 @@ function seedWorld() {
       user('u-lender', 'lender'), user('u-insurance', 'insurance'), user('u-government', 'government'),
       user('u-reviewer', 'reviewer'), user('u-tenant-admin', 'owner'), user('u-finance', 'finance'),
       user('u-admin', 'admin', 'Admin Person'), user('u-platform-admin', 'platform_admin'), user('u-super-admin', 'super_admin'),
+      user('u-admin-nonmember', 'admin'), user('u-platform-admin-nonmember', 'platform_admin'), user('u-super-admin-nonmember', 'super_admin'),
     ],
     user_sessions: [
       session('u-plain', 'u-plain'), session('u-member', 'u-member'), session('u-owner', 'u-owner'), session('u-buyer', 'u-buyer'),
@@ -94,6 +105,8 @@ function seedWorld() {
       session('u-tenant-admin-unselected', 'u-tenant-admin'),
       session('u-finance', 'u-finance'),
       session('u-admin', 'u-admin'), session('u-platform-admin', 'u-platform-admin'), session('u-super-admin', 'u-super-admin'),
+      session('u-admin-nonmember', 'u-admin-nonmember'), session('u-platform-admin-nonmember', 'u-platform-admin-nonmember'),
+      session('u-super-admin-nonmember', 'u-super-admin-nonmember'),
       session('u-admin-in-garage', 'u-admin', { active_organization_id: GARAGE }),
       session('expired', 'u-admin', { expires_at: PAST }),
       session('revoked', 'u-admin', { is_valid: false }),
@@ -113,9 +126,17 @@ function seedWorld() {
     trust_audit_events: [],
   });
   restoreWorld = installSupabaseWorld(supabase, world);
+  // Every Corporate table and RPC is answered by the real accepted SQL; everything else by the in-memory world.
+  const corporate = (name) => String(name).startsWith('corporate_');
+  supabase.from = (table) => (corporate(table) ? corporateClient.from(table) : world.client.from(table));
+  supabase.rpc = (name, params) => (corporate(name) ? corporateClient.rpc(name, params) : world.client.rpc(name, params));
 }
 
+let corporateClient;
 before(async () => {
+  const db = await openDatabase({ migrate: 'all' });
+  for (const [, id] of GRANTED_ACTORS) await seedGovernor(db, id); // membership at the root + manage + session-revoke over the tree
+  corporateClient = createServiceClient(db);
   seedWorld();
   await new Promise((resolve) => { server = http.createServer(app); server.listen(0, '127.0.0.1', resolve); });
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -123,6 +144,7 @@ before(async () => {
 after(async () => {
   restoreWorld?.();
   if (server) await new Promise((resolve) => server.close(resolve));
+  await closeAll();
 });
 beforeEach(() => seedWorld());
 
@@ -137,19 +159,24 @@ async function getAccess({ token, headers = {}, query = '' } = {}) {
 
 function assertNoGrant(r, label) {
   assert.equal(r.body?.grant, undefined, `${label}: a denial carries no grant`);
-  assert.doesNotMatch(r.text, /corporate\.[a-z_.]+\.read|legacy_admin_compatibility_bridge/, `${label}: no capability or grant source leaks into a denial`);
+  assert.doesNotMatch(r.text, /corporate\.[a-z_.]+\.(read|manage|revoke)|legacy_admin_compatibility_bridge|persistent_corporate_authority/, `${label}: no capability or grant source leaks into a denial`);
 }
 
+/** CA-CLOSE-01: an ADMITTED governor who is also a legacy platform administrator — persistent grant + the bounded compatibility. */
 function assertReadOnlyGrant(r, label) {
   assert.equal(r.status, 200, `${label}: status`);
   assert.deepEqual(Object.keys(r.body).sort(), ['contract', 'decision', 'grant'], `${label}: top-level keys`);
-  assert.equal(r.body.contract, 'carup.corporate_access.v1');
+  assert.equal(r.body.contract, 'carup.corporate_access.v2');
   assert.equal(r.body.decision, 'granted');
-  assert.deepEqual(Object.keys(r.body.grant).sort(), ['capabilities', 'explanation', 'read_only', 'source'], `${label}: grant keys`);
-  assert.equal(r.body.grant.source, 'legacy_admin_compatibility_bridge');
+  assert.deepEqual(Object.keys(r.body.grant).sort(), ['assignments', 'capabilities', 'compatibility', 'explanation', 'governance_capabilities', 'memberships', 'read_only', 'source'], `${label}: grant keys`);
+  assert.equal(r.body.grant.source, CORPORATE_GRANT_SOURCE);
   assert.equal(r.body.grant.read_only, true);
+  assert.deepEqual(r.body.grant.governance_capabilities, ['corporate.people.membership.manage', 'corporate.people.session.revoke']);
+  assert.equal(r.body.grant.memberships.length, 1);
+  assert.equal(r.body.grant.memberships[0].org_node_id, 'CARUP_CORPORATE');
+  assert.deepEqual(r.body.grant.compatibility, { source: CORPORATE_COMPATIBILITY_SOURCE, read_only: true, bounded_by: 'admitted_corporate_member', capabilities: [...CORPORATE_COMPATIBILITY_READ_CAPABILITIES] });
   assert.deepEqual(r.body.grant.capabilities, [...CORPORATE_COMPATIBILITY_READ_CAPABILITIES]);
-  assert.match(r.body.grant.explanation, /not a Corporate membership/);
+  assert.match(r.body.grant.explanation, /persistent Corporate permission assignments/);
   assert.equal(r.cacheControl, 'no-store', `${label}: never cached`);
   for (const needle of PII) assert.ok(!r.text.includes(needle), `${label}: response must not contain ${needle}`);
 }
@@ -209,12 +236,12 @@ test('5b · x-user-id cannot replace the identity a valid session proves', async
   assertNoGrant(r, 'owner session + admin x-user-id');
 });
 
-test('5c · the evaluator itself refuses an asserted identity even if mounted without the session guard', () => {
-  const asserted = evaluateCorporateAccess({ id: 'u-admin', platformRole: 'admin', authenticationMethod: 'x-user-id-fallback' });
+test('5c · the evaluator itself refuses an asserted identity even if mounted without the session guard', async () => {
+  const asserted = await evaluateCorporateAccess({ id: 'u-admin', platformRole: 'admin', authenticationMethod: 'x-user-id-fallback' });
   assert.equal(asserted.allowed, false);
   assert.equal(asserted.status, 401);
-  assert.equal(evaluateCorporateAccess(undefined).status, 401);
-  assert.equal(evaluateCorporateAccess({ platformRole: 'admin', authenticationMethod: 'session' }).status, 401, 'no subject id');
+  assert.equal((await evaluateCorporateAccess(undefined)).status, 401);
+  assert.equal((await evaluateCorporateAccess({ platformRole: 'admin', authenticationMethod: 'session' })).status, 401, 'no subject id');
 });
 
 // ── Authorization: authentication alone is never Corporate authority ──────────────────────────────
@@ -303,15 +330,25 @@ test('15c · the existing tenant-mismatch refusal is intact, and a client contex
   assert.deepEqual(inGarage.body, plain.body);
 });
 
-// ── The compatibility grant ───────────────────────────────────────────────────────────────────────
+// ── The persistent grant, and the bounded compatibility an admitted administrator may carry (CA-CLOSE-01) ──────────
 
 for (const [label, id] of GRANTED_ACTORS) {
-  test(`16–18 · ${label} with a valid session → the read-only legacy-admin compatibility grant`, async () => {
+  test(`16–18 · ${label} who is an ACTIVE governor → persistent Corporate authority + the bounded read-only compatibility`, async () => {
     assertReadOnlyGrant(await getAccess({ token: `tok-${id}` }), label);
   });
 }
 
-test('capability discipline: every capability is a fixed .read capability — no wildcard, no mutation', async () => {
+for (const [label, id] of NON_MEMBER_ADMINS) {
+  test(`16–18b · ${label} WITHOUT a Corporate membership → 403: users.role alone confers no Corporate authority`, async () => {
+    const r = await getAccess({ token: `tok-${id}` });
+    assert.equal(r.status, 403, label);
+    assert.equal(r.body.decision, 'denied');
+    assert.equal(r.body.code, 'CORPORATE_ACCESS_DENIED');
+    assertNoGrant(r, label);
+  });
+}
+
+test('capability discipline: navigation capabilities are fixed .read capabilities; governance comes only from persistent assignments', async () => {
   const r = await getAccess({ token: 'tok-u-super-admin' });
   assertReadOnlyGrant(r, 'super_admin');
   const caps = r.body.grant.capabilities;
@@ -321,16 +358,19 @@ test('capability discipline: every capability is a fixed .read capability — no
     assert.match(c, /^(corporate|platform)\.[a-z_]+(\.[a-z_]+)*\.read$/, c);
     assert.doesNotMatch(c, /\*|manage|\bact\b|approve|publish|export|delete|write|deploy|configure|create|update|revoke|delegate|generate/, c);
   }
-  // super_admin is not "more": the grant is identical for every compatibility role.
+  // super_admin is not "more": the role-derived compatibility is identical for every compatibility role, and the governance
+  // capabilities are exactly the persistent ones — a platform role adds none.
   const admin = await getAccess({ token: 'tok-u-admin' });
-  assert.deepEqual(r.body, admin.body);
+  assert.deepEqual(r.body.grant.capabilities, admin.body.grant.capabilities);
+  assert.deepEqual(r.body.grant.compatibility, admin.body.grant.compatibility);
+  assert.deepEqual(r.body.grant.governance_capabilities, admin.body.grant.governance_capabilities);
   assert.equal(r.body.grant.source, CORPORATE_GRANT_SOURCE);
 });
 
 test('the decision is read-only: no request in this file writes to the store', async () => {
   const before = JSON.stringify(world.tables);
   const writesBefore = world.writes.length;
-  for (const [, id] of [...DENIED_ACTORS, ...GRANTED_ACTORS]) await getAccess({ token: `tok-${id}` });
+  for (const [, id] of [...DENIED_ACTORS, ...GRANTED_ACTORS, ...NON_MEMBER_ADMINS]) await getAccess({ token: `tok-${id}` });
   await getAccess();
   await getAccess({ headers: { 'x-user-id': 'u-admin' } });
   assert.equal(world.writes.length, writesBefore, 'no insert/update/delete');
@@ -344,25 +384,47 @@ const serviceSource = readFileSync(path.join(REPO, 'backend/services/corporate/c
 const code = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
 
 function routeIsSessionOnly(src) {
-  return /router\.get\('\/api\/corporate\/access', authorizeSessionRole\(\[\]\), /.test(code(src))
-    && !/\bauthorizeRole\(|optionalAuth\(/.test(code(src));
-}
-function evaluatorReadsOnlyPlatformRole(src) {
   const c = code(src);
-  return /userContext\.authenticationMethod !== 'session'/.test(c)
-    && /userContext\.platformRole/.test(c)
+  return /router\.get\('\/api\/corporate\/access', authorizeSessionRole\(\[\]\), /.test(c)
+    && /router\.get\('\/api\/corporate\/people-access', authorizeSessionRole\(\[\]\), /.test(c)
+    && !/\bauthorizeRole\(|optionalAuth\(/.test(c);
+}
+/** The bounded compatibility reads ONLY the session method and the platform role taken from users.role. */
+function bridgeReadsOnlyPlatformRole(src) {
+  const c = code(src);
+  const body = c.slice(c.indexOf('export function evaluateLegacyCompatibilityBridge'), c.indexOf('async function readEffectiveAssignments'));
+  return /userContext\.authenticationMethod !== 'session'/.test(body)
+    && /userContext\.platformRole/.test(body)
     && !/effectiveRole|tenantRole|activeTenant|requestedRole|tenantId|headers|\.role\b|baseRole/.test(c);
 }
+/** Admission order: session → ACTIVE membership → trusted evaluator → refusal when nothing is confirmed → only THEN the bridge. */
+function admissionIsPersistentAuthority(src) {
+  const c = code(src);
+  const start = c.indexOf('export async function evaluateCorporateAccess');
+  if (start < 0) return false;
+  const body = c.slice(start);
+  const at = (needle) => body.indexOf(needle);
+  const order = [
+    at("userContext.authenticationMethod !== 'session'"), at('resolveCorporateMembership('), at('membership.is_active_member !== true'),
+    at('evaluateCorporateGovernanceAuthorization('), at("if (confirmed.length === 0) return deny('not_admitted');"), at('evaluateLegacyCompatibilityBridge(userContext)'),
+  ];
+  return order.every((i) => i >= 0) && order.every((i, k) => k === 0 || order[k - 1] < i);
+}
 
-test('guard: the route is session-only and the evaluator reads only the session method and platform role (mutants die)', () => {
+test('guard: session-only routes; admission = session → membership → evaluator; the bridge reads only the platform role, only AFTER admission (mutants die)', () => {
   assert.equal(routeIsSessionOnly(routeSource), true);
-  assert.equal(evaluatorReadsOnlyPlatformRole(serviceSource), true);
+  assert.equal(bridgeReadsOnlyPlatformRole(serviceSource), true);
+  assert.equal(admissionIsPersistentAuthority(serviceSource), true);
   const m1 = routeSource.replace('authorizeSessionRole([])', "authorizeRole([], { allowUserIdFallback: true })");
   assert.notEqual(m1, routeSource); assert.equal(routeIsSessionOnly(m1), false, 'M1 header-fallback route survived');
   const m2 = serviceSource.replace('userContext.platformRole', 'userContext.effectiveRole');
-  assert.notEqual(m2, serviceSource); assert.equal(evaluatorReadsOnlyPlatformRole(m2), false, 'M2 effective-role evaluator survived');
-  const m3 = serviceSource.replace("userContext.authenticationMethod !== 'session'", 'false');
-  assert.notEqual(m3, serviceSource); assert.equal(evaluatorReadsOnlyPlatformRole(m3), false, 'M3 any-method evaluator survived');
+  assert.notEqual(m2, serviceSource); assert.equal(bridgeReadsOnlyPlatformRole(m2), false, 'M2 effective-role bridge survived');
+  const m3 = serviceSource.replace('  const actor = userContext.id;\n', "  const actor = userContext.id;\n  if (evaluateLegacyCompatibilityBridge(userContext)) return deny('unauthenticated');\n");
+  assert.notEqual(m3, serviceSource); assert.equal(admissionIsPersistentAuthority(m3), false, 'M3 bridge consulted before admission survived');
+  const m4 = serviceSource.replace('membership.is_active_member !== true', 'false');
+  assert.notEqual(m4, serviceSource); assert.equal(admissionIsPersistentAuthority(m4), false, 'M4 membership-free admission survived');
+  const m5 = serviceSource.replace('const result = await evaluateCorporateGovernanceAuthorization(', 'const result = await Promise.resolve(');
+  assert.notEqual(m5, serviceSource); assert.equal(admissionIsPersistentAuthority(m5), false, 'M5 evaluator-free admission survived');
 });
 
 test('guard: the route is mounted on the shipped app', () => {

@@ -8,7 +8,7 @@ import { resolve } from 'node:path'
 import { CORPORATE_DESTINATIONS, CORPORATE_PLANES, OPERATE_LINKS, destinationForPath } from '@/config/corporate/navigation'
 import { evaluateRouteAccess } from '@/lib/routeAccess'
 import { EMPTY_GRANT, canSeeDestination, fetchCorporateAccess, parseCorporateAccessGrant, resolveCorporateAccess, visibleDestinations, type CorporateServerDecision } from './access'
-import { SERVER_GRANT } from '@/test/corporateAccessFixture'
+import { OWNER_GOVERNOR_GRANT, SERVER_GRANT } from '@/test/corporateAccessFixture'
 
 describe('A · the ten canonical destinations, in canonical order', () => {
   it('exactly ten, in the binding order, with the binding names and routes', () => {
@@ -43,10 +43,19 @@ describe('C · CA-K3-AUTH-01: admission is the SERVER decision; the browser only
     const d = resolveCorporateAccess({ isBootstrapping: false, isAuthenticated: true, server: { status: 'granted', grant: grant! } })
     expect(d.kind).toBe('render')
     if (d.kind === 'render') {
-      expect(d.grant.source).toBe('legacy_admin_compatibility_bridge')
+      expect(d.grant.source).toBe('persistent_corporate_authority')
+      expect(d.grant.compatibility).toBe(true)
       expect(visibleDestinations(d.grant)).toHaveLength(10)
-      expect(d.grant.explanation).toMatch(/not a Corporate membership/)
+      expect(d.grant.explanation).toMatch(/persistent Corporate permission assignments/)
+      expect([...d.grant.governanceCapabilities].sort()).toEqual(['corporate.people.membership.manage', 'corporate.people.session.revoke'])
     }
+  })
+  it('CA-CLOSE-01 · a governor admitted by persistent authority ALONE (no navigation reads) sees People & Access only', () => {
+    const grant = parseCorporateAccessGrant(OWNER_GOVERNOR_GRANT)
+    expect(grant).not.toBeNull()
+    expect(grant!.compatibility).toBe(false)
+    expect(grant!.capabilities.size).toBe(0)
+    expect(visibleDestinations(grant!).map((d) => d.id)).toEqual(['people-access'])
   })
   it('every non-granting server outcome refuses: pending waits, denied denies, failure is unavailable, 401 signs in', () => {
     const at = (server: CorporateServerDecision) => resolveCorporateAccess({ isBootstrapping: false, isAuthenticated: true, server }).kind
@@ -79,33 +88,40 @@ describe('C · CA-K3-AUTH-01: admission is the SERVER decision; the browser only
 
 describe('C2 · a malformed, widened or mutation-shaped grant fails closed', () => {
   const withGrant = (patch: Record<string, unknown>) => ({ ...SERVER_GRANT, grant: { ...SERVER_GRANT.grant, ...patch } })
+  /** Navigation reads arrive only inside the labelled compatibility block, so a read-list change patches both, in step. */
+  const withReads = (reads: unknown[]) => withGrant({ capabilities: reads, compatibility: { ...SERVER_GRANT.grant.compatibility, capabilities: reads } })
   it.each([
     ['null', null],
     ['a string', 'granted'],
     ['an array', [SERVER_GRANT]],
     ['no contract', { ...SERVER_GRANT, contract: undefined }],
-    ['another contract', { ...SERVER_GRANT, contract: 'carup.corporate_access.v0' }],
+    ['another contract', { ...SERVER_GRANT, contract: 'carup.corporate_access.v1' }],
     ['a denial body', { contract: SERVER_GRANT.contract, decision: 'denied', code: 'CORPORATE_ACCESS_DENIED' }],
     ['no grant', { ...SERVER_GRANT, grant: undefined }],
     ['another source', withGrant({ source: 'corporate_membership' })],
+    ['the retired role-only bridge as the source', withGrant({ source: 'legacy_admin_compatibility_bridge' })],
     ['not read-only', withGrant({ read_only: false })],
     ['read_only as a string', withGrant({ read_only: 'true' })],
     ['no explanation', withGrant({ explanation: '' })],
     ['capabilities not an array', withGrant({ capabilities: 'corporate.overview.read' })],
-    ['no capabilities', withGrant({ capabilities: [] })],
-    ['a wildcard', withGrant({ capabilities: ['corporate.*'] })],
-    ['a wildcard read', withGrant({ capabilities: ['corporate.*.read'] })],
-    ['a manage capability among reads', withGrant({ capabilities: [...SERVER_GRANT.grant.capabilities, 'corporate.finance.manage'] })],
-    ['an export capability', withGrant({ capabilities: ['corporate.report.export'] })],
-    ['an approve capability', withGrant({ capabilities: ['corporate.report.approve.read'] })],
-    ['a non-string capability', withGrant({ capabilities: ['corporate.overview.read', 7] })],
-    ['only capabilities no destination understands', withGrant({ capabilities: ['corporate.unknown.read'] })],
+    ['no governance capability', withGrant({ governance_capabilities: [] })],
+    ['an unknown governance capability', withGrant({ governance_capabilities: ['corporate.people.membership.manage', 'corporate.finance.manage'] })],
+    ['navigation reads without the compatibility block', withGrant({ compatibility: null })],
+    ['a compatibility block that disagrees with the reads', withGrant({ compatibility: { ...SERVER_GRANT.grant.compatibility, capabilities: ['corporate.overview.read'] } })],
+    ['a compatibility block from another source', withGrant({ compatibility: { ...SERVER_GRANT.grant.compatibility, source: 'platform_role' } })],
+    ['a wildcard', withReads(['corporate.*'])],
+    ['a wildcard read', withReads(['corporate.*.read'])],
+    ['a manage capability among reads', withReads([...SERVER_GRANT.grant.capabilities, 'corporate.finance.manage'])],
+    ['an export capability', withReads(['corporate.report.export'])],
+    ['an approve capability', withReads(['corporate.report.approve.read'])],
+    ['a non-string capability', withReads(['corporate.overview.read', 7])],
+    ['only capabilities no destination understands', withReads(['corporate.unknown.read'])],
   ])('%s → no grant', (_label, payload) => {
     expect(parseCorporateAccessGrant(payload)).toBeNull()
   })
-  it('a known subset narrows navigation to exactly the destinations it names', () => {
-    const grant = parseCorporateAccessGrant(withGrant({ capabilities: ['corporate.overview.read', 'corporate.report.read', 'corporate.unknown.read'] }))!
-    expect(visibleDestinations(grant).map((d) => d.id)).toEqual(['overview', 'reports'])
+  it('a known subset narrows navigation to exactly the destinations it names (plus People & Access, opened by the governance capabilities)', () => {
+    const grant = parseCorporateAccessGrant(withReads(['corporate.overview.read', 'corporate.report.read', 'corporate.unknown.read']))!
+    expect(visibleDestinations(grant).map((d) => d.id)).toEqual(['overview', 'people-access', 'reports'])
     expect(grant.capabilities.has('corporate.unknown.read')).toBe(false)
   })
 })

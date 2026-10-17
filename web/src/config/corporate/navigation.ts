@@ -54,6 +54,11 @@ export interface CorporateDestination {
   purpose: string
   /** Any-of: a grant holding one of these may see the destination. */
   navCapabilities: readonly string[]
+  /**
+   * CA-CLOSE-01 — any-of: a PERSISTENT Corporate governance capability (server-confirmed) that is exercised on this
+   * destination and therefore opens it. Never a read capability; never inferred from a role or a title.
+   */
+  governanceCapabilities?: readonly string[]
   icon: string
 }
 
@@ -106,7 +111,8 @@ export const CORPORATE_DESTINATIONS: readonly CorporateDestination[] = Object.fr
     id: 'people-access', label: 'People & Access', shortLabel: 'People', route: '/corporate/people-access', plane: 'business_operations',
     question: 'Who has what authority, where, why and until when?',
     purpose: 'Accounts, membership, permissions, scope, delegation, sessions and access reviews.',
-    navCapabilities: ['corporate.people.aggregate.read', 'corporate.people.access.read'], icon: 'Users',
+    navCapabilities: ['corporate.people.aggregate.read', 'corporate.people.access.read'],
+    governanceCapabilities: ['corporate.people.membership.manage', 'corporate.people.session.revoke'], icon: 'Users',
   },
   {
     id: 'reports', label: 'Reports', shortLabel: 'Reports', route: '/corporate/reports', plane: 'corporate_intelligence',

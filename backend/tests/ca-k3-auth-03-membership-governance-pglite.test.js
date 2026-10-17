@@ -41,8 +41,10 @@ test('file: a canonical migration sorted after Phase A, with a unique version an
 test('frozen: the accepted Phase-A migration, bridge, route, resolver and shadow policy are byte-identical to the accepted head 896c3fe1', () => {
   // A change to any of these is a NEW authority decision for CA-MOD, not a side effect of Phase B.
   assert.equal(gitBlob(`database/migrations/${PHASE_A_FILE}`), 'a6f7d0ec15236056b3b1c3f6f1f55c1fbf024cda', 'the accepted Phase-A migration');
-  assert.equal(gitBlob('backend/services/corporate/corporateAccessService.js'), 'fd38cd1bc8f2559974808ddfc68db61f71eba1c3', 'the legacy compatibility bridge');
-  assert.equal(gitBlob('backend/routes/corporateAccessRoutes.js'), '3ae43f123577811b6ffdad44314ec0a631a33146', 'the effective /api/corporate/access route');
+  // CA-CLOSE-01 (F2) — a moderator-directed authority decision re-pins exactly these two: persistent-authority admission with the
+  // role-only rule bounded to a labelled read-only compatibility (was fd38cd1b), and the routes serving it (was 3ae43f12).
+  assert.equal(gitBlob('backend/services/corporate/corporateAccessService.js'), '8cb1e212cb9984679c1bdc1e2da9713c21a119dd', 'the persistent-authority admission (CA-CLOSE-01)');
+  assert.equal(gitBlob('backend/routes/corporateAccessRoutes.js'), '70c3defda12c301453bd56300cbfed8083a9aa7f', 'the effective /api/corporate/access + /api/corporate/people-access routes (CA-CLOSE-01)');
   assert.equal(gitBlob('backend/services/corporate/corporateMembershipService.js'), '2f9d4f4d44bcae901ffdabc3ef6ada68b5006d97', 'the Phase-A resolver');
   assert.equal(gitBlob('backend/services/corporate/corporateShadowPolicy.js'), '2ed0d8a799ff654cc404f95c4dc6a995e22662f1', 'the shadow evaluation (separate from admission)');
 });

@@ -40,7 +40,15 @@ const gitBlob = (relative) => { const body = readFileSync(path.join(REPO, relati
 const { createSupabaseWorld, installSupabaseWorld } = await import('./helpers/inMemorySupabaseWorld.js');
 const { app } = await import('../server.js');
 const { supabase } = await import('../db/supabase.js');
-const { evaluateCorporateAccess } = await import('../services/corporate/corporateAccessService.js');
+// CA-CLOSE-01 (F2): admission is persistent Corporate authority. The shadow observation now records what the RETIRED
+// role-only rule WOULD have said; this helper reproduces exactly the summary the route hands it.
+const {
+  evaluateLegacyCompatibilityBridge, CORPORATE_COMPATIBILITY_SOURCE, CORPORATE_COMPATIBILITY_PLATFORM_ROLES, CORPORATE_COMPATIBILITY_READ_CAPABILITIES,
+} = await import('../services/corporate/corporateAccessService.js');
+const legacyRuleDecision = (ctx) => {
+  const admit = evaluateLegacyCompatibilityBridge(ctx);
+  return { allowed: admit, body: admit ? { grant: { source: CORPORATE_COMPATIBILITY_SOURCE } } : {} };
+};
 const membership = await import('../services/corporate/corporateMembershipService.js');
 const shadow = await import('../services/corporate/corporateShadowPolicy.js');
 const { MEMBERSHIP_STATE: S, classifyMembershipRow, resolveCorporateMembership } = membership;
@@ -301,7 +309,10 @@ test('an ACTIVE membership carries an empty, frozen capability list and says it 
   assert.doesNotMatch(text, /destination|navigation|route|admission|"grant"/i);
 });
 
-test('through the shipped app: an ACTIVE Corporate member WITHOUT the legacy role is still refused by /api/corporate/access', async () => {
+// CA-CLOSE-01 (F2): an ACTIVE membership is a PREREQUISITE of admission but grants nothing by itself — admission also needs a
+// persistent assignment confirmed by the trusted evaluator (proven against the real SQL in ca-close-01-persistent-corporate-admission).
+// This world holds memberships and no assignments, so every account below is refused, whatever its platform role.
+test('through the shipped app: an ACTIVE Corporate member WITHOUT a persistent assignment is refused by /api/corporate/access', async () => {
   const baseline = await accessAs({ token: 'tok-owner' });
   seed([row('u-owner-member', 'BU_MARKETPLACE', 'ACTIVE'), row('u-owner-member', 'BU_SERVICE_NETWORK', 'ACTIVE')]);
   const member = await accessAs({ token: 'tok-owner-member' });
@@ -312,8 +323,9 @@ test('through the shipped app: an ACTIVE Corporate member WITHOUT the legacy rol
   assert.equal(member.text, baseline.text, 'byte-identical to an account with no membership at all');
 });
 
-test('through the shipped app: effective admission is unchanged for every account class, with or without a membership', async () => {
-  const classes = [['tok-admin', 200], ['tok-admin-member', 200], ['tok-owner', 403], ['tok-owner-member', 403], ['tok-nobody', 403]];
+test('through the shipped app: without a persistent assignment, a membership changes nothing — every account class is refused identically', async () => {
+  // A platform administrator is refused like everyone else: users.role alone confers no Corporate authority.
+  const classes = [['tok-admin', 403], ['tok-admin-member', 403], ['tok-owner', 403], ['tok-owner-member', 403], ['tok-nobody', 403]];
   const without = {}; for (const [tok] of classes) without[tok] = await accessAs({ token: tok });
   seed([row('u-admin', 'BU_MARKETPLACE', 'ACTIVE'), row('u-admin-member', 'BU_SERVICE_NETWORK', 'ACTIVE'), row('u-owner-member', 'BU_FINANCIAL_SERVICES', 'ACTIVE'), row('u-nobody', 'BU_DIASPORA_TRADE', 'ACTIVE'), row('u-owner', 'BU_MARKETPLACE', 'PENDING')]);
   for (const [tok, status] of classes) {
@@ -324,13 +336,17 @@ test('through the shipped app: effective admission is unchanged for every accoun
   }
 });
 
-test('an ACTIVE membership changes nothing about the legacy bridge capability bundle', async () => {
-  const granted = (await accessAs({ token: 'tok-admin' })).body;
+test('a platform administrator with an ACTIVE membership but no persistent assignment is not admitted — the bridge never admits', async () => {
+  const before = await accessAs({ token: 'tok-admin' });
   seed([row('u-admin', 'BU_MARKETPLACE', 'ACTIVE')]);
-  const after = (await accessAs({ token: 'tok-admin' })).body;
-  assert.deepEqual(after, granted);
-  assert.equal(after.grant.source, 'legacy_admin_compatibility_bridge');
-  assert.equal(after.grant.capabilities.length, 16);
+  const after = await accessAs({ token: 'tok-admin' });
+  for (const r of [before, after]) {
+    assert.equal(r.status, 403);
+    assert.equal(r.body.code, 'CORPORATE_ACCESS_DENIED');
+    assert.equal(r.body.grant, undefined);
+    assert.doesNotMatch(r.text, /legacy_admin_compatibility_bridge|corporate\.[a-z_.]+\.read/, 'no compatibility material in a refusal');
+  }
+  assert.equal(after.text, before.text);
 });
 
 // ═════════════════════════ 4 · identity asserted by a header never reaches the membership source ═════════════════════════
@@ -341,7 +357,7 @@ test('a header-asserted identity is not evaluated: no x-user-id / x-tenant-id / 
   supabase.from = (name) => { touched.push(name); return real(name); };
   try {
     const fallbackCtx = { id: 'u-owner-member', authenticationMethod: 'x-user-id-fallback', platformRole: 'owner' };
-    const r = await shadow.evaluateShadowPolicy({ userContext: fallbackCtx, legacyDecision: evaluateCorporateAccess(fallbackCtx), now: NOW });
+    const r = await shadow.evaluateShadowPolicy({ userContext: fallbackCtx, legacyDecision: legacyRuleDecision(fallbackCtx), now: NOW });
     assert.equal(r.corporate_membership_state.state, S.NOT_EVALUATED);
     assert.equal(r.corporate_membership_state.reason, 'identity_not_session_proven');
     assert.equal(r.corporate_membership_state.is_active_member, false);
@@ -372,7 +388,7 @@ test('shadow evaluation: legacy decision and membership state are separate field
   seed([row('u-owner-member', 'BU_MARKETPLACE', 'ACTIVE')]);
   const ownerCtx = { id: 'u-owner-member', authenticationMethod: 'session', platformRole: 'owner' };
   const adminCtx = { id: 'u-admin', authenticationMethod: 'session', platformRole: 'admin' };
-  const a = await shadow.evaluateShadowPolicy({ userContext: ownerCtx, legacyDecision: evaluateCorporateAccess(ownerCtx), now: NOW });
+  const a = await shadow.evaluateShadowPolicy({ userContext: ownerCtx, legacyDecision: legacyRuleDecision(ownerCtx), now: NOW });
   assert.deepEqual(Object.keys(a).sort(), ['affects_admission', 'alignment', 'contract', 'corporate_membership_state', 'legacy_bridge_decision', 'mode']);
   assert.equal(a.contract, 'carup.corporate_membership_shadow.v1');
   assert.equal(a.mode, 'SHADOW');
@@ -381,7 +397,7 @@ test('shadow evaluation: legacy decision and membership state are separate field
   assert.equal(a.corporate_membership_state.is_active_member, true);
   assert.equal(a.alignment, 'legacy_denied__membership_active', 'an ACTIVE member the bridge does not admit: still denied');
   assert.deepEqual(a.corporate_membership_state.capabilities, []);
-  const b = await shadow.evaluateShadowPolicy({ userContext: adminCtx, legacyDecision: evaluateCorporateAccess(adminCtx), now: NOW });
+  const b = await shadow.evaluateShadowPolicy({ userContext: adminCtx, legacyDecision: legacyRuleDecision(adminCtx), now: NOW });
   assert.deepEqual(b.legacy_bridge_decision, { decision: 'granted', source: 'legacy_admin_compatibility_bridge' });
   assert.equal(b.corporate_membership_state.state, S.NO_MEMBERSHIP);
   assert.equal(b.alignment, 'legacy_granted__membership_not_active', 'the bridge admits an admin who is NOT a Corporate member — the policy does not');
@@ -392,7 +408,7 @@ test('shadow evaluation: legacy decision and membership state are separate field
   }
 });
 
-test('shadow observation is OFF by default: no log, no database access', async () => {
+test('shadow observation is OFF by default: no log, and no Corporate read beyond the admission decision\'s own', async () => {
   seed([row('u-owner-member', 'BU_MARKETPLACE', 'ACTIVE')]);
   const real = supabase.from; const touched = []; supabase.from = (n) => { touched.push(n); return real(n); };
   const lines = [];
@@ -404,7 +420,11 @@ test('shadow observation is OFF by default: no log, no database access', async (
     await accessAs({ token: 'tok-admin' }); await accessAs({ token: 'tok-owner-member' });
     await new Promise((r) => setTimeout(r, 120));
     assert.equal(lines.length, 0);
-    assert.ok(touched.length > 0 && touched.every((n) => !n.startsWith('corporate_')), `only the authentication reads happened: ${touched.join(',')}`);
+    // CA-CLOSE-01: the admission decision itself reads the Corporate authority. With the observation OFF those are the ONLY Corporate
+    // reads — a non-member stops at the membership read; a member without an assignment reads membership → its node → the effective
+    // assignments. Any further read would be the shadow's.
+    assert.deepEqual(touched.filter((n) => n.startsWith('corporate_')),
+      ['corporate_memberships', 'corporate_memberships', 'corporate_org_nodes', 'corporate_permission_assignment_effective'], touched.join(','));
     assert.equal(world.rows('corporate_memberships').length, 1);
   } finally { supabase.from = real; console.info = () => {}; }
 });
@@ -425,20 +445,27 @@ test('shadow observation ON: one pseudonymous line per authenticated request —
   assert.equal(by('legacy_denied__membership_not_active').legacy_bridge_decision, 'denied');
 });
 
-test('the shadow observation cannot change, delay or fail the response — flag on, table missing, database down, log sink throwing', async () => {
-  const baseline = {}; for (const tok of ['tok-admin', 'tok-owner']) baseline[tok] = await accessAs({ token: tok });
+test('the shadow observation cannot change, delay or fail the response — flag ON vs OFF under the same conditions: healthy, table missing / database down, log sink throwing', async () => {
   const observeAll = async () => { const out = {}; for (const tok of ['tok-admin', 'tok-owner']) out[tok] = await accessAs({ token: tok }); return out; };
-  const same = (got, label) => { for (const tok of Object.keys(baseline)) { assert.equal(got[tok].status, baseline[tok].status, `${label} ${tok}`); assert.equal(got[tok].text, baseline[tok].text, `${label} ${tok}`); assert.equal(got[tok].cacheControl, 'no-store'); } };
+  const same = (got, expected, label) => { for (const tok of Object.keys(expected)) { assert.equal(got[tok].status, expected[tok].status, `${label} ${tok}`); assert.equal(got[tok].text, expected[tok].text, `${label} ${tok}`); assert.equal(got[tok].cacheControl, 'no-store'); } };
+  // CA-CLOSE-01: the admission now reads the Corporate tables too, so each condition is compared with the observation OFF under
+  // the SAME condition — the observation must add nothing, remove nothing and break nothing.
+  const flagOnVsOff = async (label) => {
+    delete process.env.CORPORATE_MEMBERSHIP_SHADOW;
+    const off = await observeAll();
+    process.env.CORPORATE_MEMBERSHIP_SHADOW = 'true';
+    try { same(await observeAll(), off, label); } finally { delete process.env.CORPORATE_MEMBERSHIP_SHADOW; }
+  };
 
-  process.env.CORPORATE_MEMBERSHIP_SHADOW = 'true';
+  await flagOnVsOff('healthy');
+  const real = supabase.from;
+  supabase.from = (name) => { if (name.startsWith('corporate_')) throw new Error('relation "corporate_memberships" does not exist'); return real(name); };
   try {
-    same(await observeAll(), 'flag on');
-    const real = supabase.from;
-    supabase.from = (name) => { if (name.startsWith('corporate_')) throw new Error('relation "corporate_memberships" does not exist'); return real(name); };
-    try { same(await observeAll(), 'table missing / database down'); } finally { supabase.from = real; }
-    const realInfo = console.info; console.info = () => { throw new Error('log sink down'); };
-    try { same(await observeAll(), 'log sink throwing'); await new Promise((r) => setTimeout(r, 100)); } finally { console.info = realInfo; }
-  } finally { delete process.env.CORPORATE_MEMBERSHIP_SHADOW; }
+    await flagOnVsOff('table missing / database down');
+    assert.equal((await accessAs({ token: 'tok-admin' })).status, 503, 'an unreadable Corporate authority fails closed and grants nothing');
+  } finally { supabase.from = real; }
+  const realInfo = console.info; console.info = () => { throw new Error('log sink down'); };
+  try { await flagOnVsOff('log sink throwing'); await new Promise((r) => setTimeout(r, 100)); } finally { console.info = realInfo; }
 
   assert.doesNotThrow(() => shadow.observeShadowPolicy({ userContext: undefined, legacyDecision: undefined, env: { CORPORATE_MEMBERSHIP_SHADOW: 'true' }, supabaseClient: null }));
   assert.doesNotThrow(() => shadow.observeShadowPolicy({ userContext: { id: 'u', authenticationMethod: 'session' }, legacyDecision: {}, env: { CORPORATE_MEMBERSHIP_SHADOW: 'true' }, supabaseClient: { from() { throw new Error('boom'); } }, log() { throw new Error('boom'); } }));
@@ -469,7 +496,7 @@ test('shadow observation bounds hung work: at most the configured in-flight cap,
     },
   };
   const ctx = { id: 'u-owner', authenticationMethod: 'session', platformRole: 'owner' };
-  const decision = evaluateCorporateAccess(ctx);
+  const decision = legacyRuleDecision(ctx);
   const accessBefore = await accessAs({ token: 'tok-owner' });
   for (let i = 0; i < shadow.SHADOW_OBSERVATION_MAX_IN_FLIGHT + 3; i += 1) {
     shadow.observeShadowPolicy({
@@ -511,19 +538,33 @@ test('the observation writes nothing: no audit row, no membership row, no identi
 
 // ═════════════════════════ 6 · the legacy bridge is frozen; the new modules cannot reach forbidden sources ═════════════════════════
 
-test('the legacy bridge is byte-identical to its frozen foundation (3fc2bdcf) — nothing re-expressed, narrowed or widened', () => {
-  // git blob ids at 3fc2bdcf. A deliberate change to the bridge must update these pins in the same commit.
-  assert.equal(gitBlob('backend/services/corporate/corporateAccessService.js'), 'fd38cd1bc8f2559974808ddfc68db61f71eba1c3');
+test('CA-CLOSE-01: the bounded compatibility keeps EXACTLY the frozen foundation\'s role list and read bundle — nothing widened', () => {
+  // CA-CLOSE-01 (F2) deliberately replaced the role-only ADMISSION (frozen bridge: blob fd38cd1bc8f2559974808ddfc68db61f71eba1c3 at
+  // 3fc2bdcf). What survives of it — the bounded compatibility an ADMITTED member may carry — must be exactly the frozen lists below,
+  // copied from that blob: no new role, no new capability.
+  const FROZEN_ROLES = ['admin', 'platform_admin', 'super_admin'];
+  const FROZEN_READS = [
+    'corporate.overview.read', 'corporate.business_unit.read', 'corporate.finance.summary.read', 'corporate.growth.aggregate.read',
+    'corporate.customer.aggregate.read', 'corporate.operations.queue.read', 'corporate.operations.summary.read', 'corporate.risk.aggregate.read',
+    'corporate.metric.registry.read', 'corporate.data.quality.read', 'corporate.intelligence.aggregate.read', 'corporate.people.aggregate.read',
+    'corporate.people.access.read', 'corporate.report.read', 'platform.health.read', 'platform.feature.read',
+  ];
+  assert.deepEqual([...CORPORATE_COMPATIBILITY_PLATFORM_ROLES], FROZEN_ROLES);
+  assert.deepEqual([...CORPORATE_COMPATIBILITY_READ_CAPABILITIES], FROZEN_READS);
+  assert.notEqual(gitBlob('backend/services/corporate/corporateAccessService.js'), 'fd38cd1bc8f2559974808ddfc68db61f71eba1c3', 'the role-only admission is gone');
   const svc = read('backend/services/corporate/corporateAccessService.js');
-  assert.match(svc, /CORPORATE_COMPATIBILITY_PLATFORM_ROLES = Object\.freeze\(\['admin', 'platform_admin', 'super_admin'\]\)/);
-  assert.match(svc, /CORPORATE_ACCESS_CONTRACT = 'carup\.corporate_access\.v1'/);
+  assert.match(svc, /CORPORATE_ACCESS_CONTRACT = 'carup\.corporate_access\.v2'/);
 });
 
-test('the route differs from its frozen foundation by exactly the shadow observer call and its import', () => {
-  const route = read('backend/routes/corporateAccessRoutes.js');
-  const stripped = code(route).replace(/import \{ observeShadowPolicy \} from '\.\.\/services\/corporate\/corporateShadowPolicy\.js';\n/, '').replace(/\n\s*observeShadowPolicy\(\{ userContext: req\.userContext, legacyDecision: decision \}\);/, '');
-  assert.match(stripped, /router\.get\('\/api\/corporate\/access', authorizeSessionRole\(\[\]\), \(req, res\) => \{\s*const decision = evaluateCorporateAccess\(req\.userContext\);\s*res\.set\('Cache-Control', 'no-store'\);\s*return res\.status\(decision\.status\)\.json\(decision\.body\);\s*\}\);/);
-  assert.doesNotMatch(code(route), /\bauthorizeRole\(|optionalAuth\(/);
+test('CA-CLOSE-01: the route admits through evaluateCorporateAccess alone; the shadow observer runs only AFTER the decision and never shapes the response', () => {
+  const c = code(read('backend/routes/corporateAccessRoutes.js'));
+  assert.match(c, /router\.get\('\/api\/corporate\/access', authorizeSessionRole\(\[\]\), async \(req, res\) => \{\s*let decision;\s*try \{\s*decision = await evaluateCorporateAccess\(req\.userContext\);/);
+  const decided = c.indexOf('decision = await evaluateCorporateAccess(req.userContext)');
+  const observed = c.indexOf('observeShadowPolicy({');
+  assert.ok(decided > 0 && observed > decided, 'the observation is fire-and-forget AFTER the decision');
+  assert.match(c, /res\.set\('Cache-Control', 'no-store'\);\s*return res\.status\(decision\.status\)\.json\(decision\.body\);\s*\}\);/, 'the response is the decision, never the shadow');
+  assert.match(c, /router\.get\('\/api\/corporate\/people-access', authorizeSessionRole\(\[\]\), /);
+  assert.doesNotMatch(c, /\bauthorizeRole\(|optionalAuth\(/);
 });
 
 const FORBIDDEN_SOURCES = [/\busers\b/, /tenant_users|\btenants\b/, /organization_users|\borganizations\b/, /user_sessions/, /x-user-id|x-tenant-id|x-stakeholder-role/i, /\breq\b|\bheaders\b/, /platformRole|effectiveRole|tenantRole|baseRole|\.role\b/, /jobTitle|job_title/, /legacy_admin_compatibility_bridge/, /corporateAccessService|evaluateCorporateAccess/];

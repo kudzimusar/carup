@@ -8,7 +8,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
+import { OWNER_GOVERNOR_GRANT, PEOPLE_ACCESS_PROJECTION, SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
 
 vi.mock('@/context/AuthContext', async () => {
   const React = await import('react')
@@ -60,12 +60,29 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 const defaultAnswer = (token: string | null): Answer =>
   !token ? { status: 401, body: { error: 'Unauthorized. No active user context.' } }
     : COMPAT_TOKENS.has(token) ? { status: 200, body: SERVER_GRANT } : { status: 403, body: SERVER_DENIAL }
+/** CA-CLOSE-01: GET /api/corporate/people-access — the projection for an admitted governor, 403 otherwise. */
+let projectionFor: (token: string | null) => Answer
+const peopleCalls: Array<{ url: string; headers: Record<string, string> }> = []
+const defaultProjection = (token: string | null): Answer =>
+  !token ? { status: 401, body: { error: 'Unauthorized. No active user context.' } }
+    : COMPAT_TOKENS.has(token) ? { status: 200, body: PEOPLE_ACCESS_PROJECTION } : { status: 403, body: SERVER_DENIAL }
 
 beforeEach(() => {
   answerFor = defaultAnswer
+  projectionFor = defaultProjection
   accessCalls.length = 0
+  peopleCalls.length = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
     const url = String(input)
+    if (url.endsWith('/corporate/people-access')) {
+      const headers = Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]))
+      peopleCalls.push({ url, headers })
+      const answer = projectionFor(headers['x-session-token'] ?? null)
+      if (answer === 'network') throw new TypeError('Failed to fetch')
+      if (answer === 'hang') return new Promise<Response>((_res, rej) => init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))))
+      const settled = await answer
+      return json(settled.status, settled.body)
+    }
     if (!url.endsWith('/corporate/access')) return json(404, { error: 'Route not found' })
     const headers = Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]))
     accessCalls.push({ url, headers })
@@ -512,8 +529,8 @@ describe('CA-K3-AUTH-01 · the Corporate shell renders only from the SERVER Corp
     const rail = screen.getByTestId('corporate-rail')
     expect(within(rail).getAllByRole('link').filter((a) => a.getAttribute('data-order'))).toHaveLength(10)
     fireEvent.click(screen.getByTestId('topbar-account'))
-    expect(screen.getByTestId('access-explanation')).toHaveTextContent('legacy Admin compatibility bridge')
-    expect(screen.getByTestId('access-explanation')).toHaveTextContent('not a Corporate membership')
+    expect(screen.getByTestId('access-explanation')).toHaveTextContent('persistent Corporate permission assignments')
+    expect(screen.getByTestId('access-explanation')).toHaveTextContent('bounded compatibility')
   })
 
   it('6 · the request carries the session token only — the browser sends no role, user or tenant claim', async () => {
@@ -537,12 +554,14 @@ describe('CA-K3-AUTH-01 · the Corporate shell renders only from the SERVER Corp
   })
 
   it('8 · navigation follows the server capabilities, and a page outside them is refused inside the shell', async () => {
-    const subset = { ...SERVER_GRANT, grant: { ...SERVER_GRANT.grant, capabilities: ['corporate.overview.read', 'corporate.report.read'] } }
+    const reads = ['corporate.overview.read', 'corporate.report.read']
+    const subset = { ...SERVER_GRANT, grant: { ...SERVER_GRANT.grant, capabilities: reads, compatibility: { ...SERVER_GRANT.grant.compatibility, capabilities: reads } } }
     answerFor = () => ({ status: 200, body: subset })
     await renderAdmitted('/corporate/finance')
     const rail = screen.getByTestId('corporate-rail')
+    // CA-CLOSE-01: People & Access is opened by the persistent People governance capabilities the governor holds.
     expect(within(rail).getAllByRole('link').filter((a) => a.getAttribute('data-order')).map((a) => a.textContent)).toEqual([
-      expect.stringContaining('Corporate Overview'), expect.stringContaining('Reports'),
+      expect.stringContaining('Corporate Overview'), expect.stringContaining('People & Access'), expect.stringContaining('Reports'),
     ])
     expect(screen.getByTestId('corporate-forbidden')).toHaveTextContent('You do not have access to this page.')
     expect(screen.queryByTestId('finance-authority-statement')).toBeNull()
@@ -610,5 +629,68 @@ describe('CA-K3-AUTH-01 · the Corporate shell renders only from the SERVER Corp
       unmount()
     }
     expect(accessCalls).toHaveLength(DIRECT_ROUTES.length)
+  })
+})
+
+describe('CA-CLOSE-01 · persistent Corporate admission and the People & Access projection', () => {
+  it('Governor B — a platform OWNER admitted by persistent authority alone — enters Corporate Admin; the root opens People & Access', async () => {
+    answerFor = (t) => (t === 'tok-u-owner' ? { status: 200, body: OWNER_GOVERNOR_GRANT } : defaultAnswer(t))
+    projectionFor = (t) => (t === 'tok-u-owner' ? { status: 200, body: PEOPLE_ACCESS_PROJECTION } : defaultProjection(t))
+    await renderAdmitted('/corporate', userFor('owner'))
+    await screen.findByTestId('people-access-projection')
+    const rail = screen.getByTestId('corporate-rail')
+    expect(within(rail).getAllByRole('link').filter((a) => a.getAttribute('data-order')).map((a) => a.textContent)).toEqual([expect.stringContaining('People & Access')])
+    expect(screen.queryByTestId('corporate-forbidden')).toBeNull()
+    expect(screen.getByTestId('people-membership-count')).toHaveTextContent('(2)')
+    expect(screen.getByTestId('people-assignment-count')).toHaveTextContent('(4)')
+    expect(screen.getAllByTestId('people-membership-row')).toHaveLength(2)
+    expect(screen.getAllByTestId('people-assignment-row')).toHaveLength(4)
+    expect(screen.getByTestId('people-current-access')).toHaveTextContent('persistent Corporate permission assignments')
+    expect(screen.getByTestId('people-current-access')).not.toHaveTextContent('compatibility')
+    expect(screen.queryByText('Operate — compatibility surface')).toBeNull()
+  })
+
+  it('Governor A sees the same truthful record — person, node, state, period, capability, scope, descendants, floor — asked with the session token only', async () => {
+    await renderAdmitted('/corporate/people-access')
+    await screen.findByTestId('people-access-projection')
+    const rows = screen.getAllByTestId('people-membership-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('Governor A')
+    expect(rows[0]).toHaveTextContent('CarUp Corporate (CARUP_CORPORATE)')
+    expect(rows[0]).toHaveTextContent('ACTIVE')
+    expect(rows[0]).toHaveTextContent('2026-10-17 → no end date')
+    expect(rows[1]).toHaveTextContent('Governor B')
+    const caps = screen.getAllByTestId('people-assignment-capability').map((c) => c.textContent).sort()
+    expect(caps).toEqual(['corporate.people.membership.manage', 'corporate.people.membership.manage', 'corporate.people.session.revoke', 'corporate.people.session.revoke'])
+    for (const scope of screen.getAllByTestId('people-assignment-scope')) expect(scope).toHaveTextContent('CarUp Corporate (CARUP_CORPORATE)and every node below it')
+    for (const floor of screen.getAllByTestId('people-assignment-floor')) expect(floor).toHaveTextContent('A1 — recent password re-authentication')
+    for (const p of screen.getAllByTestId('people-assignment-period')) expect(p).toHaveTextContent('2026-10-17 → 2027-10-17')
+    expect(screen.queryByText(/Future model \(CA-ORG/)).toBeNull()
+    expect(screen.getByText('Operate — compatibility surface')).toBeInTheDocument()
+    expect(peopleCalls).toHaveLength(1)
+    expect(peopleCalls[0].headers['x-session-token']).toBe('tok-u-admin')
+    for (const h of ['x-user-id', 'x-stakeholder-role', 'x-tenant-id']) expect(peopleCalls[0].headers[h], h).toBeUndefined()
+  })
+
+  it('fails closed: a refused projection shows the restricted statement; an unreadable or altered one shows nothing', async () => {
+    projectionFor = () => ({ status: 403, body: { code: 'CORPORATE_PEOPLE_ACCESS_DENIED' } })
+    const first = await renderAdmitted('/corporate/people-access')
+    await screen.findByTestId('people-access-denied')
+    expect(screen.queryByTestId('people-membership-row')).toBeNull()
+    first.unmount()
+    const answers: Answer[] = [
+      { status: 500, body: {} },
+      { status: 200, body: { ...PEOPLE_ACCESS_PROJECTION, source: 'legacy_admin_compatibility_bridge' } },
+      { status: 200, body: { ...PEOPLE_ACCESS_PROJECTION, read_only: false } },
+      { status: 200, body: { ...PEOPLE_ACCESS_PROJECTION, counts: { memberships: 3, assignments: 4 } } },
+      'network',
+    ]
+    for (const answer of answers) {
+      projectionFor = () => answer
+      const r = await renderAdmitted('/corporate/people-access')
+      await screen.findByTestId('people-access-unavailable')
+      expect(screen.queryByTestId('people-membership-row')).toBeNull()
+      r.unmount()
+    }
   })
 })
