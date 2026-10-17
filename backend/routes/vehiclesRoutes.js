@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
+import { resolveSessionByToken } from '../services/auth/sessionAuthority.js';
 import { readAllPages } from '../services/intelligence/rollupService.js';
 import { summarizeProvenance } from '../services/provenance/recordProvenance.js';
 import { loadProvenanceIndex } from '../services/provenance/provenanceContext.js';
@@ -995,11 +996,7 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
   let activeTenantIds = [];
 
   if (sessionToken) {
-    const { data: session } = await supabase
-      .from('user_sessions')
-      .select('user_id, is_valid, expires_at')
-      .eq('token', sessionToken)
-      .single();
+    const session = await resolveSessionByToken(supabase, sessionToken);
     if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
       activeUserId = session.user_id;
     }

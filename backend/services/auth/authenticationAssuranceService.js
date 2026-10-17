@@ -1,6 +1,7 @@
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { ValidationError } from '../../utils/errors.js';
+import { recordPasswordReauth, clearPasswordReauth } from './sessionAuthority.js';
 
 /**
  * O2-X3 (ported by OC-5C from PR #208) — authentication assurance: is this SESSION currently
@@ -143,19 +144,15 @@ export async function recordStepUp(client = supabase, { token, userId, method = 
     throw new ValidationError(`Unsupported step-up method: ${method}.`);
   }
 
-  const stampedAt = new Date().toISOString();
-  const { data, error } = await client
-    .from('user_sessions')
-    .update({ step_up_at: stampedAt, step_up_method: method })
-    .eq('token', token)
-    .eq('user_id', userId)
-    .eq('is_valid', true)
-    .select('id')
-    .single();
-  if (error || !data) {
-    throw new Error(`Could not record step-up on the presenting session${error ? `: ${error.message}` : '.'}`);
+  const data = await recordPasswordReauth(
+    { token, userId },
+    { legacyTestClient: client },
+  );
+  if (!data?.id || !data?.step_up_at) {
+    throw new Error('Could not record step-up on the presenting session.');
   }
 
+  const stampedAt = data.step_up_at;
   const auditResult = await logAuditEvent(client, {
     req: options.req,
     event_type: 'AUTH_STEP_UP_COMPLETED',
@@ -167,14 +164,12 @@ export async function recordStepUp(client = supabase, { token, userId, method = 
     new_value: { method, step_up_at: stampedAt, policy_version: ASSURANCE_POLICY_VERSION },
   });
   if (!auditResult.success) {
-    // OC-5C (OC-4A rule: a governed change never stands unaudited): #208 only warned here, leaving
-    // a step-up in force that the audit trail does not hold. Withdraw THIS stamp — conditional on
-    // it still being ours — and refuse; the person simply steps up again.
-    await client
-      .from('user_sessions')
-      .update({ step_up_at: null, step_up_method: null })
-      .eq('id', data.id)
-      .eq('step_up_at', stampedAt);
+    // The dedicated session authority conditionally withdraws only this exact stamp. A concurrent
+    // newer re-authentication therefore cannot be erased by the failed audit of an older one.
+    await clearPasswordReauth(
+      { sessionId: data.id, expectedStepUpAt: stampedAt },
+      { legacyTestClient: client },
+    );
     throw new Error('The step-up could not be audited, so it was not recorded. Please try again.');
   }
 

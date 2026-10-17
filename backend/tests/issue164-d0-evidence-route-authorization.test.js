@@ -65,8 +65,8 @@ test('x-user-id is gated by the governed fallback policy, not trusted outright',
 
 test('the x-user-id read is ordered AFTER the session and cannot override a real session', () => {
   const idx = EVIDENCE_ROUTE.indexOf("req.headers['x-user-id']");
-  const sess = EVIDENCE_ROUTE.indexOf('user_sessions');
-  assert.ok(idx > -1 && sess > -1, 'both the session lookup and the fallback must be present');
+  const sess = EVIDENCE_ROUTE.indexOf('resolveSessionByToken');
+  assert.ok(idx > -1 && sess > -1, 'both the exact-token session resolver and the fallback must be present');
   assert.ok(sess < idx, 'the session must be resolved before the fallback is even considered');
   assert.match(
     EVIDENCE_ROUTE,

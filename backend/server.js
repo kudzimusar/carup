@@ -71,7 +71,13 @@ import {
   parseCookies
 } from './middleware/securityMiddleware.js';
 import { corsOptions } from './config/corsOptions.js';
-import { buildSessionRow } from './services/auth/sessionRow.js';
+import {
+  issueInteractiveSession,
+  revokeCurrentSession,
+  setSessionActiveOrganization,
+  registerOwnerWithSession,
+  probeSessionAuthorityConnection,
+} from './services/auth/sessionAuthority.js';
 import {
   resolveVerifiedActiveTenant,
   listVerifiedMemberships,
@@ -370,6 +376,37 @@ app.get('/api/health', async (req, res) => {
   const snapshot = metricsHub.getSnapshot();
   const communicationConfiguration = validateCommunicationConfiguration();
 
+  // AUTH-05-R4: explicit, read-only Preview preflight. It is opt-in so ordinary health polling does
+  // not open the dedicated authentication-authority connection. Production-like runtimes never
+  // expose this diagnostic field. The probe returns only safe state: no DSN, credentials or CA body.
+  let sessionAuthorityPreflight = null;
+  if (String(process.env.VERCEL_ENV || '').trim().toLowerCase() === 'preview'
+      && req.query?.auth05 === 'session-authority') {
+    try {
+      const probe = await probeSessionAuthorityConnection();
+      sessionAuthorityPreflight = {
+        status: probe.connected === true
+          && probe.client_tls === true
+          && probe.client_tls_authorized === true ? 'healthy' : 'unhealthy',
+        connected: probe.connected === true,
+        database_tls: probe.client_tls === true,
+        tls_peer_authorized: probe.client_tls_authorized === true,
+        postgres_backend_tls: probe.postgres_backend_tls === true,
+        tls_verification: probe.verification,
+        trust_anchor: probe.trust_anchor,
+      };
+    } catch (error) {
+      sessionAuthorityPreflight = {
+        status: 'unhealthy',
+        connected: false,
+        database_tls: false,
+        tls_verification: 'verify-full',
+        trust_anchor: 'Supabase Root 2021 CA',
+        error_code: error?.code || error?.name || 'SESSION_AUTHORITY_UNAVAILABLE',
+      };
+    }
+  }
+
   // Canonical OCR runtime projection — the AUTHORITATIVE, non-secret description of the CURRENT
   // Document Intelligence OCR boundary. Derived from the same resolveVisionProvider() /
   // provider.isConfigured() / isOcrMockAllowed() the runtime uses, so it never drifts from what
@@ -419,6 +456,7 @@ app.get('/api/health', async (req, res) => {
     },
     // OC-5R-REL-01: which Supabase project this runtime reaches — project refs only, never a URL.
     database: resolveDatabaseTarget(process.env),
+    ...(sessionAuthorityPreflight ? { sessionAuthority: sessionAuthorityPreflight } : {}),
     // Truthful: a DSN without an installed SDK is `unavailable`, never `enabled` (OC-5R-PROV-01 C3).
     sentry: sentryHealth(),
     // Canonical current OCR runtime status (authoritative for "is OCR available").
@@ -660,17 +698,18 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       throw new ForbiddenError(`Forbidden. Role '${role}' is not verified for this user context.`);
     }
     
-    // Generate secure session
-    const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-    
-    const { error: switchSessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId, activeRole: role, token, expiresAt: expiresAt.toISOString(), req, tenantId: verifiedTenantId })
-    );
-    if (switchSessionError) {
-      throw new Error('Could not establish a session for the switched role.');
-    }
+    // Session issuance is held by the dedicated AUTH-05 database authority. The ordinary
+    // service_role can verify the user/tenant but cannot mint the resulting bearer identity.
+    const switchedSession = await issueInteractiveSession({
+      userId,
+      activeRole: role,
+      activeOrganizationId: verifiedTenantId,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers?.['user-agent'] || null,
+      authMethod: 'session_switch',
+    }, { legacyTestClient: supabase });
+    const token = switchedSession?.token;
+    if (!token) throw new Error('Could not establish a session for the switched role.');
 
     await logAuditEvent(supabase, {
       ...auditBase,
@@ -2590,17 +2629,18 @@ app.post('/api/auth/login', async (req, res) => {
     }
     delete user.password_hash;
 
-    // Generate actual session token in the database (No more mocks)
-    const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-    
-    const { error: sessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId: user.id, activeRole: user.role, token, expiresAt: expiresAt.toISOString(), req })
-    );
-    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
-    if (sessionError) {
-      console.error('Failed to persist user session on login:', sessionError.message);
+    // Credential verification happened above under ordinary service_role reads. Only the distinct
+    // AUTH-05 session authority may turn that verified identity into a bearer session.
+    const issuedSession = await issueInteractiveSession({
+      userId: user.id,
+      activeRole: user.role,
+      activeOrganizationId: null,
+      ipAddress: req.ip || '127.0.0.1',
+      userAgent: req.headers?.['user-agent'] || null,
+      authMethod: 'password',
+    }, { legacyTestClient: supabase });
+    const token = issuedSession?.token;
+    if (!token) {
       return res.status(500).json({ error: 'Could not establish a session. Please try again.' });
     }
 
@@ -2682,17 +2722,11 @@ app.post('/api/auth/logout', authorizeRole([], { allowUserIdFallback: false, ign
   const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
   const userId = req.userContext.id;
   try {
-    const { data: revokedRows, error } = await supabase
-      .from('user_sessions')
-      .update({ is_valid: false })
-      .eq('token', token)
-      .eq('user_id', userId)
-      .eq('is_valid', true)
-      .select('user_id');
-    if (error) {
-      return res.status(503).json({ error: 'Your session could not be ended right now. Please try again.', code: 'SESSION_REVOCATION_UNAVAILABLE' });
-    }
-    const revoked = Array.isArray(revokedRows) ? revokedRows.length : revokedRows ? 1 : 0;
+    const revokedResult = await revokeCurrentSession(
+      { token, userId },
+      { legacyTestClient: supabase },
+    );
+    const revoked = Number(revokedResult?.revoked_count || 0);
     // Audited after the fact: the revocation is the security action and stands even if the record
     // fails. Never the token — only that this person's current session ended.
     await logAuditEvent(supabase, {
@@ -2743,26 +2777,16 @@ app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: fals
       }
     }
 
-    const { data: sessionRows, error: readError } = await supabase
-      .from('user_sessions')
-      .select('active_organization_id')
-      .eq('token', token)
-      .eq('user_id', userId);
-    if (readError) {
-      return res.status(503).json({ error: 'Your session could not be read right now. Please try again shortly.', code: 'SESSION_UNAVAILABLE' });
-    }
-    const sessionRow = (Array.isArray(sessionRows) ? sessionRows : sessionRows ? [sessionRows] : [])[0];
-    if (!sessionRow) return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
-    const previousTenantId = sessionRow.active_organization_id || null;
-
-    const { error: writeError } = await supabase
-      .from('user_sessions')
-      .update({ active_organization_id: tenantId })
-      .eq('token', token)
-      .eq('user_id', userId);
-    if (writeError) {
+    let selection;
+    try {
+      selection = await setSessionActiveOrganization(
+        { token, userId, activeOrganizationId: tenantId },
+        { legacyTestClient: supabase },
+      );
+    } catch {
       return res.status(503).json({ error: 'Your organisation could not be selected right now. Please try again shortly.', code: 'ACTIVE_TENANT_NOT_SAVED' });
     }
+    const previousTenantId = selection?.previous_active_organization_id || null;
 
     const audit = await logAuditEvent(supabase, {
       req,
@@ -2775,16 +2799,16 @@ app.put('/api/auth/active-tenant', authorizeRole([], { allowUserIdFallback: fals
       new_value: { tenantId, tenantRole: tenant ? tenant.role : null, tenantType: tenant ? tenant.type : null },
     });
     if (!audit?.success) {
-      const { error: revertError } = await supabase
-        .from('user_sessions')
-        .update({ active_organization_id: previousTenantId })
-        .eq('token', token)
-        .eq('user_id', userId);
-      if (revertError) {
-        // The selection stands with no audit record and could not be withdrawn: invalidate the session
-        // rather than leave unaudited authority in place. The person signs in again.
+      try {
+        await setSessionActiveOrganization(
+          { token, userId, activeOrganizationId: previousTenantId },
+          { legacyTestClient: supabase },
+        );
+      } catch {
+        // The selection stands with no audit record and could not be withdrawn: invalidate the
+        // presenting session through the dedicated authority rather than leave unaudited authority.
         console.error('[active-tenant] audit failed and the selection could not be withdrawn; invalidating the session');
-        await supabase.from('user_sessions').update({ is_valid: false }).eq('token', token).eq('user_id', userId);
+        await revokeCurrentSession({ token, userId }, { legacyTestClient: supabase }).catch(() => null);
       }
       return res.status(503).json({ error: 'Your organisation could not be selected right now. Please try again shortly.', code: 'ACTIVE_TENANT_AUDIT_UNAVAILABLE' });
     }
@@ -2849,56 +2873,30 @@ app.post('/api/auth/register', async (req, res) => {
 
     const password_hash = await hashPassword(password);
 
-    const id = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
-    const { error } = await supabase.from('users').insert({
-      id,
-      name: String(name).trim(),
-      email: normalizedEmail,
-      phone: phone || '',
-      location: profileResult.userLocation,
-      role: assignedRole,
-      password_hash,
-      join_date: new Date().toISOString(),
-    });
-
-    if (error) throw error;
-
-    if (profileResult.profile) {
-      const { error: profileError } = await supabase.from('user_registration_profiles').insert({
-        user_id: id,
-        ...profileResult.profile,
+    // R4-R1: user, optional profile and initial session share one database commit boundary.
+    // If the authority is unavailable, no user write has happened. SQL failures roll back all three.
+    let registration;
+    try {
+      registration = await registerOwnerWithSession({
+        user: {
+          name: String(name).trim(), email: normalizedEmail, phone: phone || '',
+          location: profileResult.userLocation, role: assignedRole, password_hash,
+        },
+        profile: profileResult.profile,
+        ipAddress: req.ip || '127.0.0.1',
+        userAgent: req.headers?.['user-agent'] || null,
       });
-      if (profileError) {
-        // Never tell the person signup succeeded while silently discarding the identity/onboarding
-        // answers we just asked them for. Compensate the user row and fail the registration.
-        await supabase.from('users').delete().eq('id', id);
-        console.error('Failed to persist registration profile:', profileError.message);
-        return res.status(503).json({ error: 'Could not save your registration profile. Please try again.' });
+    } catch (registrationError) {
+      if (registrationError?.code === '23505') {
+        return res.status(409).json({ error: 'An account with this email already exists' });
       }
+      console.error('[auth] atomic registration failed:', registrationError?.code || 'REGISTRATION_UNAVAILABLE');
+      return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
     }
-
-    // Automatically issue a session. Email verification is independent from identity/KYC and does
-    // not block this Seller draft handoff; it secures the mailbox and is surfaced explicitly.
-    const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-
-    const { error: sessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId: id, activeRole: assignedRole, token, expiresAt: expiresAt.toISOString(), req })
-    );
-    if (sessionError) {
-      console.error('Failed to persist user session on register:', sessionError.message);
-      return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
+    const { user: newUser, token } = registration || {};
+    if (!newUser?.id || !token) {
+      return res.status(503).json({ error: 'Registration could not establish a secure session. Please try again.' });
     }
-
-    const newUser = {
-      id,
-      name: String(name).trim(),
-      email: normalizedEmail,
-      phone: phone || '',
-      location: profileResult.userLocation,
-      role: assignedRole,
-    };
 
     let emailVerification = { status: 'queue_failed' };
     try {

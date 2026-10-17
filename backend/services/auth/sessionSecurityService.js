@@ -1,6 +1,7 @@
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { ValidationError } from '../../utils/errors.js';
+import { listUserSessions, revokeSessionScope } from './sessionAuthority.js';
 
 /**
  * O2-X3 (ported by OC-5C from PR #208, unchanged) — governed session revocation over the existing user_sessions.is_valid contract.
@@ -18,14 +19,8 @@ async function writeAudit(client, event) {
   }
 }
 
-async function liveSessionsForUser(client, userId) {
-  const { data, error } = await client
-    .from('user_sessions')
-    .select('id, token, created_at, expires_at, is_valid, user_agent')
-    .eq('user_id', userId)
-    .eq('is_valid', true);
-  if (error) throw new Error(error.message);
-  return data || [];
+async function liveSessionsForUser(client, userId, presentingToken = null) {
+  return listUserSessions(client, { userId, presentingToken, liveOnly: true });
 }
 
 /**
@@ -52,21 +47,20 @@ export async function revokeSessionsForUser(client = supabase, actor = {}, {
     throw new ValidationError('The presenting session token is required for scope others.');
   }
 
-  const live = await liveSessionsForUser(client, userId);
+  const live = await liveSessionsForUser(client, userId, presentingToken);
   const targets = live.filter((row) => {
     if (scope === 'one') return row.id === sessionId;
-    if (scope === 'others') return row.token !== presentingToken;
+    if (scope === 'others') return row.current !== true;
     return true;
   });
 
-  for (const row of targets) {
-    const { error } = await client
-      .from('user_sessions')
-      .update({ is_valid: false })
-      .eq('id', row.id)
-      .eq('user_id', userId);
-    if (error) throw new Error(error.message);
-  }
+  const revoked = await revokeSessionScope(
+    { userId, scope, sessionId, presentingToken },
+    { legacyTestClient: client },
+  );
+  const revokedIds = Array.isArray(revoked?.revoked_session_ids)
+    ? revoked.revoked_session_ids
+    : targets.map((row) => row.id);
 
   const actorId = actor.id || actor.userId || null;
   await writeAudit(client, {
@@ -81,21 +75,21 @@ export async function revokeSessionsForUser(client = supabase, actor = {}, {
     new_value: {
       scope,
       reason: String(reason).slice(0, 300),
-      revoked_session_ids: targets.map((row) => row.id),
-      revoked_count: targets.length,
+      revoked_session_ids: revokedIds,
+      revoked_count: Number(revoked?.revoked_count ?? revokedIds.length),
       lifecycle_event_id: lifecycleEventId,
     },
     reason: String(reason).slice(0, 300),
   });
 
-  return { revoked_count: targets.length, revoked_session_ids: targets.map((row) => row.id) };
+  return { revoked_count: Number(revoked?.revoked_count ?? revokedIds.length), revoked_session_ids: revokedIds };
 }
 
 /** The caller's own sessions, shaped for display — token material never leaves the server. */
 export async function listOwnSessions(client = supabase, actor = {}, { presentingToken = null } = {}) {
   const userId = actor.id || actor.userId;
   if (!userId) throw new ValidationError('Authenticated user context is required.');
-  const live = await liveSessionsForUser(client, userId);
+  const live = await liveSessionsForUser(client, userId, presentingToken);
   return live
     .slice()
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
@@ -104,7 +98,7 @@ export async function listOwnSessions(client = supabase, actor = {}, { presentin
       created_at: row.created_at,
       expires_at: row.expires_at,
       user_agent: row.user_agent ? String(row.user_agent).slice(0, 120) : null,
-      current: Boolean(presentingToken && row.token === presentingToken),
+      current: row.current === true,
     }));
 }
 

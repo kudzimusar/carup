@@ -376,8 +376,8 @@ test('X3: routine recovery is an authentication event — the recovery router to
   const recovery = readFileSync(new URL('../routes/authRecoveryRoutes.js', import.meta.url), 'utf8');
   assert.doesNotMatch(recovery, /identityLifecycle|identity_lifecycle/,
     'an ordinary forgotten password never downgrades identity proofing');
-  assert.match(recovery, /update\(\{ is_valid: false \}\)/,
-    'a reset still signs out every prior session (the existing pinned behaviour)');
+  assert.match(recovery, /revokeSessionScope\([\s\S]*scope:\s*['"]all['"]/,
+    'a reset still signs out every prior session through the dedicated session authority');
 
   const { LIFECYCLE_REASON_CODES } = await import('../services/identity/identityLifecycleService.js');
   assert.ok(LIFECYCLE_REASON_CODES.SUSPECTED_ACCOUNT_TAKEOVER, 'takeover has its own governed reason code');

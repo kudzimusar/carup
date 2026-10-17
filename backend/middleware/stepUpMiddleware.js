@@ -1,4 +1,5 @@
 import { supabase } from '../db/supabase.js';
+import { resolveSessionAssuranceByToken } from '../services/auth/sessionAuthority.js';
 import {
   ACTION_CLASSES,
   deriveSessionAssurance,
@@ -38,20 +39,10 @@ export function requireAuthenticationAssurance(actionClass) {
       }
 
       const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-      const { data: sessionRow, error } = await supabase
-        .from('user_sessions')
-        .select('id, user_id, created_at, expires_at, is_valid, auth_method, step_up_at, step_up_method')
-        .eq('token', token)
-        .eq('user_id', userContext.id)
-        .eq('is_valid', true)
-        .single();
-      // OC-5C: only a session that is genuinely not there is a 401 — the web client treats that
-      // as a dead session and signs the person out. A read that FAILED (a transient fault, or the
-      // assurance columns not yet migrated) is 503: refuse the action, keep the person signed in.
-      if (error && error.code !== 'PGRST116') {
-        return res.status(503).json({ error: 'Re-authentication status could not be checked. Please try again.', code: 'STEP_UP_UNAVAILABLE' });
-      }
-      if (!sessionRow) {
+      const sessionRow = await resolveSessionAssuranceByToken(supabase, token);
+      // Only a session that is genuinely not there is a 401. Resolver/read failures are caught
+      // below and remain a 503 so the client never signs out on an infrastructure fault.
+      if (!sessionRow || sessionRow.user_id !== userContext.id || sessionRow.is_valid !== true) {
         return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.', code: 'STEP_UP_SESSION_NOT_FOUND' });
       }
 

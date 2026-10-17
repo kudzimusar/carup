@@ -10,6 +10,8 @@
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import pg from 'pg';
+import crypto from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
@@ -20,8 +22,23 @@ const { supabase } = await import('../db/supabase.js');
 const { hashPassword } = await import('../utils/passwordAuth.js');
 
 let store;
+let failSessionInsert = false;
+const originalPoolQuery = pg.Pool.prototype.query;
+pg.Pool.prototype.query = async function (sql, params) {
+  assert.match(sql, /SELECT public\.session_authority_register_owner/);
+  if (failSessionInsert) throw Object.assign(new Error('simulated dedicated authority failure'), { code: 'ECONNREFUSED' });
+  const user = { ...JSON.parse(params[0]), id: 'u_' + crypto.randomUUID(), is_verified: false };
+  const token = 'local-fixture-' + crypto.randomUUID();
+  store.users.push(user);
+  if (params[1]) store.profiles.push({ ...JSON.parse(params[1]), user_id: user.id });
+  store.sessions[token] = { id: crypto.randomUUID(), user_id: user.id, token, is_valid: true,
+    expires_at: new Date(Date.now() + 86400000).toISOString(), active_role: 'owner' };
+  const { password_hash, ...publicUser } = user;
+  return { rows: [{ data: { user: publicUser, token } }] };
+};
 function resetStore() {
-  store = { users: [], sessions: {}, misc: [] };
+  store = { users: [], profiles: [], sessions: {}, misc: [] };
+  failSessionInsert = false;
 }
 
 function handle(op) {
@@ -35,6 +52,14 @@ function handle(op) {
       store.users.push({ ...row });
       return { data: op.single ? row : [row], error: null };
     }
+    if (op.action === 'delete') {
+      const before = store.users.length;
+      store.users = store.users.filter((u) => !(
+        ('id' in op.filters ? u.id === op.filters.id : true)
+        && ('email' in op.filters ? u.email.toLowerCase() === String(op.filters.email).toLowerCase() : true)
+      ));
+      return { data: [], error: null, count: before - store.users.length };
+    }
     if (op.action === 'update') {
       const u = store.users.find((x) => (op.filters.id ? x.id === op.filters.id : x.email === op.filters.email));
       if (u) Object.assign(u, op.payload);
@@ -46,6 +71,9 @@ function handle(op) {
   }
   if (t === 'user_sessions') {
     if (op.action === 'insert') {
+      if (failSessionInsert) {
+        return { data: null, error: { code: 'SESSION_TEST_UNAVAILABLE', message: 'simulated dedicated authority failure' } };
+      }
       const row = Array.isArray(op.payload) ? op.payload[0] : op.payload;
       store.sessions[row.token] = { ...row };
       return { data: op.single ? row : [row], error: null };
@@ -91,13 +119,24 @@ before(async () => {
   await new Promise((r) => { server = http.createServer(app); server.listen(0, '127.0.0.1', r); });
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
-after(async () => { if (server) await new Promise((r) => server.close(r)); });
+after(async () => {
+  pg.Pool.prototype.query = originalPoolQuery;
+  if (server) await new Promise((r) => server.close(r));
+});
 beforeEach(resetStore);
 
 const H = { 'Content-Type': 'application/json', 'x-bypass-rate-limit': 'true' };
 async function post(path, body, extraHeaders = {}) {
-  const res = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { ...H, ...extraHeaders }, body: JSON.stringify(body) });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  // Registration ALWAYS uses the dedicated RPC, even in local tests. Only the driver is mocked.
+  const previous = process.env.SESSION_AUTH_DATABASE_URL;
+  if (path === '/api/auth/register') process.env.SESSION_AUTH_DATABASE_URL = 'postgres://user:pass@localhost/fixture';
+  try {
+    const res = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { ...H, ...extraHeaders }, body: JSON.stringify(body) });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  } finally {
+    if (previous === undefined) delete process.env.SESSION_AUTH_DATABASE_URL;
+    else process.env.SESSION_AUTH_DATABASE_URL = previous;
+  }
 }
 async function getMe(token) {
   const res = await fetch(`${baseUrl}/api/auth/me`, { headers: { ...H, 'x-session-token': token } });
@@ -146,6 +185,37 @@ test('tenant / stakeholder headers cannot elevate registration', async () => {
     { 'x-stakeholder-role': 'admin', 'x-tenant-id': 't1' });
   assert.ok(bad.status === 403 || bad.status === 400);
   assert.equal(store.users.length, 0);
+});
+
+test('F1: dedicated authority unavailable creates no ordinary user or session', async () => {
+  failSessionInsert = true;
+  const reg = await post('/api/auth/register', {
+    name: 'Compensated Owner',
+    email: 'compensated-owner@x.test',
+    password: 'password123',
+    registration_profile: { account_kind: 'business', market_relationship: 'diaspora',
+      country_of_residence: 'Japan', city: 'Tokyo', intended_use: 'sell', organization_name: 'Fixture exporter',
+      business_type: 'exporter', terms_acknowledged: true, privacy_acknowledged: true },
+  });
+  assert.equal(reg.status, 503);
+  assert.match(reg.body.error, /secure session/i);
+  assert.equal(store.users.length, 0, 'failed registration must not leave the ordinary user row');
+  assert.equal(store.profiles.length, 0, 'failed registration must not leave a profile row');
+  assert.equal(Object.keys(store.sessions).length, 0, 'failed registration must not leave a session row');
+  assert.doesNotMatch(JSON.stringify(reg.body), /simulated dedicated authority failure/i);
+});
+
+test('business registration profile participates in atomic call without granting a privileged role', async () => {
+  const reg = await post('/api/auth/register', { name: 'Exporter', email: 'exporter@x.test', password: 'password123',
+    registration_profile: { account_kind: 'business', market_relationship: 'diaspora',
+      country_of_residence: 'Japan', city: 'Tokyo', intended_use: 'sell', organization_name: 'Fixture exporter',
+      business_type: 'exporter', terms_acknowledged: true, privacy_acknowledged: true } });
+  assert.equal(reg.status, 200);
+  assert.equal(reg.body.user.role, 'owner');
+  assert.equal(reg.body.onboarding.status, 'requested');
+  assert.equal(store.profiles.length, 1);
+  assert.equal(store.profiles[0].user_id, reg.body.user.id);
+  assert.equal('password_hash' in reg.body.user, false);
 });
 
 test('successful owner registration persists a session whose token works with /api/auth/me', async () => {
