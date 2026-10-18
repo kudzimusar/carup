@@ -18,6 +18,9 @@ env:
   CI: "true"
   SUPABASE_URL: http://127.0.0.1:54321
   SUPABASE_SERVICE_ROLE_KEY: test-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+  ALLOW_OCR_MOCK: 'true'
   EXPO_PUBLIC_API_URL: https://oc-native-final-isolated.invalid
   BE2_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/carup_be2
 
