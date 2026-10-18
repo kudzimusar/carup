@@ -10,7 +10,8 @@ import { apiRequest, SessionExpiredError, type ApiFailure } from '@/lib/apiClien
 import type { MetricSlot, TruthState } from './truthState'
 
 export const MANAGEMENT_CONTRACT = 'carup.corporate_management.v1'
-export const MANAGEMENT_TIMEOUT_MS = 20_000
+/** CA-OWNER-02-R3 (D3): long enough for a cold read behind a slow source — the page never gives up just before a valid answer. */
+export const MANAGEMENT_TIMEOUT_MS = 45_000
 
 export type ManagementArea = 'overview' | 'operations' | 'trust' | 'finance' | 'growth' | 'platform' | 'data-sources' | 'report'
 
@@ -98,7 +99,10 @@ export interface ManagementSummary {
   digest: string
 }
 
-interface Envelope { generatedAt: string; environment: string | null }
+/** CA-OWNER-02-R3 (D3) — how old the server's shared snapshot is, and whether a background refresh is running. */
+export interface SnapshotState { generatedAt: string; ageSeconds: number; stale: boolean; refreshing: boolean }
+
+interface Envelope { generatedAt: string; environment: string | null; snapshot: SnapshotState | null }
 
 export type ManagementPayload =
   | (Envelope & {
@@ -241,11 +245,19 @@ function parseSummary(v: unknown): ManagementSummary {
   }
 }
 
+function parseSnapshotState(v: unknown): SnapshotState | null {
+  if (v === undefined || v === null) return null
+  if (!isRecord(v) || typeof v.stale !== 'boolean' || typeof v.refreshing !== 'boolean') return fail('snapshot')
+  return { generatedAt: isoOrNull(v.generated_at) ?? fail('snapshot time'), ageSeconds: count(v.age_seconds), stale: v.stale, refreshing: v.refreshing }
+}
+
 /** The server's answer for `area`, or null for anything that is not exactly a granted, read-only answer for that area. */
 export function parseManagementArea(area: ManagementArea, payload: unknown): ManagementPayload | null {
   if (!isRecord(payload) || payload.contract !== MANAGEMENT_CONTRACT || payload.decision !== 'granted' || payload.read_only !== true || payload.area !== area) return null
   try {
-    const env: Envelope = { generatedAt: isoOrNull(payload.generated_at) ?? fail('generated_at'), environment: str(payload.environment) }
+    const env: Envelope = {
+      generatedAt: isoOrNull(payload.generated_at) ?? fail('generated_at'), environment: str(payload.environment), snapshot: parseSnapshotState(payload.snapshot),
+    }
     switch (area) {
       case 'overview': {
         const s = isRecord(payload.sections) ? payload.sections : fail('sections')

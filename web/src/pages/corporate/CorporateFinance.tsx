@@ -40,7 +40,7 @@ const RESERVED_EXCEPTIONS: Array<{ label: string; slot: MetricSlot; reason: stri
 const isProductMoney = (id: string) => id.startsWith('finance.') && !id.startsWith('finance.exceptions.') && !id.startsWith('finance.accounting.')
 
 export default function CorporateFinance() {
-  const { result, retry } = useManagementArea('finance')
+  const { result, retry, revalidating } = useManagementArea('finance')
   const data = result.status === 'ok' ? result.payload : null
   const product = data ? data.facts.filter((f) => isProductMoney(f.id)) : []
   const exceptions = data ? data.facts.filter((f) => f.id.startsWith('finance.exceptions.')) : []
@@ -81,7 +81,7 @@ export default function CorporateFinance() {
         </div>
       </Section>
 
-      {data && <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />}
+      {data && <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} snapshot={data.snapshot} revalidating={revalidating} />}
     </CorporatePage>
   )
 }

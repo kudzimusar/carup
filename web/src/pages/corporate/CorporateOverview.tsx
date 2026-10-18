@@ -5,8 +5,10 @@
  * exceptions and queues → platform health → recent change; data quality and what cannot be shown yet stay visible lower down.
  * Every figure states its source, as-of time, scope and truth state; a figure that could not be read says so and is never 0.
  */
-import { Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
+import { NEEDS_ATTENTION_ANCHOR } from '@/lib/corporate/managementReadStatus'
 import { CorporatePage, Section } from '@/components/corporate/CorporatePage'
 import { StateFootnotes, TruthStateBadge } from '@/components/corporate/TruthState'
 import { AttentionList, EnvironmentNote, FactGrid, FactRows, ManagementStatus, QueueCard, UnavailableMeasures } from '@/components/corporate/ManagementFacts'
@@ -69,8 +71,14 @@ function BusinessUnitLandscape() {
 }
 
 export default function CorporateOverview() {
-  const { result, retry } = useManagementArea('overview')
+  const { result, retry, revalidating } = useManagementArea('overview')
   const data = result.status === 'ok' ? result.payload : null
+  const { hash } = useLocation()
+  // CA-OWNER-02-R3 (D1): the header's "Open Needs attention" lands on the section once the figures are on screen.
+  useEffect(() => {
+    if (!data || hash !== `#${NEEDS_ATTENTION_ANCHOR}`) return
+    document.getElementById(NEEDS_ATTENTION_ANCHOR)?.scrollIntoView?.({ block: 'start' })
+  }, [data, hash])
 
   return (
     <CorporatePage
@@ -80,9 +88,9 @@ export default function CorporateOverview() {
       {!data && <ManagementStatus result={result} onRetry={retry} />}
       {data && (
         <>
-          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} snapshot={data.snapshot} revalidating={revalidating} />
 
-          <Section label="1" title="Needs attention" description="Ordered by kind, then by how long work has waited. Each item names the rule that put it here and the operational surface where it is worked." testId="overview-attention">
+          <Section label="1" title="Needs attention" description="Ordered by kind, then by how long work has waited. Each item names the rule that put it here and the operational surface where it is worked." testId="overview-attention" anchorId={NEEDS_ATTENTION_ANCHOR}>
             <AttentionList items={data.attention} />
           </Section>
 

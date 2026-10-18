@@ -5,12 +5,13 @@
  * covers and how the operational-provenance authority (K2B) filtered it. Nothing here computes a figure: counts, breakdowns
  * and provenance numbers are printed exactly as the server stated them, and a statement state never shows a number.
  */
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, ArrowUpRight, Clock, Lock, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MetricSlotView, TruthStateBadge } from '@/components/corporate/TruthState'
 import { withCorporateArrival } from '@/components/admin/adminArrival'
-import { factToSlot, type AttentionItem, type ManagementFact, type ManagementResult, type QueueView } from '@/lib/corporate/management'
+import { factToSlot, type AttentionItem, type ManagementFact, type ManagementResult, type QueueView, type SnapshotState } from '@/lib/corporate/management'
 import { ageText, formatAsOf, formatDay, windowText } from '@/lib/corporate/factFormat'
 import { presentSlot } from '@/lib/corporate/truthState'
 
@@ -276,7 +277,7 @@ export function ManagementStatus({ result, onRetry }: { result: ManagementResult
     case 'ok':
       return null
     case 'pending':
-      return <p className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" role="status" data-testid="management-pending">Reading live figures…</p>
+      return <PendingRead />
     case 'denied':
       return (
         <p className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-white" data-testid="management-denied">
@@ -301,14 +302,40 @@ export function ManagementStatus({ result, onRetry }: { result: ManagementResult
   }
 }
 
-/** Where these figures come from: the environment, the read time, and what they are not. */
-export function EnvironmentNote({ environment, generatedAt }: { environment: string | null; generatedAt: string }) {
+/** CA-OWNER-02-R3 (D3): the read is still running — after a few seconds the page says a source is slow, never "0". */
+const SLOW_READ_HINT_MS = 8_000
+function PendingRead() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setSlow(true), SLOW_READ_HINT_MS); return () => clearTimeout(t) }, [])
+  return (
+    <p className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600" role="status" data-testid="management-pending">
+      {slow ? 'Still reading live figures — a source is slow. Nothing is shown until it answers, and no figure is assumed zero.' : 'Reading live figures…'}
+    </p>
+  )
+}
+
+const ageWords = (seconds: number) => (seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`)
+
+/** Where these figures come from: the environment, the read time (and, D3, the shared snapshot's age), and what they are not. */
+export function EnvironmentNote({ environment, generatedAt, snapshot = null, revalidating = false }: {
+  environment: string | null; generatedAt: string; snapshot?: SnapshotState | null; revalidating?: boolean
+}) {
   const where = environment === 'staging' ? 'Staging' : environment === 'local' ? 'Local development' : `Unrecognised environment (${environment ?? 'unknown'})`
   return (
-    <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" data-testid="management-environment">
-      <span className="font-semibold">{where}</span> · live figures read {formatAsOf(generatedAt)} — operational and technical facts, not certified Corporate results.
-      Only governance records read as Actual; everything else says Live read or Technical (OD-CAMETRIC-022).
-    </p>
+    <div className="space-y-1">
+      <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" data-testid="management-environment">
+        <span className="font-semibold">{where}</span> · live figures read {formatAsOf(generatedAt)} — operational and technical facts, not certified Corporate results.
+        Only governance records read as Actual; everything else says Live read or Technical (OD-CAMETRIC-022).
+        {snapshot?.stale && (
+          <span className="mt-1 block font-medium" data-testid="management-snapshot-age">
+            From the shared snapshot read {formatAsOf(snapshot.generatedAt)}, {ageWords(snapshot.ageSeconds)} old{snapshot.refreshing ? ' — refreshing in the background' : ''}.
+          </span>
+        )}
+      </p>
+      {revalidating && (
+        <p className="text-[11px] text-slate-600" role="status" data-testid="management-revalidating">Showing this visit&apos;s last read. Checking for a newer read…</p>
+      )}
+    </div>
   )
 }
 

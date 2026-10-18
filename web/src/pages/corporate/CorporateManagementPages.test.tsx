@@ -8,7 +8,7 @@
  * kept lower; and a refused or unreadable read model shows no number at all.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { PEOPLE_ACCESS_PROJECTION, SERVER_GRANT } from '@/test/corporateAccessFixture'
 import { MANAGEMENT_FIXTURES } from '@/test/corporateManagementFixture'
@@ -20,6 +20,7 @@ vi.mock('@/context/AuthContext', () => {
 })
 
 const CorporateLayout = (await import('@/components/corporate/CorporateLayout')).default
+const { resetManagementAreaCache } = await import('@/lib/corporate/useManagementArea')
 const pages = {
   '/corporate': (await import('./CorporateOverview')).default,
   '/corporate/finance': (await import('./CorporateFinance')).default,
@@ -32,12 +33,14 @@ const pages = {
   '/corporate/people-access': (await import('./CorporatePeopleAccess')).default,
 }
 
-type Answer = { status: number; body: unknown } | 'network'
+type Answer = { status: number; body: unknown } | 'network' | 'hang'
 let management: (area: string) => Answer
 const managementCalls: Array<{ area: string; headers: Record<string, string> }> = []
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 beforeEach(() => {
+  // CA-OWNER-02-R3 D3: the session keeps each area's last answer for an instant re-render; every test starts without one.
+  resetManagementAreaCache()
   management = (area) => ({ status: 200, body: MANAGEMENT_FIXTURES[area] })
   managementCalls.length = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
@@ -50,12 +53,13 @@ beforeEach(() => {
       managementCalls.push({ area, headers })
       const answer = management(area)
       if (answer === 'network') throw new TypeError('Failed to fetch')
+      if (answer === 'hang') return new Promise<Response>((_res, rej) => init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))))
       return json(answer.status, answer.body)
     }
     return json(404, { error: 'Route not found' })
   }))
 })
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 async function open(path: string) {
   render(
@@ -338,6 +342,43 @@ describe('F · Data & Intelligence projects the metric and source registry', () 
     expect(live).toHaveTextContent('never says a population is operational')
     expect(row('ADVISORY')).toHaveTextContent('An advisory value — never a governed figure')
     expect(legend.textContent).not.toMatch(/\bOperational\b/)
+  })
+})
+
+describe('D3 · the management read is fast to show, patient with a slow source, and honest about its age', () => {
+  it('a page already read in this session renders at once from its last answer, and says it is checking for a newer one', async () => {
+    const main = await open('/corporate')
+    await within(main).findByTestId('overview-attention')
+    fireEvent.click(screen.getByTestId('corporate-nav-operations'))
+    await within(screen.getByTestId('corporate-main')).findByTestId('operations-communications')
+    management = (area) => (area === 'overview' ? 'hang' : { status: 200, body: MANAGEMENT_FIXTURES[area] })
+    fireEvent.click(screen.getByTestId('corporate-nav-overview'))
+    // No await: the previous answer is on screen in the same render, while the new read is still running.
+    const now = screen.getByTestId('corporate-main')
+    expect(within(now).getByTestId('overview-attention')).toBeInTheDocument()
+    expect(within(now).getByTestId('management-revalidating')).toHaveTextContent('Checking for a newer read')
+    expect(within(now).queryByTestId('management-pending')).toBeNull()
+  })
+
+  it('a slow source is waited for: the page says so, keeps waiting past the old 20 s limit, and gives up only at 45 s', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    management = () => 'hang'
+    const main = await open('/corporate/growth')
+    expect(within(main).getByTestId('management-pending')).toHaveTextContent('Reading live figures')
+    await act(async () => { vi.advanceTimersByTime(9_000) })
+    expect(within(main).getByTestId('management-pending')).toHaveTextContent('Still reading live figures')
+    await act(async () => { vi.advanceTimersByTime(13_000) })
+    expect(within(main).queryByTestId('management-unavailable'), 'not given up at 22 s').toBeNull()
+    await act(async () => { vi.advanceTimersByTime(25_000) })
+    expect(await within(main).findByTestId('management-unavailable')).toBeInTheDocument()
+  })
+
+  it('figures served from the last snapshot while it refreshes say so, with the snapshot\'s age', async () => {
+    const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
+    management = (area) => ({ status: 200, body: { ...MANAGEMENT_FIXTURES[area], snapshot } })
+    const main = await open('/corporate')
+    const note = await within(main).findByTestId('management-environment')
+    expect(note).toHaveTextContent('From the shared snapshot read 2026-10-18 00:00 UTC, 1 min 35 s old — refreshing in the background')
   })
 })
 

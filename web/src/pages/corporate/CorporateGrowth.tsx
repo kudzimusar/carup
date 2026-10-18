@@ -35,7 +35,7 @@ const ACCOUNT_IDS = new Set(['growth.account.operational'])
 const NAVIGATION_IDS = new Set(['growth.navigation.route_render'])
 
 export default function CorporateGrowth() {
-  const { result, retry } = useManagementArea('growth')
+  const { result, retry, revalidating } = useManagementArea('growth')
   const data = result.status === 'ok' ? result.payload : null
   const accounts = data ? data.facts.filter((f) => ACCOUNT_IDS.has(f.id)) : []
   const demand = data ? data.facts.filter((f) => !ACCOUNT_IDS.has(f.id) && !NAVIGATION_IDS.has(f.id)) : []
@@ -63,7 +63,7 @@ export default function CorporateGrowth() {
           <Section label="B" title="Marketplace, trade & service demand" description="Each signal under its own name and window. An inquiry is not a sale; a zero-result search is unmet demand, never a lost sale." testId="growth-demand">
             <FactGrid facts={demand} />
           </Section>
-          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} snapshot={data.snapshot} revalidating={revalidating} />
         </>
       )}
 

@@ -26,6 +26,15 @@ describe('parseManagementArea', () => {
     expect(MANAGEMENT_CONTRACT).toBe('carup.corporate_management.v1')
   })
 
+  it('R3 D3: keeps the snapshot block exactly — its read time, age, staleness and refresh — and fails closed on a malformed one', () => {
+    const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
+    const parsed = parseManagementArea('growth', managementEnvelope('growth', { facts: [], snapshot }))
+    expect(parsed?.snapshot).toEqual({ generatedAt: '2026-10-18T00:00:00.000Z', ageSeconds: 95, stale: true, refreshing: true })
+    expect(parseManagementArea('growth', managementEnvelope('growth', { facts: [] }))?.snapshot).toBeNull()
+    expect(parseManagementArea('growth', managementEnvelope('growth', { facts: [], snapshot: { ...snapshot, stale: 'no' } }))).toBeNull()
+    expect(parseManagementArea('growth', managementEnvelope('growth', { facts: [], snapshot: { ...snapshot, age_seconds: -1 } }))).toBeNull()
+  })
+
   it('fails closed when a statement state smuggles a value, or a live state has none', () => {
     const smuggled = managementEnvelope('growth', { facts: [{ ...statementFactFixture({ id: 'growth.customers', state: 'UNKNOWN_AUTHORITY' }), value: 99 }] })
     expect(parseManagementArea('growth', smuggled)).toBeNull()
