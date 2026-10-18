@@ -1,0 +1,80 @@
+/**
+ * CA-OWNER-02 (H1/H2) — reads exactly what the conversation truth needs, for a given set of message_threads rows, IN FULL.
+ *
+ * SELECT only. Every read is chunked (IN lists) and paged (readAllPages, ordered by id), so nothing is silently truncated at
+ * the 1000-row PostgREST limit; any failed read THROWS, so a caller can present the figure as degraded — never as zero.
+ *
+ *   marketplace_inquiries        the asker + listing of every Marketplace inquiry conversation (judged by K2B)
+ *   users / vehicles             loadProvenanceIndex — the K2B identity and vehicle facts (id, email, name; vin, owner…)
+ *   communication_audit_events   the server-written `smoke_test` marker
+ *   messages                     the latest customer (inbound) and staff (outbound) message per conversation
+ *
+ * Email addresses are read only to classify and are never returned.
+ */
+import { loadProvenanceIndex } from '../provenance/provenanceContext.js';
+import { readAllPages } from '../intelligence/rollupService.js';
+import { conversationTruth, summarizeConversationTruth } from './conversationTruth.js';
+
+const CHUNK = 100;
+const VEHICLE_LISTING_TYPES = new Set(['', 'vehicle', 'car', 'marketplace_vehicle']);
+
+const unique = (values) => [...new Set((values || []).filter((v) => v !== null && v !== undefined && String(v).trim() !== '').map(String))];
+
+/** Every row whose `key` is in `values`, chunked and paged. Throws on any read error or overflow. */
+export async function readAllIn(client, table, columns, key, values, shape = (query) => query) {
+  const rows = [];
+  for (let i = 0; i < values.length; i += CHUNK) {
+    const slice = values.slice(i, i + CHUNK);
+    rows.push(...await readAllPages(() => shape(client.from(table).select(columns).in(key, slice)).order('id')));
+  }
+  return rows;
+}
+
+const later = (a, b) => (!a ? b : !b ? a : (new Date(b).getTime() > new Date(a).getTime() ? b : a));
+
+/**
+ * @param client a service-role Supabase client
+ * @param opts.threads message_threads rows (with id, status, subject_type, subject_id, primary_user_id, SLA columns,
+ *                     last_inbound_at / last_outbound_at, assigned_* — whatever the caller has; missing stamps are
+ *                     completed from messages)
+ * @returns {Promise<{ truths: object[], summary: object }>}
+ */
+export async function loadConversationTruth(client, { threads = [], now = new Date() } = {}) {
+  const list = Array.isArray(threads) ? threads : [];
+  const threadIds = unique(list.map((t) => t.id));
+
+  const inquiryIds = unique(list.filter((t) => t.subject_type === 'marketplace_inquiry').map((t) => t.subject_id));
+  const inquiries = inquiryIds.length
+    ? await readAllIn(client, 'marketplace_inquiries', 'id, buyer_id, guest_email, guest_name, listing_id, listing_type', 'id', inquiryIds)
+    : [];
+  const vins = unique(inquiries.filter((i) => VEHICLE_LISTING_TYPES.has(String(i.listing_type ?? '').toLowerCase())).map((i) => i.listing_id));
+  const index = await loadProvenanceIndex(client, {
+    userIds: unique([...list.map((t) => t.primary_user_id), ...inquiries.map((i) => i.buyer_id)]),
+    vins,
+  });
+
+  const smoke = threadIds.length
+    ? await readAllIn(client, 'communication_audit_events', 'id, thread_id', 'thread_id', threadIds, (q) => q.eq('event_type', 'smoke_test'))
+    : [];
+
+  const messages = threadIds.length
+    ? await readAllIn(client, 'messages', 'id, thread_id, direction, created_at', 'thread_id', threadIds, (q) => q.in('direction', ['inbound', 'outbound']))
+    : [];
+  const latestByThread = new Map();
+  for (const m of messages) {
+    const key = String(m.thread_id);
+    const cur = latestByThread.get(key) || { inbound: null, outbound: null };
+    if (m.direction === 'inbound') cur.inbound = later(cur.inbound, m.created_at);
+    if (m.direction === 'outbound') cur.outbound = later(cur.outbound, m.created_at);
+    latestByThread.set(key, cur);
+  }
+
+  const ctx = {
+    index,
+    inquiryById: new Map(inquiries.map((i) => [String(i.id), i])),
+    smokeThreadIds: new Set(smoke.map((s) => String(s.thread_id))),
+    latestByThread,
+  };
+  const truths = list.map((t) => conversationTruth(t, ctx, now));
+  return { truths, summary: summarizeConversationTruth(truths) };
+}
