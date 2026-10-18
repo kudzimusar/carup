@@ -2,7 +2,7 @@ import express from 'express';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
-import { normalizeChannel } from '../services/communication/communicationUtils.js';
+import { THREAD_STATUSES, normalizeChannel } from '../services/communication/communicationUtils.js';
 import { resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
@@ -11,8 +11,11 @@ import { sanitizeProviderError, trimmedEnvValue } from '../services/communicatio
 import { OUTBOUND_DISABLED_CODE, OUTBOUND_KILL_SWITCH_ENV, isOutboundDisabled } from '../services/communication/outboundKillSwitch.js';
 import { isProductionDeployment, recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
 import { CONVERSATION_TRUTH_UNAVAILABLE } from '../services/communication/communicationRepository.js';
-import { CONVERSATION_VIEWS, normalizeConversationView, truthView } from '../services/communication/conversationTruth.js';
+import {
+  CONVERSATION_VIEWS, TERMINAL_STATUSES as CONVERSATION_TERMINAL_STATUSES, normalizeConversationView, truthView, viewCounts,
+} from '../services/communication/conversationTruth.js';
 import { loadConversationTruth, readAllIn } from '../services/communication/conversationTruthLoader.js';
+import { readAllPages } from '../services/intelligence/rollupService.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -150,6 +153,47 @@ async function attachPageTruth(client, rows, { now, fullRows }) {
   } catch (_error) {
     return { threads: rows.map((r) => ({ ...r, ...UNJUDGED })), available: false };
   }
+}
+
+const NON_TERMINAL_THREAD_STATUSES = Object.freeze(Object.values(THREAD_STATUSES).filter((status) => !CONVERSATION_TERMINAL_STATUSES.includes(status)));
+
+/**
+ * CA-OWNER-02 (H2) — the header strip's truth: EVERY non-terminal thread in scope, read in pages (never truncated at the
+ * PostgREST row limit), judged by the conversation-truth loader. Any failure is { available: false }: the UI shows
+ * "unavailable", never a zero it did not measure.
+ */
+export async function openConversationTruth(client, scope = {}, now = new Date()) {
+  if (!client) return { available: false };
+  try {
+    const threads = await readAllPages(() => {
+      let query = client.from('message_threads').select('*').in('status', NON_TERMINAL_THREAD_STATUSES);
+      if (scope.tenant_id) query = query.eq('tenant_id', scope.tenant_id);
+      return query.order('id');
+    });
+    const { summary } = await loadConversationTruth(client, { threads, now });
+    return {
+      available: true,
+      as_of: now.toISOString(),
+      total_open: summary.total,
+      operational: summary.operational,
+      needs_review: summary.needs_review,
+      non_operational_open: summary.non_operational_open,
+      by_category: summary.by_category,
+      view_counts: viewCounts(summary),
+    };
+  } catch (_error) {
+    return { available: false };
+  }
+}
+
+/** The newest of the first parseable `columns` value per row, as ISO — or null. */
+function latestTimestamp(rows, columns) {
+  let best = null;
+  for (const row of rows) {
+    const t = columns.map((column) => Date.parse(row?.[column] || '')).find((value) => !Number.isNaN(value));
+    if (t !== undefined && (best === null || t > best)) best = t;
+  }
+  return best === null ? null : new Date(best).toISOString();
 }
 
 // Append a thread-scoped audit event for the acting user (fail-soft; never throws — see
@@ -1515,17 +1559,22 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     // NOTE: still computed in JS over a bounded list; at very large scale prefer the counts RPC.
     const scope = resolveListScope(req, res);
     if (scope === null) return undefined;
-    const [threads, deadLetters, webhooks] = await Promise.all([
+    const [threads, deadLetters, webhooks, truth] = await Promise.all([
       services.repository.list('message_threads', { ...scope }),
       services.repository.list('notification_queue', { status: 'dead_letter', ...scope }),
       services.repository.list('webhook_logs', { ...scope }),
+      // CA-OWNER-02 (H2): what the header strip shows. The legacy numeric fields below stay for API compatibility only.
+      openConversationTruth(services.repository?.client || null, scope, new Date()),
     ]);
     res.json({
       open_threads: threads.filter((t) => !['resolved', 'closed', 'spam'].includes(t.status)).length,
       unassigned_threads: threads.filter((t) => !t.assigned_admin_id && ['open', 'awaiting_human', 'escalated'].includes(t.status)).length,
       overdue_threads: threads.filter((t) => t.sla_due_at && new Date(t.sla_due_at) < new Date() && !['resolved', 'closed'].includes(t.status)).length,
+      // A technical delivery figure (notification_queue), not conversation work.
       dead_letter_count: deadLetters.length,
+      dead_letter_latest_at: latestTimestamp(deadLetters, ['dead_lettered_at', 'updated_at', 'created_at']),
       duplicate_webhook_count: webhooks.filter((w) => w.processing_status === 'duplicate').length,
+      truth,
     });
   }));
 
