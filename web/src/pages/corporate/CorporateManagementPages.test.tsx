@@ -381,12 +381,14 @@ describe('D3 · the management read is fast to show, patient with a slow source,
     expect(await within(main).findByTestId('management-unavailable')).toBeInTheDocument()
   })
 
-  it('figures served from the last snapshot while it refreshes say so, with the snapshot\'s age', async () => {
+  it('figures served from the last snapshot while it refreshes say so, with the snapshot\'s age as it was when this page read it', async () => {
     const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
     management = (area) => ({ status: 200, body: { ...MANAGEMENT_FIXTURES[area], snapshot } })
     const main = await open('/corporate')
     const note = await within(main).findByTestId('management-environment')
-    expect(note).toHaveTextContent('From the shared snapshot read 2026-10-18 00:00 UTC, 1 min 35 s old — refreshing in the background')
+    expect(note).toHaveTextContent('From the shared snapshot read 2026-10-18 00:00 UTC, which was 1 min 35 s old when this page read it — a newer read was then running in the background.')
+    // Owner UAT R3 F4: a page left open must not go on stating that age, or a refresh, as if it were current.
+    expect(note.textContent).not.toMatch(/1 min 35 s old —|refreshing in the background/)
   })
 })
 

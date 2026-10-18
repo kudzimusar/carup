@@ -120,7 +120,8 @@ function FreshnessPanel({ status, canSeeRegistry, onFollow }: { status: Manageme
   if (!l) {
     return <p data-testid="freshness-statement">No Corporate management figures have been read on this visit yet. Each page reads its own live figures when it opens.</p>
   }
-  const age = l.snapshot ? `${l.snapshot.stale ? 'a stale' : 'a'} shared staging snapshot, ${l.snapshot.ageSeconds} s old${l.snapshot.refreshing ? ', refreshing in the background' : ''}` : 'a shared staging snapshot'
+  // Owner UAT R3 F4: the snapshot's age and refresh are stated as they were when this page read it, never as if current.
+  const age = l.snapshot ? `${l.snapshot.stale ? 'a stale' : 'a'} shared staging snapshot that was ${l.snapshot.ageSeconds} s old when this page read it${l.snapshot.refreshing ? ', while a newer read was running in the background' : ''}` : 'a shared staging snapshot'
   return (
     <div className="space-y-1.5" data-testid="freshness-statement">
       <p>Corporate management figures were last read at {formatAsOf(l.generatedAt)} — {age}.</p>

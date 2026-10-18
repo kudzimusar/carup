@@ -326,9 +326,11 @@ export function EnvironmentNote({ environment, generatedAt, snapshot = null, rev
       <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" data-testid="management-environment">
         <span className="font-semibold">{where}</span> · live figures read {formatAsOf(generatedAt)} — operational and technical facts, not certified Corporate results.
         Only governance records read as Actual; everything else says Live read or Technical (OD-CAMETRIC-022).
+        {/* Owner UAT R3 F4: the age and the refresh are stated as they were when this page read them — a page left open
+            never goes on claiming them as current. */}
         {snapshot?.stale && (
           <span className="mt-1 block font-medium" data-testid="management-snapshot-age">
-            From the shared snapshot read {formatAsOf(snapshot.generatedAt)}, {ageWords(snapshot.ageSeconds)} old{snapshot.refreshing ? ' — refreshing in the background' : ''}.
+            From the shared snapshot read {formatAsOf(snapshot.generatedAt)}, which was {ageWords(snapshot.ageSeconds)} old when this page read it{snapshot.refreshing ? ' — a newer read was then running in the background' : ''}.
           </span>
         )}
       </p>

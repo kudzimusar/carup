@@ -776,6 +776,19 @@ describe('CA-OWNER-02-R3 D1 · the header states the real source state — never
     expect(within(panel).getByRole('link', { name: 'Open the metric & source registry' })).toHaveAttribute('href', '/corporate/data-intelligence')
   })
 
+  // Owner UAT R3 F4: the snapshot's age is stated as it was when this page read it. A page left open for an hour must not go
+  // on saying "4 s old", or that a refresh is running.
+  it('the freshness panel states the snapshot age as it was when this page read it — never as if it were current', async () => {
+    const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
+    managementFor = (area) => ({ status: 200, body: { ...(MANAGEMENT_FIXTURES[area] as Record<string, unknown>), snapshot } })
+    await renderAdmitted('/corporate/growth')
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/^Read 00:00 UTC · refreshing$/))
+    fireEvent.click(screen.getByTestId('topbar-freshness'))
+    const panel = screen.getByTestId('topbar-panel-freshness')
+    expect(panel).toHaveTextContent('last read at 2026-10-18 00:00 UTC — a stale shared staging snapshot that was 95 s old when this page read it, while a newer read was running in the background.')
+    expect(panel.textContent).not.toMatch(/snapshot, 95 s old|refreshing in the background/)
+  })
+
   // Owner UAT R3 F2: one figure is named in the singular.
   it('one figure that could not be read is stated in the singular', async () => {
     managementFor = servedManagement
