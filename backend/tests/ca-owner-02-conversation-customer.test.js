@@ -62,13 +62,23 @@ const ctx = (extra = {}) => ({ index, inquiryById: inquiries, smokeThreadIds: ne
 
 test('a Marketplace inquiry is named after the BUYER account — the seller (primary_user_id) is context, never the heading', () => {
   const parties = conversationParties(inquiryThread('t-1', 'inq-account'), ctx());
-  assert.deepEqual({ ...parties.customer }, { display_name: 'Rudo Banda', source: 'buyer_account' });
+  assert.deepEqual({ ...parties.customer }, { display_name: 'Rudo Banda', source: 'buyer_account', identity_id: null });
   assert.equal(parties.seller.display_name, 'Tendai Moyo');
 });
 
 test('a guest Marketplace inquiry is named after the inquiry guest_name', () => {
   const parties = conversationParties(inquiryThread('t-2', 'inq-guest'), ctx());
-  assert.deepEqual({ ...parties.customer }, { display_name: 'Chipo Guest', source: 'inquiry_guest' });
+  assert.deepEqual({ ...parties.customer }, { display_name: 'Chipo Guest', source: 'inquiry_guest', identity_id: null });
+});
+
+test('the customer\'s own channel identity is named by id (for the context rail) — never the seller\'s', () => {
+  const participantsByThread = new Map([['t-id', [
+    { id: 'p-seller', thread_id: 't-id', user_id: SELLER.id, stakeholder_role: 'seller', participant_type: 'user', external_identity_id: 'ci-seller', joined_at: ago(50) },
+    { id: 'p-buyer', thread_id: 't-id', user_id: BUYER.id, stakeholder_role: 'buyer', participant_type: 'user', external_identity_id: 'ci-buyer', joined_at: ago(49) },
+  ]]]);
+  const parties = conversationParties(inquiryThread('t-id', 'inq-account'), ctx({ participantsByThread, identityById: new Map() }));
+  assert.equal(parties.customer.display_name, 'Rudo Banda');
+  assert.equal(parties.customer.identity_id, 'ci-buyer');
 });
 
 test('a buyer account without a recorded name falls back to the name typed on the inquiry', () => {
@@ -85,7 +95,7 @@ test('a nameless guest falls back to the customer-side channel identity, never t
     ['ci-buyer', { id: 'ci-buyer', display_name: 'Farai (WhatsApp)', channel: 'whatsapp' }],
   ]);
   const parties = conversationParties(inquiryThread('t-4', 'inq-anon'), ctx({ participantsByThread, identityById }));
-  assert.deepEqual({ ...parties.customer }, { display_name: 'Farai (WhatsApp)', source: 'channel_identity' });
+  assert.deepEqual({ ...parties.customer }, { display_name: 'Farai (WhatsApp)', source: 'channel_identity', identity_id: 'ci-buyer' });
 });
 
 test('with nothing to go on the heading is "Unidentified customer" — and the seller name is never borrowed', () => {
@@ -99,18 +109,18 @@ test('with nothing to go on the heading is "Unidentified customer" — and the s
 
 test('any other conversation is named after its primary account; with no account, after the requester identity', () => {
   const account = conversationParties(accountThread('t-7', BUYER.id), ctx());
-  assert.deepEqual({ ...account.customer }, { display_name: 'Rudo Banda', source: 'account' });
+  assert.deepEqual({ ...account.customer }, { display_name: 'Rudo Banda', source: 'account', identity_id: null });
   assert.equal(account.seller, null, 'only a Marketplace inquiry has a seller as context');
 
   const participantsByThread = new Map([['t-8', [{ id: 'p-req', thread_id: 't-8', user_id: null, role: 'requester', participant_type: 'external_contact', external_identity_id: 'ci-tg' }]]]);
   const identityById = new Map([['ci-tg', { id: 'ci-tg', display_name: 'Telegram Guest', channel: 'telegram' }]]);
   const guest = conversationParties(accountThread('t-8', null), ctx({ participantsByThread, identityById }));
-  assert.deepEqual({ ...guest.customer }, { display_name: 'Telegram Guest', source: 'channel_identity' });
+  assert.deepEqual({ ...guest.customer }, { display_name: 'Telegram Guest', source: 'channel_identity', identity_id: 'ci-tg' });
 });
 
 test('a provider smoke test reads as ONE heading, recognised only by the server audit event', () => {
   const smoke = conversationParties(accountThread('t-smoke', null), ctx());
-  assert.deepEqual({ ...smoke.customer }, { display_name: PROVIDER_SMOKE_TEST_LABEL, source: 'provider_smoke_test' });
+  assert.deepEqual({ ...smoke.customer }, { display_name: PROVIDER_SMOKE_TEST_LABEL, source: 'provider_smoke_test', identity_id: null });
   const forged = conversationParties(accountThread('t-forged', BUYER.id, { thread_key: 'smoke_test:whatsapp:+263', metadata: { smoke_test: true } }), ctx());
   assert.equal(forged.customer.display_name, 'Rudo Banda', 'a caller-supplied thread key or metadata is not evidence');
 });

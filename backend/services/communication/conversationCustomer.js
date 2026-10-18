@@ -95,7 +95,7 @@ export function customerParticipants(participants, { thread, customerUserId = nu
     .sort(joinedOrder);
 }
 
-const party = (displayName, source) => freeze({ display_name: displayName, source });
+const party = (displayName, source, identityId = null) => freeze({ display_name: displayName, source, identity_id: identityId });
 
 /**
  * H3 — the conversation's customer (its ONE primary identity) and, on a Marketplace inquiry, the seller as context.
@@ -103,37 +103,41 @@ const party = (displayName, source) => freeze({ display_name: displayName, sourc
  * @param thread a message_threads row
  * @param ctx { index (createProvenanceIndex — its user(id) gives the account name), inquiryById, smokeThreadIds,
  *              participantsByThread?: Map threadId → participants, identityById?: Map identityId → channel identity }
- * @returns {{ customer: { display_name, source }, seller: { display_name } | null }}
- *   source ∈ buyer_account | inquiry_guest | account | channel_identity | provider_smoke_test | unidentified
+ * @returns {{ customer: { display_name, source, identity_id }, seller: { display_name } | null }}
+ *   source ∈ buyer_account | inquiry_guest | account | channel_identity | provider_smoke_test | unidentified;
+ *   identity_id is the customer-side participant's channel identity (an id, never an address), when participants are known.
  */
 export function conversationParties(thread, {
   index = null, inquiryById = new Map(), smokeThreadIds = new Set(), participantsByThread = null, identityById = null,
 } = {}) {
   const threadId = idOf(thread?.id);
+  const participants = (threadId && participantsByThread?.get?.(threadId)) || [];
   if (threadId && smokeThreadIds?.has?.(threadId)) {
-    return freeze({ customer: party(PROVIDER_SMOKE_TEST_LABEL, 'provider_smoke_test'), seller: null });
+    const smokeIdentity = customerParticipants(participants, { thread, customerUserId: idOf(thread?.primary_user_id) })
+      .map((p) => idOf(p.external_identity_id)).find(Boolean) || null;
+    return freeze({ customer: party(PROVIDER_SMOKE_TEST_LABEL, 'provider_smoke_test', smokeIdentity), seller: null });
   }
   const accountName = (userId) => clean(userId ? index?.user?.(userId)?.name : null);
   const inquiryThread = isMarketplaceInquiryThread(thread);
   const inquiry = inquiryThread ? inquiryById?.get?.(String(thread.subject_id)) || null : null;
-  const participants = (threadId && participantsByThread?.get?.(threadId)) || [];
   const customerUserId = customerAccountId(thread, { inquiry, participants });
+  const side = customerParticipants(participants, { thread, customerUserId });
+  const identityId = side.map((p) => idOf(p.external_identity_id)).find(Boolean) || null;
 
   let customer = null;
   const name = accountName(customerUserId);
-  if (name) customer = party(name, inquiryThread ? 'buyer_account' : 'account');
-  else if (inquiryThread && clean(inquiry?.guest_name)) customer = party(clean(inquiry.guest_name), 'inquiry_guest');
+  if (name) customer = party(name, inquiryThread ? 'buyer_account' : 'account', identityId);
+  else if (inquiryThread && clean(inquiry?.guest_name)) customer = party(clean(inquiry.guest_name), 'inquiry_guest', identityId);
 
   if (!customer) {
-    const side = customerParticipants(participants, { thread, customerUserId });
     const fromIdentity = side
       .map((p) => clean(p.external_identity_id ? identityById?.get?.(String(p.external_identity_id))?.display_name : null))
       .find(Boolean);
     const fromParticipant = side.map((p) => clean(p.display_name)).find(Boolean);
     const external = fromIdentity || fromParticipant;
-    if (external) customer = party(external, 'channel_identity');
+    if (external) customer = party(external, 'channel_identity', identityId);
   }
-  if (!customer) customer = party(UNIDENTIFIED_CUSTOMER, 'unidentified');
+  if (!customer) customer = party(UNIDENTIFIED_CUSTOMER, 'unidentified', identityId);
 
   const seller = inquiryThread ? freeze({ display_name: accountName(thread?.primary_user_id) }) : null;
   return freeze({ customer, seller });

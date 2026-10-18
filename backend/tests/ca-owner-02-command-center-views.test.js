@@ -153,7 +153,7 @@ test('view=active returns only operational + needs-review conversations, each ca
   assert.equal(op.truth.sla.due_source, 'default_priority_target');
   assert.equal(op.truth.awaiting_reply, true);
   assert.equal(op.truth.no_individual_assignee, true);
-  assert.deepEqual(op.customer, { display_name: 'Rudo Banda', source: 'buyer_account' }, 'the buyer — never the seller');
+  assert.deepEqual(op.customer, { display_name: 'Rudo Banda', source: 'buyer_account', identity_id: null }, 'the buyer — never the seller');
   assert.equal(op.seller.display_name, 'Tendai Moyo');
   assert.equal(body.threads[1].truth.category, 'needs_review');
 });
@@ -321,6 +321,22 @@ test('the detail carries the same truth and the same customer as the row', async
   assert.deepEqual(body.thread.customer, row.customer);
   assert.deepEqual(body.thread.seller, row.seller);
   assert.equal(body.truth_available, true);
+});
+
+test('on a Marketplace inquiry the detail\'s preferences and linked identities are the BUYER\'s, never the seller\'s', async () => {
+  const world = seedWorld();
+  world.rows('communication_preferences').push(
+    { id: 'pref-seller', user_id: SELLER.id, preferred_channel: 'email', timezone: 'Asia/Tokyo' },
+    { id: 'pref-buyer', user_id: BUYER.id, preferred_channel: 'whatsapp', timezone: 'Africa/Harare' },
+  );
+  world.rows('channel_identities').push(
+    { id: 'ci-seller-email', user_id: SELLER.id, channel: 'email', normalized_address: 'real.seller@gmail.com' },
+    { id: 'ci-buyer-wa', user_id: BUYER.id, channel: 'whatsapp', normalized_address: '263771234567' },
+  );
+  const { detail } = routes(world);
+  const { body } = await detail('t-op');
+  assert.equal(body.preferences.user_id, BUYER.id);
+  assert.deepEqual(body.linked_identities.map((i) => i.id), ['ci-buyer-wa']);
 });
 
 test('the detail degrades to truth: null when it cannot be judged, never to a guessed verdict', async () => {

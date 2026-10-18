@@ -16,7 +16,7 @@ import {
 } from '../services/communication/conversationTruth.js';
 import { loadConversationTruth, readAllIn } from '../services/communication/conversationTruthLoader.js';
 import { readAllPages } from '../services/intelligence/rollupService.js';
-import { isMarketplaceInquiryThread } from '../services/communication/conversationCustomer.js';
+import { customerAccountId, isMarketplaceInquiryThread } from '../services/communication/conversationCustomer.js';
 import {
   channelKey, replyChannelAuthority, replyChannelRefusal, resolveReplyChannel,
 } from '../services/communication/replyChannelResolution.js';
@@ -701,7 +701,9 @@ export async function loadReplyChannelAuthority({ repository, thread, prefetched
     prefetched.participants || repository.list('message_participants', { thread_id: thread.id }),
     prefetched.bindings || repository.list('conversation_channel_bindings', { thread_id: thread.id }),
     prefetched.messages || repository.list('messages', { thread_id: thread.id, direction: 'inbound' }, { order: { column: 'created_at', ascending: false }, limit: 1 }),
-    isMarketplaceInquiryThread(thread) ? repository.findOne('marketplace_inquiries', { id: thread.subject_id }) : Promise.resolve(null),
+    prefetched.inquiry !== undefined || !isMarketplaceInquiryThread(thread)
+      ? Promise.resolve(prefetched.inquiry ?? null)
+      : repository.findOne('marketplace_inquiries', { id: thread.subject_id }),
   ]);
   let identities = prefetched.identities;
   if (!identities) {
@@ -941,13 +943,20 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     ]);
     // Enrich the conversation for the context/ops rail + timeline technical drawer (items 6/7):
     // the requester + linked channel identities, recent delivery attempts, and the user's comm prefs.
+    //
+    // CA-OWNER-02 (H3): the preferences and linked identities are the CUSTOMER's. On a Marketplace inquiry
+    // thread.primary_user_id is the SELLER, so they are keyed by the inquiry's asker instead (never the seller).
+    const inquiry = isMarketplaceInquiryThread(thread)
+      ? await services.repository.findOne('marketplace_inquiries', { id: thread.subject_id }).catch(() => null)
+      : null;
+    const customerUserId = customerAccountId(thread, { inquiry, participants });
     const identityIds = [...new Set(participants.map((p) => p.external_identity_id).filter(Boolean))];
     const messageIds = messages.map((m) => m.id).filter(Boolean);
     const [identities, deliveryAttempts, preferences, linkedIdentities] = await Promise.all([
       identityIds.length ? services.repository.list('channel_identities', { id: identityIds }) : Promise.resolve([]),
       messageIds.length ? services.repository.list('message_delivery_attempts', { message_id: messageIds }, { order: { column: 'started_at', ascending: true } }) : Promise.resolve([]),
-      thread.primary_user_id ? services.repository.list('communication_preferences', { user_id: thread.primary_user_id }, { limit: 1 }) : Promise.resolve([]),
-      thread.primary_user_id ? services.repository.list('channel_identities', { user_id: thread.primary_user_id }) : Promise.resolve([]),
+      customerUserId ? services.repository.list('communication_preferences', { user_id: customerUserId }, { limit: 1 }) : Promise.resolve([]),
+      customerUserId ? services.repository.list('channel_identities', { user_id: customerUserId }) : Promise.resolve([]),
     ]);
     // CA-OWNER-02 (H1/H3): the same truth and the same customer as the conversation's inbox row — judged from the full
     // row. When it cannot be read the detail says so (truth: null), it never guesses.
@@ -963,7 +972,7 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     // Unreadable → null (the composer keeps its own derivation; the server still decides on send).
     let replyChannel = null;
     try {
-      const authority = await loadReplyChannelAuthority({ repository: services.repository, thread, prefetched: { participants, messages, identities } });
+      const authority = await loadReplyChannelAuthority({ repository: services.repository, thread, prefetched: { participants, messages, identities, inquiry } });
       replyChannel = { default_channel: authority.default_channel, deliverable: authority.deliverable, basis: authority.basis };
     } catch (_error) {
       replyChannel = null;
