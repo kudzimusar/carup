@@ -204,10 +204,43 @@ test('S1 the core is NOT routed: nothing outside it (and its tests) imports it o
   };
   findBridgeCallers(path.join(ROOT, 'backend'));
   assert.deepEqual(bridgeUsers.sort(), ['backend/services/auth/sessionAuthority.js', 'backend/services/corporate/corporateMembershipGovernanceService.js'], 'only the Corporate core may consume the dedicated Phase-C RPC bridge');
-  // and the only corporate route is still the frozen read-only access bridge
+  // The Corporate routers are the frozen read-only access bridge and (CA-OWNER-02) the read-only management read models. NEITHER
+  // may reach the governed mutation core: each router's whole import closure is walked and must contain no mutation-core module,
+  // and no Corporate or route file in it may name a governed write RPC or call the Phase-C bridge. (The read-only evaluator
+  // client, corporateGovernanceDecision.js, is reached by both through the frozen admission decision — that is reading, not
+  // mutating. The AUTH-05 session boundary is reached through the auth middleware by every route and is certified there.)
   const server = read('backend/server.js');
-  assert.deepEqual([...server.matchAll(/corporate\w*Router/g)].map((m) => m[0]).filter((v, i, a) => a.indexOf(v) === i), ['corporateAccessRouter']);
+  assert.deepEqual([...server.matchAll(/corporate\w*Router/g)].map((m) => m[0]).filter((v, i, a) => a.indexOf(v) === i), ['corporateAccessRouter', 'corporateManagementRouter']);
+  const MUTATION_CORE = CORE.filter((f) => !f.endsWith('/corporateGovernanceDecision.js'));
+  for (const route of ['backend/routes/corporateAccessRoutes.js', 'backend/routes/corporateManagementRoutes.js']) {
+    const closure = importClosure(route);
+    assert.ok(closure.includes('backend/services/corporate/corporateAccessService.js'), `${route} admits through the frozen decision`);
+    for (const core of MUTATION_CORE) assert.equal(closure.includes(core), false, `${route} reaches the mutation core module ${core}`);
+    for (const file of closure.filter((f) => f.startsWith('backend/services/corporate/') || f.startsWith('backend/routes/corporate'))) {
+      const text = stripComments(read(file));
+      assert.doesNotMatch(text, /corporate_(membership|authority)_(apply_direct|request_(submit|decide|execute|cancel))/, `${file} (reached from ${route}) names a governed write RPC`);
+      assert.doesNotMatch(text, /executeCorporateAuthorityRpc/, `${file} (reached from ${route}) calls the Phase-C bridge`);
+    }
+  }
 });
+
+/** Every backend file a module reaches through relative static or dynamic imports. */
+function importClosure(entry) {
+  const seen = new Set();
+  const visit = (rel) => {
+    if (seen.has(rel)) return;
+    seen.add(rel);
+    const src = read(rel);
+    for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)) {
+      let target = path.join(path.dirname(rel), m[1]);
+      if (!/\.(js|mjs|cjs)$/.test(target)) target += '.js';
+      try { statSync(path.join(ROOT, target)); } catch { continue; }
+      visit(target);
+    }
+  };
+  visit(entry);
+  return [...seen];
+}
 
 test('S1 nothing in production code can mint, accept or forward a caller-supplied governance decision any more', () => {
   const removed = ['mintTargetGovernanceDecision', 'assertGovernanceDecision', 'isMintedGovernanceDecision', 'governanceDecisionToWire', 'DECISION_MAX_AGE_MS'];
