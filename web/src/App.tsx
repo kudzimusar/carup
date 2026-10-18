@@ -49,6 +49,7 @@ const Pricing = lazy(() => import('./pages/Pricing'))
 const About = lazy(() => import('./pages/About'))
 const Contact = lazy(() => import('./pages/Contact'))
 import ScrollToTop from './components/layout/ScrollToTop'
+import { AdminVisitBoundary } from './components/admin/AdminVisitBoundary'
 import ActivityInstrumentation from './components/intelligence/ActivityInstrumentation'
 
 // New Footer Pages
@@ -314,6 +315,7 @@ export default function App() {
       <Toaster position="top-right" />
       <ScrollToTop />
       <RouteMetadata />
+      <AdminVisitBoundary />
       <ActivityInstrumentation />
       <FeatureGovernanceLoader>
       <LazyRouteBoundary key={routeBoundaryKey(location.pathname)} onRetry={() => window.location.reload()}>

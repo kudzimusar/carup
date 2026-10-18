@@ -7,9 +7,9 @@
  * the way back while the local role is `admin` proves the decision is the server's, not the client's.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { ReactElement, ReactNode } from 'react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, type ReactElement, type ReactNode } from 'react'
 import { SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
 import { phoneBox } from '@/components/corporate/touchTarget.testutil'
 
@@ -35,6 +35,7 @@ const { TestAuthProvider } = (await import('@/context/AuthContext')) as unknown 
   TestAuthProvider: (p: { user: unknown; children: ReactNode }) => ReactElement
 }
 const { AdminContextBanner } = await import('./AdminContextBanner')
+const { AdminVisitBoundary } = await import('./AdminVisitBoundary')
 const DashboardLayout = (await import('@/components/layout/DashboardLayout')).default
 
 const userFor = (role: string) => ({ id: `u-${role}`, name: `Test ${role}`, email: `${role}@carup.test`, role, avatar: 'x' })
@@ -47,6 +48,8 @@ const accessCalls: Array<Record<string, string>> = []
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 beforeEach(() => {
+  // CA-OWNER-02-R3 D6: the arrival is remembered for the tab's Admin visit — every test starts outside any visit.
+  window.sessionStorage.clear()
   answer = { status: 200, body: SERVER_GRANT }
   accessCalls.length = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
@@ -154,6 +157,63 @@ describe('arrival from Corporate Admin — the /admin?from=corporate marker', ()
     renderBanner('/admin?from=corporate')
     await waitFor(() => expect(screen.getByTestId('admin-context-banner')).toHaveAttribute('data-corporate-decision', 'denied'))
     expect(screen.queryByRole('link', { name: 'Return to Corporate Admin' })).toBeNull()
+  })
+})
+
+describe('CA-OWNER-02-R3 D6 · the arrival lasts for the whole Admin visit, and ends with it', () => {
+  /** A page that rewrites its own address the way the Command Center does (its filters replace the query string). */
+  function RewritesItsAddress() {
+    const navigate = useNavigate()
+    useEffect(() => { navigate('/admin/communications?view=active', { replace: true }) }, [navigate])
+    return null
+  }
+
+  it('survives the page rewriting its own address (the Command Center drops ?from=corporate)', async () => {
+    render(
+      <TestAuthProvider user={userFor('admin')}>
+        <MemoryRouter initialEntries={['/admin/communications?from=corporate']}>
+          <AdminContextBanner /><RewritesItsAddress /><Where />
+        </MemoryRouter>
+      </TestAuthProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\/communications\?view=active$/))
+    expect(screen.getByTestId('admin-context-arrival')).toHaveTextContent(/^You came from Corporate Admin\.$/)
+  })
+
+  it('survives moving between operational Admin pages, even when the page remounts the layout', async () => {
+    const first = renderBanner('/admin?from=corporate')
+    expect(screen.getByTestId('admin-context-arrival')).toBeInTheDocument()
+    first.unmount()
+    renderBanner('/admin/users')
+    expect(screen.getByTestId('admin-context-arrival')).toHaveTextContent(/^You came from Corporate Admin\.$/)
+  })
+
+  it('ends when the operator returns to Corporate Admin', async () => {
+    const first = renderBanner('/admin?from=corporate')
+    fireEvent.click(await screen.findByRole('link', { name: 'Return to Corporate Admin' }))
+    first.unmount()
+    renderBanner('/admin/users')
+    expect(screen.queryByTestId('admin-context-arrival')).toBeNull()
+  })
+
+  it.each(['/corporate', '/', '/marketplace', '/dashboard'])('ends when the visit leaves the operational Admin (%s)', (outside) => {
+    const first = renderBanner('/admin?from=corporate')
+    first.unmount()
+    render(<MemoryRouter initialEntries={[outside]}><AdminVisitBoundary /></MemoryRouter>)
+    renderBanner('/admin/users')
+    expect(screen.queryByTestId('admin-context-arrival')).toBeNull()
+  })
+
+  it.each(['/admin/users', '/admin/communications', '/dashboard/admin/communications'])('does not end on another operational Admin page (%s)', (inside) => {
+    renderBanner('/admin?from=corporate').unmount()
+    render(<MemoryRouter initialEntries={[inside]}><AdminVisitBoundary /></MemoryRouter>)
+    renderBanner('/admin/users')
+    expect(screen.getByTestId('admin-context-arrival')).toBeInTheDocument()
+  })
+
+  it('a visit that never came from Corporate Admin never claims it did', () => {
+    renderBanner('/admin/users')
+    expect(screen.queryByTestId('admin-context-arrival')).toBeNull()
   })
 })
 

@@ -8,17 +8,22 @@
  * Its one Corporate affordance — "Return to Corporate Admin" — is shown only when the SERVER's Corporate decision for this
  * session (useCorporateServerDecision) is a grant. While that decision is pending, denied, unavailable or unauthenticated
  * the context is stated without it. No client-side role is consulted. The arrival line reads only the navigation marker
- * (adminArrival), which is never authority.
+ * (adminArrival), which is never authority. CA-OWNER-02-R3 (D6): the arrival is remembered for the whole Admin visit — it
+ * survives the page rewriting its own address and moving between Admin pages — and ends on "Return to Corporate Admin" or
+ * when a non-Admin page renders.
  */
+import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useCorporateServerDecision } from '@/lib/corporate/useCorporateAccess'
-import { arrivedFromCorporate } from './adminArrival'
+import { arrivedFromCorporate, forgetCorporateArrival, rememberCorporateArrival, rememberedCorporateArrival } from './adminArrival'
 
 export function AdminContextBanner() {
   const { decision } = useCorporateServerDecision()
   const { search } = useLocation()
-  const fromCorporate = arrivedFromCorporate(search)
+  const markedNow = arrivedFromCorporate(search)
+  useEffect(() => { if (markedNow) rememberCorporateArrival() }, [markedNow])
+  const fromCorporate = markedNow || rememberedCorporateArrival()
   return (
     <section
       aria-label="Operational Admin context"
@@ -39,6 +44,7 @@ export function AdminContextBanner() {
       {decision.status === 'granted' && (
         <Link
           to="/corporate"
+          onClick={forgetCorporateArrival}
           className="inline-flex shrink-0 items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-900 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 max-sm:min-h-11"
           data-testid="admin-context-return-corporate"
         >
