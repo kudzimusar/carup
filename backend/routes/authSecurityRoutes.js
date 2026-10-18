@@ -95,4 +95,29 @@ router.post(
   }),
 );
 
+
+// OC-NATIVE R6-A — terminate only the authenticated presenting session. The target is resolved
+// server-side from the proven credential; client-supplied identity/session claims are ignored.
+router.post(
+  '/api/auth/logout',
+  authorizeSessionRole([]),
+  asyncHandler(async (req, res) => {
+    const token = presentingToken(req);
+    const sessions = await listOwnSessions(supabase, req.userContext, { presentingToken: token });
+    const currentSession = sessions.find((session) => session.current);
+    if (!currentSession) {
+      return res.status(401).json({ error: 'Unauthorized. Presenting session is invalid or expired.' });
+    }
+
+    await revokeSessionsForUser(supabase, req.userContext, {
+      userId: req.userContext.id,
+      scope: 'one',
+      sessionId: currentSession.id,
+      reason: 'self_service_current_session_logout',
+    }, { req, sourceRoute: '/api/auth/logout' });
+
+    return res.json({ success: true });
+  }),
+);
+
 export default router;
