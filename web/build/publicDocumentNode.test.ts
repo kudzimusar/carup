@@ -7,11 +7,19 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
+// The server document function's whole module closure. Every non-asset route rewrites to /api/public-page, so a module it
+// cannot load breaks every page. CA-OWNER-02 (H5): the Command Center section definition joined the closure, so the server
+// document, the page and the section navigation share one list of real Command Center pages.
+const PUBLIC_DOCUMENT_CLOSURE = [
+  'api/public-page.ts', 'src/config/publicPageMetadata.ts', 'src/config/featureRegistry.ts', 'src/config/publicLaunchPolicy.ts',
+  'src/features/communications/admin/commandCenterSections.ts',
+]
+
 function emitAndRun(env: Record<string, string>, path = 'marketplace') {
   const root = mkdtempSync(join(tmpdir(), 'carup-public-document-'))
   try {
     writeFileSync(join(root, 'package.json'), '{"type":"module"}')
-    for (const file of ['api/public-page.ts', 'src/config/publicPageMetadata.ts', 'src/config/featureRegistry.ts', 'src/config/publicLaunchPolicy.ts']) {
+    for (const file of PUBLIC_DOCUMENT_CLOSURE) {
       const output = join(root, 'web', file.replace(/\.ts$/, '.js'))
       mkdirSync(dirname(output), { recursive: true })
       const code = ts.transpileModule(readFileSync(resolve(file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
@@ -49,5 +57,21 @@ describe('public document Node deployment contract', () => {
       expect(emitAndRun(env, path).headers['X-Robots-Tag'], path).toBe('noindex, nofollow')
     }
     expect(emitAndRun(env, 'not-a-carup-route').status).toBe(404)
+  })
+  it('CA-OWNER-02 (H5): a Command Center deep link is a real, private page through the emitted server document', () => {
+    const result = emitAndRun({ VERCEL_ENV: 'preview' }, 'admin/communications/sla')
+    expect(result.status).toBe(200)
+    expect(result.body).toContain('SLA · Command Center · CarUp Admin')
+    expect(result.body).not.toContain('Page not found')
+    expect(result.headers['X-Robots-Tag']).toBe('noindex, nofollow')
+  })
+  it('every relative import inside the closure stays inside it — a new module must be added here, or every page breaks', () => {
+    for (const file of PUBLIC_DOCUMENT_CLOSURE) {
+      const source = readFileSync(resolve(file), 'utf8')
+      for (const [, specifier] of source.matchAll(/^\s*import\s+(?!type\b)[^'"]*from\s+'(\.{1,2}\/[^']+)'/gm)) {
+        const target = join(dirname(file), specifier).replace(/\.js$/, '.ts')
+        expect(PUBLIC_DOCUMENT_CLOSURE, `${file} imports ${specifier}`).toContain(target)
+      }
+    }
   })
 })
