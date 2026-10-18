@@ -64,6 +64,18 @@ function checkSourceAndScope({ source, asOf, scope, window }) {
   if (!window || typeof window.kind !== 'string') throw new Error('fact: a live fact must state its window');
 }
 
+/** The extent of a fact's population: the oldest and newest record times (null when there is no record). */
+function normalizeExtent(extent) {
+  if (extent === undefined || extent === null) return null;
+  const at = (v, name) => {
+    if (v === undefined || v === null) return null;
+    const out = iso(v);
+    if (!out) throw new Error(`fact: extent ${name} is not a valid time`);
+    return out;
+  };
+  return { oldest_at: at(extent.oldestAt, 'oldestAt'), newest_at: at(extent.newestAt, 'newestAt') };
+}
+
 const freezeDeep = (o) => {
   if (o && typeof o === 'object' && !Object.isFrozen(o)) {
     Object.freeze(o);
@@ -85,6 +97,7 @@ function shape(spec, { state, value, certification, reason = null }) {
     window: spec.window ? { ...spec.window } : null,
     scope: spec.scope ?? null,
     provenance: spec.provenance ? structuredClone(spec.provenance) : null,
+    extent: normalizeExtent(spec.extent),
     certification,
     reason,
     detail: spec.detail ?? null,
@@ -136,7 +149,9 @@ export async function readFact(spec, reader, { now = new Date(), timeoutMs = DEF
     if (!outcome || outcome.complete === false) {
       return degraded({ ...spec, asOf, detail: outcome?.detail ?? spec.detail }, 'The source returned an incomplete read, so no value is shown.');
     }
-    return liveFact({ ...spec, asOf, value: outcome.value, provenance: outcome.provenance ?? spec.provenance, detail: outcome.detail ?? spec.detail });
+    return liveFact({
+      ...spec, asOf, value: outcome.value, provenance: outcome.provenance ?? spec.provenance, detail: outcome.detail ?? spec.detail, extent: outcome.extent ?? spec.extent,
+    });
   } catch {
     return degraded({ ...spec, asOf }, `The source could not be read at ${iso(asOf)}, so no value is shown.`);
   } finally {

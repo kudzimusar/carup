@@ -98,6 +98,16 @@ test('a statement fact states its reason and never carries a value, even when on
   assert.throws(() => statementFact({ id: 'x', label: 'X', state: 'TECHNICAL_OPERATIONAL', reason: 'r' }), /statement state/);
 });
 
+test('a fact may carry the extent of its population — the oldest and newest record times — and nothing invalid', async () => {
+  const f = liveFact({ ...base, kind: 'operational', value: 3, extent: { oldestAt: '2026-10-01T10:00:00Z', newestAt: new Date('2026-10-17T10:00:00Z') } });
+  assert.deepEqual(f.extent, { oldest_at: '2026-10-01T10:00:00.000Z', newest_at: '2026-10-17T10:00:00.000Z' });
+  assert.equal(liveFact({ ...base, kind: 'operational', value: 0, extent: { oldestAt: null, newestAt: null } }).extent.oldest_at, null);
+  assert.throws(() => liveFact({ ...base, kind: 'operational', value: 1, extent: { oldestAt: 'not a date', newestAt: null } }), /extent/);
+  const read = await readFact({ ...base, kind: 'operational' }, async () => ({ value: 2, extent: { oldestAt: '2026-10-02T00:00:00Z', newestAt: '2026-10-03T00:00:00Z' } }), { now: NOW });
+  assert.equal(read.extent.oldest_at, '2026-10-02T00:00:00.000Z');
+  assert.equal(liveFact({ ...base, kind: 'operational', value: 1 }).extent, null);
+});
+
 test('a rolling window names its days and its exact bounds', () => {
   assert.deepEqual(rollingWindow(7, NOW), { kind: 'rolling', days: 7, from: '2026-10-11T00:00:00.000Z', to: '2026-10-18T00:00:00.000Z' });
   assert.ok(FACT_STATES.includes('DEGRADED'));
