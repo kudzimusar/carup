@@ -30,6 +30,24 @@ import { TruthStateBadge } from './TruthState'
 // Local to the Corporate shell: the shared feature-icon map is not widened for this slice.
 const DESTINATION_ICONS: Record<string, LucideIcon> = { LayoutDashboard, Building2, Landmark, TrendingUp, Workflow, ShieldCheck, Database, Users, FileText, Server }
 
+/**
+ * CA-OWNER-02: the open drawer is a modal dialog (aria-modal), so Tab and Shift+Tab cycle through ITS controls instead
+ * of walking into the page behind it; focus that is somehow outside is brought back in.
+ */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+function keepTabInside(e: KeyboardEvent, container: HTMLElement | null) {
+  const items = container ? [...container.querySelectorAll<HTMLElement>(FOCUSABLE)] : []
+  if (!container || items.length === 0) return
+  const first = items[0]
+  const last = items[items.length - 1]
+  const active = document.activeElement
+  const outside = !active || !container.contains(active)
+  if (outside || active === (e.shiftKey ? first : last)) {
+    e.preventDefault()
+    ;(e.shiftKey ? last : first).focus()
+  }
+}
+
 const COLLAPSE_KEY = 'carup.corporate.rail.collapsed'
 const readCollapsed = () => { try { return window.localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false } }
 const writeCollapsed = (v: boolean) => { try { window.localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0') } catch { /* per-viewer convenience only */ } }
@@ -87,6 +105,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const openerRef = useRef<HTMLElement | null>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
   const openDrawer = useCallback(() => {
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setDrawerOpen(true)
@@ -95,7 +114,10 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
   useEffect(() => {
     if (!drawerOpen) { openerRef.current?.focus?.(); openerRef.current = null; return }
     closeRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawerOpen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+      else if (e.key === 'Tab') keepTabInside(e, drawerRef.current)
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [drawerOpen])
@@ -214,7 +236,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
         {drawerOpen && (
           <div className="fixed inset-0 z-[60] lg:hidden">
             <div className="absolute inset-0 bg-slate-950/60" onClick={closeDrawer} data-testid="corporate-drawer-overlay" />
-            <div id="corporate-drawer" role="dialog" aria-modal="true" aria-label="Corporate Admin navigation" className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col bg-white shadow-xl" data-testid="corporate-drawer">
+            <div ref={drawerRef} id="corporate-drawer" role="dialog" aria-modal="true" aria-label="Corporate Admin navigation" className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col bg-white shadow-xl" data-testid="corporate-drawer">
               <div className="flex h-14 items-center justify-between border-b border-slate-200 px-3">
                 <span className="text-sm font-semibold">Corporate Admin</span>
                 <button ref={closeRef} type="button" onClick={closeDrawer} className="inline-flex h-11 w-11 items-center justify-center rounded hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" aria-label="Close navigation">

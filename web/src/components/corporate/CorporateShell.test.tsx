@@ -687,6 +687,43 @@ describe('CA-OWNER-02 · every shell control is at least 44×44 at a 390 px view
   })
 })
 
+describe('CA-OWNER-02 · the open drawer is modal: Tab and Shift+Tab stay inside it', () => {
+  async function openDrawerByKeyboard(u: ReturnType<typeof userEvent.setup>) {
+    await renderAdmitted('/corporate/finance')
+    screen.getByTestId('corporate-drawer-open').focus()
+    await u.keyboard('{Enter}')
+    const drawer = await screen.findByTestId('corporate-drawer')
+    const close = within(drawer).getByRole('button', { name: 'Close navigation' })
+    await waitFor(() => expect(close).toHaveFocus())
+    return { drawer, close }
+  }
+
+  it('Shift+Tab on the first control wraps to the last one; Tab on the last wraps to the first', async () => {
+    const u = userEvent.setup()
+    const { drawer, close } = await openDrawerByKeyboard(u)
+    await u.tab({ shift: true })
+    expect(within(drawer).getByTestId('rail-operational-admin-link')).toHaveFocus()
+    await u.tab()
+    expect(close).toHaveFocus()
+  })
+
+  it('a full Tab cycle visits the twelve controls of the drawer and never reaches the page behind it', async () => {
+    const u = userEvent.setup()
+    const { drawer, close } = await openDrawerByKeyboard(u)
+    const visited = new Set<Element | null>()
+    for (let i = 1; i <= 12; i += 1) {
+      await u.tab()
+      expect(drawer.contains(document.activeElement), `Tab ${i} left the drawer for ${document.activeElement?.outerHTML.slice(0, 80)}`).toBe(true)
+      visited.add(document.activeElement)
+    }
+    expect(visited.size).toBe(12)
+    expect(close).toHaveFocus()
+    await u.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('corporate-drawer')).toBeNull())
+    expect(screen.getByTestId('corporate-drawer-open')).toHaveFocus()
+  })
+})
+
 describe('CA-CLOSE-01 · persistent Corporate admission and the People & Access projection', () => {
   it('Governor B — a platform OWNER admitted by persistent authority alone — enters Corporate Admin; the root opens People & Access', async () => {
     answerFor = (t) => (t === 'tok-u-owner' ? { status: 200, body: OWNER_GOVERNOR_GRANT } : defaultAnswer(t))
