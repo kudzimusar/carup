@@ -56,7 +56,6 @@ export default function CorporateGrowth() {
 
       {data && (
         <>
-          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
           <Section label="A" title="Accounts & identity" description="Account facts — not customer counts. Only accounts the provenance authority classifies as operational are counted; needs-review accounts are not." testId="growth-accounts">
             <FactGrid facts={accounts} size="lg" />
           </Section>
@@ -64,6 +63,7 @@ export default function CorporateGrowth() {
           <Section label="B" title="Marketplace, trade & service demand" description="Each signal under its own name and window. An inquiry is not a sale; a zero-result search is unmet demand, never a lost sale." testId="growth-demand">
             <FactGrid facts={demand} />
           </Section>
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
         </>
       )}
 

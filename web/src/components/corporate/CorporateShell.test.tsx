@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { OWNER_GOVERNOR_GRANT, PEOPLE_ACCESS_PROJECTION, SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
+import { MANAGEMENT_FIXTURES } from '@/test/corporateManagementFixture'
 import { phoneBox } from './touchTarget.testutil'
 
 vi.mock('@/context/AuthContext', async () => {
@@ -67,14 +68,28 @@ const peopleCalls: Array<{ url: string; headers: Record<string, string> }> = []
 const defaultProjection = (token: string | null): Answer =>
   !token ? { status: 401, body: { error: 'Unauthorized. No active user context.' } }
     : COMPAT_TOKENS.has(token) ? { status: 200, body: PEOPLE_ACCESS_PROJECTION } : { status: 403, body: SERVER_DENIAL }
+/**
+ * CA-OWNER-02: GET /api/corporate/management/:area. By default the read model is UNAVAILABLE — the fail-closed baseline these
+ * shell tests pin (no page may show a number it could not read). A test that needs live figures serves the fixtures.
+ */
+let managementFor: (area: string) => Answer
+const unavailableManagement = (): Answer => ({ status: 503, body: { decision: 'unavailable', code: 'CORPORATE_MANAGEMENT_UNAVAILABLE' } })
+const servedManagement = (area: string): Answer => ({ status: 200, body: MANAGEMENT_FIXTURES[area] })
 
 beforeEach(() => {
   answerFor = defaultAnswer
   projectionFor = defaultProjection
+  managementFor = unavailableManagement
   accessCalls.length = 0
   peopleCalls.length = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
     const url = String(input)
+    const area = url.match(/\/corporate\/management\/([a-z-]+)$/)?.[1]
+    if (area) {
+      const settled = await managementFor(area)
+      if (settled === 'network' || settled === 'hang') throw new TypeError('Failed to fetch')
+      return json(settled.status, settled.body)
+    }
     if (url.endsWith('/corporate/people-access')) {
       const headers = Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]))
       peopleCalls.push({ url, headers })
@@ -178,14 +193,15 @@ describe('C · rendered: Corporate routes fail closed', () => {
   })
 })
 
-describe('every destination renders as a real landing with its plane and question — and no number', () => {
+describe('every destination renders as a real landing with its plane and question — and, with the management read model unavailable, no number', () => {
   it.each(Object.keys(pages))('%s', async (path) => {
     await renderAdmitted(path)
     const main = screen.getByTestId('corporate-main')
     expect(within(main).getByTestId('plane-indicator')).toBeInTheDocument()
     expect(within(main).getByRole('heading', { level: 1 })).toBeInTheDocument()
     expect(within(main).getByTestId('management-question').textContent).toMatch(/\?$/)
-    // No slot on any landing renders a governed value in this slice.
+    // CA-OWNER-02: let the read model answer (unavailable) — a page that could not read a figure shows none.
+    await waitFor(() => expect(within(main).queryByTestId('management-pending')).toBeNull())
     for (const t of valueTexts(main)) expect(t).not.toMatch(/\d/)
     expect(within(main).queryAllByTestId('metric-slot').every((s) => s.getAttribute('data-is-value') === 'false')).toBe(true)
   })
@@ -217,11 +233,14 @@ describe('F · Finance renders blocked states, never a fake value', () => {
 
 describe('L · Customers & Growth does not relabel accounts / inquiries / sessions', () => {
   it('no universal customer count, and source-accurate labels only', async () => {
+    // CA-OWNER-02: the labels now arrive with live figures from the read model, so the server's growth answer is served.
+    managementFor = servedManagement
     await renderAdmitted('/corporate/growth')
     const main = screen.getByTestId('corporate-main')
+    await within(main).findByTestId('growth-demand')
     const labels = within(main).getAllByTestId('metric-slot').map((s) => s.getAttribute('aria-label') ?? '')
-    expect(labels.some((l) => /^Registered accounts \(not customers\)/.test(l))).toBe(true)
-    expect(labels.some((l) => /^Marketplace inquiries \(not sales\)/.test(l))).toBe(true)
+    expect(labels.some((l) => /^Operational accounts \(not customers\)/.test(l))).toBe(true)
+    expect(labels.some((l) => /Marketplace inquiries.*\(not sales\)/.test(l))).toBe(true)
     // "Customers" exists only as a blocked, authority-unknown slot — never a value.
     const customers = within(within(main).getByTestId('growth-blocked')).getAllByTestId('blocked-slot-row').find((r) => within(r).getByRole('rowheader').textContent === 'Customers')
     expect(customers?.getAttribute('data-truth-state')).toBe('UNKNOWN_AUTHORITY')
@@ -405,14 +424,18 @@ describe('CA-K3-01-R2 · accessibility / responsive recustody', () => {
 })
 
 describe('CA-K3-01-R3 · D-4 horizontally scrolling tables are keyboard-reachable labelled regions', () => {
+  // CA-OWNER-02: the Operations queue table exists only when the queues were read, so the read model is served here.
+  beforeEach(() => { managementFor = servedManagement })
+
   it.each([
     ['/corporate/business-units', 'Business unit comparison by measure and truth state'],
     ['/corporate/operations', 'Operational queues by domain and measure'],
     ['/corporate/data-intelligence', 'Truth states, what each shows, and what each means'],
-  ])('%s', async (path, name) => {
+    ['/corporate/data-intelligence', 'Metric and source registry'],
+  ])('%s · %s', async (path, name) => {
     await renderAdmitted(path)
     const main = screen.getByTestId('corporate-main')
-    const region = within(main).getByRole('region', { name })
+    const region = await within(main).findByRole('region', { name })
     // Keyboard-focusable and actually takes focus.
     expect(region).toHaveAttribute('tabindex', '0')
     region.focus()
@@ -431,7 +454,7 @@ describe('CA-K3-01-R3 · D-4 horizontally scrolling tables are keyboard-reachabl
     const u = userEvent.setup()
     await renderAdmitted('/corporate/operations')
     const main = screen.getByTestId('corporate-main')
-    const region = within(main).getByRole('region', { name: 'Operational queues by domain and measure' })
+    const region = await within(main).findByRole('region', { name: 'Operational queues by domain and measure' })
     // Start from the last focusable element before the region (the breadcrumb link) and Tab once.
     within(main).getByRole('link', { name: 'Corporate Admin' }).focus()
     await u.tab()
