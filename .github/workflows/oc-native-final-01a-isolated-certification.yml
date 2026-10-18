@@ -1,0 +1,115 @@
+name: OC-NATIVE FINAL-01A Isolated Convergence Certification
+
+on:
+  push:
+    branches:
+      - integration/oc-native-final-01a-prep
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-final-01a-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+  CI: "true"
+  SUPABASE_URL: http://127.0.0.1:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-key
+  EXPO_PUBLIC_API_URL: https://oc-native-final-isolated.invalid
+  BE2_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/carup_be2
+
+jobs:
+  backend-convergence:
+    name: AUTH-05 + BE1 + BE2 focused convergence
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: carup_be2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d carup_be2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Exact-head and diff hygiene
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --check 166025842bc2bae024c13162c2f3623617f88277..HEAD
+      - name: AUTH-05 focused authority
+        run: |
+          node --test             backend/tests/ca-k3-auth-05-session-authority.test.js             backend/tests/ca-k3-auth-05-atomic-registration.test.js             backend/tests/auth-register-privilege.test.js             backend/tests/o2-x3-authentication-assurance.test.js
+      - name: R6 current-session logout
+        run: |
+          node --test             backend/tests/r6a-current-session-logout.test.js             backend/tests/auth-session-row.test.js
+      - name: BE1 ownership to Garage continuity
+        run: |
+          node --test backend/tests/lr2c-be1-ownership-continuity.test.js
+          node --test backend/tests/service-network-s9-garage-surfaces.test.js
+      - name: BE2 transaction ownership lineage
+        run: |
+          node --test backend/tests/lr2c-be2-transaction-transfer-lineage.test.js
+          node database/test/lr2c_be2_transaction_transfer_postgres_check.mjs
+      - name: Ownership and transaction regressions
+        run: |
+          node --test backend/tests/passport-v16-ownership-authority.test.js
+          node --test backend/tests/o2-transfer-authority-supersession.test.js
+          node --test backend/tests/oc5j-ownership-transfer-refusals.test.js
+          node --test backend/tests/vehicle-finance-obligation-authority.test.js
+          node --test backend/tests/issue164-phase6-transaction-authority.test.js
+          node --test backend/tests/issue164-phase6-session-governance-auth.test.js
+          node --test backend/tests/issue164-phase6-marketplace-reservation-convergence.test.js
+
+  native-convergence:
+    name: Native LR2-B + LR2-C + R6 + Expo readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Mobile Vitest
+        run: npm run test --workspace=mobile
+      - name: Native deterministic suite
+        run: npm run test:native --workspace=mobile
+      - name: Static Native auth/navigation suite
+        run: npm run test:static --workspace=mobile
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+      - name: Expo dependency compatibility
+        working-directory: mobile
+        run: npx expo install --check
+
+  backend-regression:
+    name: Relevant full backend regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Full backend Node test corpus
+        run: node --test backend/tests/*.test.js
