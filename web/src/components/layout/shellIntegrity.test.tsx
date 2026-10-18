@@ -137,6 +137,18 @@ describe.each(['admin', 'owner'] as const)('%s dashboard shell', (role) => {
     for (const a of links) expect(phoneBox(a).height, a.textContent ?? '').toBeGreaterThanOrEqual(44)
   })
 
+  it('CA-OWNER-02: the sidebar home link and the header "Back to Site" are 44 × 44 targets at a 390 px viewport', () => {
+    renderDashboard(role)
+    const home = within(screen.getByTestId('dashboard-sidebar')).getAllByRole('link').find((a) => a.getAttribute('href') === '/')
+    expect(home, 'sidebar home link').toBeTruthy()
+    expect(phoneBox(home as HTMLElement).height).toBeGreaterThanOrEqual(44)
+    const back = screen.getAllByRole('link').find((a) => /Back to Site/.test(a.textContent ?? '') && !within(screen.getByTestId('dashboard-sidebar')).queryAllByRole('link').includes(a))
+    expect(back, 'header Back to Site link').toBeTruthy()
+    const box = phoneBox(back as HTMLElement)
+    expect(box.height).toBeGreaterThanOrEqual(44)
+    expect(box.width).toBeGreaterThanOrEqual(44)
+  })
+
   it('More opens the same drawer; Escape closes it and returns focus to More', async () => {
     renderDashboard(role)
     const more = within(screen.getByTestId('compact-bottom-nav')).getByRole('button', { name: /More/ })

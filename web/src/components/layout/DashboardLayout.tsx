@@ -153,7 +153,7 @@ export default function DashboardLayout({ role }: { role: string }) {
       >
         {/* Sidebar Header */}
         <div className="h-16 shrink-0 flex items-center justify-between px-4 border-b">
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2 max-sm:min-h-11">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
               <Car className="w-4 h-4 text-white" />
             </div>
@@ -348,8 +348,9 @@ export default function DashboardLayout({ role }: { role: string }) {
             )}
             <OrganisationBadge />
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/" className="gap-1">
-                <Store className="w-4 h-4" />
+              {/* CA-OWNER-02 (K): icon-only below sm, so it keeps its name and a 44 × 44 target on phones. */}
+              <Link to="/" aria-label="Back to Site" className="gap-1 max-sm:min-h-11 max-sm:min-w-11 justify-center">
+                <Store className="w-4 h-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Back to Site</span>
               </Link>
             </Button>

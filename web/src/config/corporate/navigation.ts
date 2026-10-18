@@ -187,7 +187,7 @@ export const OPERATE_LINKS: Readonly<Record<CorporateDestinationId, readonly Ope
   ],
   'data-intelligence': [],
   'people-access': [
-    { label: 'Open User Management (compatibility surface)', route: '/admin/users', plane: 'business_operations', description: 'Account records and the legacy platform role field. Not the Corporate membership or permission model.' },
+    { label: 'Open Platform Users & Roles (compatibility surface)', route: '/admin/users', plane: 'business_operations', description: 'Account records and the legacy platform role field. Not the Corporate membership or permission model.' },
   ],
   reports: [],
   platform: [

@@ -706,7 +706,9 @@ export default function AdminCommunications() {
         />
 
         {isInboxLike && (
-        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr_320px] gap-5 items-start">
+        // CA-OWNER-02 (K): minmax(0,1fr) lets the conversation column shrink, so list + conversation + context rail fit a
+        // 1280 px laptop beside the admin sidebar instead of scrolling the page sideways.
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)_320px] gap-5 items-start" data-testid="cc-inbox-grid">
           {/* ── Inbox ── (mobile master-detail: hidden once a thread is open; always shown on desktop) */}
           <Card className={`border-0 card-shadow ${selected ? 'hidden lg:block' : 'block'}`} data-testid="inbox-pane">
             <CardHeader className="pb-3 space-y-3">
@@ -1088,7 +1090,7 @@ export default function AdminCommunications() {
 
         {/* ── Recovery section (item 5/11): full-width categorised recovery ── */}
         {section === 'recovery' && (
-          <div className="grid lg:grid-cols-[1fr_320px] gap-5 items-start" data-testid="section-view-recovery">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start" data-testid="section-view-recovery">
             <RecoveryView
               categories={recovery.categories as Record<string, RecoveryNotification[]>}
               counts={recovery.counts}

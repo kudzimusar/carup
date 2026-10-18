@@ -133,6 +133,16 @@ beforeEach(() => {
 
 const lastListFilters = () => (api.fetchAdminCommunicationThreads.mock.calls.at(-1) as unknown as [Record<string, string | undefined>])[0]
 
+describe('K — the inbox layout fits a 1280 px laptop beside the admin sidebar', () => {
+  it('the conversation column may shrink (minmax(0,1fr)), so the list + conversation + context rail never scroll sideways', async () => {
+    renderAt('/admin/communications')
+    await screen.findByText('Rudo Banda')
+    const grid = screen.getByTestId('cc-inbox-grid')
+    expect(grid.className).toContain('lg:grid-cols-[340px_minmax(0,1fr)_320px]')
+    expect(grid.className).not.toMatch(/lg:grid-cols-\[340px_1fr_320px\]/)
+  })
+})
+
 describe('H1 — classification views in the inbox', () => {
   it('asks for "Active work" by default and offers every view with its count', async () => {
     renderAt('/admin/communications')

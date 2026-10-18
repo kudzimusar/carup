@@ -32,7 +32,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import CommandCentre from '@/components/intelligence/CommandCentre'
 
 const QUICK_ACTIONS = [
-  { label: 'User Management', href: '/admin/users', icon: Users },
+  // CA-OWNER-02 (I): platform users and their platform roles — not Corporate access (that is People & Access).
+  { label: 'Platform Users & Roles', href: '/admin/users', icon: Users },
   { label: 'AI Monitoring', href: '/admin/ai', icon: Brain },
   { label: 'Moderation', href: '/admin/moderation', icon: ShieldAlert },
   { label: 'Fraud Queue', href: '/admin/fraud-queue', icon: ShieldAlert },
@@ -61,7 +62,7 @@ export default function AdminDashboard() {
             <CardHeader className="pb-3"><CardTitle className="text-lg">Quick Actions</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {QUICK_ACTIONS.map((link) => (
-                <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+                <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 max-sm:min-h-11 rounded-lg hover:bg-gray-50 transition-colors text-sm">
                   <link.icon className="w-4 h-4 text-orange-500" />
                   <span className="flex-1 font-semibold">{link.label}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
