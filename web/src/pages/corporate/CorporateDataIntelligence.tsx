@@ -7,10 +7,64 @@
 import { CorporatePage, Section, StatementPanel } from '@/components/corporate/CorporatePage'
 import { MetricSlotView, TruthStateBadge } from '@/components/corporate/TruthState'
 import { ProvenanceFreshness } from '@/components/corporate/ProvenanceFreshness'
+import { ManagementStatus, formatAsOf } from '@/components/corporate/ManagementFacts'
+import { useManagementArea } from '@/lib/corporate/useManagementArea'
+import type { RegistryRow } from '@/lib/corporate/management'
 import { ALL_TRUTH_STATES, TRUTH_STATES } from '@/lib/corporate/truthState'
-import { NO_SOURCE, PENDING_K2B } from './shared'
+import { PENDING_K2B } from './shared'
+
+const REGISTRY_LABEL = 'Metric and source registry'
+
+function RegistryTable({ rows }: { rows: readonly RegistryRow[] }) {
+  return (
+    <div
+      className="overflow-x-auto rounded-md border border-slate-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
+      tabIndex={0}
+      role="region"
+      aria-label={REGISTRY_LABEL}
+      data-testid="registry-scroll-region"
+    >
+      <table className="w-full min-w-[880px] border-collapse text-sm">
+        <caption className="sr-only">{REGISTRY_LABEL}</caption>
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
+            <th scope="col" className="px-3 py-2 font-medium">Measure</th>
+            <th scope="col" className="px-3 py-2 font-medium">State</th>
+            <th scope="col" className="px-3 py-2 font-medium">Source</th>
+            <th scope="col" className="px-3 py-2 font-medium">As of</th>
+            <th scope="col" className="px-3 py-2 font-medium">Provenance</th>
+            <th scope="col" className="px-3 py-2 font-medium">May be used</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const badge = r.state === 'TECHNICAL_OPERATIONAL' ? (r.kind === 'technical' ? 'Technical' : 'Operational') : undefined
+            return (
+              <tr key={r.id} className="border-b border-slate-100 align-top last:border-b-0" data-testid="registry-row" data-measure-id={r.id} data-usable={r.usable ? 'true' : 'false'} data-truth-state={r.state}>
+                <th scope="row" className="px-3 py-2 text-left">
+                  <span className="block font-medium text-slate-900">{r.label}</span>
+                  <span className="block font-mono text-[10px] font-normal text-slate-600">{r.id}</span>
+                </th>
+                <td className="px-3 py-2"><TruthStateBadge state={r.state} badge={badge} /></td>
+                <td className="max-w-[240px] px-3 py-2 text-xs text-slate-700">{r.source ?? 'No source'}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-700">{formatAsOf(r.asOf) ?? '—'}</td>
+                <td className="px-3 py-2 text-xs text-slate-700">{r.provenance}</td>
+                <td className="max-w-[280px] px-3 py-2 text-xs text-slate-700">
+                  <span className="font-medium text-slate-900">{r.usable ? 'Yes — live operational read' : 'No'}</span>
+                  {r.reason && <span className="mt-0.5 block text-slate-600">{r.reason}</span>}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 export default function CorporateDataIntelligence() {
+  const { result, retry } = useManagementArea('data-sources')
+  const registry = result.status === 'ok' ? { status: 'ok' as const, payload: result.payload } : { status: 'other' as const, result, retry }
   return (
     <CorporatePage id="data-intelligence" intro="Metric definitions, sources, provenance, freshness and quality. A metric is active only when its source, semantics, window, provenance and certification are governed.">
       <Section title="Truth-state legend" description="How every Corporate figure declares what it is. Measured zero, no data, unavailable, not separable and restricted never look or read the same." testId="truth-state-legend">
@@ -53,16 +107,21 @@ export default function CorporateDataIntelligence() {
         </div>
       </Section>
 
+      <Section
+        title="Metric & source registry"
+        description="Every measure Corporate Admin serves, and every measure it deliberately does not: where it comes from, its state and read time, how provenance applies, and whether it may be used. Live rows are operational reads — none is certified as a Corporate business Actual."
+        testId="data-registry"
+      >
+        {registry.status === 'ok' ? <RegistryTable rows={registry.payload.registry} /> : <ManagementStatus result={registry.result} onRetry={registry.retry} />}
+      </Section>
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Section title="Metric Registry" testId="data-registry">
-          <MetricSlotView label="Registered Corporate metrics" slot={NO_SOURCE} reason="The registry is defined (CA-METRIC-01) but not yet served to Corporate Admin." size="sm" />
-        </Section>
         <Section title="Source & provenance" testId="data-provenance">
           <ProvenanceFreshness
             sourceAuthority="Operational-provenance authority (K2B) — accepted and frozen"
             provenance="pending_k2b_consumption"
-            freshness="not_connected"
-            sourceNote="Excluded and needs-review counts are reported by the authority itself; Corporate Admin never reclassifies rows."
+            freshness={registry.status === 'ok' ? 'current' : 'unavailable'}
+            sourceNote="Corporate read models apply the K2B classifier to each record and report the excluded and needs-review counts exactly as the authority returns them; Corporate Admin never reclassifies rows. This consumption is not yet certified."
           />
         </Section>
         <Section title="Navigation Intelligence" description="Rendered routes and discoverability — not users, and never merged with commercial behaviour." testId="data-navigation">

@@ -66,7 +66,7 @@ export const TRUTH_STATES: Readonly<Record<TruthState, TruthStateSpec>> = Object
   },
   TECHNICAL_OPERATIONAL: {
     state: 'TECHNICAL_OPERATIONAL', badge: 'Technical', statement: null, rendersValue: 'yes', tone: 'technical',
-    meaning: 'Technical / operational measure of the platform — not corporate performance.',
+    meaning: 'Technical or operational measure read live from its source — not a certified Corporate performance figure.',
   },
   PENDING_K2B_CONSUMPTION: {
     state: 'PENDING_K2B_CONSUMPTION', badge: 'Pending provenance', rendersValue: 'never', tone: 'blocked',
@@ -130,7 +130,8 @@ export const ALL_TRUTH_STATES = Object.keys(TRUTH_STATES) as TruthState[]
 export type MetricSlot =
   | { state: 'GOVERNED_ACTUAL' | 'GOVERNED_DERIVED'; value: number; unit?: string }
   | { state: 'GOVERNED_RATE_OR_RATIO'; value: number; unit?: string; kind?: 'rate' | 'ratio'; denominator: number; denominatorLabel: string }
-  | { state: 'ADVISORY' | 'TECHNICAL_OPERATIONAL'; value: number | string; unit?: string }
+  /** `badge` names which kind of live fact this is ("Operational" or "Technical") — never "Actual". */
+  | { state: 'ADVISORY' | 'TECHNICAL_OPERATIONAL'; value: number | string; unit?: string; badge?: 'Operational' | 'Technical' | 'Advisory' }
   | { state: 'MEASURED_ZERO'; unit?: string; derived?: boolean }
   | { state: 'DEGRADED'; lastKnownValue?: number; lastComputedAt?: string; lastKnownPermitted?: boolean; unit?: string }
   | { state: 'UNAVAILABLE_NOT_SEPARABLE'; grain?: string }
@@ -181,7 +182,8 @@ export function presentSlot(slot: MetricSlot, label = 'This figure'): PresentedS
     case 'ADVISORY':
     case 'TECHNICAL_OPERATIONAL': {
       const primary = format(slot.value, slot.unit)
-      return { ...base, primary, isValue: true, detail: null, accessibleText: `${label}: ${primary} (${spec.badge} — ${spec.meaning})` }
+      const badge = slot.badge ?? spec.badge
+      return { ...base, badge, primary, isValue: true, detail: null, accessibleText: `${label}: ${primary} (${badge} — ${spec.meaning})` }
     }
     case 'MEASURED_ZERO': {
       const badge = slot.derived ? 'Derived' : 'Actual'

@@ -6,6 +6,9 @@
 import { Ban, ChevronRight } from 'lucide-react'
 import { CorporatePage, Section } from '@/components/corporate/CorporatePage'
 import { CompactSlotList, TruthStateBadge } from '@/components/corporate/TruthState'
+import { FactRows, ManagementStatus, formatAsOf } from '@/components/corporate/ManagementFacts'
+import { useManagementArea } from '@/lib/corporate/useManagementArea'
+import type { ManagementSummary } from '@/lib/corporate/management'
 import { NO_SOURCE } from './shared'
 
 const FAMILIES = [
@@ -22,9 +25,48 @@ const LIFECYCLE = ['Draft', 'Generated', 'In Review', 'Approved', 'Published'] a
 const EXCEPTIONS = ['Returned for Correction', 'Rejected', 'Superseded', 'Restated', 'Generation Failed'] as const
 const WITHDRAWAL_OWNER_DECISION = 'OD-CAREPORT-038'
 
-export default function CorporateReports() {
+function ManagementSummaryView({ summary }: { summary: ManagementSummary }) {
+  const d = summary.definition
   return (
-    <CorporatePage id="reports" intro="Management cadence and the governed report lifecycle. No report has been generated in this release.">
+    <article className="space-y-4 rounded-md border border-slate-200 bg-white px-4 py-4" data-testid="management-summary" aria-labelledby="management-summary-title">
+      <header className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 id="management-summary-title" className="text-lg font-semibold text-slate-900">{d.title}</h3>
+          <span className="rounded border border-dashed border-slate-400 bg-slate-50 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">Live view · not a report instance</span>
+        </div>
+        <p className="text-sm text-slate-700" data-testid="management-summary-statement">{summary.statement}</p>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-600 sm:grid-cols-2">
+          <div><dt className="inline text-slate-500">Definition: </dt><dd className="inline font-mono">{d.id} · version {d.version}</dd></div>
+          <div><dt className="inline text-slate-500">Family: </dt><dd className="inline">{d.family}</dd></div>
+          <div><dt className="inline text-slate-500">Period: </dt><dd className="inline">{d.period}</dd></div>
+          <div><dt className="inline text-slate-500">Scope: </dt><dd className="inline">{d.scope}</dd></div>
+          <div><dt className="inline text-slate-500">Read: </dt><dd className="inline">{formatAsOf(summary.generatedAt)}</dd></div>
+          <div><dt className="inline text-slate-500">Content model: </dt><dd className="inline">{d.contentModel}</dd></div>
+          <div className="sm:col-span-2"><dt className="inline text-slate-500">Content digest: </dt><dd className="inline break-all font-mono" data-testid="management-summary-digest">{summary.digest}</dd></div>
+        </dl>
+      </header>
+      {summary.sections.map((s) => (
+        <section key={s.id} className="space-y-2" data-testid="management-summary-section" data-section-id={s.id} aria-labelledby={`summary-${s.id}`}>
+          <h4 id={`summary-${s.id}`} className="text-sm font-semibold text-slate-900">{s.title}</h4>
+          {s.facts.length > 0 ? <FactRows facts={s.facts} caption={s.title} /> : <p className="text-xs text-slate-600">No figure is served for this section.</p>}
+        </section>
+      ))}
+    </article>
+  )
+}
+
+export default function CorporateReports() {
+  const { result, retry } = useManagementArea('report')
+  const data = result.status === 'ok' ? result.payload : null
+  return (
+    <CorporatePage id="reports" intro="Management cadence and the governed report lifecycle. No report has been generated, reviewed, approved or published in this release.">
+      <Section
+        title="Corporate Staging Management Summary"
+        description="The management summary as a current live view of staging. Reading it is not generating a report: there is no generation authority yet, so nothing here is stored, reviewed, approved or published."
+        testId="reports-management-summary"
+      >
+        {data ? <ManagementSummaryView summary={data.report} /> : <ManagementStatus result={result} onRetry={retry} />}
+      </Section>
       <Section title="Due, in review and awaiting approval" testId="reports-strip">
         <CompactSlotList caption="Report workload" items={[
           { label: 'Reports due', slot: NO_SOURCE },

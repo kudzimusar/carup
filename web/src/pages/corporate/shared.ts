@@ -9,6 +9,14 @@ export const K2B_PENDING_REASON =
 export const CA_FIN_REASON = 'No accepted Corporate accounting system of record exists (CA-FIN-01).'
 export const NO_SOURCE_REASON = 'No authoritative source exists for this measure yet.'
 
+/**
+ * CA-OWNER-02 — live Corporate figures are company-wide. Splitting them by Business Unit needs an accepted attribution rule
+ * (which records belong to which unit); none is served yet, so a per-unit figure is not separable — never estimated.
+ */
+export const BU_ATTRIBUTION_REASON =
+  'Live figures are company-wide. No accepted business-unit attribution rule is served yet, so no figure is split by unit.'
+export const BU_NOT_ATTRIBUTED: MetricSlot = { state: 'UNAVAILABLE_NOT_SEPARABLE', grain: BU_ATTRIBUTION_REASON }
+
 export const PENDING_K2B: MetricSlot = { state: 'PENDING_K2B_CONSUMPTION' }
 export const PENDING_FIN: MetricSlot = { state: 'PENDING_CA_FIN' }
 export const NO_SOURCE: MetricSlot = { state: 'UNAVAILABLE_NO_SOURCE' }

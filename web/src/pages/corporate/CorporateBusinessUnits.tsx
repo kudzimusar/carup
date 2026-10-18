@@ -8,14 +8,15 @@ import { CorporatePage, OperateLinks, Section } from '@/components/corporate/Cor
 import { TruthStateBadge } from '@/components/corporate/TruthState'
 import { OPERATE_LINKS } from '@/config/corporate/navigation'
 import { presentSlot, type MetricSlot } from '@/lib/corporate/truthState'
-import { BUSINESS_UNITS, CA_FIN_REASON, K2B_PENDING_REASON, PENDING_FIN, PENDING_K2B } from './shared'
+import { BUSINESS_UNITS, BU_ATTRIBUTION_REASON, BU_NOT_ATTRIBUTED, CA_FIN_REASON, PENDING_FIN } from './shared'
 
+// CA-OWNER-02: the company-wide live figures are on the Overview; none is split by unit until an attribution rule is accepted.
 const COLUMNS: Array<{ label: string; slot: MetricSlot }> = [
-  { label: 'Demand', slot: PENDING_K2B },
-  { label: 'Supply / capacity', slot: PENDING_K2B },
-  { label: 'Throughput', slot: PENDING_K2B },
-  { label: 'Backlog', slot: PENDING_K2B },
-  { label: 'Risk', slot: PENDING_K2B },
+  { label: 'Demand', slot: BU_NOT_ATTRIBUTED },
+  { label: 'Supply / capacity', slot: BU_NOT_ATTRIBUTED },
+  { label: 'Throughput', slot: BU_NOT_ATTRIBUTED },
+  { label: 'Backlog', slot: BU_NOT_ATTRIBUTED },
+  { label: 'Risk', slot: BU_NOT_ATTRIBUTED },
   { label: 'Finance', slot: PENDING_FIN },
 ]
 
@@ -69,7 +70,7 @@ export default function CorporateBusinessUnits() {
           </table>
         </div>
         <ul className="space-y-1 text-xs text-slate-500">
-          <li><span className="font-medium text-slate-700">Pending provenance:</span> {K2B_PENDING_REASON}</li>
+          <li><span className="font-medium text-slate-700">Not separable:</span> {BU_ATTRIBUTION_REASON}</li>
           <li><span className="font-medium text-slate-700">Pending finance authority:</span> {CA_FIN_REASON}</li>
         </ul>
       </Section>

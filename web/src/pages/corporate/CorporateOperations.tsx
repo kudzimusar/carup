@@ -1,61 +1,33 @@
 /**
- * CA-K3-01 — Operations landing (Business Operations plane; CA-UX-01 §15). Named queues only — no
- * overall operations health score. Each queue opens its existing operational surface; Corporate Admin
- * creates no generic mutation authority and copies no decision control here.
+ * CA-OWNER-02 — Operations (Business Operations plane; CA-UX-01 §15), read from the server's management read model.
+ *
+ * Named queues only — no overall operations health score. Each queue states what is waiting, since when, the rule that decides
+ * whether it needs attention, its owner and source, and opens its existing operational surface; Corporate Admin creates no
+ * generic mutation authority and copies no decision control here. A queue that could not be read says so — it is never empty.
  */
 import { CorporatePage, OperateLinks, Section } from '@/components/corporate/CorporatePage'
-import { TruthStateBadge } from '@/components/corporate/TruthState'
+import { EnvironmentNote, FactRows, ManagementStatus, QueueBoard } from '@/components/corporate/ManagementFacts'
 import { OPERATE_LINKS } from '@/config/corporate/navigation'
-import { presentSlot } from '@/lib/corporate/truthState'
-import { K2B_PENDING_REASON, PENDING_K2B } from './shared'
-
-const QUEUES = [
-  { domain: 'Marketplace moderation', owner: 'Marketplace Operations' },
-  { domain: 'Communications', owner: 'Customer Operations' },
-  { domain: 'Garage onboarding', owner: 'Service Network' },
-  { domain: 'Dealer compliance', owner: 'Compliance' },
-  { domain: 'Trade / logistics', owner: 'Trade Operations' },
-] as const
-const MEASURES = ['Waiting', 'Aging', 'Throughput', 'Exceptions'] as const
+import { useManagementArea } from '@/lib/corporate/useManagementArea'
 
 export default function CorporateOperations() {
+  const { result, retry } = useManagementArea('operations')
+  const data = result.status === 'ok' ? result.payload : null
   return (
-    <CorporatePage id="operations" intro="Cross-business-unit operating view over the workflows each unit owns. Queue counts are shown per named queue, never summed into one number.">
-      <Section title="Queue summary by domain" description="A read failure is reported as such — it is never an empty queue." testId="operations-queues">
-        {/* CA-K3-01-R3 D-4: at narrow widths this table scrolls horizontally, so its scroll region is a
-            focusable, labelled region (keyboard users can reach and scroll it). The caption stays. */}
-        <div
-          className="overflow-x-auto rounded-md border border-slate-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500"
-          tabIndex={0}
-          role="region"
-          aria-label="Operational queues by domain and measure"
-          data-testid="operations-scroll-region"
-        >
-          <table className="w-full min-w-[640px] border-collapse text-sm">
-            <caption className="sr-only">Operational queues by domain and measure</caption>
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                <th scope="col" className="px-3 py-2 font-medium">Domain</th>
-                {MEASURES.map((m) => <th key={m} scope="col" className="px-3 py-2 font-medium">{m}</th>)}
-                <th scope="col" className="px-3 py-2 font-medium">Owner</th>
-              </tr>
-            </thead>
-            <tbody>
-              {QUEUES.map((q) => (
-                <tr key={q.domain} className="border-b border-slate-100 last:border-b-0" data-testid="operations-queue-row">
-                  <th scope="row" className="px-3 py-2.5 text-left font-medium text-slate-900">{q.domain}</th>
-                  {MEASURES.map((m) => {
-                    const p = presentSlot(PENDING_K2B, `${q.domain} ${m}`)
-                    return <td key={m} className="px-3 py-2.5" aria-label={p.accessibleText}><TruthStateBadge state={p.state} badge={p.badge} /></td>
-                  })}
-                  <td className="px-3 py-2.5 text-xs text-slate-600">{q.owner}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-xs text-slate-500">{K2B_PENDING_REASON}</p>
+    <CorporatePage id="operations" intro="Cross-business-unit operating view over the workflows each unit owns. Every queue is shown on its own, never summed into one number.">
+      <Section title="Named queues" description="What is waiting for CarUp now, since when, and the rule that decides whether it needs attention. A read failure is reported as such — it is never an empty queue." testId="operations-queues">
+        {/* CA-K3-01-R3 D-4: on wider screens the queue table is a focusable, labelled scroll region; at phone width each
+            queue is a card instead, so nothing scrolls sideways. */}
+        {data ? <QueueBoard queues={data.queues} regionLabel="Operational queues by domain and measure" /> : <ManagementStatus result={result} onRetry={retry} />}
       </Section>
+      {data && (
+        <>
+          <Section title="Customer conversations" description="Operational conversations only: certification, UAT, automation and historical conversations are counted separately and never as customer work. Reply targets name where they come from." testId="operations-communications">
+            <FactRows facts={data.communications} caption="Customer conversations" />
+          </Section>
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
+        </>
+      )}
       <Section title="Work the queues" description="Decisions are made on the existing operational surfaces, which remain the authority for every action." testId="operations-operate">
         <OperateLinks links={OPERATE_LINKS.operations} from="business_operations" title="Operate — queues on the current operational Admin" />
       </Section>

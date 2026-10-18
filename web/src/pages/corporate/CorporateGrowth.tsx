@@ -1,14 +1,18 @@
 /**
- * CA-K3-01 — Customers & Growth landing (CA-UX-01 §14, CA-GROWTH-01). Source-accurate labels only:
- * accounts are not customers, inquiries are not sales, sessions are not people, route renders are not
- * users, and independent stage totals are not conversion. No single "customers" figure exists until
- * the customer definition is decided.
+ * CA-K3-01 → CA-OWNER-02 — Customers & Growth (CA-UX-01 §14, CA-GROWTH-01).
+ *
+ * Source-accurate labels only: accounts are not customers, inquiries are not sales, sessions are not people, route renders
+ * are not users, and independent stage totals are not conversion. Live demand facts come from the server's management read
+ * model, each with its window, source and K2B provenance; no single "customers" figure exists until the customer definition
+ * is decided.
  */
 import { CorporatePage, OperateLinks, Section, StatementPanel } from '@/components/corporate/CorporatePage'
 import { BlockedSlotList, MetricSlotView } from '@/components/corporate/TruthState'
+import { EnvironmentNote, FactGrid, ManagementStatus } from '@/components/corporate/ManagementFacts'
 import { OPERATE_LINKS } from '@/config/corporate/navigation'
+import { useManagementArea } from '@/lib/corporate/useManagementArea'
 import type { MetricSlot } from '@/lib/corporate/truthState'
-import { K2B_PENDING_REASON, NO_SOURCE, PENDING_FIN, PENDING_K2B, UNKNOWN_AUTH } from './shared'
+import { NO_SOURCE, PENDING_FIN, UNKNOWN_AUTH } from './shared'
 
 const BLOCKED: Array<{ label: string; slot: MetricSlot; reason: string }> = [
   { label: 'Customers', slot: UNKNOWN_AUTH, reason: 'No accepted customer definition (Owner decision OD-CAMETRIC-001). Accounts are not customers.' },
@@ -27,7 +31,15 @@ const SEPARATIONS = [
   ['Referral code present', 'Acquired customer'],
 ] as const
 
+const ACCOUNT_IDS = new Set(['growth.account.operational'])
+const NAVIGATION_IDS = new Set(['growth.navigation.route_render'])
+
 export default function CorporateGrowth() {
+  const { result, retry } = useManagementArea('growth')
+  const data = result.status === 'ok' ? result.payload : null
+  const accounts = data ? data.facts.filter((f) => ACCOUNT_IDS.has(f.id)) : []
+  const demand = data ? data.facts.filter((f) => !ACCOUNT_IDS.has(f.id) && !NAVIGATION_IDS.has(f.id)) : []
+  const navigation = data ? data.facts.filter((f) => NAVIGATION_IDS.has(f.id)) : []
   return (
     <CorporatePage id="growth" intro="Demand, acquisition associations and journeys, each under its own source-accurate name.">
       <Section title="Vocabulary in force" description="These are different things and are never relabelled into each other." testId="growth-separations">
@@ -40,26 +52,26 @@ export default function CorporateGrowth() {
         </ul>
       </Section>
 
-      <Section label="A" title="Accounts & Identity" description="Account facts — not customer counts." testId="growth-accounts">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <MetricSlotView label="Registered accounts (not customers)" slot={PENDING_K2B} reason={K2B_PENDING_REASON} />
-          <MetricSlotView label="Operational accounts" slot={PENDING_K2B} reason="Only accounts the provenance authority classifies as operational; needs-review accounts are not counted." />
-          <MetricSlotView label="Current verified identity subjects" slot={PENDING_K2B} reason="Current identity lifecycle states only — not the legacy verified flag." />
-        </div>
-      </Section>
+      {!data && <ManagementStatus result={result} onRetry={retry} />}
 
-      <Section label="B" title="Marketplace demand" testId="growth-demand">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <MetricSlotView label="Marketplace inquiries (not sales)" slot={PENDING_K2B} />
-          <MetricSlotView label="Unmet recorded search demand" slot={PENDING_K2B} reason="Zero-result searches — never a lost sale." />
-          <MetricSlotView label="Human-readable top search terms" slot={{ state: 'UNAVAILABLE_NOT_SEPARABLE', grain: 'Human-readable search terms are not available; current source retains hashed query signatures.' }} />
-        </div>
-      </Section>
+      {data && (
+        <>
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
+          <Section label="A" title="Accounts & identity" description="Account facts — not customer counts. Only accounts the provenance authority classifies as operational are counted; needs-review accounts are not." testId="growth-accounts">
+            <FactGrid facts={accounts} size="lg" />
+          </Section>
+
+          <Section label="B" title="Marketplace, trade & service demand" description="Each signal under its own name and window. An inquiry is not a sale; a zero-result search is unmet demand, never a lost sale." testId="growth-demand">
+            <FactGrid facts={demand} />
+          </Section>
+        </>
+      )}
 
       <Section label="C" title="Journey performance" description='There is no metric named simply "conversion". A rate is shown only where the same entities are linked from one stage to the next.' testId="growth-journeys">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <MetricSlotView label="Linked inquiry → reservation progression" slot={PENDING_K2B} reason="Linkage and K2B consumption not yet certified." />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <MetricSlotView label="Linked inquiry → reservation progression" slot={{ state: 'UNAVAILABLE_NOT_SEPARABLE', grain: 'No accepted linkage rule is served yet; independent stage totals are not a progression.' }} />
           <MetricSlotView label="Navigation → commercial conversion" slot={{ state: 'UNAVAILABLE_NOT_SEPARABLE', grain: 'Navigation events and commercial records share no link key; dividing their totals would not be a conversion.' }} />
+          <MetricSlotView label="Human-readable top search terms" slot={{ state: 'UNAVAILABLE_NOT_SEPARABLE', grain: 'Human-readable search terms are not available; current source retains hashed query signatures.' }} />
         </div>
       </Section>
 
@@ -77,9 +89,9 @@ export default function CorporateGrowth() {
       >
         <StatementPanel>
           <p className="text-sm font-medium text-slate-900">Top rendered routes by recorded Navigation events</p>
-          <p className="mt-1 text-xs text-slate-600">Uniques are peak-day uniques, never period uniques. A window that reaches the source&apos;s row cap is degraded, never silently truncated.</p>
+          <p className="mt-1 text-xs text-slate-600">The route ranking is not served to Corporate Admin yet. The figure below is a technical count of recorded route renders — not users, sessions or visitors.</p>
         </StatementPanel>
-        <MetricSlotView label="Rendered routes (recorded Navigation events)" slot={PENDING_K2B} reason="Navigation remains pending provenance consumption plus the completeness guard." size="sm" />
+        {data && <FactGrid facts={navigation} size="sm" />}
       </Section>
 
       <OperateLinks links={OPERATE_LINKS.growth} from="corporate_intelligence" />
