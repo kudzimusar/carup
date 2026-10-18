@@ -20,6 +20,7 @@
  * target", not overdue. No timestamp is ever rewritten here.
  */
 import { UNKNOWN } from '../provenance/recordProvenance.js';
+import { conversationParties } from './conversationCustomer.js';
 
 export const CONVERSATION_CATEGORIES = Object.freeze(['operational', 'needs_review', 'certification', 'automation', 'historical']);
 
@@ -135,6 +136,9 @@ export function slaTruth(thread, { category, latestInboundAt = null, latestOutbo
 /**
  * The whole truth for one conversation. `ctx.latestByThread` maps thread id → { inbound, outbound } latest message times
  * (from messages), used together with the thread's own last_inbound_at / last_outbound_at stamps.
+ *
+ * H3 adds WHO the conversation is with (`customer`, and the `seller` as context on a Marketplace inquiry) — see
+ * conversationCustomer.js. It is identity only: no classification or SLA verdict reads it.
  */
 export function conversationTruth(thread, ctx = {}, now = new Date()) {
   const provenance = classifyConversation(thread, ctx);
@@ -145,6 +149,7 @@ export function conversationTruth(thread, ctx = {}, now = new Date()) {
   const open = !TERMINAL_STATUSES.includes(String(thread?.status || ''));
   const awaitingReply = open && truth.awaiting_since !== null
     || (open && ['overdue', 'live'].includes(truth.state));
+  const parties = conversationParties(thread, ctx);
   return freeze({
     thread_id: thread?.id ?? null,
     status: thread?.status ?? null,
@@ -157,6 +162,8 @@ export function conversationTruth(thread, ctx = {}, now = new Date()) {
     latest_outbound_at: latestOutboundAt,
     no_individual_assignee: open && !thread?.assigned_admin_id && !thread?.assigned_user_id,
     assigned_team: thread?.assigned_team ?? null,
+    customer: parties.customer,
+    seller: parties.seller,
   });
 }
 
@@ -173,6 +180,60 @@ function addWork(bucket, t) {
   }
   if (t.sla.state === 'overdue') bucket.overdue += 1;
   if (t.sla.state === 'live') bucket.live += 1;
+}
+
+// ── H1 · classification views (Command Center inbox) ───────────────────────────────────────────────────────────────────
+
+/** "active" = the working inbox (operational + needs review); "all" = every conversation, nothing hidden. */
+export const CONVERSATION_VIEWS = Object.freeze(['active', 'operational', 'needs_review', 'certification', 'automation', 'historical', 'all']);
+
+/** A view name, 'all' when none is given, or null when the value is not a view (callers refuse it, never guess). */
+export function normalizeConversationView(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return 'all';
+  const view = String(value).trim().toLowerCase();
+  return CONVERSATION_VIEWS.includes(view) ? view : null;
+}
+
+export function viewIncludesCategory(view, category) {
+  if (view === 'all') return true;
+  if (!category) return false;
+  if (view === 'active') return category === 'operational' || category === 'needs_review';
+  return view === category;
+}
+
+/** Per-view conversation counts from a summary (by_category + the working "active" view + "all"). */
+export function viewCounts(summary) {
+  const c = summary?.by_category || {};
+  const n = (k) => Number(c[k] || 0);
+  return {
+    all: Number(summary?.total || 0),
+    active: n('operational') + n('needs_review'),
+    operational: n('operational'),
+    needs_review: n('needs_review'),
+    certification: n('certification'),
+    automation: n('automation'),
+    historical: n('historical'),
+  };
+}
+
+/**
+ * The verdict a Command Center row carries (`thread.truth`). Plain data; the provenance signals stay server-side.
+ * summarizeConversationTruth accepts these views as well as full truths.
+ */
+export function truthView(truth) {
+  if (!truth) return null;
+  return {
+    category: truth.category,
+    class: truth.provenance?.class ?? null,
+    rule: truth.provenance?.rule ?? null,
+    basis: truth.provenance?.basis ?? null,
+    open: truth.open,
+    sla: { state: truth.sla.state, reason: truth.sla.reason, due_at: truth.sla.due_at, due_source: truth.sla.due_source, awaiting_since: truth.sla.awaiting_since },
+    awaiting_reply: truth.awaiting_reply,
+    no_individual_assignee: truth.no_individual_assignee,
+    latest_inbound_at: truth.latest_inbound_at,
+    latest_outbound_at: truth.latest_outbound_at,
+  };
 }
 
 /** Counts for a header strip or a Corporate fact. Needs-review is never counted as operational. */

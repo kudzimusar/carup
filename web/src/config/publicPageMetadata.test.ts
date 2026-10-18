@@ -89,6 +89,29 @@ describe('crawler-visible public identity and fail-closed listing projection', (
     expect((await resolveDocument('/corporate/finance', 'https://api-staging.carup.dev', false, fetcher as never)).status).toBe(200)
     expect(fetcher).not.toHaveBeenCalled()
   })
+  it('CA-OWNER-02 H5: serves every Command Center section and thread deep link as a private, titled, never-indexed page — never "Page not found"', async () => {
+    const sections: Array<[string, string]> = [
+      ['', 'Inbox'], ['/inbox', 'Inbox'], ['/queues', 'Queues'], ['/recovery', 'Recovery'], ['/sla', 'SLA'],
+      ['/audit', 'Audit'], ['/providers', 'Providers'], ['/settings', 'Settings'],
+      ['/inbox/61acc236-aaab-4d27-815c-9062f9c99f05', 'Inbox'],
+    ]
+    const fetcher = vi.fn()
+    for (const base of ['/admin/communications', '/dashboard/admin/communications']) {
+      for (const [suffix, label] of sections) {
+        const path = `${base}${suffix}`
+        const meta = pageMetadata(path, false)
+        expect(meta.status, path).toBe(200)
+        expect(meta.robots, path).toBe('noindex, nofollow')
+        expect(meta.title, path).toBe(`${label} · Command Center · CarUp Admin`)
+        expect(meta.title, path).not.toContain('Page not found')
+        expect((await resolveDocument(path, 'https://api-staging.carup.dev', false, fetcher as never)).status, path).toBe(200)
+      }
+    }
+    expect(fetcher).not.toHaveBeenCalled()
+    for (const absent of ['/admin/communications/unknown', '/admin/communications/inbox/abc/extra', '/admin/communicationsx']) {
+      expect(pageMetadata(absent, false).status, absent).toBe(404)
+    }
+  })
   it('shares canonical listing paths without Preview hosts or seller-preview query parameters', () => {
     expect(canonicalListingUrl('TEST-123')).toBe('https://carup.dev/marketplace/TEST-123')
   })

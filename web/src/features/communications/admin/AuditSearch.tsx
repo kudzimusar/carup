@@ -23,8 +23,9 @@ const TONE_CLASS: Record<AuditTone, string> = {
 // Fixed, high-signal set of event types operators search by (matches auditPresentation labels).
 const EVENT_TYPE_FILTERS = ['reply_sent', 'assigned', 'escalated', 'resolved', 'dead_lettered', 'smoke_test'] as const
 
+// CA-OWNER-02: ≥44×44 CSS px on phones (max-sm only — desktop unchanged).
 function chipClass(isActive: boolean): string {
-  return `flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+  return `flex items-center justify-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors max-sm:min-h-11 max-sm:min-w-11 max-sm:px-3 ${
     isActive ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
   }`
 }

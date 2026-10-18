@@ -201,6 +201,9 @@ test('a participant whose binding names another user\'s identity fails closed', 
 });
 
 // ── 9. Wrong channel ──────────────────────────────────────────────────────────────────────────
+// CA-OWNER-02 H4 (tests 9 + the three refusals at the end of this file): when no customer-side participant can be
+// reached on the requested channel, the reply-channel authority refuses it with 409 REPLY_CHANNEL_NOT_DELIVERABLE before
+// anything is written. These four were 422s from the recipient stage; nothing is queued either way.
 test('a WhatsApp reply never goes out over a participant\'s telegram binding', async () => {
   const { run, queued } = harness({
     participants: [SELLER, BUYER],
@@ -208,7 +211,7 @@ test('a WhatsApp reply never goes out over a participant\'s telegram binding', a
     identities: [{ id: 'id-tg-buyer', user_id: 'user-buyer', channel: 'telegram', provider: 'telegram_bot_api', external_id: '999', normalized_address: '999' }],
     channel: 'whatsapp',
   });
-  await assert.rejects(run, (e) => e.statusCode === 422);
+  await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE');
   assert.equal(queued.length, 0);
 });
 
@@ -249,7 +252,7 @@ test('system/agent placeholder participants are never addressed', async () => {
     bindings: [bind('p-sys', 'whatsapp', 'id-wa-buyer')],
     identities: [WA_BUYER],
   });
-  await assert.rejects(run, (e) => e.statusCode === 422);
+  await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE');
   assert.equal(queued.length, 0);
 });
 
@@ -269,7 +272,7 @@ test('an expired binding is not deliverable', async () => {
     bindings: [bind('p-buyer', 'whatsapp', 'id-wa-buyer', { expires_at: '2020-01-01T00:00:00Z' })],
     identities: [WA_BUYER],
   });
-  await assert.rejects(run, (e) => e.statusCode === 422);
+  await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE');
   assert.equal(queued.length, 0);
 });
 
@@ -279,6 +282,6 @@ test('a departed participant is not deliverable', async () => {
     bindings: [bind('p-buyer', 'whatsapp', 'id-wa-buyer')],
     identities: [WA_BUYER],
   });
-  await assert.rejects(run, (e) => e.statusCode === 422);
+  await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE');
   assert.equal(queued.length, 0);
 });

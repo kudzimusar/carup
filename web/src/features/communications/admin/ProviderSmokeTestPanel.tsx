@@ -67,7 +67,8 @@ export function ProviderSmokeTestPanel({ onSend, defaultRecipient = '', environm
           Sends a <strong>real</strong> WhatsApp message via <strong>meta_whatsapp_cloud_api</strong> on <strong>{environmentLabel}</strong>. The server refuses fake adapters, so a green result means a real Meta request was made.
         </p>
         <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Recipient in E.164, e.g. +14155550123" aria-label="Smoke test recipient phone number in E.164" className="h-9" />
-        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+        {/* The whole label is the confirmation's hit area (≥44px tall on phones). */}
+        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer max-sm:min-h-11">
           <Checkbox checked={confirmed} onCheckedChange={(v) => setConfirmed(v === true)} aria-label="Confirm sending a real message" />
           I confirm sending a real message to this recipient.
         </label>

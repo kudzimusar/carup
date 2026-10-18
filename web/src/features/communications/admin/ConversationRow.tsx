@@ -3,11 +3,16 @@
 // assignment, SLA, and last-activity time. Optional multi-select checkbox (sibling to the open
 // button, so the markup stays valid and accessible). Presentational — the page passes precomputed
 // display props, so this stays pure and unit-testable. A raw UUID is never the title (upstream).
+//
+// CA-OWNER-02: the title is the conversation's CUSTOMER (H3), the reference line is its subject, and the
+// badge line carries the provenance category of a non-operational conversation (H1) and the SLA label from
+// truth for every state (H2) — "Waiting on the customer" is as much an answer as "Overdue".
 
 import { AlertTriangle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ChannelIcon } from '../ChannelIcon'
+import { CATEGORY_TONE_CLASS, type CategoryTone } from '../conversationTruth'
 
 export type RowSlaLevel = 'none' | 'ok' | 'due' | 'breach' | 'paused'
 
@@ -25,6 +30,9 @@ export interface ConversationRowProps {
   unassigned?: boolean
   slaLabel?: string
   slaLevel?: RowSlaLevel
+  /** Provenance category of a NON-operational conversation (H1) — omitted for operational work. */
+  categoryLabel?: string
+  categoryTone?: CategoryTone
   timeLabel?: string
   selected?: boolean
   onSelect: () => void
@@ -33,18 +41,28 @@ export interface ConversationRowProps {
   onToggle?: () => void
 }
 
+const SLA_LABEL_CLASS: Record<RowSlaLevel, string> = {
+  breach: 'text-red-600 font-medium',
+  due: 'text-amber-600 font-medium',
+  ok: 'text-green-700',
+  paused: 'text-gray-500 font-medium',
+  none: 'text-gray-400',
+}
+
 export function ConversationRow({
   channel, title, reference, preview, unreadCount = 0, statusLabel, priority, priorityVariant = 'secondary',
-  unassigned = false, slaLabel, slaLevel = 'none', timeLabel, selected = false, onSelect,
+  unassigned = false, slaLabel, slaLevel = 'none', categoryLabel, categoryTone = 'historical', timeLabel, selected = false, onSelect,
   checked, onToggle,
 }: ConversationRowProps) {
+  const sla = slaLabel || (slaLevel === 'paused' ? 'SLA paused' : '')
   const hasUnread = unreadCount > 0
   return (
     <div className={`flex items-stretch border-b ${selected ? 'bg-orange-50 border-l-2 border-l-orange-500' : ''}`} data-unread={hasUnread ? 'true' : undefined}>
       {onToggle && (
-        <div className="flex items-center pl-2.5">
+        // The label is the checkbox's hit area: ≥44×44 CSS px on phones (desktop keeps its compact gutter).
+        <label className="flex items-center justify-center pl-2.5 cursor-pointer max-sm:pl-0 max-sm:min-h-11 max-sm:min-w-11">
           <Checkbox checked={!!checked} onCheckedChange={() => onToggle()} aria-label={`Select thread: ${title}${reference ? ` (${reference})` : ''}`} />
-        </div>
+        </label>
       )}
       <button
         type="button"
@@ -74,18 +92,23 @@ export function ConversationRow({
               </div>
             </div>
             {preview && <p className={`text-xs mt-0.5 truncate ${hasUnread ? 'text-gray-700' : 'text-gray-500'}`} data-testid="row-preview">{preview}</p>}
-            {reference && <p className="text-[11px] text-gray-400 mt-0.5 truncate font-mono">{reference}</p>}
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <Badge variant="outline" className="text-[10px] capitalize">{statusLabel}</Badge>
-              {unassigned && <span className="text-[10px] text-amber-600 font-medium">Unassigned</span>}
-              {slaLevel === 'breach' && (
-                <span className="text-[10px] text-red-600 font-medium flex items-center gap-0.5">
-                  <AlertTriangle className="w-3 h-3" aria-hidden />{slaLabel}
+            {reference && <p className="text-[11px] text-gray-500 mt-0.5 truncate" data-testid="row-subject">{reference}</p>}
+            {/* One line (the virtualized row has a fixed height): long SLA labels truncate, the full text stays in the title. */}
+            <div className="flex items-center gap-2 mt-1.5 flex-nowrap overflow-hidden">
+              <Badge variant="outline" className="text-[10px] capitalize shrink-0">{statusLabel}</Badge>
+              {categoryLabel && (
+                <Badge variant="outline" className={`text-[10px] shrink-0 ${CATEGORY_TONE_CLASS[categoryTone]}`} data-testid="row-category" data-category-tone={categoryTone}>
+                  {categoryLabel}
+                </Badge>
+              )}
+              {unassigned && <span className="text-[10px] text-amber-600 font-medium shrink-0">Unassigned</span>}
+              {sla && (
+                <span className={`text-[10px] flex items-center gap-0.5 min-w-0 ${SLA_LABEL_CLASS[slaLevel]}`} data-testid="row-sla" data-sla-level={slaLevel} title={sla}>
+                  {slaLevel === 'breach' && <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden />}
+                  <span className="truncate">{sla}</span>
                 </span>
               )}
-              {slaLevel === 'due' && <span className="text-[10px] text-amber-600 font-medium">{slaLabel}</span>}
-              {slaLevel === 'paused' && <span className="text-[10px] text-gray-500 font-medium">{slaLabel || 'SLA paused'}</span>}
-              {timeLabel && <span className="text-[10px] text-gray-400 ml-auto">{timeLabel}</span>}
+              {timeLabel && <span className="text-[10px] text-gray-400 ml-auto shrink-0">{timeLabel}</span>}
             </div>
           </div>
         </div>

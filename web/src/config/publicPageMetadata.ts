@@ -1,5 +1,6 @@
 import { getFeatureByRoute } from './featureRegistry.js'
 import { PUBLIC_LAUNCH_ROUTES } from './publicLaunchPolicy.js'
+import { COMMAND_CENTER_SECTIONS, commandCenterPageTitle, type CommandCenterSection } from '../features/communications/admin/commandCenterSections.js'
 
 export const CANONICAL_ORIGIN = 'https://carup.dev'
 /**
@@ -37,9 +38,28 @@ export const SITEMAP_PATHS = PUBLIC_LAUNCH_ROUTES.filter(row =>
  */
 const CORPORATE_WORKSPACE_ROUTE = /^\/corporate(?:\/(?:business-units|finance|growth|operations|trust-risk|data-intelligence|people-access|reports|platform))?$/
 
+/**
+ * CA-OWNER-02 (H5) — the Communication Command Center is a private admin workspace with nested routes
+ * (App.tsx: /admin/communications[/:section | /inbox/:threadId], and the /dashboard/admin/communications alias). Only
+ * the real sections and thread deep links are pages: they serve 200 with the section's own title, never indexed. Any
+ * other path under it stays not found.
+ */
+const COMMAND_CENTER_ROUTE = /^\/(?:dashboard\/)?admin\/communications(?:\/inbox\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})|\/([a-z]+))?$/
+
+export function commandCenterRouteSection(path: string): CommandCenterSection | null {
+  const match = COMMAND_CENTER_ROUTE.exec(path)
+  if (!match) return null
+  if (match[1] || !match[2]) return 'inbox'
+  return (COMMAND_CENTER_SECTIONS as readonly string[]).includes(match[2]) ? (match[2] as CommandCenterSection) : null
+}
+
 export function pageMetadata(path: string, staging = true): PublicPageMetadata {
   if (CORPORATE_WORKSPACE_ROUTE.test(path)) {
     return { title: 'CarUp Corporate Admin', description: 'Sign in to access the CarUp Corporate Admin workspace.', canonicalPath: path, robots: 'noindex, nofollow', status: 200 }
+  }
+  const commandCenterSection = commandCenterRouteSection(path)
+  if (commandCenterSection) {
+    return { title: commandCenterPageTitle(commandCenterSection), description: 'Sign in to access the CarUp Communication Command Center.', canonicalPath: path, robots: 'noindex, nofollow', status: 200 }
   }
   const feature = getFeatureByRoute(path)
   const exposure = PUBLIC_LAUNCH_ROUTES.find(row => row.route === path && row.route !== '*')

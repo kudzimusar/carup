@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultReplyChannel, deliverableReplyChannels, resolveReplyChannel } from './replyChannels'
+import { composerReplyChannels, defaultReplyChannel, deliverableReplyChannels, resolveReplyChannel } from './replyChannels'
 
 const inbound = (channel: string, at: string) => ({ direction: 'inbound', channel, created_at: at })
 const outbound = (channel: string, at: string) => ({ direction: 'outbound', channel, created_at: at })
@@ -82,5 +82,33 @@ describe('resolveReplyChannel', () => {
   it('a choice that is not deliverable is ignored in favour of the derived default', () => {
     const channels = deliverableReplyChannels(mixedWhatsApp)
     expect(resolveReplyChannel({ choice: 'telegram', channels, messages: mixedWhatsApp.messages, primaryChannel: 'in_app' })).toBe('whatsapp')
+  })
+})
+
+describe('CA-OWNER-02 H4 — the server\'s reply-channel authority leads', () => {
+  // A Marketplace thread: primary_user_id is the SELLER, so the local rule would offer in-app (to the seller). The server
+  // knows the customer is a guest whose only reachable channel is WhatsApp.
+  const authority = { default_channel: 'whatsapp', deliverable: ['whatsapp'], basis: 'primary_binding' }
+  const sellerPrimary = { thread: { primary_user_id: 'u-seller', primary_channel: 'in_app' }, identities: [{ channel: 'whatsapp' }] }
+
+  it('the composer offers exactly the server\'s deliverable channels', () => {
+    expect(composerReplyChannels({ authority, ...sellerPrimary })).toEqual(['whatsapp'])
+    expect(composerReplyChannels({ authority: { default_channel: null, deliverable: [], basis: 'unresolved' }, ...sellerPrimary })).toEqual([])
+  })
+
+  it('without a server authority the local rule (CC-REPLY-CHANNEL-01) still applies', () => {
+    expect(composerReplyChannels({ authority: null, ...sellerPrimary })).toEqual(['whatsapp', 'in_app'])
+  })
+
+  it('the server default is preferred over the local latest-inbound guess', () => {
+    const channels = ['whatsapp', 'telegram', 'in_app']
+    const messages = [inbound('telegram', '2026-10-02T00:00:00Z')]
+    expect(resolveReplyChannel({ choice: null, channels, messages, primaryChannel: 'in_app', serverDefault: 'whatsapp' })).toBe('whatsapp')
+  })
+
+  it('an explicit agent choice still wins while deliverable; an undeliverable server default is never used', () => {
+    const channels = ['whatsapp', 'in_app']
+    expect(resolveReplyChannel({ choice: 'in_app', channels, messages: [], primaryChannel: null, serverDefault: 'whatsapp' })).toBe('in_app')
+    expect(resolveReplyChannel({ choice: null, channels: ['in_app'], messages: [], primaryChannel: null, serverDefault: 'whatsapp' })).toBe('in_app')
   })
 })

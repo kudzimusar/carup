@@ -2,7 +2,7 @@ import express from 'express';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
-import { normalizeChannel } from '../services/communication/communicationUtils.js';
+import { THREAD_STATUSES, normalizeChannel } from '../services/communication/communicationUtils.js';
 import { resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
@@ -10,6 +10,16 @@ import { buildProviderTelemetry } from '../services/communication/communicationP
 import { sanitizeProviderError, trimmedEnvValue } from '../services/communication/adapters/providerAdapters.js';
 import { OUTBOUND_DISABLED_CODE, OUTBOUND_KILL_SWITCH_ENV, isOutboundDisabled } from '../services/communication/outboundKillSwitch.js';
 import { isProductionDeployment, recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
+import { CONVERSATION_TRUTH_UNAVAILABLE } from '../services/communication/communicationRepository.js';
+import {
+  CONVERSATION_VIEWS, TERMINAL_STATUSES as CONVERSATION_TERMINAL_STATUSES, normalizeConversationView, truthView, viewCounts,
+} from '../services/communication/conversationTruth.js';
+import { loadConversationTruth, readAllIn } from '../services/communication/conversationTruthLoader.js';
+import { readAllPages } from '../services/intelligence/rollupService.js';
+import { customerAccountId, isMarketplaceInquiryThread } from '../services/communication/conversationCustomer.js';
+import {
+  channelKey, replyChannelAuthority, replyChannelRefusal, resolveReplyChannel,
+} from '../services/communication/replyChannelResolution.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -94,6 +104,100 @@ export async function loadNotificationForRequest(services, req, res) {
     return null;
   }
   return notification;
+}
+
+// ── CA-OWNER-02 (H1/H3): every Command Center row carries its conversation truth and its customer ────────────────────
+
+function truthUnavailableBody() {
+  return {
+    error: 'Conversation classification is unavailable right now, so nothing is shown as classified. Retry shortly.',
+    code: CONVERSATION_TRUTH_UNAVAILABLE,
+  };
+}
+
+function truthError(cause) {
+  const err = new Error(`Conversation truth is unavailable: ${cause?.message || 'read failed'}`);
+  err.code = CONVERSATION_TRUTH_UNAVAILABLE;
+  err.cause = cause;
+  return err;
+}
+
+const UNJUDGED = Object.freeze({ truth: null, customer: null, seller: null });
+
+/**
+ * Judge FULL message_threads rows → Map threadId → { truth, customer, seller } (K2B provenance + SLA truth + H3 identity).
+ * Throws CONVERSATION_TRUTH_UNAVAILABLE on any read failure: the caller presents "unavailable", never a guessed verdict.
+ */
+export async function classifyThreadRows(client, rows, now = new Date()) {
+  if (!client) throw truthError(new Error('no database client'));
+  try {
+    const { truths } = await loadConversationTruth(client, { threads: rows, now, withParties: true });
+    return new Map(truths.map((truth) => [String(truth.thread_id), { truth: truthView(truth), customer: truth.customer, seller: truth.seller }]));
+  } catch (error) {
+    throw truthError(error);
+  }
+}
+
+/**
+ * Page-level truth for the API default (no view). Rows from the DB search RPC are a REDUCED column set (no metadata, SLA
+ * pause, first-response or last-inbound columns), so each one is judged from its FULL message_threads row. A failure
+ * degrades the page to truth: null — the inbox still works, and says the classification is unavailable.
+ */
+async function attachPageTruth(client, rows, { now, fullRows }) {
+  if (!rows.length) return { threads: rows, available: true };
+  try {
+    let judged = rows;
+    if (fullRows) {
+      const full = await readAllIn(client, 'message_threads', '*', 'id', rows.map((r) => String(r.id)));
+      const byId = new Map(full.map((r) => [String(r.id), r]));
+      judged = rows.map((r) => byId.get(String(r.id))).filter(Boolean);
+    }
+    const decorations = await classifyThreadRows(client, judged, now);
+    return { threads: rows.map((r) => ({ ...r, ...(decorations.get(String(r.id)) || UNJUDGED) })), available: true };
+  } catch (_error) {
+    return { threads: rows.map((r) => ({ ...r, ...UNJUDGED })), available: false };
+  }
+}
+
+const NON_TERMINAL_THREAD_STATUSES = Object.freeze(Object.values(THREAD_STATUSES).filter((status) => !CONVERSATION_TERMINAL_STATUSES.includes(status)));
+
+/**
+ * CA-OWNER-02 (H2) — the header strip's truth: EVERY non-terminal thread in scope, read in pages (never truncated at the
+ * PostgREST row limit), judged by the conversation-truth loader. Any failure is { available: false }: the UI shows
+ * "unavailable", never a zero it did not measure.
+ */
+export async function openConversationTruth(client, scope = {}, now = new Date()) {
+  if (!client) return { available: false };
+  try {
+    const threads = await readAllPages(() => {
+      let query = client.from('message_threads').select('*').in('status', NON_TERMINAL_THREAD_STATUSES);
+      if (scope.tenant_id) query = query.eq('tenant_id', scope.tenant_id);
+      return query.order('id');
+    });
+    const { summary } = await loadConversationTruth(client, { threads, now });
+    return {
+      available: true,
+      as_of: now.toISOString(),
+      total_open: summary.total,
+      operational: summary.operational,
+      needs_review: summary.needs_review,
+      non_operational_open: summary.non_operational_open,
+      by_category: summary.by_category,
+      view_counts: viewCounts(summary),
+    };
+  } catch (_error) {
+    return { available: false };
+  }
+}
+
+/** The newest of the first parseable `columns` value per row, as ISO — or null. */
+function latestTimestamp(rows, columns) {
+  let best = null;
+  for (const row of rows) {
+    const t = columns.map((column) => Date.parse(row?.[column] || '')).find((value) => !Number.isNaN(value));
+    if (t !== undefined && (best === null || t > best)) best = t;
+  }
+  return best === null ? null : new Date(best).toISOString();
 }
 
 // Append a thread-scoped audit event for the acting user (fail-soft; never throws — see
@@ -447,9 +551,12 @@ function bindingIsLive(binding) {
  * genuinely offers two equally-ranked distinct addresses. Never guesses between addresses.
  */
 function selectBindingForParticipant({ bindings, participant, channel }) {
+  // CA-OWNER-02 (H4): the same sendability rule as the reply-channel authority — a binding without transactional
+  // consent is never picked, so the channel the authority allowed and the address used here cannot disagree.
   const usable = bindings.filter((b) => String(b.participant_id) === String(participant.id)
     && normalizeChannelName(b.channel) === normalizeChannelName(channel)
     && b.can_send !== false
+    && b.transactional_consent !== false
     && b.channel_identity_id
     && bindingIsLive(b));
   if (!usable.length) return null;
@@ -504,13 +611,19 @@ async function deliverableIdentityFor({ repository, bindings, participant, chann
  *
  * Ambiguity is never settled by cross-participant recency: sending one customer's reply to another
  * is worse than not sending.
+ *
+ * CA-OWNER-02 (H4): on a Marketplace inquiry `customer` (from the reply-channel authority) confines the recipient to the
+ * customer side and prefers the customer's account — the seller (thread.primary_user_id there) is never addressed.
+ * Other conversations keep the behaviour above exactly.
  */
 export async function resolveAdminReplyRecipient({
-  repository, thread, channel, requestedParticipantId = null,
+  repository, thread, channel, requestedParticipantId = null, customer = null,
 } = {}) {
   if (!repository || !thread?.id || !channel) return { ok: false, reason: 'no_recipient' };
   const bindings = await repository.list('conversation_channel_bindings', { thread_id: thread.id })
     .catch(() => []);
+  const customerSide = customer ? new Set((customer.participant_ids || []).map(String)) : null;
+  const onCustomerSide = (participant) => !customerSide || customerSide.has(String(participant.id));
 
   if (requestedParticipantId) {
     // Fetched by id, not filtered out of the thread's list, so the thread-ownership check below is
@@ -520,6 +633,7 @@ export async function resolveAdminReplyRecipient({
     if (!participant) return { ok: false, reason: 'no_recipient' };
     if (String(participant.thread_id) !== String(thread.id)) return { ok: false, reason: 'no_recipient' };
     if (!participantIsAddressable(participant)) return { ok: false, reason: 'no_recipient' };
+    if (!onCustomerSide(participant)) return { ok: false, reason: 'no_recipient' };
     const identity = await deliverableIdentityFor({ repository, bindings, participant, channel });
     if (!identity) return { ok: false, reason: 'no_recipient' };
     return { ok: true, participant, identity };
@@ -528,7 +642,8 @@ export async function resolveAdminReplyRecipient({
   const participants = (await repository.list('message_participants', { thread_id: thread.id })
     .catch(() => []))
     .filter((p) => String(p.thread_id) === String(thread.id))
-    .filter(participantIsAddressable);
+    .filter(participantIsAddressable)
+    .filter(onCustomerSide);
 
   const eligible = [];
   for (const participant of participants) {
@@ -538,9 +653,10 @@ export async function resolveAdminReplyRecipient({
     if (identity) eligible.push({ participant, identity });
   }
 
-  if (thread.primary_user_id) {
+  const preferredUserId = customer ? customer.user_id : thread.primary_user_id;
+  if (preferredUserId) {
     const primaryHits = eligible.filter(
-      (hit) => String(hit.participant.user_id) === String(thread.primary_user_id),
+      (hit) => String(hit.participant.user_id) === String(preferredUserId),
     );
     // Simple threads keep behaving exactly as before: if the primary user is deliverable, they are
     // the recipient, even when other participants are also reachable.
@@ -574,6 +690,29 @@ async function notificationForMessage(repository, messageId) {
   return rows[0] || null;
 }
 
+/**
+ * CA-OWNER-02 (H4) — read what the reply-channel authority judges (replyChannelResolution.js): the thread's participants,
+ * bindings, its latest inbound message, the participants' channel identities and — on a Marketplace inquiry — the
+ * inquiry (its asker is the customer). Read failures propagate: a failed read is never presented as "not deliverable".
+ * `prefetched` lets the detail route reuse rows it already holds.
+ */
+export async function loadReplyChannelAuthority({ repository, thread, prefetched = {} }) {
+  const [participants, bindings, messages, inquiry] = await Promise.all([
+    prefetched.participants || repository.list('message_participants', { thread_id: thread.id }),
+    prefetched.bindings || repository.list('conversation_channel_bindings', { thread_id: thread.id }),
+    prefetched.messages || repository.list('messages', { thread_id: thread.id, direction: 'inbound' }, { order: { column: 'created_at', ascending: false }, limit: 1 }),
+    prefetched.inquiry !== undefined || !isMarketplaceInquiryThread(thread)
+      ? Promise.resolve(prefetched.inquiry ?? null)
+      : repository.findOne('marketplace_inquiries', { id: thread.subject_id }),
+  ]);
+  let identities = prefetched.identities;
+  if (!identities) {
+    const identityIds = [...new Set((participants || []).map((p) => p.external_identity_id).filter(Boolean).map(String))];
+    identities = (await Promise.all(identityIds.map((id) => repository.findOne('channel_identities', { id })))).filter(Boolean);
+  }
+  return replyChannelAuthority({ thread, inquiry, participants, bindings, identities, messages, now: Date.now() });
+}
+
 export async function recordAdminThreadReply({ services, thread, actor, body = {} }) {
   const repository = services.repository || services.notificationService?.repository || services.threadService?.repository;
   if (!repository) throw new Error('Communication repository is required for admin replies.');
@@ -591,6 +730,18 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
       duplicate: true,
     };
   }
+  // CA-OWNER-02 (H4): a customer-visible reply goes out on a channel the CUSTOMER can be reached on. A requested channel
+  // is honoured only when deliverable; with none, the authority's default (latest customer turn → primary binding →
+  // in-app account). Never thread.primary_channel on its own, never silently substituted, and refused (409) BEFORE
+  // anything is written. Internal notes are unchanged: they are never delivered.
+  let authority = null;
+  let replyChannel = body?.channel || thread.primary_channel || 'in_app';
+  if (!internal) {
+    authority = await loadReplyChannelAuthority({ repository, thread });
+    const decision = resolveReplyChannel(authority, body?.channel);
+    if (!decision.ok) throw replyChannelRefusal(decision);
+    replyChannel = decision.channel;
+  }
   const originalThread = {
     status: thread.status || null,
     last_message_at: thread.last_message_at || null,
@@ -599,7 +750,7 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
   const message = await services.threadService.recordMessage(thread, {
     direction: internal ? 'internal' : 'outbound',
     sender_user_id: actor.id,
-    channel: body?.channel || thread.primary_channel || 'in_app',
+    channel: replyChannel,
     content_text: body?.message || body?.text || '',
     content_json: { admin_reply: true, internal },
     client_message_id: clientMessageId,
@@ -610,16 +761,17 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
   let notification = null;
   try {
     const requestedParticipantId = body?.recipient_participant_id || body?.recipientParticipantId || null;
-    const replyChannel = body?.channel || thread.primary_channel || 'in_app';
     const isInApp = normalizeChannelName(replyChannel) === 'in_app';
+    // The customer's CarUp account: the inquiry asker on a Marketplace thread (never the seller), the primary user elsewhere.
+    const customerUserId = authority?.customer?.user_id || null;
 
     // in_app is addressed by user id alone, so it keeps its existing behaviour unless the caller
     // explicitly targets a participant. Every other channel is addressed by a provider address, and
     // queueing without one produced a notification the worker could never send — it dead-lettered
     // as recipient_missing on every admin reply to a WhatsApp/Telegram thread.
-    if (!internal && isInApp && !requestedParticipantId && thread.primary_user_id) {
+    if (!internal && isInApp && !requestedParticipantId && customerUserId) {
       notification = (await services.notificationService.queueExistingMessage({
-        recipientUserId: thread.primary_user_id,
+        recipientUserId: customerUserId,
         thread,
         message,
         channel: replyChannel,
@@ -629,12 +781,16 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
         classification: 'conversational',
         priority: thread.priority || 'normal',
         humanApproved: true,
-        dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
+        dedupeParts: ['admin_reply', thread.id, clientMessageId, customerUserId],
         payload: { thread_id: thread.id, admin_reply: true },
       })).notification;
     } else if (!internal && (!isInApp || requestedParticipantId)) {
       const resolved = await resolveAdminReplyRecipient({
-        repository, thread, channel: replyChannel, requestedParticipantId,
+        repository,
+        thread,
+        channel: replyChannel,
+        requestedParticipantId,
+        customer: isMarketplaceInquiryThread(thread) ? authority?.customer || null : null,
       });
       if (resolved.reason === 'recipient_ambiguous') {
         const err = new Error('Admin reply recipient is ambiguous: more than one participant is deliverable on this channel. Specify recipient_participant_id.');
@@ -676,13 +832,14 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
     }
     if (!internal && !notification && !thread.primary_user_id) {
       const external = await resolveExternalReplyIdentity({ repository, thread });
-      if (external) {
+      // The external contact's identity is used only when it IS the resolved channel — never a silent substitution.
+      if (external && channelKey(external.identity.channel) === channelKey(replyChannel)) {
         const { identity, participant } = external;
         notification = (await services.notificationService.queueExistingMessage({
           recipientIdentityId: identity.id,
           thread,
           message,
-          channel: body?.channel || identity.channel || thread.primary_channel || 'in_app',
+          channel: replyChannel,
           provider: identity.provider || message.provider || null,
           notificationType: 'admin_reply',
           templateKey: 'admin_reply_v1',
@@ -725,7 +882,16 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     // tenant scoping, server search/filter/count) for the default ordering, and degrades to a bounded
     // window only where the projection migration is not yet applied. `threads` stays an array; `page`
     // (cursor) and `counts` are additive.
+    //
+    // CA-OWNER-02 (H1): every row carries `truth` + `customer`. A `view`, an SLA filter or the SLA sort needs the whole
+    // candidate set CLASSIFIED before the query runs (searchThreads' classified window); a classified query that cannot
+    // read the truth refuses with 503 rather than present an unclassified list. Without a view (the API default) the
+    // DB search path is unchanged and only the returned page is judged.
     const ctx = resolveThreadQueryContext(req);
+    const view = normalizeConversationView(req.query.view);
+    if (!view) {
+      return res.status(400).json({ error: `Unknown conversation view "${String(req.query.view)}".`, code: 'UNKNOWN_CONVERSATION_VIEW', views: CONVERSATION_VIEWS });
+    }
     const params = {
       search: req.query.search,
       status: req.query.status,
@@ -740,8 +906,31 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       cursor: req.query.cursor,
       limit: req.query.limit,
     };
+    const truthClient = services.repository?.client || null;
+    const now = new Date();
+    const classified = req.query.view !== undefined || Boolean(params.sla) || params.sort === 'sla';
+    if (classified) {
+      if (!truthClient) return res.status(503).json(truthUnavailableBody());
+      let result;
+      try {
+        result = await services.repository.searchThreads(params, ctx, { view, classify: (rows) => classifyThreadRows(truthClient, rows, now) });
+      } catch (error) {
+        if (error?.code === CONVERSATION_TRUTH_UNAVAILABLE) return res.status(503).json(truthUnavailableBody());
+        throw error;
+      }
+      return res.json({
+        threads: result.threads,
+        page: result.page,
+        counts: result.counts,
+        view: result.view,
+        view_counts: result.view_counts,
+        truth_complete: result.truth_complete,
+        truth_window: result.truth_window,
+      });
+    }
     const result = await services.repository.searchThreads(params, ctx);
-    res.json({ threads: result.threads, page: result.page, counts: result.counts });
+    const page = await attachPageTruth(truthClient, result.threads || [], { now, fullRows: result.page?.mode === 'db_keyset' });
+    return res.json({ threads: page.threads, page: result.page, counts: result.counts, view: 'all', truth_available: page.available });
   }));
 
   router.get('/api/admin/communications/threads/:id', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
@@ -754,16 +943,44 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     ]);
     // Enrich the conversation for the context/ops rail + timeline technical drawer (items 6/7):
     // the requester + linked channel identities, recent delivery attempts, and the user's comm prefs.
+    //
+    // CA-OWNER-02 (H3): the preferences and linked identities are the CUSTOMER's. On a Marketplace inquiry
+    // thread.primary_user_id is the SELLER, so they are keyed by the inquiry's asker instead (never the seller).
+    const inquiry = isMarketplaceInquiryThread(thread)
+      ? await services.repository.findOne('marketplace_inquiries', { id: thread.subject_id }).catch(() => null)
+      : null;
+    const customerUserId = customerAccountId(thread, { inquiry, participants });
     const identityIds = [...new Set(participants.map((p) => p.external_identity_id).filter(Boolean))];
     const messageIds = messages.map((m) => m.id).filter(Boolean);
     const [identities, deliveryAttempts, preferences, linkedIdentities] = await Promise.all([
       identityIds.length ? services.repository.list('channel_identities', { id: identityIds }) : Promise.resolve([]),
       messageIds.length ? services.repository.list('message_delivery_attempts', { message_id: messageIds }, { order: { column: 'started_at', ascending: true } }) : Promise.resolve([]),
-      thread.primary_user_id ? services.repository.list('communication_preferences', { user_id: thread.primary_user_id }, { limit: 1 }) : Promise.resolve([]),
-      thread.primary_user_id ? services.repository.list('channel_identities', { user_id: thread.primary_user_id }) : Promise.resolve([]),
+      customerUserId ? services.repository.list('communication_preferences', { user_id: customerUserId }, { limit: 1 }) : Promise.resolve([]),
+      customerUserId ? services.repository.list('channel_identities', { user_id: customerUserId }) : Promise.resolve([]),
     ]);
+    // CA-OWNER-02 (H1/H3): the same truth and the same customer as the conversation's inbox row — judged from the full
+    // row. When it cannot be read the detail says so (truth: null), it never guesses.
+    let decoration = UNJUDGED;
+    let truthAvailable = false;
+    try {
+      decoration = (await classifyThreadRows(services.repository?.client || null, [thread], new Date())).get(String(thread.id)) || UNJUDGED;
+      truthAvailable = decoration !== UNJUDGED;
+    } catch (_error) {
+      decoration = UNJUDGED;
+    }
+    // CA-OWNER-02 (H4): the server's reply-channel authority, for the composer's default. Channels only — no address.
+    // Unreadable → null (the composer keeps its own derivation; the server still decides on send).
+    let replyChannel = null;
+    try {
+      const authority = await loadReplyChannelAuthority({ repository: services.repository, thread, prefetched: { participants, messages, identities, inquiry } });
+      replyChannel = { default_channel: authority.default_channel, deliverable: authority.deliverable, basis: authority.basis };
+    } catch (_error) {
+      replyChannel = null;
+    }
     return res.json({
-      thread,
+      thread: { ...thread, ...decoration },
+      truth_available: truthAvailable,
+      reply_channel: replyChannel,
       messages,
       participants,
       escalations,
@@ -791,7 +1008,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       await auditThread(services, req, thread, internal ? COMMUNICATION_AUDIT_EVENTS.INTERNAL_NOTE : COMMUNICATION_AUDIT_EVENTS.REPLY_SENT, {
         message_id: message?.id ?? null,
         notification_id: notification?.id ?? null,
-        channel: req.body?.channel || thread.primary_channel || null,
+        // The channel the reply actually took (the server's resolution), not the request or the stale primary_channel.
+        channel: message?.channel || req.body?.channel || thread.primary_channel || null,
         correlation_id: req.body?.client_message_id || null,
         summary: internal ? 'Internal note added' : 'Reply sent to customer',
       });
@@ -1416,17 +1634,22 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     // NOTE: still computed in JS over a bounded list; at very large scale prefer the counts RPC.
     const scope = resolveListScope(req, res);
     if (scope === null) return undefined;
-    const [threads, deadLetters, webhooks] = await Promise.all([
+    const [threads, deadLetters, webhooks, truth] = await Promise.all([
       services.repository.list('message_threads', { ...scope }),
       services.repository.list('notification_queue', { status: 'dead_letter', ...scope }),
       services.repository.list('webhook_logs', { ...scope }),
+      // CA-OWNER-02 (H2): what the header strip shows. The legacy numeric fields below stay for API compatibility only.
+      openConversationTruth(services.repository?.client || null, scope, new Date()),
     ]);
     res.json({
       open_threads: threads.filter((t) => !['resolved', 'closed', 'spam'].includes(t.status)).length,
       unassigned_threads: threads.filter((t) => !t.assigned_admin_id && ['open', 'awaiting_human', 'escalated'].includes(t.status)).length,
       overdue_threads: threads.filter((t) => t.sla_due_at && new Date(t.sla_due_at) < new Date() && !['resolved', 'closed'].includes(t.status)).length,
+      // A technical delivery figure (notification_queue), not conversation work.
       dead_letter_count: deadLetters.length,
+      dead_letter_latest_at: latestTimestamp(deadLetters, ['dead_lettered_at', 'updated_at', 'created_at']),
       duplicate_webhook_count: webhooks.filter((w) => w.processing_status === 'duplicate').length,
+      truth,
     });
   }));
 

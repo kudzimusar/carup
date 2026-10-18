@@ -9,6 +9,11 @@
  *   communication_audit_events   the server-written `smoke_test` marker
  *   messages                     the latest customer (inbound) and staff (outbound) message per conversation
  *
+ * With `withParties: true` (H3, the Command Center), it also reads
+ *   message_participants         who is on the customer side of each conversation
+ *   channel_identities           the display name of a customer-side channel identity (id, display_name, channel only)
+ * so the customer of a guest conversation can be named from the identity that wrote in. The default load is unchanged.
+ *
  * Email addresses are read only to classify and are never returned.
  */
 import { loadProvenanceIndex } from '../provenance/provenanceContext.js';
@@ -32,14 +37,31 @@ export async function readAllIn(client, table, columns, key, values, shape = (qu
 
 const later = (a, b) => (!a ? b : !b ? a : (new Date(b).getTime() > new Date(a).getTime() ? b : a));
 
+const PARTICIPANT_COLUMNS = 'id, thread_id, user_id, external_identity_id, role, stakeholder_role, participant_type, display_name, joined_at, left_at';
+const IDENTITY_NAME_COLUMNS = 'id, display_name, channel';
+
+async function loadParties(client, threadIds) {
+  const participants = await readAllIn(client, 'message_participants', PARTICIPANT_COLUMNS, 'thread_id', threadIds);
+  const participantsByThread = new Map();
+  for (const p of participants) {
+    const key = String(p.thread_id);
+    if (!participantsByThread.has(key)) participantsByThread.set(key, []);
+    participantsByThread.get(key).push(p);
+  }
+  const identityIds = unique(participants.map((p) => p.external_identity_id));
+  const identities = identityIds.length ? await readAllIn(client, 'channel_identities', IDENTITY_NAME_COLUMNS, 'id', identityIds) : [];
+  return { participantsByThread, identityById: new Map(identities.map((i) => [String(i.id), i])) };
+}
+
 /**
  * @param client a service-role Supabase client
  * @param opts.threads message_threads rows (with id, status, subject_type, subject_id, primary_user_id, SLA columns,
  *                     last_inbound_at / last_outbound_at, assigned_* — whatever the caller has; missing stamps are
  *                     completed from messages)
+ * @param opts.withParties also read participants + identity names, so a guest's customer can be named (H3)
  * @returns {Promise<{ truths: object[], summary: object }>}
  */
-export async function loadConversationTruth(client, { threads = [], now = new Date() } = {}) {
+export async function loadConversationTruth(client, { threads = [], now = new Date(), withParties = false } = {}) {
   const list = Array.isArray(threads) ? threads : [];
   const threadIds = unique(list.map((t) => t.id));
 
@@ -69,11 +91,14 @@ export async function loadConversationTruth(client, { threads = [], now = new Da
     latestByThread.set(key, cur);
   }
 
+  const parties = withParties && threadIds.length ? await loadParties(client, threadIds) : {};
+
   const ctx = {
     index,
     inquiryById: new Map(inquiries.map((i) => [String(i.id), i])),
     smokeThreadIds: new Set(smoke.map((s) => String(s.thread_id))),
     latestByThread,
+    ...parties,
   };
   const truths = list.map((t) => conversationTruth(t, ctx, now));
   return { truths, summary: summarizeConversationTruth(truths) };

@@ -2,9 +2,24 @@ import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
 import {
-  buildThreadQuery, computeCounts, decodeCursor, encodeCursor, clampLimit, THREAD_SORT_KEYS,
+  buildThreadQuery, computeCounts, decodeCursor, encodeCursor, clampLimit, matchThreads, THREAD_SORT_KEYS,
 } from './communicationThreadQuery.js';
 import { projectInboxThreads } from './communicationInboxProjection.js';
+import { summarizeConversationTruth, viewCounts, viewIncludesCategory } from './conversationTruth.js';
+
+/** CA-OWNER-02 (H1): the code a classified query fails with when the conversation truth cannot be read. */
+export const CONVERSATION_TRUTH_UNAVAILABLE = 'CONVERSATION_TRUTH_UNAVAILABLE';
+
+// PostgREST returns at most this many rows per request (Supabase's default max-rows), so the classified window is read in
+// pages of it — the same assumption as readAllPages (intelligence/rollupService.js).
+const WINDOW_PAGE = 1000;
+// A PostgREST GET carries an IN list in its URL, so a window's worth of ids is read in chunks of this many.
+const IN_CHUNK = 100;
+
+function threadWindowSize() {
+  const configured = Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000);
+  return Math.max(1, Math.min(Number.isFinite(configured) ? Math.trunc(configured) : 1000, 2000));
+}
 
 // The search_communication_threads() RPC hard-caps returned rows at 200 (LEAST(..., 200)). The
 // repository must clamp its effective page size to this so keyset has_more stays correct.
@@ -59,10 +74,8 @@ function scopeThreads(threads, ctx) {
   return threads.filter((t) => String(t.tenant_id || '') === String(ctx.tenantId));
 }
 
-// Run the pure query engine over an already-projected, already-scoped row set (the memory path and
-// the real-repo window fallback share this).
-function runQuery(rows, params, ctx, p) {
-  const result = buildThreadQuery(rows, {
+function engineParams(params, p) {
+  return {
     search: p.search,
     status: params.status,
     channel: params.channel,
@@ -75,9 +88,50 @@ function runQuery(rows, params, ctx, p) {
     sort: p.sort,
     cursor: p.cursor,
     limit: p.limit,
-  }, { userId: ctx.userId, now: ctx.now ?? Date.now() });
+  };
+}
+
+// Run the pure query engine over an already-projected, already-scoped row set (the memory path and
+// the real-repo window fallback share this).
+function runQuery(rows, params, ctx, p) {
+  const result = buildThreadQuery(rows, engineParams(params, p), { userId: ctx.userId, now: ctx.now ?? Date.now() });
   result.page.mode = result.page.mode || 'window';
   return result;
+}
+
+/**
+ * CA-OWNER-02 (H1) — the CLASSIFIED inbox query.
+ *
+ * `classify(rows)` returns, per row id, what a row carries ({ truth, customer, seller }) and THROWS when the truth cannot be
+ * read. The whole candidate set is classified BEFORE the view filter, the other filters, the sort and the pagination, so a
+ * page always holds exactly its view and `has_more` never counts another view's rows. The other views are counted over
+ * the same filtered candidates (facets). `truth_complete` is false whenever the candidate window was saturated — the
+ * classification then covers only the most recently updated conversations, and the caller must say so.
+ */
+async function runClassifiedQuery(rows, params, ctx, p, { classify, view = 'all', window = null } = {}) {
+  const decorations = await classify(rows);
+  const classified = rows.map((row) => {
+    const decoration = decorations?.get?.(String(row.id));
+    if (!decoration?.truth) {
+      const err = new Error(`Conversation ${row.id} could not be classified.`);
+      err.code = CONVERSATION_TRUTH_UNAVAILABLE;
+      throw err;
+    }
+    return { ...row, ...decoration };
+  });
+  const query = engineParams(params, p);
+  const engineCtx = { userId: ctx.userId, now: ctx.now ?? Date.now() };
+  const facets = viewCounts(summarizeConversationTruth(matchThreads(classified, query, engineCtx).map((row) => row.truth)));
+  const inView = classified.filter((row) => viewIncludesCategory(view, row.truth.category));
+  const result = buildThreadQuery(inView, query, engineCtx);
+  result.page.mode = 'classified_window';
+  return {
+    ...result,
+    view,
+    view_counts: facets,
+    truth_complete: !window?.saturated,
+    truth_window: window,
+  };
 }
 
 function createServiceClientFromEnv() {
@@ -213,8 +267,12 @@ export class CommunicationRepository {
   // pagination, tenant scoping, server search/filter/count). Non-default sorts, or a DB where the
   // projection migration is not yet applied, fall back to the bounded-window engine over a JS
   // projection so behaviour degrades gracefully rather than breaking.
-  async searchThreads(params = {}, ctx = {}) {
+  //
+  // CA-OWNER-02 (H1): with `options.classify` the query runs over the classified window instead (runClassifiedQuery) —
+  // classification needs every candidate row, which the DB search RPC cannot provide.
+  async searchThreads(params = {}, ctx = {}, options = {}) {
     const p = normalizeSearchParams(params);
+    if (typeof options.classify === 'function') return this.searchThreadsClassified(params, ctx, p, options);
     if (p.sort === 'newest') {
       try {
         return await this.searchThreadsViaRpc(params, ctx, p);
@@ -224,6 +282,45 @@ export class CommunicationRepository {
       }
     }
     return this.searchThreadsViaWindow(params, ctx, p);
+  }
+
+  async searchThreadsClassified(params, ctx, p, options) {
+    const size = threadWindowSize();
+    // The window is the CALLER's: a tenant operator's is read inside their tenant (so other tenants never crowd it out
+    // or saturate it), and a caller with neither platform role nor tenant reads nothing (fail-closed, as scopeThreads).
+    if (!ctx.isPlatform && !ctx.tenantId) {
+      return runClassifiedQuery([], params, ctx, p, { ...options, window: { size, read: 0, saturated: false } });
+    }
+    const { rows, saturated } = await this.readThreadWindow(size, { tenantId: ctx.isPlatform ? null : ctx.tenantId });
+    const projected = await this.projectRows(rows, ctx);
+    return runClassifiedQuery(scopeThreads(projected, ctx), params, ctx, p, {
+      ...options,
+      window: { size, read: rows.length, saturated },
+    });
+  }
+
+  /**
+   * The `size` most recently updated threads (of one tenant, when given), read in PostgREST-sized pages. One row beyond
+   * the window is requested, so `saturated` is a fact (more threads exist) rather than a guess from a full page.
+   */
+  async readThreadWindow(size, { tenantId = null } = {}) {
+    const target = size + 1;
+    const rows = [];
+    while (rows.length < target) {
+      const from = rows.length;
+      const to = Math.min(target, from + WINDOW_PAGE) - 1;
+      let query = this.client.from('message_threads').select('*');
+      if (tenantId) query = query.eq('tenant_id', tenantId);
+      const { data, error } = await query
+        .order('updated_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, to);
+      if (error) throw this.toDatabaseError(`message_threads window read failed: ${error.message}`, error);
+      const batch = data || [];
+      rows.push(...batch);
+      if (batch.length < to - from + 1) break;
+    }
+    return { rows: rows.slice(0, size), saturated: rows.length > size };
   }
 
   async searchThreadsViaRpc(params, ctx, p) {
@@ -291,19 +388,41 @@ export class CommunicationRepository {
   async projectThreadWindow(ctx = {}) {
     const windowSize = Math.min(Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000), 2000);
     const threadRows = await this.list('message_threads', {}, { order: { column: 'updated_at' }, limit: windowSize });
+    return this.projectRows(threadRows, ctx);
+  }
+
+  // CA-OWNER-02: a window holds up to 2000 threads, so its related rows are read in bounded requests (listIn) — one IN
+  // list over every id is a URL a gateway refuses, and an unpaged read silently stops at the PostgREST row limit.
+  async projectRows(threadRows, ctx = {}) {
     if (!threadRows.length) return [];
     const ids = threadRows.map((t) => t.id);
     const [participants, messages] = await Promise.all([
-      this.list('message_participants', { thread_id: ids }),
-      this.list('messages', { thread_id: ids }),
+      this.listIn('message_participants', 'thread_id', ids),
+      this.listIn('messages', 'thread_id', ids),
     ]);
     const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
-    const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
+    const identities = identityIds.length ? await this.listIn('channel_identities', 'id', identityIds) : [];
     // Registered-user identity fallback (P1.8): resolve threads with no requester channel identity to
     // their CarUp user profile via primary_user_id.
     const userIds = [...new Set(threadRows.map((t) => t.primary_user_id).filter(Boolean))];
-    const users = userIds.length ? await this.list('users', { id: userIds }).catch(() => []) : [];
+    const users = userIds.length ? await this.listIn('users', 'id', userIds).catch(() => []) : [];
     return projectInboxThreads(threadRows, { participants, identities, messages, users }, { agentId: ctx.userId ?? null });
+  }
+
+  /** Every `table` row whose `key` is in `values`: IN lists of at most IN_CHUNK ids, each paged to the row limit. */
+  async listIn(table, key, values) {
+    const rows = [];
+    for (let i = 0; i < values.length; i += IN_CHUNK) {
+      const slice = values.slice(i, i + IN_CHUNK);
+      for (let from = 0; ; from += WINDOW_PAGE) {
+        const { data, error } = await this.client.from(table).select('*').in(key, slice).order('id').range(from, from + WINDOW_PAGE - 1);
+        if (error) throw this.toDatabaseError(`${table} list failed: ${error.message}`, error);
+        const batch = data || [];
+        rows.push(...batch);
+        if (batch.length < WINDOW_PAGE) break;
+      }
+    }
+    return rows;
   }
 
   async threadCounts(params = {}, ctx = {}) {
@@ -573,9 +692,13 @@ export class MemoryCommunicationRepository {
     }, { agentId: ctx.userId ?? null });
   }
 
-  async searchThreads(params = {}, ctx = {}) {
+  async searchThreads(params = {}, ctx = {}, options = {}) {
     const p = normalizeSearchParams(params);
     const scoped = scopeThreads(this.projectAll(ctx), ctx);
+    if (typeof options.classify === 'function') {
+      // The memory "window" is every row, so it is never saturated.
+      return runClassifiedQuery(scoped, params, ctx, p, { ...options, window: { size: scoped.length, read: scoped.length, saturated: false } });
+    }
     return runQuery(scoped, params, ctx, p);
   }
 

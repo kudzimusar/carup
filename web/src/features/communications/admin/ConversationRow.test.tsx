@@ -61,6 +61,20 @@ describe('ConversationRow', () => {
     expect(html).toContain('>3<')
   })
 
+  it('CA-OWNER-02: badges a non-operational row with its classification, and shows every SLA state label', () => {
+    const cert = renderToStaticMarkup(
+      <ConversationRow title="UAT buyer" statusLabel="Open" categoryLabel="Certification & UAT" categoryTone="certification" slaLevel="none" slaLabel="Certification record — no SLA" onSelect={() => {}} />,
+    )
+    expect(cert).toContain('data-testid="row-category"')
+    expect(cert).toContain('Certification &amp; UAT')
+    expect(cert).toContain('data-category-tone="certification"')
+    expect(cert).toContain('Certification record — no SLA')
+
+    const live = renderToStaticMarkup(<ConversationRow title="Rudo" statusLabel="Open" slaLevel="ok" slaLabel="Live · due in 2h" onSelect={() => {}} />)
+    expect(live).toContain('Live · due in 2h')
+    expect(live, 'an operational row carries no classification badge').not.toContain('data-testid="row-category"')
+  })
+
   it('caps the unread badge at 99+ and hides it when read', () => {
     const many = renderToStaticMarkup(<ConversationRow title="t" statusLabel="Open" unreadCount={250} onSelect={() => {}} />)
     expect(many).toContain('99+')
