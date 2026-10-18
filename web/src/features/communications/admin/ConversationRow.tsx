@@ -59,9 +59,10 @@ export function ConversationRow({
   return (
     <div className={`flex items-stretch border-b ${selected ? 'bg-orange-50 border-l-2 border-l-orange-500' : ''}`} data-unread={hasUnread ? 'true' : undefined}>
       {onToggle && (
-        <div className="flex items-center pl-2.5">
+        // The label is the checkbox's hit area: ≥44×44 CSS px on phones (desktop keeps its compact gutter).
+        <label className="flex items-center justify-center pl-2.5 cursor-pointer max-sm:pl-0 max-sm:min-h-11 max-sm:min-w-11">
           <Checkbox checked={!!checked} onCheckedChange={() => onToggle()} aria-label={`Select thread: ${title}${reference ? ` (${reference})` : ''}`} />
-        </div>
+        </label>
       )}
       <button
         type="button"

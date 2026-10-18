@@ -41,7 +41,7 @@ export function CommandCenterNav({ basePath, active, badges = {} }: CommandCente
             aria-current={isActive ? 'page' : undefined}
             data-testid={`section-${section}`}
             data-active={isActive ? 'true' : undefined}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors ${isActive ? 'bg-orange-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+            className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors max-sm:min-h-11 max-sm:min-w-11 ${isActive ? 'bg-orange-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
           >
             <Icon className="w-4 h-4" aria-hidden />
             {label}

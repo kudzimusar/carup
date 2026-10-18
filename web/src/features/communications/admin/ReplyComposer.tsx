@@ -68,7 +68,7 @@ export function ReplyComposer({
               data-channel-option={option}
               disabled={sending}
               onClick={() => onChannelChange?.(option)}
-              className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${option === channel
+              className={`flex items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-xs max-sm:min-h-11 max-sm:min-w-11 max-sm:px-3.5 ${option === channel
                 ? 'border-gray-900 bg-gray-900 text-white'
                 : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}
             >
@@ -86,7 +86,8 @@ export function ReplyComposer({
         rows={3}
       />
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        {/* The whole label is the hit area (≥44×44 on phones), not just the switch. */}
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer max-sm:min-h-11 max-sm:min-w-11 max-sm:pr-2">
           <Switch checked={internalNote} onCheckedChange={onInternalNoteChange} aria-label="Internal note (not sent to the user)" />
           Internal note
         </label>

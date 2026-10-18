@@ -107,12 +107,15 @@ export function RecoveryView({ categories, counts, busyAction, bulkNote, onRetry
                     <div key={item.id} className="rounded-lg border p-2.5" data-testid="recovery-item">
                       <div className="flex items-start gap-2">
                         {canRetry && (
-                          <Checkbox
-                            className="mt-0.5"
-                            checked={selected.has(item.id)}
-                            onCheckedChange={() => toggle(item.id)}
-                            aria-label={`Select ${titleCase(item.notification_type) || 'notification'} ${item.id} for bulk retry`}
-                          />
+                          // The label is the checkbox's hit area: ≥44×44 CSS px on phones (desktop unchanged).
+                          <label className="flex items-start justify-center cursor-pointer max-sm:items-center max-sm:min-h-11 max-sm:min-w-11 max-sm:-my-2 max-sm:-ml-2">
+                            <Checkbox
+                              className="mt-0.5 max-sm:mt-0"
+                              checked={selected.has(item.id)}
+                              onCheckedChange={() => toggle(item.id)}
+                              aria-label={`Select ${titleCase(item.notification_type) || 'notification'} ${item.id} for bulk retry`}
+                            />
+                          </label>
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">

@@ -299,6 +299,20 @@ describe('H2 — the header strip reads truth', () => {
   })
 })
 
+describe('touch targets (390×844)', () => {
+  it('every queue chip and the view selector are at least 44px tall on phones (and the chips 44px wide)', async () => {
+    renderAt('/admin/communications')
+    await screen.findByText('Rudo Banda')
+    const chips = within(screen.getByRole('group', { name: 'Filter threads by workflow queue' })).getAllByRole('button')
+    expect(chips.length).toBeGreaterThan(5)
+    for (const chip of chips) {
+      expect(chip.className).toContain('max-sm:min-h-11')
+      expect(chip.className).toContain('max-sm:min-w-11')
+    }
+    expect(screen.getByTestId('view-selector').className).toContain('max-sm:min-h-11')
+  })
+})
+
 describe('H5 — every Command Center section has a real document title', () => {
   it.each([
     ['/admin/communications', 'Inbox · Command Center · CarUp Admin'],

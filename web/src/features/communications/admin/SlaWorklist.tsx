@@ -113,7 +113,7 @@ export function SlaWorklist({ threads, counts, onOpen, loading = false }: SlaWor
                     data-testid="sla-row"
                     data-sla-state={thread.slaState}
                     aria-label={`Open ${thread.title}${thread.reference ? ` (${thread.reference})` : ''}`}
-                    className="w-full flex items-center gap-3 rounded-lg border p-2.5 text-left hover:bg-gray-50 transition-colors"
+                    className="w-full flex items-center gap-3 rounded-lg border p-2.5 text-left hover:bg-gray-50 transition-colors max-sm:min-h-11"
                   >
                     <ChannelIcon channel={thread.channel} size={16} />
                     <div className="min-w-0 flex-1">

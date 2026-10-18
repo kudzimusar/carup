@@ -11,8 +11,9 @@ export interface ChannelFilterBarProps {
   onSelect: (channel: string | null) => void
 }
 
+// CA-OWNER-02: ≥44×44 CSS px on phones (max-sm only — desktop unchanged).
 function chipClass(isActive: boolean): string {
-  return `flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+  return `flex items-center justify-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors max-sm:min-h-11 max-sm:min-w-11 max-sm:px-3 ${
     isActive ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
   }`
 }

@@ -750,7 +750,7 @@ export default function AdminCommunications() {
                       aria-pressed={isActive}
                       title={f.label}
                       data-testid={`queue-${f.value}`}
-                      className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] border transition-colors ${isActive ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      className={`flex items-center justify-center gap-1 rounded-full px-2.5 py-1 text-[11px] border transition-colors max-sm:min-h-11 max-sm:min-w-11 max-sm:px-3 ${isActive ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
                       {f.label}
                       <span className={`text-[10px] font-semibold tabular-nums ${isActive ? 'opacity-90' : 'opacity-60'}`}>{counts[f.value] ?? 0}</span>
