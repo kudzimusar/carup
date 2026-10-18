@@ -83,15 +83,21 @@ const stateOf = async (db, id) => (await db.query('SELECT state FROM corporate_m
 // ═════════════ 1 · the migration file ═════════════
 
 // CA-K3-AUTH-03 (Phase B), CA-K3-AUTH-04 (Phase C), CA-K3-AUTH-05, and its additive
-// atomic-registration closure are intentionally dated AFTER this migration. Each named successor
-// must prove a real dependency; every other later migration remains forbidden.
+// atomic-registration closure are intentionally dated AFTER this migration and remain its declared
+// authority successors. The accepted BE2 transaction→ownership lineage migration is a later,
+// independent programme migration and must also retain its unique, ordered canonical version.
 const PHASE_B_SUCCESSOR = '20261014020000_ca_k3_auth_03_corporate_membership_governance.sql';
 const PHASE_C_SUCCESSOR = '20261015010000_ca_k3_auth_04_corporate_permission_authority.sql';
 const AUTH_05_SUCCESSOR = '20261016010000_ca_k3_auth_05_session_identity_authority.sql';
 const AUTH_05_R4_SUCCESSOR = '20261016163834_ca_k3_auth_05_r4_atomic_owner_registration.sql';
-test('file: a canonical migration, sorted before only its four declared authority successors, with a unique version', () => {
+const BE2_ACCEPTED_SUCCESSOR = '20261016182000_lr2c_be2_transaction_ownership_transfer_lineage.sql';
+test('file: a canonical migration, ordered before its four authority successors and accepted later BE2 migration, with a unique version', () => {
   const all = readdirSync(DIR).filter((f) => /^\d{14}_.+\.sql$/.test(f)).sort();
-  assert.deepEqual(all.filter((f) => f > FILE), [PHASE_B_SUCCESSOR, PHASE_C_SUCCESSOR, AUTH_05_SUCCESSOR, AUTH_05_R4_SUCCESSOR], 'nothing but the declared Phase-B, Phase-C and AUTH-05 successors sorts after this migration');
+  assert.deepEqual(
+    all.filter((f) => f > FILE),
+    [PHASE_B_SUCCESSOR, PHASE_C_SUCCESSOR, AUTH_05_SUCCESSOR, AUTH_05_R4_SUCCESSOR, BE2_ACCEPTED_SUCCESSOR],
+    'only the four declared Corporate authority successors and the accepted later BE2 lineage migration may sort after this migration',
+  );
   assert.match(readFileSync(new URL(PHASE_B_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the Phase-B successor really depends on this migration');
   assert.match(readFileSync(new URL(PHASE_C_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the Phase-C successor really depends on this migration');
   const auth05 = readFileSync(new URL(AUTH_05_SUCCESSOR, DIR), 'utf8');
@@ -100,6 +106,9 @@ test('file: a canonical migration, sorted before only its four declared authorit
   const auth05R4 = readFileSync(new URL(AUTH_05_R4_SUCCESSOR, DIR), 'utf8');
   assert.match(auth05R4, /session_authority_issue/, 'the R4 atomic registration successor reuses the accepted AUTH-05 issuance boundary');
   assert.match(auth05R4, /carup_session_authority/, 'the R4 successor retains the dedicated AUTH-05 authority');
+  const be2 = readFileSync(new URL(BE2_ACCEPTED_SUCCESSOR, DIR), 'utf8');
+  assert.match(be2, /transaction_intent_id/, 'the accepted later BE2 migration is the transaction-linked ownership-lineage authority');
+  assert.match(be2, /vehicle_ownership_transfers/, 'BE2 still binds transaction lineage to the canonical ownership-transfer relation');
   assert.equal(all.filter((f) => f.startsWith(FILE.slice(0, 14))).length, 1, 'no shared version');
   assert.ok(UP.length > 500 && DOWN.length > 20);
 });
