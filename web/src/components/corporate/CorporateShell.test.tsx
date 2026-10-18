@@ -755,6 +755,99 @@ describe('CA-OWNER-02 · leaving Corporate Admin for the operational Admin is an
   })
 })
 
+/** The value a card states for a term (cards are definition lists: <dt>term</dt><dd>value</dd>). */
+const field = (card: HTMLElement, term: string) => within(card).getByText(term, { selector: 'dt' }).nextElementSibling as HTMLElement
+/** True when the element or an ancestor up to `root` carries a Tailwind `hidden` utility at some breakpoint. */
+const hiddenAtSomeWidth = (el: Element, root: Element) => {
+  for (let n: Element | null = el; n && n !== root; n = n.parentElement) {
+    if ((n.getAttribute('class') ?? '').split(/\s+/).some((c) => /^(?:[a-z0-9-]+:)?hidden$/.test(c))) return true
+  }
+  return false
+}
+const tokens = (el: Element | null | undefined) => (el?.getAttribute('class') ?? '').split(/\s+/)
+
+describe('CA-OWNER-02 · People & Access below md: each record is a stacked card; md and up keep the tables', () => {
+  async function renderProjection() {
+    await renderAdmitted('/corporate/people-access')
+    return screen.findByTestId('people-access-projection')
+  }
+
+  it('each active membership is a card: person, organisation node, state, effective period, recorded by — lineage on request', async () => {
+    await renderProjection()
+    const cards = screen.getAllByTestId('people-membership-card')
+    expect(cards.map((c) => c.getAttribute('data-membership-id'))).toEqual(['4fe98efd-df6a-40bb-81f6-9869b2764271', '82726780-cf3b-4502-beb1-91f604e84453'])
+    const [a, b] = cards
+    expect(field(a, 'Person')).toHaveTextContent('Governor Agovernor-a@example.invalid')
+    expect(field(a, 'Organisation node')).toHaveTextContent(/^CarUp Corporate \(CARUP_CORPORATE\)$/)
+    expect(field(a, 'State')).toHaveTextContent(/^ACTIVE$/)
+    expect(field(a, 'Effective')).toHaveTextContent(/^2026-10-17 → no end date$/)
+    expect(field(a, 'Recorded by')).toHaveTextContent('Governor B')
+    expect(field(b, 'Person')).toHaveTextContent('Governor B')
+    expect(field(b, 'Recorded by')).toHaveTextContent('Governor A')
+    const lineage = within(a).getByTestId('people-membership-lineage')
+    expect(lineage.tagName).toBe('DETAILS')
+    expect(lineage).not.toHaveAttribute('open')
+    expect(field(lineage, 'Reason')).toHaveTextContent(/^OD-CARBAC-002 Owner-authorized initial Corporate governance bootstrap$/)
+    expect(field(lineage, 'Reference')).toHaveTextContent(/^CA-BOOTSTRAP-01$/)
+  })
+
+  it('each active assignment is a card: person, capability gloss + stored code, scope + descendant rule, floor, period in force, approved / activated by', async () => {
+    await renderProjection()
+    const cards = screen.getAllByTestId('people-assignment-card')
+    expect(cards.map((c) => c.getAttribute('data-assignment-id'))).toEqual([
+      '5445781b-684c-4e68-9e6a-0b79d5970243', '414d25c0-8459-4def-99bd-08b6ef625e33', 'cf8ca31c-f175-43b8-a221-2dc4b1d41ed3', '71f220a2-8be4-4eb3-8adc-c9b477dce242',
+    ])
+    const [first, second, third] = cards
+    expect(field(first, 'Person')).toHaveTextContent('Governor A')
+    expect(field(first, 'Capability')).toHaveTextContent(/^Govern Corporate membershipscorporate\.people\.membership\.manage$/)
+    expect(within(field(first, 'Capability')).getByText('corporate.people.membership.manage').tagName).toBe('CODE')
+    expect(field(second, 'Capability')).toHaveTextContent(/^Revoke Corporate sign-in sessionscorporate\.people\.session\.revoke$/)
+    expect(field(first, 'Scope')).toHaveTextContent(/^CarUp Corporate \(CARUP_CORPORATE\)and every node below it$/)
+    expect(field(first, 'Assurance floor')).toHaveTextContent(/^A1 — recent password re-authentication$/)
+    expect(field(first, 'Effective')).toHaveTextContent(/^2026-10-17 → 2027-10-17ACTIVE · in force now$/)
+    expect(field(first, 'Approved / activated by')).toHaveTextContent('Governor B')
+    expect(field(third, 'Approved / activated by')).toHaveTextContent('Governor A')
+    const lineage = within(first).getByTestId('people-assignment-lineage')
+    expect(lineage.tagName).toBe('DETAILS')
+    expect(lineage).not.toHaveAttribute('open')
+    expect(field(lineage, 'Requested by')).toHaveTextContent('Governor A')
+    expect(field(lineage, 'Reference')).toHaveTextContent(/^CA-BOOTSTRAP-01$/)
+  })
+
+  it('the cards are the narrow layout and the tables the md-and-up layout; counts and the "as of" line show at every width', async () => {
+    const projection = await renderProjection()
+    for (const id of ['people-memberships-table', 'people-assignments-table']) {
+      const scroller = screen.getByTestId(id).parentElement
+      expect(tokens(scroller), id).toEqual(expect.arrayContaining(['hidden', 'md:block']))
+    }
+    for (const id of ['people-membership-cards', 'people-assignment-cards']) {
+      expect(tokens(screen.getByTestId(id)), id).toContain('md:hidden')
+      expect(tokens(screen.getByTestId(id)), id).not.toContain('hidden')
+    }
+    for (const id of ['people-membership-count', 'people-assignment-count', 'people-access-as-of']) {
+      expect(hiddenAtSomeWidth(screen.getByTestId(id), projection), id).toBe(false)
+    }
+    expect(screen.getByTestId('people-access-as-of')).toHaveTextContent('as of 2026-10-17 10:00 UTC')
+    // The desktop tables keep every row and their own test ids.
+    expect(screen.getAllByTestId('people-membership-row')).toHaveLength(2)
+    expect(screen.getAllByTestId('people-assignment-row')).toHaveLength(4)
+  })
+
+  it('a refused or unreadable projection shows no card either', async () => {
+    projectionFor = () => ({ status: 403, body: { code: 'CORPORATE_PEOPLE_ACCESS_DENIED' } })
+    const first = await renderAdmitted('/corporate/people-access')
+    await screen.findByTestId('people-access-denied')
+    expect(screen.queryByTestId('people-membership-card')).toBeNull()
+    expect(screen.queryByTestId('people-assignment-card')).toBeNull()
+    first.unmount()
+    projectionFor = () => ({ status: 200, body: { ...PEOPLE_ACCESS_PROJECTION, read_only: false } })
+    await renderAdmitted('/corporate/people-access')
+    await screen.findByTestId('people-access-unavailable')
+    expect(screen.queryByTestId('people-membership-card')).toBeNull()
+    expect(screen.queryByTestId('people-assignment-card')).toBeNull()
+  })
+})
+
 describe('CA-CLOSE-01 · persistent Corporate admission and the People & Access projection', () => {
   it('Governor B — a platform OWNER admitted by persistent authority alone — enters Corporate Admin; the root opens People & Access', async () => {
     answerFor = (t) => (t === 'tok-u-owner' ? { status: 200, body: OWNER_GOVERNOR_GRANT } : defaultAnswer(t))
