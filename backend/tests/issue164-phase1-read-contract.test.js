@@ -266,7 +266,7 @@ const PUBLIC_PROJECTION_SERVICE_DIRS = [
   path.join(SERVICES_DIR, 'recommendation'),
 ];
 
-const AUTH_MIDDLEWARE = /authorizeRole|requirePartnerScope|requireAuth|authenticate\b|requireRole|verifyToken|requireAdmin|adminOnly/;
+const AUTH_MIDDLEWARE = /authorizeSessionRole|authorizeRole|requirePartnerScope|requireAuth|authenticate\b|requireRole|verifyToken|requireAdmin|adminOnly/;
 
 const ROUTE_REGISTRATION =
   /\b(?:app|router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*(['"`])([^'"`]*)\2\s*,([\s\S]{0,240}?)(?:async\s*)?\(\s*(?:req|_req)\s*[,)]/g;
@@ -502,6 +502,29 @@ const publicServiceReads = scanFiles(PUBLIC_PROJECTION_SERVICE_DIRS.flatMap(jsFi
 const describeSite = site =>
   `${site.label}:${site.line} (${site.route}) `
   + `${site.kind === 'embed' ? 'vehicles' : 'select'}(${site.args.slice(0, 120)})`;
+
+test('the scanner treats /api/vehicles/me as authenticated only when its real-session boundary is present', () => {
+  const ownedStar = routeLayerReads.find(
+    site => site.label === 'server.js'
+      && site.route === 'GET /api/vehicles/me'
+      && site.kind === 'table'
+      && site.star,
+  );
+  assert.ok(ownedStar, 'the scanner must continue to see the owned-vehicle select(*) read');
+  assert.equal(ownedStar.anonymous, false, 'authorizeSessionRole([]) makes /api/vehicles/me an authenticated read');
+
+  const src = readFileSync(SERVER_JS, 'utf8');
+  assert.match(
+    src,
+    /app\.get\('\/api\/vehicles\/me',\s*authorizeSessionRole\(\[\]\)/,
+    'the owned-vehicle route must remain behind the accepted real-session middleware',
+  );
+  assert.match(
+    src,
+    /applyMyVehiclesScope\(vehicleQuery,\s*req\.userContext\)/,
+    'the authenticated identity must still be passed through the accepted ownership/seller scope helper',
+  );
+});
 
 /** Register key for an embed: file, route and exact embed body, no line number. */
 const embedKey = site => `${site.label} (${site.route}) vehicles(${site.args})`;
