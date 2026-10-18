@@ -13,6 +13,8 @@ export const CONVERSATION_TRUTH_UNAVAILABLE = 'CONVERSATION_TRUTH_UNAVAILABLE';
 // PostgREST returns at most this many rows per request (Supabase's default max-rows), so the classified window is read in
 // pages of it — the same assumption as readAllPages (intelligence/rollupService.js).
 const WINDOW_PAGE = 1000;
+// A PostgREST GET carries an IN list in its URL, so a window's worth of ids is read in chunks of this many.
+const IN_CHUNK = 100;
 
 function threadWindowSize() {
   const configured = Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000);
@@ -389,20 +391,38 @@ export class CommunicationRepository {
     return this.projectRows(threadRows, ctx);
   }
 
+  // CA-OWNER-02: a window holds up to 2000 threads, so its related rows are read in bounded requests (listIn) — one IN
+  // list over every id is a URL a gateway refuses, and an unpaged read silently stops at the PostgREST row limit.
   async projectRows(threadRows, ctx = {}) {
     if (!threadRows.length) return [];
     const ids = threadRows.map((t) => t.id);
     const [participants, messages] = await Promise.all([
-      this.list('message_participants', { thread_id: ids }),
-      this.list('messages', { thread_id: ids }),
+      this.listIn('message_participants', 'thread_id', ids),
+      this.listIn('messages', 'thread_id', ids),
     ]);
     const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
-    const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
+    const identities = identityIds.length ? await this.listIn('channel_identities', 'id', identityIds) : [];
     // Registered-user identity fallback (P1.8): resolve threads with no requester channel identity to
     // their CarUp user profile via primary_user_id.
     const userIds = [...new Set(threadRows.map((t) => t.primary_user_id).filter(Boolean))];
-    const users = userIds.length ? await this.list('users', { id: userIds }).catch(() => []) : [];
+    const users = userIds.length ? await this.listIn('users', 'id', userIds).catch(() => []) : [];
     return projectInboxThreads(threadRows, { participants, identities, messages, users }, { agentId: ctx.userId ?? null });
+  }
+
+  /** Every `table` row whose `key` is in `values`: IN lists of at most IN_CHUNK ids, each paged to the row limit. */
+  async listIn(table, key, values) {
+    const rows = [];
+    for (let i = 0; i < values.length; i += IN_CHUNK) {
+      const slice = values.slice(i, i + IN_CHUNK);
+      for (let from = 0; ; from += WINDOW_PAGE) {
+        const { data, error } = await this.client.from(table).select('*').in(key, slice).order('id').range(from, from + WINDOW_PAGE - 1);
+        if (error) throw this.toDatabaseError(`${table} list failed: ${error.message}`, error);
+        const batch = data || [];
+        rows.push(...batch);
+        if (batch.length < WINDOW_PAGE) break;
+      }
+    }
+    return rows;
   }
 
   async threadCounts(params = {}, ctx = {}) {

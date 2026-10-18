@@ -110,7 +110,7 @@ export async function loadNotificationForRequest(services, req, res) {
 
 function truthUnavailableBody() {
   return {
-    error: 'Conversation classification is unavailable right now, so nothing is shown as classified. Retry, or open the "All" view.',
+    error: 'Conversation classification is unavailable right now, so nothing is shown as classified. Retry shortly.',
     code: CONVERSATION_TRUTH_UNAVAILABLE,
   };
 }

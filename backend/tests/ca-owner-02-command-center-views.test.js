@@ -214,6 +214,42 @@ test('a tenant operator\'s classified window is THEIR tenant\'s — other tenant
   assert.deepEqual(orphan.body.threads, []);
 });
 
+test('a full window is read in bounded requests: no IN list longer than 100 ids, no page beyond the row limit', async () => {
+  const bulk = Array.from({ length: 450 }, (_, i) => accountThread(`t-${String(i).padStart(4, '0')}`, BUYER.id, 1 + i / 1000));
+  const world = seedWorld({ threads: bulk });
+  // 12 messages per thread: a 100-thread chunk holds 1200 message rows, more than one PostgREST page.
+  for (const t of bulk) for (let k = 0; k < 12; k += 1) world.rows('messages').push({ id: `${t.id}-m${String(k).padStart(2, '0')}`, thread_id: t.id, direction: 'inbound', channel: 'whatsapp', created_at: ago(2 + k) });
+  let largestIn = 0;
+  const MAX_ROWS = 1000;
+  const strict = {
+    rpc: (...args) => world.client.rpc(...args),
+    from(table) {
+      const q = world.client.from(table);
+      const realIn = q.in.bind(q);
+      const realRange = q.range.bind(q);
+      const realThen = q.then.bind(q);
+      let ranged = false;
+      q.in = (key, values) => {
+        largestIn = Math.max(largestIn, values.length);
+        // A PostgREST GET carries the IN list in its URL; a gateway refuses an oversized one.
+        if (values.length > 100) throw new Error(`414 URI Too Long (${table}.${key}: ${values.length} ids)`);
+        return realIn(key, values);
+      };
+      q.range = (a, b) => { ranged = true; return realRange(a, Math.min(b, a + MAX_ROWS - 1)); };
+      // PostgREST's max-rows: an unpaged read silently stops at 1000 rows.
+      q.then = (resolve, reject) => realThen((r) => resolve(ranged || !Array.isArray(r?.data) ? r : { ...r, data: r.data.slice(0, MAX_ROWS) }), reject);
+      return q;
+    },
+  };
+  const { list } = routes(world, new CommunicationRepository({ client: strict }));
+  const { statusCode, body } = await list({ view: 'all', limit: '500' });
+  assert.equal(statusCode, 200, JSON.stringify(body).slice(0, 300));
+  assert.equal(body.threads.length, 450);
+  assert.ok(largestIn <= 100, `largest IN list was ${largestIn}`);
+  const short = body.threads.filter((t) => t.unread_count !== 12).map((t) => `${t.id}:${t.unread_count}`);
+  assert.deepEqual(short, [], 'every thread\'s messages were read — none lost to the row limit');
+});
+
 test('an unknown view is refused (400), never silently "all"', async () => {
   const { list } = routes(seedWorld());
   const { statusCode, body } = await list({ view: 'everything' });
