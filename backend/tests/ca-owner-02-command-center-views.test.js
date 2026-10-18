@@ -193,6 +193,27 @@ test('a saturated window is reported: truth_complete is false, never a silently 
   assert.deepEqual(ids(body).sort(), ['t-guest', 't-op', 't-uat'], 'the three most recently updated');
 });
 
+test('a tenant operator\'s classified window is THEIR tenant\'s — other tenants never fill it, and a tenant-less caller sees nothing', async (t) => {
+  const saved = process.env.COMMUNICATION_THREAD_WINDOW;
+  t.after(() => { if (saved === undefined) delete process.env.COMMUNICATION_THREAD_WINDOW; else process.env.COMMUNICATION_THREAD_WINDOW = saved; });
+  process.env.COMMUNICATION_THREAD_WINDOW = '2';
+  const world = seedWorld({
+    threads: [
+      inquiryThread('t-b1', 'inq-real', 1, { tenant_id: 'tenant-b' }),
+      inquiryThread('t-b2', 'inq-real', 2, { tenant_id: 'tenant-b' }),
+      inquiryThread('t-b3', 'inq-real', 3, { tenant_id: 'tenant-b' }),
+      inquiryThread('t-a1', 'inq-real', 4, { tenant_id: 'tenant-a' }),
+    ],
+  });
+  const router = createAdminCommunicationRouter({ services: { repository: new CommunicationRepository({ client: world.client }) } });
+  const list = handlerOf(router, 'get', '/api/admin/communications/threads');
+  const tenantA = await call(list, { query: { view: 'all' }, userContext: { id: 'agent-a', role: 'support', platformRole: 'support', tenantId: 'tenant-a' } });
+  assert.deepEqual(ids(tenantA.body), ['t-a1'], 'tenant B\'s newer threads do not crowd tenant A out of its own window');
+  assert.equal(tenantA.body.truth_complete, true);
+  const orphan = await call(list, { query: { view: 'all' }, userContext: { id: 'x', role: 'support', platformRole: 'support', tenantId: null } });
+  assert.deepEqual(orphan.body.threads, []);
+});
+
 test('an unknown view is refused (400), never silently "all"', async () => {
   const { list } = routes(seedWorld());
   const { statusCode, body } = await list({ view: 'everything' });

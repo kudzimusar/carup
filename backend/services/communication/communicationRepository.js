@@ -284,7 +284,12 @@ export class CommunicationRepository {
 
   async searchThreadsClassified(params, ctx, p, options) {
     const size = threadWindowSize();
-    const { rows, saturated } = await this.readThreadWindow(size);
+    // The window is the CALLER's: a tenant operator's is read inside their tenant (so other tenants never crowd it out
+    // or saturate it), and a caller with neither platform role nor tenant reads nothing (fail-closed, as scopeThreads).
+    if (!ctx.isPlatform && !ctx.tenantId) {
+      return runClassifiedQuery([], params, ctx, p, { ...options, window: { size, read: 0, saturated: false } });
+    }
+    const { rows, saturated } = await this.readThreadWindow(size, { tenantId: ctx.isPlatform ? null : ctx.tenantId });
     const projected = await this.projectRows(rows, ctx);
     return runClassifiedQuery(scopeThreads(projected, ctx), params, ctx, p, {
       ...options,
@@ -293,16 +298,18 @@ export class CommunicationRepository {
   }
 
   /**
-   * The `size` most recently updated threads, read in PostgREST-sized pages. One row beyond the window is requested, so
-   * `saturated` is a fact (more threads exist) rather than a guess from a full page.
+   * The `size` most recently updated threads (of one tenant, when given), read in PostgREST-sized pages. One row beyond
+   * the window is requested, so `saturated` is a fact (more threads exist) rather than a guess from a full page.
    */
-  async readThreadWindow(size) {
+  async readThreadWindow(size, { tenantId = null } = {}) {
     const target = size + 1;
     const rows = [];
     while (rows.length < target) {
       const from = rows.length;
       const to = Math.min(target, from + WINDOW_PAGE) - 1;
-      const { data, error } = await this.client.from('message_threads').select('*')
+      let query = this.client.from('message_threads').select('*');
+      if (tenantId) query = query.eq('tenant_id', tenantId);
+      const { data, error } = await query
         .order('updated_at', { ascending: false })
         .order('id', { ascending: false })
         .range(from, to);
