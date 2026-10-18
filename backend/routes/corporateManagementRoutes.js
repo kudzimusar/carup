@@ -19,7 +19,10 @@ import { environmentFromHost } from '../services/corporate/management/platformFa
 
 const router = express.Router();
 
-const SNAPSHOT_TTL_MS = 20_000;
+// One staging snapshot serves every area for a minute. Every figure carries its own as-of time, so a cached figure never
+// looks fresher than it is; a slow technical source (the scheduler-health RPC scans cron history) is paid once a minute,
+// not on every page.
+const SNAPSHOT_TTL_MS = 60_000;
 let cached = null; // { key, at, promise }
 
 function snapshotFor(host) {
