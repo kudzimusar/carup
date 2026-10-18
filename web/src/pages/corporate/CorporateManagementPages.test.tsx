@@ -100,7 +100,7 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
     expect(within(items[0]).getByTestId('attention-meta')).toHaveTextContent('message_threads + messages')
     expect(within(items[0]).getByTestId('attention-meta')).toHaveTextContent('As of 2026-10-18 00:00 UTC')
     const operate = within(items[0]).getByRole('link', { name: /Open communications inbox/ })
-    expect(operate).toHaveAttribute('href', '/admin/communications')
+    expect(operate).toHaveAttribute('href', '/admin/communications?from=corporate')
     expect(operate.className).toMatch(/min-h-\[44px\]/)
     expect(items[1]).toHaveTextContent('Identity verification cases awaiting a reviewer')
     expect(within(items[1]).getByTestId('attention-age')).toHaveTextContent('Waiting since 2026-09-20 · 28 days')
@@ -208,7 +208,7 @@ describe('B · Operations and Trust show named queues from their own authorities
     expect(rows[0]).toHaveTextContent('Waiting since 2026-10-01')
     expect(rows[0]).toHaveTextContent('No governed target exists for this queue, so nothing is called late.')
     expect(rows[0]).toHaveTextContent('Marketplace Operations')
-    expect(within(rows[0]).getByRole('link', { name: /Open Listings awaiting moderation review/ })).toHaveAttribute('href', '/admin/moderation')
+    expect(within(rows[0]).getByRole('link', { name: /Open Listings awaiting moderation review/ })).toHaveAttribute('href', '/admin/moderation?from=corporate')
     expect(rows[1]).toHaveTextContent('Nothing is waiting (complete read).')
   })
 
@@ -322,12 +322,23 @@ describe('G · Reports shows the Corporate Staging Management Summary as a live 
   })
 })
 
-describe('K · phone-width affordances', () => {
-  it.each(['/corporate', '/corporate/operations', '/corporate/trust-risk'])('every link into the operational Admin on %s is a 44 px target', async (path) => {
+describe('K · J · links into the operational Admin', () => {
+  it.each(['/corporate', '/corporate/operations', '/corporate/trust-risk', '/corporate/growth', '/corporate/platform'])('on %s every one is a 44 px target that carries the "came from Corporate Admin" marker', async (path) => {
     const main = await open(path)
     await waitFor(() => expect(within(main).queryAllByTestId('management-fact').length).toBeGreaterThan(0))
     const links = within(main).getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/admin'))
     expect(links.length).toBeGreaterThan(0)
-    for (const a of links) expect(a.className, a.textContent ?? '').toMatch(/min-h-\[44px\]/)
+    for (const a of links) {
+      expect(a.className, a.textContent ?? '').toMatch(/min-h-\[44px\]/)
+      expect(new URLSearchParams(a.getAttribute('href')?.split('?')[1] ?? '').get('from'), a.textContent ?? '').toBe('corporate')
+    }
+  })
+
+  it('cross-plane operate links name the operational Admin and that the platform role applies there', async () => {
+    const main = await open('/corporate/operations')
+    await within(main).findByTestId('operations-communications')
+    const link = within(within(main).getByTestId('operations-operate')).getAllByTestId('operate-link')[0]
+    expect(link).toHaveTextContent('Operational Admin — your platform role applies there')
+    expect(link.textContent).not.toMatch(/current operational Admin/)
   })
 })

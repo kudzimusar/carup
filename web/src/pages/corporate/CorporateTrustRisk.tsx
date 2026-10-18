@@ -20,7 +20,7 @@ export default function CorporateTrustRisk() {
       </Section>
       <Section title="Restricted operator queues" testId="trust-operate">
         <StatementPanel>Seeing an aggregate here does not grant access to the records behind it. The operator queues below enforce their own authority on every request.</StatementPanel>
-        <OperateLinks links={OPERATE_LINKS['trust-risk']} from="business_operations" title="Operate — review queues on the current operational Admin" />
+        <OperateLinks links={OPERATE_LINKS['trust-risk']} from="business_operations" title="Operate — review queues in Operational Admin" />
       </Section>
     </CorporatePage>
   )

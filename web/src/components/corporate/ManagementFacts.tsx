@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import { AlertCircle, ArrowUpRight, Clock, Lock, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MetricSlotView, TruthStateBadge } from '@/components/corporate/TruthState'
+import { withCorporateArrival } from '@/components/admin/adminArrival'
 import { factToSlot, type AttentionItem, type FactWindow, type ManagementFact, type ManagementResult, type QueueView } from '@/lib/corporate/management'
 import { presentSlot } from '@/lib/corporate/truthState'
 
@@ -159,9 +160,10 @@ const CATEGORY_LABEL: Record<AttentionItem['category'], string> = {
 
 const operateClass = 'inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500'
 
+/** A jump into the operational Admin, carrying the "came from Corporate Admin" marker (adminArrival). */
 export function OperateButton({ to, label }: { to: string; label: string }) {
   return (
-    <Link to={to} className={operateClass} data-testid="operate-action">
+    <Link to={withCorporateArrival(to)} className={operateClass} data-testid="operate-action">
       {label} <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     </Link>
   )

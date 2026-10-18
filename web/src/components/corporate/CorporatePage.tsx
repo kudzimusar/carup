@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { ArrowUpRight, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CORPORATE_PLANES, CORPORATE_ROOT, destinationById, type CorporateDestinationId, type CorporatePlaneId, type OperateLink } from '@/config/corporate/navigation'
+import { withCorporateArrival } from '@/components/admin/adminArrival'
 import { CorporateContextBar } from './CorporateContext'
 import { NO_CONTEXT_SUPPORT, useCorporateContext, type PageContextSupport } from '@/lib/corporate/corporateContextState'
 
@@ -104,7 +105,8 @@ export function Section({
 /**
  * Explicit cross-plane jumps to existing operational surfaces. Each names the queue it opens and the
  * plane it lands in; none of them is presented as a KPI drill-down, and no mutation control is
- * copied onto the Corporate page.
+ * copied onto the Corporate page. CA-OWNER-02 (J): each says it lands in the operational Admin, where
+ * the platform role applies, and carries the "came from Corporate Admin" marker (adminArrival).
  */
 export function OperateLinks({ links, from, title = 'Operate — existing operational surfaces' }: { links: readonly OperateLink[]; from: CorporatePlaneId; title?: string }) {
   if (links.length === 0) return null
@@ -117,7 +119,7 @@ export function OperateLinks({ links, from, title = 'Operate — existing operat
           return (
             <li key={`${l.route}-${l.label}`}>
               <Link
-                to={l.route}
+                to={withCorporateArrival(l.route)}
                 className="group flex min-h-[44px] items-start justify-between gap-3 px-3 py-2.5 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange-500"
                 data-testid="operate-link"
                 data-cross-plane={cross ? 'true' : 'false'}
@@ -128,7 +130,7 @@ export function OperateLinks({ links, from, title = 'Operate — existing operat
                   <span className="block text-xs text-slate-500">{l.description}</span>
                   <span className="mt-1 block text-[11px] text-slate-500">
                     {cross ? 'Leaves ' : 'Stays in '}{CORPORATE_PLANES[from].label}
-                    {cross ? ` → opens in ${CORPORATE_PLANES[l.plane].label}` : ''} · current operational Admin
+                    {cross ? ` → opens in ${CORPORATE_PLANES[l.plane].label}` : ''} · Operational Admin — your platform role applies there
                   </span>
                 </span>
                 <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 group-hover:text-slate-700" aria-hidden="true" />

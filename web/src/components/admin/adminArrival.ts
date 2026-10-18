@@ -14,3 +14,16 @@ export const OPERATIONAL_ADMIN_FROM_CORPORATE = `/admin?${ARRIVAL_PARAM}=${FROM_
 export function arrivedFromCorporate(search: string): boolean {
   return new URLSearchParams(search).get(ARRIVAL_PARAM) === FROM_CORPORATE
 }
+
+/**
+ * A Corporate link into the operational Admin, carrying the arrival marker — the route's own query and fragment are kept.
+ * Any route outside `/admin` is returned unchanged.
+ */
+export function withCorporateArrival(route: string): string {
+  const [beforeHash, hash = ''] = route.split('#', 2)
+  const [path, query = ''] = beforeHash.split('?', 2)
+  if (path !== '/admin' && !path.startsWith('/admin/')) return route
+  const params = new URLSearchParams(query)
+  params.set(ARRIVAL_PARAM, FROM_CORPORATE)
+  return `${path}?${params.toString()}${hash ? `#${hash}` : ''}`
+}

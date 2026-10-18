@@ -29,7 +29,7 @@ export default function CorporateOperations() {
         </>
       )}
       <Section title="Work the queues" description="Decisions are made on the existing operational surfaces, which remain the authority for every action." testId="operations-operate">
-        <OperateLinks links={OPERATE_LINKS.operations} from="business_operations" title="Operate — queues on the current operational Admin" />
+        <OperateLinks links={OPERATE_LINKS.operations} from="business_operations" title="Operate — queues in Operational Admin" />
       </Section>
     </CorporatePage>
   )
