@@ -250,6 +250,25 @@ test('a full window is read in bounded requests: no IN list longer than 100 ids,
   assert.deepEqual(short, [], 'every thread\'s messages were read — none lost to the row limit');
 });
 
+test('a search still finds a conversation by its customer\'s account email or phone — and by the seller\'s, as the DB search did — inside the view', async () => {
+  const world = seedWorld();
+  const { error } = await world.client.from('users').update({ phone: '+263771234567' }).eq('id', BUYER.id);
+  assert.equal(error ?? null, null);
+  const { list } = routes(world);
+  // The inquiry thread's primary user is the SELLER; its customer is the inquiry's BUYER (H3). Either account finds it.
+  const byEmail = await list({ view: 'active', search: 'real.buyer@gmail.com' });
+  assert.equal(byEmail.statusCode, 200);
+  assert.deepEqual(ids(byEmail.body), ['t-op']);
+  assert.equal(byEmail.body.view_counts.all, 1, 'the views are counted over the searched candidates');
+  assert.deepEqual(ids((await list({ view: 'all', search: '771234567' })).body), ['t-op']);
+  assert.deepEqual(ids((await list({ view: 'all', search: 'real.seller@gmail.com' })).body), ['t-op', 't-guest', 't-uat']);
+  // A search never widens a view, and a term nobody matches finds nothing.
+  assert.deepEqual(ids((await list({ view: 'certification', search: 'real.buyer@gmail.com' })).body), []);
+  assert.deepEqual(ids((await list({ view: 'all', search: 'nobody@nowhere.invalid' })).body), []);
+  // The in-row fields still match on their own (a message text).
+  assert.deepEqual(ids((await list({ view: 'all', search: 'Is it available' })).body), ['t-op']);
+});
+
 test('an unknown view is refused (400), never silently "all"', async () => {
   const { list } = routes(seedWorld());
   const { statusCode, body } = await list({ view: 'everything' });

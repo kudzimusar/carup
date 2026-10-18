@@ -108,7 +108,7 @@ function runQuery(rows, params, ctx, p) {
  * the same filtered candidates (facets). `truth_complete` is false whenever the candidate window was saturated — the
  * classification then covers only the most recently updated conversations, and the caller must say so.
  */
-async function runClassifiedQuery(rows, params, ctx, p, { classify, view = 'all', window = null } = {}) {
+async function runClassifiedQuery(rows, params, ctx, p, { classify, view = 'all', window = null, accountMatches = null } = {}) {
   const decorations = await classify(rows);
   const classified = rows.map((row) => {
     const decoration = decorations?.get?.(String(row.id));
@@ -119,10 +119,19 @@ async function runClassifiedQuery(rows, params, ctx, p, { classify, view = 'all'
     }
     return { ...row, ...decoration };
   });
-  const query = engineParams(params, p);
   const engineCtx = { userId: ctx.userId, now: ctx.now ?? Date.now() };
-  const facets = viewCounts(summarizeConversationTruth(matchThreads(classified, query, engineCtx).map((row) => row.truth)));
-  const inView = classified.filter((row) => viewIncludesCategory(view, row.truth.category));
+  let query = engineParams(params, p);
+  let candidates = classified;
+  if (query.search && accountMatches) {
+    // The search covers the row's own fields (the engine's) OR an account the DB search matched by name/email/phone, which
+    // the row never carries. It is applied first, so the views are counted over the searched candidates.
+    const term = query.search;
+    candidates = classified.filter((row) => accountMatches.has(String(row.id))
+      || matchThreads([row], { search: term, include_terminal: true }, engineCtx).length === 1);
+    query = { ...query, search: null };
+  }
+  const facets = viewCounts(summarizeConversationTruth(matchThreads(candidates, query, engineCtx).map((row) => row.truth)));
+  const inView = candidates.filter((row) => viewIncludesCategory(view, row.truth.category));
   const result = buildThreadQuery(inView, query, engineCtx);
   result.page.mode = 'classified_window';
   return {
@@ -293,10 +302,37 @@ export class CommunicationRepository {
     }
     const { rows, saturated } = await this.readThreadWindow(size, { tenantId: ctx.isPlatform ? null : ctx.tenantId });
     const projected = await this.projectRows(rows, ctx);
-    return runClassifiedQuery(scopeThreads(projected, ctx), params, ctx, p, {
+    const scoped = scopeThreads(projected, ctx);
+    const accountMatches = p.search ? await this.accountSearchThreadIds(scoped, p.search) : null;
+    return runClassifiedQuery(scoped, params, ctx, p, {
       ...options,
       window: { size, read: rows.length, saturated },
+      accountMatches,
     });
+  }
+
+  /**
+   * CA-OWNER-02 — the account side of the inbox search, as search_communication_threads() has it: a registered user whose
+   * name, email or phone matches the term (searchable, never returned). A conversation matches through its primary user
+   * (what the DB search joined) or, on a Marketplace inquiry, through the inquiry's BUYER — the conversation's customer (H3).
+   * Returns the matching thread ids among `rows`.
+   */
+  async accountSearchThreadIds(rows, search) {
+    const term = String(search || '').trim();
+    if (!term || !rows.length) return new Set();
+    const userIds = new Set();
+    for (const column of ['name', 'email', 'phone']) {
+      const { data, error } = await this.client.from('users').select('id').ilike(column, `%${term}%`).limit(WINDOW_PAGE);
+      if (error) throw this.toDatabaseError(`users search failed: ${error.message}`, error);
+      for (const u of data || []) userIds.add(String(u.id));
+    }
+    if (!userIds.size) return new Set();
+    const inquiryIds = [...new Set(rows.filter((r) => r.subject_type === 'marketplace_inquiry' && r.subject_id).map((r) => String(r.subject_id)))];
+    const inquiries = inquiryIds.length ? await this.listIn('marketplace_inquiries', 'id', inquiryIds) : [];
+    const buyerByInquiry = new Map(inquiries.map((i) => [String(i.id), i.buyer_id == null ? null : String(i.buyer_id)]));
+    return new Set(rows.filter((r) => userIds.has(String(r.primary_user_id ?? ''))
+      || (r.subject_type === 'marketplace_inquiry' && userIds.has(buyerByInquiry.get(String(r.subject_id)) ?? '')))
+      .map((r) => String(r.id)));
   }
 
   /**
