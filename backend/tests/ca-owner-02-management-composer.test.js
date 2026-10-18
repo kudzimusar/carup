@@ -79,6 +79,11 @@ test('the registry has one row per served fact, plus the blocked measures — ne
   const listings = rows.find((r) => r.id === 'marketplace.listing.public');
   assert.equal(listings.usable, true);
   assert.equal(listings.certification, 'not_certified');
+  // The registry names what kind of fact each row is, so a live operational measure never reads as "Technical".
+  assert.equal(listings.kind, 'operational');
+  assert.equal(rows.find((r) => r.id === 'platform.session_authority').kind, 'technical');
+  assert.equal(rows.find((r) => r.id === 'corporate.governance.membership.active').kind, 'governance');
+  assert.equal(rows.find((r) => r.id === 'growth.customers').kind, null);
   const customers = rows.find((r) => r.id === 'growth.customers');
   assert.equal(customers.usable, false);
   assert.match(customers.reason, /OD-CAMETRIC-001/);

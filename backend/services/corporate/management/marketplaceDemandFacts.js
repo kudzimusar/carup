@@ -81,14 +81,14 @@ export async function readMarketplaceDemandFacts(client, { now = new Date(), win
       if (!base.complete) return { complete: false };
       return k2b(base.classified, (c) => deriveListingVisibility(c.vehicle).public_status === 'pending_review', (c) => c.vehicle.created_at);
     }),
-    run(spec('marketplace.inquiry.open', 'Open Marketplace inquiries', 'marketplace_inquiries · K2B (asker + listing)', {
+    run(spec('marketplace.inquiry.open', 'Open Marketplace inquiries (not sales)', 'marketplace_inquiries · K2B (asker + listing)', {
       detail: `Status ${OPEN_INQUIRY_STATUSES.join(', ')}. An inquiry is not a sale.`,
     }), async () => {
       const inq = await inquiries();
       if (!inq.complete) return { complete: false };
       return k2b(inq.classified, (c) => OPEN_INQUIRY_STATUSES.includes(c.row.status), (c) => c.row.created_at);
     }),
-    run(spec('marketplace.inquiry.recent', `Marketplace inquiries received (${windowDays} days)`, 'marketplace_inquiries · K2B (asker + listing)', { window }), async () => {
+    run(spec('marketplace.inquiry.recent', `Marketplace inquiries received — ${windowDays} days (not sales)`,'marketplace_inquiries · K2B (asker + listing)', { window }), async () => {
       const inq = await inquiries();
       if (!inq.complete) return { complete: false };
       return k2b(inq.classified, (c) => inWindow(c.row.created_at, window), (c) => c.row.created_at);

@@ -181,6 +181,7 @@ export function projectRegistry(facts = []) {
     rows.push({
       id: f.id,
       label: f.label,
+      kind: f.kind ?? null,
       area: areaOf(f.id),
       source: f.source?.authority ?? null,
       state: f.state,
@@ -197,7 +198,7 @@ export function projectRegistry(facts = []) {
   for (const b of BLOCKED_MEASURES) {
     if (seen.has(b.id)) continue;
     rows.push({
-      id: b.id, label: b.label, area: areaOf(b.id), source: null, state: b.state, as_of: null, window: null, scope: null,
+      id: b.id, label: b.label, kind: null, area: areaOf(b.id), source: null, state: b.state, as_of: null, window: null, scope: null,
       provenance: 'not applicable', certification: 'blocked', usable: false, reason: b.reason, registry_ref: null,
     });
   }

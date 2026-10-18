@@ -110,6 +110,10 @@ test('inquiries, reservations and accounts count K2B-operational records only; a
   assert.equal(f['marketplace.reservation.active'].value, 1, 'r1 only: r2 rests on a UAT inquiry, r3 has expired');
   assert.equal(f['growth.account.operational'].value, 2);
   assert.equal(f['growth.account.operational'].provenance.raw, 3);
+  // Source-accurate names travel with the figure: an inquiry is not a sale, an account is not a customer.
+  assert.equal(f['marketplace.inquiry.open'].label, 'Open Marketplace inquiries (not sales)');
+  assert.equal(f['marketplace.inquiry.recent'].label, 'Marketplace inquiries received — 7 days (not sales)');
+  assert.equal(f['growth.account.operational'].label, 'Operational accounts (not customers)');
 });
 
 test('searches use the rollup countable rule inside the window; navigation counts recorded route renders', async () => {
