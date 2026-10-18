@@ -74,6 +74,50 @@ test('a large thread set is read in chunks without losing a row', async () => {
   assert.equal(summary.by_category.certification, 1206);
 });
 
+/**
+ * A client whose every request takes `delayMs`, counting requests in flight overall and per table. Measured on the staging
+ * candidate: run one after another, the ~20 reads of a 664-conversation load exceeded the 8 s Corporate read budget, so
+ * every communications figure was DEGRADED although each read succeeded.
+ */
+function slowClient(client, delayMs) {
+  const stats = { inFlight: 0, max: 0, requests: 0, tables: {} };
+  const track = (table, delta) => {
+    stats.inFlight += delta;
+    const t = (stats.tables[table] ||= { inFlight: 0, max: 0, requests: 0 });
+    t.inFlight += delta;
+    if (delta > 0) { stats.requests += 1; t.requests += 1; stats.max = Math.max(stats.max, stats.inFlight); t.max = Math.max(t.max, t.inFlight); }
+  };
+  const wrap = (builder, table) => new Proxy(builder, {
+    get(target, prop) {
+      if (prop === 'then') {
+        return (resolve, reject) => {
+          track(table, +1);
+          setTimeout(() => target.then((v) => { track(table, -1); resolve(v); }, (e) => { track(table, -1); reject(e); }), delayMs);
+        };
+      }
+      const value = target[prop];
+      if (typeof value !== 'function') return value;
+      return (...args) => {
+        const out = value.apply(target, args);
+        return out && typeof out === 'object' && typeof out.then === 'function' ? wrap(out, table) : out;
+      };
+    },
+  });
+  return { client: { ...client, from: (table) => wrap(client.from(table), table) }, stats };
+}
+
+test('independent reads run at the same time and chunked reads overlap within a bound — the load fits the read budget', async () => {
+  const extra = Array.from({ length: 450 }, (_, i) => ({ id: `t-par-${String(i).padStart(4, '0')}`, status: 'open', subject_type: null, subject_id: null, primary_user_id: 'u_cccccccccccccccc' }));
+  const world = seed(extra);
+  const { client, stats } = slowClient(world.client, 20);
+  const { truths } = await loadConversationTruth(client, { threads: world.rows('message_threads'), now: NOW });
+  assert.equal(truths.length, 453, 'nothing is lost by reading concurrently');
+  assert.ok(stats.tables.messages.requests >= 5, 'the 453 thread ids are read in 100-id chunks');
+  assert.ok(stats.max >= 3, `independent sources overlap (max in flight ${stats.max})`);
+  assert.ok(stats.tables.messages.max >= 2, `message chunks overlap (max ${stats.tables.messages.max})`);
+  for (const [table, t] of Object.entries(stats.tables)) assert.ok(t.max <= 4, `${table}: at most 4 chunk reads in flight (saw ${t.max})`);
+});
+
 test('a failed source read throws, so the caller can show the figure as degraded — never as zero', async () => {
   const world = seed();
   const failing = {

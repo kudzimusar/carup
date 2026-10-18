@@ -21,18 +21,29 @@ import { readAllPages } from '../intelligence/rollupService.js';
 import { conversationTruth, summarizeConversationTruth } from './conversationTruth.js';
 
 const CHUNK = 100;
+/** Chunk reads of one table that may be in flight at once. Run one after another, a 664-conversation load needed ~20
+ *  sequential round trips and overran the Corporate 8 s read budget on staging; bounded, it stays polite to PostgREST. */
+const IN_CONCURRENCY = 4;
 const VEHICLE_LISTING_TYPES = new Set(['', 'vehicle', 'car', 'marketplace_vehicle']);
 
 const unique = (values) => [...new Set((values || []).filter((v) => v !== null && v !== undefined && String(v).trim() !== '').map(String))];
 
-/** Every row whose `key` is in `values`, chunked and paged. Throws on any read error or overflow. */
+/** Every row whose `key` is in `values`, chunked and paged, chunks read concurrently (bounded), rows in chunk order.
+ *  Throws on any read error or overflow. */
 export async function readAllIn(client, table, columns, key, values, shape = (query) => query) {
-  const rows = [];
-  for (let i = 0; i < values.length; i += CHUNK) {
-    const slice = values.slice(i, i + CHUNK);
-    rows.push(...await readAllPages(() => shape(client.from(table).select(columns).in(key, slice)).order('id')));
-  }
-  return rows;
+  const slices = [];
+  for (let i = 0; i < values.length; i += CHUNK) slices.push(values.slice(i, i + CHUNK));
+  const results = new Array(slices.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < slices.length) {
+      const index = next;
+      next += 1;
+      results[index] = await readAllPages(() => shape(client.from(table).select(columns).in(key, slices[index])).order('id'));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(IN_CONCURRENCY, slices.length) }, worker));
+  return results.flat();
 }
 
 const later = (a, b) => (!a ? b : !b ? a : (new Date(b).getTime() > new Date(a).getTime() ? b : a));
@@ -66,22 +77,29 @@ export async function loadConversationTruth(client, { threads = [], now = new Da
   const threadIds = unique(list.map((t) => t.id));
 
   const inquiryIds = unique(list.filter((t) => t.subject_type === 'marketplace_inquiry').map((t) => t.subject_id));
-  const inquiries = inquiryIds.length
-    ? await readAllIn(client, 'marketplace_inquiries', 'id, buyer_id, guest_email, guest_name, listing_id, listing_type', 'id', inquiryIds)
-    : [];
-  const vins = unique(inquiries.filter((i) => VEHICLE_LISTING_TYPES.has(String(i.listing_type ?? '').toLowerCase())).map((i) => i.listing_id));
-  const index = await loadProvenanceIndex(client, {
-    userIds: unique([...list.map((t) => t.primary_user_id), ...inquiries.map((i) => i.buyer_id)]),
-    vins,
-  });
-
-  const smoke = threadIds.length
-    ? await readAllIn(client, 'communication_audit_events', 'id, thread_id', 'thread_id', threadIds, (q) => q.eq('event_type', 'smoke_test'))
-    : [];
-
-  const messages = threadIds.length
-    ? await readAllIn(client, 'messages', 'id, thread_id, direction, created_at', 'thread_id', threadIds, (q) => q.in('direction', ['inbound', 'outbound']))
-    : [];
+  // The four sources are independent of each other (only the K2B index waits for the inquiries), so they are read at the
+  // same time. Any failed read still rejects the whole load — the caller shows DEGRADED, never a partial figure.
+  const principals = (async () => {
+    const inquiries = inquiryIds.length
+      ? await readAllIn(client, 'marketplace_inquiries', 'id, buyer_id, guest_email, guest_name, listing_id, listing_type', 'id', inquiryIds)
+      : [];
+    const vins = unique(inquiries.filter((i) => VEHICLE_LISTING_TYPES.has(String(i.listing_type ?? '').toLowerCase())).map((i) => i.listing_id));
+    const index = await loadProvenanceIndex(client, {
+      userIds: unique([...list.map((t) => t.primary_user_id), ...inquiries.map((i) => i.buyer_id)]),
+      vins,
+    });
+    return { inquiries, index };
+  })();
+  const [{ inquiries, index }, smoke, messages, parties] = await Promise.all([
+    principals,
+    threadIds.length
+      ? readAllIn(client, 'communication_audit_events', 'id, thread_id', 'thread_id', threadIds, (q) => q.eq('event_type', 'smoke_test'))
+      : [],
+    threadIds.length
+      ? readAllIn(client, 'messages', 'id, thread_id, direction, created_at', 'thread_id', threadIds, (q) => q.in('direction', ['inbound', 'outbound']))
+      : [],
+    withParties && threadIds.length ? loadParties(client, threadIds) : {},
+  ]);
   const latestByThread = new Map();
   for (const m of messages) {
     const key = String(m.thread_id);
@@ -90,8 +108,6 @@ export async function loadConversationTruth(client, { threads = [], now = new Da
     if (m.direction === 'outbound') cur.outbound = later(cur.outbound, m.created_at);
     latestByThread.set(key, cur);
   }
-
-  const parties = withParties && threadIds.length ? await loadParties(client, threadIds) : {};
 
   const ctx = {
     index,
