@@ -9,9 +9,8 @@ import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { CorporatePage, Section } from '@/components/corporate/CorporatePage'
 import { StateFootnotes, TruthStateBadge } from '@/components/corporate/TruthState'
-import {
-  AttentionList, EnvironmentNote, FactGrid, FactRows, ManagementStatus, QueueCard, UnavailableMeasures, formatAsOf,
-} from '@/components/corporate/ManagementFacts'
+import { AttentionList, EnvironmentNote, FactGrid, FactRows, ManagementStatus, QueueCard, UnavailableMeasures } from '@/components/corporate/ManagementFacts'
+import { formatAsOf } from '@/lib/corporate/factFormat'
 import { useManagementArea } from '@/lib/corporate/useManagementArea'
 import { presentSlot, type MetricSlot } from '@/lib/corporate/truthState'
 import { BUSINESS_UNITS, BU_NOT_ATTRIBUTED, PENDING_FIN } from './shared'
