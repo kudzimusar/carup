@@ -1,0 +1,166 @@
+name: OC-NATIVE LR2-C-BE2 Transaction Ownership Lineage
+
+on:
+  push:
+    branches:
+      - feat/lr2c-be2-transaction-transfer-lineage
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-lr2c-be2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BE2_BASE_SHA: 3f38a6d81a5b5284af9283bac99d11f9d1d42797
+  BE2_MIGRATION: database/migrations/20261016182000_lr2c_be2_transaction_ownership_transfer_lineage.sql
+  BE2_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/carup_be2
+
+jobs:
+  certify:
+    name: BE2 Exact-Head Schema + Backend Certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: carup_be2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d carup_be2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exact-head custody and BE2 scope guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "$BE2_BASE_SHA^{commit}"
+          test "$(git merge-base "$BE2_BASE_SHA" HEAD)" = "$BE2_BASE_SHA"
+          git diff --check "$BE2_BASE_SHA..HEAD"
+          mapfile -t CHANGED < <(git diff --name-only "$BE2_BASE_SHA..HEAD")
+          test "${#CHANGED[@]}" -gt 0
+          printf '%s\n' "${CHANGED[@]}"
+          for file in "${CHANGED[@]}"; do
+            case "$file" in
+              backend/services/passport/passportOwnershipTransferService.js|              backend/routes/passportOwnershipTransferRoutes.js|              backend/tests/lr2c-be2-transaction-transfer-lineage.test.js|              database/migrations/20261016182000_lr2c_be2_transaction_ownership_transfer_lineage.sql|              database/test/lr2c_be2_transaction_transfer_postgres_check.mjs|              .github/workflows/oc-native-lr2c-be2-transaction-transfer-lineage.yml)
+                ;;
+              *)
+                echo "::error::BE2 changed unauthorized path: $file"
+                exit 1
+                ;;
+            esac
+          done
+          if git diff --name-only "$BE2_BASE_SHA..HEAD" | grep -Eq '^(mobile|web)/'; then
+            echo "::error::BE2 must not modify Native or Web"
+            exit 1
+          fi
+
+      - name: No heuristic or shadow transaction-transfer authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --unified=0 "$BE2_BASE_SHA..HEAD" -- \
+              backend/services/passport/passportOwnershipTransferService.js \
+              backend/routes/passportOwnershipTransferRoutes.js \
+              "$BE2_MIGRATION" \
+            | grep -Ei '^\+.*(ORDER BY.*(created_at|updated_at)|(created_at|updated_at).*ORDER BY|latest.*transfer|new Map\(|AsyncStorage|SecureStore)' ; then
+            echo "::error::BE2 introduced heuristic/shadow transaction-transfer authority"
+            exit 1
+          fi
+          if grep -Ei 'UPDATE[[:space:]]+public\.vehicle_ownership_transfers[[:space:]]+SET[[:space:]]+transaction_intent_id.*(vin|buyer_id|seller_id|created_at|updated_at)' "$BE2_MIGRATION"; then
+            echo "::error::BE2 introduced heuristic historical backfill"
+            exit 1
+          fi
+
+      - name: Syntax checks
+        run: |
+          node --check backend/services/passport/passportOwnershipTransferService.js
+          node --check backend/routes/passportOwnershipTransferRoutes.js
+          node --check backend/tests/lr2c-be2-transaction-transfer-lineage.test.js
+          node --check database/test/lr2c_be2_transaction_transfer_postgres_check.mjs
+
+      - name: Focused BE2 contract tests
+        run: node --test backend/tests/lr2c-be2-transaction-transfer-lineage.test.js
+
+      - name: Real PostgreSQL BE2 schema and transactional certification
+        run: node database/test/lr2c_be2_transaction_transfer_postgres_check.mjs
+
+      - name: Ownership transfer governance regressions
+        run: |
+          node --test backend/tests/passport-v16-ownership-authority.test.js
+          node --test backend/tests/o2-transfer-authority-supersession.test.js
+          node --test backend/tests/oc5j-ownership-transfer-refusals.test.js
+          node --test backend/tests/vehicle-finance-obligation-authority.test.js
+
+      - name: Phase 6 transaction and Marketplace regressions
+        run: |
+          node --test backend/tests/issue164-phase6-transaction-authority.test.js
+          node --test backend/tests/issue164-phase6-session-governance-auth.test.js
+          node --test backend/tests/issue164-phase6-marketplace-reservation-convergence.test.js
+
+      - name: BE1 Buyer to Garage frozen regression
+        run: |
+          node --test backend/tests/lr2c-be1-ownership-continuity.test.js
+          node --test backend/tests/service-network-s9-garage-surfaces.test.js
+
+      - name: R6-A session regressions
+        run: |
+          node --test backend/tests/r6a-current-session-logout.test.js
+          node --test backend/tests/auth-session-row.test.js
+
+      - name: Record BE2 exact-head receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/be2-certification"
+          {
+            echo "task=OC-NATIVE-LR2-C-BE2"
+            echo "candidate_sha=$(git rev-parse HEAD)"
+            echo "accepted_be1_base=$BE2_BASE_SHA"
+            echo "merge_base=$(git merge-base "$BE2_BASE_SHA" HEAD)"
+            echo "migration=$BE2_MIGRATION"
+            echo "durable_transaction_transfer_link=implemented_in_source"
+            echo "shared_staging_migration_applied=NO"
+            echo "staging_mutation=NO"
+            echo "production_touched=NO"
+            echo "deployment_created=NO"
+            echo "external_communications=NO"
+            echo "merge_performed=NO"
+          } > "$RUNNER_TEMP/be2-certification/custody.txt"
+          git diff --name-only "$BE2_BASE_SHA..HEAD" > "$RUNNER_TEMP/be2-certification/changed-files.txt"
+          git log --oneline --reverse "$BE2_BASE_SHA..HEAD" > "$RUNNER_TEMP/be2-certification/commit-lineage.txt"
+          sha256sum "$BE2_MIGRATION" > "$RUNNER_TEMP/be2-certification/migration.sha256"
+
+      - name: Upload BE2 certification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-lr2c-be2-certification-${{ github.sha }}
+          path: ${{ runner.temp }}/be2-certification
+          if-no-files-found: error
+          retention-days: 30
