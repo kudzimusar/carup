@@ -51,7 +51,7 @@ export function CorporatePage({
         <PlaneIndicator plane={d.plane} />
         <nav aria-label="Breadcrumb" data-testid="corporate-breadcrumb">
           <ol className="flex flex-wrap items-center gap-1 text-xs text-slate-500">
-            <li><Link className="rounded hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" to={CORPORATE_ROOT}>Corporate Admin</Link></li>
+            <li><Link className="rounded hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 max-sm:inline-flex max-sm:min-h-11 max-sm:items-center" to={CORPORATE_ROOT}>Corporate Admin</Link></li>
             {id !== 'overview' && (
               <>
                 <li aria-hidden="true"><ChevronRight className="h-3 w-3" /></li>

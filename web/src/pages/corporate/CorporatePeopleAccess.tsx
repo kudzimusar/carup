@@ -6,6 +6,7 @@
  * what the signed-in account governs. Read-only: no role editor, no mutation control, no invented title or permission, and
  * the legacy platform role is never presented as a permission.
  */
+import { ChevronRight } from 'lucide-react'
 import { CorporatePage, OperateLinks, Section, StatementPanel } from '@/components/corporate/CorporatePage'
 import { TruthStateBadge } from '@/components/corporate/TruthState'
 import { OPERATE_LINKS } from '@/config/corporate/navigation'
@@ -47,9 +48,99 @@ function Person({ person }: { person: PersonRef | null }) {
   )
 }
 
+/** Who approved an assignment, and who activated it when that was someone else — one rendering for table and card. */
+function Approvers({ a }: { a: AssignmentRow }) {
+  return (
+    <>
+      <Person person={a.approvedBy} />
+      {a.activatedBy && a.activatedBy.userId !== a.approvedBy?.userId && <span className="mt-1 block"><Person person={a.activatedBy} /></span>}
+    </>
+  )
+}
+
+/**
+ * CA-OWNER-02 — below md each record is a stacked card instead of a wide table: the same fields, as a definition list
+ * (each value is announced with its term), and long codes, emails and node ids wrap instead of widening the page.
+ */
+function Field({ term, children }: { term: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{term}</dt>
+      <dd className="mt-0.5 text-slate-800 [overflow-wrap:anywhere]">{children}</dd>
+    </div>
+  )
+}
+
+/** Lineage — who asked, why and under which reference — disclosed on request so the card stays scannable. */
+function Lineage({ testId, children }: { testId: string; children: React.ReactNode }) {
+  return (
+    <details className="group mt-2 border-t border-slate-100" data-testid={testId}>
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded text-xs font-medium text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+        Lineage
+      </summary>
+      <dl className="grid gap-2 pb-1 pl-4 text-xs">{children}</dl>
+    </details>
+  )
+}
+
+function MembershipCards({ rows }: { rows: MembershipRow[] }) {
+  return (
+    <ul className="space-y-3 md:hidden" aria-label="Active Corporate memberships" data-testid="people-membership-cards">
+      {rows.map((m) => (
+        <li key={m.membershipId} className="min-w-0 rounded-md border border-slate-200 bg-white p-3 text-sm" data-testid="people-membership-card" data-membership-id={m.membershipId}>
+          <dl className="grid gap-2">
+            <Field term="Person"><Person person={m.subject} /></Field>
+            <Field term="Organisation node">{nodeLabel(m.orgNode)}</Field>
+            <Field term="State"><span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800">{m.state}</span></Field>
+            <Field term="Effective">{period(m.effectiveFrom, m.effectiveUntil)}</Field>
+            <Field term="Recorded by"><Person person={m.createdBy} /></Field>
+          </dl>
+          <Lineage testId="people-membership-lineage">
+            <Field term="Reason">{m.createdReason ?? '—'}</Field>
+            <Field term="Reference">{m.createdReference ?? '—'}</Field>
+          </Lineage>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function AssignmentCards({ rows }: { rows: AssignmentRow[] }) {
+  return (
+    <ul className="space-y-3 md:hidden" aria-label="Active persistent Corporate permission assignments" data-testid="people-assignment-cards">
+      {rows.map((a) => (
+        <li key={a.assignmentId} className="min-w-0 rounded-md border border-slate-200 bg-white p-3 text-sm" data-testid="people-assignment-card" data-assignment-id={a.assignmentId}>
+          <dl className="grid gap-2">
+            <Field term="Person"><Person person={a.subject} /></Field>
+            <Field term="Capability">
+              <span className="block">{CAPABILITY_GLOSS[a.capability] ?? a.capability}</span>
+              <code className="text-xs text-slate-500">{a.capability}</code>
+            </Field>
+            <Field term="Scope">
+              {a.scope.map(nodeLabel).join(', ')}
+              <span className="block text-xs text-slate-500">{a.includeDescendants ? 'and every node below it' : 'this node only'}</span>
+            </Field>
+            <Field term="Assurance floor">{FLOOR_GLOSS[a.assuranceFloor] ?? a.assuranceFloor}</Field>
+            <Field term="Effective">
+              {period(a.effectiveFrom, a.effectiveUntil)}
+              <span className="block text-xs text-slate-500">{a.state}{a.effectiveNow ? ' · in force now' : ' · not in force now'}</span>
+            </Field>
+            <Field term="Approved / activated by"><Approvers a={a} /></Field>
+          </dl>
+          <Lineage testId="people-assignment-lineage">
+            <Field term="Requested by"><Person person={a.requestedBy} /></Field>
+            <Field term="Reference">{a.reference ?? '—'}</Field>
+          </Lineage>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function MembershipsTable({ rows }: { rows: MembershipRow[] }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className="hidden overflow-x-auto rounded-md border border-slate-200 bg-white md:block">
       <table className="min-w-full text-left text-sm" data-testid="people-memberships-table">
         <caption className="sr-only">Active Corporate memberships</caption>
         <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -73,7 +164,7 @@ function MembershipsTable({ rows }: { rows: MembershipRow[] }) {
 
 function AssignmentsTable({ rows }: { rows: AssignmentRow[] }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className="hidden overflow-x-auto rounded-md border border-slate-200 bg-white md:block">
       <table className="min-w-full text-left text-sm" data-testid="people-assignments-table">
         <caption className="sr-only">Active persistent Corporate permission assignments</caption>
         <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -96,7 +187,7 @@ function AssignmentsTable({ rows }: { rows: AssignmentRow[] }) {
                 {period(a.effectiveFrom, a.effectiveUntil)}
                 <span className="block text-xs text-slate-500">{a.state}{a.effectiveNow ? ' · in force now' : ' · not in force now'}</span>
               </td>
-              <td className="px-3 py-2 text-slate-700"><Person person={a.approvedBy} />{a.activatedBy && a.activatedBy.userId !== a.approvedBy?.userId && <span className="mt-1 block"><Person person={a.activatedBy} /></span>}</td>
+              <td className="px-3 py-2 text-slate-700"><Approvers a={a} /></td>
             </tr>
           ))}
         </tbody>
@@ -136,19 +227,24 @@ export default function CorporatePeopleAccess() {
             <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
               <TruthStateBadge state="GOVERNED_ACTUAL" />
               <span>Governed nodes: {result.projection.governedNodes.map(nodeLabel).join(', ')}</span>
-              <span>· as of {new Date(result.projection.generatedAt).toISOString().replace('T', ' ').slice(0, 16)} UTC</span>
+              <span data-testid="people-access-as-of">· as of {new Date(result.projection.generatedAt).toISOString().replace('T', ' ').slice(0, 16)} UTC</span>
             </p>
+            {/* Counts and the "as of" line stay at every width; the records are cards below md and tables from md up. */}
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-slate-900">
                 Active Corporate memberships <span className="text-slate-500" data-testid="people-membership-count">({result.projection.memberships.length})</span>
               </h3>
-              {result.projection.memberships.length > 0 ? <MembershipsTable rows={result.projection.memberships} /> : <p className="text-sm text-slate-600">No active membership in the nodes you govern.</p>}
+              {result.projection.memberships.length > 0 ? (
+                <><MembershipsTable rows={result.projection.memberships} /><MembershipCards rows={result.projection.memberships} /></>
+              ) : <p className="text-sm text-slate-600">No active membership in the nodes you govern.</p>}
             </div>
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-slate-900">
                 Active permission assignments <span className="text-slate-500" data-testid="people-assignment-count">({result.projection.assignments.length})</span>
               </h3>
-              {result.projection.assignments.length > 0 ? <AssignmentsTable rows={result.projection.assignments} /> : <p className="text-sm text-slate-600">No active assignment on those memberships.</p>}
+              {result.projection.assignments.length > 0 ? (
+                <><AssignmentsTable rows={result.projection.assignments} /><AssignmentCards rows={result.projection.assignments} /></>
+              ) : <p className="text-sm text-slate-600">No active assignment on those memberships.</p>}
             </div>
           </div>
         )}

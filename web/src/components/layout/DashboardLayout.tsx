@@ -30,6 +30,7 @@ import {
 import { FeaturePlannedPage, FeatureDisabledPage } from '@/components/routing/FeatureStatePages'
 import { OwnerNotificationBell } from '@/components/owner/OwnerNotificationBell'
 import { ActiveOrganisationPrompt, OrganisationBadge } from '@/components/layout/OrganisationSwitcher'
+import { AdminContextBanner } from '@/components/admin/AdminContextBanner'
 import type { UserRole } from '@shared/types'
 
 /** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
@@ -230,7 +231,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 to={item.route}
                 onClick={closeSidebar}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 max-sm:min-h-11 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -361,6 +362,9 @@ export default function DashboardLayout({ role }: { role: string }) {
             inset: without it the bar covers the last control on the page, which DESIGN.md §10
             ("primary CTA stays discoverable") forbids. */}
         <main className="p-4 lg:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-6">
+          {/* CA-OWNER-02: the operational Admin states where the Owner is and which authority applies. Presentation
+              only — it sits after every gate above and changes no route or authorisation. */}
+          {role === 'admin' && <AdminContextBanner />}
           <RegistryRouteBoundary>
             <Outlet />
           </RegistryRouteBoundary>

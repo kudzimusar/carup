@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { phoneBox } from '@/components/corporate/touchTarget.testutil'
 
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }))
 
@@ -55,6 +56,54 @@ describe('Users', () => {
     expect(item).toHaveAttribute('data-disabled')
     expect(screen.queryByRole('menuitem', { name: /^suspend user$/i })).toBeNull()
     expect('suspendUser' in api).toBe(false)
+  })
+})
+
+describe('Platform Users & Roles — platform roles are not Corporate permissions (CA-OWNER-02)', () => {
+  const serena = { id: 'u_66cace85aa', name: 'Serena Owner', email: 's•••@example', role: 'owner', created_at: '2026-09-01T00:00:00Z' }
+
+  it('names the platform-role system it governs and points to where Corporate access is governed — data and provenance unchanged', async () => {
+    api.fetchUsers = vi.fn().mockResolvedValue({ users: [serena], provenance })
+    render(<MemoryRouter><UserManagement /></MemoryRouter>)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Platform Users & Roles$/)
+    expect(screen.getByTestId('platform-roles-explanation').textContent).toBe(
+      'Platform roles (users.role) decide access to product features and the operational Admin. They are not Corporate permissions.',
+    )
+    const link = screen.getByRole('link', { name: 'Corporate memberships and persistent permissions are governed in People & Access' })
+    expect(link).toHaveAttribute('href', '/corporate/people-access')
+    expect(await screen.findByText('Serena Owner')).toBeInTheDocument()
+    expect(screen.getByTestId('provenance-notice')).toHaveTextContent('Test / certification data excluded: 300')
+    expect(api.fetchUsers).toHaveBeenCalledTimes(1)
+  })
+
+  it('each account shows the icon of its stored (lowercase) platform role, and the generic icon for any other role', async () => {
+    api.fetchUsers = vi.fn().mockResolvedValue({
+      users: [serena, { id: 'u_dealer01', name: 'Dealer Principal', email: 'd', role: 'dealer' }, { id: 'u_gov01', name: 'Registry Officer', email: 'g', role: 'government' }],
+      provenance: null,
+    })
+    render(<MemoryRouter><UserManagement /></MemoryRouter>)
+    const roleIcon = async (name: string) => (await screen.findByText(name)).closest('[data-slot="card"]')?.querySelector('svg')?.getAttribute('class') ?? ''
+    expect(await roleIcon('Serena Owner')).toMatch(/\blucide-car\b/)
+    expect(await roleIcon('Dealer Principal')).toMatch(/\blucide-building-2\b/)
+    expect(await roleIcon('Registry Officer')).toMatch(/\blucide-users\b/)
+  })
+
+  it('at 390 px a long email or account id wraps inside its card instead of pushing the actions off-screen', async () => {
+    const long = 'serena.owner.long.address@example.invalid'
+    api.fetchUsers = vi.fn().mockResolvedValue({ users: [{ ...serena, email: long }], provenance: null })
+    render(<MemoryRouter><UserManagement /></MemoryRouter>)
+    const email = await screen.findByText(long)
+    const id = screen.getByText(`ID: ${serena.id}`)
+    for (const token of [email, id]) expect(token.className.split(/\s+/)).toContain('[overflow-wrap:anywhere]')
+    expect(email.closest('.flex-1')?.className.split(/\s+/)).toContain('min-w-0')
+  })
+
+  it('at 390 px the header wraps and the People & Access link is a 44 px target', async () => {
+    api.fetchUsers = vi.fn().mockResolvedValue({ users: [serena], provenance: null })
+    render(<MemoryRouter><UserManagement /></MemoryRouter>)
+    await screen.findByText('Serena Owner')
+    expect(screen.getByTestId('platform-users-header').className.split(/\s+/)).toContain('flex-wrap')
+    expect(phoneBox(screen.getByTestId('platform-users-people-access-link')).height).toBeGreaterThanOrEqual(44)
   })
 })
 

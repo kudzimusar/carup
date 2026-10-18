@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { OWNER_GOVERNOR_GRANT, PEOPLE_ACCESS_PROJECTION, SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
+import { phoneBox } from './touchTarget.testutil'
 
 vi.mock('@/context/AuthContext', async () => {
   const React = await import('react')
@@ -394,11 +395,11 @@ describe('CA-K3-01-R2 · accessibility / responsive recustody', () => {
     expect(screen.getAllByTestId('legend-plane-marker').map((m) => m.textContent)).toEqual(['CI', 'BO', 'PS'])
   })
 
-  it('D-2 · "Current operational Admin" is a full-width target that still opens /admin', async () => {
+  it('D-2 · the operational Admin link is a full-width target that still opens /admin (CA-OWNER-02: as an explicit transition)', async () => {
     await renderAdmitted('/corporate')
     const link = within(screen.getByTestId('corporate-rail')).getByTestId('rail-operational-admin-link')
-    expect(link).toHaveAttribute('href', '/admin')
-    expect(link).toHaveTextContent('Current operational Admin')
+    expect(link).toHaveAttribute('href', '/admin?from=corporate')
+    expect(link).toHaveTextContent('Open Operational Admin')
     expect(link.className).toMatch(/min-h-\[44px\]/)
   })
 })
@@ -629,6 +630,221 @@ describe('CA-K3-AUTH-01 · the Corporate shell renders only from the SERVER Corp
       unmount()
     }
     expect(accessCalls).toHaveLength(DIRECT_ROUTES.length)
+  })
+})
+
+/** A control is a 44×44 target at 390 px; `width` only for icon-only controls (a text label is wider than 44 px). */
+function expect44(el: Element, label: string, { width = false, focused = false }: { width?: boolean; focused?: boolean } = {}) {
+  const box = phoneBox(el, { focused })
+  expect(box.height, `${label}: height at 390 px`).toBeGreaterThanOrEqual(44)
+  if (width) expect(box.width, `${label}: width at 390 px`).toBeGreaterThanOrEqual(44)
+}
+
+describe('CA-OWNER-02 · every shell control is at least 44×44 at a 390 px viewport', () => {
+  it('control: the 390 px reading of Tailwind utilities (unprefixed and max-* apply, min-width breakpoints do not)', () => {
+    const el = (cls: string) => Object.assign(document.createElement('a'), { className: cls })
+    expect(phoneBox(el('h-10 w-10'))).toEqual({ height: 40, width: 40 })
+    expect(phoneBox(el('h-10 min-w-[40px] max-sm:h-11 max-sm:min-w-11'))).toEqual({ height: 44, width: 44 })
+    expect(phoneBox(el('h-11 max-sm:h-10'))).toEqual({ height: 40, width: 0 })
+    expect(phoneBox(el('sm:h-11 lg:min-h-11'))).toEqual({ height: 0, width: 0 })
+    expect(phoneBox(el('size-9 max-sm:size-11'))).toEqual({ height: 44, width: 44 })
+    expect(phoneBox(el('flex min-h-[44px] items-center'))).toEqual({ height: 44, width: 0 })
+    expect(phoneBox(el('sr-only focus:min-h-11'))).toEqual({ height: 0, width: 0 })
+    expect(phoneBox(el('sr-only focus:min-h-11'), { focused: true })).toEqual({ height: 44, width: 0 })
+  })
+
+  it('top bar: the navigation opener, the identity link and the three panel buttons', async () => {
+    await renderAdmitted('/corporate/finance')
+    expect44(screen.getByTestId('corporate-drawer-open'), 'drawer opener', { width: true })
+    expect44(screen.getByTestId('corporate-identity'), 'identity link')
+    for (const id of ['topbar-freshness', 'topbar-attention', 'topbar-account']) expect44(screen.getByTestId(id), id, { width: true })
+  })
+
+  it('account panel: the way to the operational Admin and Sign out', async () => {
+    await renderAdmitted('/corporate/finance')
+    fireEvent.click(screen.getByTestId('topbar-account'))
+    const panel = screen.getByTestId('account-panel')
+    const controls = [...within(panel).getAllByRole('link'), ...within(panel).getAllByRole('button')]
+    expect(controls).toHaveLength(2)
+    for (const c of controls) expect44(c, c.textContent ?? '')
+  })
+
+  it('drawer: the close button and every link in it', async () => {
+    await renderAdmitted('/corporate/finance')
+    fireEvent.click(screen.getByTestId('corporate-drawer-open'))
+    const drawer = await screen.findByTestId('corporate-drawer')
+    expect44(within(drawer).getByRole('button', { name: 'Close navigation' }), 'drawer close', { width: true })
+    const links = within(drawer).getAllByRole('link')
+    expect(links).toHaveLength(11)
+    for (const a of links) expect44(a, a.textContent ?? '')
+  })
+
+  it('the skip link while focused, the rail collapse toggle, and the page breadcrumb', async () => {
+    await renderAdmitted('/corporate/finance')
+    expect44(screen.getByRole('link', { name: 'Skip to content' }), 'skip link', { focused: true })
+    expect44(screen.getByTestId('corporate-rail-toggle'), 'rail collapse toggle')
+    expect44(within(screen.getByTestId('corporate-breadcrumb')).getByRole('link', { name: 'Corporate Admin' }), 'breadcrumb Corporate Admin')
+  })
+})
+
+describe('CA-OWNER-02 · the open drawer is modal: Tab and Shift+Tab stay inside it', () => {
+  async function openDrawerByKeyboard(u: ReturnType<typeof userEvent.setup>) {
+    await renderAdmitted('/corporate/finance')
+    screen.getByTestId('corporate-drawer-open').focus()
+    await u.keyboard('{Enter}')
+    const drawer = await screen.findByTestId('corporate-drawer')
+    const close = within(drawer).getByRole('button', { name: 'Close navigation' })
+    await waitFor(() => expect(close).toHaveFocus())
+    return { drawer, close }
+  }
+
+  it('Shift+Tab on the first control wraps to the last one; Tab on the last wraps to the first', async () => {
+    const u = userEvent.setup()
+    const { drawer, close } = await openDrawerByKeyboard(u)
+    await u.tab({ shift: true })
+    expect(within(drawer).getByTestId('rail-operational-admin-link')).toHaveFocus()
+    await u.tab()
+    expect(close).toHaveFocus()
+  })
+
+  it('a full Tab cycle visits the twelve controls of the drawer and never reaches the page behind it', async () => {
+    const u = userEvent.setup()
+    const { drawer, close } = await openDrawerByKeyboard(u)
+    const visited = new Set<Element | null>()
+    for (let i = 1; i <= 12; i += 1) {
+      await u.tab()
+      expect(drawer.contains(document.activeElement), `Tab ${i} left the drawer for ${document.activeElement?.outerHTML.slice(0, 80)}`).toBe(true)
+      visited.add(document.activeElement)
+    }
+    expect(visited.size).toBe(12)
+    expect(close).toHaveFocus()
+    await u.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('corporate-drawer')).toBeNull())
+    expect(screen.getByTestId('corporate-drawer-open')).toHaveFocus()
+  })
+})
+
+const TRANSITION_NOTE = 'Leaves Corporate Admin. Operational Admin works on live operational records under your platform role — Corporate permissions do not apply there.'
+
+describe('CA-OWNER-02 · leaving Corporate Admin for the operational Admin is an explicit transition', () => {
+  it('Account panel: "Open Operational Admin" states what changes, and arrives marked as coming from Corporate Admin', async () => {
+    const u = userEvent.setup()
+    await renderAdmitted('/corporate/finance')
+    await u.click(screen.getByTestId('topbar-account'))
+    const link = within(screen.getByTestId('account-panel')).getByRole('link', { name: 'Open Operational Admin' })
+    expect(link).toHaveAccessibleDescription(TRANSITION_NOTE)
+    expect(link).toHaveAttribute('href', '/admin?from=corporate')
+    await u.click(link)
+    expect(await screen.findByTestId('admin-surface')).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\?from=corporate$/)
+    expect(screen.queryByTestId('corporate-shell')).toBeNull()
+  })
+
+  it('rail legend and drawer: the same transition, with the same statement and the same marker', async () => {
+    const u = userEvent.setup()
+    await renderAdmitted('/corporate/finance')
+    const railLink = within(screen.getByTestId('corporate-rail')).getByRole('link', { name: 'Open Operational Admin' })
+    expect(railLink).toHaveAccessibleDescription(TRANSITION_NOTE)
+    expect(railLink).toHaveAttribute('href', '/admin?from=corporate')
+    await u.click(screen.getByTestId('corporate-drawer-open'))
+    const drawerLink = within(await screen.findByTestId('corporate-drawer')).getByRole('link', { name: 'Open Operational Admin' })
+    expect(drawerLink).toHaveAccessibleDescription(TRANSITION_NOTE)
+    await u.click(drawerLink)
+    expect(await screen.findByTestId('admin-surface')).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\?from=corporate$/)
+  })
+})
+
+/** The value a card states for a term (cards are definition lists: <dt>term</dt><dd>value</dd>). */
+const field = (card: HTMLElement, term: string) => within(card).getByText(term, { selector: 'dt' }).nextElementSibling as HTMLElement
+/** True when the element or an ancestor up to `root` carries a Tailwind `hidden` utility at some breakpoint. */
+const hiddenAtSomeWidth = (el: Element, root: Element) => {
+  for (let n: Element | null = el; n && n !== root; n = n.parentElement) {
+    if ((n.getAttribute('class') ?? '').split(/\s+/).some((c) => /^(?:[a-z0-9-]+:)?hidden$/.test(c))) return true
+  }
+  return false
+}
+const tokens = (el: Element | null | undefined) => (el?.getAttribute('class') ?? '').split(/\s+/)
+
+describe('CA-OWNER-02 · People & Access below md: each record is a stacked card; md and up keep the tables', () => {
+  async function renderProjection() {
+    await renderAdmitted('/corporate/people-access')
+    return screen.findByTestId('people-access-projection')
+  }
+
+  it('each active membership is a card: person, organisation node, state, effective period, recorded by — lineage on request', async () => {
+    await renderProjection()
+    const cards = screen.getAllByTestId('people-membership-card')
+    expect(cards.map((c) => c.getAttribute('data-membership-id'))).toEqual(['4fe98efd-df6a-40bb-81f6-9869b2764271', '82726780-cf3b-4502-beb1-91f604e84453'])
+    const [a, b] = cards
+    expect(field(a, 'Person')).toHaveTextContent('Governor Agovernor-a@example.invalid')
+    expect(field(a, 'Organisation node')).toHaveTextContent(/^CarUp Corporate \(CARUP_CORPORATE\)$/)
+    expect(field(a, 'State')).toHaveTextContent(/^ACTIVE$/)
+    expect(field(a, 'Effective')).toHaveTextContent(/^2026-10-17 → no end date$/)
+    expect(field(a, 'Recorded by')).toHaveTextContent('Governor B')
+    expect(field(b, 'Person')).toHaveTextContent('Governor B')
+    expect(field(b, 'Recorded by')).toHaveTextContent('Governor A')
+    const lineage = within(a).getByTestId('people-membership-lineage')
+    expect(lineage.tagName).toBe('DETAILS')
+    expect(lineage).not.toHaveAttribute('open')
+    expect(field(lineage, 'Reason')).toHaveTextContent(/^OD-CARBAC-002 Owner-authorized initial Corporate governance bootstrap$/)
+    expect(field(lineage, 'Reference')).toHaveTextContent(/^CA-BOOTSTRAP-01$/)
+  })
+
+  it('each active assignment is a card: person, capability gloss + stored code, scope + descendant rule, floor, period in force, approved / activated by', async () => {
+    await renderProjection()
+    const cards = screen.getAllByTestId('people-assignment-card')
+    expect(cards.map((c) => c.getAttribute('data-assignment-id'))).toEqual([
+      '5445781b-684c-4e68-9e6a-0b79d5970243', '414d25c0-8459-4def-99bd-08b6ef625e33', 'cf8ca31c-f175-43b8-a221-2dc4b1d41ed3', '71f220a2-8be4-4eb3-8adc-c9b477dce242',
+    ])
+    const [first, second, third] = cards
+    expect(field(first, 'Person')).toHaveTextContent('Governor A')
+    expect(field(first, 'Capability')).toHaveTextContent(/^Govern Corporate membershipscorporate\.people\.membership\.manage$/)
+    expect(within(field(first, 'Capability')).getByText('corporate.people.membership.manage').tagName).toBe('CODE')
+    expect(field(second, 'Capability')).toHaveTextContent(/^Revoke Corporate sign-in sessionscorporate\.people\.session\.revoke$/)
+    expect(field(first, 'Scope')).toHaveTextContent(/^CarUp Corporate \(CARUP_CORPORATE\)and every node below it$/)
+    expect(field(first, 'Assurance floor')).toHaveTextContent(/^A1 — recent password re-authentication$/)
+    expect(field(first, 'Effective')).toHaveTextContent(/^2026-10-17 → 2027-10-17ACTIVE · in force now$/)
+    expect(field(first, 'Approved / activated by')).toHaveTextContent('Governor B')
+    expect(field(third, 'Approved / activated by')).toHaveTextContent('Governor A')
+    const lineage = within(first).getByTestId('people-assignment-lineage')
+    expect(lineage.tagName).toBe('DETAILS')
+    expect(lineage).not.toHaveAttribute('open')
+    expect(field(lineage, 'Requested by')).toHaveTextContent('Governor A')
+    expect(field(lineage, 'Reference')).toHaveTextContent(/^CA-BOOTSTRAP-01$/)
+  })
+
+  it('the cards are the narrow layout and the tables the md-and-up layout; counts and the "as of" line show at every width', async () => {
+    const projection = await renderProjection()
+    for (const id of ['people-memberships-table', 'people-assignments-table']) {
+      const scroller = screen.getByTestId(id).parentElement
+      expect(tokens(scroller), id).toEqual(expect.arrayContaining(['hidden', 'md:block']))
+    }
+    for (const id of ['people-membership-cards', 'people-assignment-cards']) {
+      expect(tokens(screen.getByTestId(id)), id).toContain('md:hidden')
+      expect(tokens(screen.getByTestId(id)), id).not.toContain('hidden')
+    }
+    for (const id of ['people-membership-count', 'people-assignment-count', 'people-access-as-of']) {
+      expect(hiddenAtSomeWidth(screen.getByTestId(id), projection), id).toBe(false)
+    }
+    expect(screen.getByTestId('people-access-as-of')).toHaveTextContent('as of 2026-10-17 10:00 UTC')
+    // The desktop tables keep every row and their own test ids.
+    expect(screen.getAllByTestId('people-membership-row')).toHaveLength(2)
+    expect(screen.getAllByTestId('people-assignment-row')).toHaveLength(4)
+  })
+
+  it('a refused or unreadable projection shows no card either', async () => {
+    projectionFor = () => ({ status: 403, body: { code: 'CORPORATE_PEOPLE_ACCESS_DENIED' } })
+    const first = await renderAdmitted('/corporate/people-access')
+    await screen.findByTestId('people-access-denied')
+    expect(screen.queryByTestId('people-membership-card')).toBeNull()
+    expect(screen.queryByTestId('people-assignment-card')).toBeNull()
+    first.unmount()
+    projectionFor = () => ({ status: 200, body: { ...PEOPLE_ACCESS_PROJECTION, read_only: false } })
+    await renderAdmitted('/corporate/people-access')
+    await screen.findByTestId('people-access-unavailable')
+    expect(screen.queryByTestId('people-membership-card')).toBeNull()
+    expect(screen.queryByTestId('people-assignment-card')).toBeNull()
   })
 })
 

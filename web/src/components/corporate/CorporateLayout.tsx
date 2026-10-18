@@ -9,8 +9,8 @@
  * the ten canonical destinations in canonical order, each with its plane marker, and the page.
  *
  * Responsive: ≥1024px the rail is persistent and can be collapsed to an icon rail; below that it
- * becomes a drawer (Escape closes, focus moves in and returns). Truth-state and plane labels stay
- * visible at every width.
+ * becomes a modal drawer (Escape closes, Tab stays inside it, focus moves in and returns). Truth-state
+ * and plane labels stay visible at every width; every control is a 44×44 target at 390 px (CA-OWNER-02).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
@@ -24,11 +24,30 @@ import { CORPORATE_PLANES, CORPORATE_ROOT, destinationForPath } from '@/config/c
 import { canSeeDestination, resolveCorporateAccess, visibleDestinations, type CorporateGrant } from '@/lib/corporate/access'
 import { useCorporateServerDecision } from '@/lib/corporate/useCorporateAccess'
 import { CorporateContextProvider } from './CorporateContext'
+import { OperationalAdminTransition } from './OperationalAdminTransition'
 import { PlaneIndicator } from './CorporatePage'
 import { TruthStateBadge } from './TruthState'
 
 // Local to the Corporate shell: the shared feature-icon map is not widened for this slice.
 const DESTINATION_ICONS: Record<string, LucideIcon> = { LayoutDashboard, Building2, Landmark, TrendingUp, Workflow, ShieldCheck, Database, Users, FileText, Server }
+
+/**
+ * CA-OWNER-02: the open drawer is a modal dialog (aria-modal), so Tab and Shift+Tab cycle through ITS controls instead
+ * of walking into the page behind it; focus that is somehow outside is brought back in.
+ */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+function keepTabInside(e: KeyboardEvent, container: HTMLElement | null) {
+  const items = container ? [...container.querySelectorAll<HTMLElement>(FOCUSABLE)] : []
+  if (!container || items.length === 0) return
+  const first = items[0]
+  const last = items[items.length - 1]
+  const active = document.activeElement
+  const outside = !active || !container.contains(active)
+  if (outside || active === (e.shiftKey ? first : last)) {
+    e.preventDefault()
+    ;(e.shiftKey ? last : first).focus()
+  }
+}
 
 const COLLAPSE_KEY = 'carup.corporate.rail.collapsed'
 const readCollapsed = () => { try { return window.localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false } }
@@ -87,6 +106,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const openerRef = useRef<HTMLElement | null>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
   const openDrawer = useCallback(() => {
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setDrawerOpen(true)
@@ -95,7 +115,10 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
   useEffect(() => {
     if (!drawerOpen) { openerRef.current?.focus?.(); openerRef.current = null; return }
     closeRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawerOpen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+      else if (e.key === 'Tab') keepTabInside(e, drawerRef.current)
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [drawerOpen])
@@ -105,16 +128,18 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" data-testid="corporate-shell">
-      <a href="#corporate-main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[80] focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow">
+      <a href="#corporate-main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[80] focus:inline-flex focus:min-h-11 focus:items-center focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow">
         Skip to content
       </a>
 
       {/* Identity / context bar */}
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950 text-white" data-testid="corporate-topbar">
-        <div className="flex h-14 items-center gap-3 px-3 sm:px-4">
+        {/* CA-OWNER-02: at phone width the 44 px targets take 16 px more, so the gaps give it back (desktop unchanged) and
+            the identity keeps "Corporate Admin" on one line at 390 px; narrower screens wrap it rather than overflow. */}
+        <div className="flex h-14 items-center gap-3 px-3 sm:px-4 max-sm:gap-2">
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 lg:hidden"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 lg:hidden"
             onClick={openDrawer}
             aria-label="Open Corporate Admin navigation"
             aria-expanded={drawerOpen}
@@ -123,7 +148,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
           </button>
-          <Link to={CORPORATE_ROOT} className="flex items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400" data-testid="corporate-identity">
+          <Link to={CORPORATE_ROOT} className="flex items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11" data-testid="corporate-identity">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-orange-500"><Car className="h-4 w-4 text-white" aria-hidden="true" /></span>
             <span className="leading-tight">
               <span className="block text-sm font-semibold tracking-tight">CarUp</span>
@@ -140,7 +165,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
             </span>
           )}
           <span className="hidden text-xs text-slate-400 xl:inline" data-testid="topbar-scope">Scope: CarUp Corporate</span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 max-sm:gap-0">
             <TopbarButton label="Data freshness" active={panel === 'freshness'} onClick={() => setPanel(panel === 'freshness' ? null : 'freshness')} testId="topbar-freshness">
               <Clock className="h-4 w-4" aria-hidden="true" /><span className="hidden text-xs sm:inline">No source connected</span>
             </TopbarButton>
@@ -170,11 +195,9 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
               <div className="space-y-2" data-testid="account-panel">
                 <p><span className="text-slate-400">Signed in as </span>{user?.name || 'Signed-in account'}</p>
                 <p className="text-xs text-slate-300" data-testid="access-explanation">{grant.explanation}</p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Link to="/admin" className="inline-flex min-h-[40px] items-center rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400">
-                    Open current operational Admin
-                  </Link>
-                  <button type="button" onClick={signOut} className="inline-flex min-h-[40px] items-center gap-1.5 rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400" data-testid="corporate-sign-out">
+                <div className="flex flex-wrap items-start gap-x-4 gap-y-2 pt-1">
+                  <OperationalAdminTransition tone="dark" testId="account-operational-admin-link" className="max-w-md" />
+                  <button type="button" onClick={signOut} className="inline-flex min-h-[40px] items-center gap-1.5 rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11" data-testid="corporate-sign-out">
                     <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
                   </button>
                 </div>
@@ -197,7 +220,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded text-xs text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded text-xs text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
                 aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
                 aria-pressed={collapsed}
                 data-testid="corporate-rail-toggle"
@@ -212,10 +235,10 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
         {drawerOpen && (
           <div className="fixed inset-0 z-[60] lg:hidden">
             <div className="absolute inset-0 bg-slate-950/60" onClick={closeDrawer} data-testid="corporate-drawer-overlay" />
-            <div id="corporate-drawer" role="dialog" aria-modal="true" aria-label="Corporate Admin navigation" className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col bg-white shadow-xl" data-testid="corporate-drawer">
+            <div ref={drawerRef} id="corporate-drawer" role="dialog" aria-modal="true" aria-label="Corporate Admin navigation" className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col bg-white shadow-xl" data-testid="corporate-drawer">
               <div className="flex h-14 items-center justify-between border-b border-slate-200 px-3">
                 <span className="text-sm font-semibold">Corporate Admin</span>
-                <button ref={closeRef} type="button" onClick={closeDrawer} className="inline-flex h-10 w-10 items-center justify-center rounded hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" aria-label="Close navigation">
+                <button ref={closeRef} type="button" onClick={closeDrawer} className="inline-flex h-11 w-11 items-center justify-center rounded hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" aria-label="Close navigation">
                   <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
@@ -252,7 +275,7 @@ function TopbarButton({ label, active, onClick, children, testId }: { label: str
       onClick={onClick}
       aria-label={label}
       aria-expanded={active}
-      className={cn('inline-flex h-10 min-w-[40px] items-center justify-center gap-1.5 rounded px-2 text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400', active && 'bg-slate-800')}
+      className={cn('inline-flex h-10 min-w-[40px] shrink-0 items-center justify-center gap-1.5 rounded px-2 text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:h-11 max-sm:min-w-11', active && 'bg-slate-800')}
       data-testid={testId}
     >
       {children}
@@ -308,10 +331,8 @@ function RailNav({ destinations, collapsed, currentId, onNavigate }: { destinati
           {Object.values(CORPORATE_PLANES).map((p) => (
             <p key={p.id}><span className="mr-1.5 font-mono text-slate-600" data-testid="legend-plane-marker">{p.marker}</span>{p.label}</p>
           ))}
-          {/* CA-K3-01-R2 D-2: a full-width 44px target (was ~138×17). */}
-          <Link to="/admin" onClick={onNavigate} className="-mx-2 mt-2 flex min-h-[44px] items-center rounded px-2 text-slate-600 underline-offset-2 hover:bg-slate-50 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" data-testid="rail-operational-admin-link">
-            Current operational Admin
-          </Link>
+          {/* CA-K3-01-R2 D-2: a full-width 44px target (was ~138×17). CA-OWNER-02: an explicit transition that says what changes. */}
+          <OperationalAdminTransition tone="light" testId="rail-operational-admin-link" onNavigate={onNavigate} className="mt-2" />
         </div>
       )}
     </nav>
