@@ -11,6 +11,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { phoneBox } from '@/components/corporate/touchTarget.testutil'
 
 const logoutSpy = vi.fn()
 const signOut = vi.hoisted(() => ({ outcome: 'revoked' as 'revoked' | 'already_ended' | 'unconfirmed' }))
@@ -127,6 +128,13 @@ describe.each(['admin', 'owner'] as const)('%s dashboard shell', (role) => {
     // The account actions never shrink and the nav list is the part that scrolls.
     expect(screen.getByTestId('sidebar-account-actions').className).toMatch(/\bshrink-0\b/)
     expect(within(sidebar).getByRole('navigation', { name: 'Dashboard navigation' }).className).toMatch(/\bmin-h-0\b.*\boverflow-y-auto\b|\boverflow-y-auto\b.*\bmin-h-0\b/)
+  })
+
+  it('CA-OWNER-02: every sidebar destination is a 44 px target at a 390 px viewport (jsdom: read from the utilities)', () => {
+    renderDashboard(role)
+    const links = within(screen.getByRole('navigation', { name: 'Dashboard navigation' })).getAllByRole('link')
+    expect(links.length).toBeGreaterThan(3)
+    for (const a of links) expect(phoneBox(a).height, a.textContent ?? '').toBeGreaterThanOrEqual(44)
   })
 
   it('More opens the same drawer; Escape closes it and returns focus to More', async () => {

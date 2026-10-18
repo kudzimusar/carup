@@ -231,7 +231,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 to={item.route}
                 onClick={closeSidebar}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 max-sm:min-h-11 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
