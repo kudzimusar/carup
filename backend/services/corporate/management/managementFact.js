@@ -76,6 +76,21 @@ function normalizeExtent(extent) {
   return { oldest_at: at(extent.oldestAt, 'oldestAt'), newest_at: at(extent.newestAt, 'newestAt') };
 }
 
+/**
+ * A named breakdown of a fact (states, per-currency amounts). Each entry keeps its own label and, for money, its own source
+ * currency — entries in different currencies are never added together.
+ */
+function normalizeBreakdown(breakdown) {
+  if (breakdown === undefined || breakdown === null) return null;
+  if (!Array.isArray(breakdown)) throw new Error('fact: breakdown must be a list');
+  return breakdown.map((e) => {
+    const ok = e && typeof e.key === 'string' && e.key.trim() && typeof e.label === 'string' && e.label.trim()
+      && typeof e.value === 'number' && Number.isFinite(e.value) && e.value >= 0;
+    if (!ok) throw new Error('fact: every breakdown entry needs a key, a label and a finite value ≥ 0');
+    return { key: e.key, label: e.label, value: e.value, currency: typeof e.currency === 'string' && e.currency.trim() ? e.currency : null };
+  });
+}
+
 const freezeDeep = (o) => {
   if (o && typeof o === 'object' && !Object.isFrozen(o)) {
     Object.freeze(o);
@@ -98,6 +113,7 @@ function shape(spec, { state, value, certification, reason = null }) {
     scope: spec.scope ?? null,
     provenance: spec.provenance ? structuredClone(spec.provenance) : null,
     extent: normalizeExtent(spec.extent),
+    breakdown: normalizeBreakdown(spec.breakdown),
     certification,
     reason,
     detail: spec.detail ?? null,
@@ -151,6 +167,7 @@ export async function readFact(spec, reader, { now = new Date(), timeoutMs = DEF
     }
     return liveFact({
       ...spec, asOf, value: outcome.value, provenance: outcome.provenance ?? spec.provenance, detail: outcome.detail ?? spec.detail, extent: outcome.extent ?? spec.extent,
+      breakdown: outcome.breakdown ?? spec.breakdown,
     });
   } catch {
     return degraded({ ...spec, asOf }, `The source could not be read at ${iso(asOf)}, so no value is shown.`);

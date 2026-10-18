@@ -108,6 +108,20 @@ test('a fact may carry the extent of its population — the oldest and newest re
   assert.equal(liveFact({ ...base, kind: 'operational', value: 1 }).extent, null);
 });
 
+test('a fact may carry a named breakdown (states, per-currency amounts) — never a total across currencies', () => {
+  const f = liveFact({
+    ...base, kind: 'operational', value: 3,
+    breakdown: [{ key: 'status:open', label: 'Open', value: 2 }, { key: 'amount:USD', label: 'Requested amount', value: 1500.5, currency: 'USD' }],
+  });
+  assert.deepEqual(f.breakdown, [
+    { key: 'status:open', label: 'Open', value: 2, currency: null },
+    { key: 'amount:USD', label: 'Requested amount', value: 1500.5, currency: 'USD' },
+  ]);
+  assert.throws(() => liveFact({ ...base, kind: 'operational', value: 1, breakdown: [{ key: 'x', label: 'X', value: -1 }] }), /breakdown/);
+  assert.throws(() => liveFact({ ...base, kind: 'operational', value: 1, breakdown: [{ key: 'x', label: '', value: 1 }] }), /breakdown/);
+  assert.equal(liveFact({ ...base, kind: 'operational', value: 1 }).breakdown, null);
+});
+
 test('a rolling window names its days and its exact bounds', () => {
   assert.deepEqual(rollingWindow(7, NOW), { kind: 'rolling', days: 7, from: '2026-10-11T00:00:00.000Z', to: '2026-10-18T00:00:00.000Z' });
   assert.ok(FACT_STATES.includes('DEGRADED'));
