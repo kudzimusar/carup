@@ -6,8 +6,10 @@ import { ACTION_CLASSES } from '../services/auth/authenticationAssuranceService.
 import { ValidationError, NotFoundError } from '../utils/errors.js';
 import {
   beginOwnershipTransfer,
+  beginOwnershipTransferFromTransaction,
   transitionOwnershipTransfer,
   getOwnershipTransfer,
+  getOwnershipTransferByTransaction,
 } from '../services/passport/passportOwnershipTransferService.js';
 
 export function createPassportOwnershipTransferRouter({ client = supabase } = {}) {
@@ -29,6 +31,44 @@ export function createPassportOwnershipTransferRouter({ client = supabase } = {}
           idempotencyKey,
         }, req.userContext);
         return res.status(201).json({ ok: true, ...result });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  router.post(
+    '/api/transactions/:transactionIntentId/ownership-transfer',
+    authorizeSessionRole([]),
+    async (req, res, next) => {
+      try {
+        const idempotencyKey = String(req.headers['x-idempotency-key'] || '').trim();
+        if (!idempotencyKey) {
+          throw new ValidationError('x-idempotency-key is required to begin an ownership transfer.');
+        }
+        const result = await beginOwnershipTransferFromTransaction(client, {
+          transactionIntentId: req.params.transactionIntentId,
+          idempotencyKey,
+        }, req.userContext);
+        return res.status(201).json({ ok: true, ...result });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  router.get(
+    '/api/transactions/:transactionIntentId/ownership-transfer',
+    authorizeSessionRole([]),
+    async (req, res, next) => {
+      try {
+        const transfer = await getOwnershipTransferByTransaction(
+          client,
+          req.params.transactionIntentId,
+          req.userContext,
+        );
+        if (!transfer) throw new NotFoundError('No ownership transfer is linked to this transaction.');
+        return res.json({ ok: true, transfer });
       } catch (error) {
         return next(error);
       }
