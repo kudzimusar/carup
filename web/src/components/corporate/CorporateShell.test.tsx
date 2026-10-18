@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { OWNER_GOVERNOR_GRANT, PEOPLE_ACCESS_PROJECTION, SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
+import { phoneBox } from './touchTarget.testutil'
 
 vi.mock('@/context/AuthContext', async () => {
   const React = await import('react')
@@ -629,6 +630,60 @@ describe('CA-K3-AUTH-01 · the Corporate shell renders only from the SERVER Corp
       unmount()
     }
     expect(accessCalls).toHaveLength(DIRECT_ROUTES.length)
+  })
+})
+
+/** A control is a 44×44 target at 390 px; `width` only for icon-only controls (a text label is wider than 44 px). */
+function expect44(el: Element, label: string, { width = false, focused = false }: { width?: boolean; focused?: boolean } = {}) {
+  const box = phoneBox(el, { focused })
+  expect(box.height, `${label}: height at 390 px`).toBeGreaterThanOrEqual(44)
+  if (width) expect(box.width, `${label}: width at 390 px`).toBeGreaterThanOrEqual(44)
+}
+
+describe('CA-OWNER-02 · every shell control is at least 44×44 at a 390 px viewport', () => {
+  it('control: the 390 px reading of Tailwind utilities (unprefixed and max-* apply, min-width breakpoints do not)', () => {
+    const el = (cls: string) => Object.assign(document.createElement('a'), { className: cls })
+    expect(phoneBox(el('h-10 w-10'))).toEqual({ height: 40, width: 40 })
+    expect(phoneBox(el('h-10 min-w-[40px] max-sm:h-11 max-sm:min-w-11'))).toEqual({ height: 44, width: 44 })
+    expect(phoneBox(el('h-11 max-sm:h-10'))).toEqual({ height: 40, width: 0 })
+    expect(phoneBox(el('sm:h-11 lg:min-h-11'))).toEqual({ height: 0, width: 0 })
+    expect(phoneBox(el('size-9 max-sm:size-11'))).toEqual({ height: 44, width: 44 })
+    expect(phoneBox(el('flex min-h-[44px] items-center'))).toEqual({ height: 44, width: 0 })
+    expect(phoneBox(el('sr-only focus:min-h-11'))).toEqual({ height: 0, width: 0 })
+    expect(phoneBox(el('sr-only focus:min-h-11'), { focused: true })).toEqual({ height: 44, width: 0 })
+  })
+
+  it('top bar: the navigation opener, the identity link and the three panel buttons', async () => {
+    await renderAdmitted('/corporate/finance')
+    expect44(screen.getByTestId('corporate-drawer-open'), 'drawer opener', { width: true })
+    expect44(screen.getByTestId('corporate-identity'), 'identity link')
+    for (const id of ['topbar-freshness', 'topbar-attention', 'topbar-account']) expect44(screen.getByTestId(id), id, { width: true })
+  })
+
+  it('account panel: the way to the operational Admin and Sign out', async () => {
+    await renderAdmitted('/corporate/finance')
+    fireEvent.click(screen.getByTestId('topbar-account'))
+    const panel = screen.getByTestId('account-panel')
+    const controls = [...within(panel).getAllByRole('link'), ...within(panel).getAllByRole('button')]
+    expect(controls).toHaveLength(2)
+    for (const c of controls) expect44(c, c.textContent ?? '')
+  })
+
+  it('drawer: the close button and every link in it', async () => {
+    await renderAdmitted('/corporate/finance')
+    fireEvent.click(screen.getByTestId('corporate-drawer-open'))
+    const drawer = await screen.findByTestId('corporate-drawer')
+    expect44(within(drawer).getByRole('button', { name: 'Close navigation' }), 'drawer close', { width: true })
+    const links = within(drawer).getAllByRole('link')
+    expect(links).toHaveLength(11)
+    for (const a of links) expect44(a, a.textContent ?? '')
+  })
+
+  it('the skip link while focused, the rail collapse toggle, and the page breadcrumb', async () => {
+    await renderAdmitted('/corporate/finance')
+    expect44(screen.getByRole('link', { name: 'Skip to content' }), 'skip link', { focused: true })
+    expect44(screen.getByTestId('corporate-rail-toggle'), 'rail collapse toggle')
+    expect44(within(screen.getByTestId('corporate-breadcrumb')).getByRole('link', { name: 'Corporate Admin' }), 'breadcrumb Corporate Admin')
   })
 })
 

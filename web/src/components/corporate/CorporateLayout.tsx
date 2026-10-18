@@ -105,16 +105,18 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" data-testid="corporate-shell">
-      <a href="#corporate-main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[80] focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow">
+      <a href="#corporate-main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[80] focus:inline-flex focus:min-h-11 focus:items-center focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow">
         Skip to content
       </a>
 
       {/* Identity / context bar */}
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950 text-white" data-testid="corporate-topbar">
-        <div className="flex h-14 items-center gap-3 px-3 sm:px-4">
+        {/* CA-OWNER-02: at phone width the 44 px targets take 16 px more, so the gaps give it back (desktop unchanged) and
+            the identity keeps "Corporate Admin" on one line at 390 px; narrower screens wrap it rather than overflow. */}
+        <div className="flex h-14 items-center gap-3 px-3 sm:px-4 max-sm:gap-2">
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 lg:hidden"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 lg:hidden"
             onClick={openDrawer}
             aria-label="Open Corporate Admin navigation"
             aria-expanded={drawerOpen}
@@ -123,7 +125,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
           </button>
-          <Link to={CORPORATE_ROOT} className="flex items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400" data-testid="corporate-identity">
+          <Link to={CORPORATE_ROOT} className="flex items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11" data-testid="corporate-identity">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-orange-500"><Car className="h-4 w-4 text-white" aria-hidden="true" /></span>
             <span className="leading-tight">
               <span className="block text-sm font-semibold tracking-tight">CarUp</span>
@@ -140,7 +142,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
             </span>
           )}
           <span className="hidden text-xs text-slate-400 xl:inline" data-testid="topbar-scope">Scope: CarUp Corporate</span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 max-sm:gap-0">
             <TopbarButton label="Data freshness" active={panel === 'freshness'} onClick={() => setPanel(panel === 'freshness' ? null : 'freshness')} testId="topbar-freshness">
               <Clock className="h-4 w-4" aria-hidden="true" /><span className="hidden text-xs sm:inline">No source connected</span>
             </TopbarButton>
@@ -171,10 +173,10 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
                 <p><span className="text-slate-400">Signed in as </span>{user?.name || 'Signed-in account'}</p>
                 <p className="text-xs text-slate-300" data-testid="access-explanation">{grant.explanation}</p>
                 <div className="flex flex-wrap gap-2 pt-1">
-                  <Link to="/admin" className="inline-flex min-h-[40px] items-center rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400">
+                  <Link to="/admin" className="inline-flex min-h-[40px] items-center rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11">
                     Open current operational Admin
                   </Link>
-                  <button type="button" onClick={signOut} className="inline-flex min-h-[40px] items-center gap-1.5 rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400" data-testid="corporate-sign-out">
+                  <button type="button" onClick={signOut} className="inline-flex min-h-[40px] items-center gap-1.5 rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11" data-testid="corporate-sign-out">
                     <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
                   </button>
                 </div>
@@ -197,7 +199,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded text-xs text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded text-xs text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
                 aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
                 aria-pressed={collapsed}
                 data-testid="corporate-rail-toggle"
@@ -215,7 +217,7 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
             <div id="corporate-drawer" role="dialog" aria-modal="true" aria-label="Corporate Admin navigation" className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col bg-white shadow-xl" data-testid="corporate-drawer">
               <div className="flex h-14 items-center justify-between border-b border-slate-200 px-3">
                 <span className="text-sm font-semibold">Corporate Admin</span>
-                <button ref={closeRef} type="button" onClick={closeDrawer} className="inline-flex h-10 w-10 items-center justify-center rounded hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" aria-label="Close navigation">
+                <button ref={closeRef} type="button" onClick={closeDrawer} className="inline-flex h-11 w-11 items-center justify-center rounded hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" aria-label="Close navigation">
                   <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
@@ -252,7 +254,7 @@ function TopbarButton({ label, active, onClick, children, testId }: { label: str
       onClick={onClick}
       aria-label={label}
       aria-expanded={active}
-      className={cn('inline-flex h-10 min-w-[40px] items-center justify-center gap-1.5 rounded px-2 text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400', active && 'bg-slate-800')}
+      className={cn('inline-flex h-10 min-w-[40px] shrink-0 items-center justify-center gap-1.5 rounded px-2 text-slate-200 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:h-11 max-sm:min-w-11', active && 'bg-slate-800')}
       data-testid={testId}
     >
       {children}
