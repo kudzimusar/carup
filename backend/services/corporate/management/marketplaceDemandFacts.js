@@ -16,13 +16,13 @@
  * apart and never counted. None of these is a certified Corporate Actual (OD-CAMETRIC-022). Accounts are not customers;
  * inquiries are not sales; no rate or conversion is computed here.
  */
-import { readListingProvenanceBase, deriveListingVisibility } from '../../marketplace/marketplaceModerationService.js';
+import { deriveListingVisibility } from '../../marketplace/marketplaceModerationService.js';
 import { MARKETPLACE_INQUIRY_STATUSES } from '../../marketplace/marketplaceEventTypes.js';
 import { classifyIdentity } from '../../provenance/recordProvenance.js';
-import { createProvenanceIndex } from '../../provenance/provenanceContext.js';
 import { computePlatformMetrics } from '../../intelligence/rollupService.js';
 import { readFact, rollingWindow, CURRENT_WINDOW } from './managementFact.js';
-import { exactCount, readAllRows, shared, provenanceOf, unknownProvenance, extentOf } from './sourceReads.js';
+import { exactCount, readAllRows, provenanceOf, unknownProvenance, extentOf } from './sourceReads.js';
+import { createSourceContext } from './sourceContext.js';
 
 const TERMINAL_INQUIRY_STATUSES = new Set(['closed', 'spam', 'rejected']);
 export const OPEN_INQUIRY_STATUSES = Object.freeze(MARKETPLACE_INQUIRY_STATUSES.filter((s) => !TERMINAL_INQUIRY_STATUSES.has(s)));
@@ -40,44 +40,30 @@ const inWindow = (time, window) => {
 /**
  * @returns {Promise<{ facts: object[] }>} — never throws; a failed source degrades only the facts that rest on it.
  */
-export async function readMarketplaceDemandFacts(client, { now = new Date(), windowDays = 7 } = {}) {
-  const window = rollingWindow(windowDays, now);
-  const asOf = now;
-
-  // ── shared sources (read once, failing together) ───────────────────────────────────────────────────────────────────
-  const listingBase = shared(async () => {
-    const expected = await exactCount(client, 'vehicles', { column: 'vin' });
-    const base = await readListingProvenanceBase(client);
-    const provenanceByVin = new Map(base.classified.map((c) => [String(c.vehicle.vin), c.provenance]));
-    return { ...base, provenanceByVin, complete: base.classified.length === expected };
-  });
-  const users = shared(async () => {
-    const rows = await readAllRows(client, 'users', 'id, email, name');
-    return { rows, index: createProvenanceIndex({ users: rows }) };
-  });
-  const inquiries = shared(async () => {
-    const [base, people, rows] = await Promise.all([
-      listingBase(),
-      users(),
-      readAllRows(client, 'marketplace_inquiries', 'id, buyer_id, guest_email, guest_name, listing_id, listing_type, status, created_at'),
-    ]);
-    const classified = rows.map((row) => ({ row, provenance: people.index.inquiry(row, base.provenanceByVin) }));
-    return { classified, byId: new Map(classified.map((c) => [String(c.row.id), c])), complete: base.complete };
-  });
-
-  const k2b = (classified, keep = () => true, timeOf = () => null) => {
-    const population = classified.filter(keep);
-    const operational = population.filter((c) => c.provenance.operational);
-    return {
-      value: operational.length,
-      provenance: provenanceOf(population.map((c) => c.provenance)),
-      extent: extentOf(operational.map(timeOf)),
-    };
+/** Count the K2B-operational members of a population and carry what was set aside plus its time extent. */
+export function k2bCount(classified, keep = () => true, timeOf = () => null) {
+  const population = classified.filter(keep);
+  const operational = population.filter((c) => c.provenance.operational);
+  return {
+    value: operational.length,
+    provenance: provenanceOf(population.map((c) => c.provenance)),
+    extent: extentOf(operational.map(timeOf)),
   };
-  const byPrincipal = (rows, principalOf) => users().then((people) => rows.map((row) => {
+}
+
+/** Judge each row by the K2B identity of its principal (a missing principal is needs-review, never operational). */
+export function byPrincipal(ctx, rows, principalOf) {
+  return ctx.users().then((people) => rows.map((row) => {
     const id = principalOf(row);
     return { row, provenance: id ? people.index.identity(id) : unknownProvenance('no_principal') };
   }));
+}
+
+export async function readMarketplaceDemandFacts(client, { now = new Date(), windowDays = 7, ctx = createSourceContext(client, { now }) } = {}) {
+  const window = rollingWindow(windowDays, now);
+  const asOf = now;
+  const { listingBase, users, inquiries } = ctx;
+  const k2b = k2bCount;
 
   const spec = (id, label, authority, extra = {}) => ({ id, label, kind: 'operational', source: { authority }, asOf, scope: SCOPE_K2B, window: CURRENT_WINDOW, ...extra });
   const run = (s, reader) => readFact(s, reader, { now });
@@ -150,25 +136,25 @@ export async function readMarketplaceDemandFacts(client, { now = new Date(), win
       detail: 'Not completed, not cancelled, not deleted.',
     }), async () => {
       const rows = (await readAllRows(client, 'diaspora_import_orders', 'id, buyer_id, created_by, status, created_at, deleted_at')).filter((r) => !r.deleted_at);
-      return k2b(await byPrincipal(rows, (r) => r.buyer_id || r.created_by), (c) => !TERMINAL_TRADE_ORDER_STATUSES.has(c.row.status), (c) => c.row.created_at);
+      return k2b(await byPrincipal(ctx, rows, (r) => r.buyer_id || r.created_by), (c) => !TERMINAL_TRADE_ORDER_STATUSES.has(c.row.status), (c) => c.row.created_at);
     }),
     run(spec('trade.order.recent', `Trade orders created (${windowDays} days)`, 'diaspora_import_orders · K2B (buyer)', { window }), async () => {
       const rows = (await readAllRows(client, 'diaspora_import_orders', 'id, buyer_id, created_by, status, created_at, deleted_at')).filter((r) => !r.deleted_at);
-      return k2b(await byPrincipal(rows, (r) => r.buyer_id || r.created_by), (c) => inWindow(c.row.created_at, window), (c) => c.row.created_at);
+      return k2b(await byPrincipal(ctx, rows, (r) => r.buyer_id || r.created_by), (c) => inWindow(c.row.created_at, window), (c) => c.row.created_at);
     }),
     run(spec('trade.logistics.open_for_quotes', 'Logistics requests open for quotes', 'diaspora_logistics_requests · K2B (requester)'), async () => {
       const rows = await readAllRows(client, 'diaspora_logistics_requests', 'id, requester_id, status, created_at');
-      return k2b(await byPrincipal(rows, (r) => r.requester_id), (c) => c.row.status === 'OPEN_FOR_QUOTES', (c) => c.row.created_at);
+      return k2b(await byPrincipal(ctx, rows, (r) => r.requester_id), (c) => c.row.status === 'OPEN_FOR_QUOTES', (c) => c.row.created_at);
     }),
     run(spec('service.case.open', 'Open service requests', 'service_cases · K2B (requester)', {
       detail: 'Requested, accepted or active.',
     }), async () => {
       const rows = await readAllRows(client, 'service_cases', 'id, requester_user_id, status, requested_at, created_at');
-      return k2b(await byPrincipal(rows, (r) => r.requester_user_id), (c) => OPEN_SERVICE_CASE_STATUSES.has(c.row.status), (c) => c.row.requested_at || c.row.created_at);
+      return k2b(await byPrincipal(ctx, rows, (r) => r.requester_user_id), (c) => OPEN_SERVICE_CASE_STATUSES.has(c.row.status), (c) => c.row.requested_at || c.row.created_at);
     }),
     run(spec('service.case.recent', `Service requests received (${windowDays} days)`, 'service_cases · K2B (requester)', { window }), async () => {
       const rows = await readAllRows(client, 'service_cases', 'id, requester_user_id, status, requested_at, created_at');
-      return k2b(await byPrincipal(rows, (r) => r.requester_user_id), (c) => inWindow(c.row.requested_at || c.row.created_at, window), (c) => c.row.requested_at || c.row.created_at);
+      return k2b(await byPrincipal(ctx, rows, (r) => r.requester_user_id), (c) => inWindow(c.row.requested_at || c.row.created_at, window), (c) => c.row.requested_at || c.row.created_at);
     }),
   ]);
   return { facts };
