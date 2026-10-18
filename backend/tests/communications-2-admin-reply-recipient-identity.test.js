@@ -136,6 +136,8 @@ test('never addresses another participant — the reply goes to the primary user
 });
 
 // ── 5. WRONG-CHANNEL SAFETY ───────────────────────────────────────────────────────────────────
+// CA-OWNER-02 H4: the customer cannot be reached on the requested channel, so the reply-channel authority refuses it
+// (409 REPLY_CHANNEL_NOT_DELIVERABLE) before anything is written — it was a 422 from the recipient stage before.
 test('a WhatsApp reply never silently goes out over Telegram', async () => {
   const { run, queued } = harness({
     participants: [PRIMARY_PARTICIPANT],
@@ -143,7 +145,7 @@ test('a WhatsApp reply never silently goes out over Telegram', async () => {
     identities: [TG_PRIMARY],
     channel: 'whatsapp',
   });
-  await assert.rejects(run, (e) => e.statusCode === 422);
+  await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE');
   assert.equal(queued.length, 0, 'no notification may be queued on the wrong channel');
 });
 
@@ -153,7 +155,9 @@ test('a WhatsApp reply never silently goes out over Telegram', async () => {
 // projection — on a Marketplace thread it is the SELLER, so the buyer who owns the WhatsApp binding
 // was unreachable and every such reply 422'd. Delivery is now participant-authoritative; that case
 // is covered as a PASS in communications-2-admin-reply-participant-recipient.test.js.
-test('an external channel with no send-capable identity fails closed with 422', async () => {
+// CA-OWNER-02 H4: with no send-capable WhatsApp for the customer the channel is not deliverable, so the authority
+// refuses it (409 REPLY_CHANNEL_NOT_DELIVERABLE, nothing written) — previously the recipient stage's 422.
+test('an external channel with no send-capable identity fails closed (409 REPLY_CHANNEL_NOT_DELIVERABLE)', async () => {
   for (const bindings of [
     [],
     [bind('p-primary', 'whatsapp', 'id-wa-primary', { can_send: false })],
@@ -163,7 +167,7 @@ test('an external channel with no send-capable identity fails closed with 422', 
       bindings,
       identities: [WA_PRIMARY, WA_OTHER],
     });
-    await assert.rejects(run, (e) => e.statusCode === 422 && /No deliverable communication recipient/.test(e.message));
+    await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE' && /Nothing was sent/.test(e.message));
     assert.equal(queued.length, 0, 'no orphan notification may be left behind');
   }
 });
@@ -174,7 +178,8 @@ test('an inactive participant does not qualify as a recipient', async () => {
     bindings: [bind('p-primary', 'whatsapp', 'id-wa-primary')],
     identities: [WA_PRIMARY],
   });
-  await assert.rejects(run, (e) => e.statusCode === 422);
+  // CA-OWNER-02 H4: an inactive participant's binding is not the customer's, so WhatsApp is not deliverable (409).
+  await assert.rejects(run, (e) => e.statusCode === 409 && e.code === 'REPLY_CHANNEL_NOT_DELIVERABLE');
   assert.equal(queued.length, 0);
 });
 

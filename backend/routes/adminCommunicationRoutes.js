@@ -16,6 +16,10 @@ import {
 } from '../services/communication/conversationTruth.js';
 import { loadConversationTruth, readAllIn } from '../services/communication/conversationTruthLoader.js';
 import { readAllPages } from '../services/intelligence/rollupService.js';
+import { isMarketplaceInquiryThread } from '../services/communication/conversationCustomer.js';
+import {
+  channelKey, replyChannelAuthority, replyChannelRefusal, resolveReplyChannel,
+} from '../services/communication/replyChannelResolution.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -547,9 +551,12 @@ function bindingIsLive(binding) {
  * genuinely offers two equally-ranked distinct addresses. Never guesses between addresses.
  */
 function selectBindingForParticipant({ bindings, participant, channel }) {
+  // CA-OWNER-02 (H4): the same sendability rule as the reply-channel authority — a binding without transactional
+  // consent is never picked, so the channel the authority allowed and the address used here cannot disagree.
   const usable = bindings.filter((b) => String(b.participant_id) === String(participant.id)
     && normalizeChannelName(b.channel) === normalizeChannelName(channel)
     && b.can_send !== false
+    && b.transactional_consent !== false
     && b.channel_identity_id
     && bindingIsLive(b));
   if (!usable.length) return null;
@@ -604,13 +611,19 @@ async function deliverableIdentityFor({ repository, bindings, participant, chann
  *
  * Ambiguity is never settled by cross-participant recency: sending one customer's reply to another
  * is worse than not sending.
+ *
+ * CA-OWNER-02 (H4): on a Marketplace inquiry `customer` (from the reply-channel authority) confines the recipient to the
+ * customer side and prefers the customer's account — the seller (thread.primary_user_id there) is never addressed.
+ * Other conversations keep the behaviour above exactly.
  */
 export async function resolveAdminReplyRecipient({
-  repository, thread, channel, requestedParticipantId = null,
+  repository, thread, channel, requestedParticipantId = null, customer = null,
 } = {}) {
   if (!repository || !thread?.id || !channel) return { ok: false, reason: 'no_recipient' };
   const bindings = await repository.list('conversation_channel_bindings', { thread_id: thread.id })
     .catch(() => []);
+  const customerSide = customer ? new Set((customer.participant_ids || []).map(String)) : null;
+  const onCustomerSide = (participant) => !customerSide || customerSide.has(String(participant.id));
 
   if (requestedParticipantId) {
     // Fetched by id, not filtered out of the thread's list, so the thread-ownership check below is
@@ -620,6 +633,7 @@ export async function resolveAdminReplyRecipient({
     if (!participant) return { ok: false, reason: 'no_recipient' };
     if (String(participant.thread_id) !== String(thread.id)) return { ok: false, reason: 'no_recipient' };
     if (!participantIsAddressable(participant)) return { ok: false, reason: 'no_recipient' };
+    if (!onCustomerSide(participant)) return { ok: false, reason: 'no_recipient' };
     const identity = await deliverableIdentityFor({ repository, bindings, participant, channel });
     if (!identity) return { ok: false, reason: 'no_recipient' };
     return { ok: true, participant, identity };
@@ -628,7 +642,8 @@ export async function resolveAdminReplyRecipient({
   const participants = (await repository.list('message_participants', { thread_id: thread.id })
     .catch(() => []))
     .filter((p) => String(p.thread_id) === String(thread.id))
-    .filter(participantIsAddressable);
+    .filter(participantIsAddressable)
+    .filter(onCustomerSide);
 
   const eligible = [];
   for (const participant of participants) {
@@ -638,9 +653,10 @@ export async function resolveAdminReplyRecipient({
     if (identity) eligible.push({ participant, identity });
   }
 
-  if (thread.primary_user_id) {
+  const preferredUserId = customer ? customer.user_id : thread.primary_user_id;
+  if (preferredUserId) {
     const primaryHits = eligible.filter(
-      (hit) => String(hit.participant.user_id) === String(thread.primary_user_id),
+      (hit) => String(hit.participant.user_id) === String(preferredUserId),
     );
     // Simple threads keep behaving exactly as before: if the primary user is deliverable, they are
     // the recipient, even when other participants are also reachable.
@@ -674,6 +690,27 @@ async function notificationForMessage(repository, messageId) {
   return rows[0] || null;
 }
 
+/**
+ * CA-OWNER-02 (H4) — read what the reply-channel authority judges (replyChannelResolution.js): the thread's participants,
+ * bindings, its latest inbound message, the participants' channel identities and — on a Marketplace inquiry — the
+ * inquiry (its asker is the customer). Read failures propagate: a failed read is never presented as "not deliverable".
+ * `prefetched` lets the detail route reuse rows it already holds.
+ */
+export async function loadReplyChannelAuthority({ repository, thread, prefetched = {} }) {
+  const [participants, bindings, messages, inquiry] = await Promise.all([
+    prefetched.participants || repository.list('message_participants', { thread_id: thread.id }),
+    prefetched.bindings || repository.list('conversation_channel_bindings', { thread_id: thread.id }),
+    prefetched.messages || repository.list('messages', { thread_id: thread.id, direction: 'inbound' }, { order: { column: 'created_at', ascending: false }, limit: 1 }),
+    isMarketplaceInquiryThread(thread) ? repository.findOne('marketplace_inquiries', { id: thread.subject_id }) : Promise.resolve(null),
+  ]);
+  let identities = prefetched.identities;
+  if (!identities) {
+    const identityIds = [...new Set((participants || []).map((p) => p.external_identity_id).filter(Boolean).map(String))];
+    identities = (await Promise.all(identityIds.map((id) => repository.findOne('channel_identities', { id })))).filter(Boolean);
+  }
+  return replyChannelAuthority({ thread, inquiry, participants, bindings, identities, messages, now: Date.now() });
+}
+
 export async function recordAdminThreadReply({ services, thread, actor, body = {} }) {
   const repository = services.repository || services.notificationService?.repository || services.threadService?.repository;
   if (!repository) throw new Error('Communication repository is required for admin replies.');
@@ -691,6 +728,18 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
       duplicate: true,
     };
   }
+  // CA-OWNER-02 (H4): a customer-visible reply goes out on a channel the CUSTOMER can be reached on. A requested channel
+  // is honoured only when deliverable; with none, the authority's default (latest customer turn → primary binding →
+  // in-app account). Never thread.primary_channel on its own, never silently substituted, and refused (409) BEFORE
+  // anything is written. Internal notes are unchanged: they are never delivered.
+  let authority = null;
+  let replyChannel = body?.channel || thread.primary_channel || 'in_app';
+  if (!internal) {
+    authority = await loadReplyChannelAuthority({ repository, thread });
+    const decision = resolveReplyChannel(authority, body?.channel);
+    if (!decision.ok) throw replyChannelRefusal(decision);
+    replyChannel = decision.channel;
+  }
   const originalThread = {
     status: thread.status || null,
     last_message_at: thread.last_message_at || null,
@@ -699,7 +748,7 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
   const message = await services.threadService.recordMessage(thread, {
     direction: internal ? 'internal' : 'outbound',
     sender_user_id: actor.id,
-    channel: body?.channel || thread.primary_channel || 'in_app',
+    channel: replyChannel,
     content_text: body?.message || body?.text || '',
     content_json: { admin_reply: true, internal },
     client_message_id: clientMessageId,
@@ -710,16 +759,17 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
   let notification = null;
   try {
     const requestedParticipantId = body?.recipient_participant_id || body?.recipientParticipantId || null;
-    const replyChannel = body?.channel || thread.primary_channel || 'in_app';
     const isInApp = normalizeChannelName(replyChannel) === 'in_app';
+    // The customer's CarUp account: the inquiry asker on a Marketplace thread (never the seller), the primary user elsewhere.
+    const customerUserId = authority?.customer?.user_id || null;
 
     // in_app is addressed by user id alone, so it keeps its existing behaviour unless the caller
     // explicitly targets a participant. Every other channel is addressed by a provider address, and
     // queueing without one produced a notification the worker could never send — it dead-lettered
     // as recipient_missing on every admin reply to a WhatsApp/Telegram thread.
-    if (!internal && isInApp && !requestedParticipantId && thread.primary_user_id) {
+    if (!internal && isInApp && !requestedParticipantId && customerUserId) {
       notification = (await services.notificationService.queueExistingMessage({
-        recipientUserId: thread.primary_user_id,
+        recipientUserId: customerUserId,
         thread,
         message,
         channel: replyChannel,
@@ -729,12 +779,16 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
         classification: 'conversational',
         priority: thread.priority || 'normal',
         humanApproved: true,
-        dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
+        dedupeParts: ['admin_reply', thread.id, clientMessageId, customerUserId],
         payload: { thread_id: thread.id, admin_reply: true },
       })).notification;
     } else if (!internal && (!isInApp || requestedParticipantId)) {
       const resolved = await resolveAdminReplyRecipient({
-        repository, thread, channel: replyChannel, requestedParticipantId,
+        repository,
+        thread,
+        channel: replyChannel,
+        requestedParticipantId,
+        customer: isMarketplaceInquiryThread(thread) ? authority?.customer || null : null,
       });
       if (resolved.reason === 'recipient_ambiguous') {
         const err = new Error('Admin reply recipient is ambiguous: more than one participant is deliverable on this channel. Specify recipient_participant_id.');
@@ -776,13 +830,14 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
     }
     if (!internal && !notification && !thread.primary_user_id) {
       const external = await resolveExternalReplyIdentity({ repository, thread });
-      if (external) {
+      // The external contact's identity is used only when it IS the resolved channel — never a silent substitution.
+      if (external && channelKey(external.identity.channel) === channelKey(replyChannel)) {
         const { identity, participant } = external;
         notification = (await services.notificationService.queueExistingMessage({
           recipientIdentityId: identity.id,
           thread,
           message,
-          channel: body?.channel || identity.channel || thread.primary_channel || 'in_app',
+          channel: replyChannel,
           provider: identity.provider || message.provider || null,
           notificationType: 'admin_reply',
           templateKey: 'admin_reply_v1',
@@ -904,9 +959,19 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     } catch (_error) {
       decoration = UNJUDGED;
     }
+    // CA-OWNER-02 (H4): the server's reply-channel authority, for the composer's default. Channels only — no address.
+    // Unreadable → null (the composer keeps its own derivation; the server still decides on send).
+    let replyChannel = null;
+    try {
+      const authority = await loadReplyChannelAuthority({ repository: services.repository, thread, prefetched: { participants, messages, identities } });
+      replyChannel = { default_channel: authority.default_channel, deliverable: authority.deliverable, basis: authority.basis };
+    } catch (_error) {
+      replyChannel = null;
+    }
     return res.json({
       thread: { ...thread, ...decoration },
       truth_available: truthAvailable,
+      reply_channel: replyChannel,
       messages,
       participants,
       escalations,
@@ -934,7 +999,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       await auditThread(services, req, thread, internal ? COMMUNICATION_AUDIT_EVENTS.INTERNAL_NOTE : COMMUNICATION_AUDIT_EVENTS.REPLY_SENT, {
         message_id: message?.id ?? null,
         notification_id: notification?.id ?? null,
-        channel: req.body?.channel || thread.primary_channel || null,
+        // The channel the reply actually took (the server's resolution), not the request or the stale primary_channel.
+        channel: message?.channel || req.body?.channel || thread.primary_channel || null,
         correlation_id: req.body?.client_message_id || null,
         summary: internal ? 'Internal note added' : 'Reply sent to customer',
       });
