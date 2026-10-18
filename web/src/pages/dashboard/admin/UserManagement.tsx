@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Search, Users, Shield, Wrench, Building2, Car, MoreHorizontal, Ban, UserCog } from 'lucide-react'
 import { ProvenanceNotice, ReadFailedNotice, type ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +18,8 @@ import type { User } from '@/types'
 
 
 
-const roleIcons: Record<string, typeof Users> = { Owner: Car, Dealer: Building2, Mechanic: Wrench, Insurance: Shield }
+// Keyed by the STORED platform role (users.role is lowercase); any other role shows the generic icon.
+const roleIcons: Record<string, typeof Users> = { owner: Car, dealer: Building2, mechanic: Wrench, insurance: Shield }
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -84,10 +85,21 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">User Management</h1>
-          <p className="text-gray-500">Manage platform users and their permissions</p>
+      {/* CA-OWNER-02: this page governs the PLATFORM role. Corporate memberships and persistent permissions are a
+          separate system, governed in Corporate Admin → People & Access; the two are never merged here. */}
+      <div className="flex flex-wrap items-start justify-between gap-3" data-testid="platform-users-header">
+        <div className="min-w-0 max-w-3xl space-y-1">
+          <h1 className="text-2xl font-bold">Platform Users &amp; Roles</h1>
+          <p className="text-sm text-gray-600" data-testid="platform-roles-explanation">
+            Platform roles (<code className="rounded bg-gray-100 px-1 font-mono text-[13px]">users.role</code>) decide access to product features and the operational Admin. They are not Corporate permissions.
+          </p>
+          <Link
+            to="/corporate/people-access"
+            className="inline-flex items-center gap-1 rounded text-sm font-medium text-orange-700 underline underline-offset-2 hover:text-orange-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 max-sm:min-h-11"
+            data-testid="platform-users-people-access-link"
+          >
+            Corporate memberships and persistent permissions are governed in People &amp; Access
+          </Link>
         </div>
         <Button className="bg-orange-500 hover:bg-orange-600" onClick={() => setIsAddModalOpen(true)}>Add User</Button>
       </div>
@@ -116,7 +128,7 @@ export default function UserManagement() {
           <ReadFailedNotice what="Users" detail={loadError} />
         ) : filtered.length > 0 ? (
           filtered.map((user) => {
-            const RoleIcon = roleIcons[user.role] || Users
+            const RoleIcon = roleIcons[String(user.role ?? '').toLowerCase()] || Users
             return (
               <Card key={user.id} className="border-0 card-shadow">
                 <CardContent className="p-4">
@@ -124,7 +136,9 @@ export default function UserManagement() {
                     <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
                       <RoleIcon className="w-5 h-5 text-orange-600" />
                     </div>
-                    <div className="flex-1">
+                    {/* min-w-0 + anywhere-wrapping: an unmasked email or account id wraps inside the card at 390 px
+                        instead of pushing the actions button off-screen (CA-OWNER-02). */}
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between mb-0.5">
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium">{user.name}</h3>
@@ -132,9 +146,9 @@ export default function UserManagement() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                        <span>{user.email}</span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">{user.email}</span>
                         <span>Joined: {user.created_at || user.joined ? new Date(user.created_at || user.joined || '').toLocaleDateString() : 'N/A'}</span>
-                        <span>ID: {user.id}</span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">ID: {user.id}</span>
                       </div>
                     </div>
                     <DropdownMenu>
