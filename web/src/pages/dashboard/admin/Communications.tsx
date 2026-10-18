@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CommandCenterNav } from '@/features/communications/admin/CommandCenterNav'
-import { COMMAND_CENTER_SECTIONS, type CommandCenterSection } from '@/features/communications/admin/commandCenterSections'
+import { COMMAND_CENTER_SECTIONS, commandCenterPageTitle, type CommandCenterSection } from '@/features/communications/admin/commandCenterSections'
 import {
   AlertTriangle, ChevronLeft, Inbox as InboxIcon, Loader2, MessageSquare, PauseCircle, PlayCircle, RefreshCcw, Search,
 } from 'lucide-react'
@@ -185,6 +185,10 @@ export default function AdminCommunications() {
   // Only the inbox uses the triage layout; queues/sla/recovery/audit/providers/settings are dedicated
   // operational workspaces (P1.10) — a section is never a mere alias of the inbox.
   const isInboxLike = section === 'inbox'
+  // CA-OWNER-02 (H5): each section is a real page with its own title (the server document uses the same definition).
+  useEffect(() => {
+    document.title = commandCenterPageTitle(section)
+  }, [section])
   const [selected, setSelected] = useState<ThreadSummary | null>(null)
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
