@@ -89,6 +89,23 @@ test('a read that outlives its time budget is DEGRADED, not pending forever', as
   assert.equal(f.value, null);
 });
 
+test('CA-OWNER-02-R3 D3: a reader may report when its source was REALLY read — a cached figure keeps its own read time', async () => {
+  const readAt = new Date(NOW.getTime() - 120_000);
+  const f = await readFact({ ...base, kind: 'technical' }, async () => ({ value: 'healthy', asOf: readAt, detail: 'cached read' }), { now: NOW });
+  assert.equal(f.state, 'TECHNICAL_OPERATIONAL');
+  assert.equal(f.as_of, readAt.toISOString(), 'the figure says when it was read, not when the page asked');
+  const future = await readFact({ ...base, kind: 'technical' }, async () => ({ value: 'healthy', asOf: new Date(NOW.getTime() + 60_000) }), { now: NOW });
+  assert.equal(future.as_of, NOW.toISOString(), 'a read time in the future is never believed');
+});
+
+test('CA-OWNER-02-R3 D3: a reader may say exactly why no value is shown — still DEGRADED with no value', async () => {
+  const err = Object.assign(new Error('pending'), { factReason: 'The scheduler-health read is still running, so no value is shown yet.' });
+  const f = await readFact({ ...base, kind: 'technical' }, async () => { throw err; }, { now: NOW });
+  assert.equal(f.state, 'DEGRADED');
+  assert.equal(f.value, null);
+  assert.equal(f.reason, 'The scheduler-health read is still running, so no value is shown yet.');
+});
+
 test('a statement fact states its reason and never carries a value, even when one is passed', () => {
   const f = statementFact({ id: 'finance.gmv', label: 'GMV', state: 'PENDING_CA_FIN', reason: 'No accepted Corporate accounting system of record exists.', value: 123 });
   assert.equal(f.state, 'PENDING_CA_FIN');

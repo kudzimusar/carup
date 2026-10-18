@@ -71,6 +71,12 @@ test('HTTP · /api/corporate/management/:area through the shipped app', async (t
   assert.equal(A.cacheControl, 'no-store');
   assert.equal(A.body.contract, 'carup.corporate_management.v1');
   assert.equal(A.body.read_only, true);
+  // CA-OWNER-02-R3 (D3): every answer says how old its shared snapshot is and whether a refresh is running.
+  assert.equal(typeof A.body.snapshot, 'object', A.text.slice(0, 200));
+  assert.equal(A.body.snapshot.generated_at, A.body.generated_at);
+  assert.equal(A.body.snapshot.stale, false);
+  assert.equal(A.body.snapshot.refreshing, false);
+  assert.equal(typeof A.body.snapshot.age_seconds, 'number');
   const governance = Object.fromEntries(A.body.sections.governance.map((f) => [f.id, f]));
   assert.equal(governance['corporate.governance.membership.active'].value, 2);
   assert.equal(governance['corporate.governance.assignment.active'].value, 4);

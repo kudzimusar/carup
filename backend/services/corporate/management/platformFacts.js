@@ -19,12 +19,48 @@ import { probeSessionAuthorityConnection } from '../../auth/sessionAuthority.js'
 import { countUnrecordedLedgerIntents } from '../../blockchain/ledgerIntentService.js';
 import { readFact, statementFact, CURRENT_WINDOW } from './managementFact.js';
 import { exactCount } from './sourceReads.js';
+import { createBoundedSource, BoundedSourcePending } from './boundedSource.js';
 
 const SCOPE = 'Staging runtime · this API deployment';
+
+/**
+ * CA-OWNER-02-R3 (D3) — get_communication_scheduler_health() scans the full cron run history (cron.job_run_details: about
+ * 179,000 rows, 264 MB on staging) three times per call. The database function cannot change in this lane, so its cost is
+ * bounded here: it is read at most every 5 minutes, a page waits for it at most 2.5 s, a slow read finishes in the
+ * background, and a cached reading is served — with the time it was really read — for at most 30 minutes.
+ */
+export const SCHEDULER_HEALTH_LIMITATION = 'get_communication_scheduler_health() scans the full cron run history on every call — a known database limitation';
+export function createSchedulerHealthRead(client, { ttlMs = 300_000, budgetMs = 2_500, maxAgeMs = 1_800_000, now } = {}) {
+  const source = createBoundedSource(async () => {
+    const { data, error } = await client.rpc('get_communication_scheduler_health');
+    if (error) throw new Error('scheduler health unavailable');
+    return data;
+  }, { ttlMs, budgetMs, maxAgeMs, ...(now ? { now } : {}) });
+  return async () => {
+    try {
+      const { value, readAt, refreshing } = await source.get();
+      return { data: value, readAt, refreshing };
+    } catch (err) {
+      if (err instanceof BoundedSourcePending) {
+        throw Object.assign(new Error('scheduler health pending'), {
+          factReason: `The scheduler-health read is still running, so no value is shown yet: ${SCHEDULER_HEALTH_LIMITATION}.`,
+        });
+      }
+      throw new Error('scheduler health unavailable');
+    }
+  };
+}
+const schedulerReads = new WeakMap();
+const schedulerReadFor = (client) => {
+  if (!schedulerReads.has(client)) schedulerReads.set(client, createSchedulerHealthRead(client));
+  return schedulerReads.get(client);
+};
 
 /** The runtime authorities, injectable for tests. */
 export function defaultRuntime(client = defaultClient, env = process.env) {
   return {
+    /** The bounded scheduler-health read (one per client, shared by every snapshot this process computes). */
+    schedulerHealthRead: schedulerReadFor(client),
     build: () => resolveBuildProvenance(),
     databaseTarget: () => resolveDatabaseTarget(env),
     communicationConfiguration: () => validateCommunicationConfiguration(),
@@ -99,8 +135,13 @@ export async function readPlatformFacts({ now = new Date(), host = null, runtime
       scope: SCOPE,
     })),
     run(spec('platform.communications.scheduler', 'Communication scheduler', { authority: 'get_communication_scheduler_health()' }), async () => {
-      const h = await runtime.schedulerHealth();
-      if (!h || h.pg_cron_available !== true) return { value: 'scheduler unavailable', detail: 'pg_cron is not available to this database.' };
+      // CA-OWNER-02-R3 (D3): through the bounded read when the runtime has one (it reports when it was REALLY read).
+      const bounded = typeof runtime.schedulerHealthRead === 'function' ? await runtime.schedulerHealthRead() : null;
+      const h = bounded ? bounded.data : await runtime.schedulerHealth();
+      const cadence = bounded
+        ? ` Read at most every 5 minutes because ${SCHEDULER_HEALTH_LIMITATION}${bounded.refreshing ? '; a newer reading is being taken' : ''}.`
+        : '';
+      if (!h || h.pg_cron_available !== true) return { value: 'scheduler unavailable', detail: `pg_cron is not available to this database.${cadence}`, asOf: bounded?.readAt };
       const active = h.job_config?.active === true;
       const parts = [
         `job ${h.job_config?.jobname ?? 'unknown'} (${h.job_config?.schedule ?? 'no schedule'})`,
@@ -108,7 +149,11 @@ export async function readPlatformFacts({ now = new Date(), host = null, runtime
         h.latest_success?.start_time ? `last success ${h.latest_success.start_time}` : 'no success recorded',
         `stale locks ${Number(h.stale_lock_count || 0)}`,
       ];
-      return { value: active ? 'worker job active' : 'worker job inactive', detail: `${parts.join(' · ')}. A cron "succeeded" run is not proof that its HTTP call succeeded.` };
+      return {
+        value: active ? 'worker job active' : 'worker job inactive',
+        detail: `${parts.join(' · ')}. A cron "succeeded" run is not proof that its HTTP call succeeded.${cadence}`,
+        asOf: bounded?.readAt,
+      };
     }),
     run(spec('platform.communications.kill_switch', 'Outbound kill switch', { authority: 'COMMUNICATION_OUTBOUND_DISABLED' }), async () => {
       const o = runtime.outbound();
