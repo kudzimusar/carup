@@ -108,7 +108,7 @@ test('A — login creates a session; logout with it ends it, and the same token 
 
   const out = await logout(tokenA);
   assert.equal(out.status, 200);
-  assert.deepEqual(out.body, { success: true, revoked: true });
+  assert.deepEqual(out.body, { success: true });
   assert.ok(!JSON.stringify(out.body).includes(tokenA), 'the response carries no token');
 
   assert.equal(sessionOf(tokenA).is_valid, false, 'the row is kept and marked invalid, not deleted');
@@ -191,10 +191,15 @@ test('E — the logout is audited without the token, and nothing logs the token'
     for (const [level, fn] of Object.entries(originals)) console[level] = fn;
   }
   assert.equal(res.status, 200);
-  const event = db.trust_audit_events.find((e) => e.event_type === 'SESSION_LOGOUT');
-  assert.ok(event, 'a SESSION_LOGOUT audit event is recorded');
+  const endedSession = sessionOf(token);
+  const event = db.trust_audit_events.find((e) => e.event_type === 'USER_SESSIONS_REVOKED');
+  assert.ok(event, 'the accepted USER_SESSIONS_REVOKED audit event is recorded');
   assert.equal(event.actor_user_id, 'u-audit');
   assert.equal(event.source_route, '/api/auth/logout');
+  assert.equal(event.new_value.scope, 'one');
+  assert.equal(event.new_value.reason, 'self_service_current_session_logout');
+  assert.deepEqual(event.new_value.revoked_session_ids, [endedSession.id]);
+  assert.equal(event.new_value.revoked_count, 1);
   const everything = JSON.stringify(db.trust_audit_events) + JSON.stringify(db.other) + captured.join('\n');
   assert.ok(!everything.includes(token), 'the session token appears in no audit row and no log line');
 });
