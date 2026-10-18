@@ -174,6 +174,14 @@ export const DATA_SOURCES_FIXTURE = managementEnvelope('data-sources', {
       id: 'growth.customers', label: 'Customers', kind: null, area: 'growth', source: null, state: 'UNKNOWN_AUTHORITY', as_of: null, window: null, scope: null,
       provenance: 'not applicable', certification: 'blocked', usable: false, reason: 'No accepted customer definition (OD-CAMETRIC-001).', registry_ref: null,
     },
+    {
+      id: 'corporate.governance.membership.active', label: 'Active Corporate memberships', kind: 'governance', area: 'governance', source: 'corporate_memberships',
+      state: 'GOVERNED_ACTUAL', as_of: AS_OF, window: { kind: 'current' }, scope: 'Organisation nodes you govern: CARUP_CORPORATE', provenance: 'governance record', certification: 'governance_record', usable: true, reason: null, registry_ref: null,
+    },
+    {
+      id: 'platform.session_authority', label: 'Session authority and TLS', kind: 'technical', area: 'platform', source: 'session-authority connection probe',
+      state: 'TECHNICAL_OPERATIONAL', as_of: AS_OF, window: { kind: 'current' }, scope: 'Staging runtime', provenance: 'not applicable (technical)', certification: 'not_certified', usable: true, reason: null, registry_ref: null,
+    },
   ],
 })
 

@@ -296,7 +296,7 @@ export function factToSlot(fact: Pick<ManagementFact, 'state' | 'value' | 'unit'
     case 'TECHNICAL_OPERATIONAL':
       return fact.value === null
         ? { state: 'UNKNOWN_AUTHORITY' }
-        : { state: 'TECHNICAL_OPERATIONAL', value: fact.value, badge: fact.kind === 'technical' ? 'Technical' : 'Operational', ...(fact.unit ? { unit: fact.unit } : {}) }
+        : { state: 'TECHNICAL_OPERATIONAL', value: fact.value, badge: fact.kind === 'technical' ? 'Technical' : 'Live read', ...(fact.unit ? { unit: fact.unit } : {}) }
     case 'DEGRADED':
       return { state: 'DEGRADED' }
     case 'UNAVAILABLE_NOT_SEPARABLE':

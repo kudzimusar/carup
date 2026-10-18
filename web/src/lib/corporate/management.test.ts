@@ -35,8 +35,9 @@ describe('parseManagementArea', () => {
 })
 
 describe('factToSlot', () => {
-  it('an operational fact reads "Operational", a technical one "Technical", a governance record "Actual" — a degraded one has no value', () => {
-    expect(presentSlot(factToSlot(liveFactFixture({ id: 'a', label: 'A', value: 0 }))).badge).toBe('Operational')
+  it('a live record read says "Live read" (never "Operational"), a technical one "Technical", a governance record "Actual" — a degraded one has no value', () => {
+    // CA-OWNER-02-R3 D2: the badge names the READ STATE; a population is never called operational because it was read live.
+    expect(presentSlot(factToSlot(liveFactFixture({ id: 'a', label: 'A', value: 0 }))).badge).toBe('Live read')
     expect(presentSlot(factToSlot(liveFactFixture({ id: 'a', label: 'A', value: 0 }))).primary).toBe('0')
     expect(presentSlot(factToSlot(liveFactFixture({ id: 'p', label: 'P', value: 'healthy', kind: 'technical' }))).badge).toBe('Technical')
     expect(presentSlot(factToSlot(liveFactFixture({ id: 'g', label: 'G', value: 2, kind: 'governance', state: 'GOVERNED_ACTUAL' }))).badge).toBe('Actual')

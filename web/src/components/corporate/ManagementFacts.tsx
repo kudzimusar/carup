@@ -307,7 +307,7 @@ export function EnvironmentNote({ environment, generatedAt }: { environment: str
   return (
     <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" data-testid="management-environment">
       <span className="font-semibold">{where}</span> · live figures read {formatAsOf(generatedAt)} — operational and technical facts, not certified Corporate results.
-      Only governance records read as Actual; everything else says Operational or Technical (OD-CAMETRIC-022).
+      Only governance records read as Actual; everything else says Live read or Technical (OD-CAMETRIC-022).
     </p>
   )
 }

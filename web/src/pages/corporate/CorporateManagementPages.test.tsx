@@ -106,7 +106,7 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
     expect(within(items[1]).getByTestId('attention-age')).toHaveTextContent('Waiting since 2026-09-20 · 28 days')
   })
 
-  it('every figure carries its source, as-of time, scope and truth state; values read "Operational", "Technical" or "Actual" — never a bare number', async () => {
+  it('every figure carries its source, as-of time, scope and truth state; values read "Live read", "Technical" or "Actual" — never a bare number', async () => {
     const main = await open('/corporate')
     await within(main).findByTestId('overview-position')
     const valued = facts(main).filter((f) => within(f).getByTestId('metric-slot').getAttribute('data-is-value') === 'true')
@@ -116,7 +116,7 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
       expect(within(f).getByTestId('fact-source').textContent, id ?? '').toMatch(/\S/)
       expect(within(f).getByTestId('fact-as-of'), id ?? '').toHaveTextContent('2026-10-18 00:00 UTC')
       expect(within(f).getByTestId('fact-scope').textContent, id ?? '').toMatch(/\S/)
-      expect(['Operational', 'Technical', 'Actual']).toContain(within(f).getByTestId('truth-state-badge').textContent)
+      expect(['Live read', 'Technical', 'Actual']).toContain(within(f).getByTestId('truth-state-badge').textContent)
     }
   })
 
@@ -152,6 +152,8 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
     const main = await open('/corporate')
     expect(await within(main).findByTestId('management-environment')).toHaveTextContent(/Staging/)
     expect(within(main).getByTestId('management-environment')).toHaveTextContent('not certified Corporate results')
+    // CA-OWNER-02-R3 D2: the note names the read-state badges actually used.
+    expect(within(main).getByTestId('management-environment')).toHaveTextContent('everything else says Live read or Technical')
   })
 
   it('keeps every unavailable measure visible below, each with its reason and never as zero', async () => {
@@ -298,13 +300,56 @@ describe('F · Data & Intelligence projects the metric and source registry', () 
     const main = await open('/corporate/data-intelligence')
     const registry = await within(main).findByRole('table', { name: 'Metric and source registry' })
     const rows = within(registry).getAllByTestId('registry-row')
-    expect(rows.map((r) => r.getAttribute('data-measure-id'))).toEqual(['marketplace.listing.public', 'trade.order.open', 'growth.customers'])
+    expect(rows.map((r) => r.getAttribute('data-measure-id'))).toEqual([
+      'marketplace.listing.public', 'trade.order.open', 'growth.customers', 'corporate.governance.membership.active', 'platform.session_authority',
+    ])
     expect(rows[0]).toHaveTextContent('vehicles · Admin publication projection')
     expect(rows[0]).toHaveTextContent('K2B applied')
     expect(rows[0].getAttribute('data-usable')).toBe('true')
     expect(rows[1].getAttribute('data-usable')).toBe('false')
     expect(rows[2]).toHaveTextContent('No accepted customer definition (OD-CAMETRIC-001).')
     expect(within(main).getByRole('region', { name: 'Truth states, what each shows, and what each means' })).toBeInTheDocument()
+  })
+
+  it('D5: "may be used" says what each row is — a governance record is never called an operational read', async () => {
+    const main = await open('/corporate/data-intelligence')
+    const registry = await within(main).findByRole('table', { name: 'Metric and source registry' })
+    const usable = (id: string) => within(within(registry).getAllByTestId('registry-row').find((r) => r.getAttribute('data-measure-id') === id) as HTMLElement).getByTestId('registry-usable')
+    expect(usable('corporate.governance.membership.active')).toHaveTextContent(/^Yes — governance record$/)
+    expect(usable('marketplace.listing.public')).toHaveTextContent(/^Yes — live read$/)
+    expect(usable('platform.session_authority')).toHaveTextContent(/^Yes — live technical read$/)
+    expect(usable('trade.order.open').textContent).toMatch(/^No/)
+    expect(registry.textContent).not.toMatch(/live operational read/)
+    // D2 in the registry too: a live record read is badged "Live read", never "Operational".
+    const badges = within(registry).getAllByTestId('truth-state-badge').map((b) => b.textContent)
+    expect(badges).toContain('Live read')
+    expect(badges).not.toContain('Operational')
+  })
+
+  it('D4: the legend says what Technical and Advisory figures really are, and shows the read-state badges management facts use', async () => {
+    const main = await open('/corporate/data-intelligence')
+    const legend = within(main).getByRole('region', { name: 'Truth states, what each shows, and what each means' })
+    const row = (state: string) => within(legend).getAllByTestId('legend-row').find((r) => r.getAttribute('data-truth-state') === state) as HTMLElement
+    for (const state of ['TECHNICAL_OPERATIONAL', 'ADVISORY']) expect(row(state).textContent, state).not.toMatch(/A governed value/)
+    expect(row('GOVERNED_ACTUAL')).toHaveTextContent('A governed value')
+    const live = row('TECHNICAL_OPERATIONAL')
+    expect(within(live).getAllByTestId('truth-state-badge').map((b) => b.textContent)).toEqual(['Live read', 'Technical'])
+    expect(live).toHaveTextContent('A live value, read from its source when the page loaded')
+    expect(live).toHaveTextContent('never says a population is operational')
+    expect(row('ADVISORY')).toHaveTextContent('An advisory value — never a governed figure')
+    expect(legend.textContent).not.toMatch(/\bOperational\b/)
+  })
+})
+
+describe('D2 · a population read live keeps its own classification', () => {
+  it('the certification, UAT, automation and historical conversations read "Live read" — never "Operational" — and keep their label', async () => {
+    const main = await open('/corporate/operations')
+    const comms = await within(main).findByTestId('operations-communications')
+    const population = factById(comms, 'communications.conversation.non_operational')
+    expect(population).toHaveTextContent('Certification, UAT, automation and historical conversations')
+    expect(within(population).getByTestId('truth-state-badge')).toHaveTextContent(/^Live read$/)
+    expect(within(population).getByTestId('metric-slot').getAttribute('aria-label')).not.toMatch(/\(Operational/)
+    for (const badge of within(main).getAllByTestId('truth-state-badge')) expect(badge.textContent, 'no badge calls a population operational').not.toBe('Operational')
   })
 })
 
