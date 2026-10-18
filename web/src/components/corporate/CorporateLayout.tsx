@@ -9,8 +9,8 @@
  * the ten canonical destinations in canonical order, each with its plane marker, and the page.
  *
  * Responsive: ≥1024px the rail is persistent and can be collapsed to an icon rail; below that it
- * becomes a drawer (Escape closes, focus moves in and returns). Truth-state and plane labels stay
- * visible at every width.
+ * becomes a modal drawer (Escape closes, Tab stays inside it, focus moves in and returns). Truth-state
+ * and plane labels stay visible at every width; every control is a 44×44 target at 390 px (CA-OWNER-02).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'

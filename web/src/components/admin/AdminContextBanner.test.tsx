@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { SERVER_DENIAL, SERVER_GRANT } from '@/test/corporateAccessFixture'
 import { phoneBox } from '@/components/corporate/touchTarget.testutil'
 
@@ -32,7 +32,7 @@ vi.mock('@/App', () => ({ useApp: () => ({ currency: 'USD', setCurrency: () => {
 vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ fetchMarketplaceNavCoverage: async () => null, fetchNotifications: async () => [] }) }))
 
 const { TestAuthProvider } = (await import('@/context/AuthContext')) as unknown as {
-  TestAuthProvider: (p: { user: unknown; children: ReactNode }) => JSX.Element
+  TestAuthProvider: (p: { user: unknown; children: ReactNode }) => ReactElement
 }
 const { AdminContextBanner } = await import('./AdminContextBanner')
 const DashboardLayout = (await import('@/components/layout/DashboardLayout')).default
