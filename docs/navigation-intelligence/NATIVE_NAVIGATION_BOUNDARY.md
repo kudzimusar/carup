@@ -31,3 +31,28 @@ The framework-neutral governance manifest `shared/navigation/feature-manifest.js
 5. Device/emulator smoke for each role.
 
 Until that scheduled work lands, native tabs remain as-is and are not governed by the registry.
+
+
+---
+
+## Supersession note — 13 October 2026
+
+The original deferral in this document applied to the **web Navigation Intelligence Blueprint** and correctly prevented that web programme from redesigning the separate Expo native shell.
+
+That deferral is now satisfied by a separately authorized native product programme.
+
+Current native shell authority is:
+
+`docs/one-carup/native/OC_NATIVE_LR1_R5_VISUAL_SYSTEM.md`
+
+under the **OWNER IA AMENDMENT — 13 OCTOBER 2026**.
+
+The binding native primary shell for R5-R4 and subsequent native work is:
+
+**`Home | Buy | Verify | Sell | Trade`**
+
+with **Notifications** and **Profile/Account** in the shared top-right header.
+
+Therefore the earlier statement in this document that native tabs “remain as-is” is historical and no longer blocks the separately authorized One CarUp Native programme.
+
+Navigation Intelligence governance may still provide feature/lifecycle inputs, but it does not override the current Owner-approved native primary-journey labels or placement.
