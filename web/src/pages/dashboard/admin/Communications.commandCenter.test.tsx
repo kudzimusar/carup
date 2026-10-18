@@ -1,12 +1,16 @@
 /**
  * CA-OWNER-02 — the Command Center page reads TRUTH (renders the REAL page against a mocked API).
  *
+ *   H1  the inbox asks for a classification view (default "Active work"), offers every view with its count, badges
+ *       non-operational rows, says when the classification is partial, and refuses to show an unclassified list.
  *   H2  the header strip shows the /metrics truth block — and "unavailable", never 0, when it cannot be computed;
- *       the legacy raw counts (654 open / 653 overdue) are never shown.
+ *       the legacy raw counts (654 open / 653 overdue) are never shown; row / worklist SLA labels come from truth.
+ *   H3  one primary identity: the customer heads the row, the conversation header, the inbound bubbles and the rail;
+ *       the seller is context; the opened conversation keeps its row's identity.
  *   H5  every section has its own document title ("Inbox · Command Center · CarUp Admin"), never "Page not found".
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
@@ -70,10 +74,160 @@ const TRUTH = {
   view_counts: { all: 654, active: 7, operational: 2, needs_review: 5, certification: 600, automation: 40, historical: 7 },
 }
 
+const NOW = Date.now()
+const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString()
+
+const truthOf = (category: string, sla: Record<string, unknown> = {}) => ({
+  category, class: 'x', rule: 'r', basis: 'marketplace_inquiry', open: true, awaiting_reply: false, no_individual_assignee: true,
+  sla: { state: 'not_applicable', reason: 'No customer message is waiting for a reply.', due_at: null, due_source: null, awaiting_since: null, ...sla },
+})
+
+// The legacy projection named the Marketplace conversation after its primary_user_id — the SELLER ("UAT seller").
+const ROW_OP = {
+  id: 't-op', status: 'open', thread_type: 'marketplace_inquiry', subject_type: 'marketplace_inquiry', subject_id: 'inq-1',
+  marketplace_listing_id: 'JTDBR32E520123456', primary_channel: 'in_app', created_at: hoursAgo(700), last_message_at: hoursAgo(1),
+  sla_due_at: hoursAgo(692), identity_display_name: 'UAT seller',
+  truth: truthOf('operational', { state: 'overdue', reason: null, due_at: hoursAgo(692), due_source: 'default_priority_target', awaiting_since: hoursAgo(690) }),
+  customer: { display_name: 'Rudo Banda', source: 'buyer_account', identity_id: 'ci-buyer' },
+  seller: { display_name: 'Tendai Moyo' },
+}
+const ROW_CERT = {
+  id: 't-uat', status: 'open', thread_type: 'marketplace_inquiry', subject_type: 'marketplace_inquiry', subject_id: 'inq-2', primary_channel: 'in_app',
+  created_at: hoursAgo(900), last_message_at: hoursAgo(2), sla_due_at: hoursAgo(892),
+  truth: truthOf('certification', { state: 'certification', reason: 'Certification, UAT or automation record — no customer service level applies.' }),
+  customer: { display_name: 'UAT buyer', source: 'buyer_account', identity_id: null }, seller: { display_name: 'Tendai Moyo' },
+}
+const ROW_SMOKE = {
+  id: 't-smoke', status: 'awaiting_user', thread_type: 'support', primary_channel: 'whatsapp', created_at: hoursAgo(50), last_message_at: hoursAgo(3),
+  identity_display_name: 'Provider Smoke Test',
+  truth: truthOf('automation', { state: 'certification', reason: 'Certification, UAT or automation record — no customer service level applies.' }),
+  customer: { display_name: 'Provider smoke test', source: 'provider_smoke_test', identity_id: 'ci-smoke' }, seller: null,
+}
+const VIEW_COUNTS = { all: 3, active: 1, operational: 1, needs_review: 0, certification: 1, automation: 1, historical: 0 }
+const ROWS_BY_VIEW: Record<string, unknown[]> = { active: [ROW_OP], operational: [ROW_OP], certification: [ROW_CERT], automation: [ROW_SMOKE], all: [ROW_OP, ROW_CERT, ROW_SMOKE] }
+
+function listResponse(filters: Record<string, string | undefined> = {}, extra: Record<string, unknown> = {}) {
+  const view = filters.view || 'all'
+  return { threads: ROWS_BY_VIEW[view] || [], counts: { total: 3, all_active: 1, sla_breach: 1, by_channel: {}, by_workflow: {} }, page: { next_cursor: null }, view, view_counts: VIEW_COUNTS, truth_complete: true, ...extra }
+}
+
 beforeEach(() => {
   document.title = 'Page not found | CarUp'
   api.fetchAdminCommunicationMetrics.mockReset()
   api.fetchAdminCommunicationMetrics.mockResolvedValue({ ...LEGACY_METRICS, truth: TRUTH } as never)
+  api.fetchAdminCommunicationThreads.mockReset()
+  api.fetchAdminCommunicationThreads.mockImplementation((async (filters?: Record<string, string | undefined>) => listResponse(filters || {})) as never)
+  api.fetchAdminCommunicationThread.mockReset()
+  api.fetchAdminCommunicationThread.mockImplementation((async (id: string) => ({
+    // The detail row is the raw message_threads row (+ its own verdict): no identity_* projection.
+    thread: { id, status: 'open', thread_type: 'marketplace_inquiry', subject_type: 'marketplace_inquiry', subject_id: 'inq-1', marketplace_listing_id: 'JTDBR32E520123456', primary_channel: 'in_app', created_at: hoursAgo(700), truth: null, customer: null, seller: null },
+    messages: [{ id: 'm-in', direction: 'inbound', channel: 'web', status: 'received', content_text: 'Is it still available?', created_at: hoursAgo(690) }],
+    participants: [], escalations: [],
+    identities: [
+      { id: 'ci-seller', channel: 'email', display_name: 'Seller Email', normalized_address: 'seller@gmail.com' },
+      { id: 'ci-buyer', channel: 'whatsapp', display_name: 'Rudo WhatsApp', normalized_address: '263771234567', consent_status: 'implied_transactional' },
+    ],
+    linked_identities: [], delivery_attempts: [], preferences: null, reply_channel: null,
+  })) as never)
+})
+
+const lastListFilters = () => (api.fetchAdminCommunicationThreads.mock.calls.at(-1) as unknown as [Record<string, string | undefined>])[0]
+
+describe('H1 — classification views in the inbox', () => {
+  it('asks for "Active work" by default and offers every view with its count', async () => {
+    renderAt('/admin/communications')
+    await screen.findByText('Rudo Banda')
+    expect(lastListFilters().view).toBe('active')
+    const selector = screen.getByTestId('view-selector') as HTMLSelectElement
+    expect(selector.value).toBe('active')
+    const options = Array.from(selector.options).map((o) => o.textContent)
+    expect(options).toEqual([
+      'Active work (operational + needs review) · 1', 'Operational · 1', 'Needs provenance review · 0', 'Certification & UAT · 1',
+      'Automation & smoke tests · 1', 'Historical · 0', 'All · 3',
+    ])
+  })
+
+  it('switching the view refetches that view; non-operational rows carry their badge, operational rows none', async () => {
+    renderAt('/admin/communications')
+    const opRow = (await screen.findByText('Rudo Banda')).closest('[data-unread], div.flex.items-stretch') as HTMLElement
+    expect(within(opRow).queryByTestId('row-category')).toBeNull()
+    fireEvent.change(screen.getByTestId('view-selector'), { target: { value: 'certification' } })
+    await screen.findByText('UAT buyer')
+    expect(lastListFilters().view).toBe('certification')
+    expect(screen.getByTestId('row-category')).toHaveTextContent('Certification & UAT')
+    expect(screen.queryByText('Rudo Banda')).toBeNull()
+  })
+
+  it('says so when the classification is partial', async () => {
+    api.fetchAdminCommunicationThreads.mockImplementation((async (filters?: Record<string, string | undefined>) => listResponse(filters || {}, { truth_complete: false, truth_window: { size: 1000, read: 1000, saturated: true } })) as never)
+    renderAt('/admin/communications')
+    expect(await screen.findByTestId('view-partial')).toHaveTextContent('Classification is partial: it covers the 1000 most recently updated conversations')
+  })
+
+  it('refuses to show an unclassified list when the classification is unavailable', async () => {
+    api.fetchAdminCommunicationThreads.mockRejectedValue(Object.assign(new Error('Conversation classification is unavailable'), { status: 503, code: 'CONVERSATION_TRUTH_UNAVAILABLE' }) as never)
+    renderAt('/admin/communications')
+    expect(await screen.findByText(/classification is unavailable right now/i)).toBeInTheDocument()
+    expect(screen.queryByText('Rudo Banda')).toBeNull()
+  })
+})
+
+describe('H2 — row SLA labels come from truth', () => {
+  it('names the target, and never prints a raw minute count', async () => {
+    renderAt('/admin/communications')
+    await screen.findByText('Rudo Banda')
+    const sla = screen.getByTestId('row-sla')
+    expect(sla).toHaveTextContent('Overdue · default 8h first-response target')
+    expect(screen.getByTestId('inbox-pane').textContent).not.toMatch(/\d{3,}m\b/)
+  })
+
+  it('the SLA worklist lists only conversations under a live service level, labelled from truth', async () => {
+    api.fetchAdminCommunicationThreads.mockImplementation((async (filters?: Record<string, string | undefined>) => (filters?.sort === 'sla'
+      ? listResponse({ view: 'all' })
+      : listResponse(filters || {}))) as never)
+    renderAt('/admin/communications/sla')
+    const rows = await screen.findAllByTestId('sla-row')
+    const slaCall = (api.fetchAdminCommunicationThreads.mock.calls as unknown as Array<[Record<string, string>]>).find(([f]) => f?.sort === 'sla')![0]
+    expect(slaCall.view).toBe('active')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('Rudo Banda')
+    expect(rows[0]).toHaveTextContent('Overdue · default 8h first-response target')
+    expect(rows[0]).toHaveAttribute('data-sla-state', 'breached')
+  })
+})
+
+describe('H3 — one primary identity', () => {
+  it('heads the row with the customer and puts the subject under it — never the seller', async () => {
+    renderAt('/admin/communications')
+    await screen.findByText('Rudo Banda')
+    expect(screen.queryByText('UAT seller')).toBeNull()
+    expect(screen.getByTestId('row-subject')).toHaveTextContent('Marketplace inquiry · listing JTDBR32E520123456')
+  })
+
+  it('the opened conversation keeps its row\'s identity: header, inbound sender and rail name the customer; the seller is context', async () => {
+    renderAt('/admin/communications')
+    fireEvent.click(await screen.findByText('Rudo Banda'))
+    await waitFor(() => expect(screen.getByTestId('conversation-heading')).toHaveTextContent('Rudo Banda'))
+    expect(screen.getByTestId('conversation-subject')).toHaveTextContent('Marketplace inquiry · listing JTDBR32E520123456')
+    const pane = screen.getByTestId('conversation-pane')
+    expect(within(pane).getAllByText('Rudo Banda').length).toBeGreaterThan(1)
+    expect(within(pane).queryByText(/Marketplace Inquiry$/)).toBeNull()
+    const rail = screen.getByTestId('ops-rail')
+    expect(within(within(rail).getByTestId('context-identity')).getByText('Rudo Banda')).toBeInTheDocument()
+    expect(within(rail).getByTestId('context-identity')).toHaveTextContent('Whatsapp')
+    expect(within(rail).getByTestId('context-refs')).toHaveTextContent('Seller')
+    expect(within(rail).getByTestId('context-refs')).toHaveTextContent('Tendai Moyo')
+    expect(rail).not.toHaveTextContent('Seller Email')
+  })
+
+  it('a provider smoke test reads as one heading, with its automation badge', async () => {
+    renderAt('/admin/communications')
+    await screen.findByText('Rudo Banda')
+    fireEvent.change(screen.getByTestId('view-selector'), { target: { value: 'automation' } })
+    expect(await screen.findByText('Provider smoke test')).toBeInTheDocument()
+    expect(screen.queryByText('Provider Smoke Test')).toBeNull()
+    expect(screen.getByTestId('row-category')).toHaveTextContent('Automation')
+  })
 })
 
 describe('H2 — the header strip reads truth', () => {

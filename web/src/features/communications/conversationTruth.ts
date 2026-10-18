@@ -91,6 +91,14 @@ export const CONVERSATION_VIEW_OPTIONS: ReadonlyArray<{ value: ConversationView;
 
 export type CategoryTone = 'review' | 'certification' | 'automation' | 'historical'
 
+/** Badge colours per category tone (shared by the inbox row and the conversation header). */
+export const CATEGORY_TONE_CLASS: Record<CategoryTone, string> = {
+  review: 'border-amber-300 bg-amber-50 text-amber-800',
+  certification: 'border-violet-200 bg-violet-50 text-violet-700',
+  automation: 'border-sky-200 bg-sky-50 text-sky-700',
+  historical: 'border-gray-200 bg-gray-100 text-gray-600',
+}
+
 const CATEGORY_BADGES: Record<Exclude<ConversationCategory, 'operational'>, { label: string; tone: CategoryTone }> = {
   needs_review: { label: 'Needs review', tone: 'review' },
   certification: { label: 'Certification & UAT', tone: 'certification' },
@@ -190,6 +198,27 @@ export function customerHeading(thread?: IdentityBearing | null): string {
   const address = String(thread?.identity_address || thread?.identity_external_id || '').trim()
   if (address) return address
   return titleCase(thread?.thread_type) || 'Conversation'
+}
+
+interface OpenableThread {
+  id: string
+  truth?: ThreadTruth | null
+  customer?: ConversationCustomer | null
+  seller?: ConversationSeller | null
+}
+
+/**
+ * The thread an opened conversation shows: the detail's full row ON TOP of the inbox row it was opened from, so the
+ * row's identity projection (identity_*, unread) is never lost, and the verdict / customer / seller survive a detail
+ * that could not judge them (truth: null) — the opened conversation keeps the same identity as its row.
+ */
+export function mergeOpenedThread<R extends OpenableThread, D extends OpenableThread>(row: R | null | undefined, detail: D): R & D {
+  const base = (row && String(row.id) === String(detail.id) ? row : {}) as R
+  const merged = { ...base, ...detail } as R & D
+  if (!detail.truth && base.truth) merged.truth = base.truth
+  if (!detail.customer && base.customer) merged.customer = base.customer
+  if (!detail.seller && base.seller) merged.seller = base.seller
+  return merged
 }
 
 interface SubjectBearing {

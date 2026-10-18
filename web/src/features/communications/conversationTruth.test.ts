@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CONVERSATION_VIEW_OPTIONS, DEFAULT_CONVERSATION_VIEW, categoryBadge, customerHeading, humanDuration, threadSlaTruth, threadSubject,
+  CONVERSATION_VIEW_OPTIONS, DEFAULT_CONVERSATION_VIEW, categoryBadge, customerHeading, humanDuration, mergeOpenedThread, threadSlaTruth, threadSubject,
   type ThreadTruth,
 } from './conversationTruth'
 
@@ -72,6 +72,29 @@ describe('SLA labels come from truth — never raw minute counts', () => {
     expect(humanDuration(480 * 60_000)).toBe('8h')
     expect(humanDuration(15 * 60_000)).toBe('15m')
     expect(humanDuration(30_000)).toBe('under 1m')
+  })
+})
+
+describe('opening a conversation keeps its identity', () => {
+  it('the opened thread keeps the row\'s identity projection and verdict when the detail lacks them', () => {
+    const row = { id: 't1', identity_display_name: 'Rudo Banda', identity_channel: 'whatsapp', unread_count: 2, truth: truth({}, 'needs_review'), customer: { display_name: 'Rudo Banda', source: 'buyer_account' }, seller: { display_name: 'Tendai' } }
+    const detail = { id: 't1', status: 'awaiting_user', sla_paused_at: null, truth: null, customer: null, seller: null }
+    const opened = mergeOpenedThread(row, detail)
+    expect(opened.status).toBe('awaiting_user')
+    expect(opened.identity_display_name).toBe('Rudo Banda')
+    expect(opened.customer).toEqual(row.customer)
+    expect(opened.truth?.category).toBe('needs_review')
+    expect(opened.seller).toEqual(row.seller)
+  })
+
+  it('a fresher verdict from the detail wins over the row\'s', () => {
+    const opened = mergeOpenedThread({ id: 't1', truth: truth({}, 'needs_review') }, { id: 't1', truth: truth({ state: 'overdue' }, 'operational') })
+    expect(opened.truth?.category).toBe('operational')
+  })
+
+  it('a deep-linked stub takes everything from the detail', () => {
+    const opened = mergeOpenedThread({ id: 't1' }, { id: 't1', customer: { display_name: 'Chipo', source: 'inquiry_guest' } })
+    expect(opened.customer?.display_name).toBe('Chipo')
   })
 })
 

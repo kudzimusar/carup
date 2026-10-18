@@ -12,7 +12,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
-import { priorityVariant, threadPreview, threadRef, threadSla, threadTitle, threadUnreadCount } from '@/features/communications/threadPresentation'
+import { priorityVariant, threadPreview, threadRef, threadUnreadCount } from '@/features/communications/threadPresentation'
+import {
+  CONVERSATION_VIEW_OPTIONS, DEFAULT_CONVERSATION_VIEW, categoryBadge, customerHeading, mergeOpenedThread, threadSlaTruth, threadSubject,
+  type ConversationView, type ViewCounts,
+} from '@/features/communications/conversationTruth'
 import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
 import { CommandCenterHeader } from '@/features/communications/admin/CommandCenterHeader'
@@ -106,6 +110,21 @@ function slaLevelToState(level: string): string {
   const map: Record<string, string> = { breach: 'breached', due: 'due_soon', ok: 'healthy', paused: 'paused', none: 'not_applicable' }
   return map[level] || 'not_applicable'
 }
+
+// CA-OWNER-02 (H1): a view from the URL, or null when it is not one.
+function viewFromParam(value: string | null): ConversationView | null {
+  return CONVERSATION_VIEW_OPTIONS.some((option) => option.value === value) ? (value as ConversationView) : null
+}
+
+// A classified list that cannot be judged is refused by the server (503): say so — never show it unclassified.
+function listErrorMessage(error: unknown): string {
+  return (error as { code?: string } | null)?.code === 'CONVERSATION_TRUTH_UNAVAILABLE'
+    ? 'Conversation classification is unavailable right now, so nothing is shown as classified. Press Retry.'
+    : 'Could not load threads — press Refresh to retry.'
+}
+
+// The SLA worklist watches conversations a customer is really waiting on: a live, overdue or paused service level.
+const SLA_WATCHED_STATES = new Set(['live', 'overdue', 'paused'])
 
 function newClientMessageId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -203,6 +222,7 @@ export default function AdminCommunications() {
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
   const [providers, setProviders] = useState<{ channels: ProviderTelemetry[]; staleLocks: number }>({ channels: [], staleLocks: 0 })
   const [slaThreads, setSlaThreads] = useState<SlaWorklistThread[]>([])
+  const [slaBreached, setSlaBreached] = useState<number | null>(null)
   const [auditSearchEvents, setAuditSearchEvents] = useState<AuditEvent[]>([])
   const [auditSearchType, setAuditSearchType] = useState('')
   const [slaPolicies, setSlaPolicies] = useState<SettingsSlaPolicy[]>([])
@@ -218,6 +238,11 @@ export default function AdminCommunications() {
   const [filter, setFilter] = useState<string>(() => searchParams.get('filter') || DEFAULT_QUEUE)
   const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
+  // CA-OWNER-02 (H1): the classification view. The working inbox ("Active work") is the default; nothing is deleted —
+  // certification / automation / historical records are one selection away.
+  const [view, setView] = useState<ConversationView>(() => viewFromParam(searchParams.get('view')) || DEFAULT_CONVERSATION_VIEW)
+  const [viewCounts, setViewCounts] = useState<ViewCounts | null>(null)
+  const [truthCoverage, setTruthCoverage] = useState<{ complete: boolean; size: number | null }>({ complete: true, size: null })
 
   const [reply, setReply] = useState('')
   const [internalNote, setInternalNote] = useState(false)
@@ -244,12 +269,14 @@ export default function AdminCommunications() {
   // The server query for the current queue + search + channel. The DB filters/searches/sorts and
   // returns the matching page plus whole-result counts — the client never re-filters locally (item 2).
   const queryParams = useMemo<Record<string, string | undefined>>(() => {
-    const p: Record<string, string | undefined> = { ...queueToParams(filter), limit: PAGE_LIMIT }
+    // CA-OWNER-02 (H1): every inbox query names its classification view, so the server classifies the candidates
+    // BEFORE it filters, sorts and paginates — and the queue counts are counted inside that view.
+    const p: Record<string, string | undefined> = { ...queueToParams(filter), limit: PAGE_LIMIT, view }
     const q = debouncedSearch.trim()
     if (q) p.search = q
     if (channelFilter) p.channel = channelFilter
     return p
-  }, [filter, debouncedSearch, channelFilter])
+  }, [filter, debouncedSearch, channelFilter, view])
 
   const fetchThreadPage = useCallback((extra?: Record<string, string | undefined>) => {
     return fetchAdminCommunicationThreads({ ...queryParams, ...extra })
@@ -299,19 +326,24 @@ export default function AdminCommunications() {
     .then((r) => setMetrics({ ...(r || {}), truth: r?.truth ?? { available: false } }))
     .catch(() => setMetrics({ truth: { available: false } })), [fetchAdminCommunicationMetrics])
 
+  // Page 1 of the active query landed: rows, counts, cursor, and (H1) the per-view counts and classification coverage.
+  const applyFirstPage = useCallback((res: Awaited<ReturnType<typeof fetchThreadPage>>) => {
+    setThreads(clearSelectedUnread(res.threads || []))
+    setServerCounts(res.counts ?? null)
+    setNextCursor(res.page?.next_cursor ?? null)
+    setViewCounts(res.view_counts ?? null)
+    setTruthCoverage({ complete: res.truth_complete !== false, size: res.truth_window?.size ?? null })
+    setLoadError(null)
+  }, [clearSelectedUnread])
+
   // Full refresh (Refresh button + after mutations): re-run the current query + ops panels.
   const load = useCallback(async () => {
     await Promise.all([
-      fetchThreadPage().then((res) => {
-        setThreads(clearSelectedUnread(res.threads || []))
-        setServerCounts(res.counts ?? null)
-        setNextCursor(res.page?.next_cursor ?? null)
-        setLoadError(null)
-      }).catch(() => setLoadError('Could not load threads — press Refresh to retry.')),
+      fetchThreadPage().then(applyFirstPage).catch((error) => setLoadError(listErrorMessage(error))),
       fetchCommunicationRecovery().then((r) => setRecovery({ categories: r.categories || {}, counts: r.counts || {} })).catch(() => undefined),
       refreshMetrics(),
     ])
-  }, [fetchThreadPage, clearSelectedUnread, fetchCommunicationRecovery, refreshMetrics])
+  }, [fetchThreadPage, applyFirstPage, fetchCommunicationRecovery, refreshMetrics])
 
   // Cursor pagination: append the next server page (dedup by id) without disturbing selection/draft.
   const loadMore = useCallback(async () => {
@@ -355,18 +387,15 @@ export default function AdminCommunications() {
       try {
         const res = await fetchThreadPage()
         if (!active) return
-        setThreads(clearSelectedUnread(res.threads || []))
-        setServerCounts(res.counts ?? null)
-        setNextCursor(res.page?.next_cursor ?? null)
-        setLoadError(null)
-      } catch {
-        if (active) setLoadError('Could not load threads — press Refresh to retry.')
+        applyFirstPage(res)
+      } catch (error) {
+        if (active) setLoadError(listErrorMessage(error))
       } finally {
         if (active) { setLoading(false); setListLoading(false) }
       }
     })()
     return () => { active = false }
-  }, [fetchThreadPage, clearSelectedUnread])
+  }, [fetchThreadPage, applyFirstPage])
 
   // One-time ops panels (recovery categories, metrics incl. the dead-letter figure, worker health) — query-independent.
   useEffect(() => {
@@ -384,13 +413,20 @@ export default function AdminCommunications() {
   }, [section, fetchCommunicationProviders])
 
   // SLA worklist (P1.10): threads sorted by SLA urgency, fetched when the SLA surface is active.
+  // CA-OWNER-02 (H2): the working inbox only, ranked and labelled by TRUTH — certification / automation / historical
+  // records are never "breached", and only conversations with a live, overdue or paused service level are listed.
   useEffect(() => {
     if (section !== 'sla') return
-    fetchAdminCommunicationThreads({ sort: 'sla', include_terminal: 'false', limit: '100' })
-      .then((r) => setSlaThreads((r.threads || []).map((t): SlaWorklistThread => {
-        const sla = threadSla(t)
-        return { id: t.id, title: threadTitle(t), channel: t.primary_channel, reference: threadRef(t), slaLabel: sla.label, slaState: slaLevelToState(sla.level) }
-      })))
+    fetchAdminCommunicationThreads({ sort: 'sla', include_terminal: 'false', limit: '100', view: 'active' })
+      .then((r) => {
+        setSlaThreads((r.threads || [])
+          .filter((t) => SLA_WATCHED_STATES.has(String(t.truth?.sla?.state)))
+          .map((t): SlaWorklistThread => {
+            const sla = threadSlaTruth(t)
+            return { id: t.id, title: customerHeading(t), channel: t.primary_channel, reference: threadSubject(t) || threadRef(t), slaLabel: sla.label, slaState: slaLevelToState(sla.level) }
+          }))
+        setSlaBreached(typeof r.counts?.sla_breach === 'number' ? r.counts.sla_breach : null)
+      })
       .catch(() => undefined)
   }, [section, fetchAdminCommunicationThreads])
 
@@ -413,10 +449,11 @@ export default function AdminCommunications() {
   useEffect(() => {
     const next = new URLSearchParams()
     if (filter && filter !== DEFAULT_QUEUE) next.set('filter', filter)
+    if (view !== DEFAULT_CONVERSATION_VIEW) next.set('view', view)
     if (search.trim()) next.set('q', search.trim())
     if (selected?.id) next.set('thread', selected.id)
     setSearchParams(next, { replace: true })
-  }, [filter, search, selected?.id, setSearchParams])
+  }, [filter, view, search, selected?.id, setSearchParams])
 
   // Auto-refresh: poll fast while a reply is in-flight, slowly otherwise.
   useEffect(() => {
@@ -469,7 +506,8 @@ export default function AdminCommunications() {
     // Ignore a stale response if a newer openThread started while this fetch was in flight.
     if (openTokenRef.current !== token) return
     if (detail) {
-      setSelected(detail.thread)
+      // CA-OWNER-02 (H3): the detail row ON TOP of the inbox row — the opened conversation keeps its row's identity.
+      setSelected((prev) => mergeOpenedThread(prev && prev.id === detail.thread.id ? prev : thread, detail.thread))
       setMessages(detail.messages || [])
       setIdentities((detail.identities || []) as ContextIdentity[])
       setLinkedIdentities((detail.linked_identities || []) as ContextIdentity[])
@@ -623,7 +661,11 @@ export default function AdminCommunications() {
   const deadLetterCount = typeof metrics.dead_letter_count === 'number' ? metrics.dead_letter_count : null
   // The SLA tab badge counts conversations a customer is really waiting on past their target (operational + review).
   const slaBadge = metricsTruth?.available ? metricsTruth.operational.overdue + metricsTruth.needs_review.overdue : (serverCounts?.sla_breach || 0)
-  const selectedSla = threadSla(selected)
+  // CA-OWNER-02: the open conversation's SLA, classification badge and identity — all from the server's truth.
+  const selectedSla = threadSlaTruth(selected)
+  const selectedBadge = categoryBadge(selected)
+  const selectedHeading = customerHeading(selected)
+  const customerIdentity = identities.find((i) => i.id && i.id === selected?.customer?.identity_id) || null
   const assignedLabel = selected?.assigned_admin_id
     ? `Admin ${String(selected.assigned_admin_id).slice(0, 8)}`
     : selected?.assigned_team ? prettyLabel(selected.assigned_team) : 'Unassigned'
@@ -666,6 +708,28 @@ export default function AdminCommunications() {
                   {listLoading && <Loader2 className="w-3 h-3 animate-spin" aria-hidden />}
                   {visibleThreads.length} shown
                 </span>
+              </div>
+              {/* CA-OWNER-02 (H1): which conversations this inbox is — classified by the server, nothing deleted. */}
+              <div className="space-y-1">
+                <label htmlFor="cc-conversation-view" className="text-[11px] font-medium text-gray-500">Conversation view</label>
+                <select
+                  id="cc-conversation-view"
+                  value={view}
+                  onChange={(e) => setView((viewFromParam(e.target.value) || DEFAULT_CONVERSATION_VIEW))}
+                  data-testid="view-selector"
+                  className="w-full h-9 max-sm:min-h-11 rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-800"
+                >
+                  {CONVERSATION_VIEW_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {`${option.label} · ${viewCounts ? viewCounts[option.value] : '—'}`}
+                    </option>
+                  ))}
+                </select>
+                {!truthCoverage.complete && (
+                  <p className="text-[11px] text-amber-700" role="status" data-testid="view-partial">
+                    {`Classification is partial: it covers ${truthCoverage.size ? `the ${truthCoverage.size}` : 'only the'} most recently updated conversations. Older ones are not shown in this view.`}
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap gap-1" role="group" aria-label="Filter threads by workflow queue">
                 {FILTERS.map((f) => {
@@ -735,18 +799,22 @@ export default function AdminCommunications() {
                     void openThread(visibleThreads[nextIdx])
                   }}
                   renderItem={(thread) => {
-                    const sla = threadSla(thread)
+                    // CA-OWNER-02: customer heading (H3) · subject line · category badge (H1) · SLA from truth (H2).
+                    const sla = threadSlaTruth(thread)
+                    const badge = categoryBadge(thread)
                     return (
                       <ConversationRow
                         channel={thread.primary_channel}
-                        title={threadTitle(thread)}
-                        reference={threadRef(thread)}
+                        title={customerHeading(thread)}
+                        reference={threadSubject(thread) || threadRef(thread)}
                         preview={threadPreview(thread)}
                         unreadCount={threadUnreadCount(thread)}
                         statusLabel={prettyLabel(thread.status)}
                         priority={thread.priority}
                         priorityVariant={priorityVariant(thread.priority)}
                         unassigned={!thread.assigned_admin_id && !thread.assigned_team}
+                        categoryLabel={badge?.label}
+                        categoryTone={badge?.tone}
                         slaLabel={sla.label}
                         slaLevel={sla.level}
                         timeLabel={relativeTime(thread.last_message_at || thread.updated_at)}
@@ -791,8 +859,8 @@ export default function AdminCommunications() {
                 </div>
                 <ConversationHeader
                   channel={selected.primary_channel}
-                  title={threadTitle(selected)}
-                  reference={threadRef(selected)}
+                  title={selectedHeading}
+                  reference={threadSubject(selected) || threadRef(selected)}
                   statusLabel={prettyLabel(selected.status)}
                   priority={selected.priority}
                   priorityVariant={priorityVariant(selected.priority)}
@@ -800,6 +868,8 @@ export default function AdminCommunications() {
                   assignedLabel={assignedLabel}
                   slaLabel={selectedSla.label}
                   slaLevel={selectedSla.level}
+                  categoryLabel={selectedBadge?.label}
+                  categoryTone={selectedBadge?.tone}
                 />
 
                 {/* SLA pause/resume (item 10). Paused threads freeze the clock with a reason. */}
@@ -851,7 +921,7 @@ export default function AdminCommunications() {
                               message={message}
                               slaThresholdSeconds={60}
                               timeZone={preferences?.timezone || undefined}
-                              senderLabel={message.direction === 'inbound' ? threadTitle(selected) : (message.direction === 'outbound' ? 'Agent' : undefined)}
+                              senderLabel={message.direction === 'inbound' ? selectedHeading : (message.direction === 'outbound' ? 'Agent' : undefined)}
                             />,
                           )
                           if (showTimelineTechnical) {
@@ -912,17 +982,32 @@ export default function AdminCommunications() {
             {/* Customer identity + context + SLA + consent for the selected thread (item 7) */}
             {selected && (
               <ContextRail
-                identity={{
-                  display_name: selected.identity_display_name || identities[0]?.display_name,
-                  normalized_address: selected.identity_address || identities[0]?.normalized_address,
-                  external_id: selected.identity_external_id || identities[0]?.external_id,
-                  channel: selected.identity_channel || identities[0]?.channel || selected.primary_channel,
-                  provider: selected.identity_provider || identities[0]?.provider,
-                  verified: selected.identity_verified ?? identities[0]?.verified,
-                  consent_status: preferences?.consent_status || identities[0]?.consent_status,
-                } as ContextIdentity}
+                identity={(selected.customer
+                  // CA-OWNER-02 (H3): the customer the server named, with THEIR channel identity — never whichever
+                  // identity the detail listed first (on a Marketplace thread that could be the seller's).
+                  ? {
+                    id: customerIdentity?.id,
+                    display_name: selectedHeading,
+                    normalized_address: customerIdentity?.normalized_address,
+                    external_id: customerIdentity?.external_id,
+                    channel: customerIdentity?.channel || null,
+                    provider: customerIdentity?.provider,
+                    verified: customerIdentity?.verified,
+                    consent_status: customerIdentity?.consent_status || preferences?.consent_status,
+                  }
+                  : {
+                    display_name: selected.identity_display_name || identities[0]?.display_name,
+                    normalized_address: selected.identity_address || identities[0]?.normalized_address,
+                    external_id: selected.identity_external_id || identities[0]?.external_id,
+                    channel: selected.identity_channel || identities[0]?.channel || selected.primary_channel,
+                    provider: selected.identity_provider || identities[0]?.provider,
+                    verified: selected.identity_verified ?? identities[0]?.verified,
+                    consent_status: preferences?.consent_status || identities[0]?.consent_status,
+                  }) as ContextIdentity}
                 linkedIdentities={linkedIdentities}
                 contextRefs={[
+                  // The seller is context on a Marketplace inquiry — never the heading.
+                  selected.seller ? { label: 'Seller', value: selected.seller.display_name || 'Name not recorded' } : null,
                   selected.marketplace_listing_id ? { label: 'Listing', value: String(selected.marketplace_listing_id) } : null,
                   selected.escrow_id ? { label: 'Escrow', value: String(selected.escrow_id) } : null,
                   selected.financing_application_id ? { label: 'Financing', value: String(selected.financing_application_id) } : null,
@@ -1046,7 +1131,7 @@ export default function AdminCommunications() {
           <div data-testid="section-view-sla">
             <SlaWorklist
               threads={slaThreads}
-              counts={{ breached: serverCounts?.sla_breach ?? 0 }}
+              counts={slaBreached === null ? undefined : { breached: slaBreached }}
               onOpen={(id) => navigate(`${basePath}/inbox/${id}`)}
             />
           </div>

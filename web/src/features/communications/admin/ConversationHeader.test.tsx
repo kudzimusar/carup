@@ -28,6 +28,16 @@ describe('ConversationHeader', () => {
     expect(html).toContain('data-channel="telegram"')
   })
 
+  it('CA-OWNER-02: carries the classification badge of a non-operational conversation and its no-SLA label', () => {
+    const html = renderToStaticMarkup(
+      <ConversationHeader title="Provider smoke test" reference="Support" statusLabel="Awaiting customer" assignedLabel="Support"
+        categoryLabel="Automation" categoryTone="automation" slaLevel="none" slaLabel="Automation record — no SLA" />,
+    )
+    expect(html).toContain('data-testid="header-category"')
+    expect(html).toContain('Automation')
+    expect(html).toContain('Automation record — no SLA')
+  })
+
   it('renders a minimal header without optional fields', () => {
     const html = renderToStaticMarkup(<ConversationHeader title="Bare" statusLabel="Open" assignedLabel="Unassigned" />)
     expect(html).toContain('Bare')
