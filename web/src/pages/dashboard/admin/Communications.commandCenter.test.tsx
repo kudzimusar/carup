@@ -196,6 +196,45 @@ describe('H2 — row SLA labels come from truth', () => {
   })
 })
 
+describe('H4 — the composer follows the server\'s reply-channel authority', () => {
+  it('defaults to the server\'s channel and offers only the customer\'s — not in-app to the seller', async () => {
+    api.fetchAdminCommunicationThread.mockImplementation((async (id: string) => ({
+      thread: { id, status: 'open', thread_type: 'marketplace_inquiry', subject_type: 'marketplace_inquiry', subject_id: 'inq-1', primary_channel: 'in_app', primary_user_id: 'u-seller', truth: null, customer: null, seller: null },
+      // The latest inbound came in-app (the inquiry form), which the local rule would default to.
+      messages: [{ id: 'm1', direction: 'inbound', channel: 'in_app', status: 'received', content_text: 'hi', created_at: hoursAgo(1) }],
+      participants: [], escalations: [],
+      identities: [{ id: 'ci-guest', channel: 'whatsapp', consent_status: 'implied_transactional' }],
+      linked_identities: [], delivery_attempts: [], preferences: null,
+      reply_channel: { default_channel: 'whatsapp', deliverable: ['whatsapp'], basis: 'primary_binding' },
+    })) as never)
+    api.adminReplyCommunicationThread.mockResolvedValue({ message: { id: 'm-new', status: 'queued' }, notification: { id: 1, status: 'queued' } } as never)
+    renderAt(`/admin/communications/inbox/${THREAD_ID}`)
+    const composer = await screen.findByTestId('reply-composer-sticky')
+    await waitFor(() => expect(within(composer).getByTestId('reply-target')).toHaveAttribute('data-reply-channel', 'whatsapp'))
+    expect(within(composer).queryByRole('radiogroup'), 'one deliverable channel → no selector').toBeNull()
+    fireEvent.change(within(composer).getByRole('textbox'), { target: { value: 'Yes, it is available.' } })
+    fireEvent.click(within(composer).getByRole('button', { name: /Send reply/ }))
+    await waitFor(() => expect(api.adminReplyCommunicationThread).toHaveBeenCalled())
+    expect((api.adminReplyCommunicationThread.mock.calls.at(-1) as unknown as [string, Record<string, unknown>])[1]).toMatchObject({ channel: 'whatsapp', internal: false })
+  })
+
+  it('shows the server\'s refusal when a reply channel is not deliverable, and keeps the draft', async () => {
+    api.fetchAdminCommunicationThread.mockImplementation((async (id: string) => ({
+      thread: { id, status: 'open', primary_channel: 'in_app', truth: null, customer: null, seller: null },
+      messages: [], participants: [], escalations: [], identities: [], linked_identities: [], delivery_attempts: [], preferences: null,
+      reply_channel: { default_channel: 'whatsapp', deliverable: ['whatsapp'], basis: 'primary_binding' },
+    })) as never)
+    api.adminReplyCommunicationThread.mockRejectedValue(Object.assign(new Error('This conversation\'s customer cannot be reached by WhatsApp. Reachable: none. Nothing was sent.'), { status: 409, code: 'REPLY_CHANNEL_NOT_DELIVERABLE' }) as never)
+    renderAt(`/admin/communications/inbox/${THREAD_ID}`)
+    const composer = await screen.findByTestId('reply-composer-sticky')
+    await waitFor(() => expect(within(composer).getByTestId('reply-target')).toHaveAttribute('data-reply-channel', 'whatsapp'))
+    fireEvent.change(within(composer).getByRole('textbox'), { target: { value: 'Keep me.' } })
+    fireEvent.click(within(composer).getByRole('button', { name: /Send reply/ }))
+    expect(await within(composer).findByText(/Nothing was sent/)).toBeInTheDocument()
+    expect(within(composer).getByRole('textbox')).toHaveValue('Keep me.')
+  })
+})
+
 describe('H3 — one primary identity', () => {
   it('heads the row with the customer and puts the subject under it — never the seller', async () => {
     renderAt('/admin/communications')

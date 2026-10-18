@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { priorityVariant, threadPreview, threadRef, threadUnreadCount } from '@/features/communications/threadPresentation'
 import {
   CONVERSATION_VIEW_OPTIONS, DEFAULT_CONVERSATION_VIEW, categoryBadge, customerHeading, mergeOpenedThread, threadSlaTruth, threadSubject,
-  type ConversationView, type ViewCounts,
+  type ConversationView, type ReplyChannelAuthority, type ViewCounts,
 } from '@/features/communications/conversationTruth'
 import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
@@ -45,7 +45,7 @@ import type { SettingsSlaPolicy } from '@/features/communications/admin/Settings
 import { DeliveryAttemptList } from '@/features/communications/admin/DeliveryAttemptList'
 import type { DeliveryAttempt } from '@/features/communications/admin/DeliveryAttemptList'
 import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
-import { deliverableReplyChannels, resolveReplyChannel } from '@/features/communications/admin/replyChannels'
+import { composerReplyChannels, resolveReplyChannel } from '@/features/communications/admin/replyChannels'
 import { WorkerHealthPanel } from '@/features/communications/admin/WorkerHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -252,6 +252,8 @@ export default function AdminCommunications() {
   const [replyClientMessageId, setReplyClientMessageId] = useState(() => newClientMessageId())
   // The agent's explicit reply-channel pick for the open thread; null = follow the derived default.
   const [replyChannelChoice, setReplyChannelChoice] = useState<string | null>(null)
+  // CA-OWNER-02 (H4): the server's reply-channel authority for the open thread (null = not published / unreadable).
+  const [replyAuthority, setReplyAuthority] = useState<ReplyChannelAuthority | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
 
 
@@ -467,6 +469,7 @@ export default function AdminCommunications() {
         // Drop the response if we unmounted or the admin switched threads mid-fetch.
         if (active && detail && selectedRef.current?.id === cur.id) {
           setMessages(detail.messages || [])
+          setReplyAuthority(detail.reply_channel ?? null)
           if (waiting && !hasQueuedOrProcessing(detail.messages || [])) {
             const lastOutbound = [...(detail.messages || [])].reverse().find((m) => m.direction === 'outbound')
             if (lastOutbound) setReplyStatus(mapReplyStatus(undefined, lastOutbound.status))
@@ -498,6 +501,7 @@ export default function AdminCommunications() {
       setReplyCorrelationId(null)
       setInternalNote(false)
       setReplyChannelChoice(null)
+      setReplyAuthority(null)
     }
     const [detail, audit] = await Promise.all([
       fetchAdminCommunicationThread(thread.id).catch(() => null),
@@ -513,6 +517,7 @@ export default function AdminCommunications() {
       setLinkedIdentities((detail.linked_identities || []) as ContextIdentity[])
       setDeliveryAttempts((detail.delivery_attempts || []) as DeliveryAttempt[])
       setPreferences((detail.preferences || null) as Parameters<typeof ContextRail>[0]['preferences'])
+      setReplyAuthority(detail.reply_channel ?? null)
     }
     setAuditEvents(audit.events || [])
     // Mark the thread read for this agent and optimistically clear its unread badge in the list
@@ -561,15 +566,18 @@ export default function AdminCommunications() {
 
   // CC-REPLY-CHANNEL-01: a customer-visible reply goes out on a channel this thread can actually
   // reach — the customer's latest inbound channel by default — never blindly on primary_channel.
+  // CA-OWNER-02 (H4): when the server publishes its reply-channel authority it leads (the CUSTOMER's
+  // channels and default); an explicit agent choice still wins while deliverable.
   const replyChannels = useMemo(
-    () => deliverableReplyChannels({ thread: selected, identities }),
-    [selected, identities],
+    () => composerReplyChannels({ authority: replyAuthority, thread: selected, identities }),
+    [replyAuthority, selected, identities],
   )
   const replyChannel = resolveReplyChannel({
     choice: replyChannelChoice,
     channels: replyChannels,
     messages,
     primaryChannel: selected?.primary_channel,
+    serverDefault: replyAuthority?.default_channel,
   })
 
   async function sendReply() {
