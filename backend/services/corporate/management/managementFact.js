@@ -146,9 +146,13 @@ export function statementFact(spec) {
   return shape(spec, { state: spec.state, value: null, certification: 'not_applicable', reason: spec.reason });
 }
 
-function degraded(spec, reason) {
-  return shape(spec, { state: 'DEGRADED', value: null, certification: 'not_certified', reason });
+/** A source that exists but could not be read (completely) right now: DEGRADED, with its reason and no value. */
+export function degradedFact(spec, reason) {
+  checkIdentity(spec);
+  if (typeof reason !== 'string' || !reason.trim()) throw new Error('fact: a degraded fact must give its reason');
+  return shape(spec, { state: 'DEGRADED', value: null, certification: spec.kind === 'governance' ? 'governance_record' : 'not_certified', reason });
 }
+const degraded = degradedFact;
 
 /**
  * Run one source read under a time budget and turn its outcome into a fact. The reader resolves to
