@@ -48,7 +48,6 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['threads'][number]
 type MessageSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThread']>>['messages'][number]
-type DeadLetterNotification = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationDeadLetters']>>['notifications'][number]
 type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationMetrics']>>
 type WorkerHealth = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationWorkerHealth']>>
 type ThreadCounts = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['counts']>
@@ -146,7 +145,6 @@ export default function AdminCommunications() {
   const {
     user,
     fetchAdminCommunicationThreads,
-    fetchCommunicationDeadLetters,
     fetchAdminCommunicationMetrics,
     fetchAdminCommunicationThread,
     markAdminCommunicationThreadRead,
@@ -199,7 +197,6 @@ export default function AdminCommunications() {
   const [linkedIdentities, setLinkedIdentities] = useState<ContextIdentity[]>([])
   const [deliveryAttempts, setDeliveryAttempts] = useState<DeliveryAttempt[]>([])
   const [preferences, setPreferences] = useState<Parameters<typeof ContextRail>[0]['preferences']>(null)
-  const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
   const [recovery, setRecovery] = useState<{ categories: Record<string, RecoveryNotification[]>; counts: Record<string, number> }>({ categories: {}, counts: {} })
   const [recoveryNote, setRecoveryNote] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<Metrics>({})
@@ -296,6 +293,12 @@ export default function AdminCommunications() {
     return id ? rows.map((t) => (t.id === id ? { ...t, unread_count: 0 } : t)) : rows
   }, [])
 
+  // CA-OWNER-02 (H2): the header strip shows the server's truth block. A failed request, or a response without one,
+  // is "unavailable" — never a measured zero, and never the previous load's figures presented as current.
+  const refreshMetrics = useCallback(() => fetchAdminCommunicationMetrics()
+    .then((r) => setMetrics({ ...(r || {}), truth: r?.truth ?? { available: false } }))
+    .catch(() => setMetrics({ truth: { available: false } })), [fetchAdminCommunicationMetrics])
+
   // Full refresh (Refresh button + after mutations): re-run the current query + ops panels.
   const load = useCallback(async () => {
     await Promise.all([
@@ -305,11 +308,10 @@ export default function AdminCommunications() {
         setNextCursor(res.page?.next_cursor ?? null)
         setLoadError(null)
       }).catch(() => setLoadError('Could not load threads — press Refresh to retry.')),
-      fetchCommunicationDeadLetters().then((r) => setDeadLetters(r.notifications || [])).catch(() => undefined),
       fetchCommunicationRecovery().then((r) => setRecovery({ categories: r.categories || {}, counts: r.counts || {} })).catch(() => undefined),
-      fetchAdminCommunicationMetrics().then((r) => setMetrics(r || {})).catch(() => undefined),
+      refreshMetrics(),
     ])
-  }, [fetchThreadPage, clearSelectedUnread, fetchCommunicationDeadLetters, fetchCommunicationRecovery, fetchAdminCommunicationMetrics])
+  }, [fetchThreadPage, clearSelectedUnread, fetchCommunicationRecovery, refreshMetrics])
 
   // Cursor pagination: append the next server page (dedup by id) without disturbing selection/draft.
   const loadMore = useCallback(async () => {
@@ -366,13 +368,12 @@ export default function AdminCommunications() {
     return () => { active = false }
   }, [fetchThreadPage, clearSelectedUnread])
 
-  // One-time ops panels (dead-letter recovery, recovery categories, metrics, worker health) — query-independent.
+  // One-time ops panels (recovery categories, metrics incl. the dead-letter figure, worker health) — query-independent.
   useEffect(() => {
-    fetchCommunicationDeadLetters().then((r) => setDeadLetters(r.notifications || [])).catch(() => setDeadLetters([]))
     fetchCommunicationRecovery().then((r) => setRecovery({ categories: r.categories || {}, counts: r.counts || {} })).catch(() => undefined)
-    fetchAdminCommunicationMetrics().then((r) => setMetrics(r || {})).catch(() => undefined)
+    void refreshMetrics()
     refreshWorkerHealth()
-  }, [fetchCommunicationDeadLetters, fetchCommunicationRecovery, fetchAdminCommunicationMetrics, refreshWorkerHealth])
+  }, [fetchCommunicationRecovery, refreshMetrics, refreshWorkerHealth])
 
   // Per-channel provider telemetry — fetched when the Providers surface is active (P1.4).
   useEffect(() => {
@@ -617,9 +618,11 @@ export default function AdminCommunications() {
   const resumeSla = () => runAction('sla-resume', () => resumeCommunicationThreadSla(selected!.id))
 
 
-  const overdue = Number(metrics.overdue_threads ?? 0)
-  const unassigned = Number(metrics.unassigned_threads ?? 0)
-  const deadLetterCount = Number(metrics.dead_letter_count ?? deadLetters.length)
+  // CA-OWNER-02 (H2): the legacy raw counts (open_threads / unassigned_threads / overdue_threads) are no longer shown.
+  const metricsTruth = metrics.truth ?? null
+  const deadLetterCount = typeof metrics.dead_letter_count === 'number' ? metrics.dead_letter_count : null
+  // The SLA tab badge counts conversations a customer is really waiting on past their target (operational + review).
+  const slaBadge = metricsTruth?.available ? metricsTruth.operational.overdue + metricsTruth.needs_review.overdue : (serverCounts?.sla_breach || 0)
   const selectedSla = threadSla(selected)
   const assignedLabel = selected?.assigned_admin_id
     ? `Admin ${String(selected.assigned_admin_id).slice(0, 8)}`
@@ -637,12 +640,11 @@ export default function AdminCommunications() {
           <Button variant="outline" onClick={load} className="gap-2"><RefreshCcw className="w-4 h-4" /> Refresh</Button>
         </div>
 
-        {/* Operations strip: queue + SLA + provider health at a glance */}
+        {/* Operations strip: conversation truth (H2) + delivery + provider health at a glance */}
         <CommandCenterHeader
-          openCount={Number(metrics.open_threads ?? threads.filter((t) => !['resolved', 'closed', 'spam'].includes(String(t.status))).length)}
-          unassigned={unassigned}
-          overdue={overdue}
+          truth={metricsTruth}
           deadLetterCount={deadLetterCount}
+          deadLetterLatestAt={metrics.dead_letter_latest_at ?? null}
           health={workerHealth}
         />
 
@@ -650,7 +652,7 @@ export default function AdminCommunications() {
         <CommandCenterNav
           basePath={basePath}
           active={section}
-          badges={{ recovery: recovery.counts?.total || 0, sla: serverCounts?.sla_breach || 0 }}
+          badges={{ recovery: recovery.counts?.total || 0, sla: slaBadge }}
         />
 
         {isInboxLike && (

@@ -8,6 +8,9 @@ import type { ProvenanceSummary } from '@/components/admin/ProvenanceNotice'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { AccidentDisclosure, FinanceDisclosure, InsuranceDisclosure } from '@/lib/vehicleHistoryDisclosures'
 import type { PartSentryRecordResult, VehicleWorkOrder, WorkOrderDecision } from '@/lib/partsentry'
+import type {
+  ConversationCustomer, ConversationSeller, ConversationView, MetricsTruth, ReplyChannelAuthority, ThreadTruth, ViewCounts,
+} from '@/features/communications/conversationTruth'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationReviewQueueDetailed as fetchVerificationReviewQueueDetailedRequest,
@@ -276,6 +279,10 @@ type CommunicationThreadSummary = {
   unread_count?: number
   team_unread_count?: number
   failed_outbound_count?: number
+  // CA-OWNER-02: the server's verdict for this conversation (null when it could not be judged) and WHO it is with.
+  truth?: ThreadTruth | null
+  customer?: ConversationCustomer | null
+  seller?: ConversationSeller | null
 }
 
 type CommunicationMessageSummary = {
@@ -355,7 +362,17 @@ type ProviderSmokeTestResult = {
   details?: unknown
   inspect?: Record<string, string>
 }
-type CommunicationMetricsResponse = Record<string, number | string | null | undefined>
+type CommunicationMetricsResponse = {
+  // Legacy raw thread counts — kept by the API for compatibility; the Command Center no longer shows them.
+  open_threads?: number
+  unassigned_threads?: number
+  overdue_threads?: number
+  dead_letter_count?: number
+  dead_letter_latest_at?: string | null
+  duplicate_webhook_count?: number
+  // CA-OWNER-02 (H2): what the header strip shows.
+  truth?: MetricsTruth
+}
 type CommunicationThreadCounts = {
   total: number
   all_active: number
@@ -2770,7 +2787,18 @@ export function useCarUpApi() {
     return request('/communications/share', { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
 
-  const fetchAdminCommunicationThreads = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ threads: CommunicationThreadSummary[]; page?: CommunicationThreadPage; counts?: CommunicationThreadCounts }> => {
+  const fetchAdminCommunicationThreads = useCallback(async (filters?: Record<string, string | undefined>): Promise<{
+    threads: CommunicationThreadSummary[]
+    page?: CommunicationThreadPage
+    counts?: CommunicationThreadCounts
+    // CA-OWNER-02 (H1): the classification view this page holds, the per-view counts over the same filters, and
+    // whether the classification covered every candidate (false = a saturated window: say it is partial).
+    view?: ConversationView
+    view_counts?: ViewCounts | null
+    truth_complete?: boolean
+    truth_window?: { size: number; read: number; saturated: boolean } | null
+    truth_available?: boolean
+  }> => {
     const query = filters ? referralQuery(filters) : ''
     return request(`/admin/communications/threads${query}`, { method: 'GET' })
   }, [request])
@@ -2784,6 +2812,9 @@ export function useCarUpApi() {
     linked_identities?: CommunicationChannelIdentity[]
     delivery_attempts?: CommunicationDeliveryAttempt[]
     preferences?: CommunicationPreferencesRow | null
+    // CA-OWNER-02 (H4): the server's reply-channel authority (null when it could not be read).
+    reply_channel?: ReplyChannelAuthority | null
+    truth_available?: boolean
   }> => {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
   }, [request])
