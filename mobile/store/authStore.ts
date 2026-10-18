@@ -4,6 +4,7 @@ import { AuthUser, UserRole } from '@shared/types';
 import { withServerTenantContext } from '@shared/auth/sessionTenant';
 import { apiUrl, resolveApiBaseUrl } from '../utils/apiBase';
 import { fetchCsrfToken } from '../utils/verificationApi';
+import { clearIdentityQueryCache } from '../utils/queryClient';
 import { revokeCurrentServerSession } from '../utils/sessionLogout';
 
 /**
@@ -156,6 +157,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(user));
       await SecureStore.setItemAsync(SECURE_TOKEN_KEY, token);
+      // A new authenticated authority must never inherit the previous process cache.
+      clearIdentityQueryCache();
       set({
         user,
         token,
@@ -181,8 +184,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // never block sign-out on push cleanup
     }
 
-    // Preserve the accepted Native logout contract: terminate only the presenting backend session
-    // through POST /api/auth/logout while its credential still exists locally. A backend/network
+    // Terminate only the presenting backend session while its credential still exists locally.
+    // This call is bounded and returns diagnostics without credential material. A backend/network
     // failure must never trap the person signed in on this device.
     if (currentToken) {
       try {
@@ -192,11 +195,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     }
 
-    // SecureStore cleanup is best-effort, but the in-memory identity boundary must always be crossed.
+    // SecureStore failures are best-effort cleanup failures, never permission to keep the in-memory
+    // identity alive. Attempt both deletions independently, then cross the local identity boundary.
     await Promise.allSettled([
       SecureStore.deleteItemAsync(SECURE_USER_KEY),
       SecureStore.deleteItemAsync(SECURE_TOKEN_KEY),
     ]);
+
+    clearIdentityQueryCache();
     set({
       user: null,
       token: null,
@@ -264,9 +270,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(updatedUser));
       if (data.token) {
         await SecureStore.setItemAsync(SECURE_TOKEN_KEY, data.token);
-        set({ token: data.token });
       }
-      set({ user: updatedUser });
+      // Role/tenant authority changed: discard every query from the prior context before exposing
+      // the updated identity to subscribers.
+      clearIdentityQueryCache();
+      set({
+        user: updatedUser,
+        ...(data.token ? { token: data.token } : {}),
+      });
       // Re-fetch governed feature truth for the newly active role/tenant.
       await refreshFeatureGovernance();
       return { ok: true };
@@ -308,6 +319,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (latest.token !== current.token || !latest.user) return { ok: false, error: 'Your session changed. Please try again.' };
       const updatedUser = withServerTenantContext(latest.user, body?.user ?? { active_tenant_id: null });
       await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(updatedUser));
+      // A verified organisation switch is an identity-authority boundary for cached data.
+      clearIdentityQueryCache();
       set({ user: updatedUser });
       await refreshFeatureGovernance();
       return { ok: true };
