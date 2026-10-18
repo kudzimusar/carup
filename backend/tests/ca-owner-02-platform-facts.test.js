@@ -184,6 +184,55 @@ test('R3 D3: on Vercel the default scheduler-health read is handed to the reques
   }
 });
 
+test('R3 D3: a scheduler read the database cancels at its statement time limit is DEGRADED and says it did not complete — never "still running" — and is not re-run within 5 minutes', async () => {
+  let t = NOW.getTime();
+  let calls = 0;
+  let cancel = () => {};
+  const client = { rpc: () => { calls += 1; return new Promise((resolve) => { cancel = () => resolve({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }); }); } };
+  const read = createSchedulerHealthRead(client, { budgetMs: 20, now: () => t });
+  const first = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.match(first.reason, /still running/, 'the first read is honestly still running');
+  t += 8_000;
+  cancel();
+  await new Promise((r) => setImmediate(r));
+  t += 52_000;
+  const s = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(s.state, 'DEGRADED');
+  assert.equal(s.value, null);
+  assert.doesNotMatch(s.reason, /still running/);
+  assert.match(s.reason, /did not complete/);
+  assert.match(s.reason, /statement time limit/);
+  assert.match(s.reason, /2026-10-18T00:00:08\.000Z/);
+  assert.match(s.reason, /scans the full cron run history/);
+  assert.doesNotMatch(JSON.stringify(s), /canceling statement/, 'the database error text never leaves');
+  assert.equal(calls, 1, 'the failed full-history scan is not run again inside 5 minutes');
+  t += 300_000;
+  const again = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(calls, 2, 'after 5 minutes it is tried once more');
+  assert.match(again.reason, /still running/);
+  assert.match(again.reason, /the last one did not complete/);
+  cancel();
+});
+
+test('R3 D3: a reading served after a failed re-read keeps its real read time and says the latest re-read did not complete', async () => {
+  let t = NOW.getTime() - 400_000;
+  let calls = 0;
+  let cancel = () => {};
+  const client = { rpc: () => { calls += 1; if (calls === 1) return Promise.resolve({ data: SCHEDULER_DATA, error: null }); return new Promise((resolve) => { cancel = () => resolve({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }); }); } };
+  const read = createSchedulerHealthRead(client, { budgetMs: 20, now: () => t });
+  await factsOf(runtime({ schedulerHealthRead: read }));
+  t = NOW.getTime();
+  await factsOf(runtime({ schedulerHealthRead: read })); // past 5 minutes: a re-read starts
+  cancel();
+  await new Promise((r) => setImmediate(r));
+  const s = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(s.state, 'TECHNICAL_OPERATIONAL');
+  assert.equal(s.value, 'worker job active');
+  assert.equal(s.as_of, new Date(NOW.getTime() - 400_000).toISOString(), 'the value keeps the time it was really read');
+  assert.match(s.detail, /the latest re-read did not complete/);
+  assert.equal(calls, 2);
+});
+
 test('R3 D3: a failed scheduler-health RPC is DEGRADED and never cached as a value', async () => {
   const client = { rpc: async () => ({ data: null, error: { message: 'permission denied' } }) };
   const read = createSchedulerHealthRead(client, { budgetMs: 50, now: () => NOW.getTime() });

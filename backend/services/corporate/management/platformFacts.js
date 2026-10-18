@@ -19,7 +19,7 @@ import { probeSessionAuthorityConnection } from '../../auth/sessionAuthority.js'
 import { countUnrecordedLedgerIntents } from '../../blockchain/ledgerIntentService.js';
 import { readFact, statementFact, CURRENT_WINDOW } from './managementFact.js';
 import { exactCount } from './sourceReads.js';
-import { createBoundedSource, BoundedSourcePending } from './boundedSource.js';
+import { createBoundedSource, BoundedSourcePending, BoundedSourceFailed } from './boundedSource.js';
 import { runtimeKeepAlive } from './managementSnapshotCache.js';
 
 const SCOPE = 'Staging runtime · this API deployment';
@@ -30,25 +30,37 @@ const SCOPE = 'Staging runtime · this API deployment';
  * bounded here: it is read at most every 5 minutes, a page waits for it at most 2.5 s, a slow read finishes in the
  * background (kept alive by the runtime past the response), and a cached reading is served — with the time it was really
  * read — for at most 30 minutes.
+ *
+ * A read that FAILS is remembered for the same 5 minutes and reported as failed — never as "still running" — with when it
+ * failed and, for a statement-timeout cancellation (SQLSTATE 57014), that the database cancelled it at its statement time
+ * limit. Measured on staging: every call is cancelled that way (PostgREST's authenticator role has statement_timeout=8s).
+ * The database's own error text never leaves.
  */
 export const SCHEDULER_HEALTH_LIMITATION = 'get_communication_scheduler_health() scans the full cron run history on every call — a known database limitation';
+const STATEMENT_TIMEOUT = '57014';
+const failureText = (f) => `${f.error?.timedOut ? 'the database cancelled it at its statement time limit' : 'the read failed'} at ${f.at.toISOString()}`;
 export function createSchedulerHealthRead(client, { ttlMs = 300_000, budgetMs = 2_500, maxAgeMs = 1_800_000, now, keepAlive } = {}) {
+  const clock = now || (() => Date.now());
   const source = createBoundedSource(async () => {
     const { data, error } = await client.rpc('get_communication_scheduler_health');
-    if (error) throw new Error('scheduler health unavailable');
+    if (error) throw Object.assign(new Error('scheduler health unavailable'), { timedOut: error.code === STATEMENT_TIMEOUT });
     return data;
-  }, { ttlMs, budgetMs, maxAgeMs, ...(now ? { now } : {}), ...(keepAlive ? { keepAlive } : {}) });
+  }, { ttlMs, budgetMs, maxAgeMs, failureTtlMs: ttlMs, now: clock, ...(keepAlive ? { keepAlive } : {}) });
   return async () => {
     try {
-      const { value, readAt, refreshing } = await source.get();
-      return { data: value, readAt, refreshing };
+      const { value, readAt, refreshing, lastFailure } = await source.get();
+      return { data: value, readAt, refreshing, lastFailure: lastFailure ? failureText(lastFailure) : null };
     } catch (err) {
       if (err instanceof BoundedSourcePending) {
+        const previous = err.lastFailure ? `; the last one did not complete (${failureText(err.lastFailure)})` : '';
         throw Object.assign(new Error('scheduler health pending'), {
-          factReason: `The scheduler-health read is still running, so no value is shown yet: ${SCHEDULER_HEALTH_LIMITATION}.`,
+          factReason: `The scheduler-health read is still running, so no value is shown yet${previous}: ${SCHEDULER_HEALTH_LIMITATION}.`,
         });
       }
-      throw new Error('scheduler health unavailable');
+      const failure = err instanceof BoundedSourceFailed ? err.failure : { at: new Date(clock()), error: err };
+      throw Object.assign(new Error('scheduler health unavailable'), {
+        factReason: `The scheduler-health read did not complete — ${failureText(failure)} — so no value is shown. It is tried again at most every 5 minutes: ${SCHEDULER_HEALTH_LIMITATION}.`,
+      });
     }
   };
 }
@@ -141,7 +153,7 @@ export async function readPlatformFacts({ now = new Date(), host = null, runtime
       const bounded = typeof runtime.schedulerHealthRead === 'function' ? await runtime.schedulerHealthRead() : null;
       const h = bounded ? bounded.data : await runtime.schedulerHealth();
       const cadence = bounded
-        ? ` Read at most every 5 minutes because ${SCHEDULER_HEALTH_LIMITATION}${bounded.refreshing ? '; a newer reading is being taken' : ''}.`
+        ? ` Read at most every 5 minutes because ${SCHEDULER_HEALTH_LIMITATION}${bounded.refreshing ? '; a newer reading is being taken' : ''}${bounded.lastFailure ? `; the latest re-read did not complete (${bounded.lastFailure})` : ''}.`
         : '';
       if (!h || h.pg_cron_available !== true) return { value: 'scheduler unavailable', detail: `pg_cron is not available to this database.${cadence}`, asOf: bounded?.readAt };
       const active = h.job_config?.active === true;

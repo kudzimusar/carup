@@ -49,10 +49,15 @@ router.get('/api/corporate/management/:area', authorizeSessionRole([]), async (r
   if (!gate.allowed) return res.status(gate.status).json(gate.body);
 
   try {
-    const { value: snapshot, meta } = await snapshots.get(String(req.hostname || ''));
-    const governance = AREAS_NEEDING_GOVERNANCE.includes(area)
-      ? (await readGovernanceFacts(supabase, { now: snapshot.now, actorUserId: req.userContext.id })).facts
-      : [];
+    // CA-OWNER-02-R3 (D3): the governance record is read for THIS request at THIS request's time — never at the shared
+    // snapshot's, which may be minutes old while it is served during a refresh (the projection decides "ACTIVE and inside
+    // its effective window" at the time it is given) — and alongside the snapshot rather than after it.
+    const requestedAt = new Date();
+    const [{ value: snapshot, meta }, governanceRead] = await Promise.all([
+      snapshots.get(String(req.hostname || '')),
+      AREAS_NEEDING_GOVERNANCE.includes(area) ? readGovernanceFacts(supabase, { now: requestedAt, actorUserId: req.userContext.id }) : null,
+    ]);
+    const governance = governanceRead ? governanceRead.facts : [];
     const grantCapabilities = [...(gate.grant.capabilities || []), ...(gate.grant.governance_capabilities || [])];
     return res.status(200).json({
       contract: CORPORATE_READ_CONTRACT,

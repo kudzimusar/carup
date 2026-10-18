@@ -83,6 +83,19 @@ test('HTTP · /api/corporate/management/:area through the shipped app', async (t
   assert.ok(Array.isArray(A.body.attention));
   assert.ok(A.body.attention.some((i) => i.id === 'attention:queue:trust.identity_verification'));
 
+  // CA-OWNER-02-R3 (D3): the governance record is read for THIS request at THIS request's time — never at the shared
+  // snapshot's, which may be minutes old while it is served during a refresh. The frozen projection decides "ACTIVE and
+  // inside its effective window" at the time it is given, and dates the figures with it.
+  await new Promise((resolve) => { setTimeout(resolve, 1_100); });
+  const askedAt = Date.now();
+  const A2 = await get('/api/corporate/management/overview', 'tok-a');
+  assert.equal(A2.status, 200, A2.text);
+  assert.equal(A2.body.snapshot.generated_at, A.body.snapshot.generated_at, 'the shared snapshot was served from the cache');
+  assert.equal(A2.body.sections.governance.length, 2);
+  for (const f of A2.body.sections.governance) {
+    assert.ok(Date.parse(f.as_of) >= askedAt, `${f.id} is dated ${f.as_of}: before this request (${new Date(askedAt).toISOString()}), i.e. at the snapshot's time`);
+  }
+
   const B = await get('/api/corporate/management/overview', 'tok-b');
   assert.equal(B.status, 403);
   assert.equal(B.body.code, 'CORPORATE_CAPABILITY_REQUIRED');
