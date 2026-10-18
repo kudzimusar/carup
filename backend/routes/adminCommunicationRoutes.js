@@ -10,6 +10,9 @@ import { buildProviderTelemetry } from '../services/communication/communicationP
 import { sanitizeProviderError, trimmedEnvValue } from '../services/communication/adapters/providerAdapters.js';
 import { OUTBOUND_DISABLED_CODE, OUTBOUND_KILL_SWITCH_ENV, isOutboundDisabled } from '../services/communication/outboundKillSwitch.js';
 import { isProductionDeployment, recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
+import { CONVERSATION_TRUTH_UNAVAILABLE } from '../services/communication/communicationRepository.js';
+import { CONVERSATION_VIEWS, normalizeConversationView, truthView } from '../services/communication/conversationTruth.js';
+import { loadConversationTruth, readAllIn } from '../services/communication/conversationTruthLoader.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -94,6 +97,59 @@ export async function loadNotificationForRequest(services, req, res) {
     return null;
   }
   return notification;
+}
+
+// ── CA-OWNER-02 (H1/H3): every Command Center row carries its conversation truth and its customer ────────────────────
+
+function truthUnavailableBody() {
+  return {
+    error: 'Conversation classification is unavailable right now, so nothing is shown as classified. Retry, or open the "All" view.',
+    code: CONVERSATION_TRUTH_UNAVAILABLE,
+  };
+}
+
+function truthError(cause) {
+  const err = new Error(`Conversation truth is unavailable: ${cause?.message || 'read failed'}`);
+  err.code = CONVERSATION_TRUTH_UNAVAILABLE;
+  err.cause = cause;
+  return err;
+}
+
+const UNJUDGED = Object.freeze({ truth: null, customer: null, seller: null });
+
+/**
+ * Judge FULL message_threads rows → Map threadId → { truth, customer, seller } (K2B provenance + SLA truth + H3 identity).
+ * Throws CONVERSATION_TRUTH_UNAVAILABLE on any read failure: the caller presents "unavailable", never a guessed verdict.
+ */
+export async function classifyThreadRows(client, rows, now = new Date()) {
+  if (!client) throw truthError(new Error('no database client'));
+  try {
+    const { truths } = await loadConversationTruth(client, { threads: rows, now, withParties: true });
+    return new Map(truths.map((truth) => [String(truth.thread_id), { truth: truthView(truth), customer: truth.customer, seller: truth.seller }]));
+  } catch (error) {
+    throw truthError(error);
+  }
+}
+
+/**
+ * Page-level truth for the API default (no view). Rows from the DB search RPC are a REDUCED column set (no metadata, SLA
+ * pause, first-response or last-inbound columns), so each one is judged from its FULL message_threads row. A failure
+ * degrades the page to truth: null — the inbox still works, and says the classification is unavailable.
+ */
+async function attachPageTruth(client, rows, { now, fullRows }) {
+  if (!rows.length) return { threads: rows, available: true };
+  try {
+    let judged = rows;
+    if (fullRows) {
+      const full = await readAllIn(client, 'message_threads', '*', 'id', rows.map((r) => String(r.id)));
+      const byId = new Map(full.map((r) => [String(r.id), r]));
+      judged = rows.map((r) => byId.get(String(r.id))).filter(Boolean);
+    }
+    const decorations = await classifyThreadRows(client, judged, now);
+    return { threads: rows.map((r) => ({ ...r, ...(decorations.get(String(r.id)) || UNJUDGED) })), available: true };
+  } catch (_error) {
+    return { threads: rows.map((r) => ({ ...r, ...UNJUDGED })), available: false };
+  }
 }
 
 // Append a thread-scoped audit event for the acting user (fail-soft; never throws — see
@@ -725,7 +781,16 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     // tenant scoping, server search/filter/count) for the default ordering, and degrades to a bounded
     // window only where the projection migration is not yet applied. `threads` stays an array; `page`
     // (cursor) and `counts` are additive.
+    //
+    // CA-OWNER-02 (H1): every row carries `truth` + `customer`. A `view`, an SLA filter or the SLA sort needs the whole
+    // candidate set CLASSIFIED before the query runs (searchThreads' classified window); a classified query that cannot
+    // read the truth refuses with 503 rather than present an unclassified list. Without a view (the API default) the
+    // DB search path is unchanged and only the returned page is judged.
     const ctx = resolveThreadQueryContext(req);
+    const view = normalizeConversationView(req.query.view);
+    if (!view) {
+      return res.status(400).json({ error: `Unknown conversation view "${String(req.query.view)}".`, code: 'UNKNOWN_CONVERSATION_VIEW', views: CONVERSATION_VIEWS });
+    }
     const params = {
       search: req.query.search,
       status: req.query.status,
@@ -740,8 +805,31 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       cursor: req.query.cursor,
       limit: req.query.limit,
     };
+    const truthClient = services.repository?.client || null;
+    const now = new Date();
+    const classified = req.query.view !== undefined || Boolean(params.sla) || params.sort === 'sla';
+    if (classified) {
+      if (!truthClient) return res.status(503).json(truthUnavailableBody());
+      let result;
+      try {
+        result = await services.repository.searchThreads(params, ctx, { view, classify: (rows) => classifyThreadRows(truthClient, rows, now) });
+      } catch (error) {
+        if (error?.code === CONVERSATION_TRUTH_UNAVAILABLE) return res.status(503).json(truthUnavailableBody());
+        throw error;
+      }
+      return res.json({
+        threads: result.threads,
+        page: result.page,
+        counts: result.counts,
+        view: result.view,
+        view_counts: result.view_counts,
+        truth_complete: result.truth_complete,
+        truth_window: result.truth_window,
+      });
+    }
     const result = await services.repository.searchThreads(params, ctx);
-    res.json({ threads: result.threads, page: result.page, counts: result.counts });
+    const page = await attachPageTruth(truthClient, result.threads || [], { now, fullRows: result.page?.mode === 'db_keyset' });
+    return res.json({ threads: page.threads, page: result.page, counts: result.counts, view: 'all', truth_available: page.available });
   }));
 
   router.get('/api/admin/communications/threads/:id', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
@@ -762,8 +850,19 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       thread.primary_user_id ? services.repository.list('communication_preferences', { user_id: thread.primary_user_id }, { limit: 1 }) : Promise.resolve([]),
       thread.primary_user_id ? services.repository.list('channel_identities', { user_id: thread.primary_user_id }) : Promise.resolve([]),
     ]);
+    // CA-OWNER-02 (H1/H3): the same truth and the same customer as the conversation's inbox row — judged from the full
+    // row. When it cannot be read the detail says so (truth: null), it never guesses.
+    let decoration = UNJUDGED;
+    let truthAvailable = false;
+    try {
+      decoration = (await classifyThreadRows(services.repository?.client || null, [thread], new Date())).get(String(thread.id)) || UNJUDGED;
+      truthAvailable = decoration !== UNJUDGED;
+    } catch (_error) {
+      decoration = UNJUDGED;
+    }
     return res.json({
-      thread,
+      thread: { ...thread, ...decoration },
+      truth_available: truthAvailable,
       messages,
       participants,
       escalations,
