@@ -166,6 +166,24 @@ test('R3 D3: a cached scheduler reading states the time it was really read, and 
   assert.equal(calls, 1);
 });
 
+test('R3 D3: on Vercel the default scheduler-health read is handed to the request\'s waitUntil, so a read slower than the budget can complete after the response', async () => {
+  const { defaultRuntime } = await import('../services/corporate/management/platformFacts.js');
+  const KEY = Symbol.for('@vercel/request-context');
+  const previous = globalThis[KEY];
+  const waited = [];
+  globalThis[KEY] = { get: () => ({ waitUntil: (p) => waited.push(p) }) };
+  try {
+    const client = { rpc: async () => ({ data: SCHEDULER_DATA, error: null }) };
+    const { schedulerHealthRead } = defaultRuntime(client);
+    const { data } = await schedulerHealthRead();
+    assert.deepEqual(data, SCHEDULER_DATA);
+    assert.equal(waited.length, 1, 'the RPC the default runtime started was registered with waitUntil');
+    assert.equal(await waited[0], undefined);
+  } finally {
+    if (previous === undefined) delete globalThis[KEY]; else globalThis[KEY] = previous;
+  }
+});
+
 test('R3 D3: a failed scheduler-health RPC is DEGRADED and never cached as a value', async () => {
   const client = { rpc: async () => ({ data: null, error: { message: 'permission denied' } }) };
   const read = createSchedulerHealthRead(client, { budgetMs: 50, now: () => NOW.getTime() });

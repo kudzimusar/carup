@@ -20,6 +20,7 @@ import { countUnrecordedLedgerIntents } from '../../blockchain/ledgerIntentServi
 import { readFact, statementFact, CURRENT_WINDOW } from './managementFact.js';
 import { exactCount } from './sourceReads.js';
 import { createBoundedSource, BoundedSourcePending } from './boundedSource.js';
+import { runtimeKeepAlive } from './managementSnapshotCache.js';
 
 const SCOPE = 'Staging runtime · this API deployment';
 
@@ -27,15 +28,16 @@ const SCOPE = 'Staging runtime · this API deployment';
  * CA-OWNER-02-R3 (D3) — get_communication_scheduler_health() scans the full cron run history (cron.job_run_details: about
  * 179,000 rows, 264 MB on staging) three times per call. The database function cannot change in this lane, so its cost is
  * bounded here: it is read at most every 5 minutes, a page waits for it at most 2.5 s, a slow read finishes in the
- * background, and a cached reading is served — with the time it was really read — for at most 30 minutes.
+ * background (kept alive by the runtime past the response), and a cached reading is served — with the time it was really
+ * read — for at most 30 minutes.
  */
 export const SCHEDULER_HEALTH_LIMITATION = 'get_communication_scheduler_health() scans the full cron run history on every call — a known database limitation';
-export function createSchedulerHealthRead(client, { ttlMs = 300_000, budgetMs = 2_500, maxAgeMs = 1_800_000, now } = {}) {
+export function createSchedulerHealthRead(client, { ttlMs = 300_000, budgetMs = 2_500, maxAgeMs = 1_800_000, now, keepAlive } = {}) {
   const source = createBoundedSource(async () => {
     const { data, error } = await client.rpc('get_communication_scheduler_health');
     if (error) throw new Error('scheduler health unavailable');
     return data;
-  }, { ttlMs, budgetMs, maxAgeMs, ...(now ? { now } : {}) });
+  }, { ttlMs, budgetMs, maxAgeMs, ...(now ? { now } : {}), ...(keepAlive ? { keepAlive } : {}) });
   return async () => {
     try {
       const { value, readAt, refreshing } = await source.get();
@@ -52,7 +54,7 @@ export function createSchedulerHealthRead(client, { ttlMs = 300_000, budgetMs = 
 }
 const schedulerReads = new WeakMap();
 const schedulerReadFor = (client) => {
-  if (!schedulerReads.has(client)) schedulerReads.set(client, createSchedulerHealthRead(client));
+  if (!schedulerReads.has(client)) schedulerReads.set(client, createSchedulerHealthRead(client, { keepAlive: runtimeKeepAlive }));
   return schedulerReads.get(client);
 };
 

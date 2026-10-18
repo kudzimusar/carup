@@ -7,7 +7,8 @@
  *
  *   · a value younger than `ttlMs` is served from the cache, with the time it was really read;
  *   · otherwise one read is started (never two at once) and waited for up to `budgetMs`;
- *   · a read slower than the budget keeps running in the background and fills the cache when it completes;
+ *   · a read slower than the budget keeps running in the background and fills the cache when it completes — every read
+ *     started is handed to `keepAlive` (Vercel's waitUntil) so the runtime does not freeze it once the response is sent;
  *   · while it runs, the last value is served — with its own old read time — only while younger than `maxAgeMs`;
  *   · with no value young enough, the caller gets BoundedSourcePending: the figure says it is still being read. Nothing is
  *     ever invented, and a failed read is never cached as a value.
@@ -23,7 +24,7 @@ export class BoundedSourcePending extends Error {
 const settle = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 const PENDING = Symbol('pending');
 
-export function createBoundedSource(read, { ttlMs, budgetMs, maxAgeMs = ttlMs * 6, now = () => Date.now() } = {}) {
+export function createBoundedSource(read, { ttlMs, budgetMs, maxAgeMs = ttlMs * 6, now = () => Date.now(), keepAlive = () => {} } = {}) {
   let last = null; // { value, readAt: Date }
   let inflight = null; // Promise<{ value, readAt }>
 
@@ -33,8 +34,9 @@ export function createBoundedSource(read, { ttlMs, budgetMs, maxAgeMs = ttlMs * 
       .then(read)
       .then((value) => { last = { value, readAt: new Date(now()) }; return last; });
     inflight = run;
-    // The read may outlive every caller; settle the in-flight slot and never leave an unhandled rejection behind.
-    run.then(() => { if (inflight === run) inflight = null; }, () => { if (inflight === run) inflight = null; });
+    // The read may outlive every caller; settle the in-flight slot and never leave an unhandled rejection behind. The runtime
+    // is asked to keep that settling alive, so a read slower than the budget can still complete after the response.
+    keepAlive(run.then(() => { if (inflight === run) inflight = null; }, () => { if (inflight === run) inflight = null; }));
     return run;
   };
 

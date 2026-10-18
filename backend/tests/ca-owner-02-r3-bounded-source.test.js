@@ -63,6 +63,25 @@ test('after the TTL a slow re-read serves the last value with its old read time 
   await assert.rejects(source.get(), (err) => err instanceof BoundedSourcePending, 'too old to serve: no value rather than a stale one');
 });
 
+test('every read it starts is handed to the runtime keep-alive once — so a read slower than the budget can finish after the response', async () => {
+  const c = clock();
+  const slow = deferred();
+  const kept = [];
+  const source = createBoundedSource(() => slow.promise, { ttlMs: 300_000, budgetMs: 20, now: c.now, keepAlive: (p) => kept.push(p) });
+  await assert.rejects(source.get(), (err) => err instanceof BoundedSourcePending);
+  await assert.rejects(source.get(), (err) => err instanceof BoundedSourcePending);
+  assert.equal(kept.length, 1, 'one read in flight is kept alive once — not once per request');
+  slow.resolve({ healthy: true });
+  await kept[0];
+  assert.deepEqual((await source.get()).value, { healthy: true }, 'when the kept-alive promise settles, the cache already holds the value');
+  // A failing read is kept alive too, and what the runtime is handed never rejects.
+  const failing = [];
+  const broken = createBoundedSource(async () => { throw new Error('rpc failed'); }, { ttlMs: 300_000, budgetMs: 20, now: c.now, keepAlive: (p) => failing.push(p) });
+  await assert.rejects(broken.get(), /rpc failed/);
+  assert.equal(failing.length, 1);
+  assert.equal(await failing[0], undefined);
+});
+
 test('a failed read is never cached as a value and never an unhandled rejection; the next request tries again', async () => {
   const c = clock();
   let calls = 0;
