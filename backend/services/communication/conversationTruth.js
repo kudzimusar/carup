@@ -20,6 +20,7 @@
  * target", not overdue. No timestamp is ever rewritten here.
  */
 import { UNKNOWN } from '../provenance/recordProvenance.js';
+import { conversationParties } from './conversationCustomer.js';
 
 export const CONVERSATION_CATEGORIES = Object.freeze(['operational', 'needs_review', 'certification', 'automation', 'historical']);
 
@@ -135,6 +136,9 @@ export function slaTruth(thread, { category, latestInboundAt = null, latestOutbo
 /**
  * The whole truth for one conversation. `ctx.latestByThread` maps thread id → { inbound, outbound } latest message times
  * (from messages), used together with the thread's own last_inbound_at / last_outbound_at stamps.
+ *
+ * H3 adds WHO the conversation is with (`customer`, and the `seller` as context on a Marketplace inquiry) — see
+ * conversationCustomer.js. It is identity only: no classification or SLA verdict reads it.
  */
 export function conversationTruth(thread, ctx = {}, now = new Date()) {
   const provenance = classifyConversation(thread, ctx);
@@ -145,6 +149,7 @@ export function conversationTruth(thread, ctx = {}, now = new Date()) {
   const open = !TERMINAL_STATUSES.includes(String(thread?.status || ''));
   const awaitingReply = open && truth.awaiting_since !== null
     || (open && ['overdue', 'live'].includes(truth.state));
+  const parties = conversationParties(thread, ctx);
   return freeze({
     thread_id: thread?.id ?? null,
     status: thread?.status ?? null,
@@ -157,6 +162,8 @@ export function conversationTruth(thread, ctx = {}, now = new Date()) {
     latest_outbound_at: latestOutboundAt,
     no_individual_assignee: open && !thread?.assigned_admin_id && !thread?.assigned_user_id,
     assigned_team: thread?.assigned_team ?? null,
+    customer: parties.customer,
+    seller: parties.seller,
   });
 }
 
