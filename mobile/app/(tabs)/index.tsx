@@ -1,246 +1,433 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
+import { VehicleCard } from '../../components/marketplace/VehicleCard';
+import { BrandSearchField, BrandSecondaryAction } from '../../components/brand/CarUpBrand';
+import {
+  Button,
+  EmptyState,
+  FilterChip,
+  SectionHeader,
+} from '../../components/ui/NativePrimitives';
+import {
+  getMarketplaceListingDetail,
+  getMarketplaceListings,
+  getSellerMarketplaceInquiries,
+} from '../../utils/marketplaceApi';
+import { getMyVehicles } from '../../utils/ownerGarageApi';
+import { resolveMarketplaceInquiryConversation } from '../../utils/communicationApi';
+import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
 import { useAuthStore } from '../../store/authStore';
-import { Redirect, useRouter } from 'expo-router';
-import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
-import { getFeatureById } from '../../navigation/featureManifest';
-import { resolveDashboardGate } from '../../navigation/dashboardGate';
+import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
-function DashboardScreenInner() {
+export default function HomeScreen() {
+  const theme = useNativeTheme();
   const router = useRouter();
-  const user = useAuthStore((state) => state.user);
+  const [search, setSearch] = useState('');
+  const [openingSellerInquiry, setOpeningSellerInquiry] = useState(false);
+  const authLoading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const loading = useAuthStore((state) => state.loading);
-  const logout = useAuthStore((state) => state.logout);
-  const switchRole = useAuthStore((state) => state.switchRole);
-  const [roleSwitchWarning, setRoleSwitchWarning] = useState<string | null>(null);
+  const user = useAuthStore((state) => state.user);
+  const isOwner = !authLoading && isAuthenticated && user?.role === 'owner';
 
-  const goToLogin = () => router.replace('/(auth)/login');
+  const marketplaceQuery = useQuery({
+    queryKey: ['native-home-marketplace'],
+    queryFn: () => getMarketplaceListings({ limit: 4 }),
+  });
 
-  const handleLogout = async () => {
-    await logout();
-    router.replace('/(auth)/login');
+  const vehiclesQuery = useQuery({
+    queryKey: ['native-home-owner-vehicles', user?.id],
+    queryFn: getMyVehicles,
+    enabled: isOwner,
+  });
+
+  const firstOwnedVehicle = vehiclesQuery.data?.[0] ?? null;
+  const publishedOwnedVehicle =
+    (vehiclesQuery.data || []).find((vehicle) =>
+      String(vehicle.publication_status || vehicle.status || '').toLowerCase() === 'published',
+    ) || null;
+
+  const sellerListingQuery = useQuery({
+    queryKey: ['native-home-owner-public-listing', publishedOwnedVehicle?.vin],
+    queryFn: () => getMarketplaceListingDetail(publishedOwnedVehicle!.vin),
+    enabled: Boolean(isOwner && publishedOwnedVehicle?.vin),
+    retry: false,
+  });
+
+  const sellerInquiriesQuery = useQuery({
+    queryKey: ['native-home-seller-inquiries', user?.id],
+    queryFn: getSellerMarketplaceInquiries,
+    enabled: Boolean(isOwner && publishedOwnedVehicle),
+  });
+
+  const listings = marketplaceQuery.data?.listings || [];
+  const sellerInquiriesForListing = (sellerInquiriesQuery.data?.inquiries || []).filter(
+    (inquiry) => String(inquiry.listing_id || '') === String(publishedOwnedVehicle?.vin || ''),
+  );
+  const newSellerInquiries = sellerInquiriesForListing.filter(
+    (inquiry) => String(inquiry.status || '').toLowerCase() === 'new',
+  );
+  const newSellerInquiryCount = newSellerInquiries.length;
+  const latestSellerInquiry = newSellerInquiries[0] || sellerInquiriesForListing[0] || null;
+
+  const submitSearch = () => {
+    const query = search.trim();
+    router.push((query ? '/market/results?q=' + encodeURIComponent(query) : '/market/results') as never);
   };
 
-  // Role switching is optional convenience. A failure shows a non-blocking
-  // warning and NEVER disables Start Verification Flow (which depends only on
-  // being authenticated).
-  const handleRoleSwitch = async (role: 'owner' | 'dealer' | 'mechanic') => {
-    setRoleSwitchWarning(null);
-    const result = await switchRole(role);
-    if (!result.ok) {
-      setRoleSwitchWarning(result.error || 'Role switch is unavailable right now. You can still continue.');
+  const openLatestSellerInquiry = async () => {
+    if (!latestSellerInquiry?.id || !latestSellerInquiry?.listing_id || openingSellerInquiry) return;
+    setOpeningSellerInquiry(true);
+    try {
+      const resolution = await resolveMarketplaceInquiryConversation(
+        String(latestSellerInquiry.id),
+        String(latestSellerInquiry.listing_id),
+      );
+      if (resolution.state === 'resolved' && resolution.thread?.id) {
+        router.push(nativeCanonicalObjectHref({
+          type: 'conversation',
+          id: String(resolution.thread.id),
+        }) as never);
+        return;
+      }
+      Alert.alert(
+        'Conversation is being prepared',
+        'This seller inquiry is real, but its canonical CarUp conversation is not ready yet. CarUp will not open a generic Inbox or manufacture another thread.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Try exact conversation', onPress: () => void openLatestSellerInquiry() },
+        ],
+      );
+    } catch (error) {
+      Alert.alert(
+        'Conversation unavailable',
+        error instanceof Error ? error.message : 'CarUp could not resolve this seller inquiry.',
+      );
+    } finally {
+      setOpeningSellerInquiry(false);
     }
   };
 
-  // While the secure store hydrates we must NOT flash a signed-in-looking
-  // header before auth state is known.
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color="#F97316" />
-      </View>
-    );
-  }
-
-  // ---- Signed-out state: never imply an authenticated session -------------
-  if (!isAuthenticated) {
-    return (
-      <ScrollView
-        contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'center' }}
-        style={{ backgroundColor: '#F8FAFC' }}
-      >
-        <View style={{ backgroundColor: '#0F172A', padding: 24, borderRadius: 16, marginBottom: 24 }}>
-          <Text style={{ color: '#F97316', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>CarUp</Text>
-          <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '700', marginTop: 6 }} testID="dashboard-signed-out-title">You're signed out</Text>
-          <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 6 }}>Sign in to access your dashboard and identity verification.</Text>
-        </View>
-
-        <Pressable
-          onPress={goToLogin}
-          testID="sign-in-to-carup"
-          style={({ pressed }) => ({
-            width: '100%', backgroundColor: '#0F172A', borderRadius: 12,
-            paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-            marginBottom: 16, opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In to CarUp</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={goToLogin}
-          testID="verification-requires-login"
-          style={({ pressed }) => ({
-            width: '100%', backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA',
-            borderRadius: 12, paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ color: '#EA580C', fontSize: 15, fontWeight: '600' }}>Sign in to start verification</Text>
-        </Pressable>
-      </ScrollView>
-    );
-  }
-
-  // ---- Authenticated state ------------------------------------------------
   return (
-    <ScrollView contentContainerStyle={{ padding: 24 }} style={{ backgroundColor: '#F8FAFC' }}>
-      {/* Welcome Block */}
-      <View style={{ backgroundColor: '#0F172A', padding: 24, borderRadius: 16, marginBottom: 24 }}>
-        <Text style={{ color: '#F97316', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Welcome Back</Text>
-        <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700', marginTop: 4 }}>{user?.name || 'CarUp Stakeholder'}</Text>
-        {user?.email ? <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 4 }}>{user.email}</Text> : null}
-        {user?.role ? (
-          <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(249,115,22,0.2)', borderWidth: 1, borderColor: 'rgba(249,115,22,0.3)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, marginTop: 16 }}>
-            <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Active Role: {user.role}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* Multi-Tenant Stakeholder Switcher */}
-      <View style={{ backgroundColor: '#FFFFFF', padding: 20, borderRadius: 16, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 24 }}>
-        <Text style={{ color: '#0F172A', fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Stakeholder Portal Switching</Text>
-        <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 16 }}>Shift your authorization context across multi-tenant ledger systems.</Text>
-        <View>
-          {([
-            { role: 'owner' as const, title: 'Vehicle Owner Portal', subtitle: 'Manage private garages, service logs, and listings.' },
-            { role: 'dealer' as const, title: 'Dealership Portal', subtitle: 'Review showroom inventories, active sales, and buyer leads.' },
-            { role: 'mechanic' as const, title: 'Certified Mechanic Portal', subtitle: 'Mint immutable Partsentry logs and authorize inspection hashes.' },
-          ]).map((portal, idx) => {
-            const active = user?.role === portal.role;
-            return (
-              <Pressable
-                key={portal.role}
-                onPress={() => handleRoleSwitch(portal.role)}
-                testID={`switch-role-${portal.role}`}
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel={`Switch to ${portal.title}`}
-                accessibilityHint={portal.subtitle}
-                accessibilityState={{ selected: active }}
-                style={({ pressed }) => ({
-                  padding: 16,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  // Min 44px touch target for accessibility.
-                  minHeight: 44,
-                  marginTop: idx === 0 ? 0 : 12,
-                  backgroundColor: active ? '#FFF7ED' : '#F8FAFC',
-                  borderColor: active ? '#F97316' : '#E2E8F0',
-                  opacity: pressed ? 0.8 : 1,
-                })}
-              >
-                <Text style={{ fontWeight: '600', fontSize: 15, color: active ? '#EA580C' : '#1E293B' }}>{portal.title}</Text>
-                <Text style={{ color: '#94A3B8', fontSize: 11, marginTop: 4 }}>{portal.subtitle}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* Non-blocking notice if an optional role switch failed. Does NOT gate
-          verification — Start Verification Flow stays enabled while signed in. */}
-      {roleSwitchWarning && (
-        <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 12, marginBottom: 16 }}>
-          <Text style={{ color: '#92400E', fontSize: 12, fontWeight: '600', marginBottom: 2 }}>Role switch unavailable</Text>
-          <Text style={{ color: '#B45309', fontSize: 11 }} testID="role-switch-warning">{roleSwitchWarning}</Text>
-        </View>
-      )}
-
-      {/* Identity verification entry point — enabled because the user is
-          authenticated (independent of any role-switch outcome). Uses a STATIC
-          inline style (same pattern as the dark welcome card that renders
-          reliably) on a TouchableOpacity, not a function-style Pressable, so the
-          high-contrast background always paints on iPhone. */}
-      <TouchableOpacity
-        onPress={() => router.push('/(auth)/verification/intro')}
-        testID="start-verification-flow"
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityLabel="Start Verification Flow"
+    <ScrollView
+      style={{ flex: 1, backgroundColor: theme.background.canvas }}
+      contentContainerStyle={{ paddingBottom: spacing[10] }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View
         style={{
-          width: '100%',
-          minHeight: 60,
-          backgroundColor: '#0F172A',
-          borderWidth: 2,
-          borderColor: '#F97316',
-          borderRadius: 14,
-          justifyContent: 'center',
-          alignItems: 'center',
-          paddingVertical: 16,
-          marginBottom: 16,
+          backgroundColor: theme.brand.hero,
+          paddingTop: spacing[6],
+          paddingHorizontal: spacing[5],
+          paddingBottom: spacing[7],
+          borderBottomLeftRadius: radius.hero,
+          borderBottomRightRadius: radius.hero,
+          overflow: 'hidden',
         }}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800' }}>Start Verification Flow</Text>
-        <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '700', marginTop: 2 }}>Tap to verify your identity →</Text>
-      </TouchableOpacity>
+        <View
+          accessible={false}
+          style={{
+            position: 'absolute',
+            width: 210,
+            height: 210,
+            borderRadius: 105,
+            right: -90,
+            top: -45,
+            backgroundColor: 'rgba(249,115,22,0.10)',
+          }}
+        />
+        <View
+          accessible={false}
+          style={{
+            position: 'absolute',
+            width: 120,
+            height: 120,
+            borderRadius: 60,
+            right: 26,
+            top: 104,
+            borderWidth: 1,
+            borderColor: 'rgba(249,115,22,0.22)',
+          }}
+        />
 
-      {/* Account actions */}
-      <Pressable
-        onPress={handleLogout}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel="Sign out session"
-        testID="sign-out-session"
-        style={({ pressed }) => ({
-          width: '100%', backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA',
-          borderRadius: 12, paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-          marginBottom: 40, opacity: pressed ? 0.8 : 1,
-        })}
-      >
-        <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600' }}>Sign Out Session</Text>
-      </Pressable>
-    </ScrollView>
-  );
-}
+        <Text allowFontScaling style={{ ...typeScale.heroEyebrow, color: theme.brand.primary, marginTop: spacing[8] }}>
+          ONE CARUP · ONE VEHICLE THREAD
+        </Text>
+        <Text allowFontScaling style={{ ...typeScale.heroDisplay, color: theme.brand.onHero, marginTop: spacing[2], maxWidth: 330 }}>
+          Buy. Sell. Verify.
+        </Text>
+        <Text allowFontScaling style={{ ...typeScale.body, color: theme.brand.onHeroMuted, marginTop: spacing[3], maxWidth: 340 }}>
+          Keep discovery, evidence, selling and ownership connected around the same vehicle.
+        </Text>
 
-/**
- * Governed route boundary (Milestone C). The dashboard tab is role-resolved: it
- * is owned by the active role's `${role}.overview` feature (owner.overview,
- * dealer.overview, …), so a direct / deep-link / initial navigation is gated by
- * the SAME governed decision per role. The route is resolved from the manifest
- * (never fabricated), defaulting to `/dashboard`.
- *
- * Anonymous (no role): every `*.overview` feature is `requiresAuth`, so there is
- * no role-owned feature to gate against. We short-circuit to the sign-in route
- * so an unauthenticated deep link to the dashboard redirects to auth instead of
- * rendering. (Once signed in, role resolves and the overview boundary governs.)
- */
-export default function DashboardScreen() {
-  // Read the auth bootstrap flag FIRST: the store starts loading:true while
-  // initialize() restores a saved SecureStore session, so user/role are briefly
-  // null on a cold launch / direct deep link. Deciding before bootstrap finishes
-  // would eject an already-signed-in user. Ordering is enforced by the gate:
-  // 1. loading → safe loading state; 2. confirmed anon → /login; 3. role boundary.
-  const isBootstrapping = useAuthStore((s) => s.loading);
-  const role = useAuthStore((s) => s.user?.role ?? null);
-  const gate = resolveDashboardGate({ loading: isBootstrapping, role });
+        <View style={{ marginTop: spacing[6] }}>
+          <BrandSearchField
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search make, model or keyword"
+            accessibilityLabel="Search the CarUp Marketplace"
+            onSubmitEditing={submitSearch}
+          />
+        </View>
 
-  // 1. Auth bootstrap — wait, never redirect mid-restore.
-  if (gate.kind === 'loading') {
-    return (
-      <View
-        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' }}
-        accessibilityRole="progressbar"
-        accessibilityLabel="Restoring your session"
-      >
-        <ActivityIndicator size="large" color="#f97316" />
+        <Button
+          label="Browse cars"
+          onPress={submitSearch}
+          icon={<Ionicons name="arrow-forward" size={19} color={theme.brand.onPrimary} />}
+          style={{ marginTop: spacing[3], minHeight: 54 }}
+        />
+        <Button
+          label="All filters"
+          variant="secondary"
+          accessibilityLabel="All Marketplace filters"
+          onPress={() => {
+            const query = search.trim();
+            router.push((`/(tabs)/marketplace?filters=open${query ? `&q=${encodeURIComponent(query)}` : ''}`) as never);
+          }}
+          icon={<Ionicons name="options-outline" size={19} color={theme.text.primary} />}
+          style={{ marginTop: spacing[2] }}
+        />
+
+        <View style={{ flexDirection: 'row', gap: spacing[3], marginTop: spacing[3] }}>
+          <BrandSecondaryAction label="Sell" icon="pricetag-outline" onPress={() => router.push('/sell' as never)} />
+          <BrandSecondaryAction label="Verify" icon="shield-checkmark-outline" onPress={() => router.push('/(tabs)/verify' as never)} />
+        </View>
       </View>
-    );
-  }
 
-  // 2. Confirmed anonymous (init finished, still no role) → the public Marketplace (dashboardGate.ts).
-  if (gate.kind === 'redirect') {
-    return <Redirect href={gate.to} />;
-  }
+      <View style={{ paddingHorizontal: spacing[5], paddingTop: spacing[5] }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: spacing[2], paddingBottom: spacing[1] }}
+        >
+          {['Toyota', 'Nissan', 'Honda'].map((make) => (
+            <FilterChip
+              key={make}
+              label={make}
+              onPress={() => router.push(('/market/results?make=' + encodeURIComponent(make)) as never)}
+            />
+          ))}
+        </ScrollView>
 
-  // 3. Role-owned governed boundary (role is known here — never a fabricated owner).
-  const featureId = `${role}.overview`;
-  const route = getFeatureById(featureId)?.route ?? '/dashboard';
-  return (
-    <NativeFeatureBoundary route={route} featureId={featureId} hasNativeScreen>
-      <DashboardScreenInner />
-    </NativeFeatureBoundary>
+        <View style={{ marginTop: spacing[5] }}>
+          <SectionHeader title="Fresh on CarUp" actionLabel="See all" onAction={() => router.push('/market/results' as never)} />
+        </View>
+
+        {marketplaceQuery.isLoading ? (
+          <View
+            style={{
+              minHeight: 190,
+              borderRadius: radius.card,
+              backgroundColor: theme.background.surface,
+              borderWidth: 1,
+              borderColor: theme.border.default,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading Marketplace vehicles" />
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[3] }}>
+              Loading current Marketplace vehicles…
+            </Text>
+          </View>
+        ) : marketplaceQuery.isError ? (
+          <View
+            style={{
+              borderRadius: radius.card,
+              backgroundColor: theme.background.surface,
+              borderWidth: 1,
+              borderColor: theme.border.default,
+              overflow: 'hidden',
+            }}
+          >
+            <View style={{ height: 4, backgroundColor: theme.brand.primary }} />
+            <EmptyState
+              icon="cloud-offline-outline"
+              title="Marketplace could not refresh"
+              body="Check your connection and try again. CarUp will not show invented vehicle data."
+              actionLabel="Try again"
+              onAction={() => void marketplaceQuery.refetch()}
+            />
+          </View>
+        ) : listings.length === 0 ? (
+          <View
+            style={{
+              borderRadius: radius.card,
+              backgroundColor: theme.brand.hero,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: theme.border.brandDark,
+            }}
+          >
+            <View style={{ height: 4, backgroundColor: theme.brand.primary }} />
+            <View style={{ padding: spacing[5] }}>
+              <Text allowFontScaling style={{ ...typeScale.title, color: theme.brand.onHero }}>
+                Marketplace is quiet right now.
+              </Text>
+              <Text allowFontScaling style={{ ...typeScale.body, color: theme.brand.onHeroMuted, marginTop: spacing[2] }}>
+                There are no current published vehicles to show. CarUp keeps this state honest instead of filling the feed with demo cars.
+              </Text>
+              <Button label="Start selling" onPress={() => router.push('/sell' as never)} style={{ marginTop: spacing[5] }} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open Marketplace search"
+                onPress={() => router.push('/(tabs)/marketplace' as never)}
+                style={{ minHeight: touchTarget.minimum, justifyContent: 'center', alignItems: 'center', marginTop: spacing[2] }}
+              >
+                <Text allowFontScaling style={{ ...typeScale.button, color: theme.brand.onHero }}>Search Marketplace</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View style={{ gap: spacing[4] }}>
+            {listings.slice(0, 3).map((item) => (
+              <VehicleCard
+                key={item.vin}
+                item={item}
+                onPress={() => router.push(('/vehicle/' + item.vin) as never)}
+              />
+            ))}
+          </View>
+        )}
+
+        {isOwner && firstOwnedVehicle ? (
+          <View style={{ marginTop: spacing[7] }}>
+            <SectionHeader title="Your Garage" actionLabel="Open" onAction={() => router.push('/(tabs)/garage' as never)} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={'Open ' + firstOwnedVehicle.make + ' ' + firstOwnedVehicle.model + ' in My Garage'}
+              onPress={() => router.push('/(tabs)/garage' as never)}
+              android_ripple={{ color: theme.brand.primarySubtle }}
+              style={{
+                borderRadius: radius.card,
+                borderWidth: 1,
+                borderColor: theme.border.default,
+                backgroundColor: theme.background.surface,
+                padding: spacing[5],
+                overflow: 'hidden',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3] }}>
+                <View style={{ flex: 1 }}>
+                  <Text allowFontScaling style={{ ...typeScale.headline, color: theme.text.primary }}>
+                    {[firstOwnedVehicle.year, firstOwnedVehicle.make, firstOwnedVehicle.model].filter(Boolean).join(' ')}
+                  </Text>
+                  <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[2] }}>
+                    VIN {firstOwnedVehicle.vin}
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    width: touchTarget.minimum,
+                    height: touchTarget.minimum,
+                    borderRadius: 16,
+                    backgroundColor: theme.brand.primarySubtle,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Ionicons name="car-sport-outline" size={24} color={theme.brand.onPrimary} />
+                </View>
+              </View>
+              {typeof firstOwnedVehicle.mileage === 'number' ? (
+                <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.secondary, marginTop: spacing[3] }}>
+                  {firstOwnedVehicle.mileage.toLocaleString()} km
+                </Text>
+              ) : null}
+            </Pressable>
+          </View>
+        ) : null}
+
+        {isOwner && sellerListingQuery.isSuccess && sellerListingQuery.data ? (
+          <View style={{ marginTop: spacing[6] }}>
+            <SectionHeader title="Your listing" />
+            <VehicleCard
+              item={sellerListingQuery.data}
+              onPress={() => router.push(('/vehicle/' + sellerListingQuery.data!.vin) as never)}
+            />
+            {newSellerInquiryCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={'Open exact conversation for newest seller inquiry. ' + newSellerInquiryCount + ' new seller inquiries'}
+                disabled={openingSellerInquiry}
+                onPress={() => void openLatestSellerInquiry()}
+                android_ripple={{ color: theme.brand.primarySubtle }}
+                style={{
+                  minHeight: touchTarget.minimum,
+                  marginTop: spacing[3],
+                  borderRadius: radius.control,
+                  borderWidth: 1,
+                  borderColor: theme.border.default,
+                  backgroundColor: theme.background.surface,
+                  paddingHorizontal: spacing[4],
+                  paddingVertical: spacing[3],
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  overflow: 'hidden',
+                  opacity: openingSellerInquiry ? 0.65 : 1,
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>
+                    {newSellerInquiryCount} new seller {newSellerInquiryCount === 1 ? 'inquiry' : 'inquiries'}
+                  </Text>
+                  <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>
+                    Open the newest inquiry in its exact CarUp conversation.
+                  </Text>
+                </View>
+                {openingSellerInquiry
+                  ? <ActivityIndicator color={theme.brand.primary} />
+                  : <Ionicons name="chevron-forward" size={20} color={theme.brand.primary} />}
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Find a garage"
+          onPress={() => router.push('/find-garage' as never)}
+          android_ripple={{ color: theme.brand.primarySubtle }}
+          style={{
+            marginTop: spacing[7],
+            minHeight: 76,
+            borderRadius: radius.card,
+            borderWidth: 1,
+            borderColor: theme.border.default,
+            backgroundColor: theme.background.surface,
+            paddingHorizontal: spacing[4],
+            paddingVertical: spacing[3],
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing[3],
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              width: touchTarget.minimum,
+              height: touchTarget.minimum,
+              borderRadius: 16,
+              backgroundColor: theme.brand.primarySubtle,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="construct-outline" size={23} color={theme.brand.onPrimary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>Find a garage</Text>
+            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>
+              Browse service providers available through CarUp.
+            </Text>
+          </View>
+          <Ionicons name="arrow-forward" size={20} color={theme.brand.primary} />
+        </Pressable>
+      </View>
+    </ScrollView>
   );
 }
