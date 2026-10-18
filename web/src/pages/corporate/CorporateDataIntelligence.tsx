@@ -126,7 +126,7 @@ export default function CorporateDataIntelligence() {
 
       <Section
         title="Metric & source registry"
-        description="Every measure Corporate Admin serves, and every measure it deliberately does not: where it comes from, its state and read time, how provenance applies, and whether it may be used. Live rows are operational reads — none is certified as a Corporate business Actual."
+        description="Every measure Corporate Admin serves, and every measure it deliberately does not: where it comes from, its state and read time, how provenance applies, and whether it may be used. Live rows are read live from their source — none is certified as a Corporate business Actual."
         testId="data-registry"
       >
         {registry.status === 'ok' ? <RegistryTable rows={registry.payload.registry} /> : <ManagementStatus result={registry.result} onRetry={registry.retry} />}

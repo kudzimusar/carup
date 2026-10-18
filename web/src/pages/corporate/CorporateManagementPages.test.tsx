@@ -330,6 +330,14 @@ describe('F · Data & Intelligence projects the metric and source registry', () 
     expect(badges).not.toContain('Operational')
   })
 
+  it('Owner UAT R3 F3: the registry introduction never calls live rows "operational reads" — some are certification or UAT populations', async () => {
+    const main = await open('/corporate/data-intelligence')
+    await within(main).findByRole('table', { name: 'Metric and source registry' })
+    const intro = within(main).getByText(/^Every measure Corporate Admin serves/)
+    expect(intro.textContent).toMatch(/Live rows are read live from their source/)
+    expect(intro.textContent).not.toMatch(/operational read/i)
+  })
+
   it('D4: the legend says what Technical and Advisory figures really are, and shows the read-state badges management facts use', async () => {
     const main = await open('/corporate/data-intelligence')
     const legend = within(main).getByRole('region', { name: 'Truth states, what each shows, and what each means' })

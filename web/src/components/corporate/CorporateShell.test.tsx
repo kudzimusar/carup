@@ -772,7 +772,61 @@ describe('CA-OWNER-02-R3 D1 · the header states the real source state — never
     expect(panel).toHaveTextContent('Open trade (import) orders')
     expect(panel).toHaveTextContent('PartSentry reviews awaiting a decision')
     expect(panel).toHaveTextContent('This is a read state, not a health score.')
+    expect(panel).toHaveTextContent('They show no value.')
     expect(within(panel).getByRole('link', { name: 'Open the metric & source registry' })).toHaveAttribute('href', '/corporate/data-intelligence')
+  })
+
+  // Owner UAT R3 F2: one figure is named in the singular.
+  it('one figure that could not be read is stated in the singular', async () => {
+    managementFor = servedManagement
+    await renderAdmitted('/corporate/data-intelligence')
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/· 1 not readable$/))
+    fireEvent.click(screen.getByTestId('topbar-freshness'))
+    const panel = screen.getByTestId('topbar-panel-freshness')
+    expect(panel).toHaveTextContent('It shows no value.')
+    expect(panel).not.toHaveTextContent('They show no value.')
+  })
+
+  // Owner UAT R3 F1: following a panel's own link closes the panel, so it never covers where the link lands.
+  describe('F1 · following a header panel link closes the panel', () => {
+    let scrolled: Element[] = []
+    const original = Element.prototype.scrollIntoView
+    beforeEach(() => {
+      scrolled = []
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this) }
+    })
+    afterEach(() => { Element.prototype.scrollIntoView = original })
+
+    it('"Open Needs attention" closes the attention panel and lands on the section', async () => {
+      managementFor = servedManagement
+      await renderAdmitted('/corporate')
+      await screen.findByTestId('overview-attention')
+      fireEvent.click(screen.getByTestId('topbar-attention'))
+      fireEvent.click(within(screen.getByTestId('topbar-panel-attention')).getByRole('link', { name: 'Open Needs attention' }))
+      await waitFor(() => expect(screen.queryByTestId('topbar-panel-attention')).toBeNull())
+      await waitFor(() => expect(scrolled.map((e) => e.id)).toContain('needs-attention'))
+    })
+
+    it('already at Needs attention, following the link again still lands on the section', async () => {
+      managementFor = servedManagement
+      await renderAdmitted('/corporate#needs-attention')
+      await screen.findByTestId('overview-attention')
+      await waitFor(() => expect(scrolled.map((e) => e.id)).toContain('needs-attention'))
+      scrolled = []
+      fireEvent.click(screen.getByTestId('topbar-attention'))
+      fireEvent.click(within(screen.getByTestId('topbar-panel-attention')).getByRole('link', { name: 'Open Needs attention' }))
+      await waitFor(() => expect(screen.queryByTestId('topbar-panel-attention')).toBeNull())
+      expect(scrolled.map((e) => e.id)).toContain('needs-attention')
+    })
+
+    it('"Open the metric & source registry" closes the freshness panel', async () => {
+      managementFor = servedManagement
+      await renderAdmitted('/corporate')
+      await screen.findByTestId('overview-attention')
+      fireEvent.click(screen.getByTestId('topbar-freshness'))
+      fireEvent.click(within(screen.getByTestId('topbar-panel-freshness')).getByRole('link', { name: 'Open the metric & source registry' }))
+      await waitFor(() => expect(screen.queryByTestId('topbar-panel-freshness')).toBeNull())
+    })
   })
 
   it('the attention bell counts the Overview\'s items and links straight to Needs attention', async () => {
