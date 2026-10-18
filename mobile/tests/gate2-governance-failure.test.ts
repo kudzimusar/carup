@@ -163,23 +163,22 @@ describe('verification discoverability and availability', () => {
     )
 
     it('rejected panel uses terminal wording, never "Under Review"', () => {
-      expect(resultSrc).toContain('Verification Closed — Not Approved')
-      // The generic under-review copy must be unreachable for rejected: the
-      // rejected branch precedes it in the same ternary.
-      const rejectedIdx = resultSrc.indexOf("verificationStatus === 'rejected'\n                  ? 'Verification Closed")
-      expect(resultSrc.indexOf('Verification Closed — Not Approved')).toBeGreaterThan(-1)
+      expect(resultSrc).toContain('Identity not approved')
+      expect(resultSrc).toContain("case 'rejected':")
+      expect(resultSrc).toContain("return 'Identity not approved'")
     })
 
     it('Restart Verification is NOT offered for rejected (retry policy A)', () => {
       const allowsBlock = resultSrc.slice(
-        resultSrc.indexOf('const allowsRestart'),
-        resultSrc.indexOf('backend_pending') + 40,
+        resultSrc.indexOf('const canRestart'),
+        resultSrc.indexOf(';', resultSrc.indexOf('const canRestart')) + 1,
       )
       expect(allowsBlock).not.toContain("'rejected'")
     })
 
     it('rejected copy explains the reviewer/support reopen path', () => {
-      expect(resultSrc).toContain('reviewer can reopen the case')
+      expect(resultSrc).toContain('contact CarUp support')
+      expect(resultSrc).toContain('review process permits it')
     })
   })
 })
