@@ -24,6 +24,7 @@ import { CORPORATE_PLANES, CORPORATE_ROOT, destinationForPath } from '@/config/c
 import { canSeeDestination, resolveCorporateAccess, visibleDestinations, type CorporateGrant } from '@/lib/corporate/access'
 import { useCorporateServerDecision } from '@/lib/corporate/useCorporateAccess'
 import { CorporateContextProvider } from './CorporateContext'
+import { OperationalAdminTransition } from './OperationalAdminTransition'
 import { PlaneIndicator } from './CorporatePage'
 import { TruthStateBadge } from './TruthState'
 
@@ -194,10 +195,8 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
               <div className="space-y-2" data-testid="account-panel">
                 <p><span className="text-slate-400">Signed in as </span>{user?.name || 'Signed-in account'}</p>
                 <p className="text-xs text-slate-300" data-testid="access-explanation">{grant.explanation}</p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Link to="/admin" className="inline-flex min-h-[40px] items-center rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11">
-                    Open current operational Admin
-                  </Link>
+                <div className="flex flex-wrap items-start gap-x-4 gap-y-2 pt-1">
+                  <OperationalAdminTransition tone="dark" testId="account-operational-admin-link" className="max-w-md" />
                   <button type="button" onClick={signOut} className="inline-flex min-h-[40px] items-center gap-1.5 rounded border border-slate-600 px-3 text-xs hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11" data-testid="corporate-sign-out">
                     <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
                   </button>
@@ -332,10 +331,8 @@ function RailNav({ destinations, collapsed, currentId, onNavigate }: { destinati
           {Object.values(CORPORATE_PLANES).map((p) => (
             <p key={p.id}><span className="mr-1.5 font-mono text-slate-600" data-testid="legend-plane-marker">{p.marker}</span>{p.label}</p>
           ))}
-          {/* CA-K3-01-R2 D-2: a full-width 44px target (was ~138×17). */}
-          <Link to="/admin" onClick={onNavigate} className="-mx-2 mt-2 flex min-h-[44px] items-center rounded px-2 text-slate-600 underline-offset-2 hover:bg-slate-50 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500" data-testid="rail-operational-admin-link">
-            Current operational Admin
-          </Link>
+          {/* CA-K3-01-R2 D-2: a full-width 44px target (was ~138×17). CA-OWNER-02: an explicit transition that says what changes. */}
+          <OperationalAdminTransition tone="light" testId="rail-operational-admin-link" onNavigate={onNavigate} className="mt-2" />
         </div>
       )}
     </nav>

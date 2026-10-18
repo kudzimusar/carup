@@ -1,0 +1,11 @@
+/**
+ * CA-OWNER-02 — how the operational Admin knows a visit began in Corporate Admin.
+ *
+ * A navigation marker carried in the URL (`/admin?from=corporate`). It records how the page was reached and nothing
+ * else: it is never stored, it grants nothing, and no authority — Corporate or operational — is ever read from it.
+ */
+const ARRIVAL_PARAM = 'from'
+const FROM_CORPORATE = 'corporate'
+
+/** Where Corporate Admin's "Open Operational Admin" goes. */
+export const OPERATIONAL_ADMIN_FROM_CORPORATE = `/admin?${ARRIVAL_PARAM}=${FROM_CORPORATE}`

@@ -395,11 +395,11 @@ describe('CA-K3-01-R2 · accessibility / responsive recustody', () => {
     expect(screen.getAllByTestId('legend-plane-marker').map((m) => m.textContent)).toEqual(['CI', 'BO', 'PS'])
   })
 
-  it('D-2 · "Current operational Admin" is a full-width target that still opens /admin', async () => {
+  it('D-2 · the operational Admin link is a full-width target that still opens /admin (CA-OWNER-02: as an explicit transition)', async () => {
     await renderAdmitted('/corporate')
     const link = within(screen.getByTestId('corporate-rail')).getByTestId('rail-operational-admin-link')
-    expect(link).toHaveAttribute('href', '/admin')
-    expect(link).toHaveTextContent('Current operational Admin')
+    expect(link).toHaveAttribute('href', '/admin?from=corporate')
+    expect(link).toHaveTextContent('Open Operational Admin')
     expect(link.className).toMatch(/min-h-\[44px\]/)
   })
 })
@@ -721,6 +721,37 @@ describe('CA-OWNER-02 · the open drawer is modal: Tab and Shift+Tab stay inside
     await u.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByTestId('corporate-drawer')).toBeNull())
     expect(screen.getByTestId('corporate-drawer-open')).toHaveFocus()
+  })
+})
+
+const TRANSITION_NOTE = 'Leaves Corporate Admin. Operational Admin works on live operational records under your platform role — Corporate permissions do not apply there.'
+
+describe('CA-OWNER-02 · leaving Corporate Admin for the operational Admin is an explicit transition', () => {
+  it('Account panel: "Open Operational Admin" states what changes, and arrives marked as coming from Corporate Admin', async () => {
+    const u = userEvent.setup()
+    await renderAdmitted('/corporate/finance')
+    await u.click(screen.getByTestId('topbar-account'))
+    const link = within(screen.getByTestId('account-panel')).getByRole('link', { name: 'Open Operational Admin' })
+    expect(link).toHaveAccessibleDescription(TRANSITION_NOTE)
+    expect(link).toHaveAttribute('href', '/admin?from=corporate')
+    await u.click(link)
+    expect(await screen.findByTestId('admin-surface')).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\?from=corporate$/)
+    expect(screen.queryByTestId('corporate-shell')).toBeNull()
+  })
+
+  it('rail legend and drawer: the same transition, with the same statement and the same marker', async () => {
+    const u = userEvent.setup()
+    await renderAdmitted('/corporate/finance')
+    const railLink = within(screen.getByTestId('corporate-rail')).getByRole('link', { name: 'Open Operational Admin' })
+    expect(railLink).toHaveAccessibleDescription(TRANSITION_NOTE)
+    expect(railLink).toHaveAttribute('href', '/admin?from=corporate')
+    await u.click(screen.getByTestId('corporate-drawer-open'))
+    const drawerLink = within(await screen.findByTestId('corporate-drawer')).getByRole('link', { name: 'Open Operational Admin' })
+    expect(drawerLink).toHaveAccessibleDescription(TRANSITION_NOTE)
+    await u.click(drawerLink)
+    expect(await screen.findByTestId('admin-surface')).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/admin\?from=corporate$/)
   })
 })
 
