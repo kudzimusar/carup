@@ -747,7 +747,9 @@ describe('CA-OWNER-02 · the open drawer is modal: Tab and Shift+Tab stay inside
   })
 })
 
-const TRANSITION_NOTE = 'Leaves Corporate Admin. Operational Admin works on live operational records under your platform role — Corporate permissions do not apply there.'
+// The note says up front what happens to a governor whose platform role does not open Operational Admin (Governor B is
+// platform role `owner`): the operational gate sends them to their own dashboard. No client-side role decides this.
+const TRANSITION_NOTE = 'Leaves Corporate Admin. Operational Admin works on live operational records under your platform role — Corporate permissions do not apply there. If your platform role does not open Operational Admin, you land on your own dashboard instead.'
 
 describe('CA-OWNER-02 · leaving Corporate Admin for the operational Admin is an explicit transition', () => {
   it('Account panel: "Open Operational Admin" states what changes, and arrives marked as coming from Corporate Admin', async () => {

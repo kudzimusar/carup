@@ -12,7 +12,9 @@ import { ArrowUpRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { OPERATIONAL_ADMIN_FROM_CORPORATE } from '@/components/admin/adminArrival'
 
-const NOTE = 'Leaves Corporate Admin. Operational Admin works on live operational records under your platform role — Corporate permissions do not apply there.'
+// The last sentence covers a governor whose platform role does not open Operational Admin (e.g. platform role `owner`):
+// the unchanged operational gate sends them to their own dashboard. Corporate never decides this from a client-side role.
+const NOTE = 'Leaves Corporate Admin. Operational Admin works on live operational records under your platform role — Corporate permissions do not apply there. If your platform role does not open Operational Admin, you land on your own dashboard instead.'
 
 const TONE = {
   /** On the dark identity bar's Account panel. */
