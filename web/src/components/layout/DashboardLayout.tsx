@@ -30,6 +30,7 @@ import {
 import { FeaturePlannedPage, FeatureDisabledPage } from '@/components/routing/FeatureStatePages'
 import { OwnerNotificationBell } from '@/components/owner/OwnerNotificationBell'
 import { ActiveOrganisationPrompt, OrganisationBadge } from '@/components/layout/OrganisationSwitcher'
+import { AdminContextBanner } from '@/components/admin/AdminContextBanner'
 import type { UserRole } from '@shared/types'
 
 /** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
@@ -361,6 +362,9 @@ export default function DashboardLayout({ role }: { role: string }) {
             inset: without it the bar covers the last control on the page, which DESIGN.md §10
             ("primary CTA stays discoverable") forbids. */}
         <main className="p-4 lg:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-6">
+          {/* CA-OWNER-02: the operational Admin states where the Owner is and which authority applies. Presentation
+              only — it sits after every gate above and changes no route or authorisation. */}
+          {role === 'admin' && <AdminContextBanner />}
           <RegistryRouteBoundary>
             <Outlet />
           </RegistryRouteBoundary>
