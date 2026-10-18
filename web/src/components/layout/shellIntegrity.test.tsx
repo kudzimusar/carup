@@ -186,6 +186,17 @@ describe.each(['admin', 'owner'] as const)('%s dashboard shell', (role) => {
   })
 })
 
+describe('CA-OWNER-02-R3 D7 · the admin sidebar uses the accepted authority language', () => {
+  it('names /admin/users "Platform Users & Roles" — platform roles, not Corporate access', () => {
+    renderDashboard('admin')
+    const nav = screen.getByRole('navigation', { name: 'Dashboard navigation' })
+    const link = within(nav).getAllByRole('link').find((a) => a.getAttribute('href') === '/admin/users')
+    expect(link, 'sidebar link to /admin/users').toBeTruthy()
+    expect(link).toHaveTextContent(/^Platform Users & Roles$/)
+    expect(within(nav).queryAllByRole('link').some((a) => /^Users$/.test((a.textContent ?? '').trim()))).toBe(false)
+  })
+})
+
 describe('public shell — signed out on a phone', () => {
   function renderPublic(user: unknown) {
     return render(
