@@ -16,6 +16,12 @@ import { DeliveryStateBadge } from './DeliveryStateBadge'
 export type ReplyComposerStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
 
 export interface ReplyComposerProps {
+  /**
+   * Owner UAT RC-1: whether the server has chosen the reply channel for THIS conversation yet. Until it has ('pending'),
+   * or when it could not be read ('unavailable'), no channel is stated and a customer-visible reply cannot be sent —
+   * the conversation row's primary_channel is never presented as the answer. Omitted: 'ready'.
+   */
+  channelState?: 'ready' | 'pending' | 'unavailable'
   channel?: string | null
   /** Channels this thread can actually be answered on. Omitted: `channel` is the only target. */
   channels?: string[]
@@ -32,20 +38,30 @@ export interface ReplyComposerProps {
 }
 
 export function ReplyComposer({
-  channel, channels, onChannelChange, reply, onReplyChange, internalNote, onInternalNoteChange,
+  channelState = 'ready', channel, channels, onChannelChange, reply, onReplyChange, internalNote, onInternalNoteChange,
   status, error, correlationId, idempotencyKey, onSend,
 }: ReplyComposerProps) {
   const sending = status === 'sending'
+  // A customer-visible reply waits for the server's channel; an internal note is never delivered, so it does not.
+  const channelReady = internalNote || channelState === 'ready'
   // An explicit empty list means the thread has no deliverable channel: a customer-visible reply
   // has nowhere to go, but an internal note is still allowed.
-  const noTarget = !internalNote && Array.isArray(channels) && channels.length === 0
-  const selectable = !internalNote && Boolean(onChannelChange) && (channels?.length ?? 0) > 1
+  const noTarget = !internalNote && channelState === 'ready' && Array.isArray(channels) && channels.length === 0
+  const selectable = !internalNote && channelState === 'ready' && Boolean(onChannelChange) && (channels?.length ?? 0) > 1
   return (
     <div className="space-y-2">
       <div className="text-xs">
         {internalNote ? (
           <span className="flex items-center gap-1 text-amber-700 font-medium">
             <ShieldAlert className="w-3.5 h-3.5" aria-hidden /> Internal note · saved to the thread, not sent to the customer
+          </span>
+        ) : channelState === 'pending' ? (
+          <span className="flex items-center gap-1 text-gray-500" role="status" data-testid="reply-target-pending">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Choosing the reply channel…
+          </span>
+        ) : channelState === 'unavailable' ? (
+          <span className="flex items-center gap-1 text-amber-700" data-testid="reply-target-unavailable">
+            <ShieldAlert className="w-3.5 h-3.5" aria-hidden /> The reply channel could not be read, so a customer-visible reply cannot be sent — reopen the conversation, or add an internal note
           </span>
         ) : noTarget ? (
           <span className="flex items-center gap-1 text-amber-700" data-testid="reply-no-channel">
@@ -91,7 +107,7 @@ export function ReplyComposer({
           <Switch checked={internalNote} onCheckedChange={onInternalNoteChange} aria-label="Internal note (not sent to the user)" />
           Internal note
         </label>
-        <Button onClick={onSend} className="gap-2" disabled={!reply.trim() || sending || noTarget}>
+        <Button onClick={onSend} className="gap-2" disabled={!reply.trim() || sending || noTarget || !channelReady}>
           {sending ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Send className="w-4 h-4" aria-hidden />}
           {sending ? 'Sending…' : internalNote ? 'Add internal note' : 'Send reply'}
         </Button>
