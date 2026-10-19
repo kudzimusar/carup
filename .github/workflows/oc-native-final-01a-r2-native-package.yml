@@ -183,11 +183,6 @@ jobs:
     name: Android APK build + clean install + native launch
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      # Release bundling must use Expo's production transform path. NODE_ENV=test
-      # reproduces the Expo Router EXPO_ROUTER_APP_ROOT require.context failure.
-      NODE_ENV: production
-      BABEL_ENV: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -225,6 +220,11 @@ jobs:
           fi
 
       - name: Build release APK
+        env:
+          # Scope production mode to Metro/Gradle bundling only. npm ci must still install
+          # workspace devDependencies such as tailwindcss, required by NativeWind metro.config.js.
+          NODE_ENV: production
+          BABEL_ENV: production
         shell: bash
         run: |
           set -euo pipefail
