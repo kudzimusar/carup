@@ -1,0 +1,327 @@
+name: OC-NATIVE FINAL-01A-R2 Pre-UAT Native Package
+
+on:
+  push:
+    branches:
+      - release/oc-native-final-01a-r2-preuat
+    paths:
+      - '.github/workflows/oc-native-final-01a-r2-preuat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-final-01a-r2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NODE_ENV: test
+  R1_ACCEPTED_SHA: 0c96deeab09277bd371e717f26535d9f33a5f43a
+  EXPO_PUBLIC_API_URL: https://carup-backend-staging-9ahbpkp2a-11-11.vercel.app
+  R2_BUILD_CLASS: PRE_UAT_NATIVE_BUILD
+  R2_BUILD_PROFILE: android-device-local-preuat
+  SUPABASE_URL: http://127.0.0.1:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+  ALLOW_OCR_MOCK: "true"
+  BE2_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/carup_be2
+
+jobs:
+  mobile-certification:
+    name: Mobile + Expo exact-head certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Exact R1 parent and packaging-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "$R1_ACCEPTED_SHA^{commit}"
+          git diff --check "$R1_ACCEPTED_SHA..HEAD"
+          mapfile -t CHANGED < <(git diff --name-only "$R1_ACCEPTED_SHA..HEAD")
+          printf '%s\n' "${CHANGED[@]}"
+          test "${#CHANGED[@]}" -eq 1
+          test "${CHANGED[0]}" = ".github/workflows/oc-native-final-01a-r2-preuat.yml"
+          test "$(git rev-parse "$R1_ACCEPTED_SHA:mobile")" = "$(git rev-parse "HEAD:mobile")"
+      - name: True Expo React Native authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const pkg = JSON.parse(fs.readFileSync('mobile/package.json','utf8'));
+          const app = JSON.parse(fs.readFileSync('mobile/app.json','utf8')).expo;
+          const eas = JSON.parse(fs.readFileSync('mobile/eas.json','utf8'));
+          if (pkg.main !== 'expo-router/entry') throw new Error('Expo Router entry missing');
+          if (!pkg.dependencies?.expo || !pkg.dependencies?.['react-native'] || !pkg.dependencies?.['expo-router']) throw new Error('Expo/RN authority missing');
+          for (const banned of ['@capacitor/core','@capacitor/android','react-native-webview']) {
+            if (pkg.dependencies?.[banned] || pkg.devDependencies?.[banned]) throw new Error('Wrapper dependency present: '+banned);
+          }
+          if (app.android?.package !== 'com.carup.mobile') throw new Error('Unexpected Android package');
+          if (app.scheme !== 'carup') throw new Error('Unexpected native scheme');
+          if (!app.plugins?.includes('expo-router') || !app.plugins?.includes('expo-secure-store')) throw new Error('Native plugins missing');
+          if (eas.build?.['android-device']?.android?.buildType !== 'apk') throw new Error('Accepted android-device APK profile missing');
+          console.log(JSON.stringify({
+            expo: pkg.dependencies.expo,
+            reactNative: pkg.dependencies['react-native'],
+            expoRouter: pkg.dependencies['expo-router'],
+            package: app.android.package,
+            scheme: app.scheme,
+            version: app.version,
+            sdkVersion: app.sdkVersion,
+            newArchEnabled: app.newArchEnabled,
+            easProfile: 'android-device',
+            easBuildType: eas.build['android-device'].android.buildType,
+          }));
+          NODE
+          grep -F "import { View, Text, TextInput, TouchableOpacity" 'mobile/app/(auth)/login.tsx'
+          grep -F "from 'expo-secure-store'" mobile/store/authStore.ts
+          grep -F "clearIdentityQueryCache" mobile/store/authStore.ts
+          grep -F "revokeCurrentServerSession" mobile/store/authStore.ts
+          ! grep -R -E --exclude-dir=node_modules --exclude='*.lock' 'capacitor|trusted web activity|react-native-webview|<WebView' mobile
+      - name: Mobile Vitest
+        run: npm run test --workspace=mobile
+      - name: Native deterministic suite
+        run: npm run test:native --workspace=mobile
+      - name: Static Native auth/navigation suite
+        run: npm run test:static --workspace=mobile
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+      - name: Expo dependency compatibility
+        working-directory: mobile
+        run: npx expo install --check
+      - name: Expo configuration validation
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx expo config --type public > "$RUNNER_TEMP/expo-public-config.json"
+          grep -F '"package": "com.carup.mobile"' "$RUNNER_TEMP/expo-public-config.json"
+          grep -F '"scheme": "carup"' "$RUNNER_TEMP/expo-public-config.json"
+
+  security-continuity:
+    name: AUTH-05 + R6 + BE1 + BE2 regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: carup_be2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d carup_be2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: AUTH-05
+        run: |
+          node --test backend/tests/ca-k3-auth-05-session-authority.test.js backend/tests/ca-k3-auth-05-atomic-registration.test.js backend/tests/auth-register-privilege.test.js backend/tests/o2-x3-authentication-assurance.test.js
+      - name: R6 logout
+        run: |
+          node --test backend/tests/r6a-current-session-logout.test.js backend/tests/auth-session-row.test.js backend/tests/auth-logout-revocation.test.js
+      - name: BE1
+        run: |
+          node --test backend/tests/lr2c-be1-ownership-continuity.test.js
+          node --test backend/tests/service-network-s9-garage-surfaces.test.js
+          node --test backend/tests/seller-resume-media-contract.test.js
+      - name: BE2
+        run: |
+          node --test backend/tests/lr2c-be2-transaction-transfer-lineage.test.js
+          node database/test/lr2c_be2_transaction_transfer_postgres_check.mjs
+      - name: Consequential ownership session boundary
+        run: |
+          node --test backend/tests/passport-v16-ownership-authority.test.js backend/tests/o2-transfer-authority-supersession.test.js backend/tests/oc5j-ownership-transfer-refusals.test.js
+          grep -F "Owned-vehicle access requires a real session identity." backend/services/ownership/ownedVehicleAccessService.js
+          grep -F "return query.eq('owner_id', scope.userId)" backend/services/ownership/ownedVehicleAccessService.js
+
+  android-preuat-package:
+    name: Android APK · clean install + native runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install and prebuild Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          cd mobile
+          npx expo config --type public > "$RUNNER_TEMP/expo-public-config.json"
+          npx expo prebuild --platform android --clean --no-install
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build, install and prove native runtime
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          R2_ANDROID_SCRIPT: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/oc-native-final-01a-r2"
+            mkdir -p "$OUT"
+            DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
+            test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
+
+            cd mobile/android
+            ./gradlew assembleRelease --no-daemon
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            test -n "$APK" || { echo "::error::No release APK"; exit 1; }
+            cp "$APK" "$OUT/carup-pre-uat-$GITHUB_SHA.apk"
+
+            AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+            test -x "$AAPT"
+            "$AAPT" dump badging "$APK" > "$OUT/apk-badging.txt"
+            grep -F "package: name='com.carup.mobile'" "$OUT/apk-badging.txt"
+            grep -F "launchable-activity:" "$OUT/apk-badging.txt"
+
+            unzip -p "$APK" assets/index.android.bundle 2>/dev/null | strings > "$OUT/native-bundle-strings.txt" || true
+            grep -F "$EXPO_PUBLIC_API_URL" "$OUT/native-bundle-strings.txt" > /dev/null || {
+              echo "::error::Expected non-Production API pairing is not present in the packaged native bundle"
+              exit 1
+            }
+            if grep -F "vhmnajoeicasaigiophh" "$OUT/native-bundle-strings.txt"; then
+              echo "::error::Production Supabase identifier found in APK bundle"
+              exit 1
+            fi
+
+            adb uninstall com.carup.mobile >/dev/null 2>&1 || true
+            adb install "$APK" | tee "$OUT/install.txt"
+            adb shell pm clear com.carup.mobile >/dev/null 2>&1 || true
+            adb logcat -c
+
+            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.carup.mobile | tr -d '\r' | tail -n 1)"
+            case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "::error::Invalid native launcher: $LAUNCH_COMPONENT"; exit 1;; esac
+
+            wait_for_package() {
+              for _ in $(seq 1 30); do
+                RESUMED="$(adb shell dumpsys activity activities | tr -d '\r' | grep -E -m1 'mResumedActivity|topResumedActivity' || true)"
+                if [[ "$RESUMED" == *"com.carup.mobile/"* ]]; then return 0; fi
+                sleep 1
+              done
+              echo "::error::CarUp native activity never resumed"
+              adb shell dumpsys activity activities | tail -n 120
+              return 1
+            }
+
+            wait_for_text() {
+              local text="$1"
+              local file="$2"
+              for _ in $(seq 1 30); do
+                adb shell uiautomator dump /sdcard/r2.xml >/dev/null 2>&1 || true
+                adb pull /sdcard/r2.xml "$file" >/dev/null 2>&1 || true
+                if [ -f "$file" ] && grep -Fq "$text" "$file"; then return 0; fi
+                sleep 1
+              done
+              echo "::error::Native UI text not found: $text"
+              [ -f "$file" ] && cat "$file"
+              return 1
+            }
+
+            adb shell am force-stop com.carup.mobile
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/cold-launch.txt"
+            wait_for_package
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile | tee "$OUT/login-deeplink.txt"
+            wait_for_package
+            wait_for_text "Sign in to CarUp" "$OUT/login-hierarchy.xml"
+            grep -F 'package="com.carup.mobile"' "$OUT/login-hierarchy.xml"
+
+            adb shell input keyevent KEYCODE_HOME
+            sleep 2
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/foreground-return.txt"
+            wait_for_package
+
+            adb shell am force-stop com.carup.mobile
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/restart.txt"
+            wait_for_package
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile >/dev/null
+            wait_for_text "Sign in to CarUp" "$OUT/restart-login-hierarchy.xml"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://inbox/r2-packaging-proof" com.carup.mobile | tee "$OUT/thread-deeplink.txt"
+            wait_for_package
+            wait_for_text "Conversation unavailable" "$OUT/thread-hierarchy.xml"
+
+            adb logcat -d > "$OUT/logcat.txt"
+            if grep -F "Failed to initialize secure auth store:" "$OUT/logcat.txt"; then
+              echo "::error::SecureStore/session adapter initialization error"
+              exit 1
+            fi
+
+            adb shell dumpsys package com.carup.mobile > "$OUT/package-dumpsys.txt"
+            {
+              echo "task=OC-NATIVE-FINAL-01A-R2"
+              echo "classification=$R2_BUILD_CLASS"
+              echo "source_sha=$GITHUB_SHA"
+              echo "r1_parent=$R1_ACCEPTED_SHA"
+              echo "build_profile=$R2_BUILD_PROFILE"
+              echo "eas_accepted_profile=android-device"
+              echo "build_command=expo prebuild --platform android --clean --no-install + gradle assembleRelease"
+              echo "application_id=com.carup.mobile"
+              echo "api_pairing=$EXPO_PUBLIC_API_URL"
+              echo "api_pairing_baked_into_bundle=YES"
+              echo "production_touched=NO"
+              echo "owner_credentials_used=NO"
+              echo "install=PASS"
+              echo "launch=PASS"
+              echo "login_native_ui=PASS"
+              echo "background_foreground=PASS"
+              echo "restart=PASS"
+              echo "login_deeplink=PASS"
+              echo "thread_deeplink=PASS"
+              echo "secure_session_init_error=ABSENT"
+              echo "launcher_component=$LAUNCH_COMPONENT"
+              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
+            } > "$OUT/custody.txt"
+            sha256sum "$OUT/carup-pre-uat-$GITHUB_SHA.apk" > "$OUT/apk-sha256.txt"
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: bash -c "$R2_ANDROID_SCRIPT"
+      - name: Upload PRE-UAT APK and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-final-01a-r2-apk-${{ github.sha }}
+          path: ${{ runner.temp }}/oc-native-final-01a-r2
+          if-no-files-found: error
+          retention-days: 30
