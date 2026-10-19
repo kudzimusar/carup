@@ -107,9 +107,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx expo config --type public > "$RUNNER_TEMP/expo-public-config.json"
-          grep -F '"package": "com.carup.mobile"' "$RUNNER_TEMP/expo-public-config.json"
-          grep -F '"scheme": "carup"' "$RUNNER_TEMP/expo-public-config.json"
+          npx expo config --type public --json > "$RUNNER_TEMP/expo-public-config.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/expo-public-config.json', 'utf8'));
+          if (config.android?.package !== 'com.carup.mobile') throw new Error('Resolved Expo Android package mismatch');
+          if (config.scheme !== 'carup') throw new Error('Resolved Expo scheme mismatch');
+          if (!Array.isArray(config.plugins) || !config.plugins.some((p) => p === 'expo-router' || p?.[0] === 'expo-router')) {
+            throw new Error('Resolved Expo Router plugin missing');
+          }
+          console.log(JSON.stringify({ package: config.android.package, scheme: config.scheme, version: config.version }));
+          NODE
 
   security-continuity:
     name: AUTH-05 + R6 + BE1 + BE2 regression
