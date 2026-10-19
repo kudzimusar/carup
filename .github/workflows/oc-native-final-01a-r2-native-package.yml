@@ -183,6 +183,11 @@ jobs:
     name: Android APK build + clean install + native launch
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Release bundling must use Expo's production transform path. NODE_ENV=test
+      # reproduces the Expo Router EXPO_ROUTER_APP_ROOT require.context failure.
+      NODE_ENV: production
+      BABEL_ENV: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -220,11 +225,6 @@ jobs:
           fi
 
       - name: Build release APK
-        env:
-          # Expo Router's context transform is evaluated from the hoisted root node_modules.
-          # Direct Gradle release bundling does not inject this monorepo app-root automatically.
-          # This is build-profile wiring only; the accepted mobile/app route tree is unchanged.
-          EXPO_ROUTER_APP_ROOT: ../../mobile/app
         shell: bash
         run: |
           set -euo pipefail
@@ -273,7 +273,7 @@ jobs:
             echo "canonical_staging_mutated=NO"
             echo "owner_credentials_used=NO"
             echo "api_host_compiled_into_bundle=YES"
-            echo "expo_router_app_root=../../mobile/app"
+            echo "release_node_env=production"
             echo "final_01b_rebuild_required=YES"
           } > "$RUNNER_TEMP/r2-native-evidence/build-custody.txt"
 
