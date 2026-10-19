@@ -220,6 +220,11 @@ jobs:
           fi
 
       - name: Build release APK
+        env:
+          # Expo Router's context transform is evaluated from the hoisted root node_modules.
+          # Direct Gradle release bundling does not inject this monorepo app-root automatically.
+          # This is build-profile wiring only; the accepted mobile/app route tree is unchanged.
+          EXPO_ROUTER_APP_ROOT: ../../mobile/app
         shell: bash
         run: |
           set -euo pipefail
@@ -268,6 +273,7 @@ jobs:
             echo "canonical_staging_mutated=NO"
             echo "owner_credentials_used=NO"
             echo "api_host_compiled_into_bundle=YES"
+            echo "expo_router_app_root=../../mobile/app"
             echo "final_01b_rebuild_required=YES"
           } > "$RUNNER_TEMP/r2-native-evidence/build-custody.txt"
 
