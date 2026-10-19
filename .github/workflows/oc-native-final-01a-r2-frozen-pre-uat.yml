@@ -164,8 +164,6 @@ jobs:
     name: Frozen R1 · Android true Native package/install/launch
     runs-on: ubuntu-latest
     timeout-minutes: 80
-    env:
-      NODE_ENV: production
     steps:
       - uses: actions/checkout@v4
         with:
