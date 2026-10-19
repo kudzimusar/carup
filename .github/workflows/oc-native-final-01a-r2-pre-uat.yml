@@ -116,7 +116,10 @@ jobs:
           cd mobile
           npx expo prebuild --platform android --clean --no-install
 
-          MAIN_ACTIVITY="$(find android/app/src/main/java -type f \\( -name 'MainActivity.kt' -o -name 'MainActivity.java' \\) -print -quit)"
+          MAIN_ACTIVITY="$(find android/app/src/main/java -type f -name 'MainActivity.kt' -print -quit)"
+          if [ -z "$MAIN_ACTIVITY" ]; then
+            MAIN_ACTIVITY="$(find android/app/src/main/java -type f -name 'MainActivity.java' -print -quit)"
+          fi
           test -n "$MAIN_ACTIVITY"
           grep -Eq 'ReactActivity' "$MAIN_ACTIVITY"
           if grep -R -Eiq 'Capacitor|TrustedWebActivity|androidbrowserhelper|android\\.webkit\\.WebView' android/app/src/main; then
