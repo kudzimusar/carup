@@ -116,6 +116,14 @@ jobs:
           cd mobile
           npx expo prebuild --platform android --clean --no-install
 
+          MAIN_ACTIVITY="$(find android/app/src/main/java -type f \\( -name 'MainActivity.kt' -o -name 'MainActivity.java' \\) -print -quit)"
+          test -n "$MAIN_ACTIVITY"
+          grep -Eq 'ReactActivity' "$MAIN_ACTIVITY"
+          if grep -R -Eiq 'Capacitor|TrustedWebActivity|androidbrowserhelper|android\\.webkit\\.WebView' android/app/src/main; then
+            echo "::error::Generated Android app contains a web-wrapper/TWA/Capacitor indicator"
+            exit 1
+          fi
+
       - name: Enable KVM
         shell: bash
         run: |
@@ -142,6 +150,10 @@ jobs:
             cp "$APK" "$OUT/carup-r2-pre-uat.apk"
             sha256sum "$OUT/carup-r2-pre-uat.apk" > "$OUT/apk-sha256.txt"
             PACKAGE_NAME="com.carup.mobile"
+
+            BUNDLE="$(find app/build -type f -name 'index.android.bundle' -print -quit)"
+            test -n "$BUNDLE" || { echo "::error::React Native release bundle not found"; exit 1; }
+            strings "$BUNDLE" | grep -F "$EXPO_PUBLIC_API_URL" > "$OUT/api-base-binary-proof.txt"
 
             adb uninstall com.carup.mobile >/dev/null 2>&1 || true
             adb install "$APK"
@@ -193,15 +205,17 @@ jobs:
             assert_foreground login-route
             adb exec-out screencap -p > "$OUT/login.png"
 
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://marketplace" com.carup.mobile | tee "$OUT/marketplace-deeplink.txt"
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://register" com.carup.mobile | tee "$OUT/register-deeplink.txt"
             for i in $(seq 1 20); do
-              dump_ui marketplace
-              if grep -Fq 'Buy on CarUp' "$OUT/marketplace.xml"; then break; fi
+              dump_ui register
+              if grep -Fq 'Create Account' "$OUT/register.xml"; then break; fi
               sleep 1
             done
-            grep -Fq 'Buy on CarUp' "$OUT/marketplace.xml"
-            assert_foreground marketplace-route
-            adb exec-out screencap -p > "$OUT/marketplace.png"
+            grep -Fq 'Create Account' "$OUT/register.xml"
+            grep -Fq 'Email Address' "$OUT/register.xml"
+            grep -Fq 'Password' "$OUT/register.xml"
+            assert_foreground register-route
+            adb exec-out screencap -p > "$OUT/register.png"
 
             adb shell input keyevent KEYCODE_HOME
             sleep 2
@@ -230,7 +244,8 @@ jobs:
               echo "classification=PRE_UAT_NATIVE_BUILD"
               echo "source_sha=$GITHUB_SHA"
               echo "r1_parent=$R1_ACCEPTED_SHA"
-              echo "build_profile=android-device"
+              echo "build_profile=github-pre-uat-release-apk"
+              echo "eas_profile_reference=android-device"
               echo "builder=expo-prebuild+gradle-assembleRelease"
               echo "application_id=$PACKAGE_NAME"
               echo "version=$VERSION_NAME"
