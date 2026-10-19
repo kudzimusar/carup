@@ -6,6 +6,7 @@ on:
       - release/oc-native-final-01a-r2-preuat
     paths:
       - '.github/workflows/oc-native-final-01a-r2-preuat.yml'
+      - 'mobile/metro.config.js'
   workflow_dispatch:
 
 permissions:
@@ -50,11 +51,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git cat-file -e "$R1_ACCEPTED_SHA^{commit}"
           git diff --check "$R1_ACCEPTED_SHA..HEAD"
-          mapfile -t CHANGED < <(git diff --name-only "$R1_ACCEPTED_SHA..HEAD")
+          mapfile -t CHANGED < <(git diff --name-only "$R1_ACCEPTED_SHA..HEAD" | sort)
           printf '%s\n' "${CHANGED[@]}"
-          test "${#CHANGED[@]}" -eq 1
+          test "${#CHANGED[@]}" -eq 2
           test "${CHANGED[0]}" = ".github/workflows/oc-native-final-01a-r2-preuat.yml"
-          test "$(git rev-parse "$R1_ACCEPTED_SHA:mobile")" = "$(git rev-parse "HEAD:mobile")"
+          test "${CHANGED[1]}" = "mobile/metro.config.js"
+          mapfile -t MOBILE_PRODUCT_CHANGED < <(git diff --name-only "$R1_ACCEPTED_SHA..HEAD" -- mobile | grep -v '^mobile/metro.config.js$' || true)
+          test "${#MOBILE_PRODUCT_CHANGED[@]}" -eq 0
       - name: True Expo React Native authority
         shell: bash
         run: |
@@ -118,6 +121,9 @@ jobs:
           }
           console.log(JSON.stringify({ package: config.android.package, scheme: config.scheme, version: config.version }));
           NODE
+      - name: Android Expo Router bundle probe
+        working-directory: mobile
+        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/r2-expo-export"
 
   security-continuity:
     name: AUTH-05 + R6 + BE1 + BE2 regression
