@@ -141,16 +141,16 @@ jobs:
             test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
             cp "$APK" "$OUT/carup-r2-pre-uat.apk"
             sha256sum "$OUT/carup-r2-pre-uat.apk" > "$OUT/apk-sha256.txt"
-            aapt dump badging "$APK" > "$OUT/apk-badging.txt"
-
-            PACKAGE_NAME="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" "$OUT/apk-badging.txt" | head -n1)"
-            VERSION_CODE="$(sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" "$OUT/apk-badging.txt" | head -n1)"
-            VERSION_NAME="$(sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" "$OUT/apk-badging.txt" | head -n1)"
-            test "$PACKAGE_NAME" = "com.carup.mobile"
+            PACKAGE_NAME="com.carup.mobile"
 
             adb uninstall com.carup.mobile >/dev/null 2>&1 || true
             adb install "$APK"
             adb shell pm path com.carup.mobile | tee "$OUT/install-proof.txt"
+            adb shell dumpsys package com.carup.mobile > "$OUT/package-dumpsys.txt"
+            VERSION_CODE="$(sed -n 's/.*versionCode=\([0-9][0-9]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
+            VERSION_NAME="$(sed -n 's/.*versionName=\([^[:space:]]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
+            test -n "$VERSION_CODE"
+            test -n "$VERSION_NAME"
             adb shell pm clear com.carup.mobile >/dev/null
 
             LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.carup.mobile | tr -d '\r' | tail -n1)"
