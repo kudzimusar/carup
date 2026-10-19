@@ -17,7 +17,6 @@ concurrency:
 
 env:
   CI: "true"
-  NODE_ENV: test
   R1_ACCEPTED_SHA: 0c96deeab09277bd371e717f26535d9f33a5f43a
   EXPO_PUBLIC_API_URL: https://oc-native-final-isolated.invalid
   SUPABASE_URL: http://127.0.0.1:54321
@@ -32,6 +31,8 @@ jobs:
     name: Frozen R1 · Native certification
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -110,6 +111,8 @@ jobs:
     name: Frozen R1 · AUTH-05 + R6 + BE1 + BE2
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      NODE_ENV: test
     services:
       postgres:
         image: postgres:16
@@ -161,6 +164,8 @@ jobs:
     name: Frozen R1 · Android true Native package/install/launch
     runs-on: ubuntu-latest
     timeout-minutes: 80
+    env:
+      NODE_ENV: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -202,6 +207,8 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Prepare runtime evidence directory
+        run: mkdir -p "$RUNNER_TEMP/oc-native-r2-frozen"
       - name: Build, install, launch and recustody frozen R1 APK
         uses: reactivecircus/android-emulator-runner@v2
         env:
