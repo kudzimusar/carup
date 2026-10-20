@@ -27,7 +27,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { useGarageOperator } from '@/hooks/useGarageOperator'
 import type { Vehicle, Escrow } from '@/types'
-import { readOwnerTrustClaim, statedMileage } from './ownerStatedValues'
+import { readOwnerTrustClaim, statedCount, statedMileage } from './ownerStatedValues'
 
 // ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
 /**
@@ -384,8 +384,12 @@ export default function OwnerDashboard() {
           {/* Digital Document Vault.
               The upload control is disabled on purpose. It previously called the OCR endpoint with a
               hardcoded mock payload, so a user who never chose a file still got a success toast and a
-              fabricated document row. There is no per-user document store to upload into yet, so the
-              honest state is an unavailable control and an empty vault — not a simulated upload. */}
+              fabricated document row — not a simulated upload.
+
+              OC-NATIVE-FINAL-02-R1 D3: the body was then a fixed "no documents" sentence with no read
+              behind it, so an owner whose Evidence Vault held five verified documents was told there
+              were none. It now states each vehicle's governed count from the same read the
+              Evidence Vault and My Garage use (`/api/vehicles/me` → `counts.verified_documents`). */}
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Digital Document Vault</CardTitle>
@@ -406,9 +410,40 @@ export default function OwnerDashboard() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-3" data-testid="document-vault-list">
-              <p data-testid="document-vault-empty" className="text-xs text-gray-500 py-2">
-                No documents uploaded yet.
-              </p>
+              {vehiclesState === 'loading' ? (
+                <p data-testid="document-vault-loading" className="text-xs text-gray-500 py-2">
+                  Reading your vehicle documents…
+                </p>
+              ) : vehiclesState === 'unavailable' ? (
+                <p data-testid="document-vault-read-failed" className="text-xs text-gray-500 py-2">
+                  Your vehicle documents could not be read just now, so no count is shown.
+                </p>
+              ) : vehicles.length === 0 ? (
+                <p data-testid="document-vault-no-vehicles" className="text-xs text-gray-500 py-2">
+                  No vehicle yet. Documents are attached to a vehicle&apos;s Passport, so add a vehicle first.
+                </p>
+              ) : (
+                <>
+                  <p data-testid="document-vault-scope" className="text-[10px] text-gray-400">
+                    Verified documents per vehicle — the same count as your Evidence Vault.
+                  </p>
+                  {vehicles.map((vehicle) => (
+                    <Link
+                      key={vehicle.vin}
+                      to={`/dashboard/garage/${encodeURIComponent(vehicle.vin)}`}
+                      data-testid={`document-vault-vehicle-${vehicle.vin}`}
+                      className="flex items-center justify-between gap-3 py-2 border-b border-gray-100 last:border-0"
+                    >
+                      <span className="text-sm font-semibold text-gray-900 truncate">
+                        {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
+                      </span>
+                      <span data-testid={`document-vault-count-${vehicle.vin}`} className="text-xs text-gray-600 shrink-0">
+                        {statedCount(vehicle.counts?.verified_documents, 'verified document')}
+                      </span>
+                    </Link>
+                  ))}
+                </>
+              )}
               <p data-testid="document-vault-unavailable" className="text-[10px] text-gray-400">
                 Document upload is not available from this dashboard yet.
               </p>

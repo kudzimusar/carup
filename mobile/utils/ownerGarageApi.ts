@@ -21,11 +21,16 @@ export interface NativeOwnedVehicle {
   trust_score?: number | null;
   trust?: MarketplacePublicTrust | null;
   listing_media?: MobileListingMediaBlock | null;
+  /**
+   * Governed per-VIN counts exactly as /api/vehicles/me publishes them (backend `ownerGarageCounts`).
+   * `null` means the count was not read and must be stated in words, never as 0. The keys previously
+   * named here (`documents`, `insurance`) do not exist in the response (OC-NATIVE-FINAL-02-R1 D3).
+   */
   counts?: {
-    documents?: number | null;
+    verified_documents?: number | null;
     services?: number | null;
     parts?: number | null;
-    insurance?: number | null;
+    active_insurance?: number | null;
     [key: string]: unknown;
   } | null;
   price?: number | null;

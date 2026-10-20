@@ -69,11 +69,14 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     const { container } = renderFreshDashboard()
     await waitFor(() => expect(fetchOwnedVehicles).toHaveBeenCalled())
 
+    // A fresh account owns no vehicle, so no document can be attached to a Passport yet. That is
+    // the measured state; a blanket "no documents" line is not (OC-NATIVE-FINAL-02-R1 D3).
+    expect((await screen.findByTestId('document-vault-no-vehicles')).textContent).toMatch(/no vehicle/i)
     const text = container.textContent || ''
     for (const doc of FORBIDDEN_DOCUMENTS) {
       expect(text).not.toContain(doc)
     }
-    expect(screen.getByTestId('document-vault-empty').textContent).toMatch(/No documents uploaded yet/i)
+    expect(text).not.toMatch(/No documents uploaded yet/i)
   })
 
   it('reports wallets as unavailable rather than inventing a balance', async () => {
@@ -231,9 +234,97 @@ describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () =>
     renderFreshDashboard()
     await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
 
-    expect(screen.getByTestId('document-vault-empty').textContent).toMatch(/No documents uploaded yet/i)
+    expect((await screen.findByTestId('document-vault-no-vehicles')).textContent).toMatch(/no vehicle/i)
     expect(screen.getByTestId('document-vault-unavailable').textContent)
       .toMatch(/not available from this dashboard yet/i)
+  })
+})
+
+/**
+ * OC-NATIVE-FINAL-02-R1 D3 — the Owner was told "No documents uploaded yet" here while the Evidence
+ * Vault listed five verified documents for the same vehicle. The dashboard line was a literal with
+ * no read behind it. The card now states, per vehicle, the governed count the Evidence Vault and My
+ * Garage already read (`/api/vehicles/me` → `counts.verified_documents`), so they cannot disagree.
+ */
+const EvidenceVault = (await import('./EvidenceVault')).default
+
+const VIN_A = 'TESTVINDOCS000001'
+const VIN_B = 'TESTVINDOCS000002'
+
+function vaultVehicle(vin: string, verified: number | null, extra: Record<string, unknown> = {}) {
+  return {
+    vin,
+    year: 2016,
+    make: 'Nissan',
+    model: 'Serena',
+    counts: { verified_documents: verified, services: null, parts: null, active_insurance: null },
+    ...extra,
+  }
+}
+
+describe('OwnerDashboard document card — one authority with the Evidence Vault (OC-NATIVE-FINAL-02-R1 D3)', () => {
+  it('states each vehicle’s governed verified-document count, never a blanket "none uploaded"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([
+      vaultVehicle(VIN_A, 5),
+      vaultVehicle(VIN_B, 1, { make: 'Toyota', model: 'Aqua' }),
+    ])
+    const { container } = renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId(`document-vault-count-${VIN_A}`)).toBeTruthy())
+    expect(screen.getByTestId(`document-vault-count-${VIN_A}`).textContent).toBe('5 verified documents')
+    expect(screen.getByTestId(`document-vault-count-${VIN_B}`).textContent).toBe('1 verified document')
+    expect(screen.getByTestId(`document-vault-vehicle-${VIN_B}`).textContent).toContain('2016 Toyota Aqua')
+    expect(screen.getByTestId('document-vault-scope').textContent).toMatch(/Evidence Vault/)
+    expect(container.textContent).not.toMatch(/No documents uploaded yet/i)
+  })
+
+  it('agrees with the Evidence Vault for every vehicle, because both read the same count', async () => {
+    const owned = [vaultVehicle(VIN_A, 5), vaultVehicle(VIN_B, 0, { make: 'Toyota', model: 'Aqua' })]
+    fetchOwnedVehicles.mockResolvedValue(owned)
+    const dashboard = renderFreshDashboard()
+    await waitFor(() => expect(screen.getByTestId(`document-vault-count-${VIN_B}`)).toBeTruthy())
+    const dashboardCounts = owned.map((vehicle) => screen.getByTestId(`document-vault-count-${vehicle.vin}`).textContent)
+    dashboard.unmount()
+
+    render(<MemoryRouter><EvidenceVault /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId(`evidence-vehicle-${VIN_B}`)).toBeTruthy())
+    owned.forEach((vehicle, index) => {
+      expect(screen.getByTestId(`evidence-vehicle-${vehicle.vin}`).textContent).toContain(dashboardCounts[index])
+    })
+    // ANTI-VACUITY: both surfaces really published the read values, not two matching blanks.
+    expect(dashboardCounts).toEqual(['5 verified documents', '0 verified documents'])
+  })
+
+  it('a count CarUp did not read is stated in words, never as zero', async () => {
+    fetchOwnedVehicles.mockResolvedValue([vaultVehicle(VIN_A, null)])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId(`document-vault-count-${VIN_A}`)).toBeTruthy())
+    expect(screen.getByTestId(`document-vault-count-${VIN_A}`).textContent).toBe('verified documents not recorded')
+  })
+
+  it('a failed vehicle read is a read failure, not an empty vault', async () => {
+    fetchOwnedVehicles.mockRejectedValue(new Error('network down'))
+    const { container } = renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('document-vault-read-failed')).toBeTruthy())
+    expect(container.querySelector('[data-testid^="document-vault-count-"]')).toBeNull()
+    expect(screen.queryByTestId('document-vault-no-vehicles')).toBeNull()
+    expect(container.textContent).not.toMatch(/No documents uploaded yet/i)
+  })
+
+  it('states no count while the vehicle read is still pending', () => {
+    fetchOwnedVehicles.mockReturnValue(new Promise(() => {}))
+    const { container } = renderFreshDashboard()
+
+    expect(screen.getByTestId('document-vault-loading')).toBeTruthy()
+    expect(container.querySelector('[data-testid^="document-vault-count-"]')).toBeNull()
+    expect(screen.queryByTestId('document-vault-no-vehicles')).toBeNull()
+  })
+
+  it('carries no document literal and reads the governed count', () => {
+    expect(SRC).not.toMatch(/No documents uploaded yet/)
+    expect(SRC).toMatch(/statedCount\(vehicle\.counts\?\.verified_documents, 'verified document'\)/)
   })
 })
 
