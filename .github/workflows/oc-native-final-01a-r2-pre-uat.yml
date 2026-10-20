@@ -44,7 +44,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Exact-head custody and frozen product guard
         shell: bash
