@@ -18,8 +18,10 @@ import {
 import {
   communicationChannelLabel,
   communicationParticipantContext,
+  communicationSendFailureMessage,
   communicationThreadContext,
   communicationThreadTitle,
+  communicationTitleCase,
 } from '../../utils/communicationPresentation';
 import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
 import {
@@ -47,7 +49,7 @@ function messageAuthor(message: any): string {
     message?.author?.display_name ||
     message?.sender_display_name ||
     message?.sender_name ||
-    message?.author?.stakeholder_role ||
+    communicationTitleCase(message?.author?.stakeholder_role) ||
     'CarUp participant'
   );
 }
@@ -101,7 +103,8 @@ export default function NativeConversationScreen() {
       await queryClient.refetchQueries({ queryKey: threadListKey });
     },
     onError: (error) => {
-      setSendError(error instanceof Error ? error.message : 'CarUp could not send this message.');
+      // OC-NATIVE-FINAL-02-R1 P2-A: the raw API error ("Communication API returned HTTP 500") was shown.
+      setSendError(communicationSendFailureMessage(error));
     },
   });
 
@@ -119,7 +122,7 @@ export default function NativeConversationScreen() {
         <EmptyState
           icon="chatbubbles-outline"
           title="Conversation unavailable"
-          body="Sign in with an account that can use the native CarUp Inbox."
+          body="Sign in to your personal CarUp account to see this conversation."
           actionLabel="Back to Inbox"
           onAction={() => router.replace('/(tabs)/inbox' as never)}
         />
@@ -216,8 +219,8 @@ export default function NativeConversationScreen() {
 
         <View style={{ marginTop: spacing[4] }}>
           <Notice
-            title="CarUp is the conversation record"
-            body="Provider transport is shown only when the canonical thread or message payload identifies it. CarUp does not guess a missing channel."
+            title="Your conversation stays in CarUp"
+            body="Messages may also be delivered by WhatsApp or email. A message shows its channel only when CarUp recorded one."
             tone="info"
           />
         </View>

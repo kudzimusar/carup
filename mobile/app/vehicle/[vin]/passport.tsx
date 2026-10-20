@@ -82,7 +82,7 @@ function EvidenceCard({ evidence }: { evidence: VehiclePassportEvidence }) {
       ) : null}
       {evidence.file_availability === 'withheld_private' ? (
         <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
-          The underlying artifact is private for this audience.
+          This document is recorded, but its file is not shared here.
         </Text>
       ) : null}
     </View>
@@ -111,7 +111,7 @@ function PassportScreenInner() {
   if (!canonicalVin) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center' }}>
-        <EmptyState title="Vehicle Passport unavailable" body="A canonical VIN is required to open a Vehicle Passport." />
+        <EmptyState title="Vehicle Passport unavailable" body="This link does not include a VIN, so there is no Passport to open." />
       </View>
     );
   }
@@ -130,7 +130,7 @@ function PassportScreenInner() {
         <EmptyState
           icon="document-text-outline"
           title="Vehicle Passport could not be read"
-          body="CarUp did not return an authoritative Passport for this VIN. No substitute Passport or evidence record has been created."
+          body="CarUp could not load the Passport for this vehicle, so nothing is shown in its place. Try again."
           actionLabel="Try again"
           onAction={() => void passportQuery.refetch()}
           secondaryLabel="Back to vehicle"
@@ -169,39 +169,43 @@ function PassportScreenInner() {
 
         {!sameVin ? (
           <Notice
-            title="Passport identity mismatch"
-            body="CarUp returned a Passport that does not match the requested VIN. This view is stopped rather than joining records."
+            title="This Passport does not match the vehicle"
+            body="CarUp returned a Passport for a different VIN, so it is not shown here."
             tone="danger"
           />
         ) : (
           <Notice
-            title="Same vehicle identity"
-            body="Marketplace, Passport and the rest of this buyer journey remain anchored to the same canonical VIN."
+            title="Same vehicle"
+            body="This Passport belongs to the same VIN as the listing you opened."
             tone="success"
           />
         )}
 
+        {/* OC-NATIVE-FINAL-02-R1 P2-A: a Passport for a different VIN was still rendered below the
+            mismatch notice. Nothing from it is shown now, and purchase stays unavailable. */}
+        {sameVin ? (
+        <>
         <View>
           <SectionHeader title="Identity" />
           <View style={{ borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, paddingHorizontal: spacing[4], paddingVertical: spacing[2] }}>
             <PassportFact label="VIN" value={passportVin || 'Unavailable'} />
             <PassportFact
               label="Plate"
-              value={text(passport.identity?.plateNumber) || (identityRedacted ? 'Withheld for this audience' : 'Not recorded')}
+              value={text(passport.identity?.plateNumber) || (identityRedacted ? 'Not shown here' : 'Not recorded')}
             />
             <PassportFact
               label="Chassis"
-              value={text(passport.identity?.chassisNumber) || (identityRedacted ? 'Withheld for this audience' : 'Not recorded')}
+              value={text(passport.identity?.chassisNumber) || (identityRedacted ? 'Not shown here' : 'Not recorded')}
             />
             <PassportFact
               label="Engine"
-              value={text(passport.identity?.engineNumber) || (identityRedacted ? 'Withheld for this audience' : 'Not recorded')}
+              value={text(passport.identity?.engineNumber) || (identityRedacted ? 'Not shown here' : 'Not recorded')}
             />
           </View>
         </View>
 
         <View>
-          <SectionHeader title="Canonical Trust" />
+          <SectionHeader title="Trust assessment" />
           <View style={{ borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, padding: spacing[4], gap: spacing[2] }}>
             <PassportFact label="Evaluation" value={titleCase(evaluationState) || 'Not evaluated'} />
             <PassportFact label="Band" value={trustBand || 'Not available'} />
@@ -210,8 +214,8 @@ function PassportScreenInner() {
           {evaluationState !== 'evaluated' ? (
             <View style={{ marginTop: spacing[3] }}>
               <Notice
-                title="No invented Trust state"
-                body="This screen does not calculate a replacement score. Missing, stale or unavailable canonical Trust remains missing, stale or unavailable."
+                title="Trust assessment not complete"
+                body="This vehicle does not have a current trust assessment. The app never estimates a score of its own."
                 tone="info"
               />
             </View>
@@ -222,8 +226,8 @@ function PassportScreenInner() {
           <SectionHeader title="Passport evidence" />
           {evidence.length === 0 ? (
             <Notice
-              title="No evidence returned"
-              body="The canonical Passport returned no evidence rows for this audience. CarUp does not insert demo documents or infer that missing evidence is verified."
+              title="No evidence to show"
+              body="CarUp has no evidence it can show you for this vehicle yet. Missing evidence is never treated as verified."
               tone="warning"
             />
           ) : (
@@ -236,15 +240,17 @@ function PassportScreenInner() {
         </View>
 
         <View>
-          <SectionHeader title="Lifecycle continuity" />
+          <SectionHeader title="Vehicle history" />
           <Notice
-            title={passport.lifecycle ? 'Lifecycle projection available' : 'Lifecycle projection unavailable'}
+            title={passport.lifecycle ? 'Vehicle history recorded' : 'Vehicle history not available'}
             body={passport.lifecycle
-              ? 'Lifecycle information shown by CarUp remains part of this same Vehicle Passport. Native does not create a separate history.'
-              : 'No lifecycle projection was returned. This is shown as unavailable rather than replaced with a Native-only history.'}
+              ? 'This vehicle’s history is kept in its CarUp Vehicle Passport.'
+              : 'CarUp could not show a history for this vehicle yet, and the app does not create one of its own.'}
             tone={passport.lifecycle ? 'info' : 'warning'}
           />
         </View>
+        </>
+        ) : null}
 
         <Button
           label="Continue to purchase"

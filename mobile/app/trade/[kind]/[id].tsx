@@ -61,7 +61,7 @@ export default function TradeRecordDetailScreen() {
         <EmptyState
           icon="cube-outline"
           title="Sign in to view this Trade record"
-          body="Trade records are participant-scoped and remain hidden while you are signed out."
+          body="Trade records are visible only to the people involved. Sign in to see this one."
           actionLabel="Sign in"
           onAction={() => router.push('/(auth)/login' as never)}
           secondaryLabel="Back to Trade"
@@ -77,7 +77,7 @@ export default function TradeRecordDetailScreen() {
         <EmptyState
           icon="alert-circle-outline"
           title="Trade record unavailable"
-          body="This Native route does not identify a certified Trade record."
+          body="This link does not point to a trade record the app can show."
           actionLabel="Back to Trade"
           onAction={() => router.replace('/(tabs)/trade' as never)}
         />
@@ -106,17 +106,17 @@ export default function TradeRecordDetailScreen() {
           title={denied
             ? 'Trade access denied'
             : dependency
-              ? 'Trade detail needs backend context'
+              ? 'Open this from its import order'
               : missing
                 ? 'Trade record not found'
                 : 'Trade record unavailable'}
           body={denied
-            ? 'The current account or workspace is not authorized to read this record.'
+            ? 'This account or workspace cannot see this record.'
             : dependency
-              ? tradeError?.message || 'This Trade detail needs additional backend context.'
+              ? 'This reservation can only be opened from the import order it belongs to.'
               : missing
-                ? 'The authorized Trade service did not return this record.'
-                : 'CarUp could not read this record and will not substitute an explanatory or synthetic record.'}
+                ? 'CarUp could not find this record among the ones you can see.'
+                : 'CarUp could not load this record, so nothing is shown in its place. Try again.'}
           actionLabel="Try again"
           onAction={() => void query.refetch()}
           secondaryLabel="Back to records"
@@ -180,7 +180,7 @@ export default function TradeRecordDetailScreen() {
           </View>
         )) : (
           <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, paddingVertical: spacing[3] }}>
-            The backend returned this authorized record without additional displayable fields.
+            There are no more details for this record.
           </Text>
         )}
       </View>
@@ -188,8 +188,8 @@ export default function TradeRecordDetailScreen() {
       {kind === 'containerSpace' ? (
         <View style={{ marginTop: spacing[4] }}>
           <Notice
-            title="Read-only reservation detail"
-            body="The backend has no reservation-by-id read route. Native re-resolves this exact record inside its authorized import-order collection; no lifecycle action is inferred or exposed here."
+            title="View only"
+            body="You can view this reservation here. Changes to a reservation are not available in the app."
             tone="info"
           />
         </View>

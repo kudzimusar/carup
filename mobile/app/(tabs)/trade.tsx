@@ -56,13 +56,13 @@ export default function TradeScreen() {
         }}
       >
         <Text allowFontScaling style={{ ...typeScale.heroEyebrow, color: theme.brand.primary }}>
-          DIASPORA TRADE · GOVERNED JOURNEYS
+          DIASPORA TRADE
         </Text>
         <Text allowFontScaling style={{ ...typeScale.heroDisplay, color: theme.brand.onHero, marginTop: spacing[2] }}>
           Trade
         </Text>
         <Text allowFontScaling style={{ ...typeScale.body, color: theme.brand.onHeroMuted, marginTop: spacing[3], maxWidth: 360 }}>
-          Import orders, container space, shipments and documents stay connected to CarUp's governed Trade OS.
+          Your import orders, container space, shipments and documents, together in CarUp.
         </Text>
       </View>
 
@@ -74,31 +74,31 @@ export default function TradeScreen() {
         ) : !isAuthenticated ? (
           <>
             <Notice
-              title="Sign in for your Trade authority"
-              body="Trade records are participant-scoped. CarUp will not show example orders, containers, shipments, documents or counts while you are signed out."
+              title="Sign in to see your trade records"
+              body="Trade records are visible only to the people involved. CarUp will not show example orders, containers, shipments, documents or counts while you are signed out."
               tone="info"
             />
             <Button label="Sign in" onPress={() => router.push('/(auth)/login' as never)} style={{ marginTop: spacing[4] }} />
           </>
         ) : tradeQuery.isLoading ? (
           <View style={{ paddingVertical: spacing[10], alignItems: 'center' }}>
-            <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading governed Trade capabilities" />
+            <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading your trade records" />
             <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[3] }}>
-              Checking your current Trade authority…
+              Checking which trade records you can see…
             </Text>
           </View>
         ) : tradeQuery.isError ? (
           <Notice
-            title="Trade gateway could not refresh"
-            body="CarUp could not read the governed Trade services. No unavailable capability is being presented as active."
+            title="Trade could not refresh"
+            body="CarUp could not check your trade records, so nothing below is shown as available. Try again."
             tone="danger"
           />
         ) : null}
 
         <View style={{ marginTop: spacing[5] }}>
-          <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary }}>Trade gateway</Text>
+          <Text allowFontScaling style={{ ...typeScale.title, color: theme.text.primary }}>Your trade records</Text>
           <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
-            Availability below comes from the current authenticated Trade APIs. A missing permission or disabled service stays unavailable.
+            Each area shows as available only when CarUp confirms you can see it.
           </Text>
         </View>
 
@@ -111,7 +111,7 @@ export default function TradeScreen() {
                 label: CAPABILITY_COPY[key],
                 state: 'unavailable' as const,
                 count: null,
-                note: 'Sign in to let CarUp check this governed capability for your account.',
+                note: 'Sign in to see whether this is available to you.',
               }))
           ).map((capability) => (
             <View
@@ -157,7 +157,7 @@ export default function TradeScreen() {
                   </Text>
                   {capability.state === 'available' && typeof capability.count === 'number' ? (
                     <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.secondary, marginTop: spacing[2] }}>
-                      {capability.count} current record{capability.count === 1 ? '' : 's'} returned by this governed read.
+                      {capability.count} record{capability.count === 1 ? '' : 's'}
                     </Text>
                   ) : null}
                   {capability.state === 'available' && isTradeRecordKind(capability.key) ? (
@@ -177,14 +177,14 @@ export default function TradeScreen() {
         <View style={{ marginTop: spacing[5] }}>
           <Notice
             title="Start Import"
-            body="The canonical Trade service supports governed import-order creation. This R5-R4 gateway does not fabricate a native creation form or submit an import until that bounded native workflow is certified."
+            body="Starting a new import is not available in the app yet. The app does not show a form it cannot submit."
             tone="info"
           />
         </View>
 
         <View style={{ marginTop: spacing[4] }}>
           <Button
-            label="Refresh Trade access"
+            label="Refresh"
             variant="secondary"
             onPress={() => void tradeQuery.refetch()}
             disabled={!isAuthenticated || tradeQuery.isFetching}

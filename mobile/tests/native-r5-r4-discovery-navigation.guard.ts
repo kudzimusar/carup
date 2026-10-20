@@ -129,7 +129,7 @@ assert.equal(endpoints.containerSpace, '/api/diaspora/reservations?importOrderId
 assert.equal(endpoints.shipments, '/api/diaspora/shipments?importOrderId=<authorized-order>');
 assert.equal(endpoints.documents, '/api/diaspora/import-orders/<authorized-order>/documents');
 assert.match(trade, /getTradeGatewaySnapshot/);
-assert.match(trade, /Trade gateway/);
+assert.match(trade, /Your trade records/);
 assert.match(trade, /Start Import/);
 assert.match(trade, /CarUp will not show example orders, containers, shipments, documents or counts/);
 assert.match(tradeApi, /state: 'unavailable'/);

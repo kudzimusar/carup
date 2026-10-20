@@ -187,8 +187,9 @@ describe('LR2-C source integration and authority boundaries', () => {
 
   it('renders Passport evidence from the canonical evidenceVault and truthful missing state', () => {
     expect(passport).toContain('passport.evidenceVault');
-    expect(passport).toContain('No evidence returned');
-    expect(passport).toContain('does not insert demo documents');
+    // OC-NATIVE-FINAL-02-R1 P2-A: the same truthful missing state, in plain words.
+    expect(passport).toContain('No evidence to show');
+    expect(passport).toContain('Missing evidence is never treated as verified.');
     expect(passport).not.toContain('mockEvidence');
     expect(passport).not.toContain('demoEvidence');
   });

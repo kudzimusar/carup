@@ -127,6 +127,28 @@ function human(value: unknown): string | null {
   return normalized.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+// OC-NATIVE-FINAL-02-R1 P2-A — Trade detail printed raw ISO timestamps and internal record ids.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** A readable date ("1 Oct 2026"). A calendar date stays that date in every time zone. */
+function readableDate(value: unknown): string | null {
+  const raw = text(value);
+  if (!raw) return null;
+  const calendar = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (calendar) return `${Number(calendar[3])} ${MONTHS[Number(calendar[2]) - 1] ?? calendar[2]} ${calendar[1]}`;
+  const time = Date.parse(raw);
+  if (!Number.isFinite(time)) return null;
+  const date = new Date(time);
+  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/** A container number people can read; an internal record id is not shown. */
+function containerNumber(value: unknown): string | null {
+  const raw = text(value);
+  return raw && !UUID.test(raw) ? raw : null;
+}
+
 function routePlace(country: unknown, city: unknown): string | null {
   return [text(city), text(country)].filter(Boolean).join(', ') || null;
 }
@@ -166,7 +188,7 @@ function recordSubtitle(kind: TradeRecordKind, record: any): string | null {
     return [text(record?.city), text(record?.country)].filter(Boolean).join(', ') || null;
   }
   if (kind === 'containerSpace') {
-    const container = text(record?.container_id);
+    const container = containerNumber(record?.container_id);
     const volume = text(record?.estimated_volume);
     if (container && volume) return `Container ${container} · ${volume} m³`;
     if (container) return `Container ${container}`;
@@ -212,8 +234,8 @@ function toDetail(kind: TradeRecordKind, record: any): TradeRecordDetail {
     const budget = text(record?.budget_amount);
     const currency = text(record?.budget_currency);
     if (budget) fields.push({ label: 'Budget', value: currency ? `${currency} ${budget}` : budget });
-    addField(fields, 'Created', record?.created_at);
-    addField(fields, 'Updated', record?.updated_at);
+    addField(fields, 'Created', record?.created_at, readableDate);
+    addField(fields, 'Updated', record?.updated_at, readableDate);
   } else if (kind === 'tradeProfile') {
     addField(fields, 'Role', record?.role_type || record?.profile_type, human);
     addField(fields, 'Country', record?.country);
@@ -224,34 +246,30 @@ function toDetail(kind: TradeRecordKind, record: any): TradeRecordDetail {
     addField(fields, 'Disputes', record?.dispute_count);
     addField(fields, 'Rating', record?.rating_average);
   } else if (kind === 'containerSpace') {
-    addField(fields, 'Import order', record?.import_order_id);
-    addField(fields, 'Container', record?.container_id);
+    addField(fields, 'Container', record?.container_id, containerNumber);
     addField(fields, 'Cargo type', record?.cargo_type, human);
     addField(fields, 'Estimated volume', record?.estimated_volume, (value) => {
       const rendered = text(value);
       return rendered ? `${rendered} m³` : null;
     });
     addField(fields, 'Reservation status', record?.reservation_status, human);
-    addField(fields, 'Created', record?.created_at);
+    addField(fields, 'Created', record?.created_at, readableDate);
   } else if (kind === 'shipments') {
-    addField(fields, 'Import order', record?.import_order_id);
-    addField(fields, 'Container', record?.container_id);
+    addField(fields, 'Container', record?.container_id, containerNumber);
     addField(fields, 'Carrier', record?.carrier_name);
     addField(fields, 'Tracking number', record?.tracking_number);
     addField(fields, 'Origin port', record?.origin_port);
     addField(fields, 'Destination port', record?.destination_port);
-    addField(fields, 'Departure', record?.departure_date);
-    addField(fields, 'Estimated arrival', record?.estimated_arrival_date);
-    addField(fields, 'Actual arrival', record?.actual_arrival_date);
+    addField(fields, 'Departure', record?.departure_date, readableDate);
+    addField(fields, 'Estimated arrival', record?.estimated_arrival_date, readableDate);
+    addField(fields, 'Actual arrival', record?.actual_arrival_date, readableDate);
     addField(fields, 'Status', record?.status, human);
   } else {
-    addField(fields, 'Import order', record?.import_order_id);
     addField(fields, 'Document type', record?.document_type, human);
     addField(fields, 'File name', record?.file_name);
     addField(fields, 'Verification', record?.verification_status, human);
-    addField(fields, 'Reviewed at', record?.reviewed_at);
-    addField(fields, 'Created', record?.created_at);
-    addField(fields, 'OCR record', record?.ocr_document_id);
+    addField(fields, 'Reviewed', record?.reviewed_at, readableDate);
+    addField(fields, 'Created', record?.created_at, readableDate);
   }
 
   return { ...summary, fields };
@@ -324,8 +342,8 @@ function capabilityFromResult(
       label,
       endpoint,
       error.statusCode === 404
-        ? 'This governed Trade capability is not enabled in the current runtime.'
-        : 'This capability is not available to the current signed-in authority.',
+        ? 'This is not available yet.'
+        : 'Your account cannot see this.',
     );
   }
   throw error;
@@ -351,7 +369,7 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
         'importOrders',
         'My Import Orders',
         '/api/diaspora/import-orders?limit=20',
-        'Your governed import-order book.',
+        'Your import orders.',
         importOrders.length,
       ),
       capabilityFromResult(
@@ -359,14 +377,14 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
         'Trade Profile',
         '/api/diaspora/trade-profiles/me',
         profileResult,
-        'Your own governed Trade profile records.',
+        'Your trade profile.',
       ),
       capabilityFromResult(
         'containers',
         'Containers',
         '/api/diaspora/containers?limit=20',
         containersResult,
-        'Authenticated Trade container catalogue.',
+        'Containers listed on CarUp.',
       ),
       capabilityFromResult(
         'containerSpace',
@@ -374,8 +392,8 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
         '/api/diaspora/reservations?importOrderId=<authorized-order>',
         reservationsResult,
         orderIds.length
-          ? 'Cargo/container-space reservations read only through your authorized import orders.'
-          : 'No import orders yet, so there is no participant-scoped container reservation to show.',
+          ? 'Container space booked for your import orders.'
+          : 'No import orders yet, so there is no container space to show.',
       ),
       capabilityFromResult(
         'shipments',
@@ -383,8 +401,8 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
         '/api/diaspora/shipments?importOrderId=<authorized-order>',
         shipmentsResult,
         orderIds.length
-          ? 'Shipment records read only through your authorized import orders.'
-          : 'No import orders yet, so there is no participant-scoped shipment to show.',
+          ? 'Shipments for your import orders.'
+          : 'No import orders yet, so there are no shipments to show.',
       ),
       capabilityFromResult(
         'documents',
@@ -392,8 +410,8 @@ export async function getTradeGatewaySnapshot(): Promise<TradeGatewaySnapshot> {
         '/api/diaspora/import-orders/<authorized-order>/documents',
         documentsResult,
         orderIds.length
-          ? 'Trade documents read only through your authorized import orders.'
-          : 'No import orders yet, so there is no participant-scoped Trade document to show.',
+          ? 'Documents for your import orders.'
+          : 'No import orders yet, so there are no trade documents to show.',
       ),
     ],
   };

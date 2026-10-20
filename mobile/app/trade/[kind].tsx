@@ -58,7 +58,7 @@ export default function TradeRecordListScreen() {
         <EmptyState
           icon="cube-outline"
           title="Sign in to view Trade records"
-          body="Trade records are participant-scoped. CarUp will not show placeholder records while you are signed out."
+          body="Trade records are visible only to the people involved. Sign in to see yours."
           actionLabel="Sign in"
           onAction={() => router.push('/(auth)/login' as never)}
           secondaryLabel="Back to Trade"
@@ -74,7 +74,7 @@ export default function TradeRecordListScreen() {
         <EmptyState
           icon="alert-circle-outline"
           title="Trade view unavailable"
-          body="This Native route does not map to a certified Trade record type."
+          body="This link does not point to a kind of trade record the app can show."
           actionLabel="Back to Trade"
           onAction={() => router.replace('/(tabs)/trade' as never)}
         />
@@ -95,7 +95,7 @@ export default function TradeRecordListScreen() {
         {tradeRecordKindLabel(kind)}
       </Text>
       <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1], marginBottom: spacing[4] }}>
-        Only records returned by your current authenticated Trade authority are shown.
+        Only records you are involved in are shown.
       </Text>
 
       {query.isLoading ? (
@@ -105,12 +105,12 @@ export default function TradeRecordListScreen() {
       ) : query.isError ? (
         <EmptyState
           icon={denied ? 'lock-closed-outline' : 'cloud-offline-outline'}
-          title={denied ? 'Trade access denied' : unavailable ? 'Trade capability unavailable' : 'Trade records unavailable'}
+          title={denied ? 'Trade access denied' : unavailable ? 'Not available yet' : 'Trade records unavailable'}
           body={denied
-            ? 'The current account or workspace is not authorized to read these records.'
+            ? 'This account or workspace cannot see these records.'
             : unavailable
-              ? 'The current backend does not expose this read capability for your authority.'
-              : 'CarUp could not read the current Trade records. No synthetic records are being substituted.'}
+              ? 'These records are not available for your account yet.'
+              : 'CarUp could not load these records, so none are shown. Try again.'}
           actionLabel="Try again"
           onAction={() => void query.refetch()}
           secondaryLabel="Back to Trade"
@@ -119,8 +119,8 @@ export default function TradeRecordListScreen() {
       ) : (query.data || []).length === 0 ? (
         <EmptyState
           icon="document-text-outline"
-          title="No records returned"
-          body="The current Trade service returned no authorized records. CarUp will not create example or placeholder records."
+          title="No records yet"
+          body="You do not have any of these records yet. CarUp does not show example records."
           actionLabel="Refresh"
           onAction={() => void query.refetch()}
           secondaryLabel="Back to Trade"

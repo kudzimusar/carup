@@ -33,7 +33,7 @@ assert.match(conversation, /getCommunicationThread/, 'conversation detail loads 
 assert.match(conversation, /markCommunicationThreadRead/, 'conversation detail persists read state');
 assert.match(conversation, /sendCommunicationMessage/, 'conversation detail sends through CarUp');
 assert.match(conversation, /channel:\s*['"]in_app['"]/, 'native composer sends an in-app CarUp message');
-assert.match(conversation, /CarUp is the conversation record/, 'provider transport must not replace conversation identity');
+assert.match(conversation, /Your conversation stays in CarUp/, 'provider transport must not replace conversation identity');
 
 for (const key of ['push_enabled', 'whatsapp_enabled', 'telegram_enabled', 'email_enabled']) {
   assert.ok(account.includes(key), 'Account must expose the ' + key + ' delivery preference');

@@ -93,7 +93,7 @@ export default function InboxScreen() {
         <EmptyState
           icon="chatbubbles-outline"
           title="Inbox is not available for this workspace yet"
-          body="Your account stays signed in. CarUp will only show native conversation capabilities that are enabled for your current workspace."
+          body="You are still signed in. Your conversations will appear here once the Inbox is available for this workspace in the app."
           actionLabel="Go to Account"
           onAction={() => router.push('/(tabs)/account' as never)}
         />
@@ -115,13 +115,13 @@ export default function InboxScreen() {
     >
       <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary }}>Inbox</Text>
       <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1], marginBottom: spacing[4] }}>
-        CarUp is the conversation record. Delivery channels can carry messages without replacing the conversation.
+        Your conversations stay in CarUp. WhatsApp or email can carry messages, but the conversation is kept here.
       </Text>
 
       {hasError ? (
         <Notice
           title="Inbox could not refresh"
-          body="Check your connection and try again. CarUp will not invent conversation state while the service is unavailable."
+          body="Check your connection and try again. Nothing is shown in place of conversations CarUp could not load."
           tone="danger"
         />
       ) : null}
@@ -241,7 +241,7 @@ export default function InboxScreen() {
                   ) : null}
                   {!target ? (
                     <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[1] }}>
-                      No governed Native destination is attached to this update.
+                      There is nothing to open for this update in the app.
                     </Text>
                   ) : null}
                 </View>
