@@ -1,0 +1,488 @@
+name: OC-NATIVE FINAL-01C Owner-UAT Staging APK
+
+# Sibling of the frozen R2-R1 pre-UAT workflow (never mutated). Same build / install / launch /
+# runtime-proof mechanics; only the custody guard, the canonical API pairing and the package
+# classification differ. Dispatch only: no push trigger, so no branch push can rebuild it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-native-final-01c-owner-uat-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  R1_ACCEPTED_SHA: 0c96deeab09277bd371e717f26535d9f33a5f43a
+  FINAL_01B_SHA: 87599b5342dca0e8eb4d2620eab0a85e71293df4
+  FINAL_CA_SHA: 2b6a109911dbea9137893caa7c076bdfd9446deb
+  R2_R1_SHA: 7bdc2c83a18938070eef1b9872b38a965603672a
+  R2_R1_WORKFLOW: .github/workflows/oc-native-final-01a-r2-pre-uat.yml
+  OWNER_UAT_WORKFLOW: .github/workflows/oc-native-final-01c-owner-uat-apk.yml
+  EXPO_PUBLIC_API_URL: https://api-staging.carup.dev
+  PRE_UAT_ISOLATED_HOST: oc-native-final-isolated.invalid
+  STAGING_SUPABASE_REF: eoyenigwevnxwwhyhaer
+  SUPABASE_URL: http://127.0.0.1:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+
+jobs:
+  android-pre-uat-package:
+    name: Android · Owner-UAT staging APK (canonical api-staging) + install + launch
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Exact-head custody and frozen-tree guard (FINAL-01C)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$FINAL_01B_SHA" HEAD
+          git merge-base --is-ancestor "$R2_R1_SHA" HEAD
+          test "$(git rev-parse "$R1_ACCEPTED_SHA:mobile")" = "$(git rev-parse "HEAD:mobile")"
+          test "$(git rev-parse "$FINAL_01B_SHA:backend")" = "$(git rev-parse "HEAD:backend")"
+          test "$(git rev-parse "$FINAL_01B_SHA:database")" = "$(git rev-parse "HEAD:database")"
+          test "$(git rev-parse "$FINAL_CA_SHA:web")" = "$(git rev-parse "HEAD:web")"
+          test "$(git rev-parse "$R2_R1_SHA:$R2_R1_WORKFLOW")" = "$(git rev-parse "HEAD:$R2_R1_WORKFLOW")"
+          mapfile -t CHANGED < <(git diff --name-only "$FINAL_01B_SHA..HEAD" | LC_ALL=C sort)
+          printf '%s\n' "${CHANGED[@]}"
+          test "${#CHANGED[@]}" -eq 2
+          test "${CHANGED[0]}" = "$R2_R1_WORKFLOW"
+          test "${CHANGED[1]}" = "$OWNER_UAT_WORKFLOW"
+          git diff --check "$FINAL_01B_SHA..HEAD"
+
+      - name: Canonical staging pairing preflight (no Owner APK without the paired backend)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/oc-native-01c"
+          curl -fsS --max-time 30 "$EXPO_PUBLIC_API_URL/api/health" > "$RUNNER_TEMP/oc-native-01c/canonical-health.json"
+          node - "$RUNNER_TEMP/oc-native-01c/canonical-health.json" <<'NODE'
+          const fs = require('fs');
+          const h = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const b = h.build || {}; const d = h.database || {}; const o = (h.communications || {}).outbound || {};
+          const proof = { api: process.env.EXPO_PUBLIC_API_URL, commit_sha: b.commit_sha, deployment_id: b.deployment_id,
+            environment: b.environment, source: b.source, supabase_project_ref: d.supabase_project_ref, consistent: d.consistent,
+            kill_switch: o.kill_switch, external_sends: o.external_sends };
+          console.log(JSON.stringify(proof, null, 2));
+          if (b.commit_sha !== process.env.GITHUB_SHA) throw new Error('api-staging is not serving this exact source SHA');
+          if (d.supabase_project_ref !== process.env.STAGING_SUPABASE_REF || d.consistent !== true) throw new Error('api-staging is not on the staging database');
+          if (o.kill_switch !== 'active' || o.external_sends !== 'disabled') throw new Error('outbound communications are not disabled');
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/oc-native-01c/canonical-pairing-proof.json', JSON.stringify(proof, null, 2));
+          NODE
+          CODE="$(curl -sS -o "$RUNNER_TEMP/oc-native-01c/xuid-discriminator.json" -w '%{http_code}' --max-time 30 \
+            -H 'x-user-id: u_oc01c_ci_probe_absent_identity' "$EXPO_PUBLIC_API_URL/api/auth/me")"
+          test "$CODE" = "401"
+          node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if (j.error !== "Unauthorized. x-user-id fallback is unavailable outside local/test mode.") process.exit(1)' "$RUNNER_TEMP/oc-native-01c/xuid-discriminator.json"
+          echo "canonical_pairing=PASS" > "$RUNNER_TEMP/oc-native-01c/package-authority.txt"
+          echo "x_user_id_fallback=DENIED" >> "$RUNNER_TEMP/oc-native-01c/package-authority.txt"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove true Expo / React Native application authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('mobile/package.json', 'utf8'));
+          const app = JSON.parse(fs.readFileSync('mobile/app.json', 'utf8'));
+          const eas = JSON.parse(fs.readFileSync('mobile/eas.json', 'utf8'));
+          if (pkg.main !== 'expo-router/entry') throw new Error('Expo Router entry missing');
+          if (pkg.dependencies.expo !== '~54.0.37') throw new Error('Unexpected Expo authority');
+          if (pkg.dependencies['react-native'] !== '0.81.5') throw new Error('Unexpected React Native authority');
+          if (app.expo.sdkVersion !== '54.0.0') throw new Error('Unexpected SDK version');
+          if (app.expo.version !== '1.0.0') throw new Error('Unexpected application version');
+          if (app.expo.android.package !== 'com.carup.mobile') throw new Error('Unexpected Android package');
+          if (!app.expo.plugins.some((x) => x === 'expo-router')) throw new Error('expo-router plugin missing');
+          if (!app.expo.plugins.some((x) => x === 'expo-secure-store')) throw new Error('expo-secure-store plugin missing');
+          if (eas.build?.['android-device']?.distribution !== 'internal') throw new Error('android-device must remain internal');
+          if (eas.build?.['android-device']?.android?.buildType !== 'apk') throw new Error('android-device must remain APK');
+          const forbidden = ['@capacitor/core', '@capacitor/android', 'react-native-webview'];
+          for (const dep of forbidden) {
+            if (pkg.dependencies?.[dep] || pkg.devDependencies?.[dep]) throw new Error('Forbidden wrapper dependency: ' + dep);
+          }
+          console.log(JSON.stringify({
+            expo: pkg.dependencies.expo,
+            reactNative: pkg.dependencies['react-native'],
+            sdkVersion: app.expo.sdkVersion,
+            package: app.expo.android.package,
+            version: app.expo.version,
+            main: pkg.main,
+            buildProfile: 'android-device',
+            apiBaseMechanism: 'EXPO_PUBLIC_API_URL',
+            secureStorage: 'expo-secure-store'
+          }, null, 2));
+          NODE
+          if grep -R -E -n --include='*.ts' --include='*.tsx' --include='*.js'             'from ["'"'"']react-native-webview["'"'"']|require\(["'"'"']react-native-webview["'"'"']\)|@capacitor|TrustedWebActivity|TWA launcher' mobile; then
+            echo "::error::Web-wrapper implementation detected"
+            exit 1
+          fi
+          echo "true_expo_react_native=PASS" >> "$RUNNER_TEMP/oc-native-01c/package-authority.txt"
+          echo "twa_capacitor_web_wrapper_source=ABSENT" >> "$RUNNER_TEMP/oc-native-01c/package-authority.txt"
+
+      - name: Expo configuration validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/oc-native-01c"
+          cd mobile
+          npx expo config --type public --json > "$RUNNER_TEMP/oc-native-01c/expo-config.json"
+          node -e 'const j=require(process.argv[1]); if(j.android?.package!=="com.carup.mobile") process.exit(1); if(j.scheme!=="carup") process.exit(1)' "$RUNNER_TEMP/oc-native-01c/expo-config.json"
+          npx expo install --check
+
+      - name: Prebuild Android from Expo authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mobile
+          npx expo prebuild --platform android --clean --no-install
+
+          MAIN_ACTIVITY="$(find android/app/src/main/java -type f -name 'MainActivity.kt' -print -quit)"
+          if [ -z "$MAIN_ACTIVITY" ]; then
+            MAIN_ACTIVITY="$(find android/app/src/main/java -type f -name 'MainActivity.java' -print -quit)"
+          fi
+          test -n "$MAIN_ACTIVITY"
+          grep -Eq 'ReactActivity' "$MAIN_ACTIVITY"
+          if grep -R -Eiq 'Capacitor|TrustedWebActivity|androidbrowserhelper|android\\.webkit\\.WebView' android/app/src/main; then
+            echo "::error::Generated Android app contains a web-wrapper/TWA/Capacitor indicator"
+            exit 1
+          fi
+          echo "react_activity_main=PASS" >> "$RUNNER_TEMP/oc-native-01c/package-authority.txt"
+          echo "twa_capacitor_web_wrapper_generated=ABSENT" >> "$RUNNER_TEMP/oc-native-01c/package-authority.txt"
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build, install, launch and recustody Android package
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          OC01C_ANDROID_SCRIPT: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/oc-native-01c"
+            mkdir -p "$OUT"
+            RUNTIME="$OUT/runtime-proof.txt"
+            : > "$RUNTIME"
+            echo "runtime_complete=NO" >> "$RUNTIME"
+            QUICKSTEP_COUNT=0
+
+            DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
+            test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
+            adb wait-for-device
+
+            BOOT_READY=NO
+            for i in $(seq 1 90); do
+              if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] \
+                && adb shell pm list packages android >/dev/null 2>&1 \
+                && adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1; then
+                BOOT_READY=YES
+                break
+              fi
+              sleep 2
+            done
+            test "$BOOT_READY" = "YES" || { echo "::error::Android emulator never reached stable boot/package-manager state"; exit 1; }
+            echo "android_boot_stable=PASS" >> "$RUNTIME"
+
+            cd mobile/android
+            ./gradlew assembleRelease --no-daemon
+
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
+            cp "$APK" "$OUT/carup-owner-uat-staging.apk"
+            APK_SHA256="$(sha256sum "$OUT/carup-owner-uat-staging.apk" | awk '{print $1}')"
+            printf '%s  %s\n' "$APK_SHA256" "carup-owner-uat-staging.apk" > "$OUT/apk-sha256.txt"
+            PACKAGE_NAME="com.carup.mobile"
+            echo "apk_build=PASS" >> "$RUNTIME"
+
+            BUNDLE="$(find app/build -type f -name 'index.android.bundle' -print -quit)"
+            test -n "$BUNDLE" || { echo "::error::React Native release bundle not found"; exit 1; }
+            strings "$BUNDLE" | grep -F "$EXPO_PUBLIC_API_URL" > "$OUT/api-base-binary-proof.txt"
+            echo "api_base_baked_into_bundle=PASS" >> "$RUNTIME"
+            unzip -p "$OUT/carup-owner-uat-staging.apk" assets/index.android.bundle > "$OUT/apk-index.android.bundle"
+            test -s "$OUT/apk-index.android.bundle"
+            strings "$OUT/apk-index.android.bundle" | grep -F "$EXPO_PUBLIC_API_URL" > "$OUT/api-base-apk-binary-proof.txt"
+            if strings "$OUT/apk-index.android.bundle" | grep -F "$PRE_UAT_ISOLATED_HOST"; then
+              echo "::error::The pre-UAT isolated host is baked into the Owner-UAT APK"
+              exit 1
+            fi
+            echo "api_base_baked_into_apk=PASS" >> "$RUNTIME"
+            echo "pre_uat_isolated_host_in_apk=ABSENT" >> "$RUNTIME"
+            APK_SIZE="$(stat -c %s "$OUT/carup-owner-uat-staging.apk")"
+            mkdir -p "$RUNNER_TEMP/oc-native-01c-apk"
+            cp "$OUT/carup-owner-uat-staging.apk" "$RUNNER_TEMP/oc-native-01c-apk/carup-owner-uat-staging.apk"
+            cp "$OUT/apk-sha256.txt" "$RUNNER_TEMP/oc-native-01c-apk/SHA256SUMS.txt"
+
+            adb uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
+            adb install "$APK"
+            adb shell pm path "$PACKAGE_NAME" | tee "$OUT/install-proof.txt"
+            grep -Fq 'package:' "$OUT/install-proof.txt"
+            echo "apk_install=PASS" >> "$RUNTIME"
+
+            adb shell dumpsys package "$PACKAGE_NAME" > "$OUT/package-dumpsys.txt"
+            VERSION_CODE="$(sed -n 's/.*versionCode=\([0-9][0-9]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
+            VERSION_NAME="$(sed -n 's/.*versionName=\([^[:space:]]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
+            test -n "$VERSION_CODE"
+            test -n "$VERSION_NAME"
+            test "$VERSION_NAME" = "1.0.0" || { echo "::error::versionName $VERSION_NAME is not 1.0.0"; exit 1; }
+            test "$VERSION_CODE" = "1" || { echo "::error::versionCode $VERSION_CODE is not 1"; exit 1; }
+            adb shell pm clear "$PACKAGE_NAME" >/dev/null
+
+            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$PACKAGE_NAME" | tr -d '\r' | tail -n1)"
+            case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "::error::Invalid launcher $LAUNCH_COMPONENT"; exit 1;; esac
+
+            assert_foreground() {
+              local label="$1"
+              local resumed
+              resumed="$(adb shell dumpsys activity activities | tr -d '\r' | grep -E -m1 'mResumedActivity|topResumedActivity' || true)"
+              echo "$label: $resumed" >> "$OUT/foreground-proof.txt"
+              [[ "$resumed" == *"com.carup.mobile/"* ]] || { echo "::error::CarUp is not foreground for $label: $resumed"; exit 1; }
+              if [[ "$resumed" == *"com.android.chrome/"* || "$resumed" == *"browser"* ]]; then
+                echo "::error::Browser shell detected"
+                exit 1
+              fi
+            }
+
+            dump_ui() {
+              local name="$1"
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
+              adb pull /sdcard/window.xml "$OUT/$name.xml" >/dev/null 2>&1 || return 1
+            }
+
+            fail_on_carup_system_dialog() {
+              local xml="$1"
+              if grep -Fq "CarUp isn't responding" "$xml" || grep -Fq "CarUp keeps stopping" "$xml"; then
+                cp "$xml" "$OUT/carup-system-failure.xml"
+                echo "carup_anr_or_crash_dialog=PRESENT" >> "$RUNTIME"
+                echo "::error::CarUp ANR/crash system dialog detected"
+                exit 1
+              fi
+            }
+
+            dismiss_exact_quickstep_overlay() {
+              local xml="$1"
+              if ! grep -Fq "Quickstep isn't responding" "$xml"; then
+                return 1
+              fi
+              grep -Fq 'package="android"' "$xml" || {
+                echo "::error::Quickstep text appeared outside the Android system dialog package"
+                exit 1
+              }
+              QUICKSTEP_COUNT=$((QUICKSTEP_COUNT + 1))
+              cp "$xml" "$OUT/quickstep-anr-$QUICKSTEP_COUNT.xml"
+              echo "quickstep_overlay_$QUICKSTEP_COUNT=PROVEN" >> "$RUNTIME"
+
+              local tap
+              tap="$(python - "$xml" <<'PY'
+            import re, sys
+            src=open(sys.argv[1], encoding='utf-8').read()
+            m=re.search(r'<node[^>]+(?:text="Wait"|resource-id="android:id/aerr_wait")[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', src)
+            if not m:
+                raise SystemExit(2)
+            x1,y1,x2,y2=map(int,m.groups())
+            print((x1+x2)//2, (y1+y2)//2)
+            PY
+              )" || {
+                echo "::error::Exact Quickstep ANR was proven but its Android Wait control could not be resolved"
+                exit 1
+              }
+              read -r TAP_X TAP_Y <<< "$tap"
+              adb shell input tap "$TAP_X" "$TAP_Y"
+              sleep 2
+              adb shell am start -W -n "$LAUNCH_COMPONENT" >> "$OUT/quickstep-recovery.txt"
+              sleep 2
+              assert_foreground "quickstep-recovery-$QUICKSTEP_COUNT"
+              return 0
+            }
+
+            wait_for_native_ui() {
+              local label="$1"
+              local required="$2"
+              local loops="$3"
+              local current="$OUT/$label-current.xml"
+              for i in $(seq 1 "$loops"); do
+                if dump_ui "$label-current"; then
+                  fail_on_carup_system_dialog "$current"
+                  if dismiss_exact_quickstep_overlay "$current"; then
+                    continue
+                  fi
+                  if grep -Fq "$required" "$current"; then
+                    cp "$current" "$OUT/$label.xml"
+                    grep -Fq 'package="com.carup.mobile"' "$OUT/$label.xml" || {
+                      echo "::error::$label text was not rendered by the CarUp native package"
+                      exit 1
+                    }
+                    return 0
+                  fi
+                fi
+                sleep 1
+              done
+              [ -f "$current" ] && cp "$current" "$OUT/$label-timeout.xml"
+              echo "::error::Expected CarUp native UI '$required' did not appear for $label after bounded recovery"
+              exit 1
+            }
+
+            assert_no_carup_fatal_runtime() {
+              adb logcat -d > "$OUT/carup-logcat.txt" || true
+              if grep -Eiq 'ANR in com\.carup\.mobile|Process: com\.carup\.mobile' "$OUT/carup-logcat.txt"; then
+                echo "carup_fatal_exception=PRESENT" >> "$RUNTIME"
+                echo "::error::CarUp ANR/fatal process evidence detected in logcat"
+                exit 1
+              fi
+              if grep -Eiq 'Native module.*SecureStore.*(not found|missing)|Failed to initialize secure auth store' "$OUT/carup-logcat.txt"; then
+                echo "securestore_runtime_initialization=FAIL" >> "$RUNTIME"
+                echo "::error::SecureStore runtime initialization failure detected"
+                exit 1
+              fi
+            }
+
+            adb logcat -c
+            adb shell am force-stop "$PACKAGE_NAME"
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/cold-launch.txt"
+            grep -Fq 'Status: ok' "$OUT/cold-launch.txt"
+            grep -Fq "Activity: $LAUNCH_COMPONENT" "$OUT/cold-launch.txt"
+            sleep 5
+            assert_foreground cold-launch
+            test -n "$(adb shell pidof "$PACKAGE_NAME" | tr -d '\r')"
+            echo "cold_launch=PASS" >> "$RUNTIME"
+            echo "carup_foreground=PASS" >> "$RUNTIME"
+
+            # Immutable package custody is written as soon as package identity, binary API pairing,
+            # install, version, cold launch and foreground authority are proven. Runtime UI checks
+            # continue separately and cannot make custody.txt imply their completion.
+            {
+              echo "classification=OWNER_UAT_STAGING_APK"
+              echo "not_a_production_apk=YES"
+              echo "source_sha=$GITHUB_SHA"
+              echo "final_01b_parent=$FINAL_01B_SHA"
+              echo "r2_r1_authority=$R2_R1_SHA"
+              echo "final_ca=$FINAL_CA_SHA"
+              echo "r1_parent=$R1_ACCEPTED_SHA"
+              echo "build_profile=github-owner-uat-release-apk"
+              echo "eas_profile_reference=android-device"
+              echo "builder=expo-prebuild+gradle-assembleRelease"
+              echo "application_id=$PACKAGE_NAME"
+              echo "version=$VERSION_NAME"
+              echo "version_code=$VERSION_CODE"
+              echo "apk_sha256=$APK_SHA256"
+              echo "apk_size_bytes=$APK_SIZE"
+              echo "apk_artifact_name=oc-native-final-01c-owner-uat-staging-apk-$GITHUB_SHA"
+              echo "artifact_type=APK"
+              echo "api_base=$EXPO_PUBLIC_API_URL"
+              echo "api_base_baked_into_bundle=YES"
+              echo "api_base_baked_into_apk=YES"
+              echo "canonical_backend_commit=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).commit_sha)' "$OUT/canonical-pairing-proof.json")"
+              echo "canonical_backend_deployment=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).deployment_id)' "$OUT/canonical-pairing-proof.json")"
+              echo "launcher_component=$LAUNCH_COMPONENT"
+              echo "production_touched=NO"
+              echo "owner_credentials_used=NO"
+              echo "owner_native_uat_performed=NO"
+              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
+              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+            } > "$OUT/custody.txt"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" "$PACKAGE_NAME" | tee "$OUT/login-deeplink.txt"
+            grep -Fq 'Status: ok' "$OUT/login-deeplink.txt"
+            echo "login_deeplink_dispatch=PASS" >> "$RUNTIME"
+            wait_for_native_ui login 'Sign in to CarUp' 35
+            grep -Fq 'Email' "$OUT/login.xml"
+            grep -Fq 'Password' "$OUT/login.xml"
+            grep -Fq 'Sign In' "$OUT/login.xml"
+            assert_foreground login-route
+            adb exec-out screencap -p > "$OUT/login.png"
+            echo "login_native_ui=PASS" >> "$RUNTIME"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://register" "$PACKAGE_NAME" | tee "$OUT/register-deeplink.txt"
+            grep -Fq 'Status: ok' "$OUT/register-deeplink.txt"
+            echo "register_deeplink_dispatch=PASS" >> "$RUNTIME"
+            wait_for_native_ui register 'Create Account' 35
+            assert_foreground register-route
+            adb exec-out screencap -p > "$OUT/register.png"
+            echo "register_native_ui=PASS" >> "$RUNTIME"
+
+            adb shell input keyevent KEYCODE_HOME
+            sleep 2
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/foreground-resume.txt"
+            grep -Fq 'Status: ok' "$OUT/foreground-resume.txt"
+            sleep 3
+            if dump_ui foreground-resume-check; then
+              fail_on_carup_system_dialog "$OUT/foreground-resume-check.xml"
+              dismiss_exact_quickstep_overlay "$OUT/foreground-resume-check.xml" || true
+            fi
+            assert_foreground foreground-resume
+            echo "background_foreground=PASS" >> "$RUNTIME"
+
+            adb shell am force-stop "$PACKAGE_NAME"
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/restart.txt"
+            grep -Fq 'Status: ok' "$OUT/restart.txt"
+            sleep 3
+            if dump_ui restart-check; then
+              fail_on_carup_system_dialog "$OUT/restart-check.xml"
+              dismiss_exact_quickstep_overlay "$OUT/restart-check.xml" || true
+            fi
+            assert_foreground full-restart
+            test -n "$(adb shell pidof "$PACKAGE_NAME" | tr -d '\r')"
+            echo "full_restart=PASS" >> "$RUNTIME"
+            echo "post_restart_carup_foreground=PASS" >> "$RUNTIME"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" "$PACKAGE_NAME" > "$OUT/post-restart-login-deeplink.txt"
+            wait_for_native_ui post-restart-login 'Sign in to CarUp' 25
+            assert_foreground post-restart-login
+            assert_no_carup_fatal_runtime
+            echo "securestore_runtime_initialization=PASS" >> "$RUNTIME"
+            echo "carup_anr=ABSENT" >> "$RUNTIME"
+            echo "carup_fatal_exception=ABSENT" >> "$RUNTIME"
+            if [ "$QUICKSTEP_COUNT" -gt 0 ]; then
+              echo "quickstep_overlay_handling=PASS" >> "$RUNTIME"
+            else
+              echo "quickstep_overlay_handling=NOT_ENCOUNTERED" >> "$RUNTIME"
+            fi
+            echo "runtime_complete=YES" >> "$RUNTIME"
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: bash -c "$OC01C_ANDROID_SCRIPT"
+
+      - name: Upload Owner-UAT runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-final-01c-owner-uat-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/oc-native-01c
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Owner-UAT staging APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc-native-final-01c-owner-uat-staging-apk-${{ github.sha }}
+          path: ${{ runner.temp }}/oc-native-01c-apk
+          if-no-files-found: error
+          retention-days: 30
