@@ -37,6 +37,13 @@ const INQUIRY_TYPE_LABELS: Record<string, string> = {
 
 const DEFAULT_TYPES: MarketplaceInquiryType[] = ['vehicle_purchase_interest', 'vehicle_inspection_request']
 
+/**
+ * OC-NATIVE-FINAL-02-R1 P2-B — the backend resolves a seller ONLY for these types on a listing
+ * (marketplaceInquiryService VEHICLE_BOUND_TYPES). Any other inquiry is recorded with no seller for
+ * CarUp's marketplace reviewers, so the modal must not promise that a seller receives it.
+ */
+const SELLER_BOUND_INQUIRY_TYPES: readonly string[] = ['vehicle_purchase_interest', 'vehicle_inspection_request', 'dealer_stock_request', 'trade_in_request']
+
 type PreferredContact = 'carup' | 'whatsapp' | 'email'
 type ExternalContact = Exclude<PreferredContact, 'carup'>
 const EXTERNAL_CONTACTS: ExternalContact[] = ['whatsapp', 'email']
@@ -83,6 +90,7 @@ export function InquiryModal({
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [inquiryType, setInquiryType] = useState<MarketplaceInquiryType>(defaultInquiryType || inquiryTypes[0])
+  const sellerResolved = Boolean(listingId) && SELLER_BOUND_INQUIRY_TYPES.includes(inquiryType)
 
   // The open action is non-authoritative interaction telemetry. Inquiry truth begins only
   // after the server persists the inquiry row.
@@ -137,7 +145,9 @@ export function InquiryModal({
         metadata: { preferred_contact: preferredContact, ...(intentMetadata || {}) },
         ...attribution,
       })
-      toast.success('Inquiry sent. Continue the conversation safely through CarUp.')
+      toast.success(sellerResolved
+        ? 'Inquiry sent. Continue the conversation safely through CarUp.'
+        : 'Request recorded. It has not been sent to a seller or supplier.')
       setOpen(false)
       setMessage(defaultMessage)
       onSubmitted?.(inquiry.id)
@@ -164,6 +174,12 @@ export function InquiryModal({
           <DialogDescription>
             Your message stays in a CarUp conversation. You can choose where CarUp should deliver replies.
           </DialogDescription>
+          {!sellerResolved && (
+            <p className="text-[13px] text-amber-800" data-testid="inquiry-recipient-note">
+              This request is not sent to a particular seller or supplier. CarUp records it for its
+              marketplace team, and no one is contacted automatically.
+            </p>
+          )}
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           {inquiryTypes.length > 1 && (
@@ -194,7 +210,7 @@ export function InquiryModal({
             </div>
           </div>
           <div>
-            <Label className="mb-1 block text-xs">Deliver seller replies through</Label>
+            <Label className="mb-1 block text-xs">{sellerResolved ? 'Deliver seller replies through' : 'Deliver replies through'}</Label>
             <Select value={preferredContact} onValueChange={(v) => setPreferredContact(v as PreferredContact)}>
               <SelectTrigger data-testid="marketplace-inquiry-preferred-contact" data-preferred-contact={preferredContact}><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -213,8 +229,10 @@ export function InquiryModal({
             </Select>
             {guestDeliveryPaused ? (
               <p className="mt-1 text-[13px] text-amber-800" data-testid="guest-delivery-paused">
-                CarUp can&rsquo;t deliver replies by WhatsApp or email right now. Your inquiry still reaches the
-                seller with the contact details you leave here.{' '}
+                CarUp can&rsquo;t deliver replies by WhatsApp or email right now.{' '}
+                {sellerResolved
+                  ? 'Your inquiry still reaches the seller with the contact details you leave here.'
+                  : 'Your request is still recorded with the contact details you leave here.'}{' '}
                 <Link className="font-medium underline" to={`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`}>
                   Sign in
                 </Link>{' '}to follow it in your CarUp inbox.

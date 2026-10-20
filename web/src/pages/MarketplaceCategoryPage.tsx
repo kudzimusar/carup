@@ -167,7 +167,9 @@ export default function MarketplaceCategoryPage({ kind }: { kind: 'part' | 'serv
             <h3 className="text-lg font-semibold">{kind === 'part' ? 'No governed parts listings are live yet' : 'No service listings here yet'}</h3>
             <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
               {kind === 'part'
-                ? 'Verified, PartSentry-governed parts will appear here as suppliers are onboarded. In the meantime, request a quote and our team will source safely.'
+                /* OC-NATIVE-FINAL-02-R1 P2-B — this promised "our team will source safely". A parts request
+                   is recorded with no seller or supplier and nobody is contacted automatically. */
+                ? 'Verified, PartSentry-governed parts will appear here as suppliers are onboarded. In the meantime you can record a parts request; it is not sent to a supplier automatically.'
                 /* R9 — this page used to say "service providers are onboarding" while the Garage
                    Directory already listed published garages, and promised a "vetted provider"
                    while the garage profile correctly states CarUp has verified nothing. Both
@@ -236,9 +238,10 @@ export default function MarketplaceCategoryPage({ kind }: { kind: 'part' | 'serv
                       triggerVariant="outline"
                       triggerClassName="w-full"
                       intentMetadata={fitmentMetadata}
+                      // The request carries no listing id, so the message itself names the part it is about.
                       defaultMessage={fitMake || fitModel || fitYear
-                        ? `Please confirm whether this part fits my ${[fitYear, fitMake, fitModel].filter(Boolean).join(' ')}.`
-                        : 'Please confirm compatibility and quote this part.'}
+                        ? `Part: ${p.part_name || 'Part'}. Please confirm whether it fits my ${[fitYear, fitMake, fitModel].filter(Boolean).join(' ')}.`
+                        : `Part: ${p.part_name || 'Part'}. Please confirm compatibility and quote this part.`}
                     />
                   </div>
               </article>
