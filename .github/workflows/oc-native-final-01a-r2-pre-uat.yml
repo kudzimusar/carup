@@ -44,6 +44,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Exact-head custody and frozen product guard
         shell: bash
@@ -142,8 +143,27 @@ jobs:
             set -euo pipefail
             OUT="$RUNNER_TEMP/oc-native-r2"
             mkdir -p "$OUT"
+            RUNTIME="$OUT/runtime-proof.txt"
+            : > "$RUNTIME"
+            echo "runtime_complete=NO" >> "$RUNTIME"
+            QUICKSTEP_COUNT=0
+
             DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
             test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
+            adb wait-for-device
+
+            BOOT_READY=NO
+            for i in $(seq 1 90); do
+              if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] \
+                && adb shell pm list packages android >/dev/null 2>&1 \
+                && adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1; then
+                BOOT_READY=YES
+                break
+              fi
+              sleep 2
+            done
+            test "$BOOT_READY" = "YES" || { echo "::error::Android emulator never reached stable boot/package-manager state"; exit 1; }
+            echo "android_boot_stable=PASS" >> "$RUNTIME"
 
             cd mobile/android
             ./gradlew assembleRelease --no-daemon
@@ -151,24 +171,30 @@ jobs:
             APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
             test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
             cp "$APK" "$OUT/carup-r2-pre-uat.apk"
-            sha256sum "$OUT/carup-r2-pre-uat.apk" > "$OUT/apk-sha256.txt"
+            APK_SHA256="$(sha256sum "$OUT/carup-r2-pre-uat.apk" | awk '{print $1}')"
+            printf '%s  %s\n' "$APK_SHA256" "carup-r2-pre-uat.apk" > "$OUT/apk-sha256.txt"
             PACKAGE_NAME="com.carup.mobile"
+            echo "apk_build=PASS" >> "$RUNTIME"
 
             BUNDLE="$(find app/build -type f -name 'index.android.bundle' -print -quit)"
             test -n "$BUNDLE" || { echo "::error::React Native release bundle not found"; exit 1; }
             strings "$BUNDLE" | grep -F "$EXPO_PUBLIC_API_URL" > "$OUT/api-base-binary-proof.txt"
+            echo "api_base_baked_into_bundle=PASS" >> "$RUNTIME"
 
-            adb uninstall com.carup.mobile >/dev/null 2>&1 || true
+            adb uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
             adb install "$APK"
-            adb shell pm path com.carup.mobile | tee "$OUT/install-proof.txt"
-            adb shell dumpsys package com.carup.mobile > "$OUT/package-dumpsys.txt"
+            adb shell pm path "$PACKAGE_NAME" | tee "$OUT/install-proof.txt"
+            grep -Fq 'package:' "$OUT/install-proof.txt"
+            echo "apk_install=PASS" >> "$RUNTIME"
+
+            adb shell dumpsys package "$PACKAGE_NAME" > "$OUT/package-dumpsys.txt"
             VERSION_CODE="$(sed -n 's/.*versionCode=\([0-9][0-9]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
             VERSION_NAME="$(sed -n 's/.*versionName=\([^[:space:]]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
             test -n "$VERSION_CODE"
             test -n "$VERSION_NAME"
-            adb shell pm clear com.carup.mobile >/dev/null
+            adb shell pm clear "$PACKAGE_NAME" >/dev/null
 
-            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.carup.mobile | tr -d '\r' | tail -n1)"
+            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$PACKAGE_NAME" | tr -d '\r' | tail -n1)"
             case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "::error::Invalid launcher $LAUNCH_COMPONENT"; exit 1;; esac
 
             assert_foreground() {
@@ -185,65 +211,111 @@ jobs:
 
             dump_ui() {
               local name="$1"
-              adb shell uiautomator dump /sdcard/window.xml >/dev/null
-              adb pull /sdcard/window.xml "$OUT/$name.xml" >/dev/null
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
+              adb pull /sdcard/window.xml "$OUT/$name.xml" >/dev/null 2>&1 || return 1
+            }
+
+            fail_on_carup_system_dialog() {
+              local xml="$1"
+              if grep -Fq "CarUp isn't responding" "$xml" || grep -Fq "CarUp keeps stopping" "$xml"; then
+                cp "$xml" "$OUT/carup-system-failure.xml"
+                echo "carup_anr_or_crash_dialog=PRESENT" >> "$RUNTIME"
+                echo "::error::CarUp ANR/crash system dialog detected"
+                exit 1
+              fi
+            }
+
+            dismiss_exact_quickstep_overlay() {
+              local xml="$1"
+              if ! grep -Fq "Quickstep isn't responding" "$xml"; then
+                return 1
+              fi
+              grep -Fq 'package="android"' "$xml" || {
+                echo "::error::Quickstep text appeared outside the Android system dialog package"
+                exit 1
+              }
+              QUICKSTEP_COUNT=$((QUICKSTEP_COUNT + 1))
+              cp "$xml" "$OUT/quickstep-anr-$QUICKSTEP_COUNT.xml"
+              echo "quickstep_overlay_$QUICKSTEP_COUNT=PROVEN" >> "$RUNTIME"
+
+              local tap
+              tap="$(python - "$xml" <<'PY'
+import re, sys
+src=open(sys.argv[1], encoding='utf-8').read()
+m=re.search(r'<node[^>]+(?:text="Wait"|resource-id="android:id/aerr_wait")[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', src)
+if not m:
+    raise SystemExit(2)
+x1,y1,x2,y2=map(int,m.groups())
+print((x1+x2)//2, (y1+y2)//2)
+PY
+              )" || {
+                echo "::error::Exact Quickstep ANR was proven but its Android Wait control could not be resolved"
+                exit 1
+              }
+              read -r TAP_X TAP_Y <<< "$tap"
+              adb shell input tap "$TAP_X" "$TAP_Y"
+              sleep 2
+              adb shell am start -W -n "$LAUNCH_COMPONENT" >> "$OUT/quickstep-recovery.txt"
+              sleep 2
+              assert_foreground "quickstep-recovery-$QUICKSTEP_COUNT"
+              return 0
+            }
+
+            wait_for_native_ui() {
+              local label="$1"
+              local required="$2"
+              local loops="$3"
+              local current="$OUT/$label-current.xml"
+              for i in $(seq 1 "$loops"); do
+                if dump_ui "$label-current"; then
+                  fail_on_carup_system_dialog "$current"
+                  if dismiss_exact_quickstep_overlay "$current"; then
+                    continue
+                  fi
+                  if grep -Fq "$required" "$current"; then
+                    cp "$current" "$OUT/$label.xml"
+                    grep -Fq 'package="com.carup.mobile"' "$OUT/$label.xml" || {
+                      echo "::error::$label text was not rendered by the CarUp native package"
+                      exit 1
+                    }
+                    return 0
+                  fi
+                fi
+                sleep 1
+              done
+              [ -f "$current" ] && cp "$current" "$OUT/$label-timeout.xml"
+              echo "::error::Expected CarUp native UI '$required' did not appear for $label after bounded recovery"
+              exit 1
+            }
+
+            assert_no_carup_fatal_runtime() {
+              adb logcat -d > "$OUT/carup-logcat.txt" || true
+              if grep -Eiq 'ANR in com\.carup\.mobile|Process: com\.carup\.mobile' "$OUT/carup-logcat.txt"; then
+                echo "carup_fatal_exception=PRESENT" >> "$RUNTIME"
+                echo "::error::CarUp ANR/fatal process evidence detected in logcat"
+                exit 1
+              fi
+              if grep -Eiq 'Native module.*SecureStore.*(not found|missing)|Failed to initialize secure auth store' "$OUT/carup-logcat.txt"; then
+                echo "securestore_runtime_initialization=FAIL" >> "$RUNTIME"
+                echo "::error::SecureStore runtime initialization failure detected"
+                exit 1
+              fi
             }
 
             adb logcat -c
-            adb shell am force-stop com.carup.mobile
+            adb shell am force-stop "$PACKAGE_NAME"
             adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/cold-launch.txt"
+            grep -Fq 'Status: ok' "$OUT/cold-launch.txt"
+            grep -Fq "Activity: $LAUNCH_COMPONENT" "$OUT/cold-launch.txt"
             sleep 5
             assert_foreground cold-launch
-            test -n "$(adb shell pidof com.carup.mobile | tr -d '\r')"
+            test -n "$(adb shell pidof "$PACKAGE_NAME" | tr -d '\r')"
+            echo "cold_launch=PASS" >> "$RUNTIME"
+            echo "carup_foreground=PASS" >> "$RUNTIME"
 
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile | tee "$OUT/login-deeplink.txt"
-            for i in $(seq 1 20); do
-              dump_ui login
-              if grep -Fq 'Sign in to CarUp' "$OUT/login.xml"; then break; fi
-              sleep 1
-            done
-            grep -Fq 'Sign in to CarUp' "$OUT/login.xml"
-            grep -Fq 'Email' "$OUT/login.xml"
-            grep -Fq 'Password' "$OUT/login.xml"
-            assert_foreground login-route
-            adb exec-out screencap -p > "$OUT/login.png"
-
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://register" com.carup.mobile | tee "$OUT/register-deeplink.txt"
-            for i in $(seq 1 20); do
-              dump_ui register
-              if grep -Fq 'Create Account' "$OUT/register.xml"; then break; fi
-              sleep 1
-            done
-            grep -Fq 'Create Account' "$OUT/register.xml"
-            # Registration is intentionally a scrollable form. Runtime package proof requires that
-            # the deep link resolves to the native screen and renders its heading; field presence is
-            # already source/static-authority evidence and must not depend on initial viewport height.
-            assert_foreground register-route
-            adb exec-out screencap -p > "$OUT/register.png"
-
-            adb shell input keyevent KEYCODE_HOME
-            sleep 2
-            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/foreground-resume.txt"
-            sleep 3
-            assert_foreground foreground-resume
-
-            adb shell am force-stop com.carup.mobile
-            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/restart.txt"
-            sleep 3
-            assert_foreground full-restart
-            test -n "$(adb shell pidof com.carup.mobile | tr -d '\r')"
-
-            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" com.carup.mobile >/dev/null
-            sleep 2
-            PID="$(adb shell pidof com.carup.mobile | tr -d '\r')"
-            test -n "$PID"
-            adb logcat --pid="$PID" -d > "$OUT/carup-logcat.txt" || true
-            if grep -Eiq 'Native module.*SecureStore.*(not found|missing)|Failed to initialize secure auth store|FATAL EXCEPTION|AndroidRuntime: FATAL' "$OUT/carup-logcat.txt"; then
-              echo "::error::Secure session/runtime initialization failure detected"
-              cat "$OUT/carup-logcat.txt"
-              exit 1
-            fi
-
+            # Immutable package custody is written as soon as package identity, binary API pairing,
+            # install, version, cold launch and foreground authority are proven. Runtime UI checks
+            # continue separately and cannot make custody.txt imply their completion.
             {
               echo "classification=PRE_UAT_NATIVE_BUILD"
               echo "source_sha=$GITHUB_SHA"
@@ -254,16 +326,75 @@ jobs:
               echo "application_id=$PACKAGE_NAME"
               echo "version=$VERSION_NAME"
               echo "version_code=$VERSION_CODE"
+              echo "apk_sha256=$APK_SHA256"
               echo "artifact_type=APK"
               echo "api_base=$EXPO_PUBLIC_API_URL"
               echo "api_base_baked_into_bundle=YES"
+              echo "launcher_component=$LAUNCH_COMPONENT"
               echo "production_touched=NO"
-              echo "owner_credentials_used=NO"
               echo "canonical_staging_mutated=NO"
+              echo "owner_credentials_used=NO"
               echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
               echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-              echo "launcher_component=$LAUNCH_COMPONENT"
             } > "$OUT/custody.txt"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" "$PACKAGE_NAME" | tee "$OUT/login-deeplink.txt"
+            grep -Fq 'Status: ok' "$OUT/login-deeplink.txt"
+            echo "login_deeplink_dispatch=PASS" >> "$RUNTIME"
+            wait_for_native_ui login 'Sign in to CarUp' 35
+            grep -Fq 'Email' "$OUT/login.xml"
+            grep -Fq 'Password' "$OUT/login.xml"
+            grep -Fq 'Sign In' "$OUT/login.xml"
+            assert_foreground login-route
+            adb exec-out screencap -p > "$OUT/login.png"
+            echo "login_native_ui=PASS" >> "$RUNTIME"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://register" "$PACKAGE_NAME" | tee "$OUT/register-deeplink.txt"
+            grep -Fq 'Status: ok' "$OUT/register-deeplink.txt"
+            echo "register_deeplink_dispatch=PASS" >> "$RUNTIME"
+            wait_for_native_ui register 'Create Account' 35
+            assert_foreground register-route
+            adb exec-out screencap -p > "$OUT/register.png"
+            echo "register_native_ui=PASS" >> "$RUNTIME"
+
+            adb shell input keyevent KEYCODE_HOME
+            sleep 2
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/foreground-resume.txt"
+            grep -Fq 'Status: ok' "$OUT/foreground-resume.txt"
+            sleep 3
+            if dump_ui foreground-resume-check; then
+              fail_on_carup_system_dialog "$OUT/foreground-resume-check.xml"
+              dismiss_exact_quickstep_overlay "$OUT/foreground-resume-check.xml" || true
+            fi
+            assert_foreground foreground-resume
+            echo "background_foreground=PASS" >> "$RUNTIME"
+
+            adb shell am force-stop "$PACKAGE_NAME"
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/restart.txt"
+            grep -Fq 'Status: ok' "$OUT/restart.txt"
+            sleep 3
+            if dump_ui restart-check; then
+              fail_on_carup_system_dialog "$OUT/restart-check.xml"
+              dismiss_exact_quickstep_overlay "$OUT/restart-check.xml" || true
+            fi
+            assert_foreground full-restart
+            test -n "$(adb shell pidof "$PACKAGE_NAME" | tr -d '\r')"
+            echo "full_restart=PASS" >> "$RUNTIME"
+            echo "post_restart_carup_foreground=PASS" >> "$RUNTIME"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" "$PACKAGE_NAME" > "$OUT/post-restart-login-deeplink.txt"
+            wait_for_native_ui post-restart-login 'Sign in to CarUp' 25
+            assert_foreground post-restart-login
+            assert_no_carup_fatal_runtime
+            echo "securestore_runtime_initialization=PASS" >> "$RUNTIME"
+            echo "carup_anr=ABSENT" >> "$RUNTIME"
+            echo "carup_fatal_exception=ABSENT" >> "$RUNTIME"
+            if [ "$QUICKSTEP_COUNT" -gt 0 ]; then
+              echo "quickstep_overlay_handling=PASS" >> "$RUNTIME"
+            else
+              echo "quickstep_overlay_handling=NOT_ENCOUNTERED" >> "$RUNTIME"
+            fi
+            echo "runtime_complete=YES" >> "$RUNTIME"
         with:
           api-level: 35
           arch: x86_64
