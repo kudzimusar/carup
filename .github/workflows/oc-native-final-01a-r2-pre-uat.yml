@@ -240,14 +240,14 @@ jobs:
 
               local tap
               tap="$(python - "$xml" <<'PY'
-import re, sys
-src=open(sys.argv[1], encoding='utf-8').read()
-m=re.search(r'<node[^>]+(?:text="Wait"|resource-id="android:id/aerr_wait")[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', src)
-if not m:
-    raise SystemExit(2)
-x1,y1,x2,y2=map(int,m.groups())
-print((x1+x2)//2, (y1+y2)//2)
-PY
+            import re, sys
+            src=open(sys.argv[1], encoding='utf-8').read()
+            m=re.search(r'<node[^>]+(?:text="Wait"|resource-id="android:id/aerr_wait")[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', src)
+            if not m:
+                raise SystemExit(2)
+            x1,y1,x2,y2=map(int,m.groups())
+            print((x1+x2)//2, (y1+y2)//2)
+            PY
               )" || {
                 echo "::error::Exact Quickstep ANR was proven but its Android Wait control could not be resolved"
                 exit 1
