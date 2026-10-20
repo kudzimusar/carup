@@ -25,7 +25,22 @@ export type CommunicationProductAnalytics = {
     by_funnel_stage: Record<string, number>
   }
   marketplace?: { conversations: number; converted: number; inquiry_to_next_step_pct: number }
-  response_time?: { measured: number; average_minutes: number; median_minutes: number; p95_minutes: number }
+  /**
+   * OC-NATIVE-FINAL-02-R1 D4. Measured from the message record: the clock starts at the first
+   * customer message and stops at the first reply a person sent. `null` means not measured — never 0.
+   * `state` is absent from older backends, whose median is not trustworthy and must not be shown.
+   */
+  response_time?: {
+    state?: 'measured' | 'no_replies' | 'no_conversations' | 'unavailable'
+    basis?: string
+    eligible?: number | null
+    replied?: number | null
+    unreplied?: number | null
+    measured: number | null
+    average_minutes: number | null
+    median_minutes: number | null
+    p95_minutes: number | null
+  }
   events: { total: number; by_type: Record<string, number> }
   delivery: {
     total: number

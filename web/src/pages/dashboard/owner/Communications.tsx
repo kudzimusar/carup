@@ -17,6 +17,7 @@ import {
 } from '@/hooks/useCommunicationProductApi'
 import { CommunicationMessagePartView } from '@/components/communications/CommunicationMessagePartView'
 import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
+import { ConversationPerformance, type AnalyticsReadState } from '@/features/communications/ConversationPerformance'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
 type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
@@ -96,6 +97,8 @@ export default function Communications() {
   const [accountActivity, setAccountActivity] = useState<AccountActivitySummary[]>([])
   const [preferences, setPreferences] = useState<CommunicationPreferences | null>(null)
   const [analytics, setAnalytics] = useState<CommunicationProductAnalytics | null>(null)
+  // OC-NATIVE-FINAL-02-R1 D4: a failed analytics read is a failure, not "nothing has accumulated yet".
+  const [analyticsState, setAnalyticsState] = useState<AnalyticsReadState>('loading')
   const [aiAvailable, setAiAvailable] = useState(false)
   const [aiResult, setAiResult] = useState<CommunicationAiDerivation | null>(null)
   const [aiBusy, setAiBusy] = useState<string | null>(null)
@@ -154,6 +157,7 @@ export default function Communications() {
     setAccountActivity(accountActivityRes.activity || [])
     setPreferences(prefRes.preferences || null)
     setAnalytics(analyticsRes.analytics)
+    setAnalyticsState(analyticsRes.analytics ? 'ready' : 'unavailable')
     const health = await fetchAiHealth().catch(() => ({ ai: { available: false } }))
     setAiAvailable(Boolean(health.ai?.available))
   }, [fetchAnalytics, fetchAiHealth, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences])
@@ -183,6 +187,7 @@ export default function Communications() {
       setAccountActivity(accountActivityRes.activity || [])
       setPreferences(prefRes.preferences || null)
       setAnalytics(analyticsRes.analytics)
+      setAnalyticsState(analyticsRes.analytics ? 'ready' : 'unavailable')
       setAiAvailable(Boolean(health.ai?.available))
     })
     return () => { active = false }
@@ -253,7 +258,10 @@ export default function Communications() {
         setStatus('Next action is advisory only — no action was executed.')
       }
       const analyticsRes = await fetchAnalytics().catch(() => null)
-      if (analyticsRes?.analytics) setAnalytics(analyticsRes.analytics)
+      if (analyticsRes?.analytics) {
+        setAnalytics(analyticsRes.analytics)
+        setAnalyticsState('ready')
+      }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'AI assist could not complete')
     } finally {
@@ -450,22 +458,7 @@ export default function Communications() {
               <CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="h-5 w-5 text-orange-500" /> Conversation performance</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              {!analytics ? <p className="text-gray-500">Analytics will appear as conversations accumulate.</p> : (
-                <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-gray-50 p-2"><p className="text-lg font-semibold">{analytics.conversations.total}</p><p className="text-[11px] text-gray-500">Conversations</p></div>
-                    <div className="rounded-lg bg-gray-50 p-2"><p className="text-lg font-semibold">{analytics.conversations.active}</p><p className="text-[11px] text-gray-500">Active</p></div>
-                    <div className="rounded-lg bg-gray-50 p-2"><p className="text-lg font-semibold">{analytics.conversations.conversion_rate_pct}%</p><p className="text-[11px] text-gray-500">Conversion</p></div>
-                    <div className="rounded-lg bg-gray-50 p-2"><p className="text-lg font-semibold">{analytics.delivery.success_rate_pct}%</p><p className="text-[11px] text-gray-500">Delivery success</p></div>
-                  </div>
-                  {analytics.response_time && <div className="flex items-center justify-between text-xs text-gray-500"><span>Median first response</span><span>{analytics.response_time.median_minutes} min</span></div>}
-                  {analytics.marketplace && <div className="flex items-center justify-between text-xs text-gray-500"><span>Marketplace next step</span><span>{analytics.marketplace.inquiry_to_next_step_pct}%</span></div>}
-                  {analytics.campaigns && <div className="flex items-center justify-between text-xs text-gray-500"><span>Campaign conversions</span><span>{analytics.campaigns.converted}</span></div>}
-                  <div className="flex items-center justify-between text-xs text-gray-500"><span>AI assists</span><span>{analytics.ai.derivations}</span></div>
-                  <div className="flex items-center justify-between text-xs text-gray-500"><span>Failed deliveries</span><span>{analytics.delivery.failed}</span></div>
-                  <p className="text-[10px] text-gray-400">Operational analytics are derived from canonical conversation, attribution and delivery events.</p>
-                </>
-              )}
+              <ConversationPerformance state={analyticsState} analytics={analytics} />
             </CardContent>
           </Card>
 
