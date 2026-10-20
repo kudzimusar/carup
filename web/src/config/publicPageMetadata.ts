@@ -26,6 +26,21 @@ const DISCOVERY: Record<string, [string, string]> = {
   '/garages': ['Find a garage | CarUp', 'Discover published garage profiles and available service information.'],
   '/marketplace/parts': ['Find vehicle parts | CarUp', 'Browse current parts listings and recorded fitment information.'],
   '/marketplace/services': ['Find vehicle services | CarUp', 'Discover current vehicle service listings and published providers.'],
+  // OC-NATIVE-FINAL-02-R1 P2-C: a guest on /sell was shown "Page not found | CarUp" over a working page.
+  '/sell': ['Sell your car | CarUp', 'Start a vehicle listing draft in your browser. Saving or publishing it requires a CarUp account.'],
+}
+/**
+ * OC-NATIVE-FINAL-02-R1 P2-C — real account-flow pages that are in neither DISCOVERY nor the feature
+ * registry. They were served as "Page not found" with HTTP 404 over a working page, including the
+ * reset-password and verify-email pages that CarUp's own emails link to. They are pages, never indexed.
+ */
+const ACCOUNT_FLOW_PAGES: Record<string, [string, string]> = {
+  '/onboarding': ['Finish setting up your account | CarUp', 'Complete the steps CarUp needs to set up your account.'],
+  '/dealer/onboarding': ['Dealer onboarding | CarUp', 'Set up your dealer business on CarUp.'],
+  '/join-garage': ['Garage invitation | CarUp', 'Review an invitation to join a garage on CarUp.'],
+  '/auth/forgot-password': ['Reset your password | CarUp', 'Request a password reset link for your CarUp account.'],
+  '/auth/reset-password': ['Choose a new password | CarUp', 'Set a new password with your one-time reset link.'],
+  '/auth/verify-email': ['Verify your email | CarUp', 'Confirm your email address with your one-time link.'],
 }
 export const SITEMAP_PATHS = PUBLIC_LAUNCH_ROUTES.filter(row =>
   ['LAUNCH_ACTIVE', 'LAUNCH_ACTIVE_WITH_LIMIT'].includes(row.state)
@@ -66,11 +81,12 @@ export function pageMetadata(path: string, staging = true): PublicPageMetadata {
   const publicActive = !feature?.requiresAuth && exposure
     && ['LAUNCH_ACTIVE', 'LAUNCH_ACTIVE_WITH_LIMIT'].includes(exposure.state)
     && !['/search', '/sell'].includes(path)
-  const [title, description] = DISCOVERY[path] ?? (feature?.requiresAuth
+  const accountFlowPage = ACCOUNT_FLOW_PAGES[path]
+  const [title, description] = DISCOVERY[path] ?? accountFlowPage ?? (feature?.requiresAuth
     ? ['Your account | CarUp', 'Sign in to access your private CarUp workspace.']
     : feature ? [`${feature.label} | CarUp`, 'Know the car. Trust the journey. Explore current CarUp information.']
       : ['Page not found | CarUp', 'This page is not available. Browse Marketplace or return to CarUp Home.'])
-  return { title, description, canonicalPath: path, robots: staging || !publicActive ? 'noindex, nofollow' : 'index, follow', status: feature || exposure ? 200 : 404 }
+  return { title, description, canonicalPath: path, robots: staging || !publicActive ? 'noindex, nofollow' : 'index, follow', status: feature || exposure || accountFlowPage ? 200 : 404 }
 }
 export function canonicalListingUrl(id: string): string {
   return `${CANONICAL_ORIGIN}/marketplace/${encodeURIComponent(id)}`
