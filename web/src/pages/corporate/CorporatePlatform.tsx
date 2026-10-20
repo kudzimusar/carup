@@ -17,7 +17,7 @@ const DELIVERY_IDS = new Set(['communications.notification.dead_letter', 'platfo
 const SESSION_IDS = new Set(['platform.certification_sessions'])
 
 export default function CorporatePlatform() {
-  const { result, retry } = useManagementArea('platform')
+  const { result, retry, revalidating } = useManagementArea('platform')
   const data = result.status === 'ok' ? result.payload : null
   const runtime = data ? data.facts.filter((f) => !DELIVERY_IDS.has(f.id) && !SESSION_IDS.has(f.id)) : []
   const delivery = data ? data.facts.filter((f) => DELIVERY_IDS.has(f.id)) : []
@@ -27,7 +27,7 @@ export default function CorporatePlatform() {
       {!data && <ManagementStatus result={result} onRetry={retry} />}
       {data && (
         <>
-          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} snapshot={data.snapshot} revalidating={revalidating} />
           <Section title="Runtime & security" description="This API deployment, read live." testId="platform-runtime">
             <FactRows facts={runtime} caption="Runtime and security facts" />
           </Section>

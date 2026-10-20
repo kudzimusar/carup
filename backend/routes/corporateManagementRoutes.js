@@ -6,8 +6,12 @@
  * Session-only (authorizeSessionRole refuses the x-user-id fallback). Each area needs the frozen Corporate admission decision
  * AND the one capability its destination names (corporateReadAccess.js) — a read model is never wider than admission.
  * Read-only: no write, no secret, aggregates only; every response is a decision about this session and is never cached by a
- * browser or an intermediary. The staging snapshot behind the areas lives for a few seconds so a page change does not re-read
- * every source; governance is always read for the actor.
+ * browser or an intermediary. Governance is always read for the actor.
+ *
+ * CA-OWNER-02-R3 (D3): ONE staging snapshot serves every area. It is fresh for 60 s; after that the LAST VALID snapshot is
+ * served at once while one background refresh runs (kept alive past the response by the runtime), and a snapshot older than
+ * 10 minutes is never served. Each answer's `snapshot` block says how old it is and whether a refresh is running, and every
+ * figure keeps its own as-of time — a cached figure never looks fresher than it is.
  */
 import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
@@ -16,28 +20,19 @@ import { authorizeCorporateRead, CORPORATE_READ_CONTRACT } from '../services/cor
 import { AREA_CAPABILITY, AREAS_NEEDING_GOVERNANCE, areaPayload, computeSnapshot } from '../services/corporate/management/managementReadModel.js';
 import { readGovernanceFacts } from '../services/corporate/management/governanceFacts.js';
 import { environmentFromHost } from '../services/corporate/management/platformFacts.js';
+import { createSnapshotCache, runtimeKeepAlive } from '../services/corporate/management/managementSnapshotCache.js';
 
 const router = express.Router();
 
-// One staging snapshot serves every area for a minute. Every figure carries its own as-of time, so a cached figure never
-// looks fresher than it is; a slow technical source (the scheduler-health RPC scans cron history) is paid once a minute,
-// not on every page.
-const SNAPSHOT_TTL_MS = 60_000;
-let cached = null; // { key, at, promise }
-
-function snapshotFor(host) {
-  const key = String(host || '');
-  const fresh = cached && cached.key === key && Date.now() - cached.at < SNAPSHOT_TTL_MS;
-  if (!fresh) {
-    const entry = { key, at: Date.now(), promise: computeSnapshot(supabase, { now: new Date(), host }) };
-    entry.promise.catch(() => { if (cached === entry) cached = null; });
-    cached = entry;
-  }
-  return cached.promise;
-}
+const snapshots = createSnapshotCache({
+  compute: (host) => computeSnapshot(supabase, { now: new Date(), host: host || null }),
+  ttlMs: 60_000,
+  maxStaleMs: 600_000,
+  keepAlive: runtimeKeepAlive,
+});
 
 /** Test seam: forget the snapshot (each test world must not see a previous world's figures). */
-export function resetCorporateManagementSnapshot() { cached = null; }
+export function resetCorporateManagementSnapshot() { snapshots.reset(); }
 
 const UNAVAILABLE = Object.freeze({
   contract: CORPORATE_READ_CONTRACT, decision: 'unavailable', code: 'CORPORATE_MANAGEMENT_UNAVAILABLE',
@@ -54,10 +49,15 @@ router.get('/api/corporate/management/:area', authorizeSessionRole([]), async (r
   if (!gate.allowed) return res.status(gate.status).json(gate.body);
 
   try {
-    const snapshot = await snapshotFor(req.hostname);
-    const governance = AREAS_NEEDING_GOVERNANCE.includes(area)
-      ? (await readGovernanceFacts(supabase, { now: snapshot.now, actorUserId: req.userContext.id })).facts
-      : [];
+    // CA-OWNER-02-R3 (D3): the governance record is read for THIS request at THIS request's time — never at the shared
+    // snapshot's, which may be minutes old while it is served during a refresh (the projection decides "ACTIVE and inside
+    // its effective window" at the time it is given) — and alongside the snapshot rather than after it.
+    const requestedAt = new Date();
+    const [{ value: snapshot, meta }, governanceRead] = await Promise.all([
+      snapshots.get(String(req.hostname || '')),
+      AREAS_NEEDING_GOVERNANCE.includes(area) ? readGovernanceFacts(supabase, { now: requestedAt, actorUserId: req.userContext.id }) : null,
+    ]);
+    const governance = governanceRead ? governanceRead.facts : [];
     const grantCapabilities = [...(gate.grant.capabilities || []), ...(gate.grant.governance_capabilities || [])];
     return res.status(200).json({
       contract: CORPORATE_READ_CONTRACT,
@@ -65,6 +65,12 @@ router.get('/api/corporate/management/:area', authorizeSessionRole([]), async (r
       read_only: true,
       area,
       generated_at: snapshot.now.toISOString(),
+      snapshot: {
+        generated_at: meta.generatedAt.toISOString(),
+        age_seconds: Math.round(meta.ageMs / 1000),
+        stale: meta.stale,
+        refreshing: meta.refreshing,
+      },
       environment: environmentFromHost(req.hostname),
       ...areaPayload(area, snapshot, { governance, grantCapabilities }),
     });

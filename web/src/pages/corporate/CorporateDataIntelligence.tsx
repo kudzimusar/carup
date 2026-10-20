@@ -11,10 +11,23 @@ import { ManagementStatus } from '@/components/corporate/ManagementFacts'
 import { formatAsOf } from '@/lib/corporate/factFormat'
 import { useManagementArea } from '@/lib/corporate/useManagementArea'
 import type { RegistryRow } from '@/lib/corporate/management'
-import { ALL_TRUTH_STATES, TRUTH_STATES } from '@/lib/corporate/truthState'
+import { ALL_TRUTH_STATES, TRUTH_STATES, type TruthState } from '@/lib/corporate/truthState'
 import { PENDING_K2B } from './shared'
 
 const REGISTRY_LABEL = 'Metric and source registry'
+
+/** What a state puts in the value position (CA-OWNER-02-R3 D4: "a governed value" only where it is one). */
+function legendShows(s: TruthState): string {
+  const spec = TRUTH_STATES[s]
+  if (spec.statement) return spec.statement
+  if (s === 'MEASURED_ZERO') return 'The number 0, from a complete read'
+  if (s === 'TECHNICAL_OPERATIONAL') {
+    return 'A live value, read from its source when the page loaded — "Live read" for CarUp records, "Technical" for platform state. '
+      + 'The badge names how it was read and never says a population is operational; the figure’s own label names the population.'
+  }
+  if (s === 'ADVISORY') return 'An advisory value — never a governed figure'
+  return spec.rendersValue === 'yes' ? 'A governed value' : ''
+}
 
 function RegistryTable({ rows }: { rows: readonly RegistryRow[] }) {
   return (
@@ -39,7 +52,9 @@ function RegistryTable({ rows }: { rows: readonly RegistryRow[] }) {
         </thead>
         <tbody>
           {rows.map((r) => {
-            const badge = r.state === 'TECHNICAL_OPERATIONAL' ? (r.kind === 'technical' ? 'Technical' : 'Operational') : undefined
+            // CA-OWNER-02-R3 D2/D5: the badge names the read state; "may be used" names what the row is.
+            const badge = r.state === 'TECHNICAL_OPERATIONAL' ? (r.kind === 'technical' ? 'Technical' : 'Live read') : undefined
+            const usable = !r.usable ? 'No' : r.kind === 'governance' ? 'Yes — governance record' : r.kind === 'technical' ? 'Yes — live technical read' : 'Yes — live read'
             return (
               <tr key={r.id} className="border-b border-slate-100 align-top last:border-b-0" data-testid="registry-row" data-measure-id={r.id} data-usable={r.usable ? 'true' : 'false'} data-truth-state={r.state}>
                 <th scope="row" className="px-3 py-2 text-left">
@@ -51,7 +66,7 @@ function RegistryTable({ rows }: { rows: readonly RegistryRow[] }) {
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-700">{formatAsOf(r.asOf) ?? '—'}</td>
                 <td className="px-3 py-2 text-xs text-slate-700">{r.provenance}</td>
                 <td className="max-w-[280px] px-3 py-2 text-xs text-slate-700">
-                  <span className="font-medium text-slate-900">{r.usable ? 'Yes — live operational read' : 'No'}</span>
+                  <span className="font-medium text-slate-900" data-testid="registry-usable">{usable}</span>
                   {r.reason && <span className="mt-0.5 block text-slate-600">{r.reason}</span>}
                 </td>
               </tr>
@@ -93,12 +108,13 @@ export default function CorporateDataIntelligence() {
                 return (
                   <tr key={s} className="border-b border-slate-100 align-top last:border-b-0" data-testid="legend-row" data-truth-state={s}>
                     <th scope="row" className="px-3 py-2 text-left">
-                      <TruthStateBadge state={s} />
+                      {/* CA-OWNER-02-R3 D4: a live fact carries a READ-STATE badge, so the legend shows both forms. */}
+                      {s === 'TECHNICAL_OPERATIONAL'
+                        ? <span className="flex flex-wrap gap-1"><TruthStateBadge state={s} badge="Live read" /><TruthStateBadge state={s} badge="Technical" /></span>
+                        : <TruthStateBadge state={s} />}
                       <span className="mt-1 block font-mono text-[10px] font-normal text-slate-600" data-testid="legend-state-id">{s}</span>
                     </th>
-                    <td className="px-3 py-2 text-xs text-slate-700">
-                      {spec.statement ?? (spec.rendersValue === 'yes' ? (s === 'MEASURED_ZERO' ? 'The number 0, from a complete read' : 'A governed value') : '')}
-                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700">{legendShows(s)}</td>
                     <td className="px-3 py-2 text-xs text-slate-600">{spec.meaning}</td>
                   </tr>
                 )
@@ -110,7 +126,7 @@ export default function CorporateDataIntelligence() {
 
       <Section
         title="Metric & source registry"
-        description="Every measure Corporate Admin serves, and every measure it deliberately does not: where it comes from, its state and read time, how provenance applies, and whether it may be used. Live rows are operational reads — none is certified as a Corporate business Actual."
+        description="Every measure Corporate Admin serves, and every measure it deliberately does not: where it comes from, its state and read time, how provenance applies, and whether it may be used. Live rows are read live from their source — none is certified as a Corporate business Actual."
         testId="data-registry"
       >
         {registry.status === 'ok' ? <RegistryTable rows={registry.payload.registry} /> : <ManagementStatus result={registry.result} onRetry={registry.retry} />}

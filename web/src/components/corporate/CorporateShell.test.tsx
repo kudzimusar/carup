@@ -46,6 +46,7 @@ const pages = {
 }
 const { ProvenanceFreshness } = await import('./ProvenanceFreshness')
 const { MetricSlotView } = await import('./TruthState')
+const { resetManagementAreaCache } = await import('@/lib/corporate/useManagementArea')
 
 const userFor = (role: string) => ({ id: `u-${role}`, name: `Test ${role}`, email: `${role}@carup.test`, role })
 
@@ -77,6 +78,8 @@ const unavailableManagement = (): Answer => ({ status: 503, body: { decision: 'u
 const servedManagement = (area: string): Answer => ({ status: 200, body: MANAGEMENT_FIXTURES[area] })
 
 beforeEach(() => {
+  // CA-OWNER-02-R3 D3: no test may render another test's remembered answer.
+  resetManagementAreaCache()
   answerFor = defaultAnswer
   projectionFor = defaultProjection
   managementFor = unavailableManagement
@@ -744,6 +747,131 @@ describe('CA-OWNER-02 · the open drawer is modal: Tab and Shift+Tab stay inside
     await u.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByTestId('corporate-drawer')).toBeNull())
     expect(screen.getByTestId('corporate-drawer-open')).toHaveFocus()
+  })
+})
+
+describe('CA-OWNER-02-R3 D1 · the header states the real source state — never "No source connected"', () => {
+  it('with the read model unavailable it says the live figures could not be read', async () => {
+    await renderAdmitted('/corporate/finance')
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/^Live figures could not be read$/))
+    expect(document.body.textContent).not.toMatch(/No source connected|No governed metric source is connected|No attention source is connected/)
+    fireEvent.click(screen.getByTestId('topbar-freshness'))
+    expect(screen.getByTestId('topbar-panel-freshness')).toHaveTextContent('could not be read')
+    expect(screen.getByTestId('topbar-panel-freshness')).toHaveTextContent('Nothing is assumed zero')
+  })
+
+  it('after a read it shows the latest read time and what could not be read — never implying every source is healthy', async () => {
+    managementFor = servedManagement
+    await renderAdmitted('/corporate')
+    await screen.findByTestId('overview-attention')
+    // The Overview fixture has two figures its sources could not read (an order count and a PartSentry queue).
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/^Read 00:00 UTC · 2 not readable$/))
+    fireEvent.click(screen.getByTestId('topbar-freshness'))
+    const panel = screen.getByTestId('topbar-panel-freshness')
+    expect(panel).toHaveTextContent('last read at 2026-10-18 00:00 UTC')
+    expect(panel).toHaveTextContent('Open trade (import) orders')
+    expect(panel).toHaveTextContent('PartSentry reviews awaiting a decision')
+    expect(panel).toHaveTextContent('This is a read state, not a health score.')
+    expect(panel).toHaveTextContent('They show no value.')
+    expect(within(panel).getByRole('link', { name: 'Open the metric & source registry' })).toHaveAttribute('href', '/corporate/data-intelligence')
+  })
+
+  // Owner UAT R3 F4: the snapshot's age is stated as it was when this page read it. A page left open for an hour must not go
+  // on saying "4 s old", or that a refresh is running.
+  it('the freshness panel states the snapshot age as it was when this page read it — never as if it were current', async () => {
+    const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
+    managementFor = (area) => ({ status: 200, body: { ...(MANAGEMENT_FIXTURES[area] as Record<string, unknown>), snapshot } })
+    await renderAdmitted('/corporate/growth')
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/^Read 00:00 UTC · refreshing$/))
+    fireEvent.click(screen.getByTestId('topbar-freshness'))
+    const panel = screen.getByTestId('topbar-panel-freshness')
+    expect(panel).toHaveTextContent('last read at 2026-10-18 00:00 UTC — a stale shared staging snapshot that was 95 s old when this page read it, while a newer read was running in the background.')
+    expect(panel.textContent).not.toMatch(/snapshot, 95 s old|refreshing in the background/)
+  })
+
+  // Owner UAT R3 F2: one figure is named in the singular.
+  it('one figure that could not be read is stated in the singular', async () => {
+    managementFor = servedManagement
+    await renderAdmitted('/corporate/data-intelligence')
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/· 1 not readable$/))
+    fireEvent.click(screen.getByTestId('topbar-freshness'))
+    const panel = screen.getByTestId('topbar-panel-freshness')
+    expect(panel).toHaveTextContent('It shows no value.')
+    expect(panel).not.toHaveTextContent('They show no value.')
+  })
+
+  // Owner UAT R3 F1: following a panel's own link closes the panel, so it never covers where the link lands.
+  describe('F1 · following a header panel link closes the panel', () => {
+    let scrolled: Element[] = []
+    const original = Element.prototype.scrollIntoView
+    beforeEach(() => {
+      scrolled = []
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this) }
+    })
+    afterEach(() => { Element.prototype.scrollIntoView = original })
+
+    it('"Open Needs attention" closes the attention panel and lands on the section', async () => {
+      managementFor = servedManagement
+      await renderAdmitted('/corporate')
+      await screen.findByTestId('overview-attention')
+      fireEvent.click(screen.getByTestId('topbar-attention'))
+      fireEvent.click(within(screen.getByTestId('topbar-panel-attention')).getByRole('link', { name: 'Open Needs attention' }))
+      await waitFor(() => expect(screen.queryByTestId('topbar-panel-attention')).toBeNull())
+      await waitFor(() => expect(scrolled.map((e) => e.id)).toContain('needs-attention'))
+    })
+
+    it('already at Needs attention, following the link again still lands on the section', async () => {
+      managementFor = servedManagement
+      await renderAdmitted('/corporate#needs-attention')
+      await screen.findByTestId('overview-attention')
+      await waitFor(() => expect(scrolled.map((e) => e.id)).toContain('needs-attention'))
+      scrolled = []
+      fireEvent.click(screen.getByTestId('topbar-attention'))
+      fireEvent.click(within(screen.getByTestId('topbar-panel-attention')).getByRole('link', { name: 'Open Needs attention' }))
+      await waitFor(() => expect(screen.queryByTestId('topbar-panel-attention')).toBeNull())
+      expect(scrolled.map((e) => e.id)).toContain('needs-attention')
+    })
+
+    it('"Open the metric & source registry" closes the freshness panel', async () => {
+      managementFor = servedManagement
+      await renderAdmitted('/corporate')
+      await screen.findByTestId('overview-attention')
+      fireEvent.click(screen.getByTestId('topbar-freshness'))
+      fireEvent.click(within(screen.getByTestId('topbar-panel-freshness')).getByRole('link', { name: 'Open the metric & source registry' }))
+      await waitFor(() => expect(screen.queryByTestId('topbar-panel-freshness')).toBeNull())
+    })
+  })
+
+  it('the attention bell counts the Overview\'s items and links straight to Needs attention', async () => {
+    managementFor = servedManagement
+    await renderAdmitted('/corporate')
+    await screen.findByTestId('overview-attention')
+    const bell = screen.getByTestId('topbar-attention')
+    await waitFor(() => expect(bell).toHaveAccessibleName('Attention: 2 items need attention'))
+    expect(within(bell).getByTestId('topbar-attention-count')).toHaveTextContent(/^2$/)
+    fireEvent.click(bell)
+    const panel = screen.getByTestId('topbar-panel-attention')
+    expect(panel).toHaveTextContent('2 items need attention on the Corporate Overview read at 2026-10-18 00:00 UTC')
+    expect(panel).toHaveTextContent('2 operational conversations awaiting a reply (1 past the reply target)')
+    expect(within(panel).getByRole('link', { name: 'Open Needs attention' })).toHaveAttribute('href', '/corporate#needs-attention')
+    expect(screen.getByTestId('overview-attention').id).toBe('needs-attention')
+  })
+
+  it('a refreshing snapshot says so in the header', async () => {
+    const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
+    managementFor = (area) => ({ status: 200, body: { ...(MANAGEMENT_FIXTURES[area] as Record<string, unknown>), snapshot } })
+    await renderAdmitted('/corporate/growth')
+    await waitFor(() => expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/^Read 00:00 UTC · refreshing$/))
+  })
+
+  it('a governor without the Overview is told Needs attention is outside their access — never shown a count', async () => {
+    answerFor = (t) => (t === 'tok-u-owner' ? { status: 200, body: OWNER_GOVERNOR_GRANT } : defaultAnswer(t))
+    projectionFor = (t) => (t === 'tok-u-owner' ? { status: 200, body: PEOPLE_ACCESS_PROJECTION } : defaultProjection(t))
+    await renderAdmitted('/corporate/people-access', userFor('owner'))
+    expect(screen.getByTestId('topbar-attention')).toHaveAccessibleName('Attention')
+    fireEvent.click(screen.getByTestId('topbar-attention'))
+    expect(screen.getByTestId('topbar-panel-attention')).toHaveTextContent("Needs attention is on the Corporate Overview, which this account's Corporate access does not include.")
+    expect(screen.getByTestId('topbar-freshness-label')).toHaveTextContent(/^Live figures: not read yet$/)
   })
 })
 

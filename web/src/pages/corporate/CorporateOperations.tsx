@@ -11,7 +11,7 @@ import { OPERATE_LINKS } from '@/config/corporate/navigation'
 import { useManagementArea } from '@/lib/corporate/useManagementArea'
 
 export default function CorporateOperations() {
-  const { result, retry } = useManagementArea('operations')
+  const { result, retry, revalidating } = useManagementArea('operations')
   const data = result.status === 'ok' ? result.payload : null
   return (
     <CorporatePage id="operations" intro="Cross-business-unit operating view over the workflows each unit owns. Every queue is shown on its own, never summed into one number.">
@@ -25,7 +25,7 @@ export default function CorporateOperations() {
           <Section title="Customer conversations" description="Operational conversations only: certification, UAT, automation and historical conversations are counted separately and never as customer work. Reply targets name where they come from." testId="operations-communications">
             <FactRows facts={data.communications} caption="Customer conversations" />
           </Section>
-          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />
+          <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} snapshot={data.snapshot} revalidating={revalidating} />
         </>
       )}
       <Section title="Work the queues" description="Decisions are made on the existing operational surfaces, which remain the authority for every action." testId="operations-operate">

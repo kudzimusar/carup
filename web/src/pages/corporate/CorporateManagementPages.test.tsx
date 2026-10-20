@@ -8,7 +8,7 @@
  * kept lower; and a refused or unreadable read model shows no number at all.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { PEOPLE_ACCESS_PROJECTION, SERVER_GRANT } from '@/test/corporateAccessFixture'
 import { MANAGEMENT_FIXTURES } from '@/test/corporateManagementFixture'
@@ -20,6 +20,7 @@ vi.mock('@/context/AuthContext', () => {
 })
 
 const CorporateLayout = (await import('@/components/corporate/CorporateLayout')).default
+const { resetManagementAreaCache } = await import('@/lib/corporate/useManagementArea')
 const pages = {
   '/corporate': (await import('./CorporateOverview')).default,
   '/corporate/finance': (await import('./CorporateFinance')).default,
@@ -32,12 +33,14 @@ const pages = {
   '/corporate/people-access': (await import('./CorporatePeopleAccess')).default,
 }
 
-type Answer = { status: number; body: unknown } | 'network'
+type Answer = { status: number; body: unknown } | 'network' | 'hang'
 let management: (area: string) => Answer
 const managementCalls: Array<{ area: string; headers: Record<string, string> }> = []
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 beforeEach(() => {
+  // CA-OWNER-02-R3 D3: the session keeps each area's last answer for an instant re-render; every test starts without one.
+  resetManagementAreaCache()
   management = (area) => ({ status: 200, body: MANAGEMENT_FIXTURES[area] })
   managementCalls.length = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string, init: RequestInit = {}) => {
@@ -50,12 +53,13 @@ beforeEach(() => {
       managementCalls.push({ area, headers })
       const answer = management(area)
       if (answer === 'network') throw new TypeError('Failed to fetch')
+      if (answer === 'hang') return new Promise<Response>((_res, rej) => init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))))
       return json(answer.status, answer.body)
     }
     return json(404, { error: 'Route not found' })
   }))
 })
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 async function open(path: string) {
   render(
@@ -106,7 +110,7 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
     expect(within(items[1]).getByTestId('attention-age')).toHaveTextContent('Waiting since 2026-09-20 · 28 days')
   })
 
-  it('every figure carries its source, as-of time, scope and truth state; values read "Operational", "Technical" or "Actual" — never a bare number', async () => {
+  it('every figure carries its source, as-of time, scope and truth state; values read "Live read", "Technical" or "Actual" — never a bare number', async () => {
     const main = await open('/corporate')
     await within(main).findByTestId('overview-position')
     const valued = facts(main).filter((f) => within(f).getByTestId('metric-slot').getAttribute('data-is-value') === 'true')
@@ -116,7 +120,7 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
       expect(within(f).getByTestId('fact-source').textContent, id ?? '').toMatch(/\S/)
       expect(within(f).getByTestId('fact-as-of'), id ?? '').toHaveTextContent('2026-10-18 00:00 UTC')
       expect(within(f).getByTestId('fact-scope').textContent, id ?? '').toMatch(/\S/)
-      expect(['Operational', 'Technical', 'Actual']).toContain(within(f).getByTestId('truth-state-badge').textContent)
+      expect(['Live read', 'Technical', 'Actual']).toContain(within(f).getByTestId('truth-state-badge').textContent)
     }
   })
 
@@ -152,6 +156,8 @@ describe('A · L · Corporate Overview is actionable and ordered by what needs a
     const main = await open('/corporate')
     expect(await within(main).findByTestId('management-environment')).toHaveTextContent(/Staging/)
     expect(within(main).getByTestId('management-environment')).toHaveTextContent('not certified Corporate results')
+    // CA-OWNER-02-R3 D2: the note names the read-state badges actually used.
+    expect(within(main).getByTestId('management-environment')).toHaveTextContent('everything else says Live read or Technical')
   })
 
   it('keeps every unavailable measure visible below, each with its reason and never as zero', async () => {
@@ -298,13 +304,103 @@ describe('F · Data & Intelligence projects the metric and source registry', () 
     const main = await open('/corporate/data-intelligence')
     const registry = await within(main).findByRole('table', { name: 'Metric and source registry' })
     const rows = within(registry).getAllByTestId('registry-row')
-    expect(rows.map((r) => r.getAttribute('data-measure-id'))).toEqual(['marketplace.listing.public', 'trade.order.open', 'growth.customers'])
+    expect(rows.map((r) => r.getAttribute('data-measure-id'))).toEqual([
+      'marketplace.listing.public', 'trade.order.open', 'growth.customers', 'corporate.governance.membership.active', 'platform.session_authority',
+    ])
     expect(rows[0]).toHaveTextContent('vehicles · Admin publication projection')
     expect(rows[0]).toHaveTextContent('K2B applied')
     expect(rows[0].getAttribute('data-usable')).toBe('true')
     expect(rows[1].getAttribute('data-usable')).toBe('false')
     expect(rows[2]).toHaveTextContent('No accepted customer definition (OD-CAMETRIC-001).')
     expect(within(main).getByRole('region', { name: 'Truth states, what each shows, and what each means' })).toBeInTheDocument()
+  })
+
+  it('D5: "may be used" says what each row is — a governance record is never called an operational read', async () => {
+    const main = await open('/corporate/data-intelligence')
+    const registry = await within(main).findByRole('table', { name: 'Metric and source registry' })
+    const usable = (id: string) => within(within(registry).getAllByTestId('registry-row').find((r) => r.getAttribute('data-measure-id') === id) as HTMLElement).getByTestId('registry-usable')
+    expect(usable('corporate.governance.membership.active')).toHaveTextContent(/^Yes — governance record$/)
+    expect(usable('marketplace.listing.public')).toHaveTextContent(/^Yes — live read$/)
+    expect(usable('platform.session_authority')).toHaveTextContent(/^Yes — live technical read$/)
+    expect(usable('trade.order.open').textContent).toMatch(/^No/)
+    expect(registry.textContent).not.toMatch(/live operational read/)
+    // D2 in the registry too: a live record read is badged "Live read", never "Operational".
+    const badges = within(registry).getAllByTestId('truth-state-badge').map((b) => b.textContent)
+    expect(badges).toContain('Live read')
+    expect(badges).not.toContain('Operational')
+  })
+
+  it('Owner UAT R3 F3: the registry introduction never calls live rows "operational reads" — some are certification or UAT populations', async () => {
+    const main = await open('/corporate/data-intelligence')
+    await within(main).findByRole('table', { name: 'Metric and source registry' })
+    const intro = within(main).getByText(/^Every measure Corporate Admin serves/)
+    expect(intro.textContent).toMatch(/Live rows are read live from their source/)
+    expect(intro.textContent).not.toMatch(/operational read/i)
+  })
+
+  it('D4: the legend says what Technical and Advisory figures really are, and shows the read-state badges management facts use', async () => {
+    const main = await open('/corporate/data-intelligence')
+    const legend = within(main).getByRole('region', { name: 'Truth states, what each shows, and what each means' })
+    const row = (state: string) => within(legend).getAllByTestId('legend-row').find((r) => r.getAttribute('data-truth-state') === state) as HTMLElement
+    for (const state of ['TECHNICAL_OPERATIONAL', 'ADVISORY']) expect(row(state).textContent, state).not.toMatch(/A governed value/)
+    expect(row('GOVERNED_ACTUAL')).toHaveTextContent('A governed value')
+    const live = row('TECHNICAL_OPERATIONAL')
+    expect(within(live).getAllByTestId('truth-state-badge').map((b) => b.textContent)).toEqual(['Live read', 'Technical'])
+    expect(live).toHaveTextContent('A live value, read from its source when the page loaded')
+    expect(live).toHaveTextContent('never says a population is operational')
+    expect(row('ADVISORY')).toHaveTextContent('An advisory value — never a governed figure')
+    expect(legend.textContent).not.toMatch(/\bOperational\b/)
+  })
+})
+
+describe('D3 · the management read is fast to show, patient with a slow source, and honest about its age', () => {
+  it('a page already read in this session renders at once from its last answer, and says it is checking for a newer one', async () => {
+    const main = await open('/corporate')
+    await within(main).findByTestId('overview-attention')
+    fireEvent.click(screen.getByTestId('corporate-nav-operations'))
+    await within(screen.getByTestId('corporate-main')).findByTestId('operations-communications')
+    management = (area) => (area === 'overview' ? 'hang' : { status: 200, body: MANAGEMENT_FIXTURES[area] })
+    fireEvent.click(screen.getByTestId('corporate-nav-overview'))
+    // No await: the previous answer is on screen in the same render, while the new read is still running.
+    const now = screen.getByTestId('corporate-main')
+    expect(within(now).getByTestId('overview-attention')).toBeInTheDocument()
+    expect(within(now).getByTestId('management-revalidating')).toHaveTextContent('Checking for a newer read')
+    expect(within(now).queryByTestId('management-pending')).toBeNull()
+  })
+
+  it('a slow source is waited for: the page says so, keeps waiting past the old 20 s limit, and gives up only at 45 s', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    management = () => 'hang'
+    const main = await open('/corporate/growth')
+    expect(within(main).getByTestId('management-pending')).toHaveTextContent('Reading live figures')
+    await act(async () => { vi.advanceTimersByTime(9_000) })
+    expect(within(main).getByTestId('management-pending')).toHaveTextContent('Still reading live figures')
+    await act(async () => { vi.advanceTimersByTime(13_000) })
+    expect(within(main).queryByTestId('management-unavailable'), 'not given up at 22 s').toBeNull()
+    await act(async () => { vi.advanceTimersByTime(25_000) })
+    expect(await within(main).findByTestId('management-unavailable')).toBeInTheDocument()
+  })
+
+  it('figures served from the last snapshot while it refreshes say so, with the snapshot\'s age as it was when this page read it', async () => {
+    const snapshot = { generated_at: '2026-10-18T00:00:00.000Z', age_seconds: 95, stale: true, refreshing: true }
+    management = (area) => ({ status: 200, body: { ...MANAGEMENT_FIXTURES[area], snapshot } })
+    const main = await open('/corporate')
+    const note = await within(main).findByTestId('management-environment')
+    expect(note).toHaveTextContent('From the shared snapshot read 2026-10-18 00:00 UTC, which was 1 min 35 s old when this page read it — a newer read was then running in the background.')
+    // Owner UAT R3 F4: a page left open must not go on stating that age, or a refresh, as if it were current.
+    expect(note.textContent).not.toMatch(/1 min 35 s old —|refreshing in the background/)
+  })
+})
+
+describe('D2 · a population read live keeps its own classification', () => {
+  it('the certification, UAT, automation and historical conversations read "Live read" — never "Operational" — and keep their label', async () => {
+    const main = await open('/corporate/operations')
+    const comms = await within(main).findByTestId('operations-communications')
+    const population = factById(comms, 'communications.conversation.non_operational')
+    expect(population).toHaveTextContent('Certification, UAT, automation and historical conversations')
+    expect(within(population).getByTestId('truth-state-badge')).toHaveTextContent(/^Live read$/)
+    expect(within(population).getByTestId('metric-slot').getAttribute('aria-label')).not.toMatch(/\(Operational/)
+    for (const badge of within(main).getAllByTestId('truth-state-badge')) expect(badge.textContent, 'no badge calls a population operational').not.toBe('Operational')
   })
 })
 

@@ -24,6 +24,9 @@ import { CORPORATE_PLANES, CORPORATE_ROOT, destinationForPath } from '@/config/c
 import { canSeeDestination, resolveCorporateAccess, visibleDestinations, type CorporateGrant } from '@/lib/corporate/access'
 import { useCorporateServerDecision } from '@/lib/corporate/useCorporateAccess'
 import { CorporateContextProvider } from './CorporateContext'
+import { ManagementReadStatusProvider } from './ManagementReadStatusProvider'
+import { NEEDS_ATTENTION_ANCHOR, NEEDS_ATTENTION_ROUTE, useManagementReadStatus, type ManagementReadRecord, type ManagementReadStatus } from '@/lib/corporate/managementReadStatus'
+import { formatAsOf } from '@/lib/corporate/factFormat'
 import { OperationalAdminTransition } from './OperationalAdminTransition'
 import { PlaneIndicator } from './CorporatePage'
 import { TruthStateBadge } from './TruthState'
@@ -88,8 +91,79 @@ export default function CorporateLayout() {
   }
   return (
     <CorporateContextProvider>
-      <CorporateShell grant={decision.grant} />
+      {/* CA-OWNER-02-R3 (D1): the header's read status belongs to THIS session — a new account or sign-in starts empty. */}
+      <ManagementReadStatusProvider key={`${user?.id ?? ''}\u0000${token ?? ''}`}>
+        <CorporateShell grant={decision.grant} />
+      </ManagementReadStatusProvider>
     </CorporateContextProvider>
+  )
+}
+
+/** The header's freshness label — the latest read, never "connected" or "healthy" (CA-OWNER-02-R3 D1). */
+function freshnessLabel(status: ManagementReadStatus | null): string {
+  if (!status || (!status.latest && !status.failed)) return 'Live figures: not read yet'
+  if (status.failed) return 'Live figures could not be read'
+  const l = status.latest as ManagementReadRecord
+  const time = (formatAsOf(l.generatedAt) ?? '').replace(/^\d{4}-\d{2}-\d{2} /, '')
+  const parts = [`Read ${time}`]
+  if (l.snapshot?.refreshing) parts.push('refreshing')
+  if (l.notReadable.length) parts.push(`${l.notReadable.length} not readable`)
+  return parts.join(' · ')
+}
+
+/** Owner UAT R3 F1: a header panel closes when its own link is followed, so it never covers where the link lands. */
+function FreshnessPanel({ status, canSeeRegistry, onFollow }: { status: ManagementReadStatus | null; canSeeRegistry: boolean; onFollow: () => void }) {
+  const l = status?.latest ?? null
+  if (status?.failed) {
+    return <p data-testid="freshness-statement">The latest live read on this visit could not be read, so its page shows no figures. Nothing is assumed zero; try the page again.</p>
+  }
+  if (!l) {
+    return <p data-testid="freshness-statement">No Corporate management figures have been read on this visit yet. Each page reads its own live figures when it opens.</p>
+  }
+  // Owner UAT R3 F4: the snapshot's age and refresh are stated as they were when this page read it, never as if current.
+  const age = l.snapshot ? `${l.snapshot.stale ? 'a stale' : 'a'} shared staging snapshot that was ${l.snapshot.ageSeconds} s old when this page read it${l.snapshot.refreshing ? ', while a newer read was running in the background' : ''}` : 'a shared staging snapshot'
+  return (
+    <div className="space-y-1.5" data-testid="freshness-statement">
+      <p>Corporate management figures were last read at {formatAsOf(l.generatedAt)} — {age}.</p>
+      {l.notReadable.length > 0
+        ? <p>{l.notReadable.length} of {l.figures} figures on that page could not be read: {l.notReadable.map((f) => f.label).join('; ')}. {l.notReadable.length === 1 ? 'It shows' : 'They show'} no value.</p>
+        : <p>Every figure on that page was read.</p>}
+      <p className="text-xs text-slate-400">Each figure states its own source and read time. This is a read state, not a health score.</p>
+      {canSeeRegistry && (
+        <Link to="/corporate/data-intelligence" onClick={onFollow} className="inline-flex min-h-[40px] items-center gap-1 text-xs font-medium text-orange-300 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11">
+          Open the metric &amp; source registry
+        </Link>
+      )}
+    </div>
+  )
+}
+
+function AttentionPanel({ status, canSeeOverview, onFollow }: { status: ManagementReadStatus | null; canSeeOverview: boolean; onFollow: () => void }) {
+  const { pathname, hash } = useLocation()
+  const follow = () => {
+    onFollow()
+    // Already at Needs attention the address does not change, so nothing else scrolls: land on the section here, once the
+    // closing panel has left the layout.
+    if (`${pathname}${hash}` === NEEDS_ATTENTION_ROUTE) window.setTimeout(() => document.getElementById(NEEDS_ATTENTION_ANCHOR)?.scrollIntoView?.({ block: 'start' }), 0)
+  }
+  if (!canSeeOverview) {
+    return <p data-testid="attention-statement">Needs attention is on the Corporate Overview, which this account&apos;s Corporate access does not include.</p>
+  }
+  const a = status?.attention ?? null
+  return (
+    <div className="space-y-1.5" data-testid="attention-statement">
+      {a
+        ? (
+          <>
+            <p>{a.count === 0 ? 'Nothing needs attention' : `${a.count} ${a.count === 1 ? 'item needs' : 'items need'} attention`} on the Corporate Overview read at {formatAsOf(a.generatedAt)}.</p>
+            {a.titles.length > 0 && <ul className="list-disc space-y-0.5 pl-5 text-xs text-slate-300">{a.titles.map((t) => <li key={t}>{t}</li>)}</ul>}
+          </>
+        )
+        : <p>What needs attention is read on the Corporate Overview, with the rule, source and age of every item.</p>}
+      <Link to={NEEDS_ATTENTION_ROUTE} onClick={follow} className="inline-flex min-h-[40px] items-center gap-1 text-xs font-medium text-orange-300 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 max-sm:min-h-11">
+        Open Needs attention
+      </Link>
+    </div>
   )
 }
 
@@ -124,7 +198,12 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
   }, [drawerOpen])
 
   const [panel, setPanel] = useState<null | 'freshness' | 'attention' | 'account'>(null)
+  const closePanel = useCallback(() => setPanel(null), [])
   const signOut = useShellSignOut(closeDrawer)
+  const readStatus = useManagementReadStatus()
+  const canSeeOverview = grant.capabilities.has('corporate.overview.read')
+  const canSeeRegistry = grant.capabilities.has('corporate.metric.registry.read')
+  const attentionCount = canSeeOverview ? readStatus?.attention?.count ?? null : null
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" data-testid="corporate-shell">
@@ -166,11 +245,19 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
           )}
           <span className="hidden text-xs text-slate-400 xl:inline" data-testid="topbar-scope">Scope: CarUp Corporate</span>
           <div className="ml-auto flex items-center gap-1 max-sm:gap-0">
-            <TopbarButton label="Data freshness" active={panel === 'freshness'} onClick={() => setPanel(panel === 'freshness' ? null : 'freshness')} testId="topbar-freshness">
-              <Clock className="h-4 w-4" aria-hidden="true" /><span className="hidden text-xs sm:inline">No source connected</span>
+            <TopbarButton label={`Data freshness: ${freshnessLabel(readStatus)}`} active={panel === 'freshness'} onClick={() => setPanel(panel === 'freshness' ? null : 'freshness')} testId="topbar-freshness">
+              <Clock className="h-4 w-4" aria-hidden="true" /><span className="hidden text-xs sm:inline" data-testid="topbar-freshness-label">{freshnessLabel(readStatus)}</span>
             </TopbarButton>
-            <TopbarButton label="Attention" active={panel === 'attention'} onClick={() => setPanel(panel === 'attention' ? null : 'attention')} testId="topbar-attention">
+            <TopbarButton
+              label={attentionCount === null ? 'Attention' : `Attention: ${attentionCount} ${attentionCount === 1 ? 'item needs' : 'items need'} attention`}
+              active={panel === 'attention'}
+              onClick={() => setPanel(panel === 'attention' ? null : 'attention')}
+              testId="topbar-attention"
+            >
               <Bell className="h-4 w-4" aria-hidden="true" />
+              {attentionCount !== null && attentionCount > 0 && (
+                <span className="rounded-full bg-orange-500 px-1.5 text-[10px] font-semibold leading-4 text-white" aria-hidden="true" data-testid="topbar-attention-count">{attentionCount}</span>
+              )}
             </TopbarButton>
             <TopbarButton label="Account" active={panel === 'account'} onClick={() => setPanel(panel === 'account' ? null : 'account')} testId="topbar-account">
               <UserCircle className="h-5 w-5" aria-hidden="true" />
@@ -179,18 +266,8 @@ function CorporateShell({ grant }: { grant: CorporateGrant }) {
         </div>
         {panel && (
           <div className="border-t border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-200" role="region" aria-label={panel === 'freshness' ? 'Data freshness' : panel === 'attention' ? 'Attention' : 'Account'} data-testid={`topbar-panel-${panel}`}>
-            {panel === 'freshness' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <TruthStateBadge state="UNAVAILABLE_NO_SOURCE" badge="Not connected" />
-                <span>No governed metric source is connected to Corporate Admin yet, so there is nothing to be fresh or stale. Freshness is a source state, not a business figure.</span>
-              </div>
-            )}
-            {panel === 'attention' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <TruthStateBadge state="UNAVAILABLE_NO_SOURCE" badge="Not connected" />
-                <span>No attention source is connected. Overdue queues, report approvals and access reviews will appear here once their governed sources exist; no severity is inferred.</span>
-              </div>
-            )}
+            {panel === 'freshness' && <FreshnessPanel status={readStatus} canSeeRegistry={canSeeRegistry} onFollow={closePanel} />}
+            {panel === 'attention' && <AttentionPanel status={readStatus} canSeeOverview={canSeeOverview} onFollow={closePanel} />}
             {panel === 'account' && (
               <div className="space-y-2" data-testid="account-panel">
                 <p><span className="text-slate-400">Signed in as </span>{user?.name || 'Signed-in account'}</p>

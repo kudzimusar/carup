@@ -130,8 +130,9 @@ export const ALL_TRUTH_STATES = Object.keys(TRUTH_STATES) as TruthState[]
 export type MetricSlot =
   | { state: 'GOVERNED_ACTUAL' | 'GOVERNED_DERIVED'; value: number; unit?: string }
   | { state: 'GOVERNED_RATE_OR_RATIO'; value: number; unit?: string; kind?: 'rate' | 'ratio'; denominator: number; denominatorLabel: string }
-  /** `badge` names which kind of live fact this is ("Operational" or "Technical") — never "Actual". */
-  | { state: 'ADVISORY' | 'TECHNICAL_OPERATIONAL'; value: number | string; unit?: string; badge?: 'Operational' | 'Technical' | 'Advisory' }
+  /** `badge` names the READ STATE of a live fact ("Live read" for records, "Technical" for platform state) — never "Actual", and
+   *  never a classification: a population is not "operational" because it was read live (CA-OWNER-02-R3 D2). */
+  | { state: 'ADVISORY' | 'TECHNICAL_OPERATIONAL'; value: number | string; unit?: string; badge?: 'Live read' | 'Technical' | 'Advisory' }
   | { state: 'MEASURED_ZERO'; unit?: string; derived?: boolean }
   | { state: 'DEGRADED'; lastKnownValue?: number; lastComputedAt?: string; lastKnownPermitted?: boolean; unit?: string }
   | { state: 'UNAVAILABLE_NOT_SEPARABLE'; grain?: string }

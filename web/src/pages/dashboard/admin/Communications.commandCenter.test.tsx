@@ -228,6 +228,64 @@ describe('H4 — the composer follows the server\'s reply-channel authority', ()
     expect((api.adminReplyCommunicationThread.mock.calls.at(-1) as unknown as [string, Record<string, unknown>])[1]).toMatchObject({ channel: 'whatsapp', internal: false })
   })
 
+  // Owner UAT of d744aed1, finding RC-1. While an opened conversation's detail was still loading (about 3.4 s on staging),
+  // the composer said "Reply via In-app" — the row's stale primary_channel — and Send would have used it. Until the
+  // server has chosen the reply channel for THIS conversation, no channel is stated and none can be sent on.
+  describe('RC-1 · no reply channel is chosen before the server has chosen it', () => {
+    const detailFor = (id: string) => ({
+      thread: { id, status: 'open', thread_type: 'marketplace_inquiry', subject_type: 'marketplace_inquiry', subject_id: 'inq-1', primary_channel: 'in_app', truth: null, customer: null, seller: null },
+      messages: [{ id: 'm1', direction: 'inbound', channel: 'whatsapp', status: 'received', content_text: 'Is it still available?', created_at: hoursAgo(1) }],
+      participants: [], escalations: [],
+      identities: [{ id: 'ci-buyer', channel: 'whatsapp', consent_status: 'implied_transactional' }],
+      linked_identities: [], delivery_attempts: [], preferences: null,
+      reply_channel: { default_channel: 'whatsapp', deliverable: ['whatsapp', 'in_app'], basis: 'latest_inbound' },
+    })
+
+    it('while the conversation loads: "Choosing the reply channel…", no channel stated, Send disabled — then the server\'s channel leads', async () => {
+      let release: () => void = () => {}
+      api.fetchAdminCommunicationThread.mockImplementation(((id: string) => new Promise((resolve) => { release = () => resolve(detailFor(id)) })) as never)
+      // Calls from earlier tests in this file must not count here (the shared mock is not reset in beforeEach).
+      api.adminReplyCommunicationThread.mockClear()
+      api.adminReplyCommunicationThread.mockResolvedValue({ message: { id: 'm-new', status: 'queued' }, notification: { id: 1, status: 'queued' } } as never)
+      renderAt('/admin/communications')
+      fireEvent.click(await screen.findByText('Rudo Banda')) // the row's primary_channel is in_app
+      const composer = await screen.findByTestId('reply-composer-sticky')
+      expect(within(composer).getByTestId('reply-target-pending')).toHaveTextContent('Choosing the reply channel…')
+      expect(within(composer).queryByTestId('reply-target'), 'no channel is stated before the server chooses one').toBeNull()
+      fireEvent.change(within(composer).getByRole('textbox'), { target: { value: 'Yes, it is available.' } })
+      expect(within(composer).getByRole('button', { name: /Send reply/ })).toBeDisabled()
+      fireEvent.click(within(composer).getByRole('button', { name: /Send reply/ }))
+      expect(api.adminReplyCommunicationThread).not.toHaveBeenCalled()
+      release()
+      await waitFor(() => expect(within(composer).getByTestId('reply-target')).toHaveAttribute('data-reply-channel', 'whatsapp'))
+      expect(within(composer).queryByTestId('reply-target-pending')).toBeNull()
+      fireEvent.click(within(composer).getByRole('button', { name: /Send reply/ }))
+      await waitFor(() => expect(api.adminReplyCommunicationThread).toHaveBeenCalled())
+      expect((api.adminReplyCommunicationThread.mock.calls.at(-1) as unknown as [string, Record<string, unknown>])[1]).toMatchObject({ channel: 'whatsapp', internal: false })
+    })
+
+    it('if the conversation cannot be read, no channel is guessed: Send stays disabled and it says why', async () => {
+      api.fetchAdminCommunicationThread.mockRejectedValue(new Error('unavailable') as never)
+      renderAt('/admin/communications')
+      fireEvent.click(await screen.findByText('Rudo Banda'))
+      const composer = await screen.findByTestId('reply-composer-sticky')
+      await waitFor(() => expect(within(composer).getByTestId('reply-target-unavailable')).toHaveTextContent('The reply channel could not be read'))
+      expect(within(composer).queryByTestId('reply-target')).toBeNull()
+      fireEvent.change(within(composer).getByRole('textbox'), { target: { value: 'Hello' } })
+      expect(within(composer).getByRole('button', { name: /Send reply/ })).toBeDisabled()
+    })
+
+    it('an internal note — never delivered — does not wait for the channel', async () => {
+      api.fetchAdminCommunicationThread.mockImplementation((() => new Promise(() => {})) as never)
+      renderAt('/admin/communications')
+      fireEvent.click(await screen.findByText('Rudo Banda'))
+      const composer = await screen.findByTestId('reply-composer-sticky')
+      fireEvent.click(within(composer).getByRole('switch', { name: /Internal note/ }))
+      fireEvent.change(within(composer).getByRole('textbox'), { target: { value: 'Checked the listing.' } })
+      expect(within(composer).getByRole('button', { name: /Add internal note/ })).not.toBeDisabled()
+    })
+  })
+
   it('shows the server\'s refusal when a reply channel is not deliverable, and keeps the draft', async () => {
     api.fetchAdminCommunicationThread.mockImplementation((async (id: string) => ({
       thread: { id, status: 'open', primary_channel: 'in_app', truth: null, customer: null, seller: null },

@@ -156,10 +156,16 @@ const degraded = degradedFact;
 
 /**
  * Run one source read under a time budget and turn its outcome into a fact. The reader resolves to
- * `{ value, complete = true, provenance?, detail? }`. It never throws: a failure, a timeout or an incomplete read is DEGRADED.
+ * `{ value, complete = true, provenance?, detail?, asOf? }`. It never throws: a failure, a timeout or an incomplete read is
+ * DEGRADED. CA-OWNER-02-R3 (D3): `asOf` lets a cached source report when it was REALLY read (never a time in the future), and
+ * an error carrying `factReason` says exactly why no value is shown.
  */
 export async function readFact(spec, reader, { now = new Date(), timeoutMs = DEFAULT_READ_TIMEOUT_MS } = {}) {
   const asOf = spec.asOf ?? now;
+  const readTime = (reported) => {
+    const t = reported instanceof Date ? reported : (typeof reported === 'string' ? new Date(reported) : null);
+    return t && !Number.isNaN(t.getTime()) && t.getTime() <= new Date(asOf).getTime() ? t : asOf;
+  };
   let timer;
   try {
     const outcome = await Promise.race([
@@ -170,11 +176,12 @@ export async function readFact(spec, reader, { now = new Date(), timeoutMs = DEF
       return degraded({ ...spec, asOf, detail: outcome?.detail ?? spec.detail }, 'The source returned an incomplete read, so no value is shown.');
     }
     return liveFact({
-      ...spec, asOf, value: outcome.value, provenance: outcome.provenance ?? spec.provenance, detail: outcome.detail ?? spec.detail, extent: outcome.extent ?? spec.extent,
-      breakdown: outcome.breakdown ?? spec.breakdown,
+      ...spec, asOf: readTime(outcome.asOf), value: outcome.value, provenance: outcome.provenance ?? spec.provenance, detail: outcome.detail ?? spec.detail,
+      extent: outcome.extent ?? spec.extent, breakdown: outcome.breakdown ?? spec.breakdown,
     });
-  } catch {
-    return degraded({ ...spec, asOf }, `The source could not be read at ${iso(asOf)}, so no value is shown.`);
+  } catch (err) {
+    const reason = typeof err?.factReason === 'string' && err.factReason.trim() ? err.factReason : `The source could not be read at ${iso(asOf)}, so no value is shown.`;
+    return degraded({ ...spec, asOf }, reason);
   } finally {
     clearTimeout(timer);
   }

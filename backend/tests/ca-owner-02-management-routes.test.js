@@ -71,11 +71,30 @@ test('HTTP · /api/corporate/management/:area through the shipped app', async (t
   assert.equal(A.cacheControl, 'no-store');
   assert.equal(A.body.contract, 'carup.corporate_management.v1');
   assert.equal(A.body.read_only, true);
+  // CA-OWNER-02-R3 (D3): every answer says how old its shared snapshot is and whether a refresh is running.
+  assert.equal(typeof A.body.snapshot, 'object', A.text.slice(0, 200));
+  assert.equal(A.body.snapshot.generated_at, A.body.generated_at);
+  assert.equal(A.body.snapshot.stale, false);
+  assert.equal(A.body.snapshot.refreshing, false);
+  assert.equal(typeof A.body.snapshot.age_seconds, 'number');
   const governance = Object.fromEntries(A.body.sections.governance.map((f) => [f.id, f]));
   assert.equal(governance['corporate.governance.membership.active'].value, 2);
   assert.equal(governance['corporate.governance.assignment.active'].value, 4);
   assert.ok(Array.isArray(A.body.attention));
   assert.ok(A.body.attention.some((i) => i.id === 'attention:queue:trust.identity_verification'));
+
+  // CA-OWNER-02-R3 (D3): the governance record is read for THIS request at THIS request's time — never at the shared
+  // snapshot's, which may be minutes old while it is served during a refresh. The frozen projection decides "ACTIVE and
+  // inside its effective window" at the time it is given, and dates the figures with it.
+  await new Promise((resolve) => { setTimeout(resolve, 1_100); });
+  const askedAt = Date.now();
+  const A2 = await get('/api/corporate/management/overview', 'tok-a');
+  assert.equal(A2.status, 200, A2.text);
+  assert.equal(A2.body.snapshot.generated_at, A.body.snapshot.generated_at, 'the shared snapshot was served from the cache');
+  assert.equal(A2.body.sections.governance.length, 2);
+  for (const f of A2.body.sections.governance) {
+    assert.ok(Date.parse(f.as_of) >= askedAt, `${f.id} is dated ${f.as_of}: before this request (${new Date(askedAt).toISOString()}), i.e. at the snapshot's time`);
+  }
 
   const B = await get('/api/corporate/management/overview', 'tok-b');
   assert.equal(B.status, 403);

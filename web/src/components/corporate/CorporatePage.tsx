@@ -80,6 +80,7 @@ export function Section({
   children,
   className,
   testId,
+  anchorId,
 }: {
   title: string
   /** Short section key (e.g. "A") shown as an eyebrow. */
@@ -88,10 +89,12 @@ export function Section({
   children: React.ReactNode
   className?: string
   testId?: string
+  /** A stable id other pages may link to (e.g. the Overview's "Needs attention"). */
+  anchorId?: string
 }) {
   const headingId = `sec-${(testId ?? title).replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`
   return (
-    <section aria-labelledby={headingId} className={cn('space-y-3', className)} data-testid={testId}>
+    <section id={anchorId} aria-labelledby={headingId} className={cn('scroll-mt-20 space-y-3', className)} data-testid={testId}>
       <div>
         {label && <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-600">{label}</p>}
         <h2 id={headingId} className="text-base font-semibold text-slate-900">{title}</h2>

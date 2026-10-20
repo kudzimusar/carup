@@ -254,6 +254,10 @@ export default function AdminCommunications() {
   const [replyChannelChoice, setReplyChannelChoice] = useState<string | null>(null)
   // CA-OWNER-02 (H4): the server's reply-channel authority for the open thread (null = not published / unreadable).
   const [replyAuthority, setReplyAuthority] = useState<ReplyChannelAuthority | null>(null)
+  // Owner UAT RC-1: whether THIS thread's detail — and with it the server's reply-channel decision — has arrived. Until it
+  // has, the composer states no channel and a customer-visible reply cannot be sent: the row's primary_channel is never
+  // the answer.
+  const [replyChannelState, setReplyChannelState] = useState<{ threadId: string | null; status: 'pending' | 'ready' | 'unavailable' }>({ threadId: null, status: 'pending' })
   const [busyAction, setBusyAction] = useState<string | null>(null)
 
 
@@ -470,6 +474,7 @@ export default function AdminCommunications() {
         if (active && detail && selectedRef.current?.id === cur.id) {
           setMessages(detail.messages || [])
           setReplyAuthority(detail.reply_channel ?? null)
+          setReplyChannelState({ threadId: cur.id, status: 'ready' })
           if (waiting && !hasQueuedOrProcessing(detail.messages || [])) {
             const lastOutbound = [...(detail.messages || [])].reverse().find((m) => m.direction === 'outbound')
             if (lastOutbound) setReplyStatus(mapReplyStatus(undefined, lastOutbound.status))
@@ -502,6 +507,7 @@ export default function AdminCommunications() {
       setInternalNote(false)
       setReplyChannelChoice(null)
       setReplyAuthority(null)
+      setReplyChannelState({ threadId: thread.id, status: 'pending' })
     }
     const [detail, audit] = await Promise.all([
       fetchAdminCommunicationThread(thread.id).catch(() => null),
@@ -518,6 +524,11 @@ export default function AdminCommunications() {
       setDeliveryAttempts((detail.delivery_attempts || []) as DeliveryAttempt[])
       setPreferences((detail.preferences || null) as Parameters<typeof ContextRail>[0]['preferences'])
       setReplyAuthority(detail.reply_channel ?? null)
+      setReplyChannelState({ threadId: thread.id, status: 'ready' })
+    } else if (!sameThread) {
+      // A first open whose detail could not be read: no channel is guessed. (A failed refresh of an already-open thread
+      // keeps what that thread had already read.)
+      setReplyChannelState({ threadId: thread.id, status: 'unavailable' })
     }
     setAuditEvents(audit.events || [])
     // Mark the thread read for this agent and optimistically clear its unread badge in the list
@@ -580,9 +591,11 @@ export default function AdminCommunications() {
     serverDefault: replyAuthority?.default_channel,
   })
 
+  const replyChannelStatus = selected && replyChannelState.threadId === selected.id ? replyChannelState.status : 'pending'
+
   async function sendReply() {
     if (!selected || !reply.trim() || replyStatus === 'sending') return
-    if (!internalNote && !replyChannel) return
+    if (!internalNote && (replyChannelStatus !== 'ready' || !replyChannel)) return
     setReplyStatus('sending')
     setReplyError(null)
     setReplyCorrelationId(null)
@@ -952,6 +965,7 @@ export default function AdminCommunications() {
                   {/* Audited reply composer — sticks to the bottom so it never covers the timeline. */}
                   <div className="sticky bottom-0 bg-white pt-2 -mx-1 px-1 z-10" data-testid="reply-composer-sticky">
                     <ReplyComposer
+                      channelState={replyChannelStatus}
                       channel={replyChannel}
                       channels={replyChannels}
                       onChannelChange={setReplyChannelChoice}

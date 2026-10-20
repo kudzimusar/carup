@@ -123,3 +123,121 @@ test('the environment comes from the API host, never from the Vercel target labe
   assert.equal(environmentFromHost('localhost'), 'local');
   assert.equal(environmentFromHost('api.example.org'), 'unrecognised');
 });
+
+// ── CA-OWNER-02-R3 (D3) — the scheduler-health read is bounded by the application ─────────────────────────────────────
+const { createSchedulerHealthRead } = await import('../services/corporate/management/platformFacts.js');
+const SCHEDULER_DATA = {
+  pg_cron_available: true, job_config: { jobname: 'carup-communication-worker-every-minute', schedule: '* * * * *', active: true },
+  latest_run: { status: 'succeeded', start_time: '2026-10-17T23:59:00Z' }, latest_success: { start_time: '2026-10-17T23:59:00Z' }, stale_lock_count: 0,
+};
+
+test('R3 D3: a slow scheduler-health RPC never holds the read — the figure says it is still being read, and why', async () => {
+  let calls = 0;
+  let release;
+  const slowRpc = new Promise((resolve) => { release = resolve; });
+  const client = { rpc: (name) => { calls += 1; assert.equal(name, 'get_communication_scheduler_health'); return slowRpc; } };
+  const read = createSchedulerHealthRead(client, { budgetMs: 20, now: () => NOW.getTime() });
+  const started = Date.now();
+  const { f } = await factsOf(runtime({ schedulerHealthRead: read }));
+  assert.ok(Date.now() - started < 2_000, 'the read did not wait for the slow RPC');
+  const s = f['platform.communications.scheduler'];
+  assert.equal(s.state, 'DEGRADED');
+  assert.equal(s.value, null);
+  assert.match(s.reason, /still running/);
+  assert.match(s.reason, /scans the full cron run history/);
+  release({ data: SCHEDULER_DATA, error: null });
+  await new Promise((r) => setImmediate(r));
+  const second = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(second.state, 'TECHNICAL_OPERATIONAL');
+  assert.equal(second.value, 'worker job active');
+  assert.match(second.detail, /Read at most every 5 minutes/);
+  assert.equal(calls, 1, 'the slow RPC was started once and its answer reused');
+});
+
+test('R3 D3: a cached scheduler reading states the time it was really read, and the RPC is not repeated inside 5 minutes', async () => {
+  let t = NOW.getTime() - 120_000;
+  let calls = 0;
+  const client = { rpc: async () => { calls += 1; return { data: SCHEDULER_DATA, error: null }; } };
+  const read = createSchedulerHealthRead(client, { budgetMs: 50, now: () => t });
+  await factsOf(runtime({ schedulerHealthRead: read }));
+  t = NOW.getTime();
+  const s = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(s.as_of, new Date(NOW.getTime() - 120_000).toISOString(), 'the figure keeps the time of the real read');
+  assert.equal(calls, 1);
+});
+
+test('R3 D3: on Vercel the default scheduler-health read is handed to the request\'s waitUntil, so a read slower than the budget can complete after the response', async () => {
+  const { defaultRuntime } = await import('../services/corporate/management/platformFacts.js');
+  const KEY = Symbol.for('@vercel/request-context');
+  const previous = globalThis[KEY];
+  const waited = [];
+  globalThis[KEY] = { get: () => ({ waitUntil: (p) => waited.push(p) }) };
+  try {
+    const client = { rpc: async () => ({ data: SCHEDULER_DATA, error: null }) };
+    const { schedulerHealthRead } = defaultRuntime(client);
+    const { data } = await schedulerHealthRead();
+    assert.deepEqual(data, SCHEDULER_DATA);
+    assert.equal(waited.length, 1, 'the RPC the default runtime started was registered with waitUntil');
+    assert.equal(await waited[0], undefined);
+  } finally {
+    if (previous === undefined) delete globalThis[KEY]; else globalThis[KEY] = previous;
+  }
+});
+
+test('R3 D3: a scheduler read the database cancels at its statement time limit is DEGRADED and says it did not complete — never "still running" — and is not re-run within 5 minutes', async () => {
+  let t = NOW.getTime();
+  let calls = 0;
+  let cancel = () => {};
+  const client = { rpc: () => { calls += 1; return new Promise((resolve) => { cancel = () => resolve({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }); }); } };
+  const read = createSchedulerHealthRead(client, { budgetMs: 20, now: () => t });
+  const first = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.match(first.reason, /still running/, 'the first read is honestly still running');
+  t += 8_000;
+  cancel();
+  await new Promise((r) => setImmediate(r));
+  t += 52_000;
+  const s = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(s.state, 'DEGRADED');
+  assert.equal(s.value, null);
+  assert.doesNotMatch(s.reason, /still running/);
+  assert.match(s.reason, /did not complete/);
+  assert.match(s.reason, /statement time limit/);
+  assert.match(s.reason, /2026-10-18T00:00:08\.000Z/);
+  assert.match(s.reason, /scans the full cron run history/);
+  assert.doesNotMatch(JSON.stringify(s), /canceling statement/, 'the database error text never leaves');
+  assert.equal(calls, 1, 'the failed full-history scan is not run again inside 5 minutes');
+  t += 300_000;
+  const again = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(calls, 2, 'after 5 minutes it is tried once more');
+  assert.match(again.reason, /still running/);
+  assert.match(again.reason, /the last one did not complete/);
+  cancel();
+});
+
+test('R3 D3: a reading served after a failed re-read keeps its real read time and says the latest re-read did not complete', async () => {
+  let t = NOW.getTime() - 400_000;
+  let calls = 0;
+  let cancel = () => {};
+  const client = { rpc: () => { calls += 1; if (calls === 1) return Promise.resolve({ data: SCHEDULER_DATA, error: null }); return new Promise((resolve) => { cancel = () => resolve({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }); }); } };
+  const read = createSchedulerHealthRead(client, { budgetMs: 20, now: () => t });
+  await factsOf(runtime({ schedulerHealthRead: read }));
+  t = NOW.getTime();
+  await factsOf(runtime({ schedulerHealthRead: read })); // past 5 minutes: a re-read starts
+  cancel();
+  await new Promise((r) => setImmediate(r));
+  const s = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(s.state, 'TECHNICAL_OPERATIONAL');
+  assert.equal(s.value, 'worker job active');
+  assert.equal(s.as_of, new Date(NOW.getTime() - 400_000).toISOString(), 'the value keeps the time it was really read');
+  assert.match(s.detail, /the latest re-read did not complete/);
+  assert.equal(calls, 2);
+});
+
+test('R3 D3: a failed scheduler-health RPC is DEGRADED and never cached as a value', async () => {
+  const client = { rpc: async () => ({ data: null, error: { message: 'permission denied' } }) };
+  const read = createSchedulerHealthRead(client, { budgetMs: 50, now: () => NOW.getTime() });
+  const s = (await factsOf(runtime({ schedulerHealthRead: read }))).f['platform.communications.scheduler'];
+  assert.equal(s.state, 'DEGRADED');
+  assert.equal(s.value, null);
+  assert.doesNotMatch(JSON.stringify(s), /permission denied/, 'the provider error text never leaves');
+});

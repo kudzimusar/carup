@@ -814,7 +814,8 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   },
   {
     id: 'admin.users',
-    label: 'Users',
+    // CA-OWNER-02-R3 (D7): platform users and their platform roles — Corporate access is governed in People & Access.
+    label: 'Platform Users & Roles',
     route: '/admin/users',
     domain: 'admin',
     roles: ['admin'],

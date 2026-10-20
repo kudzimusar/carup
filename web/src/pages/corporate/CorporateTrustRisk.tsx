@@ -10,13 +10,13 @@ import { OPERATE_LINKS } from '@/config/corporate/navigation'
 import { useManagementArea } from '@/lib/corporate/useManagementArea'
 
 export default function CorporateTrustRisk() {
-  const { result, retry } = useManagementArea('trust')
+  const { result, retry, revalidating } = useManagementArea('trust')
   const data = result.status === 'ok' ? result.payload : null
   return (
     <CorporatePage id="trust-risk" intro="Risk and compliance work by named queue. Identity, evidence, dealer compliance, seller authority, PartSentry, fraud and trust remain separate facts.">
       <Section title="Aggregate workload" description="Each queue separately, from its own authority. No combined trust or risk percentage, and no score." testId="trust-aggregates">
         {data ? <QueueBoard queues={data.queues} regionLabel="Risk and compliance queues by measure" /> : <ManagementStatus result={result} onRetry={retry} />}
-        {data && <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} />}
+        {data && <EnvironmentNote environment={data.environment} generatedAt={data.generatedAt} snapshot={data.snapshot} revalidating={revalidating} />}
       </Section>
       <Section title="Restricted operator queues" testId="trust-operate">
         <StatementPanel>Seeing an aggregate here does not grant access to the records behind it. The operator queues below enforce their own authority on every request.</StatementPanel>
