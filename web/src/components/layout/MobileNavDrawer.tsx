@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
 import { getMobileNavigation, type ResolvedNavItem } from '@/config/navigationManifest'
-import { getRoleMetadata, normalizeFrontendRole, type NavigationContext } from '@/config/featureRegistry'
+import { activeTenantScopeOf, getRoleMetadata, normalizeFrontendRole, type NavigationContext } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { useShellSignOut } from './useShellSignOut'
@@ -45,6 +45,10 @@ export default function MobileNavDrawer() {
   const ctx: NavigationContext = {
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
+    // OC-NATIVE-FINAL-02-R1 P2-D: without the selected organisation a garage member's drawer listed
+    // owner items and pointed Dashboard at the owner dashboard; the navbar, sidebar and compact bar
+    // already pass it.
+    activeTenant: activeTenantScopeOf(user),
     environment: import.meta.env.MODE,
     effectiveStates,
   }

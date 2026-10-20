@@ -220,7 +220,8 @@ export const NAVIGATION_MANIFEST: NavigationNode[] = [
 
   // ═══ MOBILE PRIMARY (public quick links) ════════════════════════════════
   { id: 'mobile.buy', surface: 'mobile-primary', order: 1, label: 'Buy', featureId: 'product.marketplace', route: '/marketplace', icon: 'ShoppingCart' },
-  { id: 'mobile.sell', surface: 'mobile-primary', order: 2, label: 'Sell', featureId: 'owner.sell-vehicle', authDestination: '/dashboard/sell-vehicle', guestDestination: GUEST_SELL, icon: 'Car' },
+  // OC-NATIVE-FINAL-02-R1 P2-D: /dashboard/sell-vehicle admits only owners and dealers; every other signed-in role was offered Sell and redirected away.
+  { id: 'mobile.sell', surface: 'mobile-primary', order: 2, label: 'Sell', featureId: 'owner.sell-vehicle', authDestination: '/dashboard/sell-vehicle', guestDestination: GUEST_SELL, roles: ['owner', 'dealer'], icon: 'Car' },
   { id: 'mobile.verify', surface: 'mobile-primary', order: 3, label: 'Verify', featureId: 'product.verify', route: '/search', icon: 'Shield' },
   { id: 'mobile.parts', surface: 'mobile-primary', order: 4, label: 'Parts', featureId: 'product.marketplace-parts', route: '/marketplace/parts', icon: 'Package' },
   { id: 'mobile.dealers', surface: 'mobile-primary', order: 5, label: 'Dealers', featureId: 'product.dealers', icon: 'Building2' },
