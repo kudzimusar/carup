@@ -1,29 +1,18 @@
 import React from 'react';
 import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { apiUrl, resolveApiBaseUrl } from '../../utils/apiBase';
 import { csrfFetch } from '../../utils/csrfFetch';
+import {
+  readCanonicalTransactions,
+  safePayFailureCopy,
+  safePayViewState,
+  shouldRetrySafePayRead,
+  type CanonicalTransaction,
+} from '../../utils/safePayTransactions';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
-
-type TransactionStatus =
-  | 'eligible' | 'initiated' | 'funds_held' | 'inspection_pending' | 'release_approved'
-  | 'settled' | 'disputed' | 'refunded' | 'cancelled' | 'failed'
-  | 'funded_sandbox' | 'released_sandbox' | 'refunded_sandbox';
-
-interface CanonicalTransaction {
-  transaction_intent_id: string;
-  vin: string;
-  status: TransactionStatus | string;
-  listing_amount: number | null;
-  listing_currency: string | null;
-  gate_reasons: string[];
-  payment_state: string;
-  reservation_state: string | null;
-  deposit_eligibility: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
 
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
@@ -54,6 +43,7 @@ function statusTone(status: string) {
 
 function EscrowDashboardScreenInner() {
   const token = useAuthStore((state) => state.token);
+  const router = useRouter();
   const queryClient = useQueryClient();
   const headers = {
     'Content-Type': 'application/json',
@@ -61,14 +51,17 @@ function EscrowDashboardScreenInner() {
     ...(token ? { 'x-session-token': token } : {}),
   };
 
-  const { data: transactions = [], isLoading, error, refetch } = useQuery<CanonicalTransaction[]>({
+  // OC-NATIVE-FINAL-02-R1 D1: one truthful state per server answer. A failed read carries no count.
+  const transactionsQuery = useQuery<CanonicalTransaction[]>({
     queryKey: ['canonical-transactions'],
-    queryFn: async () => {
-      const response = await fetch(apiUrl('/api/escrow'), { headers });
-      if (!response.ok) throw new Error('Failed to retrieve transaction status');
-      const body = await response.json();
-      return Array.isArray(body?.sessions) ? body.sessions : [];
-    },
+    queryFn: () => readCanonicalTransactions(token),
+    retry: shouldRetrySafePayRead,
+  });
+  const { isFetching, refetch } = transactionsQuery;
+  const view = safePayViewState({
+    isPending: transactionsQuery.isPending,
+    data: transactionsQuery.data,
+    error: transactionsQuery.error,
   });
 
   const actionMutation = useMutation({
@@ -157,44 +150,58 @@ function EscrowDashboardScreenInner() {
     );
   };
 
-  const activeCount = transactions.filter((item) => !['settled', 'refunded', 'cancelled', 'failed', 'released_sandbox', 'refunded_sandbox'].includes(item.status)).length;
+  // Counts exist only when CarUp answered. Loading and failed reads show no number at all.
+  const confirmed = view.state === 'READY_EMPTY' || view.state === 'READY_WITH_TRANSACTIONS';
+  const headerTotal = confirmed ? String(view.total) : '—';
+  const headerProgress = confirmed ? `${view.inProgress} in progress` : view.state === 'LOADING' ? 'Loading' : 'Not available';
 
   return (
     <View className="flex-1 bg-slate-50">
       <View className="bg-slate-900 px-6 py-6 border-b border-slate-800">
         <Text className="text-slate-400 text-xxs uppercase tracking-widest font-semibold">SafePay transactions</Text>
         <View className="flex-row items-end justify-between mt-1">
-          <Text className="text-white text-3xl font-extrabold">{transactions.length}</Text>
-          <Text className="text-orange-400 text-xs font-bold">{activeCount} in progress</Text>
+          <Text className="text-white text-3xl font-extrabold">{headerTotal}</Text>
+          <Text className="text-orange-400 text-xs font-bold">{headerProgress}</Text>
         </View>
         <Text className="text-slate-400 text-xs mt-2">
           Money, inspection and settlement states shown here come from CarUp and its payment provider, not this device.
         </Text>
       </View>
 
-      {isLoading ? (
-        <View className="flex-1 justify-center items-center"><ActivityIndicator size="large" color="#f97316" /></View>
-      ) : error ? (
-        <View className="flex-1 justify-center items-center px-6">
-          <Text className="text-slate-800 text-lg font-bold text-center mb-2">Unable to load transactions</Text>
-          <Text className="text-slate-500 text-sm text-center mb-6">The canonical transaction service could not be reached.</Text>
-          <Pressable onPress={() => refetch()} className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl">
-            <Text className="text-white text-sm font-semibold">Retry</Text>
-          </Pressable>
-        </View>
-      ) : transactions.length === 0 ? (
+      {view.state === 'LOADING' ? (
+        <View className="flex-1 justify-center items-center"><ActivityIndicator size="large" color="#f97316" accessibilityLabel="Loading SafePay transactions" /></View>
+      ) : view.state === 'READ_FAILED' ? (
+        (() => {
+          const copy = safePayFailureCopy(view);
+          return (
+            <View className="flex-1 justify-center items-center px-6">
+              <Text className="text-slate-800 text-lg font-bold text-center mb-2">{copy.title}</Text>
+              <Text className="text-slate-500 text-sm text-center mb-6">{copy.body}</Text>
+              {copy.action === 'retry' ? (
+                <Pressable onPress={() => refetch()} accessibilityRole="button" className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl">
+                  <Text className="text-white text-sm font-semibold">Try again</Text>
+                </Pressable>
+              ) : copy.action === 'sign_in' ? (
+                <Pressable onPress={() => router.push('/(auth)/login' as never)} accessibilityRole="button" className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl">
+                  <Text className="text-white text-sm font-semibold">Sign in</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })()
+      ) : view.state === 'READY_EMPTY' ? (
         <View className="flex-1 justify-center items-center px-6">
           <Text className="text-slate-500 text-sm font-medium text-center">No CarUp transactions yet.</Text>
-          <Text className="text-slate-400 text-xs mt-2 text-center">A transaction appears after a governed Marketplace purchase inquiry is accepted into the transaction flow.</Text>
+          <Text className="text-slate-400 text-xs mt-2 text-center">A transaction appears here once a purchase inquiry is accepted into SafePay.</Text>
         </View>
       ) : (
         <FlatList
-          data={transactions}
+          data={view.transactions}
           renderItem={renderCard}
           keyExtractor={(item) => item.transaction_intent_id}
           contentContainerStyle={{ padding: 24 }}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#f97316" />}
+          refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} tintColor="#f97316" />}
         />
       )}
     </View>

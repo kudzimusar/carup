@@ -79,6 +79,8 @@ const TABS = ['garage', 'escrow', 'marketplace'] as const;
 const DELEGATED: Record<string, string | undefined> = {
   garage: 'ownerGarageApi',
   marketplace: 'marketplaceApi',
+  // OC-NATIVE-FINAL-02-R1 D1: the SafePay read lives in its truthful read util, checked below like the others.
+  escrow: 'safePayTransactions',
 };
 
 console.log('\n=== MOBILE TAB STABILITY STATIC GUARD (Blocker 3) ===\n');
@@ -129,7 +131,7 @@ for (const tab of TABS) {
 
 // Canonical API utilities backing delegated tabs must be ngrok-safe and free
 // of hardcoded hosts.
-for (const utilName of ['marketplaceApi', 'ownerGarageApi']) {
+for (const utilName of ['marketplaceApi', 'ownerGarageApi', 'safePayTransactions']) {
   const utilFile = path.resolve(process.cwd(), `utils/${utilName}.ts`);
   const utilSrc = fs.readFileSync(utilFile, 'utf-8');
   test(`${utilName} util: sends ngrok-skip-browser-warning`, () => {

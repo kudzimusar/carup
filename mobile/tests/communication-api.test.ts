@@ -7,6 +7,7 @@ const shell = readFileSync(resolve('app/(tabs)/_layout.tsx'), 'utf8');
 const inbox = readFileSync(resolve('app/(tabs)/inbox.tsx'), 'utf8');
 const conversation = readFileSync(resolve('app/inbox/[threadId].tsx'), 'utf8');
 const account = readFileSync(resolve('app/(tabs)/account.tsx'), 'utf8');
+const preferenceHelper = readFileSync(resolve('utils/communicationPreferences.ts'), 'utf8');
 const vehicle = readFileSync(resolve('app/vehicle/[vin].tsx'), 'utf8');
 
 for (const marker of [
@@ -37,7 +38,9 @@ assert.match(conversation, /CarUp is the conversation record/, 'provider transpo
 for (const key of ['push_enabled', 'whatsapp_enabled', 'telegram_enabled', 'email_enabled']) {
   assert.ok(account.includes(key), 'Account must expose the ' + key + ' delivery preference');
 }
-assert.match(account, /updateCommunicationPreferences/, 'Account persists delivery preferences');
+// OC-NATIVE-FINAL-02-R1 D2: Account saves through the truthful preference helper, which persists through the API.
+assert.match(account, /savePreferenceChange\(/, 'Account persists delivery preferences');
+assert.match(preferenceHelper, /updateCommunicationPreferences/, 'the preference helper persists through the CarUp Communications API');
 
 assert.match(vehicle, /createCommunicationShare/, 'Vehicle Detail uses the governed share endpoint');
 assert.match(vehicle, /channel:\s*['"]whatsapp['"]/, 'WhatsApp share is provider-specific');

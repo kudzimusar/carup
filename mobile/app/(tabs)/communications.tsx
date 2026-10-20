@@ -4,32 +4,60 @@ import { NativeFeatureBoundary } from '../../components/navigation/NativeFeature
 import {
   createCommunicationShare,
   createCommunicationThread,
-  getCommunicationPreferences,
   listCommunicationNotifications,
   listCommunicationThreads,
   sendCommunicationMessage,
-  updateCommunicationPreferences,
 } from '../../utils/communicationApi';
+import {
+  PreferenceMutationBlockedError,
+  preferenceFailureCopy,
+  preferenceViewState,
+  readCommunicationPreferences,
+  savePreferenceChange,
+  type PreferenceViewState,
+} from '../../utils/communicationPreferences';
 
 function CommunicationsScreenInner() {
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationsFailed, setNotificationsFailed] = useState(false);
   const [threads, setThreads] = useState<any[]>([]);
-  const [preferences, setPreferences] = useState<any>({});
+  const [threadsFailed, setThreadsFailed] = useState(false);
+  // OC-NATIVE-FINAL-02-R1 D2: a failed read is a failure state, never an empty preference object.
+  const [preferenceView, setPreferenceView] = useState<PreferenceViewState>({ state: 'LOADING' });
+  const [preferenceStatus, setPreferenceStatus] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [listingId, setListingId] = useState('');
   const [referralCode, setReferralCode] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
 
+  async function loadPreferences() {
+    setPreferenceView({ state: 'LOADING' });
+    try {
+      setPreferenceView({ state: 'READY', preferences: await readCommunicationPreferences() });
+    } catch (error) {
+      setPreferenceView(preferenceViewState({ isPending: false, data: undefined, error }));
+    }
+  }
+
   async function load() {
-    const [notificationRes, threadRes, prefRes] = await Promise.all([
-      listCommunicationNotifications().catch(() => ({ notifications: [] })),
-      listCommunicationThreads().catch(() => ({ threads: [] })),
-      getCommunicationPreferences().catch(() => ({ preferences: {} })),
+    const [notificationRes, threadRes] = await Promise.allSettled([
+      listCommunicationNotifications(),
+      listCommunicationThreads(),
+      loadPreferences(),
     ]);
-    setNotifications(notificationRes.notifications || []);
-    setThreads(threadRes.threads || []);
-    setPreferences(prefRes.preferences || {});
+    if (notificationRes.status === 'fulfilled') {
+      setNotifications(notificationRes.value.notifications || []);
+      setNotificationsFailed(false);
+    } else {
+      setNotificationsFailed(true);
+    }
+    if (threadRes.status === 'fulfilled') {
+      setThreads(threadRes.value.threads || []);
+      setThreadsFailed(false);
+    } else {
+      setThreadsFailed(true);
+    }
   }
 
   useEffect(() => {
@@ -38,6 +66,11 @@ function CommunicationsScreenInner() {
 
   async function sendSupport() {
     if (!message.trim()) return;
+    // Without the current conversation list, sending could open a second support conversation.
+    if (threadsFailed) {
+      setStatus('Your conversations could not be loaded, so nothing was sent. Try again.');
+      return;
+    }
     setStatus('Sending');
     try {
       let thread = threads[0];
@@ -49,15 +82,20 @@ function CommunicationsScreenInner() {
       setMessage('');
       setStatus('Sent');
       await load();
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not send message');
+    } catch {
+      setStatus('Message not sent. Please try again.');
     }
   }
 
-  async function savePreferences(next: any) {
-    setPreferences(next);
-    const saved = await updateCommunicationPreferences(next);
-    setPreferences(saved.preferences || next);
+  async function savePreference(key: string, value: boolean) {
+    setPreferenceStatus(null);
+    try {
+      setPreferenceView({ state: 'READY', preferences: await savePreferenceChange(preferenceView, key, value) });
+    } catch (error) {
+      setPreferenceStatus(error instanceof PreferenceMutationBlockedError
+        ? error.message
+        : 'CarUp could not confirm that change. These switches show the last values CarUp returned; try again.');
+    }
   }
 
   async function createShare() {
@@ -73,7 +111,14 @@ function CommunicationsScreenInner() {
 
       <View className="bg-white rounded-2xl border border-slate-100 p-4 mb-4">
         <Text className="font-bold text-slate-900 mb-3">Notifications</Text>
-        {notifications.length === 0 ? (
+        {notificationsFailed ? (
+          <View>
+            <Text className="text-slate-500 text-sm">Your notifications could not be loaded.</Text>
+            <Pressable onPress={() => void load()} accessibilityRole="button" className="mt-2">
+              <Text className="text-orange-600 text-sm font-semibold">Try again</Text>
+            </Pressable>
+          </View>
+        ) : notifications.length === 0 ? (
           <Text className="text-slate-500 text-sm">No notifications yet.</Text>
         ) : notifications.slice(0, 5).map((item) => (
           <View key={item.id} className="border-b border-slate-100 py-3">
@@ -115,22 +160,42 @@ function CommunicationsScreenInner() {
 
       <View className="bg-white rounded-2xl border border-slate-100 p-4 mb-12">
         <Text className="font-bold text-slate-900 mb-3">Preferences</Text>
-        {[
-          ['in_app_enabled', 'In-app'],
-          ['push_enabled', 'Push'],
-          ['email_enabled', 'Email'],
-          ['whatsapp_enabled', 'WhatsApp'],
-          ['sms_enabled', 'SMS'],
-        ].map(([key, label]) => (
-          <View key={key} className="flex-row items-center justify-between py-2">
-            <Text className="text-slate-700">{label}</Text>
-            <Switch
-              value={Boolean(preferences?.[key])}
-              onValueChange={(value) => savePreferences({ ...(preferences || {}), [key]: value })}
-              testID={`communication-pref-${key}`}
-            />
-          </View>
-        ))}
+        {preferenceView.state === 'LOADING' ? (
+          <Text className="text-slate-500 text-sm">Loading your delivery preferences…</Text>
+        ) : preferenceView.state === 'READ_FAILED' ? (
+          (() => {
+            const copy = preferenceFailureCopy(preferenceView);
+            return (
+              <View>
+                <Text className="text-slate-800 text-sm font-semibold">{copy.title}</Text>
+                <Text className="text-slate-500 text-sm mt-1">{copy.body}</Text>
+                {copy.action === 'retry' ? (
+                  <Pressable onPress={() => void loadPreferences()} accessibilityRole="button" className="mt-2">
+                    <Text className="text-orange-600 text-sm font-semibold">Try again</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          })()
+        ) : (
+          [
+            ['in_app_enabled', 'In-app'],
+            ['push_enabled', 'Push'],
+            ['email_enabled', 'Email'],
+            ['whatsapp_enabled', 'WhatsApp'],
+            ['sms_enabled', 'SMS'],
+          ].map(([key, label]) => (
+            <View key={key} className="flex-row items-center justify-between py-2">
+              <Text className="text-slate-700">{label}</Text>
+              <Switch
+                value={Boolean(preferenceView.preferences[key])}
+                onValueChange={(value) => void savePreference(key, value)}
+                testID={`communication-pref-${key}`}
+              />
+            </View>
+          ))
+        )}
+        {preferenceStatus ? <Text className="text-rose-600 text-xs mt-2">{preferenceStatus}</Text> : null}
       </View>
     </ScrollView>
   );

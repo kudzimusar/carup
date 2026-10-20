@@ -9,7 +9,15 @@ import {
   SectionHeader,
   StatusPill,
 } from '../../components/ui/NativePrimitives';
-import { getCommunicationPreferences, updateCommunicationPreferences } from '../../utils/communicationApi';
+import {
+  PreferenceMutationBlockedError,
+  preferenceFailureCopy,
+  preferenceViewState,
+  readCommunicationPreferences,
+  savePreferenceChange,
+  shouldRetryPreferenceRead,
+  type CommunicationPreferences,
+} from '../../utils/communicationPreferences';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import { useAuthStore } from '../../store/authStore';
 import { useFeatureGovernanceStore } from '../../store/featureGovernanceStore';
@@ -35,10 +43,17 @@ export default function AccountScreen() {
   const [preferenceError, setPreferenceError] = useState<string | null>(null);
   const [savingChannel, setSavingChannel] = useState<string | null>(null);
 
-  const preferenceQuery = useQuery({
+  // OC-NATIVE-FINAL-02-R1 D2: toggles show only values CarUp returned; a failed read shows no toggle.
+  const preferenceQuery = useQuery<CommunicationPreferences>({
     queryKey: ['native-communication-preferences', user?.id],
-    queryFn: getCommunicationPreferences,
+    queryFn: () => readCommunicationPreferences(),
     enabled: !loading && isAuthenticated && user?.role === 'owner',
+    retry: shouldRetryPreferenceRead,
+  });
+  const preferenceView = preferenceViewState({
+    isPending: preferenceQuery.isPending,
+    data: preferenceQuery.data,
+    error: preferenceQuery.error,
   });
 
   if (loading) {
@@ -63,8 +78,6 @@ export default function AccountScreen() {
     );
   }
 
-  const preferences = preferenceQuery.data?.preferences || {};
-
   const canUse = (route: string, featureId: string): boolean => {
     if (governanceLoading) return false;
     const decision = evaluateNativeRouteAccess({
@@ -88,10 +101,12 @@ export default function AccountScreen() {
     setPreferenceError(null);
     setSavingChannel(key);
     try {
-      const result = await updateCommunicationPreferences({ [key]: value });
-      queryClient.setQueryData(['native-communication-preferences', user?.id], result);
+      const saved = await savePreferenceChange(preferenceView, key, value);
+      queryClient.setQueryData(['native-communication-preferences', user?.id], saved);
     } catch (error) {
-      setPreferenceError(error instanceof Error ? error.message : 'CarUp could not save that preference.');
+      setPreferenceError(error instanceof PreferenceMutationBlockedError
+        ? error.message
+        : 'CarUp could not confirm that change. These switches show the last values CarUp returned; try again.');
     } finally {
       setSavingChannel(null);
     }
@@ -144,15 +159,24 @@ export default function AccountScreen() {
             tone="info"
           />
 
-          {preferenceQuery.isLoading ? (
+          {preferenceView.state === 'LOADING' ? (
             <View style={{ paddingVertical: spacing[6], alignItems: 'center' }}>
               <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Loading delivery preferences" />
             </View>
-          ) : preferenceQuery.isError ? (
-            <View style={{ marginTop: spacing[3] }}>
-              <Notice title="Preferences unavailable" body="CarUp could not load your current delivery preferences." tone="danger" />
-              <Button label="Try again" variant="secondary" onPress={() => void preferenceQuery.refetch()} style={{ marginTop: spacing[3] }} />
-            </View>
+          ) : preferenceView.state === 'READ_FAILED' ? (
+            (() => {
+              const copy = preferenceFailureCopy(preferenceView);
+              return (
+                <View style={{ marginTop: spacing[3] }}>
+                  <Notice title={copy.title} body={copy.body} tone="danger" />
+                  {copy.action === 'retry' ? (
+                    <Button label="Try again" variant="secondary" onPress={() => void preferenceQuery.refetch()} style={{ marginTop: spacing[3] }} />
+                  ) : copy.action === 'sign_in' ? (
+                    <Button label="Sign in" variant="secondary" onPress={() => router.push('/(auth)/login' as never)} style={{ marginTop: spacing[3] }} />
+                  ) : null}
+                </View>
+              );
+            })()
           ) : (
             <View style={{ marginTop: spacing[3] }}>
               {CHANNELS.map((channel) => (
@@ -177,7 +201,7 @@ export default function AccountScreen() {
                     accessibilityLabel={`${channel.label} delivery`}
                     accessibilityState={{ disabled: Boolean(savingChannel) }}
                     disabled={Boolean(savingChannel)}
-                    value={Boolean(preferences?.[channel.key])}
+                    value={Boolean(preferenceView.preferences[channel.key])}
                     onValueChange={(value) => void saveChannel(channel.key, value)}
                   />
                 </View>
