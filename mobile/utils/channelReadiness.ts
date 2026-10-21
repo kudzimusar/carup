@@ -136,6 +136,20 @@ export function channelSwitchPresentation(view: ChannelReadinessView, preference
   };
 }
 
+/**
+ * CARUP-MVP-STAB-01 F-040 — the line under the Inbox and in a conversation names delivery outside the app
+ * only when CarUp can actually deliver by that channel right now (directive §15: only channels capable of
+ * operation may look operational). While the reading is in progress or failed, it says nothing either way.
+ */
+export function outsideDeliveryNotice(view: ChannelReadinessView): string | null {
+  if (view.checking || view.capability.unknown) return null;
+  const ready = (['whatsapp', 'email'] as const)
+    .filter((channel) => channelAvailability(view.capability, channel) === 'available')
+    .map((channel) => (channel === 'whatsapp' ? 'WhatsApp' : 'email'));
+  if (ready.length === 0) return "CarUp isn't sending messages outside the app right now, so replies arrive here.";
+  return `CarUp may also deliver a message by ${ready.join(' or ')}; the conversation is always kept here.`;
+}
+
 /** The current reading for preference screens: one health read shared by every surface. */
 export function useChannelReadiness({ enabled = true }: { enabled?: boolean } = {}): ChannelReadinessView {
   const query = useQuery<CommunicationCapability>({

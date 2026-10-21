@@ -21,6 +21,7 @@ import {
 } from '../../utils/nativeObjectRouting';
 import { vehicleHref } from '../../utils/vehicleNavigation';
 import { useAuthStore } from '../../store/authStore';
+import { outsideDeliveryNotice, useChannelReadiness } from '../../utils/channelReadiness';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function channelIcon(label: string | null): React.ComponentProps<typeof Ionicons>['name'] {
@@ -32,6 +33,7 @@ function channelIcon(label: string | null): React.ComponentProps<typeof Ionicons
 }
 
 export default function InboxScreen() {
+  const readiness = useChannelReadiness();
   const theme = useNativeTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -119,7 +121,7 @@ export default function InboxScreen() {
     >
       <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary }}>Inbox</Text>
       <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1], marginBottom: spacing[4] }}>
-        Your conversations stay in CarUp. WhatsApp or email can carry messages, but the conversation is kept here.
+        {['Your conversations stay in CarUp.', outsideDeliveryNotice(readiness)].filter(Boolean).join(' ')}
       </Text>
 
       {hasError ? (

@@ -27,6 +27,7 @@ import { communicationQueryKeys, communicationQueryScope } from '../../utils/com
 import { canonicalObjectRouteFromThread } from '../../utils/nativeObjectRouting';
 import { vehicleHref } from '../../utils/vehicleNavigation';
 import { useAuthStore } from '../../store/authStore';
+import { outsideDeliveryNotice, useChannelReadiness } from '../../utils/channelReadiness';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function channelIcon(label: string | null): React.ComponentProps<typeof Ionicons>['name'] {
@@ -53,6 +54,7 @@ function messageAuthor(message: any): string {
 }
 
 export default function NativeConversationScreen() {
+  const readiness = useChannelReadiness();
   const theme = useNativeTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -219,7 +221,7 @@ export default function NativeConversationScreen() {
         <View style={{ marginTop: spacing[4] }}>
           <Notice
             title="Your conversation stays in CarUp"
-            body="Messages may also be delivered by WhatsApp or email. A message shows its channel only when CarUp recorded one."
+            body={[outsideDeliveryNotice(readiness), 'A message shows its channel only when CarUp recorded one.'].filter(Boolean).join(' ')}
             tone="info"
           />
         </View>
