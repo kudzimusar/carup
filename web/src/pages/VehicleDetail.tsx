@@ -56,7 +56,7 @@ import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShare
 import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntelligenceStory'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
-import { presentTrustForCustomer } from '@shared/trust/customerTrustPresentation'
+import { customerTrustRulesVersion, presentTrustForCustomer } from '@shared/trust/customerTrustPresentation'
 import { sellerStudioMode } from '@/lib/sellerStudioLifecycle'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
@@ -1212,7 +1212,7 @@ function presentTrust(
     // An `insufficient_evidence` score IS a measurement. Saying so is what keeps it from reading
     // like the `not_evaluated` state above, and keeps it from reading like a bad-vehicle verdict.
     detail: band === 'insufficient_evidence'
-      ? 'CarUp evaluated this vehicle and found too little authoritative evidence to support a '
+      ? 'CarUp evaluated this vehicle and found too few facts confirmed against official records to support a '
         + 'higher score. This is a measured result, not a missing one.'
       : 'Published by CarUp’s trust authority under its current calculation rules.',
     tone: tone.badge,
@@ -2453,9 +2453,9 @@ export default function VehicleDetail() {
                   <h2 className="text-sm font-semibold text-gray-900">Verified evidence</h2>
                 </div>
                 <p className="text-xs text-gray-500 mb-4" data-testid="verified-evidence-caption">
-                  Governed artifacts CarUp has reviewed — registration, inspection, clearance, customs,
-                  insurance and service records. These are not the listing photos above: each item here
-                  carries its own provenance and a review decision.
+                  Documents CarUp has reviewed — registration, inspection, clearance, customs,
+                  insurance and service records. These are not the listing photos above: each item shows
+                  where it came from and what CarUp decided about it.
                 </p>
 
                 {verifiedEvidence.state === 'published' ? (
@@ -2524,7 +2524,7 @@ export default function VehicleDetail() {
                       CarUp did not read this vehicle’s evidence record on this page.
                     </p>
                     <p className="mt-1 text-xs text-gray-400">
-                      Nothing is stated either way about whether governed evidence exists for it.
+                      Nothing is stated either way about whether reviewed documents exist for it.
                     </p>
                   </div>
                 )}
@@ -2953,7 +2953,7 @@ export default function VehicleDetail() {
                             the superseded version beside a withheld one would read as provenance
                             for a number the page is deliberately not showing. */}
                         {trust.score !== null && publicTrust?.calculation_version
-                          ? ` Calculation version ${publicTrust.calculation_version}.`
+                          ? ` ${customerTrustRulesVersion(publicTrust.calculation_version)}.`
                           : ''}
                         {/* Counted, not verified: the count includes owner- and seller-stated logs, so
                             the records are "on file", never "mechanic-signed" (F-013). */}
@@ -3004,7 +3004,7 @@ export default function VehicleDetail() {
                       <Lock className="h-4 w-4 text-orange-400" /> Buyer actions are disabled
                     </div>
                     <p className="mt-2 text-xs leading-5 text-slate-300">
-                      This is the Seller&rsquo;s buyer-facing preview. Contact, reservation, financing and SafePay requests only activate for a governed public buyer context.
+                      This is the Seller&rsquo;s buyer-facing preview. Contact, reservation, financing and SafePay requests open only for buyers on the public listing.
                     </p>
                     <Button asChild variant="outline" className="mt-4 w-full rounded-none border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white">
                       <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to Seller Studio</Link>
@@ -3079,7 +3079,7 @@ export default function VehicleDetail() {
                           triggerLabel="Ask about financing"
                           triggerVariant="outline"
                           triggerClassName="w-full border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                          defaultMessage="I am interested in financing this vehicle. Please tell me which governed lender path is available and what information I need to provide."
+                          defaultMessage="I am interested in financing this vehicle. Please tell me which lender options are available and what information I need to provide."
                           intentMetadata={{ buyer_intent: 'financing_interest' }}
                           onSubmitted={() => setFinanceInterestRequested(true)}
                         />
@@ -3096,7 +3096,7 @@ export default function VehicleDetail() {
                       <Lock className="h-4 w-4 text-orange-400" /> Marketplace actions unavailable
                     </div>
                     <p className="mt-2 text-xs leading-5 text-gray-400">
-                      This Vehicle Passport is not currently backed by a published Marketplace listing. Contact, reservation, and financing requests stay hidden until a canonical public listing resolves.
+                      This Vehicle Passport has no published Marketplace listing right now. Contact, reservation and financing requests stay hidden until the vehicle is listed publicly.
                     </p>
                   </div>
                 )}
@@ -3316,8 +3316,8 @@ export default function VehicleDetail() {
                         same reason as `evaluated_at`: naming a version beside a WITHHELD score would
                         read as provenance for a number this page is deliberately not showing. */}
                     {trust.score !== null && publicTrust.calculation_version && (
-                      <span className="text-[10px] font-mono text-gray-500" data-testid="trust-calculation-version">
-                        {publicTrust.calculation_version}
+                      <span className="text-[10px] text-gray-500" data-testid="trust-calculation-version">
+                        {customerTrustRulesVersion(publicTrust.calculation_version)}
                       </span>
                     )}
                   </div>

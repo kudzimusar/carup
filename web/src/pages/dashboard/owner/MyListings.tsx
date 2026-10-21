@@ -269,7 +269,7 @@ export default function MyListings() {
         title="My Listings"
         description="Operate the commercial lifecycle around the same Vehicle Passport: continue drafts, publish deliberately, respond to buyers and retire sold stock without creating a parallel vehicle record."
         statusLabel={listingsState === 'loading'
-          ? 'Loading governed listing state'
+          ? 'Loading listing status'
           : listingsState === 'error'
             ? 'Listing read unavailable'
             : `${counted(myListings.length, 'vehicle listing')} · ${inquiriesSummary} · ${conversationsSummary}`}

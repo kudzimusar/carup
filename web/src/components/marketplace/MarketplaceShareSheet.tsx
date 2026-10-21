@@ -51,7 +51,7 @@ export function MarketplaceShareSheet({ open, onOpenChange, title, url }: Market
       <DialogContent className="sm:max-w-lg" data-testid="marketplace-share-sheet">
         <DialogHeader>
           <DialogTitle>Share this vehicle</DialogTitle>
-          <DialogDescription>Share the public listing using your own app, or copy its canonical CarUp link.</DialogDescription>
+          <DialogDescription>Share the public listing using your own app, or copy its CarUp link.</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -500,6 +500,14 @@ describe('VehicleDetail — listing media is never labelled verified', () => {
     expect(trustLanguageIn('a Verified inspection certificate')).toContain('verif')
     expect(CONTRACT_TRUST_LANGUAGE.length).toBeGreaterThan(5)
   })
+
+  it('CARUP-MVP-STAB-01 F-011: the evidence caption is written for a buyer — no implementation terms', async () => {
+    await renderSettled()
+    const caption = screen.getByTestId('verified-evidence-caption').textContent || ''
+    expect(caption).toMatch(/^\s*Documents CarUp has reviewed — registration, inspection, clearance, customs,\s+insurance and service records\./)
+    expect(caption).toMatch(/each item shows\s+where it came from and what CarUp decided about it\./)
+    expect(caption).not.toMatch(/governed|provenance|artifact/i)
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1044,7 +1052,8 @@ describe('VehicleDetail — Phase 0/3/4 still hold on the page this phase edited
     expect(screen.queryByTestId('seller-contact-unavailable')).toBeNull()
     expect(screen.queryByTestId('reservation-request-entry')).toBeNull()
     expect(screen.queryByTestId('financing-request-entry')).toBeNull()
-    expect(screen.getByTestId('marketplace-actions-unavailable').textContent).toMatch(/not currently backed by a published Marketplace listing/i)
+    expect(screen.getByTestId('marketplace-actions-unavailable').textContent).toMatch(/has no published Marketplace listing right now/i)
+    expect(screen.getByTestId('marketplace-actions-unavailable').textContent).not.toMatch(/canonical/i)
     expect(DETAIL_CODE).not.toContain('listingId={detail?.vin || vehicle.vin}')
   })
 

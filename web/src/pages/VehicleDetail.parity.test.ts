@@ -75,7 +75,7 @@ describe('Seller master Phase L/M — shared detail parity and semantic separati
     expect(detail).toContain('Condition (seller-stated)')
     expect(detail).toContain('Features stated by the seller')
     expect(detail).toContain('Photos supplied by the seller to advertise this vehicle')
-    expect(detail).toContain('Governed artifacts CarUp has reviewed')
+    expect(detail).toContain('Documents CarUp has reviewed')
   })
 
   it('keeps privacy a governed projection rather than a Seller Preview-only convention', () => {
