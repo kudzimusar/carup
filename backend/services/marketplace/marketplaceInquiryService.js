@@ -10,9 +10,9 @@
  * projections expose only what the authorized role needs to follow up.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { supabase } from '../../db/supabase.js';
-import { ValidationError, NotFoundError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
+import { ValidationError, NotFoundError, ForbiddenError, DatabaseError, ConflictError } from '../../utils/errors.js';
 import {
   MARKETPLACE_INQUIRY_TYPES,
   MARKETPLACE_INQUIRY_STATUSES,
@@ -45,6 +45,86 @@ function clampStr(value, max) {
   const s = String(value).trim();
   if (!s) return null;
   return s.slice(0, max);
+}
+
+// ── CARUP-MVP-STAB-01 F-002: a retried submit is recorded ONCE ───────────────────────────────────────
+//
+// A caller may send `client_request_id` (the route also accepts an `Idempotency-Key` header). The inquiry
+// id then becomes the RFC 4122 v5 UUID of (actor, key) in a fixed CarUp namespace, so a retry of the same
+// submit collides on the primary key — the database, not a process-local map, settles even two
+// concurrent submits — and is answered with the inquiry already recorded, without re-running a single
+// side effect. Without a key nothing changes.
+
+export const INQUIRY_CLIENT_REQUEST_ID_INVALID = 'INQUIRY_CLIENT_REQUEST_ID_INVALID';
+export const INQUIRY_IDEMPOTENCY_MISMATCH = 'INQUIRY_IDEMPOTENCY_MISMATCH';
+
+/**
+ * The namespace of every idempotent inquiry id (generated once for F-002). It is a constant, never
+ * configuration: changing it would re-key every retry that is still in flight.
+ */
+export const INQUIRY_IDEMPOTENCY_NAMESPACE = 'fbe7f49d-9616-4066-98dd-ce0a630201a6';
+
+const CLIENT_REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{8,100}$/;
+
+/** 400, with its own machine code: a production-like runtime hides `details`, never `code`. */
+export class InquiryClientRequestIdError extends ValidationError {
+  constructor(message = 'client_request_id must be 8 to 100 characters, using only letters, digits, "-" and "_".') {
+    super(message, { field: 'client_request_id' });
+    this.code = INQUIRY_CLIENT_REQUEST_ID_INVALID;
+  }
+}
+
+/** 409: the key already recorded a DIFFERENT inquiry. Its own code, for the same reason. */
+export class InquiryIdempotencyMismatchError extends ConflictError {
+  constructor() {
+    super(
+      'This client_request_id already recorded a different inquiry. Use a new client_request_id for a new inquiry.',
+      { field: 'client_request_id' },
+    );
+    this.code = INQUIRY_IDEMPOTENCY_MISMATCH;
+  }
+}
+
+/** `undefined`/`null` mean "no key"; anything else must be a well-formed key or the request is refused. */
+export function normalizeClientRequestId(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !CLIENT_REQUEST_ID_PATTERN.test(value)) throw new InquiryClientRequestIdError();
+  return value;
+}
+
+/** RFC 4122 §4.3 name-based UUID, version 5 (SHA-1). */
+export function uuidV5(name, namespace) {
+  const namespaceBytes = Buffer.from(String(namespace).replace(/-/g, ''), 'hex');
+  if (namespaceBytes.length !== 16) throw new Error('uuidV5 needs a UUID namespace.');
+  const bytes = createHash('sha1').update(namespaceBytes).update(String(name), 'utf8').digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // version 5
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Whose key it is. A signed-in buyer is their user id; a guest is their email (lowercased) or, without
+ * one, the digits of their phone. The same key from two different actors therefore names two different
+ * inquiries — one buyer's retry can never return another buyer's inquiry.
+ */
+export function inquiryIdempotencyActorKey({ buyerId = null, guestEmail = null, guestPhone = null } = {}) {
+  if (buyerId) return `user:${buyerId}`;
+  const email = String(guestEmail || '').trim().toLowerCase();
+  if (email) return `guest:${email}`;
+  const digits = String(guestPhone || '').replace(/\D/g, '');
+  return digits ? `guest:${digits}` : null;
+}
+
+export function deterministicInquiryId(actorKey, clientRequestId) {
+  return uuidV5(`${actorKey}:${clientRequestId}`, INQUIRY_IDEMPOTENCY_NAMESPACE);
+}
+
+/** The same submit, by what it asks: listing, type and exact message. */
+function sameInquiryRequest(existing, row) {
+  return (existing.listing_id ?? null) === (row.listing_id ?? null)
+    && existing.inquiry_type === row.inquiry_type
+    && (existing.message ?? null) === (row.message ?? null);
 }
 
 const ALLOWED_METADATA_KEYS = [
@@ -128,6 +208,28 @@ async function lookupUserContact(client, userId) {
 }
 
 /**
+ * F-002 — the answer to a keyed submit whose id already exists.
+ *
+ * The same request (listing, type, message) is the inquiry already recorded, in its PUBLIC projection.
+ * The same key asking something else is refused: silently returning the first inquiry would discard what
+ * the buyer just asked. No row under that id means the collision was some other constraint — not a
+ * replay — so the caller reports the original database failure.
+ */
+async function replayRecordedInquiry(client, row) {
+  let existing;
+  try {
+    const { data, error } = await client.from(TABLE).select('*').eq('id', row.id).maybeSingle();
+    if (error) throw error;
+    existing = data || null;
+  } catch (error) {
+    throw new DatabaseError('Failed to read the inquiry this request already recorded.', { reason: error.message });
+  }
+  if (!existing) return null;
+  if (!sameInquiryRequest(existing, row)) throw new InquiryIdempotencyMismatchError();
+  return { inquiry: toPublicInquiry(existing), idempotent_replay: true };
+}
+
+/**
  * Resolve routing from the governed seller relationship. The query intentionally does not select
  * owner_id, making an ownership fallback impossible in this service rather than merely discouraged.
  */
@@ -180,6 +282,8 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
   const persistCommunicationEvent = deps.emitCommunicationEvent || persistDomainEvent;
+  // F-002: refused before anything is read or written; absent means "behave exactly as before".
+  const clientRequestId = normalizeClientRequestId(payload.client_request_id);
 
   const inquiryType = String(payload.inquiry_type || '').trim();
   if (!MARKETPLACE_INQUIRY_TYPES.includes(inquiryType)) {
@@ -199,6 +303,15 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   }
   if (guestEmail && !EMAIL_RE.test(guestEmail)) throw new ValidationError('Invalid email address.');
   if (guestPhone && !PHONE_RE.test(guestPhone)) throw new ValidationError('Invalid phone number.');
+
+  // F-002: the key is namespaced by the actor who sent it — the signed-in buyer, else the guest's own
+  // email or phone (never the profile enrichment below, which a guest does not have).
+  const idempotencyActor = clientRequestId
+    ? inquiryIdempotencyActorKey({ buyerId, guestEmail, guestPhone })
+    : null;
+  if (clientRequestId && !idempotencyActor) {
+    throw new InquiryClientRequestIdError('client_request_id needs a signed-in buyer, an email address or a phone number with digits.');
+  }
 
   let contactName = guestName;
   let contactEmail = guestEmail;
@@ -241,7 +354,7 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   const isDiaspora = DIASPORA_INQUIRY_TYPES.includes(inquiryType);
   const now = new Date().toISOString();
   const row = {
-    id: randomUUID(),
+    id: clientRequestId ? deterministicInquiryId(idempotencyActor, clientRequestId) : randomUUID(),
     listing_id: listingId,
     listing_type: isDiaspora ? 'diaspora_request' : 'vehicle',
     buyer_id: buyerId,
@@ -272,6 +385,13 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     if (error) throw error;
     inserted = data || row;
   } catch (error) {
+    // F-002: a keyed submit that collides on its OWN primary key is a retry of an inquiry already
+    // recorded. Everything that submit set in motion — the canonical conversation event, the referral
+    // lead, the Intelligence observation, the referral event — belongs to it; a replay repeats none of it.
+    const replay = clientRequestId && error?.code === '23505'
+      ? await replayRecordedInquiry(client, row)
+      : null;
+    if (replay) return replay;
     throw new DatabaseError('Failed to record inquiry.', { reason: error.message });
   }
 
