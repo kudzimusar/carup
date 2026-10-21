@@ -325,6 +325,64 @@ test('ADVERSARIAL: the requester cannot approve their own container space — or
   assert.equal(reservation.reservation_status, 'REQUESTED');
 });
 
+// ── CARUP-MVP-STAB-01 TRD-002: the booking window holds on the RFQ path too ─────────────────────
+// request-space books through the marketplace's requestReservation, so the same refusal must
+// reach this route. Time is allowed to pass between the award and the booking by moving the
+// sailing's dates on the stored row — exactly what the calendar does to a real one.
+
+const DAY = 24 * 3600 * 1000;
+const at = (days) => new Date(Date.now() + days * DAY).toISOString();
+
+async function awardSharedContainerOffer() {
+  const offer = await submitOfferAs('prov-1', TENANT_P, { compatible_container_id: 'cont-ok' });
+  assert.equal(offer.status, 201);
+  const award = await call('POST', `${T3}/logistics-requests/ship-open/accept-quote`, {
+    userId: 'req-A', body: { quoteId: offer.body.data.id },
+  });
+  assert.equal(award.status, 200);
+  return mock._tables.diaspora_container_shipments.find((row) => row.id === 'cont-ok');
+}
+
+test('NEGATIVE (RFQ request-space): an awarded offer whose sailing cut-off has since passed cannot become a reservation', async () => {
+  const container = await awardSharedContainerOffer();
+  Object.assign(container, { booking_deadline: at(-1), departure_date: at(10) });
+
+  const space = await call('POST', `${T3}/logistics-requests/ship-open/request-space`, { userId: 'req-A' });
+  assert.equal(space.status, 400);
+  assert.equal(space.body.error.code, 'DIASPORA_CONTAINER/BOOKING_DEADLINE_PASSED');
+  assert.match(space.body.error.message, /^Booking for this sailing closed on \d{1,2} \w+ \d{4}\.$/);
+  assert.equal(mock._tables.diaspora_cargo_reservations.length, 0, 'no reservation was written');
+  const request = mock._tables.diaspora_logistics_requests.find((row) => row.id === 'ship-open');
+  assert.equal(request.metadata?.reservation_id, undefined, 'the shipping request is not marked as booked');
+  assert.equal(container.status, 'BOOKING_OPEN', 'the refusal does not close the sailing for the organiser');
+});
+
+test('NEGATIVE (RFQ request-space): a sailing that has departed cannot be booked through an award either', async () => {
+  const container = await awardSharedContainerOffer();
+  Object.assign(container, { booking_deadline: at(-20), departure_date: at(-3) });
+
+  const space = await call('POST', `${T3}/logistics-requests/ship-open/request-space`, { userId: 'req-A' });
+  assert.equal(space.status, 400);
+  assert.equal(space.body.error.code, 'DIASPORA_CONTAINER/SAILING_DEPARTED');
+  assert.equal(mock._tables.diaspora_cargo_reservations.length, 0);
+});
+
+test('a request made BEFORE the cut-off survives it: the retry is the same idempotent replay, not a refusal', async () => {
+  const container = await awardSharedContainerOffer();
+  Object.assign(container, { booking_deadline: at(10), departure_date: at(20) });
+
+  const first = await call('POST', `${T3}/logistics-requests/ship-open/request-space`, { userId: 'req-A' });
+  assert.equal(first.status, 200, 'POSITIVE CONTROL: a live sailing is bookable through the award');
+  assert.equal(first.body.data.reservation.reservation_status, 'REQUESTED');
+
+  // The cut-off passes while the organiser has not decided yet. That request was made in time.
+  container.booking_deadline = at(-1);
+  const retry = await call('POST', `${T3}/logistics-requests/ship-open/request-space`, { userId: 'req-A' });
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.data.idempotentReplay, true);
+  assert.equal(mock._tables.diaspora_cargo_reservations.length, 1, 'still exactly one reservation');
+});
+
 test('ADVERSARIAL: anonymous callers reach none of the T3 surfaces', async () => {
   for (const [method, path] of [
     ['GET', `${T3}/logistics-requests/mine`],
