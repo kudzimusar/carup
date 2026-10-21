@@ -42,7 +42,6 @@ import type {
   TemporalFinding,
   DisclosureConflict,
   VehicleHistoryReportData,
-  TrustDecision,
 } from '@/types'
 import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
 import { SourceCoveragePanel } from '@/components/SourceCoveragePanel'
@@ -57,6 +56,7 @@ import { MarketplaceShareSheet } from '@/components/marketplace/MarketplaceShare
 import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntelligenceStory'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
+import { presentTrustForCustomer } from '@shared/trust/customerTrustPresentation'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
 function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
@@ -1352,11 +1352,11 @@ export default function VehicleDetail() {
     return () => { mounted = false }
   }, [vehicle?.vin, id, fetchTemporalFindings, fetchDisclosureConflicts])
 
-  // The trust DECISION (ADR-001) supplies reason codes — `dimensions[].reason_codes` — and nothing
-  // else. The trust CLAIM comes from the canonical projection resolved below. The route requires a
-  // session, so a signed-out visitor simply gets no reason codes; the passport still carries the
-  // projection, so the trust state itself is public.
-  const [trustDecision, setTrustDecision] = useState<TrustDecision | null>(null)
+  // The trust-decision route is read for ONE thing: the canonical projection it publishes beside the
+  // decision, used only when the passport carried none (`publicTrust` below). The decision itself —
+  // including `dimensions[].reason_codes` — is not rendered: raw reason codes are internal vocabulary
+  // and this is a public page for every audience (CARUP-MVP-STAB-01 F-011). The route requires a
+  // session; the passport still carries the projection, so the trust state itself is public.
   const [routeTrust, setRouteTrust] = useState<PublicTrust | null>(null)
   const [trustDecisionLoading, setTrustDecisionLoading] = useState(true)
 
@@ -1368,7 +1368,6 @@ export default function VehicleDetail() {
       // Nothing to ask for, and nothing may be assumed. Resolve the loading state only.
       Promise.resolve().then(() => {
         if (!mounted) return
-        setTrustDecision(null)
         setRouteTrust(null)
         setTrustDecisionLoading(false)
       })
@@ -1377,10 +1376,9 @@ export default function VehicleDetail() {
     fetchVehicleTrustDecision(vin)
       .then((r) => {
         if (!mounted) return
-        setTrustDecision(r.decision ?? null)
         setRouteTrust(readPublicTrust((r as { trust?: unknown }).trust))
       })
-      .catch(() => { if (mounted) { setTrustDecision(null); setRouteTrust(null) } })
+      .catch(() => { if (mounted) setRouteTrust(null) })
       .finally(() => { if (mounted) setTrustDecisionLoading(false) })
     return () => { mounted = false }
   }, [vehicle?.vin, id, authLoading, isAuthenticated, fetchVehicleTrustDecision])
@@ -1846,6 +1844,11 @@ export default function VehicleDetail() {
     loading: loading || (isAuthenticated && !passport && trustDecisionLoading),
     authenticated: isAuthenticated,
   })
+  // THE SAME RECORD, WORDED FOR A BUYER (shared/trust/customerTrustPresentation — one wording for web
+  // and Native). It words; it never computes: number, band and state stay `trust`'s. Wherever the
+  // number is printed, confidence goes with it; beside the headline number, the evidence support,
+  // connected sources and the customer limitation sentences do too (CARUP-MVP-STAB-01 F-010/F-011).
+  const customerTrust = presentTrustForCustomer(publicTrust)
 
   // Location, from the passport's governed claim — the same leaves the Marketplace summary composes
   // server-side, read through the shared rule so one VIN cannot print two different places. When the
@@ -1905,15 +1908,10 @@ export default function VehicleDetail() {
     toVerifiedEvidenceBlock(passport?.evidenceVault),
   )
 
-  // Reason codes come from the decision's own dimensions. They are shown verbatim; the page does
-  // not translate them into sub-scores, because a code says WHY, not HOW MUCH.
-  const trustReasonCodes = Array.from(new Set(
-    Object.values(trustDecision?.dimensions ?? {}).flatMap((d) => d.reason_codes ?? []),
-  ))
-  // Limitations are the PROJECTION's, not the decision's: the projection's list is the superset
-  // that also carries the fact resolver's disclosures — including "the stored 'zimra_verified' flag
-  // is not supported by any authoritative record and is not published".
-  const trustLimitations = publicTrust?.known_limitations ?? []
+  // Limitations are the PROJECTION's, not the decision's: the projection's list is the superset that
+  // also carries the fact resolver's disclosures (e.g. a stored legacy flag no record supports). They
+  // are rendered as `customerTrust.limitations` — customer sentences, never the backend strings,
+  // column names or reason codes (F-011).
   const evidenceBasis = publicTrust?.evidence_basis ?? null
   // A basis entry that was never resolved prints as "not recorded", never as 0: a zero here would
   // claim CarUp counted and found none.
@@ -2187,8 +2185,11 @@ export default function VehicleDetail() {
           </section>
         </div>
 
+        {/* Capped to the viewport with its own scroll where it sticks (the OBS-02 rule the sidebar
+            follows): the Trust rows and limitations below make it tall enough to outgrow a short
+            screen, and a sticky panel taller than the viewport hides its own lower half. */}
         <section
-          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5 lg:mt-10"
+          className="h-fit bg-[#08111f] px-5 py-6 text-white shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:px-7 sm:py-7 lg:sticky lg:top-5 lg:mt-10 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto"
           data-testid="vehicle-detail-intelligence-hero"
         >
           <div>
@@ -2210,12 +2211,38 @@ export default function VehicleDetail() {
               <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Asking price</p>
               <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{governedPrice(vehicle.price, vehicle.currency)}</p>
             </div>
-            <div className="border-l border-white/10 pl-4">
-              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Canonical Trust</p>
+            <div className="border-l border-white/10 pl-4" data-testid="hero-trust">
+              <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">CarUp Trust</p>
               <p className="mt-1 text-2xl font-black tracking-[-0.035em] text-white">{trust.score !== null ? `${trust.score}/100` : trust.headline}</p>
               {trust.score !== null && <p className="mt-0.5 text-[10px] text-slate-400">{trust.headline}</p>}
             </div>
           </div>
+          {/* A NUMBER NEVER STANDS ALONE (F-010). Beside the published score: how confident CarUp is,
+              how much of it independent evidence supports, how many official sources are connected,
+              and what has not been confirmed — the same record, worded for a buyer (F-011). Absent
+              when no score is published, because there is no number for these to qualify. */}
+          {trust.score !== null && (
+            <div className="border-b border-white/10 py-4" data-testid="hero-trust-context">
+              <ul className="space-y-1.5 text-xs" aria-label="What this Trust score is based on">
+                {customerTrust.rows.map((row) => (
+                  <li key={row.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5" data-testid={`hero-trust-row-${row.key}`}>
+                    <span className="text-slate-400">{row.label}:</span>{' '}
+                    <span className="text-right font-semibold text-white">{row.value}</span>
+                  </li>
+                ))}
+              </ul>
+              {customerTrust.limitations.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500">Known limitations</p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-5 text-slate-300" data-testid="hero-trust-limitations">
+                    {customerTrust.limitations.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           {detail && !isSellerPreview && (
             <div className="mt-6 space-y-2" data-testid="vehicle-detail-primary-actions">
@@ -2524,6 +2551,9 @@ export default function VehicleDetail() {
                       <p className="text-2xl font-bold" data-testid="trust-score-value">{trust.score}</p>
                     )}
                     <p className="text-xs" data-testid="trust-score-label">{trust.headline}</p>
+                    {trust.score !== null && (
+                      <p className="mt-0.5 text-[10px] font-semibold" data-testid="trust-score-confidence">Confidence: {customerTrust.confidenceValue}</p>
+                    )}
                   </div>
                 </div>
                 {/* THE SELLER'S OWN WORDS, from the field the projection actually publishes. This
@@ -2848,7 +2878,10 @@ export default function VehicleDetail() {
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Trust Score</p>
                         {trust.score !== null ? (
-                          <p className={`text-xl font-bold ${trust.toneText}`} data-testid="market-trust-score">{trust.score} / 100</p>
+                          <>
+                            <p className={`text-xl font-bold ${trust.toneText}`} data-testid="market-trust-score">{trust.score} / 100</p>
+                            <p className="mt-1 text-xs font-semibold text-gray-600" data-testid="market-trust-confidence">Confidence: {customerTrust.confidenceValue}</p>
+                          </>
                         ) : (
                           <p className={`text-sm font-semibold ${trust.toneText}`} data-testid="market-trust-unscored">{trust.headline}</p>
                         )}
@@ -2866,7 +2899,7 @@ export default function VehicleDetail() {
                       <h4 className="font-medium text-sm mb-2">CarUp Data Summary</h4>
                       <p className="text-sm text-gray-600" data-testid="carup-data-summary">
                         {trust.score !== null
-                          ? `CarUp's trust authority published ${trust.score}/100 for this vehicle — ${trust.headline.toLowerCase()}.`
+                          ? `CarUp's trust authority published ${trust.score}/100 for this vehicle — ${trust.headline.toLowerCase()}. Confidence: ${customerTrust.confidenceValue}.`
                           : `${trust.headline}: CarUp has published no trust score for this vehicle.`}
                         {` ${trust.detail}`}
                         {/* The calculation version is stated only beside a published score. Naming
@@ -2914,7 +2947,7 @@ export default function VehicleDetail() {
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                   <span className="text-sm text-gray-300" data-testid="sidebar-trust">
                     {trust.score !== null
-                      ? `CarUp Trust Score: ${trust.score}`
+                      ? `CarUp Trust Score: ${trust.score} · Confidence: ${customerTrust.confidenceValue}`
                       : `CarUp Trust: ${trust.headline}`}
                   </span>
                 </div>
@@ -3246,14 +3279,14 @@ export default function VehicleDetail() {
                     <div className="mb-4">
                       <p className="text-xs font-semibold text-gray-700 mb-2">Evidence behind this assessment</p>
                       <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600" data-testid="trust-evidence-basis">
-                        <dt>Governed facts backed by a record</dt>
+                        <dt>Vehicle facts independently confirmed</dt>
                         <dd className="text-right font-medium">
                           {basisValue(evidenceBasis.governed_facts_substantiated)}
                           {evidenceBasis.governed_facts_total === null ? '' : ` of ${evidenceBasis.governed_facts_total}`}
                         </dd>
                         <dt>Adverse findings</dt>
                         <dd className="text-right font-medium">{basisValue(evidenceBasis.governed_facts_adverse)}</dd>
-                        <dt>Connected sources</dt>
+                        <dt>Connected official sources</dt>
                         <dd className="text-right font-medium">{basisValue(evidenceBasis.connected_sources)}</dd>
                         <dt>Stored claims with no backing record</dt>
                         <dd className="text-right font-medium" data-testid="trust-unbacked-claims">
@@ -3263,25 +3296,14 @@ export default function VehicleDetail() {
                     </div>
                   )}
 
-                  {trustReasonCodes.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-xs font-semibold text-gray-700 mb-2">Reason codes</p>
-                      <div className="flex flex-wrap gap-1.5" data-testid="trust-reason-codes">
-                        {trustReasonCodes.map((code) => (
-                          <Badge key={code} variant="outline" className="border-gray-200 bg-gray-50 font-mono text-[10px] text-gray-600">
-                            {code}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {trustLimitations.length > 0 && (
+                  {/* Customer sentences only (F-011): no backend limitation string, column name or
+                      reason code is shown to any audience on this page. */}
+                  {customerTrust.limitations.length > 0 && (
                     <>
                       <p className="text-xs font-semibold text-gray-700 mb-2">Known limitations</p>
                       <ul className="list-disc list-inside space-y-1 text-xs text-gray-600" data-testid="trust-known-limitations">
-                        {trustLimitations.map((limitation, i) => (
-                          <li key={i}>{limitation}</li>
+                        {customerTrust.limitations.map((limitation) => (
+                          <li key={limitation}>{limitation}</li>
                         ))}
                       </ul>
                     </>

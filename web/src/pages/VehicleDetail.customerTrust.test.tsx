@@ -6,6 +6,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
  * CARUP-MVP-STAB-01 — what a buyer reads next to a Trust number, and what the Verification tab
  * claims from absence.
  *
+ *   F-010  A score is never shown alone: confidence, evidence support and connected sources sit
+ *          beside it (hero), and every other place that prints the number names the confidence.
+ *   F-011  Limitations are customer sentences (shared/trust/customerTrustPresentation), never the
+ *          backend's internal strings, column names or reason codes.
  *   F-012  The odometer row renders the backend's evidence state, never "Verified", and never
  *          falls back to the deprecated `odometer_consistent` boolean.
  *   F-013  Service records are "on file", not "Verified"/"signed"; an empty ledger is not verified.
@@ -197,6 +201,86 @@ beforeEach(() => {
       dimensions: { evidence_confidence: { status: 'evaluated', value: 'low', reason_codes: ['EVIDENCE_THIN', 'no_connected_source'] } },
       known_limitations: [],
     },
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+describe('F-010 — the Serena score never stands alone', () => {
+  it('the hero says "CarUp Trust" and puts confidence, evidence support and connected sources beside 60/100', async () => {
+    renderPublic()
+    const hero = await screen.findByTestId('vehicle-detail-intelligence-hero')
+    await waitFor(() => expect(within(hero).getByTestId('hero-trust').textContent).toContain('60/100'))
+
+    expect(hero.textContent).toContain('CarUp Trust')
+    expect(hero.textContent).not.toContain('Canonical Trust')
+    expect(within(hero).getByTestId('hero-trust').textContent).toContain('Moderate trust')
+    const rows = within(hero).getAllByTestId(/^hero-trust-row-/).map((row) => row.textContent)
+    expect(rows).toEqual(SERENA_ROWS)
+  })
+
+  it('the hero carries the four customer limitation sentences beside the score', async () => {
+    renderPublic()
+    const hero = await screen.findByTestId('vehicle-detail-intelligence-hero')
+    await waitFor(() => expect(within(hero).getByTestId('hero-trust-limitations')).toBeTruthy())
+    const sentences = within(within(hero).getByTestId('hero-trust-limitations')).getAllByRole('listitem')
+      .map((item) => item.textContent)
+    expect(sentences).toEqual(SERENA_SENTENCES)
+  })
+
+  it('the badge, the sidebar and the Market tab each name the confidence next to the number', async () => {
+    renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-score-value').textContent).toBe('60'))
+
+    expect(screen.getByTestId('trust-score-badge').textContent).toContain('Confidence: Low')
+    expect(screen.getByTestId('sidebar-trust').textContent).toMatch(/CarUp Trust Score: 60\b.*Confidence: Low/)
+
+    await openTab(/Market Analysis/i)
+    expect(screen.getByTestId('market-trust-score').textContent).toBe('60 / 100')
+    expect(screen.getByTestId('market-trust-confidence').textContent).toBe('Confidence: Low')
+  })
+
+  it('a record with no published score shows no confidence or evidence rows (nothing beside a number that is not there)', async () => {
+    servePassport({
+      trust: { ...SERENA_TRUST, score: null, band: null, evaluation_state: 'not_evaluated', confidence: 'not_evaluated', evidence_basis: null, known_limitations: ['No canonical trust evaluation exists for this vehicle.'] },
+    })
+    renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-score-label').textContent).toMatch(/Not evaluated/i))
+
+    expect(screen.queryByTestId('hero-trust-context')).toBeNull()
+    expect(screen.queryByTestId('trust-score-confidence')).toBeNull()
+    expect(screen.getByTestId('sidebar-trust').textContent).not.toMatch(/\d/)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+describe('F-011 — limitations are customer sentences on every part of the page', () => {
+  it('the assessment card lists the customer sentences and none of the backend strings', async () => {
+    const { container } = renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-known-limitations')).toBeTruthy())
+
+    const items = within(screen.getByTestId('trust-known-limitations')).getAllByRole('listitem').map((item) => item.textContent)
+    expect(items).toEqual(SERENA_SENTENCES)
+    const page = container.textContent || ''
+    for (const raw of SERENA_LIMITATIONS) expect(page, `raw backend limitation shown: ${raw}`).not.toContain(raw)
+  })
+
+  it('no raw reason code reaches the page, even for a signed-in caller who received them', async () => {
+    const { container } = renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-basis')).toBeTruthy())
+    await waitFor(() => expect(fetchVehicleTrustDecision).toHaveBeenCalled())
+
+    expect(screen.queryByTestId('trust-reason-codes')).toBeNull()
+    expect(container.textContent || '').not.toContain('EVIDENCE_THIN')
+    expect(container.textContent || '').not.toContain('no_connected_source')
+  })
+
+  it('the evidence-basis labels use the customer vocabulary', async () => {
+    renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-evidence-basis')).toBeTruthy())
+    const basis = screen.getByTestId('trust-evidence-basis').textContent || ''
+    expect(basis).toContain('Vehicle facts independently confirmed')
+    expect(basis).toMatch(/0 of 7/)
+    expect(basis).not.toMatch(/governed/i)
   })
 })
 
