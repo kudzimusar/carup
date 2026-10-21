@@ -201,6 +201,21 @@ function evidenceStatusLabel(status: string | null | undefined): string {
   return Object.prototype.hasOwnProperty.call(EVIDENCE_STATUS_LABEL, key) ? EVIDENCE_STATUS_LABEL[key] : 'Not available';
 }
 
+/** CARUP-MVP-STAB-01 F-013: the service / parts evidence status in plain words. Never "verified". */
+const PARTS_EVIDENCE_LABEL: Record<string, string> = {
+  not_applicable: 'Not applicable',
+  suppressed: 'Not shown publicly',
+  eligible: 'Can be shown',
+  review_required: 'Under review',
+  ineligible: 'Not shown publicly',
+};
+
+function partsEvidenceLabel(status: string | null | undefined): string {
+  const key = String(status ?? '').trim().toLowerCase();
+  if (!key) return 'Not loaded';
+  return Object.prototype.hasOwnProperty.call(PARTS_EVIDENCE_LABEL, key) ? PARTS_EVIDENCE_LABEL[key] : 'Not recorded';
+}
+
 function FactRow({ label, value }: { label: string; value: string }) {
   const theme = useNativeTheme();
   return (
@@ -451,7 +466,7 @@ function VehicleDetailScreenInner() {
 
           <View style={{ marginTop: spacing[5], borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, paddingHorizontal: spacing[4], paddingVertical: spacing[2] }}>
             <FactRow label="Evidence status" value={evidenceStatusLabel(trustSummary?.evidence_status)} />
-            <FactRow label="Service / parts evidence" value={titleCase(trustSummary?.partsentry_public_status) || 'Not loaded'} />
+            <FactRow label="Service / parts evidence" value={partsEvidenceLabel(trustSummary?.partsentry_public_status)} />
           </View>
 
           {trustSummary?.safe_public_copy ? (

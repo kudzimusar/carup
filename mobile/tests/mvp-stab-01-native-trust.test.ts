@@ -114,6 +114,27 @@ describe('CARUP-MVP-STAB-01 · Native Vehicle Detail words Trust through the sha
     expect(vehicle).toMatch(/label="Evidence status" value=\{evidenceStatusLabel\(trustSummary\?\.evidence_status\)\}/);
     expect(vehicle).not.toMatch(/titleCase\(trustSummary\?\.evidence_status\)/);
   });
+
+  it('Service / parts evidence is worded plainly and never says verified', () => {
+    const mapping = between(vehicle, 'const PARTS_EVIDENCE_LABEL', '};');
+    const entries = Object.fromEntries(
+      [...mapping.matchAll(/^\s*([a-z_]+):\s*'([^']*)'/gm)].map((match) => [match[1], match[2]]),
+    );
+    // Every value the backend publishes (derivePartSentryPublicStatus) has a plain label.
+    expect(entries).toEqual({
+      not_applicable: 'Not applicable',
+      suppressed: 'Not shown publicly',
+      eligible: 'Can be shown',
+      review_required: 'Under review',
+      ineligible: 'Not shown publicly',
+    });
+    expect(Object.values(entries).filter((label) => /verif/i.test(label))).toEqual([]);
+    const helper = between(vehicle, 'function partsEvidenceLabel(', 'function FactRow(');
+    expect(helper).toContain("if (!key) return 'Not loaded';");
+    expect(helper).toContain(": 'Not recorded';");
+    expect(vehicle).toMatch(/label="Service \/ parts evidence" value=\{partsEvidenceLabel\(trustSummary\?\.partsentry_public_status\)\}/);
+    expect(vehicle).not.toMatch(/titleCase\(trustSummary\?\.partsentry_public_status\)/);
+  });
 });
 
 describe('CARUP-MVP-STAB-01 · Native Passport states confidence and limitations beside the score', () => {
