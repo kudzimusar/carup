@@ -275,6 +275,21 @@
       "integrity": [],
       "interpretation": "Restored bounded exact-Quickstep system-overlay recovery, retained fail-closed CarUp ANR handling, and added frozen candidate_sha checkout/pairing so the harness can advance without moving the product candidate.",
       "does_not_prove": "The patched workflow is not proof until it is dispatched and succeeds against the frozen candidate."
+    },
+    {
+      "evidence_id": "E-015",
+      "control_ids": [
+        "CARUP-MVP-BUY-008",
+        "CARUP-MVP-SELL-009",
+        "CARUP-MVP-OPS-001"
+      ],
+      "candidate_authority": "staging database eoyenigwevnxwwhyhaer, read-only post-certification state",
+      "source": "Supabase MCP SELECT-only reconciliation read",
+      "captured_at": "2026-10-21T13:51:00Z",
+      "collector": "moderator continuation",
+      "integrity": [],
+      "interpretation": "Serena GFC27-027051 currently has 37 marketplace inquiry rows, 34 exact inquiry-linked canonical threads, and 3 historical inquiry rows without an exact canonical thread. The dry-run 37/34/3 reference is therefore live staging truth.",
+      "does_not_prove": "Does not prove or authorize applying inquiry reconciliation; no row was mutated or deleted."
     }
   ]
 }
