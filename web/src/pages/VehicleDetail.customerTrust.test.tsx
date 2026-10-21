@@ -13,6 +13,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
  *   F-012  The odometer row renders the backend's evidence state, never "Verified", and never
  *          falls back to the deprecated `odometer_consistent` boolean.
  *   F-013  Service records are "on file", not "Verified"/"signed"; an empty ledger is not verified.
+ *   F-006  (VehicleDetail part) a Seller previewing a PUBLISHED listing is not told it is private.
  *
  * The Trust fixture is the exact public record staging served for Serena GFC27-027051.
  */
@@ -409,5 +410,49 @@ describe('F-013 — service records and the ledger claim no verification', () =>
     const row = await verificationRow(/Ledger/)
     expect(row).toMatch(/Ledger integrity check failed/)
     expect(screen.getByTestId('ledger-integrity-note').textContent).toMatch(/Ledger integrity unconfirmed/)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+describe('F-006 (VehicleDetail) — the Seller preview banner tells the truth about publication', () => {
+  const PUBLISHED_COPY = "You're viewing your public listing — this is what buyers see."
+
+  it('a PUBLISHED listing is not called private', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: VIN, publication_status: 'published' }])
+    renderSellerPreview()
+    const banner = await screen.findByTestId('seller-preview-banner')
+    expect(banner.textContent).toContain(PUBLISHED_COPY)
+    expect(banner.textContent).not.toContain('Buyer Preview — not public')
+  })
+
+  it('a listing the public Marketplace serves is public even before the owned-row status is read', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: VIN }])
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      vin: VIN, make: 'Nissan', model: 'Serena', year: 2018, price: 9800, currency: 'USD', mileage: 61000,
+      status: 'available', public_status: 'public', created_at: '2026-06-01T00:00:00.000Z',
+      seller_summary: { display_label: 'Private seller', seller_type: 'private', public_profile_enabled: false },
+      trust_summary: {}, verification_summary: {}, pricing_summary: {},
+      reservation_summary: { state: 'none', reserved: false, reserved_at: null, expires_at: null, reason: null },
+      safety_warnings: [],
+    })
+    renderSellerPreview()
+    await waitFor(() => expect(screen.getByTestId('seller-preview-banner').textContent).toContain(PUBLISHED_COPY))
+  })
+
+  it('a DRAFT keeps the not-public wording', async () => {
+    renderSellerPreview()
+    const banner = await screen.findByTestId('seller-preview-banner')
+    expect(banner.textContent).toContain('Buyer Preview — not public')
+    expect(banner.textContent).not.toContain(PUBLISHED_COPY)
+  })
+
+  it('a published listing the public Marketplace refuses (404) is not claimed to be what buyers see', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: VIN, publication_status: 'published' }])
+    fetchMarketplaceListingDetail.mockRejectedValue(Object.assign(new Error('Listing not found'), { status: 404 }))
+    renderSellerPreview()
+    await waitFor(() => expect(fetchMarketplaceListingDetail).toHaveBeenCalled())
+    const banner = await screen.findByTestId('seller-preview-banner')
+    await waitFor(() => expect(banner.textContent).toContain('Buyer Preview — not public'))
+    expect(banner.textContent).not.toContain(PUBLISHED_COPY)
   })
 })

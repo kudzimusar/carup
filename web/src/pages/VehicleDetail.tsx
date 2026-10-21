@@ -1267,6 +1267,9 @@ export default function VehicleDetail() {
   const [stalledKey, setStalledKey] = useState<string | null>(null)
   const loadStalled = stalledKey === loadKey
   const [sellerPreviewAuthorization, setSellerPreviewAuthorization] = useState<'idle' | 'checking' | 'allowed' | 'denied' | 'error'>('idle')
+  // The Seller's own `publication_status` for the previewed VIN, from the same /vehicles/me row that
+  // authorises the preview. Null until that row is read.
+  const [sellerPreviewPublication, setSellerPreviewPublication] = useState<string | null>(null)
   // A plate / temporary-identifier lookup is refused for signed-out visitors by design. That is a
   // statement about the caller, not about the vehicle, so it must not render as "Vehicle Not Found".
   const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
@@ -1309,9 +1312,10 @@ export default function VehicleDetail() {
       try {
         const rows = await fetchOwnedVehicles()
         if (!active) return
-        const allowed = (rows || []).some((row) =>
+        const owned = (rows || []).find((row) =>
           String(row.vin || '').toUpperCase() === String(id).toUpperCase())
-        setSellerPreviewAuthorization(allowed ? 'allowed' : 'denied')
+        setSellerPreviewPublication(owned?.publication_status ?? null)
+        setSellerPreviewAuthorization(owned ? 'allowed' : 'denied')
       } catch {
         if (active) setSellerPreviewAuthorization('error')
       }
@@ -1850,6 +1854,14 @@ export default function VehicleDetail() {
   // connected sources and the customer limitation sentences do too (CARUP-MVP-STAB-01 F-010/F-011).
   const customerTrust = presentTrustForCustomer(publicTrust)
 
+  // A Seller previewing a listing buyers can already open is looking at the public listing, not at a
+  // private draft. Public = the public Marketplace served it, or the Seller's own row says published
+  // and the public read did not refuse it (a 404 means buyers cannot open it, whatever the row says).
+  const previewIsPublicListing = isSellerPreview && (
+    detail?.public_status === 'public'
+    || (sellerPreviewPublication === 'published' && detailFailure !== 'not_found')
+  )
+
   // Location, from the passport's governed claim — the same leaves the Marketplace summary composes
   // server-side, read through the shared rule so one VIN cannot print two different places. When the
   // passport has not loaded, the marketplace summary's already-composed line stands in; both agree
@@ -1961,12 +1973,20 @@ export default function VehicleDetail() {
 
       <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
         {isSellerPreview && (
-          <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Buyer Preview — not public</p>
-              <p className="mt-1 text-sm font-bold text-slate-950">This is the shared buyer presentation, shown inside your authenticated Seller scope.</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
-            </div>
+          <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner" data-publication={previewIsPublicListing ? 'public' : 'not_public'}>
+            {previewIsPublicListing ? (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Your public listing</p>
+                <p className="mt-1 text-sm font-bold text-slate-950">{"You're viewing your public listing — this is what buyers see."}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled while you view your own listing. Viewing it does not change its publication.</p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Buyer Preview — not public</p>
+                <p className="mt-1 text-sm font-bold text-slate-950">This is the shared buyer presentation, shown inside your authenticated Seller scope.</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
+              </div>
+            )}
             <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
               <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
             </Button>
