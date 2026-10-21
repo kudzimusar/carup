@@ -32,6 +32,8 @@ import type {
   TimelineEvent,
   VehicleLifecycleEvent,
   PassportVerificationSource,
+  PassportTrustSignals,
+  ChainVerification,
   MarketplaceListingDetail,
   MarketplaceMedia,
   VehicleEvidence,
@@ -814,20 +816,91 @@ function lifecycleStatusLabel(event: VehicleLifecycleEvent): string {
  * object's key set is the public trust contract"). They are FACTS OBSERVED, never a verdict — the
  * backend even stamps `signals_are_not_a_trust_score: true` on them — so nothing here is combined
  * into a score.
+ *
+ * `odometer_consistent` is DEPRECATED and is never read on this page: it is vacuously true with zero
+ * or one reading, an unknown VIN or a failed read (CARUP-MVP-STAB-01 F-012). The odometer row renders
+ * `odometer_evidence_state` and nothing else.
  */
-type TrustSignals = {
-  cvr_synced?: boolean
-  zimra_duty?: boolean
-  zrp_police_cleared?: boolean
-  odometer_consistent?: boolean
-  maintenance_logs_count?: number
-  stolen_alert_active?: boolean
-}
+type TrustSignals = PassportTrustSignals
 
 function readTrustSignals(passport: VehiclePassport | null): TrustSignals | null {
   const raw = (passport as { trustSignals?: unknown } | null | undefined)?.trustSignals
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   return raw as TrustSignals
+}
+
+/** A count the passport actually reported, or null — never a defaulted 0. */
+function reportedCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null
+}
+
+function plural(count: number, one: string, many: string): string {
+  return count === 1 ? one : many
+}
+
+/**
+ * THE LEDGER ROW. `verifyChain` answers `verified: true` for an EMPTY chain — there is nothing to
+ * tamper with — so "verified" alone is a claim made from absence (F-013). The entry count is read
+ * first, and an intact chain is stated as a fact about CarUp's own record, never about the vehicle.
+ */
+function ledgerSource(chain: ChainVerification | null | undefined): PassportVerificationSource {
+  const label = 'Ledger integrity'
+  if (!chain) {
+    return { label, status: 'unavailable', detail: 'Could not be checked — this Passport did not report its ledger' }
+  }
+  if (chain.verified !== true) {
+    return { label, status: 'not_verified', detail: 'Ledger integrity check failed — CarUp could not confirm its recorded entries are unaltered' }
+  }
+  const entries = reportedCount(chain.count)
+  if (entries === null) return { label, status: 'unknown', detail: 'The number of ledger entries was not reported' }
+  if (entries === 0) return { label, status: 'none_recorded', detail: 'No ledger entries recorded yet' }
+  return {
+    label,
+    status: 'intact',
+    detail: `Ledger entries intact — ${entries} recorded ${plural(entries, 'entry', 'entries')}, none altered. `
+      + 'This is about CarUp’s record, not a check of the vehicle',
+  }
+}
+
+/**
+ * THE ODOMETER ROW renders the backend's evidence state (runOdometerAudit, F-012) and never the
+ * deprecated boolean. A backend too old to send a state, or a state this page does not know, "could
+ * not be checked" — it is read neither as a pass nor as a finding. Consistency needs two readings.
+ */
+function odometerSource(m: TrustSignals): PassportVerificationSource {
+  const label = 'Odometer Consistency'
+  const readings = reportedCount(m.odometer_observation_count)
+  switch (m.odometer_evidence_state) {
+    case 'not_evaluated':
+      return { label, status: 'not_evaluated', detail: 'Not evaluated — no odometer readings are recorded in service history' }
+    case 'insufficient_evidence':
+      return { label, status: 'insufficient_evidence', detail: 'One odometer reading on record — consistency needs at least two readings' }
+    case 'no_inconsistency_detected':
+      return {
+        label,
+        status: 'no_inconsistency_detected',
+        detail: readings !== null && readings >= 2
+          ? `No rollback found across ${readings} recorded readings`
+          : 'No rollback found across the recorded readings',
+      }
+    case 'inconsistency_detected':
+      return { label, status: 'warning', detail: 'Possible mileage inconsistency — inspect the service history' }
+    default:
+      return { label, status: 'unavailable', detail: 'Could not be checked — no odometer result is available for this vehicle right now' }
+  }
+}
+
+/**
+ * SERVICE RECORDS ARE COUNTED, NOT VERIFIED. `maintenance_logs_count` counts every service log —
+ * mechanic-attested, owner- or seller-stated and legacy unattested alike — so the row says how many
+ * are on file and never "Verified" or "signed" (F-013).
+ */
+function serviceRecordsSource(m: TrustSignals): PassportVerificationSource {
+  const label = 'Service Records'
+  const records = reportedCount(m.maintenance_logs_count)
+  if (records === null) return { label, status: 'unknown', detail: 'The number of service records was not reported' }
+  if (records === 0) return { label, status: 'none_recorded', detail: 'No service records on file' }
+  return { label, status: 'recorded', detail: `${records} service ${plural(records, 'record', 'records')} on file` }
 }
 
 // ── Derive Verification sources from passport data ──────────────────────────
@@ -841,17 +914,8 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
   if (!passport) return []
 
   const m = readTrustSignals(passport)
-  const chain = passport.chainVerification
 
-  const sources: PassportVerificationSource[] = [
-    {
-      label: 'VIN / Ledger Integrity',
-      status: chain?.verified ? 'verified' : 'not_verified',
-      detail: chain?.verified
-        ? 'CarUp audit ledger hash chain verified — no tampering detected'
-        : 'Ledger integrity check failed or no events recorded',
-    },
-  ]
+  const sources: PassportVerificationSource[] = [ledgerSource(passport.chainVerification)]
 
   if (!m) {
     // The passport carried no signal report. Say that, once, instead of seven fabricated verdicts.
@@ -890,13 +954,7 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
         ? 'Police-clearance evidence is recorded in this Passport; CarUp does not perform a police database check'
         : 'Police-clearance evidence is not recorded in this Passport',
     },
-    {
-      label: 'Odometer Consistency',
-      status: m.odometer_consistent ? 'verified' : 'warning',
-      detail: m.odometer_consistent
-        ? 'No odometer rollback anomalies detected across service logs'
-        : 'Potential mileage discrepancy detected — inspect service history',
-    },
+    odometerSource(m),
     {
       label: 'Stolen-vehicle alert',
       status: m.stolen_alert_active ? 'warning' : 'none_recorded',
@@ -904,28 +962,52 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
         ? '⚠️ A stolen-vehicle alert is recorded in this Passport — do not purchase, and report it to the ZRP'
         : 'No stolen-vehicle alert is recorded in this Passport. CarUp does not check police databases',
     },
-    {
-      label: 'Service Records',
-      status: (m.maintenance_logs_count ?? 0) >= 1 ? 'verified' : 'not_verified',
-      detail: (m.maintenance_logs_count ?? 0) >= 1
-        ? `${m.maintenance_logs_count} signed maintenance log(s) on the CarUp audit ledger`
-        : 'No mechanic-signed service records found',
-    },
+    serviceRecordsSource(m),
   ]
 }
 
 // ── Status badge for verification sources ───────────────────────────────────
 function VerificationBadge({ status }: { status: PassportVerificationSource['status'] }) {
-  const map = {
+  const map: Record<PassportVerificationSource['status'], { label: string; cls: string }> = {
     verified:     { label: 'Verified',   cls: 'bg-green-500 text-white' },
     recorded:     { label: 'Recorded',   cls: 'bg-sky-600 text-white' },
     none_recorded: { label: 'None recorded', cls: 'bg-gray-300 text-gray-800' },
     not_verified: { label: 'Unverified', cls: 'bg-gray-400 text-white' },
     warning:      { label: 'Warning',    cls: 'bg-amber-500 text-white' },
     unknown:      { label: 'Unknown',    cls: 'bg-gray-300 text-gray-700' },
+    // F-012/F-013: results that are not verifications, and never read as one.
+    not_evaluated: { label: 'Not evaluated', cls: 'bg-gray-300 text-gray-700' },
+    insufficient_evidence: { label: 'Not enough evidence', cls: 'bg-gray-300 text-gray-700' },
+    no_inconsistency_detected: { label: 'No inconsistency detected', cls: 'bg-sky-600 text-white' },
+    unavailable:  { label: 'Could not be checked', cls: 'bg-gray-300 text-gray-700' },
+    intact:       { label: 'Intact',     cls: 'bg-green-500 text-white' },
   }
   const { label, cls } = map[status]
-  return <Badge className={`${cls} text-[12px]`}>{label}</Badge>
+  return <Badge className={`${cls} text-[12px]`} data-testid="verification-badge" data-status={status}>{label}</Badge>
+}
+
+/** The sidebar ledger note — the same reading as the ledger row: an empty chain is not "verified". */
+function LedgerIntegrityNote({ chain }: { chain: ChainVerification }) {
+  const entries = reportedCount(chain.count)
+  if (chain.verified !== true) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-amber-700" data-testid="ledger-integrity-note">
+        <AlertTriangle className="w-4 h-4" /> Ledger integrity unconfirmed
+      </div>
+    )
+  }
+  if (entries === null || entries === 0) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-600" data-testid="ledger-integrity-note">
+        <HelpCircle className="w-4 h-4" /> {entries === 0 ? 'No ledger entries recorded yet' : 'Ledger entries were not reported'}
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2 text-sm text-green-700" data-testid="ledger-integrity-note">
+      <CheckCircle className="w-4 h-4" /> Ledger entries intact — CarUp&rsquo;s record has not been altered
+    </div>
+  )
 }
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
@@ -2728,13 +2810,13 @@ export default function VehicleDetail() {
                     ) : (
                       <div className="space-y-2" data-testid="verification-list">
                         {verificationSources.map((src: PassportVerificationSource) => {
-                          const Icon = src.status === 'verified' ? CheckCircle
-                            : src.status === 'recorded' ? FileCheck
+                          const Icon = src.status === 'verified' || src.status === 'intact' ? CheckCircle
+                            : src.status === 'recorded' || src.status === 'no_inconsistency_detected' ? FileCheck
                             : src.status === 'warning' ? AlertTriangle
                             : src.status === 'not_verified' ? XCircle
                             : HelpCircle
-                          const iconColor = src.status === 'verified' ? 'text-green-600'
-                            : src.status === 'recorded' ? 'text-sky-600'
+                          const iconColor = src.status === 'verified' || src.status === 'intact' ? 'text-green-600'
+                            : src.status === 'recorded' || src.status === 'no_inconsistency_detected' ? 'text-sky-600'
                             : src.status === 'warning' ? 'text-amber-600'
                             : 'text-gray-400'
 
@@ -2793,11 +2875,13 @@ export default function VehicleDetail() {
                         {trust.score !== null && publicTrust?.calculation_version
                           ? ` Calculation version ${publicTrust.calculation_version}.`
                           : ''}
+                        {/* Counted, not verified: the count includes owner- and seller-stated logs, so
+                            the records are "on file", never "mechanic-signed" (F-013). */}
                         {serviceRecordCount === null
                           ? ' No service-record count is recorded for this vehicle.'
                           : serviceRecordCount > 0
-                            ? ` It has ${serviceRecordCount} mechanic-signed service record(s) on the ledger.`
-                            : ' No mechanic-signed service records have been submitted yet.'}
+                            ? ` It has ${serviceRecordCount} service ${plural(serviceRecordCount, 'record', 'records')} on file.`
+                            : ' No service records are on file yet.'}
                         {/* An adverse alert is stated when it is present. Its absence is NOT stated as
                             "no active alert" — no record is not the same as a clean check. */}
                         {trustSignals?.stolen_alert_active
@@ -3206,16 +3290,12 @@ export default function VehicleDetail() {
               </Card>
             )}
 
-            {/* Ledger verification badge */}
+            {/* Ledger integrity note — an empty chain "passes" a check that had nothing to check, so
+                it says no entries are recorded rather than "verified" (F-013). */}
             {passport?.chainVerification && (
               <Card className="border-0 card-shadow">
                 <CardContent className="p-4">
-                  <div className={`flex items-center gap-2 text-sm ${passport.chainVerification.verified ? 'text-green-700' : 'text-amber-700'}`}>
-                    {passport.chainVerification.verified
-                      ? <><CheckCircle className="w-4 h-4" /> CarUp audit ledger verified — hash chain intact</>
-                      : <><AlertTriangle className="w-4 h-4" /> Ledger integrity unconfirmed</>
-                    }
-                  </div>
+                  <LedgerIntegrityNote chain={passport.chainVerification} />
                 </CardContent>
               </Card>
             )}

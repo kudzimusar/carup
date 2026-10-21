@@ -146,8 +146,12 @@ test.describe('Passport Connection Sprint — Buyer Vehicle Detail Flow', () => 
     if (count > 0) {
       // Must have at minimum the 7 defined trust-metric checks
       expect(count).toBeGreaterThanOrEqual(1)
-      // Each item must have a status badge
-      await expect(items.first().locator('.bg-green-500, .bg-gray-400, .bg-amber-500')).toBeVisible()
+      // Each item must have a status badge. Located by its test id rather than by three colour
+      // classes: CARUP-MVP-STAB-01 F-013 gave the first (ledger) row a neutral "None recorded" badge
+      // for an empty chain, which the old colour list did not include. Every item is now checked.
+      for (let i = 0; i < count; i += 1) {
+        await expect(items.nth(i).getByTestId('verification-badge')).toBeVisible()
+      }
     } else {
       // graceful degradation — "Verification data unavailable" message shown
       await expect(page.locator('[data-testid="verification-tab-content"]'))
