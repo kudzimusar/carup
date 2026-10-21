@@ -159,7 +159,7 @@ export function deterministicListingDraft(input = {}) {
     detailed_description:
       `${headline}${specs.length ? ` (${specs.join(', ')})` : ''}. ` +
       `${price ? `Asking ${currency} ${Number(price).toLocaleString()}. ` : ''}` +
-      'Contact via the CarUp verified inquiry flow. Inspection available on request.',
+      'Contact the seller through CarUp messages. Inspection available on request.',
     recommended_tags: specs.length ? ['inspection_ready'] : [],
     missing_fields: missing,
     seller_checklist: [
@@ -200,7 +200,8 @@ export function deterministicBuyerRecommendation(input = {}) {
   if (input.budget) notes.push(`Filter to listings at or below ${input.budget}.`);
   if (input.use_case) notes.push(`For "${input.use_case}", prioritise trust badges and inspection availability.`);
   notes.push('Prefer listings with verified evidence and request an independent inspection before paying.');
-  notes.push('Use the verified inquiry flow — never pay outside CarUp.');
+  // Plain words, no verification claim (CARUP-MVP-STAB-01 F-013): nothing about an inquiry is verified.
+  notes.push('Keep the conversation in CarUp messages — never pay outside CarUp.');
   return {
     intent: input.use_case || 'general_browse',
     suggested_filters: {
@@ -267,8 +268,9 @@ export function deterministicShareCopy(input = {}) {
   const url = input.url || 'https://carup.example/marketplace';
   return {
     whatsapp: `Check out ${headline}${priceBit} on CarUp 🚗 ${url}`,
-    telegram: `${headline}${priceBit} on CarUp — verified inquiry flow available. ${url}`,
-    facebook: `${headline}${priceBit}. Browse trust-verified listings on CarUp. ${url}`,
+    telegram: `${headline}${priceBit} on CarUp — ask the seller in CarUp messages. ${url}`,
+    // Not "trust-verified listings": a listing's Trust record is not a verification of the listing.
+    facebook: `${headline}${priceBit}. See each listing's Trust details on CarUp. ${url}`,
     short: `${headline}${priceBit} · CarUp`,
   };
 }

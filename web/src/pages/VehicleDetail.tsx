@@ -1134,7 +1134,7 @@ const TRUST_STATE_LABELS: Record<string, string> = {
 const TRUST_STATE_DETAIL: Record<string, string> = {
   stale: 'This vehicle was last assessed under superseded rules. The earlier score is withheld '
     + 'rather than shown as if it were current.',
-  not_evaluated: 'CarUp has not produced a governed trust assessment for this vehicle. That is not '
+  not_evaluated: 'CarUp has not produced a Trust assessment for this vehicle yet. That is not '
     + 'a score of zero and says nothing for or against the vehicle.',
   unavailable: 'CarUp could not produce a trust assessment for this request. That is a fact about '
     + 'the request, not a finding about the vehicle.',
@@ -2280,7 +2280,7 @@ export default function VehicleDetail() {
                 triggerVariant="outline"
                 triggerClassName="w-full h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
               />
-              <p className="pt-2 text-[10px] leading-4 text-slate-500">CarUp keeps the inquiry inside the governed Communications path. Never pay outside CarUp.</p>
+              <p className="pt-2 text-[10px] leading-4 text-slate-500">Keep the conversation in CarUp messages. Never pay outside CarUp.</p>
             </div>
           )}
         </section>

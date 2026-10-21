@@ -2,7 +2,8 @@ import { ShieldAlert } from 'lucide-react'
 
 const DEFAULT_WARNINGS = [
   'Do not pay outside CarUp.',
-  'Use the verified inquiry flow to contact the seller.',
+  // Same plain wording as the backend list (CARUP-MVP-STAB-01 F-013): an inquiry is not "verified".
+  'Contact the seller through CarUp and keep the conversation in CarUp messages.',
   'An independent inspection is recommended before purchase.',
   'Report any listing that asks you to transact off-platform.',
 ]

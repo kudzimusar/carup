@@ -31,8 +31,8 @@ afterEach(() => { cleanup(); marketplaceAiBuyerAssistant.mockReset() })
 
 describe('BuyerAssistantDrawer — AI availability is stated truthfully', () => {
   it('a signed-out visitor sees safe guidance and is told to sign in for AI assistance', async () => {
-    const result = await askWith({ guidance: ['Use the verified inquiry flow.'], ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'sign_in_required' })
-    expect(result.textContent).toContain('Use the verified inquiry flow.')
+    const result = await askWith({ guidance: ['Keep the conversation in CarUp messages — never pay outside CarUp.'], ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'sign_in_required' })
+    expect(result.textContent).toContain('Keep the conversation in CarUp messages — never pay outside CarUp.')
     expect(screen.getByTestId('marketplace-ai-assistant-fallback').textContent).toBe('Sign in for AI-assisted guidance — showing safe guidance')
   })
 
@@ -42,7 +42,7 @@ describe('BuyerAssistantDrawer — AI availability is stated truthfully', () => 
   })
 
   it('an AI answer WITHHELD for commenting on price or value says so (REL-01 label, now pinned)', async () => {
-    await askWith({ guidance: ['Use the verified inquiry flow.'], ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'ai_output_withheld' })
+    await askWith({ guidance: ['Keep the conversation in CarUp messages — never pay outside CarUp.'], ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'ai_output_withheld' })
     expect(screen.getByTestId('marketplace-ai-assistant-fallback').textContent).toBe('AI answer withheld (it commented on price or value) — showing safe guidance')
   })
 
@@ -54,6 +54,19 @@ describe('BuyerAssistantDrawer — AI availability is stated truthfully', () => 
   it('an unknown or absent reason still reads as plain unavailability (the timeout label is specific)', async () => {
     await askWith({ guidance: ['Prefer listings with verified evidence.'], ai_status: 'ai_unavailable', ai_available: false, ai_reason: 'something_else' })
     expect(screen.getByTestId('marketplace-ai-assistant-fallback').textContent).toBe('AI unavailable — showing safe guidance')
+  })
+
+  // CARUP-MVP-STAB-01 F-013: the drawer's OWN fallback (the request failed) was untested and told the
+  // buyer to "use the verified inquiry flow". It now gives the same plain guidance as the backend.
+  it('a failed request falls back to plain safe guidance — no "verified inquiry flow"', async () => {
+    marketplaceAiBuyerAssistant.mockRejectedValueOnce(new Error('network down'))
+    const user = userEvent.setup()
+    render(<BuyerAssistantDrawer />)
+    await user.click(screen.getByTestId('marketplace-ai-assistant-open'))
+    await user.click(await screen.findByTestId('marketplace-ai-assistant-ask'))
+    const result = await screen.findByTestId('marketplace-ai-assistant-result')
+    expect(result.textContent).toContain('Keep the conversation in CarUp messages and request an inspection before paying. Never pay outside CarUp.')
+    expect(result.textContent).not.toMatch(/inquiry flow/i)
   })
 
   it('AI-assisted guidance carries no fallback badge (positive control)', async () => {
