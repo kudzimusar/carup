@@ -56,6 +56,7 @@ export default function GarageWorkspace() {
   useEffect(() => { load() }, [load])
 
   const visible = scope === 'mine' ? queue.filter((c) => assignedTo(c, user?.id)) : queue
+  const isGarageAdmin = user?.active_tenant?.type === 'garage' && user?.active_tenant?.role === 'admin'
 
   return (
     <div className={SN_PAGE}>
@@ -65,11 +66,13 @@ export default function GarageWorkspace() {
           <p className="text-gray-500">Service requests and jobs for your garage</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/garage/operations">
-            <Button variant="outline" className="min-h-11" data-testid="open-garage-operations">
-              <Building2 className="w-4 h-4 mr-2" aria-hidden="true" /> Sites & staff
-            </Button>
-          </Link>
+          {isGarageAdmin && (
+            <Link to="/garage/operations">
+              <Button variant="outline" className="min-h-11" data-testid="open-garage-operations">
+                <Building2 className="w-4 h-4 mr-2" aria-hidden="true" /> Sites & staff
+              </Button>
+            </Link>
+          )}
           <Link to="/garage/customers">
             <Button variant="outline" className="min-h-11" data-testid="open-customers">
               <Users className="w-4 h-4 mr-2" aria-hidden="true" /> Customers
