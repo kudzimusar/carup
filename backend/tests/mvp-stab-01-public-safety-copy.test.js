@@ -82,3 +82,42 @@ test('the limited-verification note uses the same plain wording', () => {
     'Verification is limited. Ask the seller for evidence and request an inspection in CarUp messages.',
   ]);
 });
+
+// ── Follow-up: the remaining public copy ─────────────────────────────────────────────────────────
+const { deterministicBuyerRecommendation, deterministicShareCopy, deterministicListingDraft } =
+  await import('../services/marketplace/marketplaceAiAssistantService.js');
+
+test('the listing description names no implementation term', async () => {
+  const detail = await getMarketplaceListingDetail(buildMockSupabase({ vehicles: [publicVehicle()] }), VIN);
+  assert.doesNotMatch(detail.description, JARGON);
+  assert.match(detail.description, /See the Trust summary for what CarUp has and has not checked\.$/);
+});
+
+test('the badge count says "trust badges", not "verified trust signals" — most badges are not verifications', () => {
+  // inspection_ready / safe_pay_ready / evidence_available / dealer_verified ("Registered dealer
+  // listing") / recent_service report availability or a recorded fact; only passport/plate/PartSentry/
+  // parts badges are checks. A count over all of them cannot be called "verified".
+  const copyFor = (vehicle) => {
+    const listingSummary = buildMarketplaceListingSummary({ vehicle });
+    return buildTrustSummary({ vehicle, listingSummary });
+  };
+  const one = copyFor(publicVehicle({ inspection_ready: true }));
+  assert.deepEqual(one.trust_badges, ['inspection_ready']);
+  assert.equal(one.safe_public_copy, '1 trust badge on record. Keep the conversation in CarUp messages and consider an inspection.');
+  const two = copyFor(publicVehicle({ inspection_ready: true, safe_pay_ready: true }));
+  assert.equal(two.trust_badges.length, 2);
+  assert.equal(two.safe_public_copy, '2 trust badges on record. Keep the conversation in CarUp messages and consider an inspection.');
+  for (const copy of [one.safe_public_copy, two.safe_public_copy]) assert.doesNotMatch(copy, /verified/i);
+});
+
+test('the AI assistant\'s deterministic copy keeps the conversation in CarUp messages and claims no verification', () => {
+  const guidance = deterministicBuyerRecommendation({}).guidance;
+  assert.ok(guidance.includes('Keep the conversation in CarUp messages — never pay outside CarUp.'), JSON.stringify(guidance));
+  const share = deterministicShareCopy({ make: 'nissan', model: 'serena', year: 2018, price: 9800, currency: 'USD', url: 'https://carup.example/m/1' });
+  const draft = deterministicListingDraft({ make: 'nissan', model: 'serena', year: 2018, price: 9800 });
+  for (const line of [...guidance, ...Object.values(share), draft.detailed_description]) {
+    assert.doesNotMatch(line, /inquiry flow|trust-verified/i, line);
+  }
+  assert.match(share.telegram, /CarUp messages/);
+  assert.match(draft.detailed_description, /CarUp messages/);
+});

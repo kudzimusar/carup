@@ -202,7 +202,10 @@ function buildSafePublicCopy({ badgeCount, risk_status, evidenceStatus, partsent
     return 'Some trust signals on this listing are under review. Confirm the details with the seller in CarUp messages before transacting.';
   }
   const parts = [];
-  if (badgeCount > 0) parts.push(`${badgeCount} verified trust signal${badgeCount === 1 ? '' : 's'} on record`);
+  // "Trust badges", not "verified trust signals": most badges in BADGE_COPY report availability or a
+  // recorded fact (inspection available, SafePay-ready, evidence on file, registered dealer listing,
+  // recent service) rather than a verification, so a count over all of them cannot be called verified.
+  if (badgeCount > 0) parts.push(`${badgeCount} trust badge${badgeCount === 1 ? '' : 's'} on record`);
   if (evidenceStatus === 'verified' || evidenceStatus === 'partial') parts.push('supporting evidence on file');
   if (partsentry_status === 'eligible') parts.push('PartSentry repair history checked');
   if (!parts.length) {

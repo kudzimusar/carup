@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { TrustDecision, TrustDimension } from '@/types'
+import { customerTrustLimitations } from '@shared/trust/customerTrustPresentation'
 
 // Buyer-safe presentation of the unified trust decision. Each dimension is shown
 // SEPARATELY (never collapsed into one "verified"). Private dimensions (e.g. finance)
@@ -69,6 +70,10 @@ export function TrustDecisionPanel({ vin, initialData }: { vin: string; initialD
   }
   if (!data) return null
 
+  // Customer sentences, never the backend's limitation strings, column names or reason codes
+  // (CARUP-MVP-STAB-01 F-011) — the same shared wording the page and Native use.
+  const limitations = customerTrustLimitations(data.known_limitations)
+
   // This panel EXPLAINS the trust position through its dimensions; it does not state it. The single
   // public statement is the canonical projection rendered by the page. Restating a score here put
   // two answers on one screen — "50 · moderate" beside "Not evaluated" for the same VIN — because
@@ -84,11 +89,11 @@ export function TrustDecisionPanel({ vin, initialData }: { vin: string; initialD
         {Object.entries(data.dimensions)
           .filter(([k]) => !HIDDEN_FROM_BUYER.has(k))
           .map(([k, dim]) => <DimensionRow key={k} name={k} dim={dim} />)}
-        {data.known_limitations.length > 0 && (
+        {limitations.length > 0 && (
           <div className="mt-3 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
             <p className="font-semibold mb-1">Known limitations</p>
             <ul className="list-disc list-inside space-y-0.5">
-              {data.known_limitations.map((l, i) => <li key={i}>{l}</li>)}
+              {limitations.map((line) => <li key={line}>{line}</li>)}
             </ul>
           </div>
         )}

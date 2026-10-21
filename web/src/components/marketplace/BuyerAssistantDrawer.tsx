@@ -75,7 +75,7 @@ export function BuyerAssistantDrawer({
       setAiAvailable(res?.ai_available ?? false)
       setAiReason(typeof res?.ai_reason === 'string' ? res.ai_reason : null)
     } catch {
-      setGuidance(['Use the verified inquiry flow and request an inspection before paying. Never pay outside CarUp.'])
+      setGuidance(['Keep the conversation in CarUp messages and request an inspection before paying. Never pay outside CarUp.'])
       setAiAvailable(false)
       setAiReason(null)
     } finally {

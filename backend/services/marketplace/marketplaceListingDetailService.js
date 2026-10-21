@@ -136,7 +136,8 @@ function buildDescription(summary) {
   }
   if (summary.fuel_type) parts.push(`${summary.fuel_type} engine.`);
   if (summary.transmission) parts.push(`${summary.transmission} transmission.`);
-  parts.push('Trust and verification details are backend-governed — see the trust summary.');
+  // Plain words (CARUP-MVP-STAB-01 F-013): "backend-governed" is an implementation term.
+  parts.push('See the Trust summary for what CarUp has and has not checked.');
   return parts.join(' ');
 }
 

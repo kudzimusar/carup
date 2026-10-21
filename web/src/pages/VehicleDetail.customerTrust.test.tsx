@@ -251,6 +251,31 @@ describe('F-010 — the Serena score never stands alone', () => {
     expect(screen.queryByTestId('trust-score-confidence')).toBeNull()
     expect(screen.getByTestId('sidebar-trust').textContent).not.toMatch(/\d/)
   })
+  it('the not-evaluated explanation is plain — no "governed" — and still says it is not a zero', async () => {
+    servePassport({
+      trust: { ...SERENA_TRUST, score: null, band: null, evaluation_state: 'not_evaluated', confidence: 'not_evaluated', evidence_basis: null, known_limitations: [] },
+    })
+    renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-state-detail')).toBeTruthy())
+    const detail = screen.getByTestId('trust-state-detail').textContent || ''
+    expect(detail).toMatch(/not\s+a score of zero/i)
+    expect(detail).not.toMatch(/governed/i)
+  })
+
+  it('the hero contact note is plain — keep the conversation in CarUp messages, no "governed"', async () => {
+    fetchMarketplaceListingDetail.mockResolvedValue({
+      vin: VIN, make: 'Nissan', model: 'Serena', year: 2018, price: 9800, currency: 'USD', mileage: 61000,
+      status: 'available', public_status: 'public', created_at: '2026-06-01T00:00:00.000Z',
+      seller_summary: { display_label: 'Private seller', seller_type: 'private', public_profile_enabled: false },
+      trust_summary: {}, verification_summary: {}, pricing_summary: {},
+      reservation_summary: { state: 'none', reserved: false, reserved_at: null, expires_at: null, reason: null },
+      safety_warnings: [],
+    })
+    renderPublic()
+    const actions = await screen.findByTestId('vehicle-detail-primary-actions')
+    expect(actions.textContent).toContain('Keep the conversation in CarUp messages. Never pay outside CarUp.')
+    expect(actions.textContent).not.toMatch(/governed/i)
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────

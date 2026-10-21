@@ -20,7 +20,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 
 const { buildPricingSummary, VALUATION_STATUS, COST_ESTIMATE_CONFIDENCE } = await import('../services/marketplace/marketplacePricingService.js');
-const { priceEstimate, buyerAssistant, listingDraft, shareCopy, deterministicListingDraft, deterministicShareCopy } =
+const { priceEstimate, buyerAssistant, listingDraft, shareCopy, deterministicListingDraft, deterministicShareCopy, deterministicBuyerRecommendation } =
   await import('../services/marketplace/marketplaceAiAssistantService.js');
 const { containsValuationClaim, VALUATION_WITHHELD_GUIDANCE } = await import('../services/marketplace/valuationClaimGuard.js');
 
@@ -134,13 +134,15 @@ test('REL-01 share copy: an AI field that makes a valuation claim is replaced by
   const det = deterministicShareCopy(input);
   const { deps } = modelAnswering({
     whatsapp: 'Great value Hilux — grab this steal!',
-    telegram: '2020 Hilux on CarUp — ask through the verified inquiry flow.',
+    // CARUP-MVP-STAB-01 F-013: model output in CarUp's current wording (no "verified inquiry flow"). The
+    // check is unchanged: a field with no valuation claim is published exactly as the model wrote it.
+    telegram: '2020 Hilux on CarUp — ask the seller in CarUp messages.',
     facebook: 'Worth every cent.',
     short: 'Hilux · 20% under market',
   });
   const r = await shareCopy(input, deps);
   assert.equal(r.whatsapp, det.whatsapp);
-  assert.equal(r.telegram, '2020 Hilux on CarUp — ask through the verified inquiry flow.');
+  assert.equal(r.telegram, '2020 Hilux on CarUp — ask the seller in CarUp messages.');
   assert.equal(r.facebook, det.facebook);
   assert.equal(r.short, det.short);
 });
@@ -177,7 +179,9 @@ const CLEAN = [
   'Confirm the price with the seller before travelling.',
   'Request an independent inspection before paying.',
   'Low mileage for the year — check the service book matches.',
-  'Use the verified inquiry flow — never pay outside CarUp.',
+  // The shipped deterministic buyer-guidance line (reworded by CARUP-MVP-STAB-01 F-013); every shipped
+  // line is also checked below, so this list cannot drift from what the assistant actually says.
+  'Keep the conversation in CarUp messages — never pay outside CarUp.',
   'Browse the marketplace for diesel pickups.',
   'Ask for both keys and the registration book.',
   'For 2 years of service records, ask the dealer.',
@@ -185,6 +189,10 @@ const CLEAN = [
 for (const line of CLEAN) {
   test(`REL-01 guard publishes: ${line}`, () => assert.equal(containsValuationClaim(line), false));
 }
+
+test('REL-01 guard publishes every line of the shipped deterministic buyer guidance', () => {
+  for (const line of deterministicBuyerRecommendation({}).guidance) assert.equal(containsValuationClaim(line), false, line);
+});
 
 test('REL-01 guard: the withheld-guidance notice passes its own guard; non-strings are not claims', () => {
   assert.equal(containsValuationClaim(VALUATION_WITHHELD_GUIDANCE), false);
