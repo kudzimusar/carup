@@ -62,10 +62,28 @@ describe('TrustDecisionPanel', () => {
     expect(row).toContain('text-amber-700')
     expect(row).not.toContain('text-green-700')
   })
-  it('shows known limitations', () => {
+  // CARUP-MVP-STAB-01 F-011: this pinned the backend sentence verbatim ("No live government/partner
+  // source is connected"). Limitations now reach the buyer through the shared customer wording
+  // (customerTrustLimitations). Stronger than the pin it replaces: the customer sentence must be shown
+  // AND the backend sentence must not be.
+  it('shows known limitations as customer sentences, never the backend wording', () => {
     const html = renderToStaticMarkup(<TrustDecisionPanel vin="V1" initialData={decision()} />)
     expect(html).toContain('Known limitations')
-    expect(html).toContain('No live government/partner source is connected')
+    expect(html).toContain('No government or partner record is connected for this vehicle yet.')
+    expect(html).not.toContain('No live government/partner source is connected')
+  })
+  it('groups the not-done checks, drops reason codes and never names a column', () => {
+    const html = renderToStaticMarkup(<TrustDecisionPanel vin="V1" initialData={decision({
+      known_limitations: [
+        'dealer compliance has not been evaluated for this vehicle.',
+        'escrow eligibility has not been evaluated for this vehicle.',
+        "The stored 'zimra_verified' flag on this vehicle is not supported by any authoritative record and is not published.",
+        'reason:cache_read_failed',
+      ],
+    })} />)
+    expect(html).toContain('Dealer and SafePay checks have not been done for this vehicle yet.')
+    expect(html).toContain('A stored vehicle check is not backed by an official record, so CarUp does not show it.')
+    expect(html).not.toMatch(/zimra_verified|authoritative|reason:|has not been evaluated/)
   })
   it('shows not-evaluated dimensions explicitly', () => {
     const html = renderToStaticMarkup(<TrustDecisionPanel vin="V1" initialData={decision()} />)
