@@ -17,6 +17,8 @@ import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasp
 // Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
 import { requireFeature } from './diasporaEntitlementGuard.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
+// F-022 / TRD-002: one booking-window rule for every surface that lists or books a sailing.
+import { containerBookingEligibility, assertContainerBookable, BOOKING_ELIGIBILITY_STATES } from './containerBookingEligibility.js';
 // D7: best-effort canonical Communications events AFTER the durable, audited mutation.
 import {
   notifyReservationRequested,
@@ -55,6 +57,16 @@ function round3(n) {
 
 function canReview(container, context) {
   return isPlatformAdmin(context) || isPlatformReviewer(context) || isTenantAdminForRecord(container, context);
+}
+
+/** Who sees a sailing's operator working state — the T5.8 predicate: its reviewers and its coordinator. */
+function operatesSailing(container, context) {
+  return canReview(container, context) || normalizeId(container.coordinator_id) === context.id;
+}
+
+/** The stored row plus how it may be booked right now. A read: the stored status is never changed. */
+function withBookingEligibility(container, now) {
+  return { ...container, booking_eligibility: containerBookingEligibility(container, now) };
 }
 
 function ownsReservation(reservation, context) {
@@ -245,9 +257,21 @@ export async function listOpenContainers(filters = {}, userContext = {}, options
   // operator working state, visible only to the authority that operates the sailing. Without this,
   // ?status=DRAFT would let any participant browse competitors' unpublished plans.
   if (status !== CONTAINER_STATUSES.BOOKING_OPEN) {
-    rows = rows.filter((container) => canReview(container, context) || normalizeId(container.coordinator_id) === context.id);
+    rows = rows.filter((container) => operatesSailing(container, context));
   }
-  return attachOrganiserNames(client, rows);
+  // F-022: a stored BOOKING_OPEN is not the same as bookable — nothing closes a sailing on its own.
+  // Each row says how it may be booked NOW. A departed sailing is never presented to a participant:
+  // it cannot look presently bookable. A sailing past its cut-off but not yet departed IS shown, as
+  // not bookable — approvals of requests made in time legitimately land after the cut-off, and the
+  // participant waiting on one must still find the sailing. Operators keep every row they operate:
+  // an expired open sailing is operations work (close it), not a listing. Rows are filtered after
+  // the page is read, as T5.8 above already does, so a page can hold fewer rows than `limit`.
+  const now = new Date();
+  const visible = rows
+    .map((container) => withBookingEligibility(container, now))
+    .filter((container) => container.booking_eligibility.state !== BOOKING_ELIGIBILITY_STATES.DEPARTED
+      || operatesSailing(container, context));
+  return attachOrganiserNames(client, visible);
 }
 
 /**
@@ -270,12 +294,11 @@ export async function getContainerCapacity(id, userContext = {}, options = {}) {
   // T5.8: a DRAFT is operator working state. To anyone who is not that operator it does not
   // exist — NotFound, indistinguishable from a wrong id, so the endpoint cannot be used to
   // confirm that a competitor's unpublished sailing exists.
-  if (container.status === CONTAINER_STATUSES.DRAFT
-    && !(canReview(container, context) || normalizeId(container.coordinator_id) === context.id)) {
+  if (container.status === CONTAINER_STATUSES.DRAFT && !operatesSailing(container, context)) {
     throw new NotFoundError('Container not found');
   }
   const reservations = await loadReservations(client, id);
-  const [enriched] = await attachOrganiserNames(client, [container]);
+  const [enriched] = await attachOrganiserNames(client, [withBookingEligibility(container, new Date())]);
   return { container: enriched, capacity: computeCapacity(container, reservations) };
 }
 
@@ -284,7 +307,15 @@ export async function requestReservation(containerId, payload = {}, userContext 
   const client = await resolveClient(options);
   const { req = null } = options;
   const container = await loadContainer(client, containerId);
-  if (container.status !== CONTAINER_STATUSES.BOOKING_OPEN) throw new ValidationError('Container is not open for booking');
+  // TRD-002: a NEW request needs a sailing that is bookable now — open, not departed, cut-off not
+  // passed, not full — refused before any write. This covers the marketplace route AND the T3 RFQ
+  // request-space path, which books through this function. Full is judged on the authoritative
+  // capacity (the APPROVED reservations), so a stale cached figure cannot refuse real space.
+  // Approval deliberately does NOT re-check the window: a request made in time may be decided late.
+  assertContainerBookable(container, {
+    capacity: computeCapacity(container, await loadReservations(client, containerId)),
+    notOpenMessage: 'Container is not open for booking',
+  });
 
   const volume = Number(payload.estimated_volume);
   if (!(volume > 0)) throw new ValidationError('estimated_volume must be positive');

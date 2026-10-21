@@ -1,10 +1,11 @@
 import { supabase } from '../../db/supabase.js';
-import { RESERVATION_STATUSES, IMPORT_ORDER_STATUSES, CONTAINER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
+import { RESERVATION_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { DatabaseError, NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
 import { validateReservationPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
+import { assertContainerBookable } from './containerBookingEligibility.js';
 import {
   requireUserContext,
   assertCanReadImportOrder,
@@ -66,13 +67,13 @@ export async function createCargoReservation(payload, userContext = {}, req = nu
   // 1. The caller must be allowed to act on the target import order (buyer owns it, or reviewer/admin).
   await assertImportOrderAccess(payload.import_order_id, context);
 
-  const { data: container, error: containerError } = await supabase.from('diaspora_container_shipments').select('*').eq('id', payload.container_id).single();
+  // A soft-deleted sailing does not exist for booking purposes (the lookup used to ignore deleted_at).
+  const { data: container, error: containerError } = await supabase.from('diaspora_container_shipments').select('*').eq('id', payload.container_id).is('deleted_at', null).single();
   if (containerError || !container) throw new NotFoundError('Diaspora container shipment not found');
 
-  // 2. Only open containers accept reservation requests.
-  if (container.status !== CONTAINER_STATUSES.BOOKING_OPEN) {
-    throw new ValidationError('This container is not open for booking.');
-  }
+  // 2. Only a sailing that is bookable NOW accepts a request (TRD-002): open, not departed, cut-off
+  //    not passed, not full — refused before any write. The not-open refusal keeps its exact message.
+  assertContainerBookable(container, { notOpenMessage: 'This container is not open for booking.' });
 
   const requestedVolume = Number(payload.estimated_volume);
   if (requestedVolume > Number(container.available_capacity_volume)) {

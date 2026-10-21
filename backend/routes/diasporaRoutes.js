@@ -296,9 +296,10 @@ router.post('/trade-documents/:id/verify', reviewerAuth, asyncHandler(async (req
 router.post('/trade-documents/:id/reject', reviewerAuth, asyncHandler(async (req, res) => res.json(await rejectTradeDocument(req.params.id, req.body, req.userContext, req))));
 
 // Containers
-router.get('/containers', auth, asyncHandler(async (req, res) => res.json({ data: await listContainerShipments({ status: req.query.status, ...pagination(req) }) })));
+// F-023: both reads are scoped to the caller in the service — this route admits any signed-in role.
+router.get('/containers', auth, asyncHandler(async (req, res) => res.json({ data: await listContainerShipments({ status: req.query.status, ...pagination(req) }, req.userContext) })));
 router.post('/containers', auth, asyncHandler(async (req, res) => res.status(201).json(await createContainerShipment(req.body, req.userContext, req))));
-router.get('/containers/:id', auth, asyncHandler(async (req, res) => res.json(await getContainerShipment(req.params.id))));
+router.get('/containers/:id', auth, asyncHandler(async (req, res) => res.json(await getContainerShipment(req.params.id, req.userContext))));
 router.post('/containers/:id/open-booking', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.BOOKING_OPEN, req.userContext, req))));
 router.post('/containers/:id/close-booking', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.BOOKING_CLOSED, req.userContext, req))));
 // T10: these two no longer accept a free claim. `mark-loading` requires a live T10 load record and

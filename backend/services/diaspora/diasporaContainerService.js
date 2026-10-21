@@ -3,7 +3,18 @@ import { CONTAINER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateContainerPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
-import { requireUserContext, assertCanManageLogistics } from './diasporaAuthorization.js';
+import {
+  requireUserContext,
+  assertCanManageLogistics,
+  isPlatformAdmin,
+  isPlatformReviewer,
+  isSailingOperator,
+  normalizeId,
+} from './diasporaAuthorization.js';
+import { containerBookingEligibility, BOOKING_ELIGIBILITY_STATES } from './containerBookingEligibility.js';
+
+const CONTAINERS = 'diaspora_container_shipments';
+const RESERVATIONS = 'diaspora_cargo_reservations';
 
 const CONTAINER_TRANSITIONS = Object.freeze({
   DRAFT: ['BOOKING_OPEN', 'CANCELLED'],
@@ -60,19 +71,86 @@ export async function createContainerShipment(payload, userContext = {}, req = n
   return data;
 }
 
-export async function listContainerShipments({ status, limit = 50, offset = 0 }) {
-  let query = supabase.from('diaspora_container_shipments').select('*').is('deleted_at', null).order('departure_date', { ascending: true }).range(offset, offset + limit - 1);
-  if (status) query = query.eq('status', status);
+// What a participant may be shown on the legacy list: a sailing still inside its booking window.
+// `full` stays listed (with its annotation) — the picker shows the free volume, the refusal says why.
+const PARTICIPANT_LISTABLE = new Set([BOOKING_ELIGIBILITY_STATES.OPEN, BOOKING_ELIGIBILITY_STATES.FULL]);
+
+/**
+ * F-023 — the legacy sailing list, scoped to the caller.
+ *
+ * The route admits ANY authenticated role, and this used to return every sailing in every status —
+ * DRAFTs included — with no caller context at all. Its consumers are a participant's booking picker
+ * (web, `?status=BOOKING_OPEN`) and a native count (`?limit=20`); operator working state lives in
+ * the container marketplace, which scopes it per sailing (T5.8).
+ *
+ * A platform admin/reviewer keeps the full view. Everyone else sees only sailings that are open,
+ * live and still inside their booking window. That is filtered in the QUERY so a page stays a full
+ * page: ordered by departure, the departed sailings would otherwise fill page one. Both date
+ * columns are NOT NULL, so the comparison is exact for stored rows. Unlike the marketplace, this
+ * list leaves out a sailing past its cut-off: its consumers can only offer a sailing to book, and
+ * cannot say "booking closed". Every row carries `booking_eligibility`; the stored status is never
+ * changed.
+ */
+export async function listContainerShipments({ status, limit = 50, offset = 0 } = {}, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = options.supabaseClient || supabase;
+  const platformOperator = isPlatformAdmin(context) || isPlatformReviewer(context);
+  // A participant asking for operator working state gets what a stranger to it gets: nothing.
+  if (!platformOperator && status && status !== CONTAINER_STATUSES.BOOKING_OPEN) return [];
+
+  const now = new Date();
+  let query = client.from(CONTAINERS).select('*').is('deleted_at', null).order('departure_date', { ascending: true }).range(offset, offset + limit - 1);
+  if (platformOperator) {
+    if (status) query = query.eq('status', status);
+  } else {
+    const nowIso = now.toISOString();
+    query = query.eq('status', CONTAINER_STATUSES.BOOKING_OPEN).gte('departure_date', nowIso).gte('booking_deadline', nowIso);
+  }
   const { data, error } = await query;
   if (error) throw new DatabaseError(error.message);
-  return data || [];
+  const rows = (data || []).map((container) => ({ ...container, booking_eligibility: containerBookingEligibility(container, now) }));
+  // The same rule again over the rows themselves — it removes nothing the query kept correctly.
+  return platformOperator ? rows : rows.filter((container) => PARTICIPANT_LISTABLE.has(container.booking_eligibility.state));
 }
 
-export async function getContainerShipment(id, options = {}) {
-  const client = options.supabaseClient || supabase;
-  const { data, error } = await client.from('diaspora_container_shipments').select('*, diaspora_cargo_reservations(*)').eq('id', id).is('deleted_at', null).single();
+/** The bare sailing row, without any participant's data — what a lifecycle transition reads. */
+async function loadContainerShipment(client, id) {
+  const { data, error } = await client.from(CONTAINERS).select('*').eq('id', id).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora container shipment not found');
   return data;
+}
+
+function ownsReservation(reservation, context) {
+  return [reservation.buyer_id, reservation.created_by].some((candidate) => normalizeId(candidate) === context.id);
+}
+
+/**
+ * F-023 — the legacy single-sailing read, scoped to the caller.
+ *
+ * It used to embed `diaspora_cargo_reservations(*)` for anyone signed in: every other participant's
+ * receiver name, receiver phone and cargo on the sailing. The embed keeps its key and shape but now
+ * carries only the caller's own live reservations — unless the caller runs this sailing
+ * (isSailingOperator: its coordinator, a tenant admin of its organisation, or a platform
+ * admin/reviewer), the same authority the marketplace manifest uses. A DRAFT does not exist for
+ * anyone else, exactly as the marketplace capacity read answers (T5.8).
+ */
+export async function getContainerShipment(id, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = options.supabaseClient || supabase;
+  const container = await loadContainerShipment(client, id);
+  const operates = isSailingOperator(container, context);
+  if (container.status === CONTAINER_STATUSES.DRAFT && !operates) {
+    throw new NotFoundError('Diaspora container shipment not found');
+  }
+  const { data: reservations, error } = await client.from(RESERVATIONS).select('*').eq('container_id', id).is('deleted_at', null);
+  // Unknown is not "none": an unreadable manifest is an error, never an empty list.
+  if (error) throw new DatabaseError(error.message);
+  const visible = operates ? (reservations || []) : (reservations || []).filter((reservation) => ownsReservation(reservation, context));
+  return {
+    ...container,
+    diaspora_cargo_reservations: visible,
+    booking_eligibility: containerBookingEligibility(container, new Date()),
+  };
 }
 
 /**
@@ -118,7 +196,7 @@ async function assertLoadingIsBackedByT10(containerId, nextStatus, client) {
 export async function transitionContainer(id, nextStatus, userContext = {}, req = null, options = {}) {
   const context = requireUserContext(userContext);
   const client = options.supabaseClient || supabase;
-  const previous = await getContainerShipment(id, options);
+  const previous = await loadContainerShipment(client, id);
   assertCanManageLogistics(previous, context);
   assertContainerTransition(previous.status, nextStatus);
   // T10: a loading or shipped claim must be backed by the canonical load authority.
