@@ -17,7 +17,6 @@ import {
 } from '../../components/ui/NativePrimitives';
 import { useAuthStore } from '../../store/authStore';
 import {
-  createMarketplaceInquiry,
   getMarketplaceListingDetail,
   getOwnerVehiclePassport,
   MarketplaceApiError,
@@ -25,13 +24,10 @@ import {
   type MobileListingDetail,
   type MobilePublicTrust,
 } from '../../utils/marketplaceApi';
-import {
-  createCommunicationShare,
-  resolveMarketplaceInquiryConversation,
-} from '../../utils/communicationApi';
-import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
+import { createCommunicationShare } from '../../utils/communicationApi';
 import {
   leaveVehicle,
+  vehicleInquiryHref,
   vehicleRouteContextFromParams,
 } from '../../utils/vehicleNavigation';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
@@ -267,7 +263,6 @@ function VehicleDetailScreenInner() {
   const leave = () => leaveVehicle(router, routeContext);
   useHardwareBack(leave);
   const token = useAuthStore((state) => state.token);
-  const [messaging, setMessaging] = useState(false);
   const [sharing, setSharing] = useState(false);
 
   const detailQuery = useQuery<MobileListingDetail>({
@@ -284,64 +279,10 @@ function VehicleDetailScreenInner() {
     enabled: Boolean(vin && token && notPublic),
   });
 
-  const openResolvedInquiryConversation = async (inquiryId: string, listingId: string): Promise<boolean> => {
-    try {
-      const resolution = await resolveMarketplaceInquiryConversation(inquiryId, listingId);
-      if (resolution.state === 'resolved' && resolution.thread?.id) {
-        router.push(nativeCanonicalObjectHref({
-          type: 'conversation',
-          id: String(resolution.thread.id),
-        }) as never);
-        return true;
-      }
-
-      Alert.alert(
-        'Conversation is being prepared',
-        'Your inquiry is saved. CarUp has not finished canonicalizing the conversation yet, so no substitute Inbox or second thread will be opened.',
-        [
-          { text: 'Stay here', style: 'cancel' },
-          {
-            text: 'Try exact conversation',
-            onPress: () => void openResolvedInquiryConversation(inquiryId, listingId),
-          },
-        ],
-      );
-      return false;
-    } catch (error) {
-      Alert.alert(
-        'Conversation unavailable',
-        error instanceof Error ? error.message : 'CarUp could not resolve the canonical conversation.',
-      );
-      return false;
-    }
-  };
-
-  const messageSeller = async () => {
-    if (!token) {
-      Alert.alert(
-        'Sign in to message the seller',
-        'You can browse without an account. Messaging starts a CarUp conversation so the seller can reply safely.',
-        [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Sign in', onPress: () => router.push('/(auth)/login' as never) },
-        ],
-      );
-      return;
-    }
-
-    setMessaging(true);
-    try {
-      const { inquiry } = await createMarketplaceInquiry({
-        listing_id: String(vin),
-        inquiry_type: 'vehicle_purchase_interest',
-        message: 'I am interested in this vehicle.',
-      });
-      await openResolvedInquiryConversation(inquiry.id, String(vin));
-    } catch (error) {
-      Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
-    } finally {
-      setMessaging(false);
-    }
+  // CARUP-MVP-STAB-01 F-001: opening the composer writes nothing. The buyer writes the message
+  // there and it is sent only when they press Send; signing in also happens there.
+  const messageSeller = () => {
+    router.push(vehicleInquiryHref(String(vin), routeContext) as never);
   };
 
   const shareToWhatsApp = async () => {
@@ -518,7 +459,7 @@ function VehicleDetailScreenInner() {
             <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>Listing price</Text>
             <Price amount={vehicle.price} currency={vehicle.currency} compact />
           </View>
-          <Button label="Message seller" onPress={() => void messageSeller()} loading={messaging} />
+          <Button label="Message seller" onPress={messageSeller} />
         </View>
       </StickyActionBar>
     </View>

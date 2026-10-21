@@ -222,12 +222,29 @@ describe('LR2-B push tap authorization and safe fallback', () => {
 describe('LR2-B source integration preserves R6-B-R1 authority', () => {
   it('uses exact inquiry routing on Buyer and Seller surfaces and canonical thread to Vehicle return', () => {
     const vehicle = readFileSync(resolve('app/vehicle/[vin].tsx'), 'utf8');
+    const composer = readFileSync(resolve('app/vehicle/[vin]/inquire.tsx'), 'utf8');
     const home = readFileSync(resolve('app/(tabs)/index.tsx'), 'utf8');
     const thread = readFileSync(resolve('app/inbox/[threadId].tsx'), 'utf8');
 
-    expect(vehicle).toContain('resolveMarketplaceInquiryConversation');
-    expect(vehicle).toContain("type: 'conversation'");
+    // CARUP-MVP-STAB-01 F-001: the buyer's message is now sent from the composer after an explicit
+    // Send, so the exact inquiry-to-conversation routing lives there; Vehicle Detail writes nothing.
+    expect(composer).toContain('resolveMarketplaceInquiryConversation');
+    expect(composer).toContain("type: 'conversation'");
+    expect(vehicle).not.toContain('resolveMarketplaceInquiryConversation');
     expect(vehicle).not.toContain("text: 'Open Inbox'");
+    expect(composer).not.toContain("text: 'Open Inbox'");
+    // A resolved conversation opens exactly; the Inbox is offered only from the sent state, after a
+    // send whose conversation CarUp is still preparing — never in place of a resolved thread.
+    const resolvedBranch = composer.slice(
+      composer.indexOf("if (outcome.conversation.state === 'resolved')"),
+      composer.indexOf("setPhase('sent');"),
+    );
+    expect(resolvedBranch).toContain('nativeCanonicalObjectHref({');
+    expect(resolvedBranch).toContain("type: 'conversation'");
+    expect(resolvedBranch).not.toMatch(/inbox'/i);
+    expect(composer.split('Open Inbox')).toHaveLength(2);
+    expect(composer.indexOf('Open Inbox')).toBeGreaterThan(composer.indexOf('function SentState('));
+    expect(thread).toContain("from: 'inbox', threadId: String(threadId)");
     expect(home).toContain('Open exact conversation for newest seller inquiry');
     expect(home).toContain('resolveMarketplaceInquiryConversation');
     expect(thread).toContain('canonicalObjectRouteFromThread');
