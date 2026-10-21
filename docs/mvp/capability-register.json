@@ -1832,7 +1832,7 @@
         "CARUP-MVP-F-041"
       ],
       "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Dispatch patched harness 0006cb89 against frozen 88bffa50 and require successful APK/runtime artifact",
+      "next_action": "Dispatch patched harness 7f98d850 against frozen 88bffa50 and require successful APK/runtime artifact",
       "v2_deferral_reason": null
     },
     {

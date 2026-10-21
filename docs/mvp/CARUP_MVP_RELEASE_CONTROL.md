@@ -95,7 +95,7 @@ document does **not** certify the candidate. The moderator still owns acceptance
 | Exact-SHA staging certification | **40/40 steps passed** | GitHub run `39607555572`, artifact `12348897183`, digest `sha256:e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4` |
 | Candidate APK package | build/install/cold-launch proven | SHA-256 `ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e`; 108894116 bytes; exact immutable backend baked in |
 | Candidate APK runtime closure | **EVIDENCE INCOMPLETE** | Run `39607550267` built, installed and cold-launched CarUp, then Android's system package displayed **"Quickstep isn't responding"** during the login hierarchy assertion. No CarUp ANR was proven. The APK-only artifact step was skipped because the runtime job concluded failure; the APK itself is preserved inside evidence artifact `12350393031` |
-| APK evidence harness | remediated, rerun required | Harness-only commit `0006cb892740f0bebf43086a192228c0371904d6` restores the already-established bounded Quickstep-only recovery and adds a frozen `candidate_sha` input. It does not change product source. The patched workflow has not yet been dispatched |
+| APK evidence harness | remediated, rerun required | Harness-only commit `7f98d8508754c62de4ba3568402999e0bfb6d328` restores the already-established bounded Quickstep-only recovery and adds a frozen `candidate_sha` input. It does not change product source. The patched workflow has not yet been dispatched |
 | SafePay / preferences failure-state browser proof | **NOT RUN** | `web-truth-states.mjs` remains a required exact-deployment evidence step: failed reads must show Not available/no number, no switches, and no PATCH |
 | Physical Native Owner UAT | **NOT PERFORMED** | Existing Native evidence is emulator evidence, not a physical-device Owner acceptance |
 | Inquiry reconciliation staging runtime | **NOT PROVEN** | Reconciliation implementation is test-proven; applying/reconciling staging remains separately authorized |
@@ -116,7 +116,7 @@ The remaining technical work is evidence closure, not another product redesign.
 | Field | Value |
 |---|---|
 | Product candidate SHA | `88bffa50b34d81cdeb1f13f2c90bfb957190c732` |
-| Evidence-harness branch head | `0006cb892740f0bebf43086a192228c0371904d6` (workflow-only; product candidate remains frozen) |
+| Evidence-harness branch head | `7f98d8508754c62de4ba3568402999e0bfb6d328` (workflow-only; product candidate remains frozen) |
 | Base authority | `0fc425a997e1e2e02a039e728dcd5ee90f5fd936` |
 | Product ahead / behind | 69 / 0 |
 | Product changed files | 171 |
@@ -169,7 +169,7 @@ takeover does **not** reconstruct or resolve them from memory. They remain expli
 
 ## 12. Evidence still required before moderator review
 
-1. Dispatch the patched candidate APK workflow from evidence-harness head `0006cb892740f0bebf43086a192228c0371904d6` with
+1. Dispatch the patched candidate APK workflow from evidence-harness head `7f98d8508754c62de4ba3568402999e0bfb6d328` with
    `candidate_sha=88bffa50b34d81cdeb1f13f2c90bfb957190c732` and `backend_host=carup-backend-staging-lmnyhj874-11-11.vercel.app`; require a successful runtime job and APK artifact.
 2. Run the already-written `web-truth-states.mjs` against `https://carup-staging-mn3bx7ymb-11-11.vercel.app` using the controlled certification session.
 3. Repeat final web/API/Native read-only evidence on the exact immutable pair. **Do not repeat Native Send**; the one-send proof

@@ -509,11 +509,11 @@
         "GitHub run 39607550267 / job 119247578435",
         "artifact 12350393031 / digest sha256:cc7e988f55b6d25c81d9ce530a26227f73f15fcc8d8bd5b44c906f6fb81b31bf",
         "candidate APK sha256:ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e",
-        "0006cb892740f0bebf43086a192228c0371904d6: .github/workflows/carup-mvp-stab-01-candidate-apk.yml"
+        "7f98d8508754c62de4ba3568402999e0bfb6d328: .github/workflows/carup-mvp-stab-01-candidate-apk.yml"
       ],
       "impact": "Evidence closure only; no CarUp package/build/install/cold-launch defect proven.",
       "disposition": "REMEDIATED_PENDING_VERIFICATION",
-      "remediation_candidate": "0006cb892740f0bebf43086a192228c0371904d6",
+      "remediation_candidate": "7f98d8508754c62de4ba3568402999e0bfb6d328",
       "verification_gap": "Patched workflow has not yet been dispatched against the frozen product candidate."
     }
   ],

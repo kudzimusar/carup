@@ -268,7 +268,7 @@
       "control_ids": [
         "CARUP-MVP-X-001"
       ],
-      "candidate_authority": "evidence harness 0006cb892740f0bebf43086a192228c0371904d6; frozen product 88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "candidate_authority": "evidence harness 7f98d8508754c62de4ba3568402999e0bfb6d328; frozen product 88bffa50b34d81cdeb1f13f2c90bfb957190c732",
       "source": "GitHub workflow-only remediation commit",
       "captured_at": "2026-10-21T13:51:00Z",
       "collector": "moderator continuation",
