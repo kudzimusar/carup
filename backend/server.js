@@ -3564,6 +3564,20 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     let insertError = null;
 
     if (reusedExistingPassport) {
+      // CARUP-MVP-STAB-01 F-008 — NO SILENT UNPUBLISH. This branch writes `publication_status:
+      // 'draft'` below, rewrites the agency columns and replaces the gallery, so re-saving a LIVE
+      // listing through it took the listing off the Marketplace without anyone choosing to — and
+      // without an audit row. A published listing is changed through the explicit published-listing
+      // save (PATCH /api/vehicles/:vin/seller-draft with edit_scope) and taken down only by Unpublish.
+      // Refused here, before the first write of this handler; draft/publishable reuse is unchanged.
+      if (String(existing.publication_status || '').toLowerCase() === 'published') {
+        return res.status(409).json({
+          error: 'This listing is live on the CarUp Marketplace, so CarUp did not re-save it as a draft. Save changes to it from Seller Studio instead; to take it off the Marketplace, use Unpublish in My Listings.',
+          code: 'SELLER_LISTING_PUBLISHED_USE_EXPLICIT_SAVE',
+          vin,
+          publication_status: 'published',
+        });
+      }
       // Re-listing must never rewrite the Passport's canonical identity. Only seller-commercial
       // assertions and listing lifecycle fields are refreshed on the existing vehicle row.
       const governedNonOwnerSeller = governedSellerEvidence
@@ -3851,18 +3865,75 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
       return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
     }
 
+    const body = req.body || {};
+    const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+
+    // CARUP-MVP-STAB-01 F-007 — a PUBLISHED listing is edited only on purpose. Autosave (no scope)
+    // keeps its pre-existing contract: unpublished active drafts only. An explicit
+    // `edit_scope: 'published_listing'` is the seller choosing "Save changes to public listing".
+    // The refusals carry a `code` so a client can tell "this listing is live" or "this sale is
+    // closed" from "something is broken" — the uncoded 409 made Seller Studio report a live listing
+    // as "Account autosave is unavailable". `error` keeps its old text for older clients.
+    const submittedEditScope = submittedText(body.edit_scope);
+    if (submittedEditScope !== null && submittedEditScope !== 'published_listing') {
+      return res.status(400).json({
+        error: "edit_scope, when present, must be 'published_listing'",
+        code: 'SELLER_EDIT_SCOPE_INVALID',
+      });
+    }
+    const editingPublishedListing = submittedEditScope === 'published_listing';
     const publication = String(existing.publication_status || '').toLowerCase();
     const lifecycle = String(existing.status || '').toLowerCase();
-    if (!['draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable'].includes(publication) || lifecycle === 'sold') {
+    const lifecycleRefusal = {
+      error: 'Only an unpublished active Seller draft can be autosaved',
+      publication_status: existing.publication_status ?? null,
+      status: existing.status ?? null,
+    };
+    if (lifecycle === 'sold') {
       return res.status(409).json({
-        error: 'Only an unpublished active Seller draft can be autosaved',
+        ...lifecycleRefusal,
+        code: 'SELLER_LISTING_SOLD_READ_ONLY',
+        message: 'This listing is sold and closed. Its details can no longer be changed.',
+      });
+    }
+    if (publication === 'published') {
+      if (!editingPublishedListing) {
+        return res.status(409).json({
+          ...lifecycleRefusal,
+          code: 'SELLER_LISTING_PUBLISHED_EXPLICIT_SAVE_REQUIRED',
+          publication_status: 'published',
+          message: 'This listing is live on the CarUp Marketplace. Changes to it are saved only when you choose to save them.',
+        });
+      }
+      // The same EFFECTIVE authorization publish/unpublish/price enforce (vehiclesRoutes
+      // loadScopedVehicle): a completed transfer away or a revoked Seller Authority ends control of
+      // the public listing, whichever relationship column still names this person. Non-owners only —
+      // the canonical owner is by definition not superseded. Admins act as the operator.
+      if (!isAdmin && existing.owner_id !== req.userContext.id) {
+        const denial = await isSellerAuthorityEffectivelyDenied(supabase, {
+          vin,
+          userId: req.userContext.id,
+          vehicle: existing,
+        });
+        if (denial.denied) {
+          return res.status(403).json({
+            error: 'Forbidden. Your seller authority over this vehicle has ended (ownership transferred or authority revoked).',
+            code: 'SELLER_AUTHORITY_ENDED',
+          });
+        }
+      }
+    } else if (editingPublishedListing) {
+      // Saving "to the public listing" is a statement about where the change lands. A listing that is
+      // not on the Marketplace has no public listing, so nothing is written and the client reloads.
+      return res.status(409).json({
+        error: 'This listing is not on the public CarUp Marketplace, so there is no public listing to save to. Nothing was changed.',
+        code: 'SELLER_LISTING_NOT_PUBLISHED',
         publication_status: existing.publication_status ?? null,
         status: existing.status ?? null,
       });
+    } else if (!['draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable'].includes(publication)) {
+      return res.status(409).json(lifecycleRefusal);
     }
-
-    const body = req.body || {};
-    const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
     const patch = {};
     const source = submittedClaimSource(req.userContext);
     const now = new Date().toISOString();
@@ -3966,12 +4037,28 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
     const receiptColumns = 'vin, publication_status, price, currency, seller_description, seller_features, body_style, seller_stated_condition, public_seller_display_enabled, listing_city, listing_province, listing_country, listing_location_visibility'
       + (disclosureTouched ? ', seller_accident_disclosure, seller_insurance_disclosure, seller_finance_disclosure' : '');
 
-    let { data: updated, error: updateError } = await supabase
-      .from('vehicles')
-      .update(patch)
-      .eq('vin', vin)
-      .select(receiptColumns)
-      .single();
+    // F-007 — the published-listing save reads the stored values first (same projection as the
+    // receipt) so its audit names what actually changed, and its write is CONDITIONAL on the listing
+    // still being published: an unpublish landing between the read above and this write leaves the
+    // row untouched instead of ending in "saved to your public listing". The draft path's write is
+    // exactly what it was.
+    let publishedListingBefore = null;
+    if (editingPublishedListing) {
+      const { data: beforeRow, error: beforeError } = await supabase
+        .from('vehicles')
+        .select(receiptColumns)
+        .eq('vin', vin)
+        .maybeSingle();
+      if (beforeError) throw beforeError;
+      publishedListingBefore = beforeRow || {};
+    }
+    const writeSellerPatch = (values) => {
+      let write = supabase.from('vehicles').update(values).eq('vin', vin);
+      if (editingPublishedListing) write = write.eq('publication_status', 'published');
+      return write.select(receiptColumns).single();
+    };
+
+    let { data: updated, error: updateError } = await writeSellerPatch(patch);
 
     // An ANSWERED disclosure must never be silently dropped by an older schema: fail closed so the
     // browser keeps its local copy (same contract as SELLER_DISCLOSURE_SCHEMA_REQUIRED on create).
@@ -3995,20 +4082,74 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
       const legacyPatch = { ...patch };
       for (const key of LISTING_CLAIM_COLUMNS) delete legacyPatch[key];
       delete legacyPatch.currency_source;
-      ({ data: updated, error: updateError } = await supabase
-        .from('vehicles')
-        .update(legacyPatch)
-        .eq('vin', vin)
-        .select(receiptColumns)
-        .single());
+      ({ data: updated, error: updateError } = await writeSellerPatch(legacyPatch));
+    }
+    // The conditional write matched no row: the listing left the Marketplace after it was read.
+    if (editingPublishedListing && updateError && String(updateError.code || '').toUpperCase() === 'PGRST116') {
+      return res.status(409).json({
+        error: 'This listing left the public CarUp Marketplace before your changes were saved. Nothing was changed.',
+        code: 'SELLER_LISTING_NOT_PUBLISHED',
+      });
     }
     if (updateError) throw updateError;
+
+    // An edit to a PUBLIC listing is audited with the NAMES of the fields whose stored value changed
+    // — never the values (seller copy, lender or insurer names are not audit payload). Same event
+    // shape as VEHICLE_LISTING_PUBLISHED (vehiclesRoutes auditPublicationChange); the names also
+    // travel as `new_value`, because `metadata` reaches only the legacy mirror, not trust_audit_events.
+    // Awaited so the record is written before the response ends the request. No Trust refresh: these
+    // are seller statements, and none of them is a Trust input.
+    let changedFields = null;
+    if (editingPublishedListing) {
+      const receiptFieldColumns = [
+        ['description', 'seller_description'],
+        ['features', 'seller_features'],
+        ['body_style', 'body_style'],
+        ['seller_stated_condition', 'seller_stated_condition'],
+        ['price', 'price'],
+        ['currency', 'currency'],
+        ['location', 'listing_city'],
+        ['province', 'listing_province'],
+        ['listing_country', 'listing_country'],
+        ['location_visibility', 'listing_location_visibility'],
+        ['public_seller_display_enabled', 'public_seller_display_enabled'],
+        ['accident_disclosure', 'seller_accident_disclosure'],
+        ['insurance_disclosure', 'seller_insurance_disclosure'],
+        ['finance_disclosure', 'seller_finance_disclosure'],
+      ];
+      changedFields = receiptFieldColumns
+        .filter(([, column]) => Object.prototype.hasOwnProperty.call(updated || {}, column))
+        .filter(([, column]) => JSON.stringify(publishedListingBefore?.[column] ?? null) !== JSON.stringify(updated?.[column] ?? null))
+        .map(([field]) => field);
+      if (changedFields.length > 0) {
+        try {
+          const audit = await logAuditEvent({
+            req,
+            actorId: req.userContext?.id || 'unknown',
+            actorRole: req.userContext?.role || 'unknown',
+            action: 'VEHICLE_PUBLISHED_LISTING_EDITED',
+            targetType: 'vehicle',
+            targetId: vin,
+            status: 'success',
+            metadata: { changedFields, publicationStatus: 'published' },
+            newValue: { changed_fields: changedFields },
+            severity: 'info',
+          });
+          if (audit?.success !== true) {
+            console.warn('[Audit Log Error] Failed to log a published-listing edit:', audit?.error || 'unknown');
+          }
+        } catch (auditErr) {
+          console.warn('[Audit Log Error] Failed to log a published-listing edit:', auditErr?.message || auditErr);
+        }
+      }
+    }
 
     res.json({
       success: true,
       vin,
       publication_status: updated?.publication_status ?? existing.publication_status,
       claim_provenance_recorded,
+      ...(editingPublishedListing ? { edit_scope: 'published_listing', changed_fields: changedFields } : {}),
       // Semantic persistence receipt: the browser may call an edit "saved" only after these
       // returned values match the revision it submitted. DB column names stay private to this route.
       draft: updated ? {

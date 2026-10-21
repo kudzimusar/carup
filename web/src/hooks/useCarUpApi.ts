@@ -2985,12 +2985,18 @@ export function useCarUpApi() {
     accident_disclosure?: AccidentDisclosure | null
     insurance_disclosure?: InsuranceDisclosure | null
     finance_disclosure?: FinanceDisclosure | null
+    // CARUP-MVP-STAB-01 F-006: the explicit "Save changes to public listing" of a PUBLISHED listing.
+    // Absent = draft autosave, which the server refuses (409, coded) for a published or sold listing.
+    edit_scope?: 'published_listing'
   }): Promise<{
     success: boolean
     vin: string
     publication_status: string
     claim_provenance_recorded?: boolean
     unchanged?: boolean
+    // Published-listing saves only: the scope applied and the NAMES of the fields that changed.
+    edit_scope?: 'published_listing'
+    changed_fields?: string[]
     draft?: {
       description: string
       features: string[]
