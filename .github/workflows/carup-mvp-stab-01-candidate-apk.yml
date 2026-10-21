@@ -7,6 +7,10 @@ name: CARUP-MVP-STAB-01 Candidate Staging APK
 on:
   workflow_dispatch:
     inputs:
+      candidate_sha:
+        description: Frozen CARUP-MVP-STAB-01 product candidate SHA to build and prove
+        required: true
+        type: string
       backend_host:
         description: Immutable backend Preview host built from this exact SHA (carup-backend-staging-<hash>-11-11.vercel.app)
         required: true
@@ -22,6 +26,7 @@ concurrency:
 env:
   CI: "true"
   BASE_AUTHORITY_SHA: 0fc425a997e1e2e02a039e728dcd5ee90f5fd936
+  CANDIDATE_SHA: ${{ inputs.candidate_sha }}
   FROZEN_01C_WORKFLOW: .github/workflows/oc-native-final-01c-owner-uat-apk.yml
   FROZEN_R2_R1_WORKFLOW: .github/workflows/oc-native-final-01a-r2-pre-uat.yml
   BACKEND_HOST: ${{ inputs.backend_host }}
@@ -44,6 +49,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.candidate_sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -59,8 +65,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git merge-base --is-ancestor "$BASE_AUTHORITY_SHA" HEAD
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_sha must be a full 40-character commit SHA"; exit 1; }
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git merge-base --is-ancestor "$BASE_AUTHORITY_SHA" "$CANDIDATE_SHA"
           [[ "$BACKEND_HOST" =~ ^carup-backend-staging-[a-z0-9]+-11-11\.vercel\.app$ ]] || { echo "::error::backend_host must be an immutable carup-backend-staging Preview host"; exit 1; }
           test "$(git rev-parse "$BASE_AUTHORITY_SHA:$FROZEN_01C_WORKFLOW")" = "$(git rev-parse "HEAD:$FROZEN_01C_WORKFLOW")"
           test "$(git rev-parse "$BASE_AUTHORITY_SHA:$FROZEN_R2_R1_WORKFLOW")" = "$(git rev-parse "HEAD:$FROZEN_R2_R1_WORKFLOW")"
@@ -83,7 +90,7 @@ jobs:
             environment: b.environment, source: b.source, supabase_project_ref: d.supabase_project_ref, consistent: d.consistent,
             kill_switch: o.kill_switch, external_sends: o.external_sends };
           console.log(JSON.stringify(proof, null, 2));
-          if (b.commit_sha !== process.env.GITHUB_SHA) throw new Error('backend Preview is not serving this exact source SHA');
+          if (b.commit_sha !== process.env.CANDIDATE_SHA) throw new Error('backend Preview is not serving the frozen product candidate SHA');
           if (b.environment !== 'preview') throw new Error('backend must be an immutable Preview, not a canonical/production target');
           if (d.supabase_project_ref !== process.env.STAGING_SUPABASE_REF || d.consistent !== true) throw new Error('backend is not on the staging database');
           if (o.kill_switch !== 'active' || o.external_sends !== 'disabled') throw new Error('outbound communications are not disabled');
@@ -235,22 +242,75 @@ jobs:
               adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
               adb pull /sdcard/window.xml "$OUT/$1.xml" >/dev/null 2>&1 || return 1
             }
+
+            QUICKSTEP_COUNT=0
+
+            fail_on_carup_system_dialog() {
+              local xml="$1"
+              if grep -Fq "CarUp isn't responding" "$xml" || grep -Fq "CarUp keeps stopping" "$xml"; then
+                cp "$xml" "$OUT/carup-system-failure.xml"
+                echo "carup_anr_or_crash_dialog=PRESENT" >> "$RUNTIME"
+                echo "::error::CarUp ANR/crash system dialog detected"
+                exit 1
+              fi
+            }
+
+            dismiss_exact_quickstep_overlay() {
+              local xml="$1"
+              if ! grep -Fq "Quickstep isn't responding" "$xml"; then
+                return 1
+              fi
+              grep -Fq 'package="android"' "$xml" || {
+                echo "::error::Quickstep text appeared outside the Android system dialog package"
+                exit 1
+              }
+              QUICKSTEP_COUNT=$((QUICKSTEP_COUNT + 1))
+              cp "$xml" "$OUT/quickstep-anr-$QUICKSTEP_COUNT.xml"
+              echo "quickstep_overlay_$QUICKSTEP_COUNT=PROVEN" >> "$RUNTIME"
+
+              local tap
+              tap="$(python - "$xml" <<'PY'
+import re, sys
+src=open(sys.argv[1], encoding='utf-8').read()
+m=re.search(r'<node[^>]+(?:text="Wait"|resource-id="android:id/aerr_wait")[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', src)
+if not m:
+    raise SystemExit(2)
+x1,y1,x2,y2=map(int,m.groups())
+print((x1+x2)//2, (y1+y2)//2)
+PY
+              )" || {
+                echo "::error::Exact Quickstep ANR was proven but its Android Wait control could not be resolved"
+                exit 1
+              }
+              read -r TAP_X TAP_Y <<< "$tap"
+              adb shell input tap "$TAP_X" "$TAP_Y"
+              sleep 2
+              adb shell am start -W -n "$LAUNCH_COMPONENT" >> "$OUT/quickstep-recovery.txt"
+              sleep 2
+              assert_foreground "quickstep-recovery-$QUICKSTEP_COUNT"
+              return 0
+            }
+
             wait_for_native_ui() {
               local label="$1" required="$2" loops="$3"
+              local current="$OUT/$label-current.xml"
               for i in $(seq 1 "$loops"); do
                 if dump_ui "$label-current"; then
-                  if grep -Fq "CarUp isn't responding" "$OUT/$label-current.xml" || grep -Fq "CarUp keeps stopping" "$OUT/$label-current.xml"; then
-                    echo "::error::CarUp ANR/crash dialog"; exit 1
+                  fail_on_carup_system_dialog "$current"
+                  if dismiss_exact_quickstep_overlay "$current"; then
+                    continue
                   fi
-                  if grep -Fq "$required" "$OUT/$label-current.xml"; then
-                    cp "$OUT/$label-current.xml" "$OUT/$label.xml"
+                  if grep -Fq "$required" "$current"; then
+                    cp "$current" "$OUT/$label.xml"
                     grep -Fq 'package="com.carup.mobile"' "$OUT/$label.xml" || { echo "::error::$label not rendered by CarUp"; exit 1; }
                     return 0
                   fi
                 fi
                 sleep 1
               done
-              echo "::error::Expected CarUp UI '$required' did not appear for $label"; exit 1
+              [ -f "$current" ] && cp "$current" "$OUT/$label-timeout.xml"
+              echo "::error::Expected CarUp UI '$required' did not appear for $label after bounded recovery"
+              exit 1
             }
 
             adb logcat -c
@@ -267,7 +327,7 @@ jobs:
             {
               echo "classification=CARUP_MVP_STAB_01_CANDIDATE_STAGING_APK"
               echo "not_a_production_apk=YES"
-              echo "source_sha=$GITHUB_SHA"
+              echo "source_sha=$CANDIDATE_SHA"
               echo "base_authority=$BASE_AUTHORITY_SHA"
               echo "builder=expo-prebuild+gradle-assembleRelease"
               echo "application_id=$PACKAGE_NAME"
@@ -319,7 +379,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: carup-mvp-stab-01-candidate-evidence-${{ github.sha }}
+          name: carup-mvp-stab-01-candidate-evidence-${{ inputs.candidate_sha }}
           path: ${{ runner.temp }}/carup-mvp-stab-01
           if-no-files-found: error
           retention-days: 30
@@ -328,7 +388,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: carup-mvp-stab-01-candidate-staging-apk-${{ github.sha }}
+          name: carup-mvp-stab-01-candidate-staging-apk-${{ inputs.candidate_sha }}
           path: ${{ runner.temp }}/carup-mvp-stab-01-apk
           if-no-files-found: error
           retention-days: 30
