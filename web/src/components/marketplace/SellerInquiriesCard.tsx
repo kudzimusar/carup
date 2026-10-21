@@ -19,16 +19,33 @@ export interface SellerInquiry {
   created_at: string
 }
 
+type InquiryReadState = 'loading' | 'ready' | 'error'
+
 interface SellerInquiriesCardProps {
   ownedListings?: Vehicle[]
+  /**
+   * CARUP-MVP-STAB-01 F-004: a page that has already read — and counted — the inquiries passes them here,
+   * with the state of that read. The card then shows exactly those rows, so its badge IS the page's figure
+   * and no second read can disagree with it. Omitted, the card reads them itself, as before.
+   */
+  inquiries?: SellerInquiry[]
+  inquiriesState?: InquiryReadState
 }
 
-function normalizeId(value?: string | null) {
-  return String(value || '').trim()
+/** One comparison key for a listing reference (trimmed, upper-case). My Listings matches listings the same way. */
+function listingKey(value?: string | null) {
+  return String(value || '').trim().toUpperCase()
 }
 
 function buildOwnedListingMap(ownedListings?: Vehicle[]) {
-  return new Map((ownedListings || []).map((listing) => [normalizeId(listing.vin), listing]))
+  return new Map((ownedListings || []).map((listing) => [listingKey(listing.vin), listing]))
+}
+
+/** The inquiries ON these listings. Without listings there is nothing to scope by. */
+function scopeInquiriesToListings(inquiries: SellerInquiry[], ownedListings?: Vehicle[]) {
+  if (!ownedListings) return inquiries
+  const owned = buildOwnedListingMap(ownedListings)
+  return inquiries.filter((inq) => owned.has(listingKey(inq.listing_id)))
 }
 
 function vehicleLabel(listing: Vehicle | undefined, listingId: string) {
@@ -55,12 +72,7 @@ export function SellerInquiryList({
   ownedListings?: Vehicle[]
 }) {
   const ownedByVin = buildOwnedListingMap(ownedListings)
-  const sellerScopedInquiries = ownedListings
-    ? inquiries.filter((inq) => {
-        const listingId = normalizeId(inq.listing_id)
-        return !listingId || ownedByVin.has(listingId)
-      })
-    : inquiries
+  const sellerScopedInquiries = scopeInquiriesToListings(inquiries, ownedListings)
 
   if (sellerScopedInquiries.length === 0) {
     return <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>
@@ -69,8 +81,8 @@ export function SellerInquiryList({
   return (
     <ul className="space-y-2">
       {sellerScopedInquiries.slice(0, 8).map((inq) => {
-        const listingId = normalizeId(inq.listing_id)
-        const listing = ownedByVin.get(listingId)
+        const listingId = String(inq.listing_id || '').trim()
+        const listing = ownedByVin.get(listingKey(listingId))
         const vin = listing?.vin || listingId
         const mailto = emailHref(inq.contact_email)
         const tel = phoneHref(inq.contact_phone)
@@ -127,22 +139,30 @@ export function SellerInquiryList({
  * (GET /api/marketplace/my-listings/inquiries) which only returns inquiries on the seller's own
  * listings. Degrades gracefully when the inquiries table is not yet provisioned.
  */
-export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps) {
+export function SellerInquiriesCard({ ownedListings, inquiries: providedInquiries, inquiriesState }: SellerInquiriesCardProps) {
   const { fetchMyMarketplaceInquiries } = useCarUpApi()
-  const [inquiries, setInquiries] = useState<SellerInquiry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [unavailable, setUnavailable] = useState(false)
+  const controlled = inquiriesState !== undefined
+  const [readInquiries, setReadInquiries] = useState<SellerInquiry[]>([])
+  const [readState, setReadState] = useState<InquiryReadState>('loading')
 
   useEffect(() => {
+    if (controlled) return undefined
     let mounted = true
     fetchMyMarketplaceInquiries()
-      .then((res) => { if (mounted) setInquiries(res.inquiries || []) })
-      .catch(() => { if (mounted) setUnavailable(true) })
-      .finally(() => { if (mounted) setLoading(false) })
+      .then((res) => {
+        if (!mounted) return
+        setReadInquiries(res.inquiries || [])
+        setReadState('ready')
+      })
+      .catch(() => { if (mounted) setReadState('error') })
     return () => { mounted = false }
-  }, [fetchMyMarketplaceInquiries])
+  }, [controlled, fetchMyMarketplaceInquiries])
 
-  if (unavailable) return null
+  const state = controlled ? inquiriesState : readState
+  const loading = state === 'loading'
+  // Controlled: the page's own rows, verbatim — the badge cannot disagree with the page that counted them.
+  // Otherwise the badge counts what the card is about: the inquiries on the seller's listings.
+  const inquiries = controlled ? (providedInquiries || []) : scopeInquiriesToListings(readInquiries, ownedListings)
 
   return (
     <Card className="border-0 card-shadow" data-testid="seller-inquiries-card">
@@ -150,7 +170,13 @@ export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps)
         <div className="mb-3 flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-orange-500" />
           <h3 className="font-semibold">Marketplace inquiries</h3>
-          {!loading && <Badge variant="secondary">{inquiries.length}</Badge>}
+          {!loading && (
+            <Badge variant="secondary" data-testid="seller-inquiries-total">
+              {state === 'error'
+                ? 'Unavailable'
+                : `${inquiries.length} ${inquiries.length === 1 ? 'inquiry' : 'inquiries'}`}
+            </Badge>
+          )}
         </div>
         {/* One fixed-height region for every state. The card sits above the listing cards, and its
             inquiries arrive after the page renders; a body that grew with the result pushed every
@@ -165,6 +191,11 @@ export function SellerInquiriesCard({ ownedListings }: SellerInquiriesCardProps)
         >
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+          ) : state === 'error' ? (
+            // A failed read is not an empty inbox (DESIGN.md §8): say so instead of showing nothing or zero.
+            <p className="text-sm text-amber-800" data-testid="seller-inquiries-unavailable">
+              Your inquiries could not be loaded right now. This does not mean you have none — please try again shortly.
+            </p>
           ) : inquiries.length === 0 ? (
             <p className="text-sm text-gray-500">No inquiries yet. They will appear here when buyers contact you about your listings.</p>
           ) : (

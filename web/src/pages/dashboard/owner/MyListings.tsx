@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import ListingInsights from '@/components/intelligence/ListingInsights'
 import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
+import { SellerInquiriesCard, type SellerInquiry } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE, describeReadyToPublish } from '@/lib/publicationStatus'
 import { describePublicationRefusal } from '@/lib/publicationRefusal'
 import { readOwnerTrustClaim, statedPrice } from './ownerStatedValues'
@@ -49,9 +49,34 @@ type ListingConversation = {
   id: string
   marketplace_listing_id?: string | null
   thread_type?: string
+  subject_type?: string | null
   business_workflow?: string
   unread_count?: number
   latest_message?: { text?: string } | null
+}
+
+/**
+ * CARUP-MVP-STAB-01 F-004 — a buyer conversation about a listing is a Marketplace INQUIRY thread. Trade OS
+ * RFQ and diaspora threads can carry business_workflow 'marketplace' (and RFQs even the inquiry thread
+ * type); they are not buyer conversations about a listing.
+ */
+function isListingInquiryConversation(conversation: ListingConversation) {
+  return conversation.thread_type === 'marketplace_inquiry' && conversation.subject_type === 'marketplace_inquiry'
+}
+
+/** One comparison key for a listing reference (trimmed, upper-case), for inquiries and conversations alike. */
+function listingKey(value?: string | null) {
+  return String(value || '').trim().toUpperCase()
+}
+
+/** "1 inquiry", "36 inquiries": a number always says what it counts. */
+function counted(n: number, one: string, many = `${one}s`) {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+/** Conversations with something unread — a count of conversations, never of messages. */
+function unreadConversationCount(list: ListingConversation[]) {
+  return list.filter(conversation => Number(conversation.unread_count || 0) > 0).length
 }
 
 export default function MyListings() {
@@ -61,6 +86,7 @@ export default function MyListings() {
     fetchOwnedVehicles,
     updateVehicleStatus,
     fetchCommunicationThreads,
+    fetchMyMarketplaceInquiries,
     publishVehicleListing,
     unpublishVehicleListing,
     updateVehiclePrice,
@@ -72,6 +98,9 @@ export default function MyListings() {
   const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
   const [myListings, setMyListings] = useState<Vehicle[]>([])
   const [conversations, setConversations] = useState<ListingConversation[]>([])
+  // F-004: the inquiry rows, read ONCE here and handed to the inquiry card — one source, one figure.
+  const [inquiries, setInquiries] = useState<SellerInquiry[]>([])
+  const [inquiriesState, setInquiriesState] = useState<'loading' | 'ready' | 'error'>('loading')
   // Lets SellerInquiriesCard tell "owned listings not loaded yet" apart from
   // "loaded and genuinely empty" — it receives undefined until the fetch lands.
   const [ownedLoaded, setOwnedLoaded] = useState(false)
@@ -146,7 +175,9 @@ export default function MyListings() {
     Promise.allSettled([
       fetchOwnedVehicles(),
       fetchCommunicationThreads(),
-    ]).then(([vehiclesResult, communicationsResult]) => {
+      // A reader that throws before returning a promise is a failed read too: "Unavailable", never 0.
+      Promise.resolve().then(() => fetchMyMarketplaceInquiries()),
+    ]).then(([vehiclesResult, communicationsResult, inquiriesResult]) => {
       if (!mounted) return
       if (vehiclesResult.status === 'fulfilled') {
         setMyListings(Array.isArray(vehiclesResult.value) ? vehiclesResult.value : [])
@@ -164,9 +195,18 @@ export default function MyListings() {
         setConversations([])
         setCommunicationsState('error')
       }
+      const inquiryRows = inquiriesResult.status === 'fulfilled' ? inquiriesResult.value?.inquiries : null
+      if (Array.isArray(inquiryRows)) {
+        setInquiries(inquiryRows as SellerInquiry[])
+        setInquiriesState('ready')
+      } else {
+        // A failed read, or an answer without an inquiry list, is not a list of zero inquiries.
+        setInquiries([])
+        setInquiriesState('error')
+      }
     })
     return () => { mounted = false }
-  }, [fetchCommunicationThreads, fetchOwnedVehicles])
+  }, [fetchCommunicationThreads, fetchMyMarketplaceInquiries, fetchOwnedVehicles])
 
   const handleMarkSold = async (vehicleId: string, vin: string) => {
     if (markingId) return
@@ -184,9 +224,20 @@ export default function MyListings() {
     }
   }
 
-  const marketplaceConversations = conversations.filter((conversation) =>
-    conversation.business_workflow === 'marketplace' || conversation.thread_type === 'marketplace_inquiry')
-  const totalUnread = marketplaceConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
+  // F-004: two different things, each counted once by one rule for the whole page.
+  //   Inquiries     = inquiry rows on these listings (also the inquiry card's badge).
+  //   Conversations = Marketplace inquiry threads on these listings; "unread" counts conversations.
+  const listingKeys = new Set(myListings.map(listing => listingKey(listing.vin)))
+  const buyerConversations = conversations.filter(conversation =>
+    isListingInquiryConversation(conversation) && listingKeys.has(listingKey(conversation.marketplace_listing_id)))
+  const listingInquiries = inquiries.filter(inquiry => listingKeys.has(listingKey(inquiry.listing_id)))
+  const unreadConversations = unreadConversationCount(buyerConversations)
+  const inquiriesSummary = inquiriesState === 'ready'
+    ? counted(listingInquiries.length, 'inquiry', 'inquiries')
+    : 'inquiries unavailable'
+  const conversationsSummary = communicationsState === 'ready'
+    ? `${counted(buyerConversations.length, 'conversation')} · ${counted(unreadConversations, 'unread conversation')}`
+    : 'conversations unavailable'
 
   const publishedCount = myListings.filter((listing) =>
     (publicationStatuses[listing.vin] || listing.publication_status) === 'published').length
@@ -221,9 +272,7 @@ export default function MyListings() {
           ? 'Loading governed listing state'
           : listingsState === 'error'
             ? 'Listing read unavailable'
-            : communicationsState === 'error'
-              ? `${myListings.length} vehicle listings · conversation read unavailable`
-              : `${myListings.length} vehicle listings · ${marketplaceConversations.length} conversations · ${totalUnread} unread`}
+            : `${counted(myListings.length, 'vehicle listing')} · ${inquiriesSummary} · ${conversationsSummary}`}
         primaryAction={(
           <Button className="min-h-11 rounded-none bg-orange-600 font-black hover:bg-orange-700" asChild>
             <Link to="/sell"><Plus className="mr-2 h-4 w-4" /> Sell another vehicle</Link>
@@ -232,16 +281,22 @@ export default function MyListings() {
       />
 
       {listingsState === 'ready' && (
-        <section className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-6" data-testid="seller-listing-kpis">
+        <section className="grid gap-px border-y border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-7" data-testid="seller-listing-kpis">
           {[
             ['Published', String(publishedCount), 'Public Marketplace listings'],
             ['Need action', String(draftsNeedingAction), 'Unpublished active drafts'],
-            ['Buyer inquiries', communicationsState === 'ready' ? String(marketplaceConversations.length) : 'Unavailable', communicationsState === 'ready' ? `${totalUnread} unread` : 'Conversation read failed'],
+            ['Inquiries', inquiriesState === 'ready' ? String(listingInquiries.length) : 'Unavailable', inquiriesState === 'ready' ? 'Buyer requests on your listings' : 'Inquiry read failed'],
+            ['Conversations', communicationsState === 'ready' ? String(buyerConversations.length) : 'Unavailable', communicationsState === 'ready' ? counted(unreadConversations, 'unread conversation') : 'Conversation read failed'],
             ['Tracked views', trackedViews.length ? String(trackedViews.reduce((a, b) => a + b, 0)) : 'Not tracked', trackedViews.length ? `${trackedViews.length} listing${trackedViews.length === 1 ? '' : 's'} reporting` : 'No view measurement exposed'],
             ['Tracked saves', rawSaveCounts.length ? String(rawSaveCounts.reduce((a, b) => a + b, 0)) : 'Not tracked', rawSaveCounts.length ? `${rawSaveCounts.length} listing${rawSaveCounts.length === 1 ? '' : 's'} reporting` : 'No save measurement exposed'],
             ['Listing value', listingValue, canAggregateValue ? 'One recorded currency' : 'Not aggregated across currencies/gaps'],
-          ].map(([label, value, detail]) => (
-            <div key={label} className="bg-white px-4 py-5">
+          ].map(([label, value, detail], index, tiles) => (
+            <div
+              key={label}
+              data-testid={`seller-kpi-${label.toLowerCase().replace(/\s+/g, '-')}`}
+              // An odd last tile spans the two-column row instead of leaving a grey gap beside it.
+              className={`bg-white px-4 py-5 ${index === tiles.length - 1 && tiles.length % 2 === 1 ? 'sm:col-span-2 xl:col-span-1' : ''}`}
+            >
               <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
               <p className="mt-2 break-words text-2xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">{detail}</p>
@@ -250,7 +305,13 @@ export default function MyListings() {
         </section>
       )}
 
-      <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
+      <SellerInquiriesCard
+        ownedListings={ownedLoaded ? myListings : undefined}
+        // The rows the page counted. If the listings could not be read there is nothing to scope by, and
+        // the endpoint is already this seller's — so the card is never handed a fabricated empty list.
+        inquiries={ownedLoaded ? listingInquiries : inquiries}
+        inquiriesState={inquiriesState}
+      />
 
       {listingsState === 'loading' && (
         <div className="border-y border-slate-200 py-14 text-sm text-slate-500" role="status">
@@ -290,9 +351,9 @@ export default function MyListings() {
             const trust = readOwnerTrustClaim(listing)
             const isSold = isSoldListingStatus(effectiveStatus)
             const isPublished = publication === 'published'
-            const listingConversations = marketplaceConversations.filter((conversation) =>
-              String(conversation.marketplace_listing_id || '').toUpperCase() === String(listing.vin || '').toUpperCase())
-            const listingUnread = listingConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
+            const key = listingKey(listing.vin)
+            const listingConversations = buyerConversations.filter(conversation => listingKey(conversation.marketplace_listing_id) === key)
+            const listingInquiryCount = listingInquiries.filter(inq => listingKey(inq.listing_id) === key).length
             const latest = listingConversations[0]?.latest_message?.text
             const dominant = isSold
               ? { label: 'View Vehicle Passport', href: `/dashboard/garage/${encodeURIComponent(listing.vin)}` }
@@ -383,10 +444,13 @@ export default function MyListings() {
                     </div>
                     <div className="bg-white px-4 py-4">
                       <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Buyer activity</p>
-                      <p className="mt-2 text-sm font-bold text-slate-800">
-                        {communicationsState === 'ready'
-                          ? `${listingConversations.length} conversations · ${listingUnread} unread`
-                          : 'Conversation state unavailable'}
+                      <p className="mt-2 text-sm font-bold text-slate-800" data-testid={`listing-buyer-activity-${listing.vin}`}>
+                        {[
+                          inquiriesState === 'ready' ? counted(listingInquiryCount, 'inquiry', 'inquiries') : 'Inquiries unavailable',
+                          communicationsState === 'ready'
+                            ? `${counted(listingConversations.length, 'conversation')} · ${counted(unreadConversationCount(listingConversations), 'unread conversation')}`
+                            : 'Conversations unavailable',
+                        ].join(' · ')}
                       </p>
                     </div>
                   </div>

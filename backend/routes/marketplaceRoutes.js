@@ -15,7 +15,11 @@ import {
   getMarketplaceCategories,
 } from '../services/marketplace/marketplaceDiscoveryService.js';
 import { getPartsListings, getServiceListings } from '../services/marketplace/marketplacePartsService.js';
-import { createInquiry, listInquiriesForSeller } from '../services/marketplace/marketplaceInquiryService.js';
+import {
+  createInquiry,
+  listInquiriesForSeller,
+  InquiryClientRequestIdError,
+} from '../services/marketplace/marketplaceInquiryService.js';
 import { saveListing, unsaveListing, listSavedListings } from '../services/marketplace/marketplaceSavedService.js';
 import { marketplaceReferralBridge } from '../services/marketplace/marketplaceReferralBridgeService.js';
 import {
@@ -51,6 +55,21 @@ function referralContextFromReq(req) {
     campaignCode: b.campaign_code || q.campaign_code || q.campaign || undefined,
     sourceChannel: b.source_channel || q.source || undefined,
   };
+}
+
+/**
+ * CARUP-MVP-STAB-01 F-002 — the idempotency key of an inquiry submit: `client_request_id` in the body or
+ * an `Idempotency-Key` header. Both are accepted; two DIFFERENT keys on one request are refused rather
+ * than one being picked, because whichever was dropped would make the retry a new inquiry.
+ */
+function clientRequestIdFromReq(req) {
+  const fromBody = req.body?.client_request_id;
+  const fromHeader = typeof req.get === 'function' ? req.get('Idempotency-Key') : req.headers?.['idempotency-key'];
+  const hasBody = fromBody !== undefined && fromBody !== null;
+  if (hasBody && fromHeader !== undefined && String(fromHeader) !== String(fromBody)) {
+    throw new InquiryClientRequestIdError('The Idempotency-Key header and client_request_id disagree. Send one key for one inquiry.');
+  }
+  return hasBody ? fromBody : fromHeader;
 }
 
 async function withCanonicalReservationTruth(page) {
@@ -155,11 +174,18 @@ router.post('/api/marketplace/inquiries', inquiryLimiter, optionalAuth(), asyncH
     referral_code: req.body?.referral_code || referralCode,
     campaign_code: req.body?.campaign_code || campaignCode,
     source_channel: req.body?.source_channel || sourceChannel,
+    client_request_id: clientRequestIdFromReq(req),
   };
   // `req` reaches the service only so the Intelligence observation can carry the
   // shopper's session/page-view context; the inquiry itself never reads it.
-  const inquiry = await createInquiry(supabase, payload, req.userContext || null, { req });
-  res.status(201).json({ inquiry });
+  const result = await createInquiry(supabase, payload, req.userContext || null, { req });
+  // F-002: a retry of a keyed submit is answered 200 with the inquiry it already recorded —
+  // `{ inquiry, idempotent_replay: true }`. A new inquiry stays 201 `{ inquiry }`.
+  if (result?.idempotent_replay === true) {
+    res.status(200).json({ inquiry: result.inquiry, idempotent_replay: true });
+    return;
+  }
+  res.status(201).json({ inquiry: result });
 }));
 
 // ---- Saved listings (authenticated) ----------------------------------------

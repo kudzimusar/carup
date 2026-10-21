@@ -20,6 +20,14 @@ import { customerAccountId, isMarketplaceInquiryThread } from '../services/commu
 import {
   channelKey, replyChannelAuthority, replyChannelRefusal, resolveReplyChannel,
 } from '../services/communication/replyChannelResolution.js';
+import { ACTION_CLASSES, requireAuthenticationAssurance } from '../middleware/stepUpMiddleware.js';
+import {
+  RECONCILIATION_CONFIRMATION,
+  RECONCILIATION_REQUEST_CODES,
+  applyReconciliation,
+  planReconciliation,
+  reconciliationIdsProblem,
+} from '../services/marketplace/inquiryConversationReconciliationService.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -260,6 +268,23 @@ function requireAdminOrWorkerSecret(req, res, next) {
     const platformRole = req.userContext?.platformRole || req.userContext?.baseRole || null;
     if (!SMOKE_TEST_ADMIN_ROLES.includes(platformRole)) {
       return res.status(403).json({ error: 'Forbidden. Provider smoke test requires a platform admin role.' });
+    }
+    return next();
+  });
+}
+
+// CARUP-MVP-STAB-01 F-005 — inquiry reconciliation is platform administration. authorizeRole resolves WHO
+// is calling; authority then comes from the platform BASE role alone — the rule the provider smoke test
+// applies — so no tenant role elevates into it. There is deliberately no worker-secret path: every
+// reconciliation is a person's, attributable in its audit trail. The refusal carries its own code.
+function requirePlatformAdmin(req, res, next) {
+  return authorizeRole([])(req, res, () => {
+    const platformRole = req.userContext?.platformRole || req.userContext?.baseRole || null;
+    if (!PLATFORM_ADMIN_ROLES.has(platformRole)) {
+      return res.status(403).json({
+        error: 'Forbidden. Inquiry reconciliation requires a platform admin role.',
+        code: 'PLATFORM_ADMIN_REQUIRED',
+      });
     }
     return next();
   });
@@ -1652,6 +1677,47 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       truth,
     });
   }));
+
+  // ── CARUP-MVP-STAB-01 F-005 — Marketplace inquiries that never got their conversation ────────────────────
+  // GET is the dry-run and writes nothing. POST applies — and only to ids still ELIGIBLE when it runs —
+  // after a fresh re-authentication and an explicit confirmation. Nothing here runs on its own.
+  const reconciliationUnavailable = (res) => res.status(503).json({
+    error: 'Inquiry reconciliation is unavailable: the conversation services are not configured.',
+    code: 'RECONCILIATION_UNAVAILABLE',
+  });
+
+  router.get('/api/admin/communications/inquiry-reconciliation', requirePlatformAdmin, asyncHandler(async (req, res) => {
+    const client = services.repository?.client || null;
+    if (!client) return reconciliationUnavailable(res);
+    return res.json(await planReconciliation({ supabase: client, limit: req.query?.limit }));
+  }));
+
+  router.post(
+    '/api/admin/communications/inquiry-reconciliation/apply',
+    requirePlatformAdmin,
+    requireAuthenticationAssurance(ACTION_CLASSES.SENSITIVE),
+    asyncHandler(async (req, res) => {
+      const body = req.body || {};
+      if (body.confirm !== RECONCILIATION_CONFIRMATION) {
+        return res.status(400).json({
+          error: `Reconciliation creates conversations. Send confirm: '${RECONCILIATION_CONFIRMATION}' to apply it.`,
+          code: RECONCILIATION_REQUEST_CODES.CONFIRMATION_REQUIRED,
+        });
+      }
+      const problem = reconciliationIdsProblem(body.inquiry_ids);
+      if (problem) return res.status(400).json({ error: problem.message, code: problem.code });
+      const client = services.repository?.client || null;
+      if (!client || !services.conversationService) return reconciliationUnavailable(res);
+      return res.json(await applyReconciliation({
+        supabase: client,
+        conversationService: services.conversationService,
+        inquiryIds: body.inquiry_ids,
+        actor: req.userContext,
+        runId: randomUUID(),
+        request: req,
+      }));
+    }),
+  );
 
   return router;
 }

@@ -98,6 +98,11 @@ export class CommunicationThreadService {
   }
 
   async recordMessage(thread, input = {}) {
+    // CARUP-MVP-STAB-01 F-005 (additive): a message recorded AFTER the fact — an inquiry reconciled into
+    // the conversation it never got — keeps the moment it was actually written, so the conversation reads
+    // in its true order. Only the explicit `original_created_at` option does this; every other caller is
+    // stamped now, exactly as before.
+    const historicalAt = input.original_created_at || null;
     const message = await this.repository.insert('messages', {
       thread_id: thread.id,
       tenant_id: thread.tenant_id || input.tenant_id || null,
@@ -122,12 +127,13 @@ export class CommunicationThreadService {
       delivered_at: input.delivered_at || null,
       read_at: input.read_at || null,
       failed_at: input.failed_at || null,
-      created_at: nowIso(),
+      created_at: historicalAt || nowIso(),
       updated_at: nowIso(),
     });
     await this.repository.updateById('message_threads', thread.id, {
       last_message_at: message.created_at,
-      updated_at: message.created_at,
+      // The thread row itself changes NOW even when the message it records is historical.
+      updated_at: historicalAt ? nowIso() : message.created_at,
       status: input.thread_status || thread.status,
     });
     // SLA lifecycle hooks (#4) — every message funnels through here. Fail-soft: an SLA math error must
