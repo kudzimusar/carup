@@ -5,6 +5,48 @@ import { VehicleImage } from '../media/NativeMedia';
 import { Price, StatusPill, TrustSignal } from '../ui/NativePrimitives';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 import { resolveMarketplacePrimaryImage, type MobileListingSummary } from '../../utils/marketplaceApi';
+import { presentTrustForCustomer } from '@shared/trust/customerTrustPresentation';
+
+export interface VehicleCardTrustSignal {
+  label: string;
+  detail?: string;
+  tone: 'neutral';
+}
+
+function sentenceCase(value: string): string {
+  const words = value.replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return words ? words[0].toUpperCase() + words.slice(1) : words;
+}
+
+/**
+ * CARUP-MVP-STAB-01 F-010 / F-013: what a list card says about Trust. An evaluation is labelled with
+ * how much it can be relied on (its confidence and how many facts were independently confirmed), and
+ * it is never given a success tone: a low or insufficient-evidence result is not good news.
+ */
+export function vehicleCardTrustSignal(
+  item: Pick<MobileListingSummary, 'trust' | 'evidence_count'>,
+): VehicleCardTrustSignal | null {
+  const presented = presentTrustForCustomer(item.trust);
+  if (presented.evaluated && Number.isFinite(item.trust?.score)) {
+    const band = item.trust?.band ? sentenceCase(String(item.trust.band)) : '';
+    const support = presented.substantiatedFacts !== null && presented.governedFactsTotal !== null
+      ? presented.evidenceSupportValue
+      : '';
+    return {
+      label: `Trust evaluated · Confidence ${presented.confidenceValue.toLowerCase()}`,
+      detail: [band, support].filter(Boolean).join(' · ') || undefined,
+      tone: 'neutral',
+    };
+  }
+  if (typeof item.evidence_count === 'number' && item.evidence_count > 0) {
+    return {
+      label: 'Vehicle evidence available',
+      detail: `${item.evidence_count} evidence record${item.evidence_count === 1 ? '' : 's'}`,
+      tone: 'neutral',
+    };
+  }
+  return null;
+}
 
 export function vehicleName(item: MobileListingSummary): string {
   return [item.year, item.make, item.model]
@@ -39,10 +81,7 @@ export function VehicleCard({
   const name = vehicleName(item);
   const image = resolveMarketplacePrimaryImage(item);
   const facts = factLine(item);
-  const evaluated =
-    item.trust?.evaluation_state === 'evaluated' &&
-    typeof item.trust?.score === 'number' &&
-    Number.isFinite(item.trust.score);
+  const trustSignal = vehicleCardTrustSignal(item);
 
   return (
     <Pressable
@@ -110,17 +149,8 @@ export function VehicleCard({
           </Text>
         ) : null}
 
-        {evaluated ? (
-          <TrustSignal
-            label="CarUp Trust evaluation available"
-            detail={item.trust?.band ? String(item.trust.band).replace(/[_-]+/g, ' ') : undefined}
-            tone="success"
-          />
-        ) : typeof item.evidence_count === 'number' && item.evidence_count > 0 ? (
-          <TrustSignal
-            label="Vehicle evidence available"
-            detail={`${item.evidence_count} evidence record${item.evidence_count === 1 ? '' : 's'}`}
-          />
+        {trustSignal ? (
+          <TrustSignal label={trustSignal.label} detail={trustSignal.detail} tone={trustSignal.tone} />
         ) : null}
 
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], marginTop: spacing[1] }}>

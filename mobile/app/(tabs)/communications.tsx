@@ -9,6 +9,8 @@ import {
   sendCommunicationMessage,
 } from '../../utils/communicationApi';
 import {
+  canChangeChannelPreference,
+  channelPreferenceChangeAllowed,
   PreferenceMutationBlockedError,
   preferenceFailureCopy,
   preferenceViewState,
@@ -16,6 +18,15 @@ import {
   savePreferenceChange,
   type PreferenceViewState,
 } from '../../utils/communicationPreferences';
+import { channelSwitchPresentation, preferenceChannelAvailability, useChannelReadiness } from '../../utils/channelReadiness';
+
+const PREFERENCE_CHANNELS = [
+  ['in_app_enabled', 'In-app'],
+  ['push_enabled', 'Push'],
+  ['email_enabled', 'Email'],
+  ['whatsapp_enabled', 'WhatsApp'],
+  ['sms_enabled', 'SMS'],
+] as const;
 
 function CommunicationsScreenInner() {
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -25,6 +36,9 @@ function CommunicationsScreenInner() {
   // OC-NATIVE-FINAL-02-R1 D2: a failed read is a failure state, never an empty preference object.
   const [preferenceView, setPreferenceView] = useState<PreferenceViewState>({ state: 'LOADING' });
   const [preferenceStatus, setPreferenceStatus] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  // CARUP-MVP-STAB-01 F-018: a switch works only for a channel CarUp can deliver on right now.
+  const readiness = useChannelReadiness();
   const [message, setMessage] = useState('');
   const [listingId, setListingId] = useState('');
   const [referralCode, setReferralCode] = useState('');
@@ -88,13 +102,18 @@ function CommunicationsScreenInner() {
   }
 
   async function savePreference(key: string, value: boolean) {
+    // Turning a channel off is never blocked; turning one on needs a channel CarUp can deliver on now.
+    if (savingKey || !channelPreferenceChangeAllowed(preferenceChannelAvailability(readiness, key), value)) return;
     setPreferenceStatus(null);
+    setSavingKey(key);
     try {
       setPreferenceView({ state: 'READY', preferences: await savePreferenceChange(preferenceView, key, value) });
     } catch (error) {
       setPreferenceStatus(error instanceof PreferenceMutationBlockedError
         ? error.message
         : 'CarUp could not confirm that change. These switches show the last values CarUp returned; try again.');
+    } finally {
+      setSavingKey(null);
     }
   }
 
@@ -178,22 +197,37 @@ function CommunicationsScreenInner() {
             );
           })()
         ) : (
-          [
-            ['in_app_enabled', 'In-app'],
-            ['push_enabled', 'Push'],
-            ['email_enabled', 'Email'],
-            ['whatsapp_enabled', 'WhatsApp'],
-            ['sms_enabled', 'SMS'],
-          ].map(([key, label]) => (
-            <View key={key} className="flex-row items-center justify-between py-2">
-              <Text className="text-slate-700">{label}</Text>
-              <Switch
-                value={Boolean(preferenceView.preferences[key])}
-                onValueChange={(value) => void savePreference(key, value)}
-                testID={`communication-pref-${key}`}
-              />
-            </View>
-          ))
+          PREFERENCE_CHANNELS.map(([key, label]) => {
+            const delivery = channelSwitchPresentation(readiness, key);
+            const current = Boolean(preferenceView.preferences[key]);
+            // An ON switch can always be turned off; an OFF one turns on only for an available channel.
+            const changeable = canChangeChannelPreference(preferenceView, delivery.availability, current);
+            const disabled = Boolean(savingKey) || !changeable;
+            return (
+              <View key={key} className="flex-row items-center justify-between py-2">
+                <View className="flex-1 pr-3">
+                  <Text className="text-slate-700">{label}</Text>
+                  {delivery.available ? null : (
+                    <>
+                      <Text className="text-slate-600 text-xs font-semibold mt-1">{delivery.statusLabel}</Text>
+                      {delivery.explanation ? (
+                        <Text className="text-slate-500 text-xs mt-0.5">{delivery.explanation}</Text>
+                      ) : null}
+                    </>
+                  )}
+                </View>
+                <Switch
+                  accessibilityLabel={`${label} delivery`}
+                  accessibilityHint={delivery.available ? undefined : [delivery.statusLabel, delivery.explanation].filter(Boolean).join('. ')}
+                  accessibilityState={{ disabled }}
+                  disabled={disabled}
+                  value={current}
+                  onValueChange={(value) => void savePreference(key, value)}
+                  testID={`communication-pref-${key}`}
+                />
+              </View>
+            );
+          })
         )}
         {preferenceStatus ? <Text className="text-rose-600 text-xs mt-2">{preferenceStatus}</Text> : null}
       </View>

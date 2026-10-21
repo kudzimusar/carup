@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { VehicleImage } from '../../components/media/NativeMedia';
+import { presentTrustForCustomer } from '@shared/trust/customerTrustPresentation';
 import {
   Button,
   EmptyState,
@@ -49,13 +50,14 @@ function formatDate(value: string | null | undefined): string | null {
   return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : null;
 }
 
+// CARUP-MVP-STAB-01 F-010 / F-011 / F-013: the Trust record is worded only through the shared customer
+// presenter, so this card says what web says: confidence, evidence support and connected official sources
+// beside the score, and limitations as customer sentences. Nothing here is a success state.
 function TrustEvidence({ trust }: { trust?: MobilePublicTrust | null }) {
   const theme = useNativeTheme();
-  const evaluated =
-    trust?.evaluation_state === 'evaluated' &&
-    typeof trust.score === 'number' &&
-    Number.isFinite(trust.score);
-  const basis = trust?.evidence_basis;
+  const presented = presentTrustForCustomer(trust);
+  const evaluated = presented.evaluated && Number.isFinite(trust?.score);
+  const adverse = trust?.evidence_basis?.governed_facts_adverse;
   const evaluatedAt = formatDate(trust?.evaluated_at);
 
   if (!evaluated) {
@@ -81,10 +83,10 @@ function TrustEvidence({ trust }: { trust?: MobilePublicTrust | null }) {
         <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[2] }}>
           CarUp does not substitute an old or guessed score when current evidence is unavailable.
         </Text>
-        {trust?.known_limitations?.[0] ? (
-          <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[3] }}>
-            {trust.known_limitations[0]}
-          </Text>
+        {presented.limitations.length ? (
+          <View style={{ marginTop: spacing[3] }}>
+            <TrustLimitations limitations={presented.limitations} />
+          </View>
         ) : null}
       </View>
     );
@@ -130,29 +132,20 @@ function TrustEvidence({ trust }: { trust?: MobilePublicTrust | null }) {
         </View>
       </View>
 
-      {basis ? (
-        <View style={{ gap: spacing[2] }}>
-          {typeof basis.governed_facts_substantiated === 'number' ? (
-            <TrustSignal
-              label={`${basis.governed_facts_substantiated} evidence-backed fact${basis.governed_facts_substantiated === 1 ? '' : 's'}`}
-              detail={typeof basis.governed_facts_total === 'number' ? `out of ${basis.governed_facts_total} facts considered` : undefined}
-              tone="success"
-            />
-          ) : null}
-          {typeof basis.connected_sources === 'number' ? (
-            <TrustSignal
-              label={`${basis.connected_sources} connected evidence source${basis.connected_sources === 1 ? '' : 's'}`}
-              detail="CarUp uses the evidence it can currently connect to this vehicle."
-            />
-          ) : null}
-          {typeof basis.governed_facts_adverse === 'number' && basis.governed_facts_adverse > 0 ? (
-            <TrustSignal
-              label={`${basis.governed_facts_adverse} item${basis.governed_facts_adverse === 1 ? '' : 's'} need attention`}
-              detail="Open the evidence sections below for the available context."
-              tone="warning"
-            />
-          ) : null}
-        </View>
+      <View style={{ borderTopWidth: 1, borderTopColor: theme.border.default, paddingTop: spacing[1] }}>
+        {presented.rows.map((row) => (
+          <View key={row.key} accessible accessibilityLabel={`${row.label}: ${row.value}`}>
+            <FactRow label={row.label} value={row.value} />
+          </View>
+        ))}
+      </View>
+
+      {typeof adverse === 'number' && adverse > 0 ? (
+        <TrustSignal
+          label={`${adverse} ${adverse === 1 ? 'item needs' : 'items need'} attention`}
+          detail="Open the evidence sections below for the available context."
+          tone="warning"
+        />
       ) : null}
 
       <Notice
@@ -161,18 +154,66 @@ function TrustEvidence({ trust }: { trust?: MobilePublicTrust | null }) {
         tone="info"
       />
 
-      {trust?.known_limitations?.length ? (
-        <View style={{ gap: spacing[1] }}>
-          <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.primary }}>Known limits</Text>
-          {trust.known_limitations.slice(0, 3).map((limitation) => (
-            <Text key={limitation} allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
-              • {limitation}
-            </Text>
-          ))}
-        </View>
+      {presented.limitations.length ? <TrustLimitations limitations={presented.limitations} /> : null}
+    </View>
+  );
+}
+
+/** Customer-worded limitations: the first three, and every one of them one accessible tap away. */
+function TrustLimitations({ limitations }: { limitations: string[] }) {
+  const theme = useNativeTheme();
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? limitations : limitations.slice(0, 3);
+  return (
+    <View style={{ gap: spacing[1] }}>
+      <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.primary }}>Known limitations</Text>
+      {shown.map((limitation) => (
+        <Text key={limitation} allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
+          • {limitation}
+        </Text>
+      ))}
+      {limitations.length > 3 ? (
+        <Button
+          label={expanded ? 'Show fewer' : `Show all ${limitations.length}`}
+          accessibilityLabel={expanded ? 'Show fewer known limitations' : `Show all ${limitations.length} known limitations`}
+          variant="tertiary"
+          onPress={() => setExpanded((value) => !value)}
+          style={{ alignSelf: 'flex-start', paddingHorizontal: 0 }}
+        />
       ) : null}
     </View>
   );
+}
+
+/** CARUP-MVP-STAB-01 F-013: the listing's evidence status in plain words; "Verified" only when CarUp says so. */
+const EVIDENCE_STATUS_LABEL: Record<string, string> = {
+  none: 'None',
+  partial: 'Partial',
+  available: 'Available',
+  verified: 'Verified',
+  review_required: 'Under review',
+  unavailable: 'Could not be checked',
+};
+
+function evidenceStatusLabel(status: string | null | undefined): string {
+  const key = String(status ?? '').trim().toLowerCase();
+  if (!key) return 'Not loaded';
+  return Object.prototype.hasOwnProperty.call(EVIDENCE_STATUS_LABEL, key) ? EVIDENCE_STATUS_LABEL[key] : 'Not available';
+}
+
+/** CARUP-MVP-STAB-01 F-013: the service / parts evidence status in plain words. Never "verified". */
+const PARTS_EVIDENCE_LABEL: Record<string, string> = {
+  not_applicable: 'Not applicable',
+  suppressed: 'Not shown publicly',
+  eligible: 'Can be shown',
+  review_required: 'Under review',
+  ineligible: 'Not shown publicly',
+};
+
+function partsEvidenceLabel(status: string | null | undefined): string {
+  const key = String(status ?? '').trim().toLowerCase();
+  if (!key) return 'Not loaded';
+  return Object.prototype.hasOwnProperty.call(PARTS_EVIDENCE_LABEL, key) ? PARTS_EVIDENCE_LABEL[key] : 'Not recorded';
 }
 
 function FactRow({ label, value }: { label: string; value: string }) {
@@ -367,10 +408,9 @@ function VehicleDetailScreenInner() {
     (vehicle.location_state === 'withheld' ? 'Location withheld' : 'Location not recorded');
   const image = resolveMarketplacePrimaryImage(vehicle);
   const trustSummary = vehicle.trust_summary;
-  const evidenceSignals = [
-    ...(trustSummary?.public_badge_copy || []),
-    ...(trustSummary?.trust_badges || []),
-  ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
+  // CARUP-MVP-STAB-01 F-013: only CarUp's public badge wording is shown; internal badge codes never are.
+  const evidenceSignals = (trustSummary?.public_badge_copy || [])
+    .filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
@@ -425,8 +465,8 @@ function VehicleDetailScreenInner() {
           ) : null}
 
           <View style={{ marginTop: spacing[5], borderRadius: radius.card, borderWidth: 1, borderColor: theme.border.default, backgroundColor: theme.background.surface, paddingHorizontal: spacing[4], paddingVertical: spacing[2] }}>
-            <FactRow label="Evidence status" value={titleCase(trustSummary?.evidence_status) || 'Not loaded'} />
-            <FactRow label="Service / parts evidence" value={titleCase(trustSummary?.partsentry_public_status) || 'Not loaded'} />
+            <FactRow label="Evidence status" value={evidenceStatusLabel(trustSummary?.evidence_status)} />
+            <FactRow label="Service / parts evidence" value={partsEvidenceLabel(trustSummary?.partsentry_public_status)} />
           </View>
 
           {trustSummary?.safe_public_copy ? (

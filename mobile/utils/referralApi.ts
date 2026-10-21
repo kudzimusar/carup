@@ -14,11 +14,14 @@ import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
 
 export class ReferralApiError extends Error {
   statusCode: number | null;
+  /** CarUp's machine error code (`error.code` in the response body), when the answer carried one. */
+  code: string | null;
 
-  constructor(message: string, statusCode: number | null = null) {
+  constructor(message: string, statusCode: number | null = null, code: string | null = null) {
     super(message);
     this.name = 'ReferralApiError';
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
@@ -129,13 +132,15 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     let message = `Referral API returned HTTP ${response.status}`;
+    let code: string | null = null;
     try {
       const body = await response.json();
       message = body?.error?.message || body?.error || message;
+      code = typeof body?.error?.code === 'string' ? body.error.code : null;
     } catch {
       // keep the status-based message when the body is not JSON
     }
-    throw new ReferralApiError(message, response.status);
+    throw new ReferralApiError(message, response.status, code);
   }
 
   return response.json();
@@ -164,6 +169,43 @@ export async function validateReferralCode(payload: Record<string, unknown>): Pr
 /** Owner (self) or admin: fetch the referral wallet for a user. */
 export async function getReferralWallet(userId: string): Promise<ReferralWalletResponse> {
   return requestJson<ReferralWalletResponse>(`/api/referrals/wallets/${encodeURIComponent(userId)}`);
+}
+
+/**
+ * CARUP-MVP-STAB-01 F-025 — CarUp creates a referral wallet only with a person's first reward
+ * transaction, so for a new account the wallet read answers 404 RESOURCE_NOT_FOUND "Referral wallet
+ * not found.". That is the normal first-use state, not a failure. Only that exact answer qualifies:
+ * a missing route also answers 404 RESOURCE_NOT_FOUND (with "Route not found") and stays an error.
+ */
+const WALLET_NOT_FOUND_MESSAGE = /^referral wallet not found\.?$/i;
+
+export function isReferralWalletNotStarted(error: unknown): boolean {
+  return error instanceof ReferralApiError
+    && error.statusCode === 404
+    && error.code === 'RESOURCE_NOT_FOUND'
+    && WALLET_NOT_FOUND_MESSAGE.test(error.message.trim());
+}
+
+export type ReferralWalletView =
+  | { state: 'ready'; wallet: ReferralWalletLite | null; transactions: ReferralWalletTransactionLite[] }
+  | { state: 'not_started' };
+
+/** The wallet read for the Refer & Earn screen: ready, not started yet, or a thrown genuine failure. */
+export async function loadReferralWallet(
+  userId: string,
+  read: (userId: string) => Promise<ReferralWalletResponse> = getReferralWallet,
+): Promise<ReferralWalletView> {
+  try {
+    const response = await read(userId);
+    return {
+      state: 'ready',
+      wallet: response.wallet ?? null,
+      transactions: Array.isArray(response.transactions) ? response.transactions : [],
+    };
+  } catch (error) {
+    if (isReferralWalletNotStarted(error)) return { state: 'not_started' };
+    throw error;
+  }
 }
 
 /** Authenticated: human-readable explanation of a wallet benefit transaction. */
