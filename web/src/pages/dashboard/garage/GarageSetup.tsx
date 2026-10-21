@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import GarageEvidence from './GarageEvidence'
 import GarageWorkspaceReady from './GarageWorkspaceReady'
 import {
   APPLICANT_RELATIONSHIPS,
+  IDENTITY_FLOW_ROUTE,
+  MECHANIC_NO_ACTIVATION,
+  identityNotice,
   statusPresentation,
+  type ApplicantDecision,
+  type ApprovalPrerequisites,
   type GarageApplication,
 } from '@/lib/garageOnboarding'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+
+/** Statuses still heading for a decision — where the identity prerequisite matters. */
+const LIVE_STATUSES = ['draft', 'submitted', 'information_required', 'under_review']
 
 const SERVICE_CATEGORIES = [
   'general_service', 'engine', 'transmission', 'brakes', 'suspension', 'electrical',
@@ -19,6 +28,10 @@ type Envelope = {
   blockers?: string[] | null
   editable?: boolean
   created?: boolean
+  /** CARUP-MVP-STAB-01: what CarUp said, only while information_required or rejected. */
+  latest_decision?: ApplicantDecision | null
+  /** CARUP-MVP-STAB-01: what still stands between a live application and approval. */
+  approval_prerequisites?: ApprovalPrerequisites | null
 }
 
 export default function GarageSetup() {
@@ -37,6 +50,8 @@ export default function GarageSetup() {
   const [notApplicant, setNotApplicant] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [latestDecision, setLatestDecision] = useState<ApplicantDecision | null>(null)
+  const [prerequisites, setPrerequisites] = useState<ApprovalPrerequisites | null>(null)
   const [form, setForm] = useState<Partial<GarageApplication> & { attestation_accepted?: boolean }>({})
   const pending = useRef<Record<string, unknown>>({})
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -46,6 +61,8 @@ export default function GarageSetup() {
     const app = res.application ?? null
     setApplication(app)
     setBlockers(res.blockers ?? null)
+    setLatestDecision(res.latest_decision ?? null)
+    setPrerequisites(res.approval_prerequisites ?? null)
     setEditable(res.editable ?? Boolean(app && ['draft', 'information_required'].includes(app.status)))
     if (app) {
       setForm({
@@ -134,6 +151,21 @@ export default function GarageSetup() {
     finally { setBusy(false) }
   }
 
+  /**
+   * PO-5: a rejected application stays closed history; a NEW application links to it. Reloaded
+   * afterwards so the new draft arrives with everything the server says about it.
+   */
+  async function reapply() {
+    if (!application) return
+    setBusy(true); setError(null)
+    try {
+      await startGarageApplication({ supersedes: application.id })
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not start a new application.')
+    } finally { setBusy(false) }
+  }
+
   async function submit() {
     if (!application) return
     setBusy(true); setError(null)
@@ -156,11 +188,15 @@ export default function GarageSetup() {
 
   if (notApplicant) {
     return (
-      <div className="p-6 max-w-3xl">
+      <div className="p-6 max-w-3xl" data-testid="garage-setup-not-applicant">
         <h1 className="text-2xl font-semibold text-gray-900">Garage setup</h1>
         <p className="mt-2 text-gray-600">
-          Garage setup becomes available after your registration profile records a garage business.
+          Garage setup is for accounts registered as a garage or service centre. Your registration
+          doesn't record a garage business, so there is no garage application to open. To change
+          your business type, contact CarUp support.
         </p>
+        {/* F-020: no independent mechanic activation exists — said plainly, with the real path. */}
+        <p className="mt-2 text-gray-600">{MECHANIC_NO_ACTIVATION}</p>
       </div>
     )
   }
@@ -182,6 +218,11 @@ export default function GarageSetup() {
 
   const presentation = statusPresentation(application.status)
   const cats = (form.service_categories as string[] | undefined) ?? []
+  // What CarUp told the applicant. A rejection's reason is also on the application row.
+  const reason = latestDecision?.reason
+    ?? (application.status === 'rejected' ? application.decision_reason : null)
+    ?? null
+  const notice = LIVE_STATUSES.includes(application.status) ? identityNotice(prerequisites) : null
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6" data-testid="garage-c3-setup">
@@ -196,6 +237,44 @@ export default function GarageSetup() {
       </header>
 
       {error && <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
+
+      {/* CARUP-MVP-STAB-01 F-019: what CarUp decided, in its own words, and the way forward. */}
+      {application.status === 'information_required' && (
+        <p className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm font-medium text-orange-900" role="status" data-testid="garage-information-required">
+          {reason ? `CarUp needs something more: ${reason}` : 'CarUp needs something more.'}
+        </p>
+      )}
+      {application.status === 'rejected' && (
+        <section className="rounded-xl border border-gray-300 bg-gray-50 p-4" data-testid="garage-rejected">
+          <p className="text-sm font-medium text-gray-900">
+            {reason ? `Your application was not approved: ${reason}` : 'Your application was not approved.'}
+          </p>
+          <p className="mt-1 text-sm text-gray-700">
+            A new application stays linked to this one, so CarUp can see what changed.
+          </p>
+          <Button className="mt-3 min-h-11" onClick={reapply} disabled={busy} data-testid="garage-reapply">
+            {busy ? 'Starting…' : 'Start a new application'}
+          </Button>
+        </section>
+      )}
+      {(application.status === 'submitted' || application.status === 'under_review') && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4" data-testid="garage-pending-review">
+          <p className="text-sm font-medium text-amber-900">Pending review</p>
+          <p className="mt-1 text-sm text-amber-900">
+            CarUp hasn't decided yet. Your details stay as you sent them while CarUp reviews them.
+          </p>
+        </section>
+      )}
+      {notice && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900" role="status" data-testid="garage-identity-notice">
+          <p>{notice.text}</p>
+          {notice.linkLabel && (
+            <Link to={IDENTITY_FLOW_ROUTE} className="mt-2 inline-flex min-h-11 items-center font-medium underline">
+              {notice.linkLabel}
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* GMO-4 (OC-5E): what became of an approved application, said plainly either way. */}
       {application.activated_tenant_id ? (
@@ -294,7 +373,7 @@ export default function GarageSetup() {
         )}
         {editable && (
           <Button className="mt-4 min-h-11" onClick={submit} disabled={busy}>
-            {busy ? 'Submitting…' : 'Submit to CarUp for review'}
+            {busy ? 'Submitting…' : application.status === 'information_required' ? 'Send it back to CarUp' : 'Submit to CarUp for review'}
           </Button>
         )}
       </section>
