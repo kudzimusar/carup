@@ -100,6 +100,16 @@ test('OPS01 applies on the current Garage authority and enforces admin-only bran
       /GARAGE_BRANCH_MANAGER_ADMIN_REQUIRED|foreign key/i,
     );
 
+    await assert.rejects(
+      db.exec(`
+        UPDATE tenant_users
+           SET role='mechanic'
+         WHERE tenant_id='11111111-1111-1111-1111-111111111111'
+           AND user_id='ops-admin'
+      `),
+      /GARAGE_MEMBERSHIP_BRANCH_MANAGER/,
+    );
+
     const { rows } = await db.query(`SELECT name, code, manager_user_id FROM garage_branches ORDER BY name`);
     assert.deepEqual(rows, [{ name: 'CBD Workshop', code: 'CBD', manager_user_id: 'ops-admin' }]);
   } finally { await db.close(); }
@@ -138,6 +148,19 @@ test('OPS01 staff metadata cannot manufacture membership and branch assignment i
     `);
     assert.equal(good.rows[0].result.created, true);
     assert.equal(good.rows[0].result.is_primary, true);
+
+    await assert.rejects(
+      db.exec(`
+        INSERT INTO garage_staff_branch_assignments
+          (tenant_id, user_id, branch_id, assigned_by_user_id)
+        VALUES
+          ('11111111-1111-1111-1111-111111111111',
+           'ops-mech',
+           'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+           'ops-admin')
+      `),
+      /GARAGE_BRANCH_NOT_ACTIVE/,
+    );
 
     await assert.rejects(
       db.query(`
@@ -301,10 +324,17 @@ test('OPS01 source keeps profiles and branch placement as metadata, not authoriz
     fileURLToPath(new URL('../middleware/authMiddleware.js', import.meta.url)),
     'utf8',
   );
+  const directoryRoutes = readFileSync(
+    fileURLToPath(new URL('../routes/garageDirectoryRoutes.js', import.meta.url)),
+    'utf8',
+  );
 
   assert.match(routes, /authorizeSessionRole\(\)/);
   assert.match(routes, /requireActiveTenant\(\{ types: \[GARAGE_TENANT_TYPE\]/);
   assert.match(service, /requireGarageTenant/);
   assert.doesNotMatch(auth, /garage_staff_profiles|garage_staff_branch_assignments|garage_departments/);
   assert.doesNotMatch(service, /x-tenant-id|x-user-id/);
+  assert.match(directoryRoutes, /createGarageBranch/);
+  assert.match(directoryRoutes, /setGarageBranchActive/);
+  assert.doesNotMatch(directoryRoutes, /createMyGarageBranch|deactivateMyGarageBranch/);
 });
