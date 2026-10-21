@@ -66,6 +66,11 @@ function step(id, data) {
 }
 const expect = (id, condition, data = {}) => step(id, { ...data, ok: Boolean(condition) });
 
+// What this run opened, so a run that fails part-way still puts it back the product's own way (never a
+// deletion): a public per-run listing is unpublished and marked sold; a garage application still waiting
+// on CarUp is rejected with a reason. Recorded in receipt.cleanup.
+const opened = { seller: null, listingPublished: false, listingRetired: false, reviewer: null, applicationId: null, applicationClosed: false };
+
 // ── HTTP client (double-submit CSRF fetched with the SAME identity headers; mirrors web/src/lib/apiClient.ts) ──
 class Client {
   constructor(label) { this.label = label; this.token = null; this.userId = null; this.csrf = null; this.cookie = null; }
@@ -216,6 +221,7 @@ async function main() {
   expect('S2.reviewer_verifies_evidence', verified.status === 200, { status: verified.status });
   const published = await seller.client.post(`/vehicles/${VIN}/publish`, {});
   const [pubRow] = await q('select publication_status, owner_id, current_seller_id from public.vehicles where vin = $1', [VIN]);
+  opened.seller = seller; opened.listingPublished = pubRow?.publication_status === 'published';
   expect('S2.published', published.status === 200 && pubRow?.publication_status === 'published', { status: published.status, publication_status: pubRow?.publication_status });
 
   // ── S3 Seller Studio published-listing contract ──
@@ -274,6 +280,7 @@ async function main() {
   // ── S6 garage onboarding: apply → submit → correction with reason → reject with reason; approval refused without identity ──
   const app = await applicant.client.post('/garage-onboarding/application', {});
   const appId = app.json?.application?.id || app.json?.id;
+  opened.reviewer = reviewer; opened.applicationId = appId || null;
   expect('S6.application_created', (app.status === 200 || app.status === 201) && appId, { status: app.status });
   const fill = await applicant.client.patch(`/garage-onboarding/application/${appId}`, {
     trading_name: `MVP01 Certification Garage ${RUN_DIGITS}`, address_line: '1 Certification Road', location_city: 'Harare', location_province: 'Harare',
@@ -315,6 +322,7 @@ async function main() {
   const rejectReason = 'Certification fixture — not a real business; closed by the CARUP-MVP-STAB-01 certification run.';
   const reject = await reviewer.client.post(`/admin/garage-applications/${appId}/decision`, { decision: 'reject', reason_code: 'certification_fixture', reason: rejectReason });
   const afterReject = await applicant.client.get('/garage-onboarding/application');
+  opened.applicationClosed = afterReject.json?.application?.status === 'rejected';
   const decisions = await q('select decision, reason from public.garage_application_decisions where application_id = $1 order by created_at', [appId]);
   const audits = await q(`select event_type, count(*)::int as n from public.trust_audit_events where created_at >= $1 and (previous_value::text like $2 or new_value::text like $2) group by event_type`, [started, `%${appId}%`]);
   const [profileRow] = await q('select onboarding_status from public.user_registration_profiles where user_id = $1', [applicant.id]);
@@ -326,9 +334,33 @@ async function main() {
   const unpublish = await seller.client.post(`/vehicles/${VIN}/unpublish`, {});
   const sold = await seller.client.patch(`/vehicles/${VIN}/status`, { status: 'sold' });
   const [retired] = await q('select publication_status, status from public.vehicles where vin = $1', [VIN]);
+  opened.listingRetired = retired?.publication_status !== 'published';
   step('S7.fixture_retired', { ok: unpublish.status === 200 && sold.status === 200, unpublish: unpublish.status, sold: sold.status, publication_status: retired.publication_status, status: retired.status });
 
   receipt.result = 'ALL_STEPS_PASSED';
+}
+
+async function putBack() {
+  const done = {};
+  if (opened.listingPublished && !opened.listingRetired && opened.seller) {
+    const unpublish = await opened.seller.client.post(`/vehicles/${VIN}/unpublish`, {});
+    const sold = await opened.seller.client.patch(`/vehicles/${VIN}/status`, { status: 'sold' });
+    done.listing = { unpublish: unpublish.status, sold: sold.status };
+  }
+  if (opened.applicationId && !opened.applicationClosed && opened.reviewer) {
+    const detail = await opened.reviewer.client.get(`/admin/garage-applications/${opened.applicationId}`);
+    const status = detail.json?.application?.status || null;
+    if (['submitted', 'under_review'].includes(status)) {
+      await opened.reviewer.stepUp();
+      const reject = await opened.reviewer.client.post(`/admin/garage-applications/${opened.applicationId}/decision`, {
+        decision: 'reject', reason_code: 'certification_fixture', reason: 'Certification fixture — closed after an incomplete CARUP-MVP-STAB-01 certification run.',
+      });
+      done.application = { from: status, reject: reject.status };
+    } else {
+      done.application = { left_as: status };
+    }
+  }
+  return done;
 }
 
 main()
@@ -339,6 +371,7 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
+    receipt.cleanup = await putBack().catch((error) => ({ error: error.message }));
     receipt.finished_at = new Date().toISOString();
     try { await db.end(); } catch { /* already closed */ }
     writeFileSync(join(OUT_DIR, 'certification-receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
