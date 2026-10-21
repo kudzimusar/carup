@@ -1,5 +1,6 @@
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
-import { GARAGE_ADMIN_ROLES, GARAGE_WORKSPACE_ROLES, requireGarageTenant } from './serviceAuthority.js';
+import { ACTIVE_TENANT_STATUS } from '../auth/activeTenantContext.js';
+import { GARAGE_ADMIN_ROLES, GARAGE_TENANT_TYPE, GARAGE_WORKSPACE_ROLES, requireGarageTenant } from './serviceAuthority.js';
 
 /**
  * Service Network S1 — Governed Garage Identity & Publication.
@@ -191,6 +192,31 @@ async function derivePartsentryParticipation(supabaseClient, tenantId) {
 
 // ─────────────────────────── public directory reads ───────────────────────────
 
+/**
+ * CARUP-MVP-STAB-01 SVC-008 — a listing stands only while its garage does.
+ *
+ * `published` is the garage's own choice; it is not enough. A public read also requires the
+ * profile's tenant to be a GARAGE that is ACTIVE, read exactly as the one tenant-context verifier
+ * reads it (activeTenantContext.js): the type compared case-insensitively, and an absent status is
+ * the column's default, 'active'. A suspended garage leaves the public surfaces at once and comes
+ * back when it is reinstated; nothing here rewrites its publication. Two reads (no embedded join).
+ */
+const isListableTenant = (tenant) => Boolean(tenant)
+  && String(tenant.type || '').toLowerCase() === GARAGE_TENANT_TYPE
+  && String(tenant.status ?? ACTIVE_TENANT_STATUS).toLowerCase() === ACTIVE_TENANT_STATUS;
+
+/** The ids among `tenantIds` whose tenant may be listed. A failed read raises — it never lists nothing. */
+async function listableTenantIds(supabaseClient, tenantIds) {
+  const ids = [...new Set((tenantIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return new Set();
+  const { data, error } = await supabaseClient
+    .from('tenants')
+    .select('id, type, status')
+    .in('id', ids);
+  if (error) throw new DatabaseError(`Failed to read garage standing: ${error.message}`);
+  return new Set((data || []).filter(isListableTenant).map((tenant) => String(tenant.id)));
+}
+
 export async function getPublicGarageDirectory(supabaseClient, query = {}) {
   let builder = supabaseClient
     .from('garage_public_profiles')
@@ -203,7 +229,8 @@ export async function getPublicGarageDirectory(supabaseClient, query = {}) {
   builder = builder.order('display_name', { ascending: true }).limit(200);
   const { data, error } = await builder;
   if (error) throw new DatabaseError(`Failed to list garage directory: ${error.message}`);
-  let rows = data || [];
+  const listable = await listableTenantIds(supabaseClient, (data || []).map((r) => r.tenant_id));
+  let rows = (data || []).filter((r) => listable.has(String(r.tenant_id)));
   const category = String(query.category || '').trim();
   if (category) {
     if (!GARAGE_SERVICE_CATEGORIES.includes(category)) {
@@ -224,6 +251,10 @@ export async function getPublicGarageDetail(supabaseClient, slugValue) {
     .maybeSingle();
   if (error) throw new DatabaseError(`Failed to load garage: ${error.message}`);
   if (!data) throw new NotFoundError('Garage not found');
+  // The same answer as an unpublished garage: a slug must not reveal that a garage was suspended.
+  if (!(await listableTenantIds(supabaseClient, [data.tenant_id])).has(String(data.tenant_id))) {
+    throw new NotFoundError('Garage not found');
+  }
   const { data: branches, error: brErr } = await supabaseClient
     .from('garage_branches')
     .select('*')
