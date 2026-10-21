@@ -36,7 +36,6 @@ jobs:
       STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
-      CERT_OUT_DIR: ${{ runner.temp }}/carup-mvp-stab-01-certification
       SELLER_MEDIA_FIXTURES: web/e2e/fixtures/seller-media
     steps:
       - name: Checkout exact candidate
@@ -60,7 +59,8 @@ jobs:
         run: npm ci
 
       - name: Run certification journeys
-        run: node scripts/ci/carup-mvp-stab-01-staging-certification.mjs
+        # The runner context is not available in job-level env, so the receipt directory is named here.
+        run: CERT_OUT_DIR="$RUNNER_TEMP/carup-mvp-stab-01-certification" node scripts/ci/carup-mvp-stab-01-staging-certification.mjs
 
       - name: Upload certification receipt
         if: always()
