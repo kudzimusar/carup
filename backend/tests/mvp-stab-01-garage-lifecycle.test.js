@@ -1,6 +1,6 @@
 /**
  * CARUP-MVP-STAB-01 — the garage application lifecycle as the applicant and the reviewer see it
- * (F-019 support, ADM-006).
+ * (F-019 support, ADM-006, SVC-004).
  *
  * Over real PostgreSQL (PGlite) built only from the repository's own migrations
  * (helpers/gmoGarageWorld.js, plus the registration-profile table 20260829123000 the applicant gate
@@ -16,6 +16,7 @@
  *   PROFILE SYNC        a reviewer decision moves user_registration_profiles.onboarding_status in step
  *                       (approve → approved, reject → rejected, otherwise in_review); a sync that fails
  *                       is logged and the decision — the authority — stands.
+ *   REVIEWER DETAIL     who applied, the decision history without reviewer identity, who must act.
  */
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +38,9 @@ const { migrationUpSql } = await import('./helpers/pgliteLedgerHarness.js');
 const { app } = await import('../server.js');
 const { supabase } = await import('../db/supabase.js');
 const { buildSessionRow } = await import('../services/auth/sessionRow.js');
-const { approvalBlockers, identityPrerequisite, recordDecision } = await import('../services/garageOnboarding/garageReviewService.js');
+const {
+  approvalBlockers, identityPrerequisite, recordDecision, whoMustAct, getApplicationForReview,
+} = await import('../services/garageOnboarding/garageReviewService.js');
 const { getMyApplication, startApplication, submitApplication } = await import('../services/garageOnboarding/garageApplicationService.js');
 
 const FUTURE = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
@@ -384,4 +387,51 @@ test('service: a profile sync that fails is logged, and the decision — the aut
     assert.ok(logged.slice(before).some((line) => /onboarding_status/.test(line) && line.includes(row.id)),
       `${label}: the failed sync is reported, naming the application`);
   }
+});
+
+// ── REVIEWER DETAIL ──────────────────────────────────────────────────────────────────────────────
+
+test('rules: who must act next, for every state a reviewer can see', () => {
+  assert.equal(whoMustAct({ status: 'submitted' }), 'carup_review');
+  assert.equal(whoMustAct({ status: 'under_review' }), 'carup_review');
+  assert.equal(whoMustAct({ status: 'information_required' }), 'applicant');
+  assert.equal(whoMustAct({ status: 'rejected' }), 'none');
+  assert.equal(whoMustAct({ status: 'approved', activated_tenant_id: 't-1' }), 'none');
+  // Approved but the workspace was not built: CarUp still owes the retry (GMO-4) — not "nobody".
+  assert.equal(whoMustAct({ status: 'approved', activated_tenant_id: null }), 'carup_review');
+});
+
+test('shipped: the reviewer sees who applied, the history without reviewer identity, and who must act', async () => {
+  const who = await garageApplicant({ identity: true });
+  const row = await seedSubmittedApplication(db, who, { tradingName: 'Detail Motors' });
+  let view = await call(`/api/admin/garage-applications/${row.id}`, { who: REVIEWER });
+  assert.equal(view.status, 200, view.text);
+  const { rows: [person] } = await db.query('SELECT name, email FROM users WHERE id = $1', [who]);
+  assert.deepEqual(view.body.applicant, { user_id: who, name: person.name, email: person.email });
+  assert.equal(view.body.who_must_act, 'carup_review');
+  assert.deepEqual(view.body.decisions, []);
+
+  assert.equal((await decideAsReviewer(row.id, { decision: 'request_more_info', reason: REASON_INFO, reason_code: 'signage_unreadable' })).status, 201);
+  view = await call(`/api/admin/garage-applications/${row.id}`, { who: REVIEWER });
+  assert.equal(view.body.who_must_act, 'applicant');
+  assert.equal(view.body.decisions.length, 1);
+  assert.deepEqual(Object.keys(view.body.decisions[0]).sort(), ['actor_role', 'created_at', 'decision', 'id', 'reason', 'reason_code']);
+  assert.deepEqual(
+    [view.body.decisions[0].decision, view.body.decisions[0].reason, view.body.decisions[0].reason_code, view.body.decisions[0].actor_role],
+    ['request_more_info', REASON_INFO, 'signage_unreadable', 'admin'],
+  );
+  assert.ok(!JSON.stringify(view.body.decisions).includes(REVIEWER), 'the history names a role, never the reviewer');
+
+  await db.query(`UPDATE garage_applications SET status = 'submitted' WHERE id = $1`, [row.id]);
+  assert.equal((await decideAsReviewer(row.id, { decision: 'reject', reason: REASON_REJECT })).status, 201);
+  view = await call(`/api/admin/garage-applications/${row.id}`, { who: REVIEWER });
+  assert.equal(view.body.who_must_act, 'none');
+  assert.deepEqual(view.body.decisions.map((d) => d.decision), ['reject', 'request_more_info'], 'newest first, every decision kept');
+});
+
+test('service: an applicant summary that cannot be read fails the read — it is never shown as "nobody"', async () => {
+  const who = await garageApplicant({ identity: true });
+  const row = await seedSubmittedApplication(db, who, { tradingName: 'Unreadable Applicant Motors' });
+  const client = faultyOver('users', () => answering({ data: null, error: { message: 'users unavailable' } }));
+  await assert.rejects(getApplicationForReview(client, row.id), /Could not load the applicant/);
 });

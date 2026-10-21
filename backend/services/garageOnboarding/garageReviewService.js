@@ -140,28 +140,76 @@ export async function applicantIdentityPrerequisite(client = defaultClient, appl
 }
 
 /**
+ * Who holds the application now (DESIGN.md §17: the responsible party). An approved application whose
+ * workspace was not built is still CarUp's: the reviewer owes the activation retry (GMO-4), so it is
+ * not "nobody".
+ */
+export function whoMustAct(application = {}) {
+  switch (application.status) {
+    case 'submitted':
+    case 'under_review':
+      return 'carup_review';
+    case 'information_required':
+      return 'applicant';
+    case 'approved':
+      return application.activated_tenant_id ? 'none' : 'carup_review';
+    case 'rejected':
+      return 'none';
+    default:
+      return null;
+  }
+}
+
+/** The history a reviewer reads: what was decided, why, and in which role — never which reviewer. */
+const HISTORY_COLUMNS = 'id, decision, reason_code, reason, actor_role, created_at';
+
+/**
  * Everything a reviewer needs to decide, gathered in one read.
  *
  * The applicant's identity assurance is included because PO-2 makes governed person-identity
  * approval a prerequisite for activation. It is O2's answer (identity_assurance.v1), consumed here —
  * never re-derived, and never inferred from the application's own contents.
+ *
+ * SVC-004: who applied (their account's name and email — the application itself names only a user
+ * id), and who must act next. A summary that cannot be read fails the read; it is never shown as an
+ * applicant nobody knows.
  */
 export async function getApplicationForReview(client = defaultClient, applicationId, deps = {}) {
   const application = await loadVisibleApplication(client, applicationId);
 
   const { data: decisions, error: decisionsError } = await client
     .from('garage_application_decisions')
-    .select('*')
+    .select(HISTORY_COLUMNS)
     .eq('application_id', applicationId)
     .order('created_at', { ascending: false });
   if (decisionsError) throw new DatabaseError(`Could not load this application's history: ${decisionsError.message}`);
+
+  const { data: applicantRow, error: applicantError } = await client
+    .from('users')
+    .select('id, name, email')
+    .eq('id', application.applicant_user_id)
+    .maybeSingle();
+  if (applicantError) throw new DatabaseError(`Could not load the applicant: ${applicantError.message}`);
 
   const documents = await listEvidence(client, applicationId, { includeRemoved: true });
   const { identity, identityError } = await readIdentity(client, application.applicant_user_id, deps);
 
   return {
     application,
-    decisions: decisions || [],
+    applicant: {
+      user_id: application.applicant_user_id,
+      name: applicantRow?.name || null,
+      email: applicantRow?.email || null,
+    },
+    decisions: (decisions || []).map((d) => ({
+      id: d.id,
+      decision: d.decision,
+      reason_code: d.reason_code ?? null,
+      reason: d.reason ?? null,
+      actor_role: d.actor_role ?? null,
+      created_at: d.created_at,
+    })),
+    who_must_act: whoMustAct(application),
     documents,
     identity,
     identity_error: identityError,
