@@ -301,6 +301,8 @@ jobs:
             "production_touched": "NO"
           }
           EOF
+          # Credential material is runtime-only. Never place it in the evidence artifact.
+          rm -f "$OUT/native-proof.env"
 
       - name: Upload Native visual evidence
         if: always()
