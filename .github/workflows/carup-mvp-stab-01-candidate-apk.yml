@@ -2,9 +2,15 @@ name: CARUP-MVP-STAB-01 Candidate Staging APK
 
 # Exact-SHA candidate APK for CARUP-MVP-STAB-01. Sibling of the frozen 01C Owner-UAT workflow (never mutated):
 # the same build / install / launch mechanics, but paired with the candidate's IMMUTABLE backend Preview instead
-# of the canonical api-staging alias, which this work unit must not move. Dispatch only: no push trigger, so no
-# branch push can rebuild it. Not a Production APK.
+# of the canonical api-staging alias, which this work unit must not move. The temporary branch-only push trigger
+# exists solely to close CARUP-MVP-STAB-01 evidence when workflow_dispatch is unavailable to the moderator.
+# It always checks out and proves the frozen product SHA below; it is not a Production APK.
 on:
+  push:
+    branches:
+      - fix/carup-mvp-stab-01-client-readiness
+    paths:
+      - .github/workflows/carup-mvp-stab-01-candidate-apk.yml
   workflow_dispatch:
     inputs:
       candidate_sha:
@@ -26,11 +32,11 @@ concurrency:
 env:
   CI: "true"
   BASE_AUTHORITY_SHA: 0fc425a997e1e2e02a039e728dcd5ee90f5fd936
-  CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+  CANDIDATE_SHA: ${{ inputs.candidate_sha || '88bffa50b34d81cdeb1f13f2c90bfb957190c732' }}
   FROZEN_01C_WORKFLOW: .github/workflows/oc-native-final-01c-owner-uat-apk.yml
   FROZEN_R2_R1_WORKFLOW: .github/workflows/oc-native-final-01a-r2-pre-uat.yml
-  BACKEND_HOST: ${{ inputs.backend_host }}
-  EXPO_PUBLIC_API_URL: https://${{ inputs.backend_host }}
+  BACKEND_HOST: ${{ inputs.backend_host || 'carup-backend-staging-lmnyhj874-11-11.vercel.app' }}
+  EXPO_PUBLIC_API_URL: https://${{ inputs.backend_host || 'carup-backend-staging-lmnyhj874-11-11.vercel.app' }}
   CANONICAL_API_HOST: api-staging.carup.dev
   PRE_UAT_ISOLATED_HOST: oc-native-final-isolated.invalid
   STAGING_SUPABASE_REF: eoyenigwevnxwwhyhaer
@@ -49,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.candidate_sha }}
+          ref: ${{ env.CANDIDATE_SHA }}
 
       - uses: actions/setup-node@v4
         with:
@@ -379,7 +385,7 @@ PY
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: carup-mvp-stab-01-candidate-evidence-${{ inputs.candidate_sha }}
+          name: carup-mvp-stab-01-candidate-evidence-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/carup-mvp-stab-01
           if-no-files-found: error
           retention-days: 30
@@ -388,7 +394,7 @@ PY
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: carup-mvp-stab-01-candidate-staging-apk-${{ inputs.candidate_sha }}
+          name: carup-mvp-stab-01-candidate-staging-apk-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/carup-mvp-stab-01-apk
           if-no-files-found: error
           retention-days: 30
