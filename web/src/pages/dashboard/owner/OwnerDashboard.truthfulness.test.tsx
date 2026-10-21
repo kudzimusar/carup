@@ -46,6 +46,23 @@ function renderFreshDashboard() {
   return render(<MemoryRouter><OwnerDashboard /></MemoryRouter>)
 }
 
+/** One row exactly as `/api/safepay/list` returns it (toPublicMarketplaceEscrowSession). */
+function safePaySession(status: string, listingAmount: number | null, listingCurrency: string | null = 'USD') {
+  return {
+    transaction_intent_id: `tx-${status}-${listingAmount}`,
+    vin: 'TESTVINSAFEPAY001',
+    status,
+    listing_amount: listingAmount,
+    listing_currency: listingCurrency,
+    gate_reasons: [],
+    payment_state: 'not_started',
+    reservation_state: null,
+    deposit_eligibility: null,
+    created_at: '2026-10-20T00:00:00.000Z',
+    updated_at: '2026-10-20T00:00:00.000Z',
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   // A brand-new account: every authoritative source is legitimately empty.
@@ -108,14 +125,19 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     expect(SRC).not.toMatch(/month:\s*'Jan'/)
   })
 
-  it('renders the real escrow total once the authoritative call resolves', async () => {
+  // CARUP-MVP-STAB-01 F-024: these rows used to be `{ id, amount, currency }` — a shape
+  // `/api/safepay/list` stopped returning in Issue #164 Phase 6. The mock agreed with the card and
+  // disagreed with the API, which is how a card that always read $0 stayed green. The rows are now the
+  // live public projection (`toPublicMarketplaceEscrowSession`).
+  it('states the in-progress SafePay purchases from the live session shape', async () => {
     fetchSafePayEscrows.mockResolvedValue([
-      { id: 'e1', amount: 1200, currency: 'USD' },
-      { id: 'e2', amount: 800, currency: 'USD' },
+      safePaySession('initiated', 1200),
+      safePaySession('funds_held', 800),
     ])
     renderFreshDashboard()
 
-    await waitFor(() => expect(screen.getByTestId('escrow-usd-value').textContent).toContain('$2,000'))
+    await waitFor(() => expect(screen.getByTestId('safepay-summary-value').textContent).toBe('2 in progress'))
+    expect(screen.getByTestId('safepay-summary-detail').textContent).toBe('Listing value USD 2,000')
   })
 
   it('does not flash demo data before the escrow request settles', async () => {
@@ -124,7 +146,8 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
 
     const { container } = renderFreshDashboard()
     // Before the request resolves the card must read as loading, never as a balance.
-    expect(screen.getByTestId('escrow-usd-value').textContent).toMatch(/Loading/i)
+    expect(screen.getByTestId('safepay-summary-value').textContent).toMatch(/Loading/i)
+    expect(screen.getByTestId('safepay-card').textContent).not.toMatch(/\d/)
     const text = container.textContent || ''
     for (const forbidden of FORBIDDEN_RENDERED) {
       expect(text).not.toContain(forbidden)
@@ -132,11 +155,13 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     release([])
   })
 
-  it('reports escrow as unavailable when the authoritative call fails', async () => {
+  it('reports SafePay as unavailable when the authoritative call fails — never as a zero', async () => {
     fetchSafePayEscrows.mockRejectedValue(new Error('backend down'))
     renderFreshDashboard()
 
-    await waitFor(() => expect(screen.getByTestId('escrow-usd-value').textContent).toMatch(/Not available/i))
+    await waitFor(() => expect(screen.getByTestId('safepay-summary-detail').textContent).toBe('SafePay status could not be loaded'))
+    expect(screen.getByTestId('safepay-summary-value').textContent).toMatch(/Not available/i)
+    expect(screen.getByTestId('safepay-card').textContent).not.toMatch(/\d/)
   })
 
   it('does not leak another user\'s records: only this session\'s scoped calls are made', async () => {
@@ -378,5 +403,64 @@ describe('OwnerDashboard notifications — unknown is not zero (SJO-5)', () => {
     renderFreshDashboard()
 
     await waitFor(() => expect(screen.getByText('1 new')).toBeTruthy())
+  })
+})
+
+/**
+ * CARUP-MVP-STAB-01 F-024 — the SafePay card states only what the live session list supports.
+ *
+ * It summed `e.amount` where `e.currency === 'USD'`, fields the API does not return, so every owner
+ * read "$0"; and it labelled every session — settled and cancelled ones included — an "active
+ * purchase escrow". Loading, a failed read, a successful empty read and real purchases are now four
+ * different statements, and only sessions that can still move count as in progress.
+ */
+describe('OwnerDashboard SafePay card — live shape, in-progress only (CARUP-MVP-STAB-01 F-024)', () => {
+  it('a successful empty read says "No SafePay purchases yet" — not $0', async () => {
+    fetchSafePayEscrows.mockResolvedValue([])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('safepay-summary-value').textContent).toBe('No SafePay purchases yet'))
+    expect(screen.getByTestId('safepay-card').textContent).not.toMatch(/\$|\d/)
+  })
+
+  it('settled and cancelled sessions are not counted, or priced, as in progress', async () => {
+    fetchSafePayEscrows.mockResolvedValue([
+      safePaySession('initiated', 1200),
+      safePaySession('settled', 5000),
+      safePaySession('cancelled', 9000),
+    ])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('safepay-summary-value').textContent).toBe('1 in progress'))
+    expect(screen.getByTestId('safepay-summary-detail').textContent).toBe('Listing value USD 1,200 · 2 completed or closed')
+    expect(screen.getByTestId('safepay-card').textContent).not.toMatch(/active/i)
+  })
+
+  it('only closed sessions: none in progress, and the closed ones are still acknowledged', async () => {
+    fetchSafePayEscrows.mockResolvedValue([safePaySession('settled', 5000), safePaySession('refunded', 300)])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('safepay-summary-value').textContent).toBe('None in progress'))
+    expect(screen.getByTestId('safepay-summary-detail').textContent).toBe('2 completed or closed SafePay purchases')
+    expect(screen.getByTestId('safepay-card').textContent).not.toMatch(/\$|5,000|300/)
+  })
+
+  it('keeps currencies apart and never prices an unpriced session as 0', async () => {
+    fetchSafePayEscrows.mockResolvedValue([
+      safePaySession('initiated', 1200, 'USD'),
+      safePaySession('eligible', 1500000, 'JPY'),
+      safePaySession('pending_eligibility', null),
+    ])
+    renderFreshDashboard()
+
+    await waitFor(() => expect(screen.getByTestId('safepay-summary-value').textContent).toBe('3 in progress'))
+    expect(screen.getByTestId('safepay-summary-detail').textContent)
+      .toBe('Listing value USD 1,200 · JPY 1,500,000 · 1 without a recorded price')
+  })
+
+  it('the source reads listing_amount/listing_currency and no longer sums a USD-only amount', () => {
+    expect(SRC).toContain('readSafePaySessions')
+    expect(SRC).not.toMatch(/e\.currency === 'USD'/)
+    expect(SRC).not.toMatch(/active purchase escrow/)
   })
 })

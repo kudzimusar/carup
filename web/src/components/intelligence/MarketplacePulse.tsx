@@ -7,20 +7,25 @@
  * nothing more. Every figure goes through `displayMetric`, so a metric the
  * backend marked unavailable shows words, never 0 — an owner must be able to tell
  * "nobody came" from "we could not measure".
+ *
+ * CARUP-MVP-STAB-01 F-027: with no rollup scheduler, "never computed" is the normal MVP state for
+ * an owner with vehicles, and the backend's envelope message calls it "could not be read". The
+ * wording now follows the envelope's REASON (describePulseNotice): not computed yet is "Not
+ * available yet", and only a real read failure is stated as a failure.
  */
 import { useEffect, useState } from 'react'
-import { TrendingUp, AlertCircle } from 'lucide-react'
+import { TrendingUp, AlertCircle, Clock } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
   displayMetric,
   hasValue,
   metricQualifier,
   envelopeIsReadable,
-  envelopeMessage,
   formatAsOf,
   coverageNote,
   type IntelligenceEnvelope,
 } from '@/lib/intelligenceDisplay'
+import { describePulseNotice } from '@/lib/marketplacePulseState'
 
 /** The four figures the plan puts on a seller's pulse, in its order. */
 const PULSE_METRICS: Array<{ key: string; label: string }> = [
@@ -86,16 +91,18 @@ export default function MarketplacePulse({ windowDays = 7 }: { windowDays?: 7 | 
   }
 
   if (state === 'failed' || !envelopeIsReadable(payload)) {
+    // A failed request is a failure; an unreadable envelope is classified by its reason.
+    const notice = describePulseNotice(state === 'failed' ? null : payload)
+    const Icon = notice.kind === 'failed' ? AlertCircle : Clock
     return (
-      <section className="rounded-xl border bg-white p-5" data-testid="marketplace-pulse-unavailable">
+      <section className="rounded-xl border bg-white p-5" data-testid="marketplace-pulse-unavailable" data-state={notice.kind}>
         <h3 className="text-sm font-semibold text-gray-700">Marketplace Pulse</h3>
         <p className="mt-2 flex items-start gap-2 text-sm text-gray-600">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
-          <span data-testid="marketplace-pulse-message">
-            {state === 'failed'
-              ? 'Intelligence could not be loaded. These figures are NOT zero.'
-              : envelopeMessage(payload)}
-          </span>
+          <Icon
+            className={`mt-0.5 h-4 w-4 shrink-0 ${notice.kind === 'failed' ? 'text-amber-500' : 'text-gray-400'}`}
+            aria-hidden="true"
+          />
+          <span data-testid="marketplace-pulse-message">{notice.message}</span>
         </p>
       </section>
     )

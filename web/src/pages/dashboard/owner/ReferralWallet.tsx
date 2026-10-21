@@ -85,6 +85,19 @@ function shortTransactionSuffix(id?: string | null): string {
   return value.slice(-4)
 }
 
+/**
+ * CARUP-MVP-STAB-01 F-025 — an account has no wallet row until its first benefit, and the wallet read
+ * answers that with 404 RESOURCE_NOT_FOUND. That is the normal first-use state, not a failure; it
+ * was printed as the raw "Referral wallet not found." error. Only that exact answer qualifies: any
+ * other 404 (a missing route, say) and every other failure is still an error.
+ */
+function isNoWalletYet(err: unknown): boolean {
+  const failure = err as { status?: unknown; code?: unknown } | null
+  return Boolean(failure && failure.status === 404 && failure.code === 'RESOURCE_NOT_FOUND')
+}
+
+const FIRST_USE_COPY = 'No referral benefits yet. Share your code to start earning — benefits stay pending until they are approved (they never mature from signup alone).'
+
 function disputeTransactionOptionLabel(tx: ReferralWalletTransaction): string {
   const label = tx.reason || tx.event_type || 'Referral benefit'
   const amount = money(tx.amount, tx.currency || 'USD')
@@ -110,6 +123,8 @@ export default function ReferralWallet() {
   const [settled, setSettled] = useState<number | undefined>(undefined)
   const [transactions, setTransactions] = useState<ReferralWalletTransaction[]>([])
   const [walletError, setWalletError] = useState<string | null>(null)
+  // No wallet row yet (F-025): nothing has been earned, so there is no balance to state.
+  const [walletMissing, setWalletMissing] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const [code, setCode] = useState('')
@@ -130,6 +145,7 @@ export default function ReferralWallet() {
     if (!userId) return
     setLoading(true)
     setWalletError(null)
+    setWalletMissing(false)
     try {
       const res = await getReferralWallet(userId)
       const w = res.wallet
@@ -145,7 +161,15 @@ export default function ReferralWallet() {
       setSettled(w?.paid_or_applied_balance)
       setTransactions(res.transactions ?? [])
     } catch (err) {
-      setWalletError(err instanceof Error ? err.message : 'Could not load your referral wallet.')
+      if (isNoWalletYet(err)) {
+        setPending(undefined)
+        setApproved(undefined)
+        setSettled(undefined)
+        setTransactions([])
+        setWalletMissing(true)
+      } else {
+        setWalletError(err instanceof Error ? err.message : 'Could not load your referral wallet.')
+      }
     } finally {
       setLoading(false)
     }
@@ -302,12 +326,14 @@ export default function ReferralWallet() {
             <h2 className="font-semibold">Benefit Wallet</h2>
           </div>
           {walletError ? (
-            <p className="text-sm text-red-600">{walletError}</p>
+            <p className="text-sm text-red-600" data-testid="referral-wallet-error">{walletError}</p>
           ) : loading ? (
             <p className="text-sm text-gray-500">Loading your wallet…</p>
+          ) : walletMissing ? (
+            <p className="text-sm text-gray-500" data-testid="referral-wallet-first-use">{FIRST_USE_COPY}</p>
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-3 gap-4 mb-6" data-testid="referral-wallet-balances">
                 <div className="rounded-xl bg-gray-50 p-4">
                   <p className="text-xs text-gray-500 uppercase tracking-wide">Approved</p>
                   <p className="text-xl font-bold text-green-600">{money(approved)}</p>
@@ -332,7 +358,7 @@ export default function ReferralWallet() {
               )}
 
               {transactions.length === 0 ? (
-                <p className="text-sm text-gray-500">No referral benefits yet. Share your code to start earning — benefits stay pending until they are approved (they never mature from signup alone).</p>
+                <p className="text-sm text-gray-500">{FIRST_USE_COPY}</p>
               ) : (
                 <div className="space-y-2">
                   {transactions.map((tx) => (
