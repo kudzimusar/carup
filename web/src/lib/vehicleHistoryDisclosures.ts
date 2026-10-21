@@ -149,6 +149,29 @@ export function parseFinanceDisclosure(raw: unknown): FinanceDisclosure | null {
   return value
 }
 
+export type SellerDisclosureTopic = 'accident' | 'insurance' | 'finance'
+
+/**
+ * The statement the SERVER stores for a submitted disclosure — backend normalize*Disclosure,
+ * mirrored: `state` (and `finance_type`) trimmed, blank detail values and empty accident events
+ * dropped, accident events kept only for `yes`, an insurer only for `insured`. `null` = nothing
+ * stored. Seller Studio compares a save receipt through this on BOTH sides (CARUP-MVP-STAB-01
+ * F-009), so "saved" means the same statement is stored rather than the same bytes came back.
+ */
+export function normalizeSellerDisclosure(
+  topic: SellerDisclosureTopic,
+  raw: unknown,
+): AccidentDisclosure | InsuranceDisclosure | FinanceDisclosure | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const candidate = { ...(raw as Record<string, unknown>) }
+  for (const key of ['state', 'finance_type']) {
+    if (typeof candidate[key] === 'string') candidate[key] = (candidate[key] as string).trim()
+  }
+  if (topic === 'accident') return parseAccidentDisclosure(candidate)
+  if (topic === 'insurance') return parseInsuranceDisclosure(candidate)
+  return parseFinanceDisclosure(candidate)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // GOVERNED finance obligation / encumbrance (Track 1). The counterpart to the SELLER-STATED
 // block above, and deliberately a separate type: the payload attributes them differently
