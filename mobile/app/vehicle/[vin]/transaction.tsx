@@ -28,6 +28,7 @@ import {
 } from '../../../utils/buyerJourneyApi';
 import { nativeCanonicalObjectHref } from '../../../utils/nativeObjectRouting';
 import { radius, spacing, typeScale, useNativeTheme } from '../../../theme/tokens';
+import { depositEligibilitySummary } from '@shared/transaction/depositEligibilityCopy';
 
 function titleCase(value: string | null | undefined): string {
   const normalized = String(value || '').trim();
@@ -328,7 +329,7 @@ function BuyerTransactionScreenInner() {
                 title={eligibility.eligibility === 'eligible' ? 'Deposit eligible' : 'Deposit not eligible'}
                 body={eligibility.eligibility === 'eligible'
                   ? `CarUp allows a deposit of ${eligibility.currency || ''} ${eligibility.amount ?? ''}. No money is held yet — this is only an eligibility check.`.trim()
-                  : `CarUp declined deposit eligibility: ${eligibility.reasons.join(', ') || 'reason unavailable'}.`}
+                  : depositEligibilitySummary(eligibility.reasons)}
                 tone={eligibility.eligibility === 'eligible' ? 'success' : 'warning'}
               />
             ) : null}
