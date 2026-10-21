@@ -140,6 +140,7 @@ const GarageWorkspace = lazy(() => import('./pages/dashboard/garage/GarageWorksp
 const GarageCaseDetail = lazy(() => import('./pages/dashboard/garage/GarageCaseDetail'))
 const GarageCustomers = lazy(() => import('./pages/dashboard/garage/GarageCustomers'))
 const GarageProfileEditor = lazy(() => import('./pages/dashboard/garage/GarageProfileEditor'))
+const GarageOperations = lazy(() => import('./pages/dashboard/garage/GarageOperations'))
 const WorkOrders = lazy(() => import('./pages/dashboard/mechanic/WorkOrders'))
 const ServiceLogs = lazy(() => import('./pages/dashboard/mechanic/ServiceLogs'))
 const PartsTracking = lazy(() => import('./pages/dashboard/mechanic/PartsTracking'))
@@ -512,6 +513,8 @@ export default function App() {
           <Route path="/garage/cases/:caseId" element={<GarageCaseDetail />} />
           <Route path="/garage/customers" element={<GarageCustomers />} />
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
+          {/* GARAGE-1.0 OPS01: multi-site and workforce operating metadata; Garage admins only. */}
+          <Route path="/garage/operations" element={<GarageOperations />} />
           {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
           <Route path="/garage/team" element={<GarageTeam />} />
         </Route>
