@@ -1,4 +1,5 @@
 import { CommunicationApiError, getCommunicationPreferences, updateCommunicationPreferences } from './communicationApi';
+import type { ChannelAvailability } from '@shared/communication/channelReadiness';
 
 /**
  * OC-NATIVE-FINAL-02-R1 D2 — delivery preferences are read, never assumed.
@@ -85,6 +86,15 @@ export function preferenceViewState({
 
 export function canMutatePreferences(view: PreferenceViewState): view is Extract<PreferenceViewState, { state: 'READY' }> {
   return view.state === 'READY';
+}
+
+/**
+ * CARUP-MVP-STAB-01 F-018 — a delivery preference switch is operable only when both hold: the current
+ * values were read (D2), and CarUp's health reading says the channel can deliver right now. A saved
+ * preference is never provider readiness.
+ */
+export function canChangeChannelPreference(view: PreferenceViewState, availability: ChannelAvailability): boolean {
+  return canMutatePreferences(view) && availability === 'available';
 }
 
 export async function savePreferenceChange(

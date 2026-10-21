@@ -10,6 +10,7 @@ import {
   StatusPill,
 } from '../../components/ui/NativePrimitives';
 import {
+  canChangeChannelPreference,
   PreferenceMutationBlockedError,
   preferenceFailureCopy,
   preferenceViewState,
@@ -18,6 +19,7 @@ import {
   shouldRetryPreferenceRead,
   type CommunicationPreferences,
 } from '../../utils/communicationPreferences';
+import { channelSwitchPresentation, useChannelReadiness } from '../../utils/channelReadiness';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import { useAuthStore } from '../../store/authStore';
 import { useFeatureGovernanceStore } from '../../store/featureGovernanceStore';
@@ -25,8 +27,8 @@ import { evaluateNativeRouteAccess } from '../../navigation/evaluateNativeRouteA
 
 const CHANNELS = [
   { key: 'push_enabled', label: 'Push', note: 'Device notifications' },
-  { key: 'whatsapp_enabled', label: 'WhatsApp', note: 'Delivery when this channel is available' },
-  { key: 'telegram_enabled', label: 'Telegram', note: 'Delivery when this channel is available' },
+  { key: 'whatsapp_enabled', label: 'WhatsApp', note: 'WhatsApp delivery' },
+  { key: 'telegram_enabled', label: 'Telegram', note: 'Telegram delivery' },
   { key: 'email_enabled', label: 'Email', note: 'Email delivery' },
 ] as const;
 
@@ -55,6 +57,8 @@ export default function AccountScreen() {
     data: preferenceQuery.data,
     error: preferenceQuery.error,
   });
+  // CARUP-MVP-STAB-01 F-018: a switch works only for a channel CarUp can deliver on right now.
+  const readiness = useChannelReadiness({ enabled: !loading && isAuthenticated && user?.role === 'owner' });
 
   if (loading) {
     return (
@@ -97,7 +101,7 @@ export default function AccountScreen() {
   const canUseReferrals = canUse('/dashboard/referral', 'owner.referrals');
 
   const saveChannel = async (key: string, value: boolean) => {
-    if (savingChannel) return;
+    if (savingChannel || !channelSwitchPresentation(readiness, key).enabled) return;
     setPreferenceError(null);
     setSavingChannel(key);
     try {
@@ -179,33 +183,48 @@ export default function AccountScreen() {
             })()
           ) : (
             <View style={{ marginTop: spacing[3] }}>
-              {CHANNELS.map((channel) => (
-                <View
-                  key={channel.key}
-                  style={{
-                    minHeight: 64,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: spacing[4],
-                    borderBottomWidth: 1,
-                    borderBottomColor: theme.border.default,
-                    paddingVertical: spacing[2],
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>{channel.label}</Text>
-                    <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>{channel.note}</Text>
+              {CHANNELS.map((channel) => {
+                const delivery = channelSwitchPresentation(readiness, channel.key);
+                const changeable = canChangeChannelPreference(preferenceView, delivery.availability);
+                const disabled = Boolean(savingChannel) || !changeable;
+                return (
+                  <View
+                    key={channel.key}
+                    style={{
+                      minHeight: 64,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: spacing[4],
+                      borderBottomWidth: 1,
+                      borderBottomColor: theme.border.default,
+                      paddingVertical: spacing[2],
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>{channel.label}</Text>
+                      {delivery.enabled ? (
+                        <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>{channel.note}</Text>
+                      ) : (
+                        <>
+                          <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.secondary, marginTop: 2 }}>{delivery.statusLabel}</Text>
+                          {delivery.explanation ? (
+                            <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>{delivery.explanation}</Text>
+                          ) : null}
+                        </>
+                      )}
+                    </View>
+                    <Switch
+                      accessibilityLabel={`${channel.label} delivery`}
+                      accessibilityHint={delivery.enabled ? undefined : [delivery.statusLabel, delivery.explanation].filter(Boolean).join('. ')}
+                      accessibilityState={{ disabled }}
+                      disabled={disabled}
+                      value={Boolean(preferenceView.preferences[channel.key])}
+                      onValueChange={(value) => void saveChannel(channel.key, value)}
+                    />
                   </View>
-                  <Switch
-                    accessibilityLabel={`${channel.label} delivery`}
-                    accessibilityState={{ disabled: Boolean(savingChannel) }}
-                    disabled={Boolean(savingChannel)}
-                    value={Boolean(preferenceView.preferences[channel.key])}
-                    onValueChange={(value) => void saveChannel(channel.key, value)}
-                  />
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
