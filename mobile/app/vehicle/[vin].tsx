@@ -465,7 +465,7 @@ function VehicleDetailScreenInner() {
               onPress={() => router.push(`/vehicle/${encodeURIComponent(vehicle.vin)}/transaction` as never)}
             />
             <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
-              Both continue with VIN {vehicle.vin}. Transaction, payment and ownership status come from CarUp backend authority, not this screen.
+              Both continue with VIN {vehicle.vin}. CarUp shows the real reservation, payment and ownership status on those screens.
             </Text>
           </View>
 

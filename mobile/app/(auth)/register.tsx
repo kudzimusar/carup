@@ -68,7 +68,7 @@ export default function RegisterScreen() {
         <View className="mb-10 items-center">
           <Text className="text-3xl font-bold text-slate-900 tracking-tight">Create Account</Text>
           <Text className="text-sm text-slate-500 mt-2 text-center">
-            Sign up to join the multi-tenant automotive registry and fintech platform.
+            Create your CarUp account to buy, sell and look after your vehicles.
           </Text>
         </View>
 
