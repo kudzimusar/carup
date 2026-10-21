@@ -392,6 +392,8 @@ export interface MarketplaceInquiryInput {
   source_channel?: MarketplaceSourceChannel;
   country?: string;
   metadata?: Record<string, unknown>;
+  /** One key per composed message; a repeat with the same key is recorded once (server idempotency). */
+  client_request_id?: string;
 }
 
 /** Public/owner-safe inquiry projection (no internal risk metadata, no assigned operator for guests). */

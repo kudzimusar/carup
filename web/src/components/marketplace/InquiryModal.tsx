@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
@@ -118,8 +118,23 @@ export function InquiryModal({
     ? (user ? 'carup' : firstAvailable ?? chosenContact)
     : chosenContact
 
+  // One idempotency key per composed message: a double click or a retry of the same words is recorded once by
+  // the server; editing the message starts a new key (it is a different message).
+  const requestKeyRef = useRef<{ message: string; key: string } | null>(null)
+  const inFlightRef = useRef(false)
+  const requestKeyFor = (text: string): string => {
+    if (!requestKeyRef.current || requestKeyRef.current.message !== text) {
+      const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+        : Math.random().toString(36).slice(2, 14)
+      requestKeyRef.current = { message: text, key: `web-${Date.now().toString(36)}-${random}` }
+    }
+    return requestKeyRef.current.key
+  }
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (inFlightRef.current) return
     if (!user && !email && !phone) {
       toast.error('Please add an email or phone so the conversation can continue.')
       return
@@ -132,6 +147,7 @@ export function InquiryModal({
       toast.error('Add the email address you want CarUp to use for this inquiry.')
       return
     }
+    inFlightRef.current = true
     setSubmitting(true)
     try {
       const attribution = inquiryAttributionFields('web')
@@ -144,7 +160,9 @@ export function InquiryModal({
         guest_phone: phone || undefined,
         metadata: { preferred_contact: preferredContact, ...(intentMetadata || {}) },
         ...attribution,
+        client_request_id: requestKeyFor(message || ''),
       })
+      requestKeyRef.current = null
       toast.success(sellerResolved
         ? 'Inquiry sent. Continue the conversation safely through CarUp.'
         : 'Request recorded. It has not been sent to a seller or supplier.')
@@ -154,6 +172,7 @@ export function InquiryModal({
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not send inquiry. Please try again.'))
     } finally {
+      inFlightRef.current = false
       setSubmitting(false)
     }
   }
