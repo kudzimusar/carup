@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginSchema } from '@shared/schemas';
 import { useAuthStore } from '../../store/authStore';
 import { fetchCsrfToken, getVerificationApiBaseUrl } from '../../utils/verificationApi';
+import { signInReturnPathFromParam } from '../../utils/vehicleNavigation';
 import { z } from 'zod';
 
 type LoginFormValues = z.infer<typeof LoginSchema>;
@@ -32,6 +33,11 @@ export default function LoginScreen() {
   const router = useRouter();
   const login = useAuthStore((state) => state.login);
   const [serverError, setServerError] = useState<string | null>(null);
+  // CARUP-MVP-STAB-01 F-001 / F-015: sign-in can return to the screen that asked for it (only an
+  // app-internal path), and says so when it opened because a saved session ended.
+  const params = useLocalSearchParams<{ returnTo?: string | string[]; reason?: string | string[] }>();
+  const returnTo = signInReturnPathFromParam(params.returnTo);
+  const sessionEnded = (Array.isArray(params.reason) ? params.reason[0] : params.reason) === 'session_ended';
 
   const { control, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormValues>({
     resolver: zodResolver(LoginSchema),
@@ -80,8 +86,14 @@ export default function LoginScreen() {
       const result = await response.json();
       await login(result.user, result.token);
 
-      // Redirect to main tabs dashboard
-      router.replace('/(tabs)');
+      if (returnTo) {
+        // Back to the screen that asked for sign-in (it is still beneath, so what was typed there
+        // is kept); dismissTo opens it in place if it is not.
+        router.dismissTo(returnTo as never);
+      } else {
+        // Redirect to main tabs dashboard
+        router.replace('/(tabs)');
+      }
     } catch (error: any) {
       setServerError(error.message || 'Network error occurred. Please try again.');
     }
@@ -104,6 +116,14 @@ export default function LoginScreen() {
         <Text style={{ fontSize: 26, fontWeight: '800', color: '#0F172A', marginBottom: 24 }}>
           Sign in to CarUp
         </Text>
+
+        {sessionEnded && !serverError ? (
+          <View style={{ backgroundColor: '#FFF7ED', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FED7AA', marginBottom: 20 }}>
+            <Text style={{ color: '#9A3412', fontSize: 14, fontWeight: '600' }} testID="login-session-ended">
+              Your session ended. Sign in again.
+            </Text>
+          </View>
+        ) : null}
 
         {/* Error banner (if any) */}
         {serverError && (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ import { resolveMarketplaceInquiryConversation } from '../../utils/communication
 import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
 import { vehicleHref } from '../../utils/vehicleNavigation';
 import { useAuthStore } from '../../store/authStore';
+import { markStartupPhase } from '../../utils/nativePerformance';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
 export default function HomeScreen() {
@@ -32,6 +33,12 @@ export default function HomeScreen() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
   const isOwner = !authLoading && isAuthenticated && user?.role === 'owner';
+
+  // CARUP-MVP-STAB-01 F-016: Home counts as rendered for the start-up line only once the session
+  // restoration it waits for has finished.
+  useEffect(() => {
+    if (!authLoading) markStartupPhase('home_rendered');
+  }, [authLoading]);
 
   const marketplaceQuery = useQuery({
     queryKey: ['native-home-marketplace'],

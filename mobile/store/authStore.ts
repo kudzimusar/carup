@@ -6,6 +6,7 @@ import { apiUrl, resolveApiBaseUrl } from '../utils/apiBase';
 import { fetchCsrfToken } from '../utils/verificationApi';
 import { clearIdentityQueryCache } from '../utils/queryClient';
 import { revokeCurrentServerSession } from '../utils/sessionLogout';
+import { fetchWithTimeout, isNativeTimeoutError, markStartupPhase } from '../utils/nativePerformance';
 
 /**
  * Refresh governed feature states after an identity change (login/logout/role
@@ -27,47 +28,93 @@ export interface RoleSwitchResult {
   error?: string;
 }
 
+export type SessionValidity = 'valid' | 'invalid' | 'unknown';
+
+/**
+ * CARUP-MVP-STAB-01 F-015: how long start-up waits for /api/auth/me before treating the answer as
+ * unknown. Android's default HTTP client never times out on its own.
+ */
+export const SESSION_CHECK_TIMEOUT_MS = 8000;
+/** After this long the start-up screen says it is still connecting (before the hard limit). */
+export const STARTUP_SLOW_NOTICE_MS = 6000;
+
+/**
+ * Where session restoration stands:
+ *  - 'restoring'     reading the saved session and asking CarUp about it;
+ *  - 'ready'         confirmed, or nothing saved — the app proceeds;
+ *  - 'session_ended' CarUp refused the saved session: it is cleared and Sign In opens once;
+ *  - 'recovery'      CarUp did not answer: the saved session is kept (unknown is not invalid) and
+ *                    a recovery screen offers Try again — never a signed-in Home it could not confirm.
+ */
+export type SessionRestoration = 'restoring' | 'ready' | 'session_ended' | 'recovery';
+
+export function restorationPhaseFor(result: { storedSession: boolean; validity?: SessionValidity }): Exclude<SessionRestoration, 'restoring'> {
+  if (!result.storedSession) return 'ready';
+  if (result.validity === 'valid') return 'ready';
+  if (result.validity === 'invalid') return 'session_ended';
+  return 'recovery';
+}
+
+export type StartupScreen = 'restoring' | 'restoring_slow' | 'recovery';
+
+/** What the root start-up view shows; null once the app itself can show. */
+export function startupScreenFor(restoration: SessionRestoration, slow: boolean): StartupScreen | null {
+  if (restoration === 'restoring') return slow ? 'restoring_slow' : 'restoring';
+  if (restoration === 'recovery') return 'recovery';
+  return null;
+}
+
 /**
  * Classify a SAVED session token against the backend before trusting it.
  *  - 'valid'   → /api/auth/me accepted the token.
  *  - 'invalid' → 401/403: the token is stale/expired and MUST be purged
  *                (a restored dead session previously stranded the whole
  *                governed dashboard on "Temporarily unavailable").
- *  - 'unknown' → network/config/5xx: cannot judge; keep the session so the
- *                app still opens offline.
+ *  - 'unknown' → network/config/5xx/timeout: cannot judge; keep the saved session.
  */
 export async function validateSessionToken(
   token: string,
   userId: string | undefined,
   fetchImpl: typeof fetch = fetch,
-): Promise<'valid' | 'invalid' | 'unknown'> {
+): Promise<SessionValidity> {
   return (await readSessionUser(token, userId, fetchImpl)).validity;
+}
+
+export interface SessionUserRead {
+  validity: SessionValidity;
+  user: Partial<AuthUser> | null;
+  /** The HTTP status CarUp answered, or null when there was no answer. */
+  status: number | null;
+  /** Why the answer is unknown when there was none. */
+  failure: 'timeout' | 'network' | 'config' | null;
 }
 
 /**
  * The same classification, plus the server's view of the user when the session is valid — so a
  * restored session adopts the server's answer about which organisation it acts for (OC-5D) instead of
  * whatever an older build stored. An unreadable body still counts as 'valid'; the user is then null.
+ * The request is abandoned after `timeoutMs` (CARUP-MVP-STAB-01 F-015).
  */
 export async function readSessionUser(
   token: string,
   userId: string | undefined,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ validity: 'valid' | 'invalid' | 'unknown'; user: Partial<AuthUser> | null }> {
+  timeoutMs: number = SESSION_CHECK_TIMEOUT_MS,
+): Promise<SessionUserRead> {
   let url: string;
   try {
     url = apiUrl('/api/auth/me');
   } catch {
-    return { validity: 'unknown', user: null };
+    return { validity: 'unknown', user: null, status: null, failure: 'config' };
   }
   try {
-    const res = await fetchImpl(url, {
+    const res = await fetchWithTimeout(fetchImpl, url, {
       headers: {
         'ngrok-skip-browser-warning': 'true',
         'x-session-token': token,
         ...(userId ? { 'x-user-id': userId } : {}),
       },
-    });
+    }, timeoutMs);
     if (res.ok) {
       let user: Partial<AuthUser> | null = null;
       try {
@@ -76,12 +123,12 @@ export async function readSessionUser(
       } catch {
         user = null;
       }
-      return { validity: 'valid', user };
+      return { validity: 'valid', user, status: res.status, failure: null };
     }
-    if (res.status === 401 || res.status === 403) return { validity: 'invalid', user: null };
-    return { validity: 'unknown', user: null };
-  } catch {
-    return { validity: 'unknown', user: null };
+    if (res.status === 401 || res.status === 403) return { validity: 'invalid', user: null, status: res.status, failure: null };
+    return { validity: 'unknown', user: null, status: res.status, failure: null };
+  } catch (error) {
+    return { validity: 'unknown', user: null, status: null, failure: isNativeTimeoutError(error) ? 'timeout' : 'network' };
   }
 }
 
@@ -94,8 +141,13 @@ interface AuthState {
   user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
+  /** True until restoration reaches 'ready' or 'session_ended' (it stays true during 'recovery'). */
   loading: boolean;
+  restoration: SessionRestoration;
+  /** Restore the saved session (also "Try again" on the recovery screen); one check at a time. */
   initialize: () => Promise<void>;
+  /** The root layout opened Sign In for an ended session; do not open it again. */
+  acknowledgeSessionEnded: () => void;
   login: (user: AuthUser, token: string) => Promise<void>;
   logout: () => Promise<void>;
   switchRole: (role: UserRole, tenantId?: string) => Promise<RoleSwitchResult>;
@@ -109,30 +161,49 @@ interface AuthState {
 const SECURE_USER_KEY = 'carup_secure_user';
 const SECURE_TOKEN_KEY = 'carup_secure_token';
 
+let restoreInFlight: Promise<void> | null = null;
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
   isAuthenticated: false,
   loading: true,
+  restoration: 'restoring',
 
-  initialize: async () => {
-    try {
-      const savedUserStr = await SecureStore.getItemAsync(SECURE_USER_KEY);
-      const savedToken = await SecureStore.getItemAsync(SECURE_TOKEN_KEY);
+  initialize: () => {
+    if (restoreInFlight) return restoreInFlight;
+    restoreInFlight = (async () => {
+      set({ loading: true, restoration: 'restoring' });
+      try {
+        markStartupPhase('securestore_read_start');
+        const savedUserStr = await SecureStore.getItemAsync(SECURE_USER_KEY);
+        const savedToken = await SecureStore.getItemAsync(SECURE_TOKEN_KEY);
+        markStartupPhase('securestore_read_end');
 
-      if (savedUserStr && savedToken) {
+        if (!savedUserStr || !savedToken) {
+          set({ loading: false, restoration: restorationPhaseFor({ storedSession: false }) });
+          return;
+        }
+
         const savedUser = JSON.parse(savedUserStr) as AuthUser;
         // Session validation contract: never trust a restored token blindly.
         // A stale token used to restore a dead "signed-in" identity whose
         // every governed fetch 401'd — rendering the dashboard permanently
-        // "Temporarily unavailable". Validate first; purge on 401/403; keep
-        // only on confirmed-valid or unreachable-backend (offline tolerance).
-        const { validity, user: serverUser } = await readSessionUser(savedToken, savedUser?.id);
+        // "Temporarily unavailable". Validate first (bounded); purge on 401/403;
+        // keep the saved session when CarUp gives no answer, but do not open the
+        // app on it until CarUp confirms it (CARUP-MVP-STAB-01 F-015).
+        markStartupPhase('auth_me_start');
+        const { validity, user: serverUser, status, failure } = await readSessionUser(savedToken, savedUser?.id);
+        markStartupPhase('auth_me_end', { status, outcome: failure ?? validity });
+        const restoration = restorationPhaseFor({ storedSession: true, validity });
+
         if (validity === 'invalid') {
-          await SecureStore.deleteItemAsync(SECURE_USER_KEY);
-          await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);
-          set({ user: null, token: null, isAuthenticated: false });
-        } else {
+          await Promise.allSettled([
+            SecureStore.deleteItemAsync(SECURE_USER_KEY),
+            SecureStore.deleteItemAsync(SECURE_TOKEN_KEY),
+          ]);
+          set({ user: null, token: null, isAuthenticated: false, loading: false, restoration });
+        } else if (validity === 'valid') {
           // OC-5D: the server's answer about the session's organisation replaces the stored one.
           const user = serverUser ? withServerTenantContext(savedUser, serverUser) : savedUser;
           if (user !== savedUser) await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(user));
@@ -140,17 +211,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             user,
             token: savedToken,
             isAuthenticated: true,
+            loading: false,
+            restoration,
+          });
+        } else {
+          // Unknown is not invalid: keep the saved session, and keep `loading` so no screen acts on
+          // it while the recovery screen offers Try again.
+          set({
+            user: savedUser,
+            token: savedToken,
+            isAuthenticated: true,
+            loading: true,
+            restoration,
           });
         }
+      } catch (error) {
+        console.error('Failed to initialize secure auth store:', error);
+        // Clean up potentially corrupted records
+        await Promise.allSettled([
+          SecureStore.deleteItemAsync(SECURE_USER_KEY),
+          SecureStore.deleteItemAsync(SECURE_TOKEN_KEY),
+        ]);
+        set({ user: null, token: null, isAuthenticated: false, loading: false, restoration: 'ready' });
       }
-    } catch (error) {
-      console.error('Failed to initialize secure auth store:', error);
-      // Clean up potentially corrupted records
-      await SecureStore.deleteItemAsync(SECURE_USER_KEY);
-      await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);
-    } finally {
-      set({ loading: false });
-    }
+    })().finally(() => {
+      restoreInFlight = null;
+    });
+    return restoreInFlight;
+  },
+
+  acknowledgeSessionEnded: () => {
+    if (get().restoration === 'session_ended') set({ restoration: 'ready' });
   },
 
   login: async (user: AuthUser, token: string) => {
@@ -208,6 +299,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       token: null,
       isAuthenticated: false,
     });
+    // CarUp refused the saved session while the recovery screen was up (the feature check answered
+    // 401/403): that is an ended session, so leave recovery and open Sign In.
+    if (get().restoration === 'recovery') set({ loading: false, restoration: 'session_ended' });
 
     // Clear sensitive in-memory verification state (captured ID document images + OCR PII)
     // so it cannot persist across a session change. Lazy-imported to avoid an import cycle.

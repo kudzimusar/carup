@@ -7,6 +7,11 @@
     "orientation": "portrait",
     "scheme": "carup",
     "userInterfaceStyle": "automatic",
+    "backgroundColor": "#050D16",
+    "splash": {
+      "backgroundColor": "#050D16",
+      "resizeMode": "contain"
+    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -14,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#050D16"
       },
       "package": "com.carup.mobile",
       "permissions": [

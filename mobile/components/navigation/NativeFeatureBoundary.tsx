@@ -27,6 +27,7 @@ import {
   isGovernanceReadyForIdentity,
 } from '../../store/featureGovernanceStore';
 import { evaluateNativeRouteAccess } from '../../navigation/evaluateNativeRouteAccess';
+import { useNativeTheme } from '../../theme/tokens';
 
 interface NativeFeatureBoundaryProps {
   route: string;
@@ -105,6 +106,19 @@ function RetryableStateView({
   );
 }
 
+/**
+ * CARUP-MVP-STAB-01 F-016: the wait for a screen's access check sits on the app canvas with the
+ * CarUp accent, not a plain white page.
+ */
+function LoadingView(): React.ReactElement {
+  const theme = useNativeTheme();
+  return (
+    <View style={[styles.center, { backgroundColor: theme.background.canvas }]}>
+      <ActivityIndicator size="large" color={theme.brand.primary} accessibilityLabel="Loading" />
+    </View>
+  );
+}
+
 function BetaBanner(): React.ReactElement {
   return (
     <View style={styles.betaBanner}>
@@ -157,11 +171,7 @@ export function NativeFeatureBoundary({
   // Block a governed route until the CURRENT identity's states are ready.
   if (featureId && !readiness.ready) {
     if (readiness.reason === 'loading') {
-      return (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" />
-        </View>
-      );
+      return <LoadingView />;
     }
     // reason === 'error' — failed identity load: safe + retryable, never un-gated.
     return (
@@ -184,11 +194,7 @@ export function NativeFeatureBoundary({
 
   switch (decision.kind) {
     case 'loading':
-      return (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" />
-        </View>
-      );
+      return <LoadingView />;
 
     case 'render':
       return <>{children}</>;
