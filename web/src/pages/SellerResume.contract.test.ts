@@ -6,6 +6,9 @@ import path from 'node:path'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const guest = readFileSync(path.resolve(here, './GuestSell.tsx'), 'utf8')
 const seller = readFileSync(path.resolve(here, './dashboard/owner/SellVehicle.tsx'), 'utf8')
+// CARUP-MVP-STAB-01 F-009 — the receipt comparison moved out of the page into one shared,
+// unit-tested authority (behaviour: src/lib/sellerDraftReceipt.test.ts).
+const receipt = readFileSync(path.resolve(here, '../lib/sellerDraftReceipt.ts'), 'utf8')
 const garage = readFileSync(path.resolve(here, './dashboard/owner/MyGarage.tsx'), 'utf8')
 const profile = readFileSync(path.resolve(here, './dashboard/owner/VehicleProfile.tsx'), 'utf8')
 const listings = readFileSync(path.resolve(here, './dashboard/owner/MyListings.tsx'), 'utf8')
@@ -45,23 +48,37 @@ describe('Seller resume continuity', () => {
     expect(seller).toContain('serverAutosaveRevision.current += 1')
     expect(seller).toContain("setServerAutosaveState('idle')")
     expect(seller).toContain('if (revision !== serverAutosaveRevision.current) return')
-    expect(seller).toContain('autosaveReceiptMatches(payload, result.draft)')
+    // Both writes Studio makes — draft autosave and the published-listing save — earn "saved" only
+    // through the receipt check.
+    expect(seller.match(/sellerDraftReceiptMatches\(payload, result\.draft\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
     expect(seller).toContain("setServerAutosaveState('saved')")
+    // F-007: loading the listing is not an edit, so it schedules no write.
+    expect(seller).toContain('if (serverAutosaveRevision.current <= serverPersistedRevision.current) return')
   })
 
-  it('requires the server to echo the exact persisted Seller draft before showing saved', () => {
-    expect(seller).toContain('if (!receipt) return false')
-    expect(seller).toContain("['description', 'description']")
-    expect(seller).toContain("['location', 'location']")
-    expect(seller).toContain("['province', 'province']")
-    expect(seller).toContain("['location_visibility', 'location_visibility']")
-    expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'features')")
-    expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'price')")
-    expect(seller).toContain("Object.prototype.hasOwnProperty.call(payload, 'public_seller_display_enabled')")
-    // F18–F20: an answered history disclosure earns "saved" only when the receipt echoes the exact
-    // structured statement — deep equality, same bar as features.
-    expect(seller).toContain("['accident_disclosure', 'insurance_disclosure', 'finance_disclosure'] as const")
-    expect(seller).toContain('JSON.stringify(payload[key] ?? null) !== JSON.stringify(receipt[key] ?? null)')
+  it('requires the server to echo the persisted Seller statement before showing saved', () => {
+    // F-009 — the comparison is by PERSISTED MEANING: the same normaliser on both sides, so a
+    // trimmed, de-duplicated or JSONB-reordered echo is a save and a different value is not.
+    // The exact byte comparison it replaces is the defect (Postgres JSONB reorders keys), so its
+    // spelling is pinned ABSENT; sellerDraftReceipt.test.ts proves every field's mismatch fails.
+    expect(seller).toContain("import { sellerDraftReceiptMatches, type SellerDraftPayload } from '@/lib/sellerDraftReceipt'")
+    expect(seller).not.toContain('function autosaveReceiptMatches(')
+    expect(seller).not.toContain('JSON.stringify(payload[key] ?? null) !== JSON.stringify(receipt[key] ?? null)')
+
+    expect(receipt).toContain('if (!receipt) return false')
+    expect(receipt).toContain("['description', 'description']")
+    expect(receipt).toContain("['location', 'location']")
+    expect(receipt).toContain("['province', 'province']")
+    // Every comparison is gated on the key having been SENT: an absent key is untouched server-side.
+    expect(receipt).toContain('const sent = (key: keyof SellerDraftPayload) => Object.prototype.hasOwnProperty.call(payload, key)')
+    expect(receipt).toContain("sent('location_visibility')")
+    expect(receipt).toContain("sent('features')")
+    expect(receipt).toContain("sent('price')")
+    expect(receipt).toContain("sent('public_seller_display_enabled')")
+    // F18–F20: an answered history disclosure earns "saved" only when the receipt holds the same
+    // structured statement — compared as canonical JSON of the stored form.
+    expect(receipt).toContain("['accident_disclosure', 'insurance_disclosure', 'finance_disclosure'] as const")
+    expect(receipt).toContain('canonicalDisclosureJson(key, payload[key]) !== canonicalDisclosureJson(key, receipt[key])')
   })
 
   it('persists Vehicle History & Obligations disclosures through guest draft, autosave and resume', () => {

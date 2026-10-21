@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,9 +34,14 @@ import {
   type FinanceDisclosure,
   type InsuranceDisclosure,
 } from '@/lib/vehicleHistoryDisclosures'
+import { sellerDraftReceiptMatches, type SellerDraftPayload } from '@/lib/sellerDraftReceipt'
+import { classifySellerSaveFailure, sellerStudioMode, type SellerSaveFailure } from '@/lib/sellerStudioLifecycle'
 
 const YEARS = vehicleYearOptions()
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
+// CARUP-MVP-STAB-01 F-006 — a PUBLISHED listing is not a draft: its last step saves to the live
+// listing, explicitly. Same four steps, so the stage counter and `?stage=review` are unchanged.
+const PUBLISHED_STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & save changes']
 
 const SERVER_AUTOSAVE_FIELDS = new Set([
   'description', 'features', 'category', 'condition', 'price', 'currency',
@@ -44,72 +49,7 @@ const SERVER_AUTOSAVE_FIELDS = new Set([
   'accidentDisclosure', 'insuranceDisclosure', 'financeDisclosure',
 ])
 
-type SellerAutosavePayload = {
-  description?: string
-  features?: string[]
-  body_style?: string
-  seller_stated_condition?: string
-  price?: number
-  currency?: string
-  location?: string
-  province?: string
-  listing_country?: string
-  location_visibility?: 'withheld' | 'province_only' | 'public'
-  public_seller_display_enabled?: boolean
-  accident_disclosure?: AccidentDisclosure
-  insurance_disclosure?: InsuranceDisclosure
-  finance_disclosure?: FinanceDisclosure
-}
-
-function autosaveReceiptMatches(
-  payload: SellerAutosavePayload,
-  receipt: {
-    description: string
-    features: string[]
-    body_style: string
-    seller_stated_condition: string
-    price: number | null
-    currency: string
-    location: string
-    province: string
-    listing_country: string
-    location_visibility: 'withheld' | 'province_only' | 'public'
-    public_seller_display_enabled: boolean
-    accident_disclosure?: AccidentDisclosure | null
-    insurance_disclosure?: InsuranceDisclosure | null
-    finance_disclosure?: FinanceDisclosure | null
-  } | null | undefined,
-) {
-  if (!receipt) return false
-  const sameStrings = [
-    ['description', 'description'],
-    ['body_style', 'body_style'],
-    ['seller_stated_condition', 'seller_stated_condition'],
-    ['currency', 'currency'],
-    ['location', 'location'],
-    ['province', 'province'],
-    ['listing_country', 'listing_country'],
-    ['location_visibility', 'location_visibility'],
-  ] as const
-  for (const [requestKey, receiptKey] of sameStrings) {
-    if (Object.prototype.hasOwnProperty.call(payload, requestKey)
-      && String(payload[requestKey] ?? '') !== String(receipt[receiptKey] ?? '')) return false
-  }
-  if (Object.prototype.hasOwnProperty.call(payload, 'features')) {
-    if (JSON.stringify(payload.features || []) !== JSON.stringify(receipt.features || [])) return false
-  }
-  if (Object.prototype.hasOwnProperty.call(payload, 'price') && Number(payload.price) !== Number(receipt.price)) return false
-  if (Object.prototype.hasOwnProperty.call(payload, 'public_seller_display_enabled')
-    && Boolean(payload.public_seller_display_enabled) !== receipt.public_seller_display_enabled) return false
-  // History disclosures (F18–F20): the receipt must echo the exact structured statement the seller
-  // submitted — the same deep-equality bar features already meet.
-  const sameDisclosures = ['accident_disclosure', 'insurance_disclosure', 'finance_disclosure'] as const
-  for (const key of sameDisclosures) {
-    if (Object.prototype.hasOwnProperty.call(payload, key)
-      && JSON.stringify(payload[key] ?? null) !== JSON.stringify(receipt[key] ?? null)) return false
-  }
-  return true
-}
+const SESSION_ENDED_COPY = 'Your session ended — sign in again to keep saving.'
 
 /**
  * Seller Journey S4 — the shot list buyers actually ask for, in the order it is easiest to walk
@@ -158,10 +98,10 @@ const LISTING_CURRENCIES = [
   { code: 'ZiG', label: 'ZiG — Zimbabwe Gold' },
 ]
 
-function StepIndicator({ step, total }: { step: number; total: number }) {
+function StepIndicator({ step, total, labels }: { step: number; total: number; labels: string[] }) {
   return (
     <div className="flex items-center gap-2 mb-8">
-      {STEPS.map((label, i) => (
+      {labels.map((label, i) => (
         <div key={i} className="flex items-center gap-2 flex-1">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 transition-colors ${i < step ? 'bg-green-500 text-white' : i === step ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
             {i < step ? <CheckCircle className="w-4 h-4" /> : i + 1}
@@ -257,9 +197,17 @@ export default function SellVehicle() {
   // locks the control.
   const [serverStageSource, setServerStageSource] = useState<string | null>(null)
   const [serverDraftError, setServerDraftError] = useState<string | null>(null)
-  const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error' | 'session_ended'>('idle')
   // A late response for revision N must never mark revision N+1 as saved.
   const serverAutosaveRevision = useRef(0)
+  // F-007 — the newest revision the ACCOUNT copy is known to hold: the loaded row (0), a matched
+  // receipt, or a confirmed save. A write is scheduled only for a revision past it — loading the
+  // listing is not an edit, so it no longer sends a PATCH 1.2 s after the page opens.
+  const serverPersistedRevision = useRef(0)
+  // Whether the form holds seller edits the account has not confirmed (state, not a ref read in render).
+  const [unsavedEdits, setUnsavedEdits] = useState(false)
+  // F-006 — the explicit "Save changes to public listing" of a published listing.
+  const [publishedSaveState, setPublishedSaveState] = useState<'idle' | 'saving' | 'saved' | 'error' | 'session_ended'>('idle')
   const modelOptions = modelsForMake(form.make).map(item => item.name)
   // S1: one VIN has one Passport. The authenticated seller either has an established relationship
   // to that Passport or enters the governed seller-authority evidence path.
@@ -400,6 +348,9 @@ export default function SellVehicle() {
         }))
         setCoverImageIndex(primaryIndex >= 0 ? primaryIndex : null)
         setAuthorityState('recognized')
+        // The form now IS the account copy: nothing is owed to the server until the seller edits.
+        serverPersistedRevision.current = serverAutosaveRevision.current
+        setUnsavedEdits(false)
         setServerDraftLoaded(true)
         // Honour ?stage=review HERE, in the callback that loads the draft, rather than in a
         // separate effect that mirrored the same fact. An effect would repaint step 1 first and
@@ -468,52 +419,31 @@ export default function SellVehicle() {
     return () => window.clearTimeout(timer)
   }, [coverImageIndex, form, guestHistoryPlan, namesAccountListing, savedVin, serverDraftLoaded, serverDraftLoading, step])
 
-  // Once an account-scoped server draft exists, it becomes the durable authority for Seller-
-  // commercial/privacy edits. The browser draft remains crash-recovery only; this PATCH cannot
-  // rewrite Passport identity, Trust, Evidence, ownership or publication state.
-  useEffect(() => {
-    if (!serverDraftLoaded || serverDraftLoading || submitting || !isCompleteVin(form.vin)) return
+  // CARUP-MVP-STAB-01 F-006 — the Studio follows the listing's real lifecycle, read from the loaded
+  // account row: 'sold' is closed and read-only, 'published' saves only when the seller says so,
+  // and everything else (including a listing not created yet) is today's draft workspace.
+  const studioMode = serverDraftLoaded ? sellerStudioMode(serverVehicle) : 'draft'
+  const isPublishedListing = studioMode === 'published'
+  const stepLabels = isPublishedListing ? PUBLISHED_STEPS : STEPS
 
-    const revision = serverAutosaveRevision.current
-    const payload: SellerAutosavePayload = {
-      description: form.description,
-      features: form.features,
-      body_style: form.category,
-      seller_stated_condition: form.condition,
-      ...(form.price && Number.isFinite(Number(form.price)) && Number(form.price) > 0 ? { price: Number(form.price) } : {}),
-      ...(form.currency ? { currency: form.currency } : {}),
-      location: form.location,
-      province: form.province,
-      location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
-      public_seller_display_enabled: form.publicSellerDisplay,
-      // Only ANSWERED disclosures travel: an absent key leaves the server value untouched, so an
-      // autosave can never silently retract a stored answer the seller did not change.
-      ...(form.accidentDisclosure ? { accident_disclosure: form.accidentDisclosure } : {}),
-      ...(form.insuranceDisclosure ? { insurance_disclosure: form.insuranceDisclosure } : {}),
-      ...(form.financeDisclosure ? { finance_disclosure: form.financeDisclosure } : {}),
-    }
-
-    const timer = window.setTimeout(() => {
-      // A newer edit superseded this debounced revision before it even left the browser.
-      if (revision !== serverAutosaveRevision.current) return
-      setServerAutosaveState('saving')
-      void updateSellerDraft(form.vin.toUpperCase(), payload)
-        .then((result) => {
-          // A slow older PATCH cannot turn a newer dirty form back into a green "saved" claim.
-          if (revision !== serverAutosaveRevision.current) return
-          if (!result?.success || !autosaveReceiptMatches(payload, result.draft)) {
-            setServerAutosaveState('error')
-            return
-          }
-          setServerAutosaveState('saved')
-        })
-        .catch(() => {
-          if (revision === serverAutosaveRevision.current) setServerAutosaveState('error')
-        })
-    }, 1200)
-
-    return () => window.clearTimeout(timer)
-  }, [
+  // The Seller-commercial statement both saves send: draft autosave and the published-listing save.
+  const sellerDraftPayload = useMemo<SellerDraftPayload>(() => ({
+    description: form.description,
+    features: form.features,
+    body_style: form.category,
+    seller_stated_condition: form.condition,
+    ...(form.price && Number.isFinite(Number(form.price)) && Number(form.price) > 0 ? { price: Number(form.price) } : {}),
+    ...(form.currency ? { currency: form.currency } : {}),
+    location: form.location,
+    province: form.province,
+    location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
+    public_seller_display_enabled: form.publicSellerDisplay,
+    // Only ANSWERED disclosures travel: an absent key leaves the server value untouched, so an
+    // autosave can never silently retract a stored answer the seller did not change.
+    ...(form.accidentDisclosure ? { accident_disclosure: form.accidentDisclosure } : {}),
+    ...(form.insuranceDisclosure ? { insurance_disclosure: form.insuranceDisclosure } : {}),
+    ...(form.financeDisclosure ? { finance_disclosure: form.financeDisclosure } : {}),
+  }), [
     form.accidentDisclosure,
     form.category,
     form.condition,
@@ -527,9 +457,100 @@ export default function SellVehicle() {
     form.price,
     form.province,
     form.publicSellerDisplay,
+  ])
+
+  /**
+   * Re-read this listing from the account and let the Studio follow it. Used when a save is refused
+   * because the listing moved on (published, sold or unpublished elsewhere). Only `serverVehicle` is
+   * replaced — the seller's unsaved edits stay on the page. If the re-read fails, the refusal's own
+   * statement of the lifecycle is used; with neither, nothing is assumed.
+   */
+  const followListingLifecycle = useCallback(async (failure: Extract<SellerSaveFailure, { kind: 'lifecycle_changed' }>) => {
+    let lifecycle: { publication_status?: unknown; status?: unknown } | null = null
+    try {
+      const vehicles = await fetchOwnedVehicles()
+      const vehicle = (vehicles || []).find(item => String(item.vin || '').toUpperCase() === resumeVin)
+      if (vehicle) {
+        setServerVehicle(vehicle)
+        lifecycle = vehicle
+      }
+    } catch { /* fall back to what the refusal itself said */ }
+    if (!lifecycle && (failure.publicationStatus || failure.status)) {
+      lifecycle = { publication_status: failure.publicationStatus ?? undefined, status: failure.status ?? undefined }
+      setServerVehicle(previous => previous ? {
+        ...previous,
+        ...(failure.publicationStatus ? { publication_status: failure.publicationStatus } : {}),
+        ...(failure.status ? { status: failure.status } : {}),
+      } : previous)
+    }
+    if (!lifecycle) return false
+    const mode = sellerStudioMode(lifecycle)
+    toast.info(mode === 'sold'
+      ? 'This vehicle is marked as sold, so its listing is closed and can no longer be edited.'
+      : mode === 'published'
+        ? 'This listing is live on the CarUp Marketplace, so changes are no longer saved automatically. Choose “Save changes to public listing” when you are ready.'
+        : 'This listing is not on the public Marketplace right now, so your changes autosave to your private draft.')
+    return true
+  }, [fetchOwnedVehicles, resumeVin])
+
+  // Once an account-scoped server draft exists, it becomes the durable authority for Seller-
+  // commercial/privacy edits. The browser draft remains crash-recovery only; this PATCH cannot
+  // rewrite Passport identity, Trust, Evidence, ownership or publication state.
+  useEffect(() => {
+    if (!serverDraftLoaded || serverDraftLoading || submitting || !isCompleteVin(form.vin)) return
+    // F-006 — only a draft autosaves. A published listing changes when its seller presses save; a
+    // sold one never changes here.
+    if (studioMode !== 'draft') return
+    // F-007 — no write without an edit. The revision moves only when the seller changes an
+    // autosaved field; reaching this effect because the listing loaded is not one.
+    if (serverAutosaveRevision.current <= serverPersistedRevision.current) return
+
+    const revision = serverAutosaveRevision.current
+    const payload = sellerDraftPayload
+
+    const timer = window.setTimeout(() => {
+      // A newer edit superseded this debounced revision before it even left the browser.
+      if (revision !== serverAutosaveRevision.current) return
+      setServerAutosaveState('saving')
+      void updateSellerDraft(form.vin.toUpperCase(), payload)
+        .then((result) => {
+          // A slow older PATCH cannot turn a newer dirty form back into a green "saved" claim.
+          if (revision !== serverAutosaveRevision.current) return
+          // F-009 — "saved" means the account holds the same statement, compared by persisted
+          // meaning (sellerDraftReceipt), so a trimmed or JSONB-reordered echo is a success and a
+          // genuinely different value is still an error.
+          if (!result?.success || !sellerDraftReceiptMatches(payload, result.draft)) {
+            setServerAutosaveState('error')
+            return
+          }
+          serverPersistedRevision.current = revision
+          setUnsavedEdits(false)
+          setServerAutosaveState('saved')
+        })
+        .catch((error: unknown) => {
+          if (revision !== serverAutosaveRevision.current) return
+          const failure = classifySellerSaveFailure(error)
+          if (failure.kind === 'lifecycle_changed') {
+            // The listing went live or was closed elsewhere. That is not an outage: re-read it and
+            // switch Studio to the mode it is really in.
+            setServerAutosaveState('idle')
+            void followListingLifecycle(failure).then((followed) => {
+              if (!followed) setServerAutosaveState('error')
+            })
+            return
+          }
+          setServerAutosaveState(failure.kind === 'session_ended' ? 'session_ended' : 'error')
+        })
+    }, 1200)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    followListingLifecycle,
     form.vin,
+    sellerDraftPayload,
     serverDraftLoaded,
     serverDraftLoading,
+    studioMode,
     submitting,
     updateSellerDraft,
   ])
@@ -545,6 +566,8 @@ export default function SellVehicle() {
     if (serverDraftLoaded && SERVER_AUTOSAVE_FIELDS.has(field)) {
       serverAutosaveRevision.current += 1
       setServerAutosaveState('idle')
+      setPublishedSaveState('idle')
+      setUnsavedEdits(true)
     }
     setForm(prev => ({
       ...prev,
@@ -698,6 +721,9 @@ export default function SellVehicle() {
   ].filter(Boolean) as string[]
 
   const handleSubmit = async () => {
+    // F-008 — "Save as Draft" (POST /api/vehicles/add) re-saves a listing AS A DRAFT. It is never
+    // offered for a published or sold listing; this guard keeps it that way if it is ever reached.
+    if (studioMode !== 'draft') return
     // UAT 2026-09-01: the autosave timer is not a sufficient last line of defence. A Seller can
     // press Save before the 300 ms checkpoint fires, or a deployment can interrupt the route after
     // the server accepts the listing. Persist the exact final form state before any upload/mutation.
@@ -880,6 +906,9 @@ export default function SellVehicle() {
       }
 
       const returnedVin: string = resultMedia?.vin ?? form.vin.toUpperCase()
+      // The account now holds this whole form, so no autosave is owed for what was just saved.
+      serverPersistedRevision.current = serverAutosaveRevision.current
+      setUnsavedEdits(false)
 
       // Establish the durable SERVER resume anchor before clearing browser crash-recovery. If this
       // route crashes or the deployment returns an error after the 201, reload now carries the VIN
@@ -897,6 +926,13 @@ export default function SellVehicle() {
       if (apiData?.code === 'SELLER_AUTHORITY_CLAIM_REQUIRED') {
         setAuthorityState('evidence_required')
         toast.error('This Passport needs seller-authority review instead of a duplicate vehicle.')
+      } else if (apiData?.code === 'SELLER_LISTING_PUBLISHED_USE_EXPLICIT_SAVE') {
+        // The listing went live after this page loaded. CarUp kept it published and changed
+        // nothing; Studio follows it into the published mode, the seller's edits still on the page.
+        const failure = classifySellerSaveFailure(err)
+        if (failure.kind !== 'lifecycle_changed' || !(await followListingLifecycle(failure))) {
+          toast.error('This listing is live on the CarUp Marketplace, so it was not saved as a draft. Reload the page to edit the public listing.')
+        }
       } else if (apiData?.code === 'SELLER_IDEMPOTENCY_SCHEMA_REQUIRED') {
         toast.error(apiData.error || 'Seller save safety is still being activated. Your browser recovery copy has been kept; do not re-enter the form.')
       } else if (apiData?.code === 'EXISTING_PASSPORT_CONFIRM_REQUIRED') {
@@ -920,6 +956,43 @@ export default function SellVehicle() {
     }
   }
 
+  /**
+   * F-006 — "Save changes to public listing". The ONLY write a published listing gets from Studio:
+   * the same Seller-commercial statement autosave sends, scoped `published_listing` so the server
+   * applies it to the live listing, keeps it published and audits it. Never POST /api/vehicles/add,
+   * which re-saves as a draft. Success is claimed only once the receipt holds the change.
+   */
+  const handleSavePublishedChanges = async () => {
+    if (studioMode !== 'published' || publishedSaveState === 'saving' || !isCompleteVin(form.vin)) return
+    const revision = serverAutosaveRevision.current
+    const payload = sellerDraftPayload
+    setPublishedSaveState('saving')
+    try {
+      const result = await updateSellerDraft(form.vin.toUpperCase(), { ...payload, edit_scope: 'published_listing' })
+      if (!result?.success || result.publication_status !== 'published' || !sellerDraftReceiptMatches(payload, result.draft)) {
+        setPublishedSaveState('error')
+        return
+      }
+      serverPersistedRevision.current = Math.max(serverPersistedRevision.current, revision)
+      if (revision !== serverAutosaveRevision.current) {
+        // Saved, but the seller has edited since: those newer edits are still unsaved.
+        setPublishedSaveState('idle')
+        return
+      }
+      setUnsavedEdits(false)
+      setPublishedSaveState('saved')
+      toast.success('Changes saved to your public listing.')
+    } catch (error: unknown) {
+      const failure = classifySellerSaveFailure(error)
+      if (failure.kind === 'lifecycle_changed') {
+        setPublishedSaveState('idle')
+        if (!(await followListingLifecycle(failure))) setPublishedSaveState('error')
+        return
+      }
+      setPublishedSaveState(failure.kind === 'session_ended' ? 'session_ended' : 'error')
+    }
+  }
+
   const vinValid = form.vin.length >= 2 ? isCompleteVin(form.vin) : null
   const canonicalLocked = serverDraftLoaded
   // Operations M7: the Zimbabwe registration stage stays SELLER-editable on a
@@ -928,9 +1001,11 @@ export default function SellVehicle() {
   // governed/operator source recorded the stage — a seller must not overwrite a
   // reviewed or authoritative value from this form.
   const SELLER_STAGE_SOURCES = ['seller_declared', 'dealer_declared']
-  const registrationStageLocked = canonicalLocked
+  // F-006 — a PUBLISHED listing's stage is locked too: the published-listing save carries only
+  // Seller-commercial fields, so an editable stage here would be an edit nothing saves.
+  const registrationStageLocked = isPublishedListing || (canonicalLocked
     && serverStageSource !== null
-    && !SELLER_STAGE_SOURCES.includes(serverStageSource)
+    && !SELLER_STAGE_SOURCES.includes(serverStageSource))
   const studioTrust = serverVehicle ? readOwnerTrustClaim(serverVehicle) : null
   const studioMedia = serverVehicle ? primaryListingImageUrl(serverVehicle.listing_media) : (form.images[coverImageIndex ?? 0] || form.images[0] || null)
   const verifiedDocumentCopy = serverVehicle
@@ -1044,16 +1119,45 @@ export default function SellVehicle() {
     )
   }
 
+  // F-006 — a SOLD listing is closed. Nothing here is editable and nothing is sent: the vehicle's
+  // story continues on its Passport, not in a listing form.
+  if (studioMode === 'sold') {
+    const closedVin = String(serverVehicle?.vin || resumeVin || form.vin).toUpperCase()
+    return (
+      <div className="max-w-[1100px] mx-auto space-y-8">
+        <SellerWorkspaceHeader
+          eyebrow="Seller Studio"
+          title="Listing closed"
+          description="This vehicle has been sold, so its listing can no longer be edited."
+          backHref="/dashboard/listings"
+          backLabel="Back to My Listings"
+          objectIdentity={closedVin || null}
+          statusLabel="Sold · listing closed"
+        />
+        <div role="note" className="border-l-4 border-slate-500 bg-slate-50 p-5" data-testid="seller-sold-listing-closed">
+          <p className="text-base font-semibold text-slate-950">Sale completed — this listing is closed.</p>
+          <p className="mt-1 text-sm text-slate-600">The vehicle&rsquo;s records stay on its Vehicle Passport.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button asChild><Link to={`/dashboard/garage/${encodeURIComponent(closedVin)}`}>Open Vehicle Passport</Link></Button>
+            <Button asChild variant="outline"><Link to="/dashboard/listings">Back to My Listings</Link></Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-[1100px] mx-auto space-y-8">
       <SellerWorkspaceHeader
         eyebrow="Seller Studio"
-        title={resumeVin ? 'Continue listing' : 'Build your listing'}
-        description="Save commercial details and listing media as a private draft. Ownership evidence and publication readiness remain governed separately."
+        title={isPublishedListing ? 'Edit your public listing' : resumeVin ? 'Continue listing' : 'Build your listing'}
+        description={isPublishedListing
+          ? 'Update the details buyers see on your live listing. Ownership evidence and Trust remain governed separately.'
+          : 'Save commercial details and listing media as a private draft. Ownership evidence and publication readiness remain governed separately.'}
         backHref="/dashboard/garage"
         backLabel="Back to My Garage"
         objectIdentity={resumeVin || form.vin || null}
-        statusLabel="Draft workspace · not public"
+        statusLabel={isPublishedListing ? 'Published · on the public Marketplace' : 'Draft workspace · not public'}
       />
       <section
         className="relative overflow-hidden bg-[#07111f] text-white"
@@ -1068,7 +1172,7 @@ export default function SellVehicle() {
               <span className="text-slate-600">/</span>
               <span>Stage {step + 1} of {STEPS.length}</span>
               <span className="text-slate-600">/</span>
-              <span>Private draft</span>
+              <span>{isPublishedListing ? 'Published listing' : 'Private draft'}</span>
             </div>
             <h2 id="seller-studio-stage-title" className="mt-4 max-w-3xl text-3xl font-black tracking-[-0.05em] sm:text-5xl">
               {form.year || form.make || form.model
@@ -1076,9 +1180,11 @@ export default function SellVehicle() {
                 : 'Build the buyer story around one Vehicle Passport.'}
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
-              {canonicalLocked
-                ? 'Canonical vehicle identity/specification fields are locked to this Passport. Seller-commercial copy, price, privacy and listing media remain editable.'
-                : 'Vehicle identity becomes canonical when the draft is claimed to an account. Seller statements remain separate from reviewed evidence and canonical Trust.'}
+              {isPublishedListing
+                ? 'Vehicle identity and listing photos are locked while this listing is public. Seller copy, price and privacy choices remain editable.'
+                : canonicalLocked
+                  ? 'Canonical vehicle identity/specification fields are locked to this Passport. Seller-commercial copy, price, privacy and listing media remain editable.'
+                  : 'Vehicle identity becomes canonical when the draft is claimed to an account. Seller statements remain separate from reviewed evidence and canonical Trust.'}
             </p>
 
             <div className="mt-7 grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-4">
@@ -1110,13 +1216,20 @@ export default function SellVehicle() {
               <span className="inline-flex items-center gap-1.5"><Images className="h-3.5 w-3.5 text-orange-400" /> Listing media ≠ verified evidence</span>
             </div>
 
-            {isCompleteVin(form.vin) && (
+            {isCompleteVin(form.vin) && (isPublishedListing ? (
+              // F-006 — a published listing HAS a public page; "not public" was false here.
+              <Button asChild variant="outline" className="mt-6 min-h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white">
+                <Link to={`/marketplace/${encodeURIComponent(form.vin)}`} data-testid="seller-public-listing-link">
+                  <Eye className="mr-2 h-4 w-4" /> View public listing
+                </Link>
+              </Button>
+            ) : (
               <Button asChild variant="outline" className="mt-6 min-h-11 rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white">
                 <Link to={`/marketplace/${encodeURIComponent(form.vin)}?mode=seller_preview`} data-testid="seller-buyer-preview">
                   <Eye className="mr-2 h-4 w-4" /> Buyer Preview — not public
                 </Link>
               </Button>
-            )}
+            ))}
           </div>
 
           <div className="relative min-h-[260px] border-t border-white/10 bg-black/20 lg:min-h-full lg:border-l lg:border-t-0">
@@ -1129,14 +1242,25 @@ export default function SellVehicle() {
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#07111f] via-transparent to-transparent" />
             <div className="absolute inset-x-0 bottom-0 p-5">
               <p className="font-mono text-[11px] text-slate-300">{form.vin || 'VIN not entered'}</p>
-              <p className="mt-1 text-xs text-slate-400">{STEPS[step]}</p>
+              <p className="mt-1 text-xs text-slate-400">{stepLabels[step]}</p>
             </div>
           </div>
         </div>
       </section>
-      {serverDraftLoaded && (
+      {isPublishedListing && (
+        <div role="note" className="border-l-4 border-emerald-600 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950" data-testid="seller-published-listing-note">
+          <p>
+            <strong>This listing is live on the CarUp Marketplace.</strong>{' '}
+            Changes you save to the description, features, condition, location display and disclosures appear to buyers straight away.
+            {' '}It stays published — to take it off the Marketplace, use Unpublish in{' '}
+            <Link to="/dashboard/listings" className="font-semibold underline underline-offset-2">My Listings</Link>.
+            {' '}Photos and vehicle identity can&apos;t be changed while the listing is public.
+          </p>
+        </div>
+      )}
+      {serverDraftLoaded && !isPublishedListing && (
         <p
-          className={`text-xs font-semibold ${serverAutosaveState === 'error' ? 'text-amber-700' : 'text-slate-500'}`}
+          className={`text-xs font-semibold ${serverAutosaveState === 'error' || serverAutosaveState === 'session_ended' ? 'text-amber-700' : 'text-slate-500'}`}
           data-testid="seller-server-autosave-state"
           role="status"
           aria-live="polite"
@@ -1147,7 +1271,29 @@ export default function SellVehicle() {
               ? 'Commercial draft changes saved to your account.'
               : serverAutosaveState === 'error'
                 ? 'Account autosave is unavailable right now, so your latest changes are not saved to your account yet. Keep this page open — CarUp tries again when you next edit.'
-                : 'Account draft loaded. Changes will autosave after you pause.'}
+                : serverAutosaveState === 'session_ended'
+                  ? SESSION_ENDED_COPY
+                  : 'Account draft loaded. Changes will autosave after you pause.'}
+        </p>
+      )}
+      {isPublishedListing && (
+        <p
+          className={`text-xs font-semibold ${publishedSaveState === 'error' || publishedSaveState === 'session_ended' ? 'text-amber-700' : 'text-slate-500'}`}
+          data-testid="seller-published-save-state"
+          role="status"
+          aria-live="polite"
+        >
+          {publishedSaveState === 'saving'
+            ? 'Saving changes to your public listing…'
+            : publishedSaveState === 'saved'
+              ? 'Changes saved to your public listing.'
+              : publishedSaveState === 'error'
+                ? 'CarUp could not confirm these changes on your public listing. Your edits are still on this page — try again.'
+                : publishedSaveState === 'session_ended'
+                  ? SESSION_ENDED_COPY
+                  : unsavedEdits
+                    ? 'Your changes are not saved yet. They reach your public listing only when you choose “Save changes to public listing”.'
+                    : 'Changes here are saved only when you choose “Save changes to public listing”.'}
         </p>
       )}
       {serverDraftLoaded && (
@@ -1169,11 +1315,11 @@ export default function SellVehicle() {
         </div>
       )}
 
-      <StepIndicator step={step} total={STEPS.length} />
+      <StepIndicator step={step} total={STEPS.length} labels={stepLabels} />
 
       <Card className="border-0 card-shadow">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">{STEPS[step]}</CardTitle>
+          <CardTitle className="text-lg">{stepLabels[step]}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
 
@@ -1522,9 +1668,17 @@ export default function SellVehicle() {
                     ))}
                   </ul>
                 </div>
-                <label className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-orange-500 focus-within:ring-offset-2 ${form.images.length >= LISTING_IMAGE_LIMIT ? 'border-gray-200 bg-gray-50' : 'border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
+                {/* F-006 — the published-listing save carries no media, and the draft re-save that
+                    replaces a gallery is refused for a live listing, so photo controls would be edits
+                    nothing saves. They are shown, locked, with the reason. */}
+                {isPublishedListing && (
+                  <p role="note" className="mb-3 border-l-2 border-sky-500 bg-sky-50 p-3 text-xs leading-5 text-slate-700" data-testid="seller-published-photos-locked">
+                    Photos can&apos;t be changed while the listing is public. To change them, unpublish the listing in My Listings first.
+                  </p>
+                )}
+                <label className={`block border-2 border-dashed rounded-xl p-8 text-center transition-colors focus-within:ring-2 focus-within:ring-orange-500 focus-within:ring-offset-2 ${isPublishedListing || form.images.length >= LISTING_IMAGE_LIMIT ? 'cursor-not-allowed border-gray-200 bg-gray-50' : 'cursor-pointer border-orange-200 hover:border-orange-400 hover:bg-orange-50'}`}>
                   <Upload className="w-8 h-8 text-orange-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-600 font-medium">Click to upload photos</p>
+                  <p className="text-sm text-gray-600 font-medium">{isPublishedListing ? 'Photo uploads are locked' : 'Click to upload photos'}</p>
                   <p className="text-xs text-gray-400 mt-1">JPG, PNG up to 15 images</p>
                   <input
                     type="file"
@@ -1532,7 +1686,7 @@ export default function SellVehicle() {
                     multiple
                     className="sr-only"
                     onChange={handleImageUpload}
-                    disabled={form.images.length >= LISTING_IMAGE_LIMIT}
+                    disabled={isPublishedListing || form.images.length >= LISTING_IMAGE_LIMIT}
                   />
                 </label>
                 {form.images.length > 0 && (
@@ -1545,7 +1699,9 @@ export default function SellVehicle() {
                         with fewer steps. */}
                     <p className="text-xs font-medium text-gray-600 mb-2" data-testid="listing-media-cover-state">
                       {coverImageIndex === null
-                        ? 'No cover photo chosen. Pick the photo buyers should see first — otherwise CarUp will not claim one for you.'
+                        ? (isPublishedListing
+                          ? 'No cover photo chosen.'
+                          : 'No cover photo chosen. Pick the photo buyers should see first — otherwise CarUp will not claim one for you.')
                         : `Photo ${coverImageIndex + 1} is your cover photo.`}
                     </p>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1566,7 +1722,7 @@ export default function SellVehicle() {
                               Cover
                             </Badge>
                           )}
-                          {coverImageIndex !== i && (
+                          {coverImageIndex !== i && !isPublishedListing && (
                             <button
                               type="button"
                               onClick={() => setCoverImageIndex(i)}
@@ -1577,6 +1733,7 @@ export default function SellVehicle() {
                               Make cover
                             </button>
                           )}
+                          {!isPublishedListing && (
                           <div className="absolute inset-x-1 top-1 flex justify-start gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                             {i > 0 && (
                               <button
@@ -1601,6 +1758,8 @@ export default function SellVehicle() {
                               </button>
                             )}
                           </div>
+                          )}
+                          {!isPublishedListing && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1624,8 +1783,9 @@ export default function SellVehicle() {
                           >
                             <X className="w-3 h-3" />
                           </button>
+                          )}
                           </div>
-                          <Select value={form.imageLabels[i] || ''} onValueChange={value => setImageLabel(i, value)}>
+                          <Select value={form.imageLabels[i] || ''} onValueChange={value => setImageLabel(i, value)} disabled={isPublishedListing}>
                             <SelectTrigger className="h-8 text-[10px]" aria-label={`Photo ${i + 1} angle or view`}>
                               <SelectValue placeholder="Label angle / view" />
                             </SelectTrigger>
@@ -1720,7 +1880,9 @@ export default function SellVehicle() {
                 </div>
               )}
 
-              {serverDraftLoaded && isCompleteVin(form.vin) && (
+              {/* Publication readiness and the "will be saved as draft" notice describe the way TO
+                  publication; a published listing is already there, and is never saved as a draft. */}
+              {serverDraftLoaded && isCompleteVin(form.vin) && !isPublishedListing && (
                 <div className="border-y border-slate-200 py-4" data-testid="seller-studio-publication-readiness">
                   <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Governed publication readiness</p>
                   <VehicleCompletenessPanel vin={form.vin.toUpperCase()} />
@@ -1728,7 +1890,7 @@ export default function SellVehicle() {
               )}
 
               {/* Publication requirements notice */}
-              {missingIdentityFields.length > 0 && (
+              {missingIdentityFields.length > 0 && !isPublishedListing && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
                   <div className="flex items-start gap-2">
                     <FileWarning className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
@@ -1772,6 +1934,18 @@ export default function SellVehicle() {
                 ) : (
                   <>Next <ChevronRight className="w-4 h-4 ml-1" /></>
                 )}
+              </Button>
+            ) : isPublishedListing ? (
+              <Button
+                className="bg-orange-500 hover:bg-orange-600 min-w-36"
+                onClick={handleSavePublishedChanges}
+                disabled={publishedSaveState === 'saving'}
+                aria-busy={publishedSaveState === 'saving' ? true : undefined}
+                data-testid="seller-published-save-button"
+              >
+                {publishedSaveState === 'saving'
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
+                  : 'Save changes to public listing'}
               </Button>
             ) : (
               <Button className="bg-orange-500 hover:bg-orange-600 min-w-36" onClick={handleSubmit} disabled={submitting} data-testid="submit-vehicle-button">
