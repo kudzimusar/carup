@@ -1,0 +1,223 @@
+name: CARUP-MVP-STAB-01 Final Web Truth States
+
+# Evidence-only runtime proof for the frozen CARUP-MVP-STAB-01 product candidate.
+# Branch-only push trigger exists because the moderator connection cannot dispatch workflow_dispatch.
+# It never uses Owner credentials, never touches Production, never sends external communications,
+# and revokes the staging-only certification session it creates.
+on:
+  push:
+    branches:
+      - fix/carup-mvp-stab-01-client-readiness
+    paths:
+      - .github/workflows/carup-mvp-stab-01-web-truth-states.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_SHA: 88bffa50b34d81cdeb1f13f2c90bfb957190c732
+  WEB_ORIGIN: https://carup-staging-mn3bx7ymb-11-11.vercel.app
+  API_ORIGIN: https://carup-backend-staging-lmnyhj874-11-11.vercel.app
+  STAGING_SUPABASE_REF: eoyenigwevnxwwhyhaer
+  COMMUNICATION_OUTBOUND_DISABLED_EXPECTED: "true"
+
+jobs:
+  failed-read-truth:
+    name: Web · failed-read truth states · exact immutable pair
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Exact-pair preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          mkdir -p "$RUNNER_TEMP/carup-mvp-stab-01-web-truth"
+          curl -fsS --max-time 30 "$WEB_ORIGIN/carup-provenance.json" > "$RUNNER_TEMP/carup-mvp-stab-01-web-truth/web-provenance.json"
+          curl -fsS --max-time 30 "$API_ORIGIN/api/health" > "$RUNNER_TEMP/carup-mvp-stab-01-web-truth/backend-health.json"
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/carup-mvp-stab-01-web-truth/web-provenance.json','utf8'));
+          const h=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/carup-mvp-stab-01-web-truth/backend-health.json','utf8'));
+          const apiHost=p.api_base_url ? new URL(p.api_base_url).host : null;
+          const expectedApi=new URL(process.env.API_ORIGIN).host;
+          if (p.commit_sha !== process.env.CANDIDATE_SHA || p.unpaired !== false || apiHost !== expectedApi) {
+            throw new Error('web Preview is not the exact frozen candidate/backend pair');
+          }
+          if (h?.build?.commit_sha !== process.env.CANDIDATE_SHA || h?.build?.environment !== 'preview') {
+            throw new Error('backend Preview is not the exact frozen candidate');
+          }
+          if (h?.database?.supabase_project_ref !== process.env.STAGING_SUPABASE_REF || h?.database?.consistent !== true) {
+            throw new Error('backend is not the approved staging database');
+          }
+          if (h?.communications?.outbound?.kill_switch !== 'active' || h?.communications?.outbound?.external_sends !== 'disabled') {
+            throw new Error('communications kill switch is not active');
+          }
+          NODE
+
+      - name: Install exact candidate dependencies and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Prove SafePay and preference failed-read truth states
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/carup-mvp-stab-01-web-truth"
+          export OUT
+          node --input-type=module <<'NODE'
+          import { chromium } from '@playwright/test';
+          import { randomBytes } from 'node:crypto';
+          import { writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+
+          const WEB=process.env.WEB_ORIGIN;
+          const API=process.env.API_ORIGIN + '/api';
+          const OUT=process.env.OUT;
+          const RUN=process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
+          const email=`mvp01.webtruth.${RUN}@carup-staging.test`;
+          const password=`Mvp01-WebTruth-${randomBytes(18).toString('base64url')}`;
+
+          async function csrf(headers={}) {
+            const r=await fetch(`${API}/security/csrf-token`, {headers, signal:AbortSignal.timeout(30000)});
+            const body=await r.json().catch(()=>({}));
+            const cookie=r.headers.get('set-cookie')?.split(';')[0] || '';
+            if(!r.ok || !body.csrfToken) throw new Error(`csrf unavailable ${r.status}`);
+            return {token:body.csrfToken,cookie};
+          }
+          async function post(path, body, auth={}) {
+            const baseHeaders={};
+            if(auth.token) baseHeaders['x-session-token']=auth.token;
+            if(auth.userId) baseHeaders['x-user-id']=auth.userId;
+            const c=await csrf(baseHeaders);
+            const headers={...baseHeaders,'content-type':'application/json','x-csrf-token':c.token};
+            if(c.cookie) headers.cookie=c.cookie;
+            const r=await fetch(`${API}${path}`, {method:'POST',headers,body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
+            const json=await r.json().catch(()=>({}));
+            return {status:r.status,json};
+          }
+
+          const registration=await post('/auth/register',{
+            name:`MVP01 Web Truth ${RUN}`,
+            email,
+            password,
+            registration_profile:{
+              terms_acknowledged:true,
+              privacy_acknowledged:true,
+              account_kind:'individual',
+              market_relationship:'zimbabwe_local',
+              country_of_residence:'Zimbabwe',
+              city:'Harare',
+              intended_use:'buy'
+            }
+          });
+          if(registration.status!==200 || !registration.json?.token || !registration.json?.user?.id) {
+            throw new Error(`staging certification registration failed ${registration.status}`);
+          }
+          const user=registration.json.user;
+          const token=registration.json.token;
+          console.log('staging-only certification identity registered; credentials masked and never persisted');
+
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext({viewport:{width:1440,height:1000}});
+          await context.addInitScript(({user,token})=>{
+            localStorage.setItem('carup_user',JSON.stringify(user));
+            localStorage.setItem('carup_token',token);
+          },{user,token});
+          const page=await context.newPage();
+          const receipt={
+            work_unit:'CARUP-MVP-STAB-01',
+            candidate_sha:process.env.CANDIDATE_SHA,
+            web_origin:WEB,
+            api_origin:process.env.API_ORIGIN,
+            owner_credentials_used:'NO',
+            production_touched:'NO',
+            external_communication_sent:'NO',
+            safepay_failed_read:null,
+            preferences_failed_read:null,
+            preference_patch_requests:0,
+            session_revoked:false
+          };
+
+          try {
+            await page.route('**/api/safepay/list', async route=>{
+              if(route.request().method()==='GET'){
+                await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'evidence-forced failed read'})});
+              } else {
+                await route.continue();
+              }
+            });
+            await page.goto(WEB+'/dashboard',{waitUntil:'domcontentloaded',timeout:60000});
+            const safeCard=page.getByTestId('safepay-card');
+            await safeCard.waitFor({state:'visible',timeout:30000});
+            await page.waitForFunction(()=>document.querySelector('[data-testid="safepay-card"]')?.getAttribute('data-state')==='error',null,{timeout:30000});
+            const safeValue=(await page.getByTestId('safepay-summary-value').innerText()).trim();
+            const safeDetail=(await page.getByTestId('safepay-summary-detail').innerText()).trim();
+            if(safeValue!=='Not available') throw new Error(`SafePay failed read claimed '${safeValue}' instead of Not available`);
+            if(safeDetail!=='SafePay status could not be loaded') throw new Error(`Unexpected SafePay failed-read detail '${safeDetail}'`);
+            if(/[0-9]/.test(safeValue) || /\$\s*0|USD\s*0/i.test(safeValue)) throw new Error('SafePay failed read fabricated a numeric zero');
+            await safeCard.screenshot({path:join(OUT,'safepay-failed-read.png')});
+            receipt.safepay_failed_read={state:'error',value:safeValue,detail:safeDetail,no_numeric_zero:true};
+
+            let patchCount=0;
+            await page.unroute('**/api/safepay/list');
+            await page.route('**/api/communications/preferences', async route=>{
+              const method=route.request().method();
+              if(method==='PATCH'){
+                patchCount+=1;
+                await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'unexpected patch during failed-read proof'})});
+                return;
+              }
+              if(method==='GET'){
+                await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'evidence-forced failed read'})});
+                return;
+              }
+              await route.continue();
+            });
+            await page.goto(WEB+'/dashboard/communications',{waitUntil:'domcontentloaded',timeout:60000});
+            const pref=page.getByTestId('delivery-preferences');
+            await pref.waitFor({state:'visible',timeout:30000});
+            await page.waitForFunction(()=>document.querySelector('[data-testid="delivery-preferences"]')?.getAttribute('data-state')==='read_failed',null,{timeout:30000});
+            const failure=page.getByTestId('delivery-preferences-read-failed');
+            const failureText=(await failure.innerText()).trim();
+            if(!failureText.includes('Delivery preferences could not be loaded.')) throw new Error('missing truthful preference read-failure copy');
+            if(!failureText.includes('Nothing is shown or changed until CarUp can read your current choices.')) throw new Error('missing preference no-change safety copy');
+            const switches=page.locator('[data-testid^="delivery-pref-"]');
+            const switchCount=await switches.count();
+            if(switchCount!==0) throw new Error(`preference failed-read state rendered ${switchCount} preference controls`);
+            await page.waitForTimeout(1200);
+            if(patchCount!==0) throw new Error(`preference failed-read state sent ${patchCount} PATCH request(s)`);
+            await pref.screenshot({path:join(OUT,'preferences-failed-read.png')});
+            receipt.preferences_failed_read={state:'read_failed',switches_rendered:0,no_patch:true,copy:failureText};
+            receipt.preference_patch_requests=patchCount;
+          } finally {
+            await browser.close().catch(()=>{});
+            const logout=await post('/auth/logout',{}, {token,userId:user.id}).catch(()=>({status:0,json:{}}));
+            receipt.session_revoked=logout.status===200;
+            receipt.logout_status=logout.status;
+            writeFileSync(join(OUT,'web-truth-states-receipt.json'),JSON.stringify(receipt,null,2)+'\n');
+          }
+          if(!receipt.session_revoked) throw new Error(`certification session cleanup failed (logout ${receipt.logout_status})`);
+          console.log(JSON.stringify(receipt,null,2));
+          NODE
+
+      - name: Upload web truth-state evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carup-mvp-stab-01-web-truth-states-${{ env.CANDIDATE_SHA }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/carup-mvp-stab-01-web-truth
+          if-no-files-found: error
+          retention-days: 30
