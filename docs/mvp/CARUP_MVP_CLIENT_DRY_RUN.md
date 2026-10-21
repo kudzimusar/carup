@@ -2,8 +2,14 @@
 
 **For:** the Owner or a client observer, running the MVP on staging from one exact release candidate.
 **Not for:** Production. Nothing in this script touches Production, sends an external message or moves money.
-**Candidate:** see [`CARUP_MVP_RELEASE_CONTROL.md`](CARUP_MVP_RELEASE_CONTROL.md) §9 for the exact web URL, backend URL,
-APK artifact and APK SHA-256. Every step below must be run against those exact URLs and that exact APK.
+**Candidate quick reference (frozen product):**
+- SHA: `88bffa50b34d81cdeb1f13f2c90bfb957190c732`
+- Web: `https://carup-staging-mn3bx7ymb-11-11.vercel.app`
+- Backend: `https://carup-backend-staging-lmnyhj874-11-11.vercel.app`
+- Candidate APK SHA-256: `ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e`
+- Evidence state: APK build/install/cold-launch is proven; final login/register/restart runtime closure must be rerun with the patched Quickstep-resilient evidence harness before this script is declared ready.
+
+Every step below must be run against those exact URLs and that exact product candidate. The evidence-harness commit is not a new product candidate.
 
 > A step's **Expected** column is the acceptance condition. If what you see differs, write down the step number, what
 > you saw, the time and a screenshot; do not retry silently. A result that cannot be produced honestly is recorded as
@@ -49,7 +55,7 @@ APK artifact and APK SHA-256. Every step below must be run against those exact U
 | # | Action | Expected |
 |---|---|---|
 | C1 | My Garage | Serena appears as the same vehicle (same VIN, same photo) with publication state **Published** |
-| C2 | My Listings | Serena shows **Published**; inquiries and conversations are counted separately (e.g. "36 inquiries · 33 conversations") |
+| C2 | My Listings | Serena shows **Published**; inquiries and conversations are counted separately. Current post-certification staging reference: **37 inquiries · 34 conversations**; the difference of **3** is the historical quarantined inquiry set, not a UI arithmetic error |
 | C3 | Open Serena in Seller Studio | The Studio says **Published · on the public Marketplace** and explains what saving changes does. It does **not** say draft, private or "not public" |
 | C4 | Wait 10 seconds without editing | No "autosave unavailable" message appears (nothing is saved without an edit) |
 | C5 | Edit the description and choose **Save changes to public listing** | "Changes saved to your public listing" appears only after CarUp confirms the save; the listing stays published; Marketplace shows the new text |
@@ -112,3 +118,15 @@ APK artifact and APK SHA-256. Every step below must be run against those exact U
 | J2 | Role escalation | No screen lets a user choose their own role, tenant or approval |
 | J3 | External messages | None sent (kill switch active; channels shown as not available) |
 | J4 | Payments / ownership transfer | No real payment and no ownership transfer are performed. If a step would require a real transaction or ownership object that does not exist, record `BLOCKED_NO_REAL_STAGING_OBJECT` |
+
+
+## K. Current pre-dry-run evidence caveats
+
+This script is the future Owner/client walk-through. It is **not yet authorized as a completed dry run**.
+
+- Exact-SHA automated staging certification is green (run `39607555572`).
+- The final candidate APK is built and installable, but its GitHub runtime job was interrupted by a proven Android Quickstep system overlay before login/register/restart assertions completed.
+- `web-truth-states.mjs` has not yet been run against the final immutable web deployment.
+- Native final Trust/preference/F-040 screenshots are still missing.
+- Do not repeat the Native Send step merely to refresh evidence; it would add another inquiry to Serena.
+- Physical-device Owner Native UAT remains separate from emulator proof.

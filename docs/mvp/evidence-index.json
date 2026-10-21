@@ -159,6 +159,122 @@
       ],
       "interpretation": "Staging reconciliation facts (inquiries 325/230/95; Serena 36/33/3 governed quarantine; containers 36 expired open, 24 post-deadline reservations; 3 latent external retries)",
       "does_not_prove": "Point-in-time; no mutation performed"
+    },
+    {
+      "evidence_id": "E-009",
+      "control_ids": [
+        "CARUP-MVP-X-001",
+        "CARUP-MVP-X-010",
+        "CARUP-MVP-X-011"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub compare + exact-SHA staging certification candidate metadata",
+      "captured_at": "2026-10-21T13:26:08Z",
+      "collector": "implementation agent; candidate custody rechecked by moderator continuation",
+      "integrity": [],
+      "interpretation": "Frozen product candidate 88bffa50b34d81cdeb1f13f2c90bfb957190c732: 69 commits ahead / 0 behind base; 171 changed files; no database/migration files; immutable backend carup-backend-staging-lmnyhj874-11-11.vercel.app; immutable web carup-staging-mn3bx7ymb-11-11.vercel.app; canonical aliases unmoved; Production untouched.",
+      "does_not_prove": "Does not by itself prove user journeys."
+    },
+    {
+      "evidence_id": "E-010",
+      "control_ids": [
+        "CARUP-MVP-BUY-001",
+        "CARUP-MVP-BUY-012",
+        "CARUP-MVP-X-002",
+        "CARUP-MVP-X-004",
+        "CARUP-MVP-X-005"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "implementation-agent local candidate suite receipt reported in continuation handoff",
+      "captured_at": "2026-10-21T13:20:30Z",
+      "collector": "implementation agent",
+      "integrity": [],
+      "interpretation": "Reported final local suites clean: backend 9138 tests / 0 failures with 9 inherited cancellations; web 304 files / 3148 tests; Native 330 tests; 30 database/ledger harnesses; lint no net-new findings.",
+      "does_not_prove": "The local receipt files are outside the connected runtime in this continuation and were not independently re-read here; runtime/physical UAT is separate."
+    },
+    {
+      "evidence_id": "E-011",
+      "control_ids": [
+        "CARUP-MVP-BUY-007",
+        "CARUP-MVP-SELL-003",
+        "CARUP-MVP-SELL-004",
+        "CARUP-MVP-SELL-005",
+        "CARUP-MVP-SVC-002",
+        "CARUP-MVP-SVC-003",
+        "CARUP-MVP-SVC-004",
+        "CARUP-MVP-SVC-005",
+        "CARUP-MVP-ADM-006",
+        "CARUP-MVP-X-006",
+        "CARUP-MVP-X-010"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions staging certification run 39607555572",
+      "captured_at": "2026-10-21T13:26:09Z",
+      "collector": "GitHub Actions; independently downloaded/read during moderator continuation",
+      "integrity": [
+        {
+          "artifact_id": 12348897183,
+          "digest": "sha256:e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4"
+        }
+      ],
+      "interpretation": "All 40 certification steps passed: exact pair/staging/kill-switch, session denial/logout, Seller draft/autosave/publication/explicit published save/no silent unpublish, exactly-once inquiry + exact canonical message + in-app seller reply/no external delivery, SafePay successful empty read, preferences successful read, garage application/correction/review/rejection/audit and correct approval refusal without verified identity.",
+      "does_not_prove": "Does not prove failed-read web truth states, independent-mechanic activation, successful garage approval without a legitimate verified identity, physical Native UAT or inquiry reconciliation apply."
+    },
+    {
+      "evidence_id": "E-012",
+      "control_ids": [
+        "CARUP-MVP-NAT-002",
+        "CARUP-MVP-BUY-006",
+        "CARUP-MVP-BUY-007",
+        "CARUP-MVP-X-002"
+      ],
+      "candidate_authority": "6b678c5f82d168e89c5bb5b71a61a05eda14cc7d",
+      "source": "implementation-agent visible-browser and Android-emulator evidence before F-040",
+      "captured_at": "2026-10-21T13:00:00Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "apk_sha256": "89633a3e54391b24299cffe6833bc25d6cf71d7ca92d4c72b29036902ca8906b"
+        }
+      ],
+      "interpretation": "At the fully-tested parent: composer open/Back/wait/Cancel caused no DB mutation; double-tap Send made one inquiry/conversation; Vehicle Back returned to thread and deep-link Back stayed in app; visible-browser checks at 1440/900/768/653/390 had no horizontal overflow.",
+      "does_not_prove": "Native evidence is emulator-only and predates the four-file F-040 candidate delta. It is not final-candidate physical UAT."
+    },
+    {
+      "evidence_id": "E-013",
+      "control_ids": [
+        "CARUP-MVP-X-001",
+        "CARUP-MVP-NAT-001"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions APK run 39607550267 / evidence artifact 12350393031",
+      "captured_at": "2026-10-21T13:49:46Z",
+      "collector": "GitHub Actions; independently downloaded/inspected during moderator continuation",
+      "integrity": [
+        {
+          "artifact_id": 12350393031,
+          "digest": "sha256:cc7e988f55b6d25c81d9ce530a26227f73f15fcc8d8bd5b44c906f6fb81b31bf"
+        },
+        {
+          "apk_sha256": "ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e",
+          "size_bytes": 108894116
+        }
+      ],
+      "interpretation": "Exact 88bffa50b34d81cdeb1f13f2c90bfb957190c732 APK: Gradle build PASS, install PASS, cold launch PASS (MainActivity, 989 ms), CarUp top-resumed; startup marks process→JS 212 ms, SecureStore end 526 ms, home rendered 550 ms. Login hierarchy then showed an Android-system \"Quickstep isn't responding\" overlay. No CarUp ANR was proven.",
+      "does_not_prove": "Login/register/background/restart/SecureStore runtime completion on the final product candidate; APK-only artifact upload was skipped because the runtime job concluded failure."
+    },
+    {
+      "evidence_id": "E-014",
+      "control_ids": [
+        "CARUP-MVP-X-001"
+      ],
+      "candidate_authority": "evidence harness 0006cb892740f0bebf43086a192228c0371904d6; frozen product 88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub workflow-only remediation commit",
+      "captured_at": "2026-10-21T13:51:00Z",
+      "collector": "moderator continuation",
+      "integrity": [],
+      "interpretation": "Restored bounded exact-Quickstep system-overlay recovery, retained fail-closed CarUp ANR handling, and added frozen candidate_sha checkout/pairing so the harness can advance without moving the product candidate.",
+      "does_not_prove": "The patched workflow is not proof until it is dispatched and succeeds against the frozen candidate."
     }
   ]
 }
