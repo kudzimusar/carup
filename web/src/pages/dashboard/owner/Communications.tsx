@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, Bell, Languages, MessageSquare, Search, Send, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { BarChart3, Bell, ChevronLeft, Languages, MessageSquare, Search, Send, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +18,14 @@ import { CommunicationMessagePartView } from '@/components/communications/Commun
 import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
 import { ConversationPerformance, type AnalyticsReadState } from '@/features/communications/ConversationPerformance'
 import { DeliveryPreferencesCard } from '@/features/communications/DeliveryPreferencesCard'
+import {
+  INBOX_TWO_PANE_QUERY,
+  resolveInboxSelection,
+  unreadConversationCount,
+  unreadConversationsLabel,
+  type ThreadsReadState,
+} from '@/features/communications/inboxSelection'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
 type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
@@ -49,6 +58,18 @@ type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
 
 type ConversationFilter = 'all' | 'unread' | 'marketplace' | 'support' | 'other'
 type AiAction = 'suggest' | 'summary' | 'translate' | 'next'
+
+/** A conversation read, keyed by the thread it was read for — so one thread's messages can never sit under another's selection. */
+type DetailRead =
+  | { threadId: string; state: 'ready'; detail: ConversationDetail }
+  | { threadId: string; state: 'failed' }
+
+/**
+ * CARUP-MVP-STAB-01 F-017 — from md the list and the conversation are bounded panes of one height:
+ * the viewport less the shell above the grid, never shorter than a usable conversation. lg loses the
+ * compact bottom bar, so less is subtracted there.
+ */
+const PANE_HEIGHT = 'md:h-[calc(100dvh-15rem)] md:min-h-[560px] lg:h-[calc(100dvh-13rem)]'
 
 function participantLabel(detail: ConversationDetail | null) {
   if (!detail?.participants?.length) return null
@@ -88,9 +109,13 @@ export default function Communications() {
     nextBestAction,
   } = useCommunicationProductApi()
 
+  // F-017: the open conversation lives in the URL (?thread=<id>) — linkable, survives a reload, and
+  // Back clears it. The inbox opens one by itself only while two panes are visible (from md).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const twoPane = useMediaQuery(INBOX_TWO_PANE_QUERY)
   const [threads, setThreads] = useState<ConversationThread[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<ConversationDetail | null>(null)
+  const [threadsState, setThreadsState] = useState<ThreadsReadState>('loading')
+  const [detailRead, setDetailRead] = useState<DetailRead | null>(null)
   const [notifications, setNotifications] = useState<NotificationSummary[]>([])
   const [accountActivity, setAccountActivity] = useState<AccountActivitySummary[]>([])
   const [analytics, setAnalytics] = useState<CommunicationProductAnalytics | null>(null)
@@ -105,10 +130,18 @@ export default function Communications() {
   const [filter, setFilter] = useState<ConversationFilter>('all')
   const [status, setStatus] = useState<string | null>(null)
 
-  const unreadCount = useMemo(
-    () => threads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0),
-    [threads],
-  )
+  const requestedId = searchParams.get('thread')
+  const threadIds = useMemo(() => threads.map((thread) => thread.id), [threads])
+  const { activeId, autoSelectId, unresolved } = resolveInboxSelection({ requestedId, threadIds, threadsState, twoPane })
+  // A deep link is honoured while the list is still being read, so a phone shows that conversation
+  // loading rather than flashing the list first.
+  const conversationOpen = Boolean(activeId) || (Boolean(requestedId) && threadsState === 'loading')
+  const currentRead = detailRead && detailRead.threadId === activeId ? detailRead : null
+  const detail = currentRead?.state === 'ready' ? currentRead.detail : null
+
+  // The badge counts conversations with something unread — not the sum of unread messages.
+  const unreadConversations = useMemo(() => unreadConversationCount(threads), [threads])
+  const messagesRef = useRef<HTMLDivElement | null>(null)
 
   const filteredThreads = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -136,11 +169,14 @@ export default function Communications() {
   }, [detail])
 
   const loadThreads = useCallback(async () => {
-    const response = await fetchCommunicationThreads().catch(() => ({ threads: [] }))
-    const next = (response.threads || []) as ConversationThread[]
-    setThreads(next)
-    setActiveId((current) => current || next[0]?.id || null)
-    return next
+    try {
+      const response = await fetchCommunicationThreads()
+      setThreads((response.threads || []) as ConversationThread[])
+      setThreadsState('ready')
+    } catch {
+      // A failed refresh keeps the list already on screen; a failed FIRST read is not an empty inbox.
+      setThreadsState((current) => (current === 'ready' ? current : 'failed'))
+    }
   }, [fetchCommunicationThreads])
 
   // Delivery preferences are not side data: DeliveryPreferencesCard reads them itself, so a failed
@@ -162,23 +198,26 @@ export default function Communications() {
   const refreshActiveConversation = useCallback(async () => {
     if (!activeId) return
     const refreshed = await fetchCommunicationThread(activeId)
-    setDetail(refreshed as ConversationDetail)
+    setDetailRead({ threadId: activeId, state: 'ready', detail: refreshed as ConversationDetail })
     await Promise.all([loadThreads(), loadSideData()])
   }, [activeId, fetchCommunicationThread, loadSideData, loadThreads])
 
   useEffect(() => {
     let active = true
+    fetchCommunicationThreads()
+      .then((response) => {
+        if (!active) return
+        setThreads((response.threads || []) as ConversationThread[])
+        setThreadsState('ready')
+      })
+      .catch(() => { if (active) setThreadsState('failed') })
     Promise.all([
-      fetchCommunicationThreads().catch(() => ({ threads: [] })),
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
       fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
       fetchAnalytics().catch(() => ({ analytics: null })),
       fetchAiHealth().catch(() => ({ ai: { available: false } })),
-    ]).then(([threadRes, notificationRes, accountActivityRes, analyticsRes, health]) => {
+    ]).then(([notificationRes, accountActivityRes, analyticsRes, health]) => {
       if (!active) return
-      const next = (threadRes.threads || []) as ConversationThread[]
-      setThreads(next)
-      setActiveId((current) => current || next[0]?.id || null)
       setNotifications(notificationRes.notifications || [])
       setAccountActivity(accountActivityRes.activity || [])
       setAnalytics(analyticsRes.analytics)
@@ -188,13 +227,31 @@ export default function Communications() {
     return () => { active = false }
   }, [fetchAiHealth, fetchAnalytics, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationThreads])
 
+  // Two panes visible and no ?thread=: open the most recent conversation AND pin it into the URL
+  // (replace, not push), so a later reload of the list cannot silently switch to — and mark read —
+  // a different thread. Never on a phone: there the list is the screen until the person chooses.
+  useEffect(() => {
+    if (!autoSelectId) return
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('thread', autoSelectId)
+      return next
+    }, { replace: true })
+  }, [autoSelectId, setSearchParams])
+
+  // Keep the newest message in view when a conversation opens or a reply lands.
+  useEffect(() => {
+    const list = messagesRef.current
+    if (list) list.scrollTop = list.scrollHeight
+  }, [detail])
+
   useEffect(() => {
     if (!activeId) return
     let active = true
     fetchCommunicationThread(activeId)
       .then(async (result) => {
         if (!active) return
-        setDetail(result as ConversationDetail)
+        setDetailRead({ threadId: activeId, state: 'ready', detail: result as ConversationDetail })
         setAiResult(null)
         // Persist the read receipt before clearing the badge. Zeroing unread_count locally made the
         // conversation look read while last_read_at never moved, so the count came straight back on
@@ -209,13 +266,34 @@ export default function Communications() {
           // Leave the unread badge alone: it is the honest state until the server agrees.
         }
       })
-      .catch(() => { if (active) setDetail(null) })
+      .catch(() => { if (active) setDetailRead({ threadId: activeId, state: 'failed' }) })
     return () => { active = false }
   }, [activeId, fetchCommunicationThread, markCommunicationThreadRead])
 
+  // Choosing a conversation is navigation (push), so the browser's Back retraces it.
   function selectThread(threadId: string) {
-    setActiveId(threadId)
     setAiResult(null)
+    if (threadId === requestedId) return
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('thread', threadId)
+      return next
+    })
+  }
+
+  // Phones: "Back to conversations" clears ?thread= and shows the list again.
+  function showConversationList() {
+    setAiResult(null)
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('thread')
+      return next
+    })
+  }
+
+  function retryThreads() {
+    setThreadsState('loading')
+    void loadThreads()
   }
 
   async function submitReply() {
@@ -284,16 +362,38 @@ export default function Communications() {
   return (
     <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">Communications</h1>
           <p className="text-gray-500">Your CarUp conversations across Marketplace and connected services</p>
         </div>
-        <Badge className="bg-orange-100 text-orange-700">{unreadCount} unread</Badge>
+        {/* A count only once the list has been read: a pending or failed read is not "0 unread". */}
+        {threadsState === 'ready' && (
+          <Badge className="bg-orange-100 text-orange-700" data-testid="communication-unread-conversations">
+            {unreadConversationsLabel(unreadConversations)}
+          </Badge>
+        )}
       </div>
 
-      <div className="grid min-h-[620px] gap-5 lg:grid-cols-[320px_minmax(0,1fr)_290px]">
-        <Card className="border-0 card-shadow">
-          <CardHeader className="space-y-3 pb-3">
+      {unresolved && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status" data-testid="communication-thread-not-found">
+          That conversation isn&apos;t in your inbox. Choose one from your conversations.
+        </p>
+      )}
+
+      {/* CARUP-MVP-STAB-01 F-017 — phones (< md): the list OR the conversation, with Back.
+          Tablets (md–xl, incl. 900×800 and 1024 beside the sidebar): a bounded, independently
+          scrolling 300px list beside the conversation; the details move below both.
+          Desktop (≥ xl): three columns. One DOM instance of each pane, toggled by class only. */}
+      <div
+        className="grid gap-5 md:grid-cols-[300px_minmax(0,1fr)] md:items-start xl:grid-cols-[320px_minmax(0,1fr)_290px]"
+        data-testid="communication-layout"
+        data-view={conversationOpen ? 'conversation' : 'list'}
+      >
+        <Card
+          className={`${conversationOpen ? 'hidden md:flex' : 'flex'} min-w-0 gap-0 border-0 py-0 card-shadow ${PANE_HEIGHT}`}
+          data-testid="communication-list-pane"
+        >
+          <CardHeader className="shrink-0 space-y-3 pb-3 pt-6">
             <CardTitle className="flex items-center gap-2 text-base"><MessageSquare className="h-5 w-5 text-orange-500" /> Conversations</CardTitle>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -313,8 +413,15 @@ export default function Communications() {
               <option value="other">Other workflows</option>
             </select>
           </CardHeader>
-          <CardContent className="space-y-2 px-3">
-            {threads.length === 0 ? (
+          <CardContent className="space-y-2 px-3 pb-4 md:min-h-0 md:flex-1 md:overflow-y-auto" data-testid="communication-thread-list">
+            {threadsState === 'loading' ? (
+              <p className="p-2 text-sm text-gray-500" data-testid="communication-threads-loading">Loading conversations…</p>
+            ) : threadsState === 'failed' ? (
+              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-600" data-testid="communication-threads-failed">
+                <p>Your conversations could not be loaded. This is not an empty inbox.</p>
+                <Button type="button" size="sm" variant="outline" className="mt-3" onClick={retryThreads}>Try again</Button>
+              </div>
+            ) : threads.length === 0 ? (
               <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.</div>
             ) : filteredThreads.length === 0 ? (
               <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations match this search or filter.</div>
@@ -326,14 +433,19 @@ export default function Communications() {
                   key={thread.id}
                   type="button"
                   onClick={() => selectThread(thread.id)}
+                  aria-current={selected ? 'true' : undefined}
                   className={`w-full rounded-xl border p-3 text-left transition ${selected ? 'border-orange-300 bg-orange-50' : 'hover:bg-gray-50'}`}
                   data-testid={`communication-thread-${thread.id}`}
                   data-marketplace-listing-id={thread.marketplace_listing_id || undefined}
                 >
+                  {/* Identity wraps or clamps to two lines — never a one-line truncation. */}
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold capitalize">{threadLabel(thread)}</p>
-                    {Number(thread.unread_count || 0) > 0 && <Badge>{thread.unread_count}</Badge>}
+                    <p className="min-w-0 line-clamp-2 break-words text-sm font-semibold capitalize" data-testid={`communication-thread-title-${thread.id}`}>{threadLabel(thread)}</p>
+                    {Number(thread.unread_count || 0) > 0 && <Badge className="shrink-0">{thread.unread_count}</Badge>}
                   </div>
+                  {thread.marketplace_listing_id && (
+                    <p className="mt-0.5 break-all text-[11px] text-gray-500" data-testid={`communication-thread-listing-${thread.id}`}>Listing {thread.marketplace_listing_id}</p>
+                  )}
                   <p className="mt-1 line-clamp-2 text-xs text-gray-600">{latest}</p>
                   <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400">
                     <span>{thread.participant_role || thread.status || 'participant'}</span>
@@ -345,22 +457,42 @@ export default function Communications() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 card-shadow">
-          <CardHeader className="border-b pb-3">
-            <CardTitle className="text-base">{detail ? threadLabel(detail.thread as ConversationThread) : 'Select a conversation'}</CardTitle>
+        <Card
+          className={`${conversationOpen ? 'flex' : 'hidden md:flex'} min-w-0 gap-0 border-0 py-0 card-shadow ${PANE_HEIGHT}`}
+          data-testid="communication-conversation-pane"
+        >
+          <CardHeader className="shrink-0 border-b pb-3 pt-4">
+            <div className="md:hidden">
+              <Button type="button" variant="ghost" size="sm" className="-ml-2 h-10 gap-1 px-2" onClick={showConversationList} data-testid="communication-back">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Back to conversations
+              </Button>
+            </div>
+            <CardTitle className="break-words text-base leading-snug" data-testid="communication-conversation-title">
+              {detail
+                ? threadLabel(detail.thread as ConversationThread)
+                : currentRead?.state === 'failed'
+                  ? 'Conversation unavailable'
+                  : conversationOpen ? 'Loading conversation…' : 'Select a conversation'}
+            </CardTitle>
             {detail && (
               <div className="space-y-1 text-xs text-gray-500">
-                {participantLabel(detail) && <p>With {participantLabel(detail)}</p>}
+                {participantLabel(detail) && <p className="break-words">With {participantLabel(detail)}</p>}
                 {(detail.thread as ConversationThread).marketplace_listing_id && (
-                  <p data-testid="communication-active-listing">Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>
+                  <p className="break-all" data-testid="communication-active-listing">Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>
                 )}
               </div>
             )}
           </CardHeader>
-          <CardContent className="flex min-h-[520px] flex-col p-0">
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
-              {!detail ? (
+          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+            {/* Phones: the page scrolls and this region is capped. From md the pane is bounded, so
+                this region takes the remaining height and scrolls on its own; the composer stays put. */}
+            <div ref={messagesRef} className="max-h-[60vh] min-h-[200px] space-y-3 overflow-y-auto p-4 md:max-h-none md:min-h-0 md:flex-1" data-testid="communication-messages">
+              {!activeId && !conversationOpen ? (
                 <p className="text-sm text-gray-500">Choose a conversation to read and reply.</p>
+              ) : currentRead?.state === 'failed' ? (
+                <p className="text-sm text-gray-500" data-testid="communication-conversation-failed">This conversation could not be loaded right now.</p>
+              ) : !detail ? (
+                <p className="text-sm text-gray-500">Loading conversation…</p>
               ) : detail.messages.length === 0 ? (
                 <p className="text-sm text-gray-500">No messages yet.</p>
               ) : detail.messages.map((item) => {
@@ -388,7 +520,7 @@ export default function Communications() {
             </div>
 
             {aiResult?.output_text && (
-              <div className="mx-4 mb-3 rounded-xl border border-dashed bg-gray-50 p-3" data-testid="communication-ai-derived">
+              <div className="mx-4 mb-3 max-h-40 shrink-0 overflow-y-auto rounded-xl border border-dashed bg-gray-50 p-3" data-testid="communication-ai-derived">
                 <div className="mb-1 flex items-center gap-2 text-xs font-semibold">
                   <Sparkles className="h-4 w-4 text-orange-500" /> AI-derived {aiResult.derivation_type.replaceAll('_', ' ')}
                 </div>
@@ -398,7 +530,7 @@ export default function Communications() {
             )}
 
             {detail && activeId && (
-              <div className="border-t p-4">
+              <div className="shrink-0 border-t p-4" data-testid="communication-composer">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <Button type="button" size="sm" variant="outline" disabled={!aiAvailable || Boolean(aiBusy)} onClick={() => void runAi('suggest')}>
                     <Sparkles className="mr-1 h-4 w-4" /> {aiBusy === 'suggest' ? 'Drafting…' : 'Suggest reply'}
@@ -441,7 +573,14 @@ export default function Communications() {
           </CardContent>
         </Card>
 
-        <aside className="space-y-5">
+        {/* Account-level details. Phones: under the list, hidden while a conversation is open.
+            Tablets: a two-column band below both panes, so the conversation keeps its width.
+            Desktop: the third column. */}
+        <aside
+          className={`${conversationOpen ? 'hidden md:grid' : 'grid'} min-w-0 content-start gap-5 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1`}
+          data-testid="communication-details"
+          aria-label="Communication details"
+        >
           <Card className="border-0 card-shadow">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="h-5 w-5 text-orange-500" /> Conversation performance</CardTitle>
