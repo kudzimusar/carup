@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, ScrollView, Share, ActivityIndicator 
 import { useAuthStore } from '../../store/authStore';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import {
-  getReferralWallet,
+  loadReferralWallet,
   validateReferralCode,
   createReferralChannelShareKit,
   explainReferralBenefit,
@@ -33,6 +33,8 @@ function statusColor(status?: string): string {
   return STATUS_COLORS[status || ''] || 'bg-slate-500/10 text-slate-600';
 }
 
+const NO_REFERRAL_BENEFITS_YET = 'No referral benefits yet. Share your code to start earning — benefits stay pending until approved.';
+
 function money(amount?: number, currency?: string | null): string {
   if (typeof amount !== 'number') return '—';
   return `${currency ? `${currency} ` : '$'}${amount.toLocaleString()}`;
@@ -43,6 +45,8 @@ function ReferralScreenInner() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // CARUP-MVP-STAB-01 F-025: no wallet row yet is the normal first-use state, not an error.
+  const [walletNotStarted, setWalletNotStarted] = useState(false);
   const [pending, setPending] = useState<number | undefined>(undefined);
   const [approved, setApproved] = useState<number | undefined>(undefined);
   const [settled, setSettled] = useState<number | undefined>(undefined);
@@ -68,13 +72,22 @@ function ReferralScreenInner() {
     setLoading(true);
     setError(null);
     try {
-      const res = await getReferralWallet(user.id);
+      const res = await loadReferralWallet(user.id);
+      setWalletNotStarted(res.state === 'not_started');
+      if (res.state === 'not_started') {
+        setPending(undefined);
+        setApproved(undefined);
+        setSettled(undefined);
+        setTransactions([]);
+        return;
+      }
       const w = res.wallet;
       setPending(w?.pending_balance);
       setApproved((w?.approved_balance ?? 0) + (w?.payable_balance ?? 0));
       setSettled(w?.paid_or_applied_balance);
-      setTransactions(res.transactions ?? []);
+      setTransactions(res.transactions);
     } catch (err) {
+      setWalletNotStarted(false);
       setError(err instanceof Error ? err.message : 'Could not load your referral wallet.');
     } finally {
       setLoading(false);
@@ -165,6 +178,8 @@ function ReferralScreenInner() {
           <ActivityIndicator color="#f97316" />
         ) : error ? (
           <Text className="text-red-600 text-sm">{error}</Text>
+        ) : walletNotStarted ? (
+          <Text className="text-slate-400 text-sm">{NO_REFERRAL_BENEFITS_YET}</Text>
         ) : (
           <>
             <View className="flex-row justify-between mb-4">
@@ -183,9 +198,7 @@ function ReferralScreenInner() {
             </View>
 
             {transactions.length === 0 ? (
-              <Text className="text-slate-400 text-sm">
-                No referral benefits yet. Share your code to start earning — benefits stay pending until approved.
-              </Text>
+              <Text className="text-slate-400 text-sm">{NO_REFERRAL_BENEFITS_YET}</Text>
             ) : (
               transactions.map((tx) => (
                 <View key={tx.id} className="border border-slate-100 rounded-xl p-3 mb-2">
