@@ -197,15 +197,16 @@ async function main() {
   const photos = ['photo-a-front-320x200.png', 'photo-b-odometer-360x220.png', 'photo-c-damage-400x240.png'];
   const media = await seller.client.post('/media/upload/vehicle', { vin: VIN, images: photos.map(fixture) });
   expect('S2.media_upload', media.status === 200 && media.json?.urls?.length === photos.length, { status: media.status });
-  const created = await seller.client.post('/vehicles/add', {
-    client_submission_id: randomUUID(), vin: VIN, make: 'Toyota', model: 'Corolla', year: 2018, color: 'White', mileage: 88000,
+  const listingPayload = {
+    vin: VIN, make: 'Toyota', model: 'Corolla', year: 2018, color: 'White', mileage: 88000,
     fuel_type: 'Petrol', transmission: 'Automatic', drivetrain: '2WD', condition: 'Used', seller_stated_condition: 'Used',
     category: 'Sedan', body_style: 'Sedan', description: `${MARKER} CARUP-MVP-STAB-01 certification listing (staging only).`,
     features: ['Air conditioning'], price: 9500, currency: 'USD', location: 'Harare', province: 'Harare', listing_country: 'ZW',
     registration_country: 'ZW', location_visibility: 'public', public_seller_display_enabled: false,
     engine_number: `ENG-${VIN.slice(5)}`, chassis_number: `CHS-${VIN.slice(5)}`, plate_number: `MVP${VIN.slice(-3)}`, import_status: 'locally_registered',
     images: media.json.urls.map((url, index) => ({ url, photo_label: ['Front three-quarter', 'Odometer', 'Any known damage'][index], is_primary: index === 1 })),
-  });
+  };
+  const created = await seller.client.post('/vehicles/add', { ...listingPayload, client_submission_id: randomUUID() });
   expect('S2.draft_created', created.status === 201 && created.json?.publication_status === 'draft', { status: created.status, publication_status: created.json?.publication_status });
 
   const draftText = `${MARKER} Draft autosave check ${Date.now()}  `;
@@ -236,7 +237,9 @@ async function main() {
   expect('S3.published_explicit_save', explicit.status === 200 && afterEdit.publication_status === 'published' && afterEdit.seller_description === editText
     && afterEdit.owner_id === pubRow.owner_id && afterEdit.current_seller_id === pubRow.current_seller_id && editAudit[0].n === 1,
   { status: explicit.status, receipt_publication_status: explicit.json?.publication_status, db_publication_status: afterEdit.publication_status, owner_unchanged: afterEdit.owner_id === pubRow.owner_id, seller_unchanged: afterEdit.current_seller_id === pubRow.current_seller_id, audit_rows: editAudit[0].n });
-  const relist = await seller.client.post('/vehicles/add', { client_submission_id: randomUUID(), vin: VIN, reuse_existing_passport: true, make: 'Toyota', model: 'Corolla', year: 2018, description: `${MARKER} must not demote` });
+  // The COMPLETE listing body (run 39601173778 sent a partial one and met the required-field check first, so it
+  // never reached the published-listing refusal this step exists to prove).
+  const relist = await seller.client.post('/vehicles/add', { ...listingPayload, client_submission_id: randomUUID(), reuse_existing_passport: true, description: `${MARKER} must not demote` });
   const [afterRelist] = await q('select publication_status from public.vehicles where vin = $1', [VIN]);
   expect('S3.no_silent_unpublish_via_add', relist.status === 409 && errorCode(relist) === 'SELLER_LISTING_PUBLISHED_USE_EXPLICIT_SAVE' && afterRelist.publication_status === 'published', { status: relist.status, code: errorCode(relist), publication_status: afterRelist.publication_status });
 
