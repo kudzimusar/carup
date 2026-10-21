@@ -171,6 +171,7 @@ jobs:
             RUNTIME="$OUT/runtime-proof.txt"
             : > "$RUNTIME"
             echo "runtime_complete=NO" >> "$RUNTIME"
+            QUICKSTEP_COUNT=0
             DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
             test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
             adb wait-for-device
@@ -235,22 +236,71 @@ jobs:
               adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
               adb pull /sdcard/window.xml "$OUT/$1.xml" >/dev/null 2>&1 || return 1
             }
+            fail_on_carup_system_dialog() {
+              local xml="$1"
+              if grep -Fq "CarUp isn't responding" "$xml" || grep -Fq "CarUp keeps stopping" "$xml"; then
+                cp "$xml" "$OUT/carup-system-failure.xml"
+                echo "carup_anr_or_crash_dialog=PRESENT" >> "$RUNTIME"
+                echo "::error::CarUp ANR/crash system dialog detected"
+                exit 1
+              fi
+            }
+
+            dismiss_exact_quickstep_overlay() {
+              local xml="$1"
+              if ! grep -Fq "Quickstep isn't responding" "$xml"; then
+                return 1
+              fi
+              grep -Fq 'package="android"' "$xml" || {
+                echo "::error::Quickstep text appeared outside the Android system dialog package"
+                exit 1
+              }
+              QUICKSTEP_COUNT=$((QUICKSTEP_COUNT + 1))
+              cp "$xml" "$OUT/quickstep-anr-$QUICKSTEP_COUNT.xml"
+              echo "quickstep_overlay_$QUICKSTEP_COUNT=PROVEN" >> "$RUNTIME"
+
+              local tap
+              tap="$(python - "$xml" <<'PY'
+import re, sys
+src=open(sys.argv[1], encoding='utf-8').read()
+m=re.search(r'<node[^>]+(?:text="Wait"|resource-id="android:id/aerr_wait")[^>]+bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"', src)
+if not m:
+    raise SystemExit(2)
+x1,y1,x2,y2=map(int,m.groups())
+print((x1+x2)//2, (y1+y2)//2)
+PY
+              )" || {
+                echo "::error::Exact Quickstep ANR was proven but its Android Wait control could not be resolved"
+                exit 1
+              }
+              read -r TAP_X TAP_Y <<< "$tap"
+              adb shell input tap "$TAP_X" "$TAP_Y"
+              sleep 2
+              adb shell am start -W -n "$LAUNCH_COMPONENT" >> "$OUT/quickstep-recovery.txt"
+              sleep 2
+              assert_foreground "quickstep-recovery-$QUICKSTEP_COUNT"
+              return 0
+            }
+
             wait_for_native_ui() {
               local label="$1" required="$2" loops="$3"
+              local current="$OUT/$label-current.xml"
               for i in $(seq 1 "$loops"); do
                 if dump_ui "$label-current"; then
-                  if grep -Fq "CarUp isn't responding" "$OUT/$label-current.xml" || grep -Fq "CarUp keeps stopping" "$OUT/$label-current.xml"; then
-                    echo "::error::CarUp ANR/crash dialog"; exit 1
+                  fail_on_carup_system_dialog "$current"
+                  if dismiss_exact_quickstep_overlay "$current"; then
+                    continue
                   fi
-                  if grep -Fq "$required" "$OUT/$label-current.xml"; then
-                    cp "$OUT/$label-current.xml" "$OUT/$label.xml"
+                  if grep -Fq "$required" "$current"; then
+                    cp "$current" "$OUT/$label.xml"
                     grep -Fq 'package="com.carup.mobile"' "$OUT/$label.xml" || { echo "::error::$label not rendered by CarUp"; exit 1; }
                     return 0
                   fi
                 fi
                 sleep 1
               done
-              echo "::error::Expected CarUp UI '$required' did not appear for $label"; exit 1
+              [ -f "$current" ] && cp "$current" "$OUT/$label-timeout.xml"
+              echo "::error::Expected CarUp UI '$required' did not appear for $label after bounded recovery"; exit 1
             }
 
             adb logcat -c
@@ -258,6 +308,10 @@ jobs:
             adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/cold-launch.txt"
             grep -Fq 'Status: ok' "$OUT/cold-launch.txt"
             sleep 8
+            if dump_ui cold-launch-check; then
+              fail_on_carup_system_dialog "$OUT/cold-launch-check.xml"
+              dismiss_exact_quickstep_overlay "$OUT/cold-launch-check.xml" || true
+            fi
             assert_foreground cold-launch
             adb exec-out screencap -p > "$OUT/cold-launch.png"
             echo "cold_launch=PASS" >> "$RUNTIME"
@@ -299,6 +353,10 @@ jobs:
             adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/restart.txt"
             grep -Fq 'Status: ok' "$OUT/restart.txt"
             sleep 5
+            if dump_ui restart-check; then
+              fail_on_carup_system_dialog "$OUT/restart-check.xml"
+              dismiss_exact_quickstep_overlay "$OUT/restart-check.xml" || true
+            fi
             assert_foreground full-restart
             echo "full_restart=PASS" >> "$RUNTIME"
             adb logcat -d > "$OUT/carup-logcat.txt" || true
@@ -306,6 +364,11 @@ jobs:
               echo "::error::CarUp ANR/fatal process evidence in logcat"; exit 1
             fi
             echo "carup_fatal_exception=ABSENT" >> "$RUNTIME"
+            if [ "$QUICKSTEP_COUNT" -gt 0 ]; then
+              echo "quickstep_overlay_handling=PASS" >> "$RUNTIME"
+            else
+              echo "quickstep_overlay_handling=NOT_ENCOUNTERED" >> "$RUNTIME"
+            fi
             echo "runtime_complete=YES" >> "$RUNTIME"
         with:
           api-level: 35
