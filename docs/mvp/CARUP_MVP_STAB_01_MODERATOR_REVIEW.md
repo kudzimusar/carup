@@ -117,7 +117,8 @@ INQUIRY_RECONCILIATION_APPLIED = NO
 The nine disposable CARUP-MVP-STAB-01 sessions recorded in E-020 remain revoked. A fresh moderator read found three
 additional active sessions on the dedicated certification reviewer identity `u_mvp_stab01_reviewer`; all three were Node
 certification sessions, including two step-up sessions. They were revoked using the accepted AUTH-05 authority
-`session_authority_revoke_scope(..., 'all', ...)`. Readback then proved:
+`session_authority_revoke_scope(..., 'all', ...)`. A final readback then confirmed zero active sessions for the certification
+seller, buyer, garage applicant, Native proof account and dedicated reviewer:
 
 ```text
 DEDICATED_REVIEWER_ACTIVE_SESSIONS = 0
@@ -128,8 +129,10 @@ PRODUCTION_TOUCHED = NO
 ## 4. Evidence-harness closure
 
 The temporary push triggers used only to work around unavailable manual dispatch were retired in
-`39fde0cd7b892c2b543d414c5fe368d8cb84b7f0`. The failed no-job run created by retiring the old push trigger is classified
-as an evidence-harness tombstone, not a product/test failure. The accepted product candidate is unchanged.
+`39fde0cd7b892c2b543d414c5fe368d8cb84b7f0`. The stale APK workflow registry continued emitting zero-job red tombstones,
+so the completed APK harness was archived under `docs/mvp/evidence-harnesses/` and removed from active Actions in
+`13d444ce8bb9ae1a1bd873a4052609549853791f`. That archive commit produced no workflow run. The accepted product candidate
+is unchanged.
 
 ## 5. Gates intentionally still open
 

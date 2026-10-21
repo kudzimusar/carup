@@ -398,6 +398,21 @@
       "integrity": [],
       "interpretation": "Revoked 9 remaining active CARUP-MVP-STAB-01 disposable test sessions identified by the work-unit staging-only naming convention; separate readback confirmed 0 active sessions. No user or evidence rows were deleted.",
       "does_not_prove": "Does not touch Owner sessions, Production, or user records."
+    },
+    {
+      "evidence_id": "E-021",
+      "control_ids": [
+        "CARUP-MVP-BUY-012",
+        "CARUP-MVP-X-006",
+        "CARUP-MVP-X-011"
+      ],
+      "candidate_authority": "staging cleanup; frozen product candidate unchanged",
+      "source": "canonical AUTH-05 session_authority_revoke_scope + Supabase staging readback",
+      "captured_at": "2026-10-21T23:02:05Z",
+      "collector": "moderator continuation",
+      "integrity": [],
+      "interpretation": "The dedicated CARUP-MVP-STAB-01 staging reviewer still had 3 Node certification sessions (2 step-up). All 3 were revoked through session_authority_revoke_scope(...,'all',...), not by row deletion. Fresh readback then confirmed 0 active sessions for the certification seller, buyer, garage applicant, Native proof account and dedicated reviewer.",
+      "does_not_prove": "Does not inspect or delete files on the Owner's Mac; Production was not touched."
     }
   ]
 }

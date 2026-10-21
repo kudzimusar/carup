@@ -100,7 +100,7 @@ The product candidate remains frozen. Evidence-only and documentation commits af
 | Web truth artifact | **PASS** | artifact `12387410776`; digest `sha256:2274bb989b736aa24c97197d6546afeb6bbc2f95c002f6fe8def586f558898e6` |
 | Final Native Trust / delivery / Inbox visuals | **PASS** | sanitized run `39688449357`; artifact `12387332691`; digest `sha256:53c36334f845d38f62be24939eb56aaa4d713006eb05b0b782fd1b812deff54a` |
 | Native Send | **NOT REPEATED** | visual proof explicitly records `native_send_performed=NO`; existing exactly-once proof remains authoritative |
-| Disposable test sessions | **CLEAN** | CARUP-MVP-STAB-01 staging-only session sweep readback = 0 active |
+| Certification/evidence sessions | **CLEAN** | E-020 revoked 9 disposable sessions; E-021 revoked 3 residual dedicated-reviewer certification sessions through canonical AUTH-05 authority; listed certification identities read back at 0 active |
 | Serena reconciliation truth | **READ-ONLY PROVEN** | 37 inquiries / 34 exact inquiry-linked conversations / 3 historical unmatched inquiries; no reconciliation mutation applied |
 | Physical Native Owner UAT | **REQUIRED** | emulator evidence is not physical Owner acceptance |
 | Hosted PR-only `ci.yml` | **NOT RUN** | no PR has been opened; pre-merge/release evidence item, not a blocker to Owner physical UAT |
@@ -186,3 +186,4 @@ Repaired findings remain `REMEDIATED_PENDING_VERIFICATION` in the implementation
 - Container policy F-033/F-034/F-035 and spec-45/F-036 remain Owner/moderator decisions.
 - Staging reconciliation apply is not authorized.
 - Hosted PR-only `ci.yml` remains not run until a PR is deliberately opened.
+- Local evidence-workstation hygiene (historical `secrets/` directory removal and locally started emulator shutdown) is not independently observable from the connected moderator environment. Remote staging sessions are revoked, so this does not block Owner UAT.
