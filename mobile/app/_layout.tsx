@@ -20,6 +20,15 @@ import {
 import { useNativeTheme } from '../theme/tokens';
 import '../global.css';
 
+/**
+ * CARUP-MVP-STAB-01 F-014: the tabs are the root anchor, so a cold deep link such as
+ * carup://vehicle/<vin> opens with the tabs beneath the vehicle and Back lands in the app instead of
+ * closing it. expo-router 6 reads `unstable_settings.anchor` (build/getRoutesCore.js getLayoutNode).
+ */
+export const unstable_settings = {
+  anchor: '(tabs)',
+};
+
 export default function RootLayout() {
   const theme = useNativeTheme();
   const router = useRouter();

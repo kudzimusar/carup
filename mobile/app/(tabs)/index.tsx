@@ -19,6 +19,7 @@ import {
 import { getMyVehicles } from '../../utils/ownerGarageApi';
 import { resolveMarketplaceInquiryConversation } from '../../utils/communicationApi';
 import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
+import { vehicleHref } from '../../utils/vehicleNavigation';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -287,7 +288,7 @@ export default function HomeScreen() {
               <VehicleCard
                 key={item.vin}
                 item={item}
-                onPress={() => router.push(('/vehicle/' + item.vin) as never)}
+                onPress={() => router.push(vehicleHref(item.vin, { from: 'home' }) as never)}
               />
             ))}
           </View>
@@ -346,7 +347,7 @@ export default function HomeScreen() {
             <SectionHeader title="Your listing" />
             <VehicleCard
               item={sellerListingQuery.data}
-              onPress={() => router.push(('/vehicle/' + sellerListingQuery.data!.vin) as never)}
+              onPress={() => router.push(vehicleHref(sellerListingQuery.data!.vin, { from: 'home' }) as never)}
             />
             {newSellerInquiryCount > 0 ? (
               <Pressable

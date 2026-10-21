@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CarUpWordmark } from '../components/brand/CarUpBrand';
 import { Button, Field, Notice } from '../components/ui/NativePrimitives';
 import { getMarketplaceListingDetail, MarketplaceApiError } from '../utils/marketplaceApi';
+import { vehicleHref } from '../utils/vehicleNavigation';
 import { radius, spacing, touchTarget, typeScale, useNativeTheme } from '../theme/tokens';
 
 export function CheckCarExperience({ showBack = true }: { showBack?: boolean }) {
@@ -15,18 +16,24 @@ export function CheckCarExperience({ showBack = true }: { showBack?: boolean }) 
   const [identifier, setIdentifier] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  // A second tap while a check is running must not open the vehicle twice.
+  const checkingRef = useRef(false);
 
   const check = async () => {
+    if (checkingRef.current) return;
     const value = identifier.trim().toUpperCase();
     if (!value) {
       setError('Enter a VIN or chassis identifier.');
       return;
     }
+    checkingRef.current = true;
     setChecking(true);
     setError(null);
     try {
       const vehicle = await getMarketplaceListingDetail(value);
-      router.replace(('/vehicle/' + vehicle.vin) as never);
+      // CARUP-MVP-STAB-01 F-003: open the vehicle on top of Verify (a replace emptied the stack, so
+      // the Android Back key closed the app); Back returns here.
+      router.push(vehicleHref(vehicle.vin, { from: 'verify' }) as never);
     } catch (cause) {
       if (cause instanceof MarketplaceApiError && cause.statusCode === 404) {
         setError('CarUp has no public Marketplace record for that identifier. This result is not a government registry check.');
@@ -34,6 +41,7 @@ export function CheckCarExperience({ showBack = true }: { showBack?: boolean }) 
         setError('CarUp could not check the current public vehicle record. Check your connection and try again.');
       }
     } finally {
+      checkingRef.current = false;
       setChecking(false);
     }
   };

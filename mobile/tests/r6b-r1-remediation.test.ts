@@ -11,6 +11,11 @@ import {
   marketplaceVehicleHref,
 } from '../utils/marketplaceNavigation';
 import {
+  leaveVehicle,
+  vehicleLeaveFallback,
+  vehicleRouteContextFromParams,
+} from '../utils/vehicleNavigation';
+import {
   communicationParticipantContext,
   communicationThreadContext,
 } from '../utils/communicationPresentation';
@@ -71,9 +76,15 @@ describe('Marketplace deterministic Back control', () => {
     expect(results).toContain('location=Harare');
 
     const vehicle = marketplaceVehicleHref('VIN/123', results);
-    expect(vehicle).toContain('/vehicle/VIN%2F123?marketReturn=');
-    const encodedReturn = vehicle.split('marketReturn=')[1];
-    expect(marketplaceReturnFromParam(decodeURIComponent(encodedReturn))).toBe(results);
+    // CARUP-MVP-STAB-01 F-003: the Results entry also names its source, so the return is parsed as
+    // real query params (exact keys) instead of splitting the string after `marketReturn=`.
+    const parsed = new URL(vehicle, 'https://carup.invalid');
+    expect(parsed.pathname).toBe('/vehicle/VIN%2F123');
+    expect([...parsed.searchParams.keys()]).toEqual(['from', 'marketReturn']);
+    expect(parsed.searchParams.get('from')).toBe('results');
+    expect(marketplaceReturnFromParam(parsed.searchParams.get('marketReturn') ?? undefined)).toBe(results);
+    // With no history, Back lands on exactly these results.
+    expect(vehicleLeaveFallback(vehicleRouteContextFromParams(Object.fromEntries(parsed.searchParams)))).toBe(results);
 
     expect(marketplaceReturnFromParam('/(tabs)/account')).toBeNull();
     expect(marketplaceReturnFromParam('https://evil.example/market/results')).toBeNull();
@@ -90,10 +101,25 @@ describe('Marketplace deterministic Back control', () => {
 
     const resultsSource = readFileSync(resolve('app/market/results.tsx'), 'utf8');
     const vehicleSource = readFileSync(resolve('app/vehicle/[vin].tsx'), 'utf8');
+    const navigationSource = readFileSync(resolve('utils/vehicleNavigation.ts'), 'utf8');
     expect(resultsSource).toContain("router.replace('/(tabs)/marketplace'");
     expect(resultsSource).toContain('marketplaceVehicleHref(item.vin, vehicleReturnHref)');
-    expect(vehicleSource).toContain('marketplaceReturnFromParam(marketReturn)');
-    expect(vehicleSource).toContain("router.replace((marketplaceReturn || '/(tabs)/marketplace')");
+    // CARUP-MVP-STAB-01 F-003 / F-014: Vehicle Detail leaves through the one navigation contract, which
+    // still validates the return with marketplaceReturnFromParam…
+    expect(vehicleSource).toContain('vehicleRouteContextFromParams(params)');
+    expect(vehicleSource).toContain('leaveVehicle(router, routeContext)');
+    expect(navigationSource).toContain('marketplaceReturnFromParam(params.marketReturn');
+    // …and never adds a navigation entry: back() when there is history, replace() to the exact saved
+    // results when there is none, push() never.
+    for (const canGoBack of [true, false]) {
+      const calls: string[] = [];
+      leaveVehicle({
+        canGoBack: () => canGoBack,
+        back: () => calls.push('back'),
+        replace: (href: never) => calls.push(`replace:${String(href)}`),
+      }, vehicleRouteContextFromParams({ from: 'results', marketReturn: saved }));
+      expect(calls).toEqual(canGoBack ? ['back'] : [`replace:${saved}`]);
+    }
   });
 });
 

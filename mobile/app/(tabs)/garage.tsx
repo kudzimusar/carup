@@ -30,6 +30,7 @@ import { useUploadQueueStore } from '../../store/uploadQueueStore';
 import type { CapturedAsset } from '../../utils/camera';
 import { getMyServiceHistory, getMyVehicles, type NativeOwnedVehicle } from '../../utils/ownerGarageApi';
 import { resolveMarketplaceMediaUrl } from '../../utils/marketplaceApi';
+import { vehicleHref } from '../../utils/vehicleNavigation';
 import { resolveApiBaseUrl } from '../../utils/apiBase';
 import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
 import {
@@ -395,7 +396,7 @@ function GarageScreenInner() {
                 <OwnerVehicleCard
                   vehicle={item}
                   capturing={cameraVin === item.vin}
-                  onPassport={() => router.push(`/vehicle/${item.vin}` as never)}
+                  onPassport={() => router.push(vehicleHref(item.vin, { from: 'garage' }) as never)}
                   onOdometer={() => captureOdometer(item.vin)}
                 />
               </View>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, BackHandler, Linking, ScrollView, Text, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
@@ -30,7 +30,10 @@ import {
   resolveMarketplaceInquiryConversation,
 } from '../../utils/communicationApi';
 import { nativeCanonicalObjectHref } from '../../utils/nativeObjectRouting';
-import { marketplaceReturnFromParam } from '../../utils/marketplaceNavigation';
+import {
+  leaveVehicle,
+  vehicleRouteContextFromParams,
+} from '../../utils/vehicleNavigation';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 function titleCase(value: string | null | undefined): string | null {
@@ -185,16 +188,23 @@ function FactRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function OwnerPassportFallback({ vin, passport }: { vin: string; passport: Awaited<ReturnType<typeof getOwnerVehiclePassport>> }) {
+function OwnerPassportFallback({
+  vin,
+  passport,
+  onBack,
+}: {
+  vin: string;
+  passport: Awaited<ReturnType<typeof getOwnerVehiclePassport>>;
+  onBack: () => void;
+}) {
   const theme = useNativeTheme();
-  const router = useRouter();
   const vehicle = passport.vehicle ?? {};
   const title = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || vin;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
       <ScrollView contentContainerStyle={{ padding: spacing[5], paddingBottom: spacing[10] }}>
-        <Button label="Back" variant="tertiary" onPress={() => router.back()} />
+        <Button label="Back" variant="tertiary" onPress={onBack} />
         <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[4] }}>Your vehicle · VIN {vin}</Text>
         <Text allowFontScaling style={{ ...typeScale.titleLarge, color: theme.text.primary, marginTop: spacing[1] }}>{title}</Text>
 
@@ -221,14 +231,41 @@ function OwnerPassportFallback({ vin, passport }: { vin: string; passport: Await
   );
 }
 
+/**
+ * CARUP-MVP-STAB-01 F-003 / F-014: the Android hardware Back key does what the visible Back control
+ * does, only while this screen is focused, and never closes the app from a vehicle.
+ */
+function useHardwareBack(onBack: () => void) {
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        onBackRef.current();
+        return true;
+      });
+      return () => subscription.remove();
+    }, []),
+  );
+}
+
 function VehicleDetailScreenInner() {
   const theme = useNativeTheme();
   const router = useRouter();
-  const { vin, marketReturn } = useLocalSearchParams<{ vin?: string; marketReturn?: string | string[] }>();
-  const marketplaceReturn = marketplaceReturnFromParam(marketReturn);
-  const backToMarketplace = () => {
-    router.replace((marketplaceReturn || '/(tabs)/marketplace') as never);
-  };
+  const params = useLocalSearchParams<{
+    vin?: string;
+    from?: string;
+    threadId?: string;
+    marketReturn?: string | string[];
+    ref?: string;
+    referral?: string;
+    campaign?: string;
+  }>();
+  const { vin } = params;
+  // One contract for every entry (utils/vehicleNavigation.ts): back to the source, else its tab.
+  const routeContext = vehicleRouteContextFromParams(params);
+  const leave = () => leaveVehicle(router, routeContext);
+  useHardwareBack(leave);
   const token = useAuthStore((state) => state.token);
   const [messaging, setMessaging] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -341,7 +378,7 @@ function VehicleDetailScreenInner() {
   }
 
   if (notPublic && token && ownerPassportQuery.data) {
-    return <OwnerPassportFallback vin={String(vin)} passport={ownerPassportQuery.data} />;
+    return <OwnerPassportFallback vin={String(vin)} passport={ownerPassportQuery.data} onBack={leave} />;
   }
 
   if (detailQuery.isError || !detailQuery.data) {
@@ -353,8 +390,8 @@ function VehicleDetailScreenInner() {
           body="CarUp could not load a current Marketplace record for this vehicle."
           actionLabel="Try again"
           onAction={() => void detailQuery.refetch()}
-          secondaryLabel="Back to Market"
-          onSecondary={() => router.replace('/(tabs)/marketplace' as never)}
+          secondaryLabel="Back"
+          onSecondary={leave}
         />
       </View>
     );
@@ -376,7 +413,7 @@ function VehicleDetailScreenInner() {
     <View style={{ flex: 1, backgroundColor: theme.background.canvas }}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: spacing[5], paddingTop: spacing[5], paddingBottom: spacing[3] }}>
-          <Button label="Back to Market" variant="tertiary" onPress={backToMarketplace} />
+          <Button label="Back" variant="tertiary" onPress={leave} />
         </View>
 
         <View style={{ position: 'relative', backgroundColor: theme.background.surfaceSunken }}>

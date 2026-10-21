@@ -250,12 +250,16 @@ describe('LR2-B source integration preserves R6-B-R1 authority', () => {
     const queries = readFileSync(resolve('utils/communicationQueries.ts'), 'utf8');
     const root = readFileSync(resolve('app/_layout.tsx'), 'utf8');
     const vehicle = readFileSync(resolve('app/vehicle/[vin].tsx'), 'utf8');
+    const navigation = readFileSync(resolve('utils/vehicleNavigation.ts'), 'utf8');
 
     expect(queries).toContain('scope.userId');
     expect(queries).toContain('scope.tenantId');
     expect(queries).toContain('scope.role');
     expect(root).toContain('invalidateQueries({ queryKey: communicationQueryKeys.root })');
     expect(root).toContain("refetchQueries({ queryKey: communicationQueryKeys.root, type: 'active' })");
-    expect(vehicle).toContain('marketplaceReturnFromParam');
+    // CARUP-MVP-STAB-01 F-003: the explicit Marketplace return is validated by the one navigation
+    // contract Vehicle Detail leaves through.
+    expect(vehicle).toContain('vehicleRouteContextFromParams(params)');
+    expect(navigation).toContain('marketplaceReturnFromParam(params.marketReturn');
   });
 });

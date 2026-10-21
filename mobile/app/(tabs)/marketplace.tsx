@@ -15,6 +15,7 @@ import {
   SectionHeader,
 } from '../../components/ui/NativePrimitives';
 import { getMarketplaceListings } from '../../utils/marketplaceApi';
+import { vehicleHref } from '../../utils/vehicleNavigation';
 import {
   activeMarketplaceFilterCount,
   marketplaceFiltersFromParams,
@@ -160,7 +161,7 @@ function MarketplaceSearchInner() {
               <VehicleCard
                 key={item.vin}
                 item={item}
-                onPress={() => router.push(`/vehicle/${item.vin}` as never)}
+                onPress={() => router.push(vehicleHref(item.vin, { from: 'marketplace' }) as never)}
               />
             ))}
           </View>

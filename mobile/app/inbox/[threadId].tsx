@@ -24,10 +24,8 @@ import {
   communicationTitleCase,
 } from '../../utils/communicationPresentation';
 import { communicationQueryKeys, communicationQueryScope } from '../../utils/communicationQueries';
-import {
-  canonicalObjectRouteFromThread,
-  nativeCanonicalObjectHref,
-} from '../../utils/nativeObjectRouting';
+import { canonicalObjectRouteFromThread } from '../../utils/nativeObjectRouting';
+import { vehicleHref } from '../../utils/vehicleNavigation';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -211,7 +209,8 @@ export default function NativeConversationScreen() {
             <Button
               label="Open vehicle"
               variant="secondary"
-              onPress={() => router.push(nativeCanonicalObjectHref(productRoute) as never)}
+              // CARUP-MVP-STAB-01 F-003: Back from the vehicle returns to this conversation.
+              onPress={() => router.push(vehicleHref(productRoute.id, { from: 'inbox', threadId: String(threadId) }) as never)}
               icon={<Ionicons name="car-outline" size={19} color={theme.text.primary} />}
             />
           </View>

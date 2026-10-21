@@ -19,6 +19,7 @@ import {
   canonicalObjectRouteFromCommunicationNotification,
   nativeCanonicalObjectHref,
 } from '../../utils/nativeObjectRouting';
+import { vehicleHref } from '../../utils/vehicleNavigation';
 import { useAuthStore } from '../../store/authStore';
 import { radius, spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
@@ -62,7 +63,10 @@ export default function InboxScreen() {
       await markCommunicationNotificationRead(String(item.id)).catch(() => null);
       await queryClient.invalidateQueries({ queryKey: communicationQueryKeys.notifications(scope) });
     }
-    router.push(nativeCanonicalObjectHref(target) as never);
+    // A vehicle opened from an update returns to the Inbox (CARUP-MVP-STAB-01 F-003).
+    router.push((target.type === 'conversation'
+      ? nativeCanonicalObjectHref(target)
+      : vehicleHref(target.id, { from: 'inbox' })) as never);
   };
 
   if (loading) {
