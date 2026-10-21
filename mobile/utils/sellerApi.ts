@@ -138,6 +138,34 @@ export interface NativeSellerDraftUpdate {
   public_seller_display_enabled?: boolean;
 }
 
+/**
+ * CARUP-MVP-STAB-01 — the RESUME save sends only what the seller entered on this screen. This
+ * screen has no privacy controls, so the seller's privacy choices (made in Seller Studio) are never
+ * restated as defaults: `public_seller_display_enabled` is never sent, and `location_visibility`
+ * travels only with a newly typed location. That one exception exists because the server
+ * re-derives visibility whenever a location is written and reads an absent visibility as
+ * "withheld" — so a new city carries the seller's EXISTING stored choice instead of silently
+ * hiding the listing's location. An unknown stored choice is not guessed: nothing is added.
+ */
+export function nativeResumeDraftUpdate(input: {
+  price: number;
+  currency: 'USD' | 'ZiG';
+  location?: string | null;
+  description?: string | null;
+  storedLocationVisibility?: unknown;
+}): NativeSellerDraftUpdate {
+  const location = String(input.location ?? '').trim();
+  const description = String(input.description ?? '').trim();
+  const stored = input.storedLocationVisibility;
+  const storedVisibility = stored === 'withheld' || stored === 'province_only' || stored === 'public' ? stored : null;
+  return {
+    price: input.price,
+    currency: input.currency,
+    ...(location ? { location, ...(storedVisibility ? { location_visibility: storedVisibility } : {}) } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
 export async function updateSellerDraft(
   vin: string,
   input: NativeSellerDraftUpdate,

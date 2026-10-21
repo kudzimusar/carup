@@ -6,6 +6,7 @@ import { Button, Field, FilterChip, Notice } from '../../components/ui/NativePri
 import { getMyVehicles } from '../../utils/ownerGarageApi';
 import {
   createSellerDraft,
+  nativeResumeDraftUpdate,
   SELLER_LISTING_LOCK_MESSAGES,
   SellerListingLockedError,
   sellerListingLockFor,
@@ -87,14 +88,15 @@ export default function SellDetailsScreen() {
     setError(null);
     try {
       if (resume) {
-        await updateSellerDraft(vin, {
+        // Only what was entered on this screen. Privacy choices made in Seller Studio are never
+        // reset to defaults here (they used to be sent as withheld / not shown on every resume).
+        await updateSellerDraft(vin, nativeResumeDraftUpdate({
           price: numericPrice,
           currency,
-          ...(location.trim() ? { location: location.trim() } : {}),
-          ...(description.trim() ? { description: description.trim() } : {}),
-          location_visibility: 'withheld',
-          public_seller_display_enabled: false,
-        });
+          location,
+          description,
+          storedLocationVisibility: (ownedVehicle as { listing_location_visibility?: unknown } | null)?.listing_location_visibility,
+        }));
       } else {
         await createSellerDraft({
           vin,

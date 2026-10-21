@@ -25,6 +25,7 @@ const {
   SELLER_LISTING_LOCK_MESSAGES,
   SellerListingLockedError,
   createSellerDraft,
+  nativeResumeDraftUpdate,
   sellerListingLockFor,
   updateSellerDraft,
 } = await import('../utils/sellerApi');
@@ -34,14 +35,58 @@ function json(status: number, body: unknown): Response {
 }
 
 const writes: string[] = [];
+const sentBodies: Record<string, unknown>[] = [];
 function stubBackend(sellerResponse: Response) {
   writes.length = 0;
+  sentBodies.length = 0;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url).includes('/api/security/csrf-token')) return json(200, { csrfToken: 'csrf-1' });
     writes.push(`${init?.method || 'GET'} ${String(url).replace('https://staging.example.test', '')}`);
+    if (typeof init?.body === 'string') sentBodies.push(JSON.parse(init.body));
     return sellerResponse;
   }));
 }
+
+describe('the resume save never resets the seller\'s privacy choices', () => {
+  it('sends no privacy field when the seller did not type a location', () => {
+    const update = nativeResumeDraftUpdate({ price: 12800, currency: 'USD', location: '', description: '', storedLocationVisibility: 'public' });
+    expect(update).toEqual({ price: 12800, currency: 'USD' });
+    expect(update).not.toHaveProperty('location_visibility');
+    expect(update).not.toHaveProperty('public_seller_display_enabled');
+  });
+
+  it('carries the seller\'s STORED visibility with a newly typed location — never a default', () => {
+    expect(nativeResumeDraftUpdate({ price: 12800, currency: 'USD', location: ' Harare ', storedLocationVisibility: 'public' }))
+      .toEqual({ price: 12800, currency: 'USD', location: 'Harare', location_visibility: 'public' });
+    expect(nativeResumeDraftUpdate({ price: 12800, currency: 'USD', location: 'Harare', storedLocationVisibility: 'province_only' }).location_visibility)
+      .toBe('province_only');
+    // An unknown stored choice is not guessed at.
+    for (const stored of [undefined, null, '', 'everyone']) {
+      expect(nativeResumeDraftUpdate({ price: 12800, currency: 'USD', location: 'Harare', storedLocationVisibility: stored }))
+        .toEqual({ price: 12800, currency: 'USD', location: 'Harare' });
+    }
+  });
+
+  it('never sends the public seller name choice, whatever was typed', () => {
+    const update = nativeResumeDraftUpdate({ price: 12800, currency: 'ZiG', location: 'Harare', description: ' Clean car. ', storedLocationVisibility: 'withheld' });
+    expect(update).toEqual({ price: 12800, currency: 'ZiG', location: 'Harare', location_visibility: 'withheld', description: 'Clean car.' });
+    expect(update).not.toHaveProperty('public_seller_display_enabled');
+  });
+
+  it('what reaches the server on a resume save holds no privacy defaults', async () => {
+    stubBackend(json(200, { success: true, vin: 'GFC27-027051', publication_status: 'publishable' }));
+    await updateSellerDraft('GFC27-027051', nativeResumeDraftUpdate({ price: 12800, currency: 'USD', location: '', description: '' }));
+    expect(sentBodies).toEqual([{ price: 12800, currency: 'USD' }]);
+  });
+
+  it('sell/details.tsx builds its resume save with the helper and no literal privacy defaults', () => {
+    const screen = readFileSync(resolve(__dirname, '../app/sell/details.tsx'), 'utf8');
+    expect(screen).toContain('nativeResumeDraftUpdate({');
+    expect(screen).toContain('storedLocationVisibility: (ownedVehicle as { listing_location_visibility?: unknown } | null)?.listing_location_visibility');
+    expect(screen).not.toContain("location_visibility: 'withheld'");
+    expect(screen).not.toContain('public_seller_display_enabled: false');
+  });
+});
 
 beforeEach(() => {
   vi.unstubAllGlobals();
