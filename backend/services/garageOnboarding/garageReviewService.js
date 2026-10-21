@@ -1,6 +1,6 @@
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
-import { getIdentityAssurance } from '../identity/identityAssuranceService.js';
+import { ASSURANCE_LEVELS, getIdentityAssurance } from '../identity/identityAssuranceService.js';
 import { listEvidence, garageEvidenceStorage, GARAGE_EVIDENCE_BUCKET } from './garageEvidenceService.js';
 import { ForbiddenError, NotFoundError, ValidationError, DatabaseError, ConflictError } from '../../utils/errors.js';
 
@@ -103,6 +103,43 @@ async function readIdentity(client, applicantUserId, deps = {}) {
 }
 
 /**
+ * PO-2's person-identity prerequisite — the ONE reading of it.
+ *
+ * The reviewer's approval blocker (`approvalBlockers`) and the applicant's own "before CarUp can
+ * approve your garage" notice (`applicantIdentityPrerequisite`) both answer from here, so the two can
+ * never disagree about whether identity stands in the way.
+ *
+ *   ready: true    the identity is usable for identity-gated actions
+ *   ready: false   it is not — no record, or not approved
+ *   ready: null    it could not be read just now: a system problem, never a finding about the person
+ *
+ * `next_step` is what the APPLICANT can do about it, in subject-safe codes: it never names the
+ * internal lifecycle state (OC-5C — a compromised identity reads as on hold, never "compromised").
+ */
+export function identityPrerequisite(identity, identityError = null) {
+  if (identityError) return { ready: null, finding: 'unreadable', identity_state: null, next_step: 'try_again_later' };
+  if (!identity) return { ready: false, finding: 'missing', identity_state: null, next_step: 'verify_identity' };
+  if (identity.usable_for_identity_gated_actions !== true) {
+    let nextStep = 'verify_identity';
+    if (identity.assurance_level === ASSURANCE_LEVELS.UNUSABLE) nextStep = 'identity_on_hold';
+    else if (identity.pending_review === true) nextStep = 'identity_review_pending';
+    return { ready: false, finding: 'not_approved', identity_state: identity.identity_state || null, next_step: nextStep };
+  }
+  return { ready: true, finding: 'ready', identity_state: identity.identity_state || null, next_step: null };
+}
+
+/**
+ * The applicant's view of the identity prerequisite: whether it stands between their garage and an
+ * approval, and what they can do about it. Read through the reviewer's own reader and decided by
+ * `identityPrerequisite` — nothing here is a second copy of the rule.
+ */
+export async function applicantIdentityPrerequisite(client = defaultClient, applicantUserId, deps = {}) {
+  const { identity, identityError } = await readIdentity(client, applicantUserId, deps);
+  const prerequisite = identityPrerequisite(identity, identityError);
+  return { identity_ready: prerequisite.ready, identity_next_step: prerequisite.next_step };
+}
+
+/**
  * Everything a reviewer needs to decide, gathered in one read.
  *
  * The applicant's identity assurance is included because PO-2 makes governed person-identity
@@ -151,12 +188,13 @@ export function allowedDecisions(status) {
  */
 export function approvalBlockers(application, documents = [], identity = null, identityError = null) {
   const blockers = [];
-  if (identityError) {
+  const prerequisite = identityPrerequisite(identity, identityError);
+  if (prerequisite.finding === 'unreadable') {
     blockers.push('The applicant\'s identity status could not be read just now. This is a system problem, not a finding against them — try again before deciding.');
-  } else if (!identity) {
+  } else if (prerequisite.finding === 'missing') {
     blockers.push('No identity record was found for this applicant.');
-  } else if (identity.usable_for_identity_gated_actions !== true) {
-    blockers.push(`The applicant's identity is not approved (${identity.identity_state || 'unknown state'}). Person identity must be approved before a garage workspace is created.`);
+  } else if (prerequisite.finding === 'not_approved') {
+    blockers.push(`The applicant's identity is not approved (${prerequisite.identity_state || 'unknown state'}). Person identity must be approved before a garage workspace is created.`);
   }
   const live = (documents || []).filter((d) => !d.removed_at);
   if (live.length === 0) {
