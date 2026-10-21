@@ -203,7 +203,7 @@ export function CheckCarExperience({ showBack = true }: { showBack?: boolean }) 
         <View style={{ marginTop: spacing[4] }}>
           <Notice
             title="Evidence-led by design"
-            body="Plate and document scanning appear only when the app has a real governed capture path. CarUp does not imply a registry check that did not happen."
+            body="Plate and document scanning appear only when the app can really capture them. CarUp does not imply a registry check that did not happen."
             tone="info"
           />
         </View>

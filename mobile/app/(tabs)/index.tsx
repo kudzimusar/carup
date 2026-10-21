@@ -102,7 +102,7 @@ export default function HomeScreen() {
       }
       Alert.alert(
         'Conversation is being prepared',
-        'This seller inquiry is real, but its canonical CarUp conversation is not ready yet. CarUp will not open a generic Inbox or manufacture another thread.',
+        'Your message was sent. CarUp is still preparing the conversation — it will appear in your Inbox, and CarUp will not start a second one.',
         [
           { text: 'Not now', style: 'cancel' },
           { text: 'Try exact conversation', onPress: () => void openLatestSellerInquiry() },

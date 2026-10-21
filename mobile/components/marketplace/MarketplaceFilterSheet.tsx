@@ -70,7 +70,7 @@ export function MarketplaceFilterSheet({
             <Button label="Close" variant="tertiary" onPress={onClose} />
           </View>
           <Text allowFontScaling style={{ ...typeScale.body, color: theme.text.muted, marginTop: spacing[1] }}>
-            CarUp sends these selections to the canonical Marketplace API. No downloaded-page filtering or inferred Trust.
+            CarUp applies these filters to the whole Marketplace. The app does not filter only what it has downloaded, and it never guesses Trust.
           </Text>
         </View>
 
@@ -93,7 +93,7 @@ export function MarketplaceFilterSheet({
           <Field label="Year" value={draft.year} onChangeText={(value) => set('year', value)} keyboardType="number-pad" placeholder="e.g. 2022" />
           <Field label="Colour" value={draft.color} onChangeText={(value) => set('color', value)} placeholder="e.g. white" />
           <Field label="Body style" value={draft.bodyStyle} onChangeText={(value) => set('bodyStyle', value)} placeholder="e.g. SUV, pickup" />
-          <Field label="Location" value={draft.location} onChangeText={(value) => set('location', value)} placeholder="City, province or governed listing location" />
+          <Field label="Location" value={draft.location} onChangeText={(value) => set('location', value)} placeholder="City or province" />
           <Field label="Fuel" value={draft.fuel} onChangeText={(value) => set('fuel', value)} placeholder="e.g. diesel" />
           <Field label="Transmission" value={draft.transmission} onChangeText={(value) => set('transmission', value)} placeholder="e.g. automatic" />
 
@@ -119,7 +119,7 @@ export function MarketplaceFilterSheet({
           <View>
             <SectionHeader title="Trust / verification" />
             <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: spacing[1], marginBottom: spacing[2] }}>
-              These values are canonical backend tags; the app never infers them.
+              These are labels CarUp records; the app never guesses them.
             </Text>
             <View style={{ gap: spacing[2] }}>
               {MARKETPLACE_TRUST_FILTERS.map((item) => (
