@@ -159,3 +159,43 @@ describe('OC-NATIVE-FINAL-02-R1 P2-A · the Passport, Inbox and Trade screens sp
     expect(shown.filter((value) => INTERNAL.test(value) || NATIVE_AS_ACTOR.test(value))).toEqual([]);
   });
 });
+
+/**
+ * CARUP-MVP-STAB-01 F-011 / F-013 — the Trust copy on the Vehicle Detail screen and the Marketplace list
+ * card are held to the same rule. Only the Trust parts of Vehicle Detail are scanned here (the Trust card
+ * with its limitation and evidence-status wording, and the Passport & Trust, evidence and safety-note
+ * sections); the screen's other sections are not covered by this check.
+ */
+describe('CARUP-MVP-STAB-01 · the Vehicle Detail Trust copy and the list card speak plainly', () => {
+  const vehicle = readFileSync(resolve(__dirname, '../app/vehicle/[vin].tsx'), 'utf8');
+  const card = readFileSync(resolve(__dirname, '../components/marketplace/VehicleCard.tsx'), 'utf8');
+
+  function region(source: string, start: string, end: string): string {
+    const from = source.indexOf(start);
+    const to = source.indexOf(end, from + start.length);
+    expect(from, `marker not found: ${start}`).toBeGreaterThan(-1);
+    expect(to, `marker not found after ${start}: ${end}`).toBeGreaterThan(from);
+    return source.slice(from, to);
+  }
+
+  const trustCopy: Record<string, string> = {
+    'Vehicle Detail Trust card': region(vehicle, 'function TrustEvidence(', 'function FactRow('),
+    'Vehicle Detail Trust, evidence and safety-note sections': region(
+      vehicle,
+      '<SectionHeader title="Vehicle Passport & Trust" />',
+      '<SectionHeader title="Buyer journey" />',
+    ),
+    'Marketplace list card': card,
+  };
+
+  it('finds the Trust copy to check (anti-vacuity)', () => {
+    for (const [name, source] of Object.entries(trustCopy)) {
+      expect(visibleProse(source).length, name).toBeGreaterThan(3);
+    }
+  });
+
+  it.each(Object.keys(trustCopy))('%s shows no implementation language', (name) => {
+    const shown = visibleProse(trustCopy[name]);
+    expect(shown.filter((value) => INTERNAL.test(value) || NATIVE_AS_ACTOR.test(value))).toEqual([]);
+  });
+});

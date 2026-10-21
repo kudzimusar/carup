@@ -16,6 +16,7 @@ import {
   type VehiclePassportEvidence,
 } from '../../../utils/buyerJourneyApi';
 import { radius, spacing, typeScale, useNativeTheme } from '../../../theme/tokens';
+import { presentTrustForCustomer, type PublicTrustLike } from '@shared/trust/customerTrustPresentation';
 
 function text(value: unknown): string | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
@@ -147,6 +148,10 @@ function PassportScreenInner() {
   const evaluationState = text(trust.evaluation_state);
   const trustBand = titleCase(trust.band);
   const trustScore = typeof trust.score === 'number' && Number.isFinite(trust.score) ? trust.score : null;
+  // CARUP-MVP-STAB-01 F-010 / F-011: the score is never shown alone. The shared presenter words how much it
+  // can be relied on and what it does not cover, exactly as the Vehicle Detail screen and web word it.
+  const presentedTrust = presentTrustForCustomer(trust as PublicTrustLike);
+  const showTrustBasis = presentedTrust.evaluated && trustScore !== null;
   const evidence = Array.isArray(passport.evidenceVault) ? passport.evidenceVault : [];
   const identityRedacted = passport.identity?.identifiersRedacted === true;
   const vehicleTitle = [
@@ -210,6 +215,11 @@ function PassportScreenInner() {
             <PassportFact label="Evaluation" value={titleCase(evaluationState) || 'Not evaluated'} />
             <PassportFact label="Band" value={trustBand || 'Not available'} />
             <PassportFact label="Score" value={trustScore === null ? 'Not available' : `${trustScore} / 100`} />
+            {showTrustBasis ? presentedTrust.rows.map((row) => (
+              <View key={row.key} accessible accessibilityLabel={`${row.label}: ${row.value}`}>
+                <PassportFact label={row.label} value={row.value} />
+              </View>
+            )) : null}
           </View>
           {evaluationState !== 'evaluated' ? (
             <View style={{ marginTop: spacing[3] }}>
@@ -218,6 +228,16 @@ function PassportScreenInner() {
                 body="This vehicle does not have a current trust assessment. The app never estimates a score of its own."
                 tone="info"
               />
+            </View>
+          ) : null}
+          {presentedTrust.limitations.length ? (
+            <View style={{ marginTop: spacing[3], gap: spacing[1] }}>
+              <Text allowFontScaling style={{ ...typeScale.label, color: theme.text.primary }}>Known limitations</Text>
+              {presentedTrust.limitations.map((limitation) => (
+                <Text key={limitation} allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted }}>
+                  • {limitation}
+                </Text>
+              ))}
             </View>
           ) : null}
         </View>
