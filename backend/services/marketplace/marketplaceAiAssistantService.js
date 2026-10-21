@@ -166,7 +166,7 @@ export function deterministicListingDraft(input = {}) {
       'Add clear photos (front, rear, sides, interior, odometer, engine bay).',
       'Confirm price and whether it is negotiable.',
       'Upload available evidence (registration, service history).',
-      'Avoid unverifiable claims ("PartSentry checked", "verified") — those are governed.',
+      'Avoid claims CarUp has not checked ("PartSentry checked", "verified") — CarUp shows those only when its records support them.',
     ],
   };
 }

@@ -102,7 +102,7 @@ const TRUST_STATE_LABELS: Record<string, string> = {
 const TRUST_STATE_DETAIL: Record<string, string> = {
   stale: 'This vehicle was last assessed under superseded rules, so the earlier score is withheld '
     + 'rather than shown as if it were current.',
-  not_evaluated: 'CarUp has not produced a governed trust assessment for this vehicle yet. That is '
+  not_evaluated: 'CarUp has not produced a Trust assessment for this vehicle yet. That is '
     + 'not a score of zero — add evidence and the assessment will follow.',
   unavailable: 'CarUp could not produce a trust assessment for this request.',
 }

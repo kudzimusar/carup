@@ -1183,7 +1183,7 @@ function presentTrust(
       headline: opts.authenticated ? TRUST_STATE_LABELS.unavailable : 'Sign in to view trust',
       detail: opts.authenticated
         ? TRUST_STATE_DETAIL.unavailable
-        : 'CarUp publishes a vehicle’s governed trust assessment to signed-in users.',
+        : 'Sign in to see CarUp’s Trust assessment for this vehicle.',
     }
   }
 
