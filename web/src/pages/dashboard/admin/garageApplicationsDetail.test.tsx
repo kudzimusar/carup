@@ -80,7 +80,9 @@ describe('the reviewer detail', () => {
   })
 
   it('a detail without the new fields still renders, claiming nothing', async () => {
-    const { applicant: _a, who_must_act: _w, ...older } = DETAIL
+    const older: Record<string, unknown> = { ...DETAIL }
+    delete older.applicant
+    delete older.who_must_act
     fetchGarageApplicationForReview.mockResolvedValue({ ...older, decisions: [] })
     await open()
     expect(screen.queryByTestId('applicant-summary')).toBeNull()
