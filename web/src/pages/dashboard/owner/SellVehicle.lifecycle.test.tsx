@@ -195,11 +195,27 @@ describe('a PUBLISHED listing opens as a published listing', () => {
     const [vin, payload] = updateSellerDraft.mock.calls[0]
     expect(vin).toBe(VIN)
     expect(payload).toMatchObject({ edit_scope: 'published_listing', description: `${DESCRIPTION} Edited.` })
+    // A public listing's price changes only through My Listings' Change price (PATCH /price).
+    expect(payload).not.toHaveProperty('price')
+    expect(payload).not.toHaveProperty('currency')
     expect(createVehicleListing).not.toHaveBeenCalled()
     expect(screen.queryByText('Changes saved to your public listing.')).toBeNull()
 
     respond(undefined)
     expect(await screen.findByText('Changes saved to your public listing.')).toBeInTheDocument()
+  })
+
+  it('locks the price and currency, and points to Change price in My Listings', { timeout: 30_000 }, async () => {
+    fetchOwnedVehicles.mockResolvedValue([listing()])
+    openStudio()
+    await screen.findByTestId('seller-server-draft-loaded', {}, { timeout: 10_000 })
+    await goToStage(2)
+
+    expect(screen.getByTestId('vehicle-price-input')).toBeDisabled()
+    expect(screen.getByTestId('vehicle-currency-input')).toBeDisabled()
+    const note = screen.getByTestId('seller-published-price-locked')
+    expect(note).toHaveTextContent('To change the price of a public listing, use Change price in My Listings — the change is recorded.')
+    expect(within(note).getByRole('link', { name: 'My Listings' })).toHaveAttribute('href', '/dashboard/listings')
   })
 
   it('a receipt that does not hold the change is an error, never a success', { timeout: 30_000 }, async () => {

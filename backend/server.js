@@ -3864,6 +3864,24 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
     if (!isAdmin && !isActorSeller && !isActorTenant) {
       return res.status(403).json({ error: 'Seller draft is outside your vehicle scope' });
     }
+    // CARUP-MVP-STAB-01 — the same EFFECTIVE authorization publish/unpublish/price enforce
+    // (vehiclesRoutes loadScopedVehicle), for drafts and published listings alike: a completed
+    // transfer away or a revoked Seller Authority ends control of the listing, whichever relationship
+    // column (a stale current_seller_id, a surviving tenant) still names this person. Non-owners
+    // only — the canonical owner is by definition not superseded. Admins act as the operator.
+    if (!isAdmin && existing.owner_id !== req.userContext.id) {
+      const denial = await isSellerAuthorityEffectivelyDenied(supabase, {
+        vin,
+        userId: req.userContext.id,
+        vehicle: existing,
+      });
+      if (denial.denied) {
+        return res.status(403).json({
+          error: 'Forbidden. Your seller authority over this vehicle has ended (ownership transferred or authority revoked).',
+          code: 'SELLER_AUTHORITY_ENDED',
+        });
+      }
+    }
 
     const body = req.body || {};
     const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
@@ -3905,22 +3923,17 @@ app.patch('/api/vehicles/:vin/seller-draft', authorizeRole(['owner', 'dealer', '
           message: 'This listing is live on the CarUp Marketplace. Changes to it are saved only when you choose to save them.',
         });
       }
-      // The same EFFECTIVE authorization publish/unpublish/price enforce (vehiclesRoutes
-      // loadScopedVehicle): a completed transfer away or a revoked Seller Authority ends control of
-      // the public listing, whichever relationship column still names this person. Non-owners only —
-      // the canonical owner is by definition not superseded. Admins act as the operator.
-      if (!isAdmin && existing.owner_id !== req.userContext.id) {
-        const denial = await isSellerAuthorityEffectivelyDenied(supabase, {
-          vin,
-          userId: req.userContext.id,
-          vehicle: existing,
+      // A PUBLIC listing's price moves only through PATCH /api/vehicles/:vin/price — audited with
+      // both amounts and the source of marketplace_price_changed — and its currency not at all
+      // (redenominating is not a price change). A published-listing save carrying either is refused
+      // whole, so this route can never become a second, unrecorded price path.
+      const priceFields = ['price', 'currency'].filter((key) => has(key));
+      if (priceFields.length > 0) {
+        return res.status(409).json({
+          error: 'The price of a public listing is changed with Change price in My Listings, where the change is recorded. Nothing was changed.',
+          code: 'SELLER_LISTING_PUBLISHED_PRICE_USE_PRICE_EDITOR',
+          fields: priceFields,
         });
-        if (denial.denied) {
-          return res.status(403).json({
-            error: 'Forbidden. Your seller authority over this vehicle has ended (ownership transferred or authority revoked).',
-            code: 'SELLER_AUTHORITY_ENDED',
-          });
-        }
       }
     } else if (editingPublishedListing) {
       // Saving "to the public listing" is a statement about where the change lands. A listing that is

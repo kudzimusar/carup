@@ -961,11 +961,16 @@ export default function SellVehicle() {
    * the same Seller-commercial statement autosave sends, scoped `published_listing` so the server
    * applies it to the live listing, keeps it published and audits it. Never POST /api/vehicles/add,
    * which re-saves as a draft. Success is claimed only once the receipt holds the change.
+   *
+   * Price and currency are NOT part of it: a public listing's price changes only through My
+   * Listings' Change price (PATCH /price, audited), and the server refuses them here.
    */
   const handleSavePublishedChanges = async () => {
     if (studioMode !== 'published' || publishedSaveState === 'saving' || !isCompleteVin(form.vin)) return
     const revision = serverAutosaveRevision.current
-    const payload = sellerDraftPayload
+    const payload: SellerDraftPayload = { ...sellerDraftPayload }
+    delete payload.price
+    delete payload.currency
     setPublishedSaveState('saving')
     try {
       const result = await updateSellerDraft(form.vin.toUpperCase(), { ...payload, edit_scope: 'published_listing' })
@@ -1181,7 +1186,7 @@ export default function SellVehicle() {
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
               {isPublishedListing
-                ? 'Vehicle identity and listing photos are locked while this listing is public. Seller copy, price and privacy choices remain editable.'
+                ? 'Vehicle identity, listing photos and the price are locked here while this listing is public. Seller copy and privacy choices remain editable.'
                 : canonicalLocked
                   ? 'Canonical vehicle identity/specification fields are locked to this Passport. Seller-commercial copy, price, privacy and listing media remain editable.'
                   : 'Vehicle identity becomes canonical when the draft is claimed to an account. Seller statements remain separate from reviewed evidence and canonical Trust.'}
@@ -1537,7 +1542,7 @@ export default function SellVehicle() {
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Currency *</label>
-                  <Select value={form.currency} onValueChange={v => set('currency', v)}>
+                  <Select value={form.currency} onValueChange={v => set('currency', v)} disabled={isPublishedListing}>
                     <SelectTrigger className={errors.currency ? 'border-red-400' : ''} data-testid="vehicle-currency-input"><SelectValue placeholder="Select currency" /></SelectTrigger>
                     <SelectContent>{LISTING_CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}</SelectContent>
                   </Select>
@@ -1550,8 +1555,18 @@ export default function SellVehicle() {
                   <label className="text-sm font-medium mb-1.5 block">
                     Price *{form.currency && <span className="text-gray-400 font-normal"> ({form.currency})</span>}
                   </label>
-                  <Input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="e.g. 25000" className={errors.price ? 'border-red-400' : ''} />
+                  <Input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="e.g. 25000" className={errors.price ? 'border-red-400' : ''} disabled={isPublishedListing} data-testid="vehicle-price-input" />
                   {errors.price && <p className="text-xs text-red-500 mt-1">{errors.price}</p>}
+                  {/* A PUBLIC listing's price changes only through My Listings' Change price (PATCH
+                      /price: audited with both amounts, and the marketplace price-change record);
+                      the published-listing save is refused if it carries a price or currency. */}
+                  {isPublishedListing && (
+                    <p role="note" className="mt-1 text-xs text-slate-600" data-testid="seller-published-price-locked">
+                      To change the price of a public listing, use Change price in{' '}
+                      <Link to="/dashboard/listings" className="font-semibold text-orange-600 underline underline-offset-2">My Listings</Link>
+                      {' '}— the change is recorded.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Location *</label>

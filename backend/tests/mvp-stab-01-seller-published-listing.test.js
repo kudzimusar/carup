@@ -72,6 +72,8 @@ function resetWorld(vehicle = {}) {
       [ADMIN]: { id: ADMIN, role: 'admin', is_verified: true },
     },
     revokedAuthority: new Set(),
+    /** previous_owner_id values with a COMPLETED ownership transfer away from them. */
+    transferredAway: new Set(),
     ops: [],
     /** Runs once, right after the first `vehicles` read — the race window between read and write. */
     afterFirstVehicleRead: null,
@@ -109,7 +111,10 @@ function resolveOp(op) {
   if (op.table === 'vehicle_seller_authority') {
     return { data: world.revokedAuthority.has(op.filters.seller_user_id) ? { status: 'revoked' } : null, error: null };
   }
-  if (op.table === 'vehicle_ownership_transfers') return { data: [], error: null };
+  if (op.table === 'vehicle_ownership_transfers') {
+    const away = world.transferredAway.has(op.filters.previous_owner_id) && op.filters.state === 'complete';
+    return { data: away ? [{ id: 'transfer-1', state: 'complete', previous_owner_id: op.filters.previous_owner_id }] : [], error: null };
+  }
   if (op.single) return { data: null, error: null };
   return { data: [], error: null };
 }
@@ -187,6 +192,14 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
     public_seller_display_enabled: false,
     ...overrides,
   });
+  // What Seller Studio sends for "Save changes to public listing": the same statement WITHOUT price
+  // and currency — a public listing's price changes only through PATCH /price (audited, and the
+  // source of marketplace_price_changed).
+  const publishedPayload = (overrides = {}) => {
+    const { price: _price, currency: _currency, ...rest } = studioPayload();
+    void _price; void _currency;
+    return { ...rest, edit_scope: 'published_listing', ...overrides };
+  };
 
   // ── The refusals are structured, so a client can tell "live" from "broken" ──────────────────────
 
@@ -225,10 +238,9 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
 
   it('saves an explicit edit to a published listing, keeps it published and agency untouched, and audits field NAMES only', async () => {
     const editedDescription = `${STORED_DESCRIPTION} New tyres fitted in September.`;
-    const { status, body } = await patchDraft(OWNER, studioPayload({
+    const { status, body } = await patchDraft(OWNER, publishedPayload({
       description: editedDescription,
       features: ['Air conditioning', 'Reverse camera'],
-      edit_scope: 'published_listing',
     }));
 
     assert.equal(status, 200, JSON.stringify(body));
@@ -263,8 +275,23 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
     assert.equal(serialized.includes('Reverse camera'), false);
   });
 
+  it('refuses price and currency on a published-listing save: PATCH /price stays the only price path', async () => {
+    for (const fields of [{ price: 12000 }, { currency: 'ZiG' }, { price: 12800, currency: 'USD' }]) {
+      resetWorld();
+      const { status, body } = await patchDraft(OWNER, publishedPayload({ description: `${STORED_DESCRIPTION} Edited.`, ...fields }));
+      const label = JSON.stringify(fields);
+      assert.equal(status, 409, `${label}: ${JSON.stringify(body)}`);
+      assert.equal(body.code, 'SELLER_LISTING_PUBLISHED_PRICE_USE_PRICE_EDITOR', label);
+      assert.deepEqual(body.fields, Object.keys(fields), label);
+      assert.equal(vehicleWrites().length, 0, `${label}: nothing about the public listing changes`);
+      assert.equal(auditRows().length, 0, label);
+      assert.equal(world.vehicle.price, 12800);
+      assert.equal(world.vehicle.currency, 'USD');
+    }
+  });
+
   it('a published-listing save that changes nothing writes no audit row', async () => {
-    const { status, body } = await patchDraft(OWNER, studioPayload({ edit_scope: 'published_listing' }));
+    const { status, body } = await patchDraft(OWNER, publishedPayload());
     assert.equal(status, 200, JSON.stringify(body));
     assert.deepEqual(body.changed_fields, []);
     assert.equal(auditRows().length, 0);
@@ -274,14 +301,14 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
   it('enforces the same effective-denial check publish/unpublish use, for a non-owner current seller', async () => {
     resetWorld({ current_seller_id: CURRENT_SELLER });
     world.revokedAuthority.add(CURRENT_SELLER);
-    const denied = await patchDraft(CURRENT_SELLER, studioPayload({ description: `${STORED_DESCRIPTION} Edited.`, edit_scope: 'published_listing' }));
+    const denied = await patchDraft(CURRENT_SELLER, publishedPayload({ description: `${STORED_DESCRIPTION} Edited.` }));
     assert.equal(denied.status, 403, JSON.stringify(denied.body));
     assert.equal(vehicleWrites().length, 0, 'a revoked seller changes nothing on the public listing');
     assert.equal(auditRows().length, 0);
 
     // Positive control: the same current seller, not revoked, passes the gate.
     resetWorld({ current_seller_id: CURRENT_SELLER });
-    const allowed = await patchDraft(CURRENT_SELLER, studioPayload({ description: `${STORED_DESCRIPTION} Edited.`, edit_scope: 'published_listing' }));
+    const allowed = await patchDraft(CURRENT_SELLER, publishedPayload({ description: `${STORED_DESCRIPTION} Edited.` }));
     assert.equal(allowed.status, 200, JSON.stringify(allowed.body));
     assert.equal(world.vehicle.current_seller_id, CURRENT_SELLER);
     assert.equal(world.vehicle.owner_id, OWNER);
@@ -289,7 +316,7 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
 
   it('refuses an explicit published-listing save on a listing that is not published', async () => {
     resetWorld({ publication_status: 'publishable' });
-    const { status, body } = await patchDraft(OWNER, studioPayload({ description: `${STORED_DESCRIPTION} Edited.`, edit_scope: 'published_listing' }));
+    const { status, body } = await patchDraft(OWNER, publishedPayload({ description: `${STORED_DESCRIPTION} Edited.` }));
     assert.equal(status, 409, JSON.stringify(body));
     assert.equal(body.code, 'SELLER_LISTING_NOT_PUBLISHED');
     assert.equal(body.publication_status, 'publishable');
@@ -298,7 +325,7 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
 
   it('refuses the write when the listing leaves the Marketplace between the read and the write', async () => {
     world.afterFirstVehicleRead = (row) => { row.publication_status = 'publishable'; };
-    const { status, body } = await patchDraft(OWNER, studioPayload({ description: `${STORED_DESCRIPTION} Edited.`, edit_scope: 'published_listing' }));
+    const { status, body } = await patchDraft(OWNER, publishedPayload({ description: `${STORED_DESCRIPTION} Edited.` }));
     assert.equal(status, 409, JSON.stringify(body));
     assert.equal(body.code, 'SELLER_LISTING_NOT_PUBLISHED');
     assert.equal(world.vehicle.seller_description, STORED_DESCRIPTION, 'nothing landed on the unpublished row');
@@ -323,6 +350,38 @@ describe('CARUP-MVP-STAB-01 — published Seller listings over the shipped handl
     assert.equal(Object.prototype.hasOwnProperty.call(vehicleWrites()[0].filters, 'publication_status'), false);
     assert.equal(auditRows().length, 0);
     assert.equal(world.vehicle.publication_status, 'publishable');
+  });
+
+  it('enforces the effective-denial check on the DRAFT path too; the owner, an admin and a live seller are unaffected', async () => {
+    const edit = () => studioPayload({ description: `${STORED_DESCRIPTION} Edited.` });
+
+    // A former owner whose stale current_seller_id survived a COMPLETED transfer away.
+    resetWorld({ publication_status: 'publishable', current_seller_id: CURRENT_SELLER });
+    world.transferredAway.add(CURRENT_SELLER);
+    const former = await patchDraft(CURRENT_SELLER, edit());
+    assert.equal(former.status, 403, JSON.stringify(former.body));
+    assert.equal(former.body.code, 'SELLER_AUTHORITY_ENDED');
+    assert.equal(vehicleWrites().length, 0, 'a former seller changes nothing on the draft');
+
+    // An explicitly revoked Seller Authority.
+    resetWorld({ publication_status: 'draft', current_seller_id: CURRENT_SELLER });
+    world.revokedAuthority.add(CURRENT_SELLER);
+    const revoked = await patchDraft(CURRENT_SELLER, edit());
+    assert.equal(revoked.status, 403, JSON.stringify(revoked.body));
+    assert.equal(revoked.body.code, 'SELLER_AUTHORITY_ENDED');
+    assert.equal(vehicleWrites().length, 0);
+
+    // Positive controls: the canonical owner and an admin are never checked; a live seller passes.
+    for (const actor of [OWNER, ADMIN]) {
+      resetWorld({ publication_status: 'publishable', current_seller_id: CURRENT_SELLER });
+      world.transferredAway.add(CURRENT_SELLER);
+      const allowed = await patchDraft(actor, edit());
+      assert.equal(allowed.status, 200, `${actor}: ${JSON.stringify(allowed.body)}`);
+      assert.equal(vehicleWrites().length, 1, actor);
+    }
+    resetWorld({ publication_status: 'publishable', current_seller_id: CURRENT_SELLER });
+    const live = await patchDraft(CURRENT_SELLER, edit());
+    assert.equal(live.status, 200, JSON.stringify(live.body));
   });
 
   // ── F-008: /api/vehicles/add never silently unpublishes ────────────────────────────────────────
