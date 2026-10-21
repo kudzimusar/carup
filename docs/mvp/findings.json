@@ -13,9 +13,13 @@
       "severity": "F3",
       "observed": "Native Vehicle Detail 'Message seller' POSTs /api/marketplace/inquiries immediately with the literal text 'I am interested in this vehicle.'; the buyer never composes or confirms a message.",
       "expected": "Opening the composer is non-mutating; only an explicit Send writes, and the buyer's exact text becomes the canonical message.",
-      "evidence": ["mobile/app/vehicle/[vin].tsx:282-308 @0fc425a9", "staging marketplace_inquiries 85b5921f-4441-4732-8e05-0412b868957c created 2026-10-21T03:52:36Z, source_channel mobile, text = template"],
+      "evidence": [
+        "mobile/app/vehicle/[vin].tsx:282-308 @0fc425a9",
+        "staging marketplace_inquiries 85b5921f-4441-4732-8e05-0412b868957c created 2026-10-21T03:52:36Z, source_channel mobile, text = template"
+      ],
       "impact": "Representational message sent on the buyer's behalf without consent; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-002",
@@ -24,9 +28,13 @@
       "severity": "F2",
       "observed": "Inquiry creation is not idempotent (randomUUID per POST, no key); Native has no synchronous in-flight guard and re-enables the button after a pending/error alert, so repeat presses create duplicate inquiries, events, conversations and seller notifications.",
       "expected": "A double tap or retry of one composed message yields exactly one logical inquiry and one message.",
-      "evidence": ["backend/services/marketplace/marketplaceInquiryService.js:244,269-276", "mobile/app/vehicle/[vin].tsx:282-308"],
+      "evidence": [
+        "backend/services/marketplace/marketplaceInquiryService.js:244,269-276",
+        "mobile/app/vehicle/[vin].tsx:282-308"
+      ],
       "impact": "Duplicate seller-facing records; GATE-B",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-003",
@@ -35,9 +43,12 @@
       "severity": "F2",
       "observed": "Native inquiries send only listing_id/inquiry_type/message/source_channel; referral_code, campaign_code and attribution metadata are never populated.",
       "expected": "Referral, campaign and listing context is preserved (Marketplace V1 plan §14, directive §6).",
-      "evidence": ["mobile/utils/marketplaceApi.ts:189-199,295-297"],
+      "evidence": [
+        "mobile/utils/marketplaceApi.ts:189-199,295-297"
+      ],
       "impact": "Lost attribution; GATE-C (referral rewards)",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-004",
@@ -46,9 +57,14 @@
       "severity": "F2",
       "observed": "My Listings tile 'Buyer inquiries' shows the number of threads (incl. Trade OS RFQ threads); its detail and the page header show summed unread MESSAGES; SellerInquiriesCard separately shows inquiry rows. One number is called by the other's name (Seller master plan I4).",
       "expected": "Inquiries (inquiry rows) and conversations (canonical marketplace threads) are labelled separately; unread counts say what they count.",
-      "evidence": ["web/src/pages/dashboard/owner/MyListings.tsx:187-239,385-388", "web/src/components/marketplace/SellerInquiriesCard.tsx:130-176", "staging Serena: 36 inquiries / 33 conversations"],
+      "evidence": [
+        "web/src/pages/dashboard/owner/MyListings.tsx:187-239,385-388",
+        "web/src/components/marketplace/SellerInquiriesCard.tsx:130-176",
+        "staging Serena: 36 inquiries / 33 conversations"
+      ],
       "impact": "False seller-facing count; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-005",
@@ -57,9 +73,12 @@
       "severity": "F1",
       "observed": "No reconciliation path exists for an inquiry without a canonical conversation; re-emitting the event collides on dedupe_key and recovers nothing.",
       "expected": "An idempotent, audited, dry-run-first reconciliation path for legitimate uncanonicalized inquiries that never sends external communication, never alters inquiry text or seller identity and never fabricates replies.",
-      "evidence": ["docs/mvp/STAGING_RECONCILIATION_REPORT.md §2.3 (0 legitimate stuck inquiries; 81 governed quarantine; 14 pre-event 2026-06-17)"],
+      "evidence": [
+        "docs/mvp/STAGING_RECONCILIATION_REPORT.md §2.3 (0 legitimate stuck inquiries; 81 governed quarantine; 14 pre-event 2026-06-17)"
+      ],
       "impact": "Recovery capability; GATE-B",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-006",
@@ -68,9 +87,12 @@
       "severity": "F3",
       "observed": "Seller Studio never reads publication_status/status and always shows 'Draft workspace · not public', 'Private draft', 'Buyer Preview — not public', 'Review & Save Draft' — including for the published Serena.",
       "expected": "Lifecycle-aware Studio: draft → Draft / Buyer Preview / Save draft; published → Published / Public Marketplace / Edit published listing with an explanation of what an edit does.",
-      "evidence": ["web/src/pages/dashboard/owner/SellVehicle.tsx:39,1052-1071,1113-1132,1176,1778"],
+      "evidence": [
+        "web/src/pages/dashboard/owner/SellVehicle.tsx:39,1052-1071,1113-1132,1176,1778"
+      ],
       "impact": "Seller is told a public listing is private; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-007",
@@ -79,9 +101,14 @@
       "severity": "F2",
       "observed": "For a published listing the Studio autosaves ~1.2 s after load with no edit; the server answers 409 'Only an unpublished active Seller draft can be autosaved'; the client discards the body and shows 'Account autosave is unavailable right now'.",
       "expected": "No write without an edit; published listings use an explicit, audited save; success is shown only after the server receipt confirms persisted state.",
-      "evidence": ["Vercel runtime log req-844753f5-3cb3-493a-a150-81b993aa237a 2026-10-21T03:59:24Z PATCH /api/vehicles/GFC27-027051/seller-draft → 409 (dpl_DGc6)", "trust_audit_events VEHICLE_LISTING_PUBLISHED 2026-10-20T22:14:45Z", "~/carup-launch-evidence/carup-mvp-stab-01/03-autosave-runtime-diagnosis.md"],
+      "evidence": [
+        "Vercel runtime log req-844753f5-3cb3-493a-a150-81b993aa237a 2026-10-21T03:59:24Z PATCH /api/vehicles/GFC27-027051/seller-draft → 409 (dpl_DGc6)",
+        "trust_audit_events VEHICLE_LISTING_PUBLISHED 2026-10-20T22:14:45Z",
+        "~/carup-launch-evidence/carup-mvp-stab-01/03-autosave-runtime-diagnosis.md"
+      ],
       "impact": "False failure message on the Owner's published listing; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-008",
@@ -90,9 +117,13 @@
       "severity": "F3",
       "observed": "Studio 'Save as Draft' on a published listing goes through /api/vehicles/add reuse, which unconditionally writes publication_status 'draft' (silent unpublish), reassigns current_seller_id/tenant_id to the saver and replaces the gallery, with no audit event.",
       "expected": "No silent unpublish, no silent conversion of a public listing to a draft, no change of legal ownership; consequential mutations audited.",
-      "evidence": ["backend/server.js:3562-3612 (3603 publication_status: 'draft')", "web/src/pages/dashboard/owner/SellVehicle.tsx:835-841"],
+      "evidence": [
+        "backend/server.js:3562-3612 (3603 publication_status: 'draft')",
+        "web/src/pages/dashboard/owner/SellVehicle.tsx:835-841"
+      ],
       "impact": "Public listing silently withdrawn; GATE-B/GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-009",
@@ -101,9 +132,14 @@
       "severity": "F2",
       "observed": "autosaveReceiptMatches compares raw client values to server-normalised values (trimmed text, de-duplicated features, JSONB key order), so a successful save can be reported as unavailable.",
       "expected": "The receipt comparison judges persisted meaning, not formatting; a real mismatch still fails.",
-      "evidence": ["web/src/pages/dashboard/owner/SellVehicle.tsx:64-112", "backend/server.js:2957-2961,3874-3878", "backend/services/seller/vehicleHistoryDisclosures.js:44-138"],
+      "evidence": [
+        "web/src/pages/dashboard/owner/SellVehicle.tsx:64-112",
+        "backend/server.js:2957-2961,3874-3878",
+        "backend/services/seller/vehicleHistoryDisclosures.js:44-138"
+      ],
       "impact": "False autosave failure on drafts; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-010",
@@ -112,9 +148,15 @@
       "severity": "F2",
       "observed": "Numerical Trust (e.g. Serena 60/100 moderate) is shown prominently while confidence (low), evidence support (0 of 7) and connected sources (0) appear only in a lower card on web and not at all next to the score on Native passport/list card.",
       "expected": "Wherever a score is shown, confidence, evidence support, connected sources and a customer-facing limitations summary accompany it.",
-      "evidence": ["web/src/pages/VehicleDetail.tsx:2131-2134,2440-2445,2766-2835,3128-3207", "mobile/app/vehicle/[vin].tsx:52-176", "mobile/app/vehicle/[vin]/passport.tsx:207-223", "staging /api/marketplace/listings/GFC27-027051 trust record"],
+      "evidence": [
+        "web/src/pages/VehicleDetail.tsx:2131-2134,2440-2445,2766-2835,3128-3207",
+        "mobile/app/vehicle/[vin].tsx:52-176",
+        "mobile/app/vehicle/[vin]/passport.tsx:207-223",
+        "staging /api/marketplace/listings/GFC27-027051 trust record"
+      ],
       "impact": "Overstated assurance; GATE-G (Truth & Trust)",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-011",
@@ -123,9 +165,14 @@
       "severity": "F2",
       "observed": "Every surface shows backend limitation strings verbatim, including internal terms (canonical, governed, authoritative, provenance, raw column names, 'reason:' codes).",
       "expected": "A clear customer-facing summary with no internal implementation jargon.",
-      "evidence": ["web/src/pages/VehicleDetail.tsx:3195-3204", "mobile/app/vehicle/[vin].tsx:84-88,164-173", "backend/services/trustDecision/canonicalTrustService.js:248-258,616"],
+      "evidence": [
+        "web/src/pages/VehicleDetail.tsx:3195-3204",
+        "mobile/app/vehicle/[vin].tsx:84-88,164-173",
+        "backend/services/trustDecision/canonicalTrustService.js:248-258,616"
+      ],
       "impact": "Unintelligible / leaking public copy; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-012",
@@ -134,9 +181,15 @@
       "severity": "F3",
       "observed": "runOdometerAudit returns verified=true when there are zero or one readings, for an unknown VIN and when the database read fails; the passport publishes it as odometer_consistent=true (Serena: maintenance_logs_count 0) and the web maps it to a green 'Verified'.",
       "expected": "An explicit backend evidence state (not_evaluated / insufficient_evidence / no_inconsistency_detected / inconsistency_detected / unavailable); no verification claim from absence or from one observation.",
-      "evidence": ["backend/services/trustGraph/trustGraphService.js:260-311,462", "web/src/pages/VehicleDetail.tsx:893-899", "staging /api/vehicles/GFC27-027051/passport trustSignals", "docs/hardening/AUTHORITY_AUDIT_REGISTER.md:295-301 (pre-existing OPEN finding)"],
+      "evidence": [
+        "backend/services/trustGraph/trustGraphService.js:260-311,462",
+        "web/src/pages/VehicleDetail.tsx:893-899",
+        "staging /api/vehicles/GFC27-027051/passport trustSignals",
+        "docs/hardening/AUTHORITY_AUDIT_REGISTER.md:295-301 (pre-existing OPEN finding)"
+      ],
       "impact": "False verification claim; GATE-G (Truth & Trust)",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-013",
@@ -145,9 +198,14 @@
       "severity": "F2",
       "observed": "Further unsupported verification wording: web 'Service Records' row says Verified/'signed maintenance log(s)' for any partsentry_logs row including owner/seller-stated; ledger row 'verified' for an empty chain; Native shows '0 evidence-backed facts' with a success check and renders raw trust_badges slugs; public safety copy refers to a 'verified inquiry flow'.",
       "expected": "No 'Verified' unless the canonical public projection establishes it.",
-      "evidence": ["web/src/pages/VehicleDetail.tsx:849-851,895,909,3215", "mobile/app/vehicle/[vin].tsx:137,370-373,421-428", "backend/services/marketplace/marketplaceListingDetailService.js:82,197-209"],
+      "evidence": [
+        "web/src/pages/VehicleDetail.tsx:849-851,895,909,3215",
+        "mobile/app/vehicle/[vin].tsx:137,370-373,421-428",
+        "backend/services/marketplace/marketplaceListingDetailService.js:82,197-209"
+      ],
       "impact": "Overstated claims; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-014",
@@ -156,9 +214,15 @@
       "severity": "F2",
       "observed": "Vehicle Detail lives in the root stack; Verify reaches it with router.replace and cold-start deep links have no anchor, so hardware Back exits the app; the visible 'Back to Market' replaces instead of popping, so visible and hardware Back disagree; Inbox → vehicle loses the thread.",
       "expected": "One source-aware back contract for visible and hardware Back: Marketplace → Marketplace, Inbox → same thread, Verify → Verify, deep link → Home; no loops.",
-      "evidence": ["mobile/app/check-car.tsx:29", "mobile/app/_layout.tsx (no unstable_settings)", "mobile/app/vehicle/[vin].tsx:227-231,379", "mobile/app/inbox/[threadId].tsx:209-218"],
+      "evidence": [
+        "mobile/app/check-car.tsx:29",
+        "mobile/app/_layout.tsx (no unstable_settings)",
+        "mobile/app/vehicle/[vin].tsx:227-231,379",
+        "mobile/app/inbox/[threadId].tsx:209-218"
+      ],
       "impact": "App exit on Back; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-015",
@@ -167,9 +231,15 @@
       "severity": "F2",
       "observed": "No splash configuration (white native window until JS paints); /api/auth/me and /api/features/effective have no timeout (OkHttp default is infinite); route-boundary loading view is white; startup phases are not instrumented.",
       "expected": "Branded startup state immediately; bounded restoration with a deterministic loading/recovery state; real auth failure clears the session and goes to Sign In; no fake Home.",
-      "evidence": ["mobile/app.json", "mobile/store/authStore.ts:118-154", "mobile/store/featureGovernanceStore.ts:81-131", "mobile/components/navigation/NativeFeatureBoundary.tsx:270-276"],
+      "evidence": [
+        "mobile/app.json",
+        "mobile/store/authStore.ts:118-154",
+        "mobile/store/featureGovernanceStore.ts:81-131",
+        "mobile/components/navigation/NativeFeatureBoundary.tsx:270-276"
+      ],
       "impact": "10-18 s blank white restart observed by the Owner; GATE-E/GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-016",
@@ -178,9 +248,12 @@
       "severity": "F2",
       "observed": "Native header control is labelled 'Notifications', opens /(tabs)/inbox and shows the sum of unread MESSAGES labelled as 'unread conversations'; a failed read looks like zero.",
       "expected": "One truthful contract: an Inbox/Messages control with an unread-conversation count, or a real notification surface.",
-      "evidence": ["mobile/components/navigation/NativeSharedHeader.tsx:80-121"],
+      "evidence": [
+        "mobile/components/navigation/NativeSharedHeader.tsx:80-121"
+      ],
       "impact": "Misleading navigation and count; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-017",
@@ -189,9 +262,12 @@
       "severity": "F2",
       "observed": "Owner Communications uses lg:grid-cols-[320px_minmax(0,1fr)_290px]; below 1024 px it is one column with the conversation after the full list; at 1024 the middle column is ~70 px; the selected thread is not in the URL; opening the page marks the most recent thread read.",
       "expected": "Tablet master/detail with a bounded, independently scrollable list, the selected conversation visible, reachable composer, Back to list; one conversation authority.",
-      "evidence": ["web/src/pages/dashboard/owner/Communications.tsx:94,145,185,196-219,305"],
+      "evidence": [
+        "web/src/pages/dashboard/owner/Communications.tsx:94,145,185,196-219,305"
+      ],
       "impact": "Tablet communications unusable; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-018",
@@ -200,9 +276,15 @@
       "severity": "F2",
       "observed": "Preference toggles for WhatsApp, SMS, email, push, Telegram look operational regardless of provider readiness (web owner page, Native Account and Communications); the web page turns a failed read into editable all-off switches and a failed save into silence.",
       "expected": "Only channels capable of operation look operational; unavailable channels are disabled and labelled; failed reads/writes are stated.",
-      "evidence": ["web/src/pages/dashboard/owner/Communications.tsx:153,178,289-293,513-535", "mobile/app/(tabs)/account.tsx:26-31,200-206", "mobile/app/(tabs)/communications.tsx:161-199", "staging /api/health communications.outbound kill_switch active"],
+      "evidence": [
+        "web/src/pages/dashboard/owner/Communications.tsx:153,178,289-293,513-535",
+        "mobile/app/(tabs)/account.tsx:26-31,200-206",
+        "mobile/app/(tabs)/communications.tsx:161-199",
+        "staging /api/health communications.outbound kill_switch active"
+      ],
       "impact": "Fabricated provider capability; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-019",
@@ -211,9 +293,16 @@
       "severity": "F2",
       "observed": "Garage backend lifecycle is complete, but: nothing routes a garage registrant to the application; the applicant never sees the reviewer's reason (information_required / rejected) although the reviewer UI says they do; reapplication is not wired; the identity prerequisite for approval is never shown; create/submit are not audited; the reviewer detail shows no applicant identity or decision history; the public directory does not re-check tenant status.",
       "expected": "Register → application → submit → pending → review with reason → audited decision → activation → workspace, with applicant feedback and governed publication.",
-      "evidence": ["web/src/pages/auth/Register.tsx:200-271", "web/src/pages/onboarding/RegistrationJourney.tsx:399-403", "backend/services/garageOnboarding/garageApplicationService.js:136-204,323-326", "web/src/pages/dashboard/admin/GarageApplications.tsx:353", "backend/services/serviceNetwork/garageDirectoryService.js:194-240"],
+      "evidence": [
+        "web/src/pages/auth/Register.tsx:200-271",
+        "web/src/pages/onboarding/RegistrationJourney.tsx:399-403",
+        "backend/services/garageOnboarding/garageApplicationService.js:136-204,323-326",
+        "web/src/pages/dashboard/admin/GarageApplications.tsx:353",
+        "backend/services/serviceNetwork/garageDirectoryService.js:194-240"
+      ],
       "impact": "Garage MVP journey not completable by a real applicant; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-020",
@@ -222,9 +311,14 @@
       "severity": "F2",
       "observed": "No activation model exists for an independent mechanic (PO-4 in the uncarried GMO 1.0 plan: out of 1.0, must not be modelled as a fake one-person garage); registration records business_type mechanic as requested and nothing acts on it; the Help Center tells mechanics they 'can apply through the Mechanic Directory', which does not exist.",
       "expected": "BLOCKED_MECHANIC_ACTIVATION_MODEL until the Owner decides; meanwhile truthful copy and the existing garage-invitation path for mechanics who join a garage.",
-      "evidence": ["backend/services/garageOnboarding/garageApplicationService.js:64", "web/src/pages/HelpCenter.tsx:93-97", "git show ce45e16f:docs/garage-mechanic-onboarding/GARAGE_MECHANIC_ONBOARDING_1_0_CANONICAL_PLAN.md §12A"],
+      "evidence": [
+        "backend/services/garageOnboarding/garageApplicationService.js:64",
+        "web/src/pages/HelpCenter.tsx:93-97",
+        "git show ce45e16f:docs/garage-mechanic-onboarding/GARAGE_MECHANIC_ONBOARDING_1_0_CANONICAL_PLAN.md §12A"
+      ],
       "impact": "Mechanic activation not available; false public promise",
-      "disposition": "BLOCKED"
+      "disposition": "BLOCKED",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-021",
@@ -233,9 +327,12 @@
       "severity": "F1",
       "observed": "Native registration sends no registration_profile, so a professional applicant cannot record garage intent in the app.",
       "expected": "Native either captures the intent or truthfully routes the person to the web application.",
-      "evidence": ["mobile/app/(auth)/register.tsx:43,176-183"],
+      "evidence": [
+        "mobile/app/(auth)/register.tsx:43,176-183"
+      ],
       "impact": "Native parity",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-022",
@@ -244,9 +341,14 @@
       "severity": "F3",
       "observed": "Open sailings are listed and reservable by status alone; booking_deadline and departure_date are never checked. Staging: 36 of 68 BOOKING_OPEN sailings are past deadline and departure; 24 reservations were created after their sailing's deadline (latest 2026-10-12).",
       "expected": "BOOKING_OPEN + expired deadline → public booking unavailable and reservation refused; a departed sailing never appears presently bookable; stored lifecycle is not silently mutated; expired open sailings surface as operations work.",
-      "evidence": ["backend/services/diaspora/diasporaContainerMarketplaceService.js:234-251,282-338", "backend/services/diaspora/diasporaReservationService.js:62-118", "docs/mvp/STAGING_RECONCILIATION_REPORT.md §2.5"],
+      "evidence": [
+        "backend/services/diaspora/diasporaContainerMarketplaceService.js:234-251,282-338",
+        "backend/services/diaspora/diasporaReservationService.js:62-118",
+        "docs/mvp/STAGING_RECONCILIATION_REPORT.md §2.5"
+      ],
       "impact": "Bookings accepted for sailings that have left; GATE-C",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-023",
@@ -255,9 +357,13 @@
       "severity": "F3",
       "observed": "Legacy GET /api/diaspora/containers returns every status including DRAFT to any authenticated role, and GET /api/diaspora/containers/:id embeds diaspora_cargo_reservations(*) (receiver name/phone, cargo details) with no caller scoping.",
       "expected": "Draft sailings and other buyers' reservation details are not readable by unrelated users.",
-      "evidence": ["backend/routes/diasporaRoutes.js:299-301", "backend/services/diaspora/diasporaContainerService.js:63-76"],
+      "evidence": [
+        "backend/routes/diasporaRoutes.js:299-301",
+        "backend/services/diaspora/diasporaContainerService.js:63-76"
+      ],
       "impact": "Cross-user personal data exposure; GATE-D",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-024",
@@ -266,9 +372,13 @@
       "severity": "F2",
       "observed": "Web Owner Dashboard SafePay card sums e.amount/e.currency while the live shape is listing_amount/listing_currency (always $0), and counts settled/cancelled sessions as 'active purchase escrows'.",
       "expected": "No false zero; only in-progress sessions counted as in progress; empty vs failed distinguishable.",
-      "evidence": ["web/src/pages/dashboard/owner/OwnerDashboard.tsx:109-137,292-301", "backend/services/marketplace/marketplaceTransactionAuthority.js:220-234"],
+      "evidence": [
+        "web/src/pages/dashboard/owner/OwnerDashboard.tsx:109-137,292-301",
+        "backend/services/marketplace/marketplaceTransactionAuthority.js:220-234"
+      ],
       "impact": "False zero; GATE-C",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-025",
@@ -277,9 +387,14 @@
       "severity": "F1",
       "observed": "A user with no referral wallet row (the normal first-use state) sees the raw error 'Referral wallet not found.' on web and Native.",
       "expected": "A truthful first-use state.",
-      "evidence": ["backend/services/referral/referralEngineService.js:785-790", "web/src/pages/dashboard/owner/ReferralWallet.tsx:147-148,304-305", "mobile/app/(tabs)/referral.tsx:77-78,164-167"],
+      "evidence": [
+        "backend/services/referral/referralEngineService.js:785-790",
+        "web/src/pages/dashboard/owner/ReferralWallet.tsx:147-148,304-305",
+        "mobile/app/(tabs)/referral.tsx:77-78,164-167"
+      ],
       "impact": "Misleading error; P2",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-026",
@@ -288,9 +403,12 @@
       "severity": "F1",
       "observed": "Help Center popular-search chip 'ZINARA clearance' can never match an FAQ (only typing 'ZINARA' matches two), and clicking a chip also clears the category while typing does not.",
       "expected": "A chip executes the same search semantics as manual input.",
-      "evidence": ["web/src/pages/HelpCenter.tsx:214-229,279,293-313"],
+      "evidence": [
+        "web/src/pages/HelpCenter.tsx:214-229,279,293-313"
+      ],
       "impact": "Dead shortcut; P2",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-027",
@@ -299,9 +417,13 @@
       "severity": "F1",
       "observed": "Marketplace Pulse rollups have no scheduler, so an owner with vehicles always sees 'Intelligence for this period could not be read' — wording that suggests a fault rather than a capability that is not computed.",
       "expected": "'Not available' is valid MVP behaviour; computation deferred to V2.",
-      "evidence": ["web/src/components/intelligence/MarketplacePulse.tsx:287-294", "docs/intelligence/receipts/I4_ROLLUPS_AND_READ_MODELS.md:69"],
+      "evidence": [
+        "web/src/components/intelligence/MarketplacePulse.tsx:287-294",
+        "docs/intelligence/receipts/I4_ROLLUPS_AND_READ_MODELS.md:69"
+      ],
       "impact": "Wording; DEFERRED_V2 for computation",
-      "disposition": "OPEN"
+      "disposition": "DEFERRED_V2",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-028",
@@ -310,9 +432,12 @@
       "severity": "F1",
       "observed": "Staging state drift (read-only report): 3 retry_scheduled external notifications; 4 garage registration profiles in_review with no application; 2 lowercase 'available' statuses; 36 expired BOOKING_OPEN sailings; 26 REQUESTED reservations on departed sailings.",
       "expected": "Dispositioned through audited, separately authorized transitions (proposed ledger M1-M7), never by deletion.",
-      "evidence": ["docs/mvp/STAGING_RECONCILIATION_REPORT.md"],
+      "evidence": [
+        "docs/mvp/STAGING_RECONCILIATION_REPORT.md"
+      ],
       "impact": "Operations hygiene; no mutation authorized",
-      "disposition": "OPEN"
+      "disposition": "BLOCKED",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-029",
@@ -321,9 +446,12 @@
       "severity": "F3",
       "observed": "Terms and Privacy are Draft pending Owner/legal approval; commercial model, jurisdiction, refunds, contacts, retention, DSR, consent and processor language are undecided.",
       "expected": "Owner/legal approval before Production.",
-      "evidence": ["docs/mvp/CARUP_MVP_LEGAL_REVIEW_PACKET.md"],
+      "evidence": [
+        "docs/mvp/CARUP_MVP_LEGAL_REVIEW_PACKET.md"
+      ],
       "impact": "GATE-F BLOCKED_OWNER_LEGAL_APPROVAL; Production readiness BLOCKED",
-      "disposition": "BLOCKED"
+      "disposition": "BLOCKED",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-030",
@@ -332,9 +460,13 @@
       "severity": "F2",
       "observed": "Garage approval requires the applicant's governed identity approval, which depends on the vision provider; there is no manual path (open O2 owner decision).",
       "expected": "Approval runtime proof needs a legitimately approved applicant identity; no identity evidence may be fabricated.",
-      "evidence": ["backend/services/garageOnboarding/garageReviewService.js:152-166", "docs/features/o2/CARUP_OPERATIONS_O2_IDENTITY_PROVIDER_RESILIENCE_FOLLOWUP.md:16-17,64-76"],
+      "evidence": [
+        "backend/services/garageOnboarding/garageReviewService.js:152-166",
+        "docs/features/o2/CARUP_OPERATIONS_O2_IDENTITY_PROVIDER_RESILIENCE_FOLLOWUP.md:16-17,64-76"
+      ],
       "impact": "Runtime approval proof constrained",
-      "disposition": "OPEN"
+      "disposition": "BLOCKED",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     },
     {
       "id": "CARUP-MVP-F-031",
@@ -343,9 +475,59 @@
       "severity": "F1",
       "observed": "Native sign-in started from 'Message seller' returns the buyer to Home instead of the vehicle; the Native thread 'Open vehicle' pushes the vehicle without return context.",
       "expected": "Return to the same vehicle / same thread.",
-      "evidence": ["mobile/app/vehicle/[vin].tsx:283-293", "mobile/app/(auth)/login.tsx:84", "mobile/app/inbox/[threadId].tsx:209-218"],
+      "evidence": [
+        "mobile/app/vehicle/[vin].tsx:283-293",
+        "mobile/app/(auth)/login.tsx:84",
+        "mobile/app/inbox/[threadId].tsx:209-218"
+      ],
       "impact": "Continuity; GATE-G",
-      "disposition": "OPEN"
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
+    },
+    {
+      "id": "CARUP-MVP-F-040",
+      "control": "CARUP-MVP-ADM-007/CARUP-MVP-X-005",
+      "class": "PRODUCT_DEFECT",
+      "severity": "F2",
+      "observed": "Native Inbox/conversation delivery notice named WhatsApp or email even when the candidate backend reported that external channel unavailable.",
+      "expected": "Native messaging names an external channel only when current runtime readiness can deliver through it; otherwise it states that replies remain in CarUp.",
+      "evidence": [
+        "commit 88bffa50b34d81cdeb1f13f2c90bfb957190c732 (final four-file Native readiness patch)",
+        "mobile/utils/channelReadiness.ts",
+        "mobile/app/(tabs)/inbox.tsx",
+        "mobile/app/inbox/[threadId].tsx",
+        "mobile/tests/mvp-stab-01-outside-delivery-notice.test.ts"
+      ],
+      "impact": "A customer could infer an external delivery path that is not operational.",
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
+    },
+    {
+      "id": "CARUP-MVP-F-041",
+      "control": "CARUP-MVP-NAT-001/CARUP-MVP-X-001",
+      "class": "EVIDENCE_HARNESS_DEFECT",
+      "severity": "F2",
+      "observed": "Final candidate APK workflow attempt 1 built, installed and cold-launched CarUp, but Android Quickstep raised a system ANR overlay. The candidate workflow had no bounded Quickstep recovery rule, so the login hierarchy probe timed out with runtime_complete=NO.",
+      "expected": "Fail closed on any CarUp ANR/crash; detect only the exact Android-package 'Quickstep isn't responding' overlay, capture it, select its Wait control, reassert CarUp foreground and continue bounded runtime proof.",
+      "evidence": [
+        "GitHub Actions run 39607550267 attempt 1 / job 119247578435",
+        "artifact 12350393031, digest sha256:cc7e988f4cf06d4332ab2c4d9e71ca2c18071bb3ee7b8227367ad43510d9f3b5",
+        "login-current.xml: package=android, Quickstep isn't responding, android:id/aerr_wait",
+        "evidence-harness branch fix/carup-mvp-stab-01-apk-evidence-r1@c15a9e125d27c14a95d97dfdc6bd5b79a3d8f090"
+      ],
+      "impact": "Final exact-head Native runtime proof can fail for a system-launcher condition without distinguishing it from a CarUp UI failure.",
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732"
     }
-  ]
+  ],
+  "continuation_handoff_unmaterialized_findings": {
+    "referenced_ids": [
+      "F-033",
+      "F-034",
+      "F-035",
+      "F-036"
+    ],
+    "status": "BLOCKED_OWNER_POLICY",
+    "note": "The continuation handoff identifies these as container/spec-45 Owner or moderator decisions, but their exact finding definitions are not checked into docs/mvp at the executable candidate. This release record does not invent them."
+  }
 }

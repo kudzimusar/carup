@@ -5,7 +5,7 @@
   "target_maturity": "NOT_SELECTED — no CarUp acceptance contract has formally selected M1–M4",
   "mscs_mapping_rule": "No MSCS control ID exists in the repository; none is mapped as authoritative or invented. mscs_catalogue_reference_informative quotes MSCS 1.0 catalogue entries verbatim and is not an adoption.",
   "state_vocabulary": "OPEN | IMPLEMENTED_PENDING_VERIFICATION | EVIDENCE_INCOMPLETE | BLOCKED_* | PRESERVED_FOUNDATION | READY | DEFERRED_V2 (implementer claims only; PASS/FAIL is the moderator's)",
-  "generated_at": "2026-10-21T06:38:43Z",
+  "generated_at": "2026-10-21T14:06:01Z",
   "rows": [
     {
       "project_control_id": "CARUP-MVP-BUY-001",
@@ -34,12 +34,23 @@
       "mscs_catalogue_reference_informative": "EXP-001 Registration; EXP-002 Login; IAM-006 Session management",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -71,15 +82,26 @@
       "mscs_catalogue_reference_informative": "MKT-013 Buyer discovery",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Runtime: Serena is listed on the candidate web; drafts invisible",
       "v2_deferral_reason": null
     },
@@ -108,15 +130,26 @@
       "mscs_catalogue_reference_informative": "MKT-013 Buyer discovery",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Runtime: /marketplace/GFC27-027051 on the candidate web",
       "v2_deferral_reason": null
     },
@@ -147,19 +180,30 @@
       "mscs_catalogue_reference_informative": "MKT-015 (informative only); no exact catalogue control",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-010",
         "CARUP-MVP-F-011",
         "CARUP-MVP-F-013"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Implement shared customer presentation on web + Native; tests; runtime render of Serena",
       "v2_deferral_reason": null
     },
@@ -190,18 +234,29 @@
       "mscs_catalogue_reference_informative": "no exact catalogue control",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-012",
         "CARUP-MVP-F-013"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Backend explicit odometer evidence state + web/Native wording; positive and negative tests",
       "v2_deferral_reason": null
     },
@@ -232,17 +287,28 @@
       "mscs_catalogue_reference_informative": "MKT-015 Buyer-seller communication",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-001"
       ],
-      "current_state": "OPEN",
+      "current_state": "EVIDENCE_INCOMPLETE",
       "next_action": "Native composer route; database-delta proof for open/cancel/back/wait",
       "v2_deferral_reason": null
     },
@@ -273,19 +339,30 @@
       "mscs_catalogue_reference_informative": "MKT-015 Buyer-seller communication",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-001",
         "CARUP-MVP-F-002",
         "CARUP-MVP-F-003"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Idempotent inquiry creation keyed by client_request_id; Native in-flight guard; tests + runtime",
       "v2_deferral_reason": null
     },
@@ -316,17 +393,29 @@
       "mscs_catalogue_reference_informative": "MSG-005 Inbox / message centre",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-014 Serena 37 inquiries / 34 canonical conversations / 3 historical uncanonicalized"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-005"
       ],
-      "current_state": "OPEN",
+      "current_state": "EVIDENCE_INCOMPLETE",
       "next_action": "Reconciliation service (dry-run default) + tests; staging dry-run classification",
       "v2_deferral_reason": null
     },
@@ -355,17 +444,28 @@
       "mscs_catalogue_reference_informative": "MSG-005 Inbox / message centre",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-031"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Runtime on candidate APK/web",
       "v2_deferral_reason": null
     },
@@ -394,18 +494,29 @@
       "mscs_catalogue_reference_informative": "EXP-006 Navigation",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-014",
         "CARUP-MVP-F-031"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Source-aware navigation contract; runtime on emulator",
       "v2_deferral_reason": null
     },
@@ -436,18 +547,29 @@
       "mscs_catalogue_reference_informative": "COM-007 Payment authorization (informative only)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-024"
       ],
-      "current_state": "OPEN",
-      "next_action": "Recertify R1 native fix at runtime; fix web Owner Dashboard card",
+      "current_state": "EVIDENCE_INCOMPLETE",
+      "next_action": "Run the controlled browser failed-read truth-state evidence; success reads are already proven, failed-read UI remains evidence-incomplete.",
       "v2_deferral_reason": null
     },
     {
@@ -477,12 +599,23 @@
       "mscs_catalogue_reference_informative": "IAM-006 Session management; IAM-016 Credential revocation",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -514,15 +647,26 @@
       "mscs_catalogue_reference_informative": "MKT-006 Seller profile (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Runtime render for the certification seller",
       "v2_deferral_reason": null
     },
@@ -553,12 +697,23 @@
       "mscs_catalogue_reference_informative": "MKT-007 Listing creation",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -592,17 +747,28 @@
       "mscs_catalogue_reference_informative": "MKT-009 Listing versioning (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-006"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Implement lifecycle modes; tests; runtime",
       "v2_deferral_reason": null
     },
@@ -633,18 +799,29 @@
       "mscs_catalogue_reference_informative": "EXP-011 Error handling (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-007",
         "CARUP-MVP-F-009"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Fix load-time PATCH, receipt normalisation, published edit mode; runtime receipt + DB read-back",
       "v2_deferral_reason": null
     },
@@ -675,17 +852,28 @@
       "mscs_catalogue_reference_informative": "MKT-008 Listing moderation (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-008"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Refuse /add demotion of a published listing; audit published edits",
       "v2_deferral_reason": null
     },
@@ -716,12 +904,23 @@
       "mscs_catalogue_reference_informative": "MKT-008 Listing moderation",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -753,17 +952,28 @@
       "mscs_catalogue_reference_informative": "COM-001 Pricing (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-008"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Published edit path; price editor regression",
       "v2_deferral_reason": null
     },
@@ -792,17 +1002,28 @@
       "mscs_catalogue_reference_informative": "MKT-025 Seller analytics (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-027"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Runtime render",
       "v2_deferral_reason": null
     },
@@ -831,17 +1052,29 @@
       "mscs_catalogue_reference_informative": "MKT-015 Buyer-seller communication",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-014 Serena 37 inquiries / 34 canonical conversations / 3 historical uncanonicalized"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-004"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Fix My Listings counts/labels; tests",
       "v2_deferral_reason": null
     },
@@ -870,17 +1103,28 @@
       "mscs_catalogue_reference_informative": "MSG-005 Inbox / message centre",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-017"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Runtime in-app reply only (kill switch active)",
       "v2_deferral_reason": null
     },
@@ -909,12 +1153,23 @@
       "mscs_catalogue_reference_informative": "no exact catalogue control",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -946,18 +1201,29 @@
       "mscs_catalogue_reference_informative": "MKT-001 Seller registration (informative); ORG-001 Organization entity",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-019",
         "CARUP-MVP-F-021"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Wire registration → application handoff (web); Native truthful route",
       "v2_deferral_reason": null
     },
@@ -988,17 +1254,28 @@
       "mscs_catalogue_reference_informative": "MKT-003 Seller business verification (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-019"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Audit submit; runtime submit by the certification applicant",
       "v2_deferral_reason": null
     },
@@ -1027,17 +1304,28 @@
       "mscs_catalogue_reference_informative": "MKT-004 Seller approval (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-019"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Expose latest decision + identity readiness; UI",
       "v2_deferral_reason": null
     },
@@ -1068,17 +1356,28 @@
       "mscs_catalogue_reference_informative": "CTL-017 Moderation queue; MKT-004 Seller approval",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-019"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Applicant summary + history in review detail; runtime needs a reviewer session",
       "v2_deferral_reason": null
     },
@@ -1109,18 +1408,29 @@
       "mscs_catalogue_reference_informative": "CTL-019 Administrative reason codes; CTL-020 Sensitive-action confirmation",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-030"
       ],
-      "current_state": "OPEN",
-      "next_action": "Regression of GMO-3 tests; runtime reject needs a reviewer session; approve needs an approved applicant identity",
+      "current_state": "BLOCKED_IDENTITY_PROVIDER",
+      "next_action": "Resolve identity-provider prerequisite; do not bypass applicant identity or fabricate approval.",
       "v2_deferral_reason": null
     },
     {
@@ -1150,18 +1460,29 @@
       "mscs_catalogue_reference_informative": "ORG-002 Membership; IAM-008 RBAC",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-030"
       ],
-      "current_state": "OPEN",
-      "next_action": "Regression of GMO-4 PGlite tests; registration profile reflects the decision",
+      "current_state": "BLOCKED_IDENTITY_PROVIDER",
+      "next_action": "Resolve identity-provider prerequisite; do not bypass applicant identity or fabricate approval.",
       "v2_deferral_reason": null
     },
     {
@@ -1191,16 +1512,27 @@
       "mscs_catalogue_reference_informative": "ORG-003 Invitations",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
-      "next_action": "Regression of GMO-6/7 + OC-5D active tenant tests",
+      "current_state": "BLOCKED_IDENTITY_PROVIDER",
+      "next_action": "Resolve identity-provider prerequisite; do not bypass applicant identity or fabricate approval.",
       "v2_deferral_reason": null
     },
     {
@@ -1228,17 +1560,28 @@
       "mscs_catalogue_reference_informative": "MKT-006 Seller profile (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-019"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Directory re-checks tenant status; tests",
       "v2_deferral_reason": null
     },
@@ -1269,18 +1612,29 @@
       "mscs_catalogue_reference_informative": "no exact catalogue control",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-020"
       ],
       "current_state": "BLOCKED_MECHANIC_ACTIVATION_MODEL",
-      "next_action": "Owner decision (see findings F-020); meanwhile truthful copy + garage-invitation path",
+      "next_action": "Owner/moderator must select the independent-mechanic activation model; do not generalize Garage authority.",
       "v2_deferral_reason": null
     },
     {
@@ -1308,12 +1662,23 @@
       "mscs_catalogue_reference_informative": "CTL-009 Marketplace administration",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -1345,12 +1710,23 @@
       "mscs_catalogue_reference_informative": "CTL-008 Seller administration",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -1384,17 +1760,28 @@
       "mscs_catalogue_reference_informative": "CTL-017 Moderation queue",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-019"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "As SVC-004/005",
       "v2_deferral_reason": null
     },
@@ -1425,16 +1812,27 @@
       "mscs_catalogue_reference_informative": "CTL-002 Admin RBAC; CTL-021 Dual approval (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "PRESERVED_FOUNDATION",
-      "next_action": "Regression",
+      "current_state": "BLOCKED_IDENTITY_PROVIDER",
+      "next_action": "Resolve identity-provider prerequisite; do not bypass applicant identity or fabricate approval.",
       "v2_deferral_reason": null
     },
     {
@@ -1462,12 +1860,23 @@
       "mscs_catalogue_reference_informative": "MSG-012 Communication audit",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -1501,18 +1910,29 @@
       "mscs_catalogue_reference_informative": "CTL-018 Audit log",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-008",
         "CARUP-MVP-F-019"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Add missing audits; tests assert the audit write",
       "v2_deferral_reason": null
     },
@@ -1541,18 +1961,30 @@
       "mscs_catalogue_reference_informative": "MSG-014 Provider health",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
-        "CARUP-MVP-F-018"
+        "CARUP-MVP-F-018",
+        "CARUP-MVP-F-040"
       ],
-      "current_state": "OPEN",
-      "next_action": "Shared channel-readiness reading; runtime /api/health",
+      "current_state": "EVIDENCE_INCOMPLETE",
+      "next_action": "Run the controlled browser failed-read truth-state evidence; success reads are already proven, failed-read UI remains evidence-incomplete.",
       "v2_deferral_reason": null
     },
     {
@@ -1582,12 +2014,23 @@
       "mscs_catalogue_reference_informative": "IAM-008 RBAC; IAM-010 Privileged access",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -1619,18 +2062,32 @@
       "mscs_catalogue_reference_informative": "EXP-008 Mobile experience; EXP-012 Offline / degraded-state UX",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-015 APK build/install/cold-launch; final runtime incomplete due Quickstep overlay",
+        "E-016 harness-only Quickstep remediation pending execution"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
-        "CARUP-MVP-F-015"
+        "CARUP-MVP-F-015",
+        "CARUP-MVP-F-041"
       ],
-      "current_state": "OPEN",
-      "next_action": "Splash colour, branded loading, timeouts, instrumentation; emulator cold-start timings",
+      "current_state": "EVIDENCE_INCOMPLETE",
+      "next_action": "Complete exact-head Native runtime proof; preserve attempt-1 Quickstep evidence and use only bounded system-overlay recovery.",
       "v2_deferral_reason": null
     },
     {
@@ -1658,17 +2115,30 @@
       "mscs_catalogue_reference_informative": "EXP-006 Navigation; EXP-008 Mobile experience",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-015 APK build/install/cold-launch; final runtime incomplete due Quickstep overlay",
+        "E-016 harness-only Quickstep remediation pending execution"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-014"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Implement contract; emulator proof Marketplace/Verify/Inbox/deep link",
       "v2_deferral_reason": null
     },
@@ -1697,17 +2167,30 @@
       "mscs_catalogue_reference_informative": "MSG-004 In-app notifications; MSG-005 Inbox",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-015 APK build/install/cold-launch; final runtime incomplete due Quickstep overlay",
+        "E-016 harness-only Quickstep remediation pending execution"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-016"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Relabel to Inbox with unread-conversation count; tests",
       "v2_deferral_reason": null
     },
@@ -1738,19 +2221,30 @@
       "mscs_catalogue_reference_informative": "MKT-012 Availability",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-022",
         "CARUP-MVP-F-023"
       ],
-      "current_state": "OPEN",
-      "next_action": "Temporal eligibility in list + reservation; tests; runtime",
+      "current_state": "BLOCKED_OWNER_POLICY",
+      "next_action": "Owner/moderator must materialize the handoff-referenced container policy findings F-033/F-034/F-035/F-036 before closure; do not infer their definitions.",
       "v2_deferral_reason": null
     },
     {
@@ -1780,18 +2274,29 @@
       "mscs_catalogue_reference_informative": "MKT-016 Transaction initiation (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-022"
       ],
-      "current_state": "OPEN",
-      "next_action": "Negative tests on marketplace, RFQ and legacy paths",
+      "current_state": "BLOCKED_OWNER_POLICY",
+      "next_action": "Owner/moderator must materialize the handoff-referenced container policy findings F-033/F-034/F-035/F-036 before closure; do not infer their definitions.",
       "v2_deferral_reason": null
     },
     {
@@ -1821,16 +2326,31 @@
       "mscs_catalogue_reference_informative": "REL-* (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-015 APK build/install/cold-launch; final runtime incomplete due Quickstep overlay",
+        "E-016 harness-only Quickstep remediation pending execution"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
-      "open_findings": [],
-      "current_state": "OPEN",
-      "next_action": "Exact-pair deploy + APK workflow",
+      "open_findings": [
+        "CARUP-MVP-F-041"
+      ],
+      "current_state": "EVIDENCE_INCOMPLETE",
+      "next_action": "Complete exact-head Native runtime proof; preserve attempt-1 Quickstep evidence and use only bounded system-overlay recovery.",
       "v2_deferral_reason": null
     },
     {
@@ -1858,17 +2378,28 @@
       "mscs_catalogue_reference_informative": "EXP-007 Responsive UI; ACC-*",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-017"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "Visible-Chromium checks on the candidate web",
       "v2_deferral_reason": null
     },
@@ -1897,20 +2428,32 @@
       "mscs_catalogue_reference_informative": "EXP-011 Error handling",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-024",
         "CARUP-MVP-F-025",
-        "CARUP-MVP-F-027"
+        "CARUP-MVP-F-027",
+        "CARUP-MVP-F-026"
       ],
-      "current_state": "OPEN",
-      "next_action": "Fixes in scope + tests",
+      "current_state": "EVIDENCE_INCOMPLETE",
+      "next_action": "Run the controlled browser failed-read truth-state evidence; success reads are already proven, failed-read UI remains evidence-incomplete.",
       "v2_deferral_reason": null
     },
     {
@@ -1940,19 +2483,30 @@
       "mscs_catalogue_reference_informative": "no exact catalogue control",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-010",
         "CARUP-MVP-F-012",
         "CARUP-MVP-F-013"
       ],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "As BUY-004/005",
       "v2_deferral_reason": null
     },
@@ -1981,17 +2535,29 @@
       "mscs_catalogue_reference_informative": "MSG-006 Notification preferences; MSG-014 Provider health",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
-        "CARUP-MVP-F-018"
+        "CARUP-MVP-F-018",
+        "CARUP-MVP-F-040"
       ],
-      "current_state": "OPEN",
+      "current_state": "EVIDENCE_INCOMPLETE",
       "next_action": "Readiness-gated preferences on web + Native",
       "v2_deferral_reason": null
     },
@@ -2022,15 +2588,26 @@
       "mscs_catalogue_reference_informative": "DAT-* (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
+      "current_state": "READY",
       "next_action": "Certification identities registered through the product path",
       "v2_deferral_reason": null
     },
@@ -2061,15 +2638,26 @@
       "mscs_catalogue_reference_informative": "CTL-018 Audit log",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
       "next_action": "As ADM-006",
       "v2_deferral_reason": null
     },
@@ -2098,15 +2686,26 @@
       "mscs_catalogue_reference_informative": "REL-* / BCP-* (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
-      "current_state": "OPEN",
+      "current_state": "EVIDENCE_INCOMPLETE",
       "next_action": "Record rollback facts in the candidate record",
       "v2_deferral_reason": null
     },
@@ -2140,18 +2739,29 @@
       "mscs_catalogue_reference_informative": "LEG-001 Terms of service; LEG-002 Privacy policy; PRV-002 Consent",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-029"
       ],
       "current_state": "BLOCKED_OWNER_LEGAL_APPROVAL",
-      "next_action": "Owner/legal decisions (packet)",
+      "next_action": "Owner/legal approval required; Production release remains blocked.",
       "v2_deferral_reason": null
     },
     {
@@ -2181,12 +2791,23 @@
       "mscs_catalogue_reference_informative": "MSG-014 Provider health (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -2223,12 +2844,23 @@
       "mscs_catalogue_reference_informative": "INF-* (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": true,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [],
       "current_state": "PRESERVED_FOUNDATION",
@@ -2260,12 +2892,24 @@
       "mscs_catalogue_reference_informative": "DAT-* (informative)",
       "target_maturity": "NOT_SELECTED",
       "frozen_foundation": false,
-      "candidate_sha": null,
-      "deployment": null,
+      "candidate_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "deployment": {
+        "backend": "https://carup-backend-staging-lmnyhj874-11-11.vercel.app",
+        "backend_deployment": "dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE",
+        "web": "https://carup-staging-mn3bx7ymb-11-11.vercel.app",
+        "web_deployment": "dpl_E4TVhhiTuWoA3XUARadEarXAZJBR",
+        "apk": "FINAL_RUNTIME_EVIDENCE_INCOMPLETE"
+      },
       "database_environment": "staging eoyenigwevnxwwhyhaer",
-      "positive_proof": [],
+      "positive_proof": [
+        "E-011 exact-head staging certification where applicable",
+        "E-012 specialist-reported final local suites"
+      ],
       "negative_proof": [],
-      "runtime_proof": [],
+      "runtime_proof": [
+        "E-010 exact immutable staging pair",
+        "E-014 Serena 37 inquiries / 34 canonical conversations / 3 historical uncanonicalized"
+      ],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
         "CARUP-MVP-F-028"
@@ -2274,5 +2918,7 @@
       "next_action": "Report written (docs/mvp/STAGING_RECONCILIATION_REPORT.md)",
       "v2_deferral_reason": null
     }
-  ]
+  ],
+  "executable_product_sha": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+  "release_record_note": "States are implementation/evidence states only; the moderator still issues PASS/FAIL."
 }

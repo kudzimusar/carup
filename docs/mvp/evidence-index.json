@@ -159,6 +159,140 @@
       ],
       "interpretation": "Staging reconciliation facts (inquiries 325/230/95; Serena 36/33/3 governed quarantine; containers 36 expired open, 24 post-deadline reservations; 3 latent external retries)",
       "does_not_prove": "Point-in-time; no mutation performed"
+    },
+    {
+      "evidence_id": "E-009",
+      "control_ids": [
+        "CARUP-MVP-X-001"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub remote branch + compare against authorized base",
+      "captured_at": "2026-10-21T13:20:07Z",
+      "collector": "continuation verification session",
+      "integrity": [],
+      "interpretation": "Remote product branch exact head 88bffa50; 69 ahead / 0 behind base; 171 net files; zero database/migration files.",
+      "does_not_prove": "Does not by itself prove runtime behavior."
+    },
+    {
+      "evidence_id": "E-010",
+      "control_ids": [
+        "CARUP-MVP-X-001",
+        "CARUP-MVP-OPS-001"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "Immutable Vercel backend health + web carup-provenance.json",
+      "captured_at": "2026-10-21T14:06:01Z",
+      "collector": "continuation verification session",
+      "integrity": [],
+      "interpretation": "Backend and web both report exact candidate; backend uses staging Supabase eoyenigwevnxwwhyhaer with consistent DB; web API pairing points to the same immutable backend and unpaired=false; communications kill switch active/external sends disabled.",
+      "does_not_prove": "Does not prove every browser or Native workflow."
+    },
+    {
+      "evidence_id": "E-011",
+      "control_ids": [
+        "CARUP-MVP-BUY-001",
+        "CARUP-MVP-BUY-007",
+        "CARUP-MVP-SELL-003",
+        "CARUP-MVP-SELL-004",
+        "CARUP-MVP-SVC-002",
+        "CARUP-MVP-SVC-003",
+        "CARUP-MVP-SVC-004",
+        "CARUP-MVP-ADM-006",
+        "CARUP-MVP-X-010"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions CARUP-MVP-STAB-01 staging certification run 39607555572",
+      "captured_at": "2026-10-21T13:26:13Z",
+      "collector": "GitHub Actions / independently re-read by continuation session",
+      "integrity": [
+        {
+          "artifact_id": "12348897183",
+          "sha256": "e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4"
+        }
+      ],
+      "interpretation": "All 40 certification steps succeeded on exact SHA: exact pairing, auth fallback denial, seller draft/autosave/publish/no-silent-unpublish, idempotent inquiry + exact canonical conversation and in-app seller reply, SafePay/preferences success reads, logout revocation, garage application/correction/review/rejection audit, and cleanup.",
+      "does_not_prove": "Does not prove physical-device UX, failed-read browser truth states, independent-mechanic activation or legal approval."
+    },
+    {
+      "evidence_id": "E-012",
+      "control_ids": [
+        "CARUP-MVP-X-002",
+        "CARUP-MVP-NAT-001"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "Continuation handoff from implementation specialist",
+      "captured_at": "2026-10-21T13:20:30Z",
+      "collector": "implementation specialist (not independently re-executed here)",
+      "integrity": [],
+      "interpretation": "Handoff reports final local suites clean: backend 9138 / 0 failures with 9 inherited cancellations; web 304 files / 3148 tests; mobile 330; lint no new findings.",
+      "does_not_prove": "This continuation session did not access the local vault logs or re-run the suites; treat as specialist-supplied evidence pending moderator review."
+    },
+    {
+      "evidence_id": "E-013",
+      "control_ids": [
+        "CARUP-MVP-NAT-001",
+        "CARUP-MVP-X-005"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub compare 6b678c5f82d168e89c5bb5b71a61a05eda14cc7d...88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "captured_at": "2026-10-21T13:20:07Z",
+      "collector": "continuation verification session",
+      "integrity": [],
+      "interpretation": "Final candidate is one commit ahead of fully tested 6b678c5f and changes exactly four Native Inbox/channel-readiness files; backend, web, shared, database, inquiry composer and vehicle navigation are identical.",
+      "does_not_prove": "F-040 final UI still needs exact-package visual/runtime proof."
+    },
+    {
+      "evidence_id": "E-014",
+      "control_ids": [
+        "CARUP-MVP-BUY-008",
+        "CARUP-MVP-SELL-009",
+        "CARUP-MVP-OPS-001"
+      ],
+      "candidate_authority": "staging eoyenigwevnxwwhyhaer (read-only point-in-time)",
+      "source": "Supabase SELECT-only reconciliation query during continuation verification",
+      "captured_at": "2026-10-21T14:05:57Z",
+      "collector": "continuation verification session",
+      "integrity": [],
+      "interpretation": "Serena GFC27-027051: 37 inquiry rows, 34 canonical exact inquiry conversations, 3 historical inquiries without a canonical conversation; no reconciliation mutation performed.",
+      "does_not_prove": "Counts are point-in-time and will change when a new legitimate inquiry is sent."
+    },
+    {
+      "evidence_id": "E-015",
+      "control_ids": [
+        "CARUP-MVP-NAT-001",
+        "CARUP-MVP-X-001"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions candidate APK run 39607550267 attempt 1",
+      "captured_at": "2026-10-21T13:49:50Z",
+      "collector": "GitHub Actions / artifact independently inspected",
+      "integrity": [
+        {
+          "artifact_id": "12350393031",
+          "sha256": "cc7e988f4cf06d4332ab2c4d9e71ca2c18071bb3ee7b8227367ad43510d9f3b5"
+        },
+        {
+          "file": "carup-mvp-stab-01-candidate-staging.apk",
+          "sha256": "ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e",
+          "size_bytes": 108894116
+        }
+      ],
+      "interpretation": "APK built successfully, installed, baked only the exact immutable backend, cold-launched MainActivity and rendered Home. Runtime proof stopped at login because Android package 'android' displayed 'Quickstep isn't responding'; no CarUp ANR/crash was captured.",
+      "does_not_prove": "login/register/full-restart runtime_complete remains unproven on this attempt."
+    },
+    {
+      "evidence_id": "E-016",
+      "control_ids": [
+        "CARUP-MVP-NAT-001",
+        "CARUP-MVP-X-001"
+      ],
+      "candidate_authority": "product 88bffa50b34d81cdeb1f13f2c90bfb957190c732; evidence harness c15a9e125d27c14a95d97dfdc6bd5b79a3d8f090",
+      "source": "GitHub compare + workflow-only evidence-harness remediation branch",
+      "captured_at": "2026-10-21T14:02:33Z",
+      "collector": "continuation verification session",
+      "integrity": [],
+      "interpretation": "Separate branch is exactly one commit ahead of product authority and modifies only .github/workflows/carup-mvp-stab-01-candidate-apk.yml; it imports bounded exact Quickstep recovery while still failing on CarUp ANR/crash.",
+      "does_not_prove": "Harness remediation has not yet produced a successful run."
     }
   ]
 }

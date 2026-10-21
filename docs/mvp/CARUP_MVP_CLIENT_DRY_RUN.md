@@ -2,8 +2,16 @@
 
 **For:** the Owner or a client observer, running the MVP on staging from one exact release candidate.
 **Not for:** Production. Nothing in this script touches Production, sends an external message or moves money.
-**Candidate:** see [`CARUP_MVP_RELEASE_CONTROL.md`](CARUP_MVP_RELEASE_CONTROL.md) §9 for the exact web URL, backend URL,
-APK artifact and APK SHA-256. Every step below must be run against those exact URLs and that exact APK.
+**Executable candidate:** `88bffa50b34d81cdeb1f13f2c90bfb957190c732`  
+**Web:** `https://carup-staging-mn3bx7ymb-11-11.vercel.app`  
+**Backend:** `https://carup-backend-staging-lmnyhj874-11-11.vercel.app`  
+**Staging database:** `eoyenigwevnxwwhyhaer`  
+**Final staging certification:** GitHub Actions run `39607555572` (SUCCESS)
+
+**APK gate:** do not begin the Native part of this dry run until §9 of
+[`CARUP_MVP_RELEASE_CONTROL.md`](CARUP_MVP_RELEASE_CONTROL.md) records a **successful final exact-head runtime APK
+artifact**. Attempt 1 built/installed/cold-launched the candidate but was obstructed by an Android Quickstep system
+overlay before login proof completed.
 
 > A step's **Expected** column is the acceptance condition. If what you see differs, write down the step number, what
 > you saw, the time and a screenshot; do not retry silently. A result that cannot be produced honestly is recorded as
@@ -49,7 +57,7 @@ APK artifact and APK SHA-256. Every step below must be run against those exact U
 | # | Action | Expected |
 |---|---|---|
 | C1 | My Garage | Serena appears as the same vehicle (same VIN, same photo) with publication state **Published** |
-| C2 | My Listings | Serena shows **Published**; inquiries and conversations are counted separately (e.g. "36 inquiries · 33 conversations") |
+| C2 | My Listings | Serena shows **Published**; inquiries and conversations are counted separately. Baseline immediately after candidate certification: **37 inquiries · 34 conversations**, with **3 historical quarantined inquiries** lacking a canonical conversation. A fresh legitimate send may increment both live counts; the invariant is that the labels remain distinct. |
 | C3 | Open Serena in Seller Studio | The Studio says **Published · on the public Marketplace** and explains what saving changes does. It does **not** say draft, private or "not public" |
 | C4 | Wait 10 seconds without editing | No "autosave unavailable" message appears (nothing is saved without an edit) |
 | C5 | Edit the description and choose **Save changes to public listing** | "Changes saved to your public listing" appears only after CarUp confirms the save; the listing stays published; Marketplace shows the new text |
@@ -75,7 +83,7 @@ APK artifact and APK SHA-256. Every step below must be run against those exact U
 
 | # | Action | Expected |
 |---|---|---|
-| F1 | As the approved applicant, open the garage page | **Open your garage** enters the Garage workspace |
+| F1 | As a legitimately approved applicant, open the garage page | **Open your garage** enters the Garage workspace. If the identity provider has not established the applicant's identity, record `BLOCKED_IDENTITY_PROVIDER`; do not manufacture approval for the dry run. |
 | F2 | Public garage profile | Stays private until the profile is completed and published by the garage |
 | F3 | Independent mechanic | Not available yet — the app says so and points mechanics to a garage invitation. This is the expected `BLOCKED_MECHANIC_ACTIVATION_MODEL` state |
 
