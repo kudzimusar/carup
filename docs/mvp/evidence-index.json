@@ -1,0 +1,164 @@
+{
+  "schema": "mscs-vap-1.0/B12-evidence-index (project-local)",
+  "work_unit": "CARUP-MVP-STAB-01",
+  "evidence_vault": "~/carup-launch-evidence/carup-mvp-stab-01/ (artifacts are referenced by path and sha256; secrets and session tokens are never stored)",
+  "records": [
+    {
+      "evidence_id": "E-001",
+      "control_ids": [
+        "CARUP-MVP-X-001"
+      ],
+      "candidate_authority": "base 0fc425a997e1e2e02a039e728dcd5ee90f5fd936 (start custody)",
+      "source": "git ls-remote origin + worktree creation",
+      "captured_at": "2026-10-21T06:01:46Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/00-custody-start.md",
+          "sha256": "d935526cc734f294dbb6c83907aa5cf7bcfbb05e3eca5dc0e723b88c6d4af12b"
+        }
+      ],
+      "interpretation": "Start authority 0fc425a9 equals the remote head of fix/oc-native-final-02-r1-owner-uat-defects; new branch created from it; no concurrent writer",
+      "does_not_prove": "Does not prove any product control"
+    },
+    {
+      "evidence_id": "E-002",
+      "control_ids": [
+        "CARUP-MVP-BUY-001",
+        "CARUP-MVP-BUY-012",
+        "CARUP-MVP-ADM-008"
+      ],
+      "candidate_authority": "base 0fc425a997e1e2e02a039e728dcd5ee90f5fd936",
+      "source": "backend full suite, 8 watchdog shards, hermetic arm64 Node 20, ci.yml env",
+      "captured_at": "2026-10-21T06:19:15Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/01-baseline-backend.md",
+          "sha256": "308d0f46ca6464292b8b77abdaeab4b69a8c273013f50eb2f8ac8b59579a1a2d"
+        }
+      ],
+      "interpretation": "Baseline backend: 9005 tests / 8973 pass / 0 fail / 9 cancelled (inherited C1 currency-feed) / 23 skipped",
+      "does_not_prove": "Baseline only; not candidate evidence"
+    },
+    {
+      "evidence_id": "E-003",
+      "control_ids": [
+        "CARUP-MVP-X-002"
+      ],
+      "candidate_authority": "base 0fc425a997e1e2e02a039e728dcd5ee90f5fd936",
+      "source": "web vitest full (Node 22, maxWorkers 2)",
+      "captured_at": "2026-10-21T06:23:10Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/02-baseline-web.md",
+          "sha256": "5a46ef6285020768bf814aff7fd048df81b07a6c66fbc28f2f9a9e7cdde9b27e"
+        }
+      ],
+      "interpretation": "Baseline web: 280 files / 2945 tests pass",
+      "does_not_prove": "Baseline only"
+    },
+    {
+      "evidence_id": "E-004",
+      "control_ids": [
+        "CARUP-MVP-NAT-001"
+      ],
+      "candidate_authority": "base 0fc425a997e1e2e02a039e728dcd5ee90f5fd936",
+      "source": "mobile vitest + test:native + test:static (Node 22)",
+      "captured_at": "2026-10-21T06:23:23Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/logs/mobile-baseline.log",
+          "sha256": "ab39dff87ce23c91e0a8929828b709f155955a673c836b73c3ea3cd549e12ee1"
+        }
+      ],
+      "interpretation": "Baseline mobile: vitest 13 files/155 pass; native scripts pass; static 59/59",
+      "does_not_prove": "Baseline only"
+    },
+    {
+      "evidence_id": "E-005",
+      "control_ids": [
+        "CARUP-MVP-SELL-004"
+      ],
+      "candidate_authority": "canonical api-staging dpl_DGc6dDsdQjTt4Gad9CsvzbpHrE11 @05250ab0",
+      "source": "Vercel runtime logs + staging trust_audit_events",
+      "captured_at": "2026-10-21T06:28:51Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/03-autosave-runtime-diagnosis.md",
+          "sha256": "aeaf5831a4003848eaa363bf6e623e85c61196314c209d48f146109b45877da4"
+        }
+      ],
+      "interpretation": "The Owner-reported 'Account autosave is unavailable' was the server's 409 refusal of an automatic PATCH on the published Serena (03:59:24Z) after 200s while unpublished (21:49Z) and publication at 22:14:45Z",
+      "does_not_prove": "Payload body not logged"
+    },
+    {
+      "evidence_id": "E-006",
+      "control_ids": [
+        "CARUP-MVP-BUY-004",
+        "CARUP-MVP-X-010"
+      ],
+      "candidate_authority": "canonical api-staging @05250ab0",
+      "source": "GET https://api-staging.carup.dev/api/health and /api/marketplace/listings/GFC27-027051",
+      "captured_at": "2026-10-21T06:10:24Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/runtime-pre/canonical-api-staging-health-20261021.json",
+          "sha256": "0d8b1023a6542854bb0c9a9aef83532a13323543b1df0c7314ed14e491d961f6"
+        },
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/runtime-pre/serena-public-listing-20261021.json",
+          "sha256": "904c5989dc9abc1c3efc3c1147dac6619db2e200d657db49e486430a0144e27f"
+        }
+      ],
+      "interpretation": "Serena public Trust record: score 60, band moderate, confidence low, 0/7 substantiated, 0 connected sources, 7 limitations; kill switch active, external sends disabled",
+      "does_not_prove": "Canonical (pre-change) runtime, not the candidate"
+    },
+    {
+      "evidence_id": "E-007",
+      "control_ids": [
+        "CARUP-MVP-BUY-005"
+      ],
+      "candidate_authority": "canonical api-staging @05250ab0",
+      "source": "GET https://api-staging.carup.dev/api/vehicles/GFC27-027051/passport",
+      "captured_at": "2026-10-21T06:10:45Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-launch-evidence/carup-mvp-stab-01/runtime-pre/serena-public-passport-20261021.json",
+          "sha256": "817c3c916b16144d4e7a76071862caf7efc39a384e12b1d3cf523a625a04c8df"
+        }
+      ],
+      "interpretation": "Pre-change defect: trustSignals.odometer_consistent=true with maintenance_logs_count=0; lifecycle.mileage has one current_listing observation, coverage partial",
+      "does_not_prove": "Canonical (pre-change) runtime"
+    },
+    {
+      "evidence_id": "E-008",
+      "control_ids": [
+        "CARUP-MVP-OPS-001",
+        "CARUP-MVP-BUY-008",
+        "CARUP-MVP-TRD-001"
+      ],
+      "candidate_authority": "staging DB eoyenigwevnxwwhyhaer (read-only)",
+      "source": "staging MCP execute_sql SELECT-only, docs/mvp/staging-reconciliation.sql Q1-Q9",
+      "captured_at": "2026-10-21T06:39:30Z",
+      "collector": "implementation agent",
+      "integrity": [
+        {
+          "file": "~/carup-mvp-stab-01/docs/mvp/STAGING_RECONCILIATION_REPORT.md",
+          "sha256": "aca53ac5ea3356604b80c771619e9432316df1070c9feddfc3aa03a5b6f0516f"
+        },
+        {
+          "file": "~/carup-mvp-stab-01/docs/mvp/staging-reconciliation.sql",
+          "sha256": "93482e5f6fc7370e8de68bf1a7578170a1abd666a3a80dfaf382d4fb2152bbf3"
+        }
+      ],
+      "interpretation": "Staging reconciliation facts (inquiries 325/230/95; Serena 36/33/3 governed quarantine; containers 36 expired open, 24 post-deadline reservations; 3 latent external retries)",
+      "does_not_prove": "Point-in-time; no mutation performed"
+    }
+  ]
+}
