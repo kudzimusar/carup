@@ -83,40 +83,44 @@ cannot be made atomic or integrity-enforced with the existing schema (directive 
 
 ## 8. Current state
 
-**Implementer status:** `EVIDENCE CLOSURE IN PROGRESS`. Product remediation is substantially implemented, but this
-document does **not** certify the candidate. The moderator still owns acceptance.
+**Implementer evidence state:** `READY_FOR_MODERATOR / OWNER UAT REVIEW`.
 
-| Area | Current implementer state | Evidence / limitation |
+The product candidate remains frozen. Evidence-only and documentation commits after it do not change the shipped product tree.
+
+| Area | Current evidence state | Exact evidence |
 |---|---|---|
-| Product candidate | `88bffa50b34d81cdeb1f13f2c90bfb957190c732` frozen | 69 commits ahead / 0 behind `0fc425a9`; 171 changed files; no database or migration files |
-| Fully tested parent | `6b678c5f82d168e89c5bb5b71a61a05eda14cc7d` | Final product candidate differs by four Native files only, all for F-040 outside-delivery wording/readiness |
-| Backend/web pair | exact-pair immutable Preview | Backend `carup-backend-staging-lmnyhj874-11-11.vercel.app`; web `carup-staging-mn3bx7ymb-11-11.vercel.app`; certification proved both at the exact product SHA and staging DB |
-| Full local suites | implementation-agent receipt says clean | Backend 9138 / 0 failures (9 inherited cancellations); web 304 files / 3148 tests; Native 330 tests; 30 DB/ledger harnesses; lint no net-new findings. These local receipt files were not re-read by the moderator in this chat session |
-| Exact-SHA staging certification | **40/40 steps passed** | GitHub run `39607555572`, artifact `12348897183`, digest `sha256:e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4` |
-| Candidate APK package | build/install/cold-launch proven | SHA-256 `ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e`; 108894116 bytes; exact immutable backend baked in |
-| Candidate APK runtime closure | **EVIDENCE INCOMPLETE** | Run `39607550267` built, installed and cold-launched CarUp, then Android's system package displayed **"Quickstep isn't responding"** during the login hierarchy assertion. No CarUp ANR was proven. The APK-only artifact step was skipped because the runtime job concluded failure; the APK itself is preserved inside evidence artifact `12350393031` |
-| APK evidence harness | remediated, rerun required | Harness-only commit `7f98d8508754c62de4ba3568402999e0bfb6d328` restores the already-established bounded Quickstep-only recovery and adds a frozen `candidate_sha` input. It does not change product source. The patched workflow has not yet been dispatched |
-| SafePay / preferences failure-state browser proof | **NOT RUN** | `web-truth-states.mjs` remains a required exact-deployment evidence step: failed reads must show Not available/no number, no switches, and no PATCH |
-| Physical Native Owner UAT | **NOT PERFORMED** | Existing Native evidence is emulator evidence, not a physical-device Owner acceptance |
-| Inquiry reconciliation staging runtime | **NOT PROVEN** | Reconciliation implementation is test-proven; applying/reconciling staging remains separately authorized |
-| Production | **BLOCKED / UNTOUCHED** | Legal Gate F remains blocked; Production Supabase remains forbidden |
-
-Therefore:
+| Product candidate | **FROZEN** | `88bffa50b34d81cdeb1f13f2c90bfb957190c732`; 69 commits ahead / 0 behind `0fc425a9`; 171 changed files; no database or migration files |
+| Fully tested parent | **PASS evidence** | `6b678c5f82d168e89c5bb5b71a61a05eda14cc7d`; the final product delta is four Native F-040 files |
+| Full local suites | **PASS receipt** | backend 9138 tests / 0 failures with 9 inherited cancellations; web 304 files / 3148 tests; Native 330 tests; 30 database/ledger harnesses; lint no net-new findings |
+| Exact-SHA staging certification | **PASS 40/40** | run `39607555572`; artifact `12348897183`; digest `sha256:e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4` |
+| Candidate APK runtime | **PASS** | run `39607550267`, attempt 2; job `119262615117`; true Expo/React Native, build/install/cold launch/login/register/full restart, no CarUp fatal runtime |
+| Final APK | **CUSTODIED** | SHA-256 `6a5c056f2e26fd17625db79ac5b661a104136e915b98d148f729ef2a38b75415`; 108894116 bytes; artifact `12352064023`; artifact digest `sha256:2b0920ed55b124b831887c2ba2d076982fbc086a5b309c6cb4fd8e0fdec6ba0a` |
+| APK runtime evidence | **PASS** | artifact `12352014086`; digest `sha256:7067e267347aba320a720845c4874546e4abb24f37e9706c9621a9fd1ddc6d24` |
+| SafePay / preference failed-read truth | **PASS** | run `39687174054`; SafePay = Not available/no numeric zero; preference switches = 0; PATCH requests = 0; session revoked |
+| Web truth artifact | **PASS** | artifact `12387410776`; digest `sha256:2274bb989b736aa24c97197d6546afeb6bbc2f95c002f6fe8def586f558898e6` |
+| Final Native Trust / delivery / Inbox visuals | **PASS** | sanitized run `39688449357`; artifact `12387332691`; digest `sha256:53c36334f845d38f62be24939eb56aaa4d713006eb05b0b782fd1b812deff54a` |
+| Native Send | **NOT REPEATED** | visual proof explicitly records `native_send_performed=NO`; existing exactly-once proof remains authoritative |
+| Disposable test sessions | **CLEAN** | CARUP-MVP-STAB-01 staging-only session sweep readback = 0 active |
+| Serena reconciliation truth | **READ-ONLY PROVEN** | 37 inquiries / 34 exact inquiry-linked conversations / 3 historical unmatched inquiries; no reconciliation mutation applied |
+| Physical Native Owner UAT | **REQUIRED** | emulator evidence is not physical Owner acceptance |
+| Hosted PR-only `ci.yml` | **NOT RUN** | no PR has been opened; pre-merge/release evidence item, not a blocker to Owner physical UAT |
+| Production | **BLOCKED / UNTOUCHED** | Gate F legal approval remains blocked; Production Supabase remains forbidden |
+| Canonical staging aliases | **UNMOVED** | immutable Preview pair only |
 
 ```text
-CLIENT_MVP_TECHNICAL_READINESS = NOT_READY
+CLIENT_MVP_TECHNICAL_READINESS = READY_FOR_OWNER_UAT
+PHYSICAL_OWNER_NATIVE_UAT = REQUIRED
 PRODUCTION_RELEASE_READINESS = BLOCKED
 LEGAL_RELEASE_GATE = BLOCKED_OWNER_LEGAL_APPROVAL
+PRODUCTION_TOUCHED = NO
+CANONICAL_ALIASES_MOVED = NO
 ```
-
-The remaining technical work is evidence closure, not another product redesign.
 
 ## 9. Candidate record
 
 | Field | Value |
 |---|---|
 | Product candidate SHA | `88bffa50b34d81cdeb1f13f2c90bfb957190c732` |
-| Evidence-harness branch head | `7f98d8508754c62de4ba3568402999e0bfb6d328` (workflow-only; product candidate remains frozen) |
 | Base authority | `0fc425a997e1e2e02a039e728dcd5ee90f5fd936` |
 | Product ahead / behind | 69 / 0 |
 | Product changed files | 171 |
@@ -124,66 +128,61 @@ The remaining technical work is evidence closure, not another product redesign.
 | Backend immutable Preview | `https://carup-backend-staging-lmnyhj874-11-11.vercel.app` |
 | Backend deployment | `dpl_EUKJZc8MbtNx1nPhM9AKsZi5hkHE` |
 | Web immutable Preview | `https://carup-staging-mn3bx7ymb-11-11.vercel.app` |
-| Web/backend exact pair | proven in run `39607555572` |
 | Staging Supabase | `eoyenigwevnxwwhyhaer` |
 | Communications kill switch | active; external sends disabled |
-| Candidate APK SHA-256 | `ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e` |
+| Candidate APK SHA-256 | `6a5c056f2e26fd17625db79ac5b661a104136e915b98d148f729ef2a38b75415` |
 | Candidate APK size | `108894116` bytes |
-| APK evidence artifact | `12350393031` / `sha256:cc7e988f55b6d25c81d9ce530a26227f73f15fcc8d8bd5b44c906f6fb81b31bf` |
-| Exact certification artifact | `12348897183` / `sha256:e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4` |
+| APK artifact | `12352064023` / `sha256:2b0920ed55b124b831887c2ba2d076982fbc086a5b309c6cb4fd8e0fdec6ba0a` |
+| Runtime evidence artifact | `12352014086` / `sha256:7067e267347aba320a720845c4874546e4abb24f37e9706c9621a9fd1ddc6d24` |
+| Staging certification artifact | `12348897183` / `sha256:e67ee3cc522224d3204a573bd19474ca08c1274ea89f646db53aeabafaaff0a4` |
+| Web truth artifact | `12387410776` / `sha256:2274bb989b736aa24c97197d6546afeb6bbc2f95c002f6fe8def586f558898e6` |
+| Native visual artifact | `12387332691` / `sha256:53c36334f845d38f62be24939eb56aaa4d713006eb05b0b782fd1b812deff54a` |
 | Canonical aliases moved | NO |
 | Production touched | NO |
 | Owner credentials used | NO |
+| Native Send repeated | NO |
 | Staging rows deleted | 0 |
 
-### Candidate evidence classification
+### Final Native runtime proof
 
-The final APK workflow's failure does **not** erase its successful package evidence. Gradle completed successfully, installation
-returned Success, `com.carup.mobile/.MainActivity` cold-launched in 989 ms, and the app was top-resumed. The hierarchy
-failure was the Android system Quickstep ANR overlay. Because the workflow had accidentally omitted the bounded Quickstep
-recovery already present in the accepted Native evidence harness, this is classified as an **evidence-harness defect** until the
-patched workflow is rerun. A `CarUp isn't responding` / `CarUp keeps stopping` dialog remains an unconditional failure.
+Run `39607550267` attempt 2 supersedes the interrupted first attempt for final APK custody. It proves exact source, true Expo/React Native authority, exact immutable staging backend baked into the APK, build/install/cold launch/login/register/full restart PASS, no CarUp fatal runtime exception, and `runtime_complete=YES`.
+
+### Final Native visual proof
+
+Sanitized run `39688449357` proves Serena Trust (60/100, Moderate, Confidence Low, Evidence support 0 of 7, Connected official sources 0), Native delivery settings (Push/WhatsApp/Telegram/Email = Setup pending), truthful F-040 Inbox wording, no Native Send, and product-path sign-out. The final artifact contains no runtime credential file.
 
 ## 10. Release-gate roll-up
 
 | Gate | Implementer position | Reason |
 |---|---|---|
-| Gate A — Identity & Access | evidence-backed, pending moderator disposition | registration/session/logout/x-user-id denial passed exact-SHA certification |
-| Gate B — Data & Integrity | evidence incomplete | inquiry reconciliation is test-proven but not applied/proven on staging; reconciliation mutation is separately authorized |
-| Gate C — Commerce & Finance | evidence incomplete | buyer/seller inquiry and Seller lifecycle passed; SafePay successful-empty read passed; failed-read browser truth-state proof still outstanding |
-| Gate D — Security | evidence-backed, pending moderator disposition | exact certification kept external sends disabled and denied x-user-id fallback; Production untouched |
-| Gate E — Operations | evidence incomplete | immutable candidate exists, but final APK runtime evidence harness must rerun and remaining runtime receipts must be captured |
+| Gate A — Identity & Access | evidence-backed, pending moderator disposition | registration/session/logout/x-user-id denial have exact-SHA evidence |
+| Gate B — Data & Integrity | evidence-backed for Owner UAT | exactly-once inquiry + canonical conversation creation proven; 3 historical Serena inquiries remain quarantined/read-only |
+| Gate C — Commerce & Finance | evidence-backed, pending moderator disposition | Seller lifecycle and SafePay truthful success/failure states proven |
+| Gate D — Security | evidence-backed, pending moderator disposition | external sends disabled; disposable evidence sessions revoked; Production untouched |
+| Gate E — Operations | evidence-backed, pending moderator disposition | immutable candidate, APK custody, restart/runtime evidence and cleanup receipts exist |
 | Gate F — Governance | **BLOCKED** | Owner/legal approval outstanding |
-| Gate G — Product Control | evidence incomplete | major product remediations implemented; final Native F-040 / Trust / preferences screenshots and exact final runtime closure outstanding |
+| Gate G — Product Control | evidence-backed, pending moderator disposition | responsive/browser evidence plus final Native Trust/readiness/F-040 visuals are present |
 
-No gate above is a moderator PASS.
+The register remains an implementer/evidence record; the certification moderator issues the formal disposition.
 
-## 11. Findings disposition policy at handoff
+## 11. Findings disposition policy
 
-A code fix is recorded as `REMEDIATED_PENDING_VERIFICATION`, not CLOSED. `BLOCKED` means an Owner, external-provider or
-legal decision is still required. `OPEN` means no authorized mutation/closure has occurred.
+Repaired findings remain `REMEDIATED_PENDING_VERIFICATION` in the implementation register until moderator disposition. `BLOCKED` remains reserved for Owner, legal or external-provider gates. The handoff's F-033/F-034/F-035 container-policy questions and F-036 spec-45 date question remain Owner/moderator decisions because their original records are not present in this branch.
 
-The takeover handoff also reports Owner/moderator-only container-policy questions `F-033`, `F-034`, `F-035` and the
-absolute-date question in spec 45 (`F-036`). Their exact original finding records are not present in this branch, so this
-takeover does **not** reconstruct or resolve them from memory. They remain explicit decision gates for the next moderator.
+## 12. Remaining work after technical evidence closure
 
-## 12. Evidence still required before moderator review
-
-1. Dispatch the patched candidate APK workflow from evidence-harness head `7f98d8508754c62de4ba3568402999e0bfb6d328` with
-   `candidate_sha=88bffa50b34d81cdeb1f13f2c90bfb957190c732` and `backend_host=carup-backend-staging-lmnyhj874-11-11.vercel.app`; require a successful runtime job and APK artifact.
-2. Run the already-written `web-truth-states.mjs` against `https://carup-staging-mn3bx7ymb-11-11.vercel.app` using the controlled certification session.
-3. Repeat final web/API/Native read-only evidence on the exact immutable pair. **Do not repeat Native Send**; the one-send proof
-   already created the required inquiry and another send would contaminate Serena.
-4. Capture Native Vehicle Detail Trust rows and Account/Communications preference labels plus the F-040 Inbox delivery notice.
-5. Keep inquiry reconciliation as a dry-run/read-only proof unless the moderator separately authorizes staging mutation.
-6. Physical Owner Native UAT remains a later gate; emulator evidence must not be labelled physical-device acceptance.
+1. Owner physical UAT against this exact APK and immutable Preview pair.
+2. Do not repeat Native Send merely to refresh evidence.
+3. Keep historical inquiry reconciliation read-only unless separately authorized.
+4. Before merge/release, open the appropriate PR so PR-only `ci.yml` executes and is reviewed.
+5. Gate F / Terms / Privacy require Owner/legal approval before Production certification.
+6. Production deployment, Production DB access and canonical alias movement remain separate release authorities.
 
 ## 13. Known non-product blockers / deferrals
 
-- `BLOCKED_MECHANIC_ACTIVATION_MODEL`: independent-mechanic activation remains an Owner policy decision.
-- Garage **approval** runtime proof is blocked until the applicant has a legitimately approved identity; current refusal is correct.
-- Gate F / Terms / Privacy remain `BLOCKED_OWNER_LEGAL_APPROVAL`.
-- Container policy questions F-033/F-034/F-035 and spec-45 date question F-036 remain Owner/moderator decisions.
-- Staging reconciliation application is not authorized.
-- Hosted PR-only `ci.yml` has not run because no PR has been opened.
-
+- `BLOCKED_MECHANIC_ACTIVATION_MODEL`.
+- Garage successful approval proof requires a legitimately approved applicant identity.
+- `BLOCKED_OWNER_LEGAL_APPROVAL`.
+- Container policy F-033/F-034/F-035 and spec-45/F-036 remain Owner/moderator decisions.
+- Staging reconciliation apply is not authorized.
+- Hosted PR-only `ci.yml` remains not run until a PR is deliberately opened.

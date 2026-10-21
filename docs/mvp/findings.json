@@ -491,12 +491,13 @@
         "88bffa50b34d81cdeb1f13f2c90bfb957190c732: mobile/app/(tabs)/inbox.tsx",
         "88bffa50b34d81cdeb1f13f2c90bfb957190c732: mobile/app/inbox/[threadId].tsx",
         "88bffa50b34d81cdeb1f13f2c90bfb957190c732: mobile/utils/channelReadiness.ts",
-        "88bffa50b34d81cdeb1f13f2c90bfb957190c732: mobile/tests/mvp-stab-01-outside-delivery-notice.test.ts"
+        "88bffa50b34d81cdeb1f13f2c90bfb957190c732: mobile/tests/mvp-stab-01-outside-delivery-notice.test.ts",
+        "run 39688449357 / sanitized artifact 12387332691: exact-candidate Native Inbox F-040 copy and delivery labels"
       ],
       "impact": "Provider-readiness truthfulness; GATE-G",
       "disposition": "REMEDIATED_PENDING_VERIFICATION",
       "remediation_candidate": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
-      "verification_gap": "Final exact-candidate Native screenshots/runtime evidence for the Inbox line were not captured before the handoff."
+      "verification_gap": "Exact-candidate Native visual evidence is captured; awaiting formal moderator disposition / physical Owner UAT only."
     },
     {
       "id": "CARUP-MVP-F-041",
@@ -509,13 +510,32 @@
         "GitHub run 39607550267 / job 119247578435",
         "artifact 12350393031 / digest sha256:cc7e988f55b6d25c81d9ce530a26227f73f15fcc8d8bd5b44c906f6fb81b31bf",
         "candidate APK sha256:ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e",
-        "7f98d8508754c62de4ba3568402999e0bfb6d328: .github/workflows/carup-mvp-stab-01-candidate-apk.yml"
+        "7f98d8508754c62de4ba3568402999e0bfb6d328: .github/workflows/carup-mvp-stab-01-candidate-apk.yml",
+        "run 39607550267 attempt 2 / job 119262615117 / artifacts 12352064023 + 12352014086: runtime_complete=YES"
       ],
       "impact": "Evidence closure only; no CarUp package/build/install/cold-launch defect proven.",
       "disposition": "REMEDIATED_PENDING_VERIFICATION",
       "remediation_candidate": "7f98d8508754c62de4ba3568402999e0bfb6d328",
-      "verification_gap": "Patched workflow has not yet been dispatched against the frozen product candidate."
+      "verification_gap": "None in automated exact-candidate runtime evidence; successful attempt 2 supersedes the interrupted first attempt."
+    },
+    {
+      "id": "CARUP-MVP-F-042",
+      "control": "CARUP-MVP-X-001 / CARUP-MVP-X-011",
+      "class": "EVIDENCE_HARNESS_DEFECT",
+      "severity": "F1",
+      "observed": "The first Final Native Visual Evidence artifact included its runtime-only native-proof.env file. The account was staging-only and signed out, but credential material must never be stored in an evidence artifact.",
+      "expected": "Temporary evidence credentials exist only in runner memory/filesystem, are masked, removed before artifact upload, and their sessions are revoked after use.",
+      "evidence": [
+        "run 39687865919 / artifact 12386538475: initial visual evidence bundle",
+        "staging containment: temporary credential rotated; 2 sessions revoked; active sessions read back as 0",
+        "commit 221282b0717645f0b6fd66e99098e897035d06c6: removes native-proof.env before artifact upload",
+        "run 39688449357 / artifact 12387332691: sanitized PASS bundle with no credential file"
+      ],
+      "impact": "Staging-only evidence credential hygiene; no Production or Owner credential exposure.",
+      "disposition": "REMEDIATED_PENDING_VERIFICATION",
+      "remediation_candidate": "221282b0717645f0b6fd66e99098e897035d06c6",
+      "verification_gap": "Sanitized rerun independently inspected; formal moderator disposition is separate."
     }
   ],
-  "updated_at": "2026-10-21T13:51:00Z"
+  "updated_at": "2026-10-21T22:46:00Z"
 }

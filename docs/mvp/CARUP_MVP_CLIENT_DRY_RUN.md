@@ -6,8 +6,8 @@
 - SHA: `88bffa50b34d81cdeb1f13f2c90bfb957190c732`
 - Web: `https://carup-staging-mn3bx7ymb-11-11.vercel.app`
 - Backend: `https://carup-backend-staging-lmnyhj874-11-11.vercel.app`
-- Candidate APK SHA-256: `ce022f3df8274ef64f275f38a7470f3f8dfabafa54c5eddb2c7e125ece764b0e`
-- Evidence state: APK build/install/cold-launch is proven; final login/register/restart runtime closure must be rerun with the patched Quickstep-resilient evidence harness before this script is declared ready.
+- Candidate APK SHA-256: `6a5c056f2e26fd17625db79ac5b661a104136e915b98d148f729ef2a38b75415`
+- Evidence state: exact-candidate APK runtime, failed-read web truth states and final Native Trust/delivery/Inbox visual evidence are all proven. Technical status is `READY_FOR_OWNER_UAT`; Production remains blocked.
 
 Every step below must be run against those exact URLs and that exact product candidate. The evidence-harness commit is not a new product candidate.
 
@@ -120,13 +120,14 @@ Every step below must be run against those exact URLs and that exact product can
 | J4 | Payments / ownership transfer | No real payment and no ownership transfer are performed. If a step would require a real transaction or ownership object that does not exist, record `BLOCKED_NO_REAL_STAGING_OBJECT` |
 
 
-## K. Current pre-dry-run evidence caveats
+## K. Owner-UAT entry state
 
-This script is the future Owner/client walk-through. It is **not yet authorized as a completed dry run**.
+Technical evidence closure is complete for the frozen staging candidate.
 
-- Exact-SHA automated staging certification is green (run `39607555572`).
-- The final candidate APK is built and installable, but its GitHub runtime job was interrupted by a proven Android Quickstep system overlay before login/register/restart assertions completed.
-- `web-truth-states.mjs` has not yet been run against the final immutable web deployment.
-- Native final Trust/preference/F-040 screenshots are still missing.
-- Do not repeat the Native Send step merely to refresh evidence; it would add another inquiry to Serena.
-- Physical-device Owner Native UAT remains separate from emulator proof.
+- Exact-SHA staging certification: run `39607555572`, 40/40.
+- Final APK runtime: run `39607550267` attempt 2, PASS; APK SHA-256 `6a5c056f2e26fd17625db79ac5b661a104136e915b98d148f729ef2a38b75415`.
+- Web failed-read truth proof: run `39687174054`, PASS.
+- Native final visuals: sanitized run `39688449357`, PASS.
+- Do **not** repeat Native Send merely to refresh evidence.
+- Physical Owner UAT is still required and must be recorded separately from emulator proof.
+- Production remains blocked by legal/governance authority and is not part of this dry run.

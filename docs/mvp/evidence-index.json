@@ -290,6 +290,114 @@
       "integrity": [],
       "interpretation": "Serena GFC27-027051 currently has 37 marketplace inquiry rows, 34 exact inquiry-linked canonical threads, and 3 historical inquiry rows without an exact canonical thread. The dry-run 37/34/3 reference is therefore live staging truth.",
       "does_not_prove": "Does not prove or authorize applying inquiry reconciliation; no row was mutated or deleted."
+    },
+    {
+      "evidence_id": "E-016",
+      "control_ids": [
+        "CARUP-MVP-X-001",
+        "CARUP-MVP-NAT-001",
+        "CARUP-MVP-BUY-001",
+        "CARUP-MVP-BUY-012"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions candidate APK run 39607550267 attempt 2 / job 119262615117",
+      "captured_at": "2026-10-21T14:17:10Z",
+      "collector": "GitHub Actions; independently inspected by moderator continuation",
+      "integrity": [
+        {
+          "artifact_id": 12352064023,
+          "digest": "sha256:2b0920ed55b124b831887c2ba2d076982fbc086a5b309c6cb4fd8e0fdec6ba0a",
+          "apk_sha256": "6a5c056f2e26fd17625db79ac5b661a104136e915b98d148f729ef2a38b75415",
+          "size_bytes": 108894116
+        },
+        {
+          "artifact_id": 12352014086,
+          "digest": "sha256:7067e267347aba320a720845c4874546e4abb24f37e9706c9621a9fd1ddc6d24"
+        }
+      ],
+      "interpretation": "Successful exact-candidate rerun: true Expo/React Native, exact immutable staging backend baked into APK, build/install/cold launch/login/register/full restart PASS, no CarUp fatal runtime exception, runtime_complete=YES.",
+      "does_not_prove": "Physical Owner-device UAT; emulator proof only."
+    },
+    {
+      "evidence_id": "E-017",
+      "control_ids": [
+        "CARUP-MVP-BUY-011",
+        "CARUP-MVP-X-003",
+        "CARUP-MVP-X-005"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions Final Web Truth States run 39687174054 / job 119524078711",
+      "captured_at": "2026-10-21T22:33:22Z",
+      "collector": "GitHub Actions; independently downloaded/inspected by moderator continuation",
+      "integrity": [
+        {
+          "artifact_id": 12387410776,
+          "digest": "sha256:2274bb989b736aa24c97197d6546afeb6bbc2f95c002f6fe8def586f558898e6"
+        }
+      ],
+      "interpretation": "Forced failed reads on the immutable exact pair: SafePay rendered Not available with no numeric zero; failed delivery-preference read rendered zero switches; zero preference PATCH requests were emitted; disposable session logout returned 200.",
+      "does_not_prove": "Physical-device behaviour; browser runtime proof only."
+    },
+    {
+      "evidence_id": "E-018",
+      "control_ids": [
+        "CARUP-MVP-BUY-004",
+        "CARUP-MVP-NAT-003",
+        "CARUP-MVP-ADM-007",
+        "CARUP-MVP-X-005"
+      ],
+      "candidate_authority": "88bffa50b34d81cdeb1f13f2c90bfb957190c732",
+      "source": "GitHub Actions sanitized Native visual run 39688449357 / job 119528358296",
+      "captured_at": "2026-10-21T22:45:28Z",
+      "collector": "GitHub Actions; independently downloaded and visually inspected by moderator continuation",
+      "integrity": [
+        {
+          "artifact_id": 12387332691,
+          "digest": "sha256:53c36334f845d38f62be24939eb56aaa4d713006eb05b0b782fd1b812deff54a"
+        },
+        {
+          "file": "screens/native-trust.png",
+          "sha256": "a5418bb0f511e76efe2589074d310903bfa14b18643cdad9100b5e9f3aa4665f"
+        },
+        {
+          "file": "screens/native-preferences.png",
+          "sha256": "05e63eb4a5d087dcf4eb0f8961fb7fc15ed5ee579e7c704af479b05963fe3cb0"
+        },
+        {
+          "file": "screens/native-inbox-f040.png",
+          "sha256": "6956ed9f9ffd673f81748b0ae7a4e727b182cb0d2796f22fb385aa28b8006443"
+        }
+      ],
+      "interpretation": "Exact APK visual evidence: Serena Trust 60/100 Moderate, Confidence Low, 0 of 7 evidence support, 0 connected official sources; Push/WhatsApp/Telegram/Email shown Setup pending; Inbox says CarUp is not sending outside the app; Native Send not performed; product-path sign-out proven; artifact contains no runtime credential file.",
+      "does_not_prove": "Physical Owner-device acceptance."
+    },
+    {
+      "evidence_id": "E-019",
+      "control_ids": [
+        "CARUP-MVP-X-001",
+        "CARUP-MVP-X-011"
+      ],
+      "candidate_authority": "evidence harness only; product candidate unchanged",
+      "source": "credential-hygiene containment after first Native visual artifact",
+      "captured_at": "2026-10-21T22:46:00Z",
+      "collector": "moderator continuation",
+      "integrity": [],
+      "interpretation": "The first visual artifact accidentally included its runtime-only temporary env file. The staging-only credential was rotated, its 2 sessions invalidated and active sessions verified at 0. Sanitized rerun 39688449357 removed the env file before artifact upload.",
+      "does_not_prove": "Does not alter or recertify product code; evidence-harness hygiene only."
+    },
+    {
+      "evidence_id": "E-020",
+      "control_ids": [
+        "CARUP-MVP-X-006",
+        "CARUP-MVP-X-011"
+      ],
+      "candidate_authority": "staging cleanup; product candidate unchanged",
+      "source": "Supabase staging session cleanup read/write/readback",
+      "captured_at": "2026-10-21T22:46:00Z",
+      "collector": "moderator continuation",
+      "integrity": [],
+      "interpretation": "Revoked 9 remaining active CARUP-MVP-STAB-01 disposable test sessions identified by the work-unit staging-only naming convention; separate readback confirmed 0 active sessions. No user or evidence rows were deleted.",
+      "does_not_prove": "Does not touch Owner sessions, Production, or user records."
     }
   ]
 }

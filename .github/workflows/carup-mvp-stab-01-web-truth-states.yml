@@ -1,15 +1,10 @@
 name: CARUP-MVP-STAB-01 Final Web Truth States
 
 # Evidence-only runtime proof for the frozen CARUP-MVP-STAB-01 product candidate.
-# Branch-only push trigger exists because the moderator connection cannot dispatch workflow_dispatch.
+# Manual evidence workflow retained for reproducible reruns; no branch push trigger.
 # It never uses Owner credentials, never touches Production, never sends external communications,
 # and revokes the staging-only certification session it creates.
 on:
-  push:
-    branches:
-      - fix/carup-mvp-stab-01-client-readiness
-    paths:
-      - .github/workflows/carup-mvp-stab-01-web-truth-states.yml
   workflow_dispatch:
 
 permissions:

@@ -1,11 +1,6 @@
 name: CARUP-MVP-STAB-01 Final Native Visual Evidence
 
 on:
-  push:
-    branches:
-      - fix/carup-mvp-stab-01-client-readiness
-    paths:
-      - .github/workflows/carup-mvp-stab-01-native-visual-evidence.yml
   workflow_dispatch:
 
 permissions:

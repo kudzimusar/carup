@@ -5,7 +5,7 @@
   "target_maturity": "NOT_SELECTED — no CarUp acceptance contract has formally selected M1–M4",
   "mscs_mapping_rule": "No MSCS control ID exists in the repository; none is mapped as authoritative or invented. mscs_catalogue_reference_informative quotes MSCS 1.0 catalogue entries verbatim and is not an adoption.",
   "state_vocabulary": "OPEN | IMPLEMENTED_PENDING_VERIFICATION | EVIDENCE_INCOMPLETE | BLOCKED_* | PRESERVED_FOUNDATION | READY | DEFERRED_V2 (implementer claims only; PASS/FAIL is the moderator's)",
-  "generated_at": "2026-10-21T13:51:00Z",
+  "generated_at": "2026-10-21T22:46:00Z",
   "rows": [
     {
       "project_control_id": "CARUP-MVP-BUY-001",
@@ -326,8 +326,8 @@
       "open_findings": [
         "CARUP-MVP-F-005"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Keep reconciliation dry-run/read-only; staging apply requires separate moderator authorization",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "New exactly-once inquiry → canonical conversation creation is runtime-proven; keep 3 historical Serena unmatched inquiries quarantined/read-only unless reconciliation apply is separately authorized.",
       "v2_deferral_reason": null
     },
     {
@@ -446,8 +446,8 @@
       "open_findings": [
         "CARUP-MVP-F-024"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Run final web-truth-states.mjs failed-read proof; capture final Native readiness labels where applicable",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "Exact failed-read browser proof PASS in run 39687174054; Owner UAT remains.",
       "v2_deferral_reason": null
     },
     {
@@ -1551,8 +1551,8 @@
       "open_findings": [
         "CARUP-MVP-F-018"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Shared channel-readiness reading; runtime /api/health",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "Runtime health + Native delivery labels PASS; Owner UAT remains.",
       "v2_deferral_reason": null
     },
     {
@@ -1629,8 +1629,8 @@
       "open_findings": [
         "CARUP-MVP-F-015"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Splash colour, branded loading, timeouts, instrumentation; emulator cold-start timings",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "Exact APK build/install/cold-launch/login/register/restart PASS in run 39607550267 attempt 2; physical Owner-device UAT remains.",
       "v2_deferral_reason": null
     },
     {
@@ -1707,8 +1707,8 @@
       "open_findings": [
         "CARUP-MVP-F-016"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Relabel to Inbox with unread-conversation count; tests",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "Exact Native Inbox/readiness/F-040 visual proof PASS in run 39688449357; physical Owner-device UAT remains.",
       "v2_deferral_reason": null
     },
     {
@@ -1829,10 +1829,11 @@
       "runtime_proof": [],
       "owner_human_proof": "NOT_PERFORMED (Owner UAT not requested in this work unit)",
       "open_findings": [
-        "CARUP-MVP-F-041"
+        "CARUP-MVP-F-041",
+        "CARUP-MVP-F-042"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Dispatch patched harness 7f98d850 against frozen 88bffa50 and require successful APK/runtime artifact",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "Exact candidate custody PASS; final APK hash/artifacts and sanitized Native visual artifact recorded. Await moderator/Owner UAT.",
       "v2_deferral_reason": null
     },
     {
@@ -1911,8 +1912,8 @@
         "CARUP-MVP-F-025",
         "CARUP-MVP-F-027"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Run final web-truth-states.mjs failed-read proof; capture final Native readiness labels where applicable",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "SafePay failed-read truth proof PASS; no fake numeric zero. Owner UAT remains.",
       "v2_deferral_reason": null
     },
     {
@@ -1994,8 +1995,8 @@
         "CARUP-MVP-F-018",
         "CARUP-MVP-F-040"
       ],
-      "current_state": "EVIDENCE_INCOMPLETE",
-      "next_action": "Run final web-truth-states.mjs failed-read proof; capture final Native readiness labels where applicable",
+      "current_state": "IMPLEMENTED_PENDING_VERIFICATION",
+      "next_action": "Web failed-read preferences and Native readiness/F-040 visual proof PASS. Owner UAT remains.",
       "v2_deferral_reason": null
     },
     {
