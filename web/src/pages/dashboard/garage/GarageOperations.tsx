@@ -68,9 +68,9 @@ function defaultHours(existing: GarageOpeningHour[] = []): GarageOpeningHour[] {
     return row || {
       weekday,
       slot_no: 1,
-      is_closed: weekday === 0,
-      opens_at: weekday === 0 ? null : '08:00',
-      closes_at: weekday === 0 ? null : '17:00',
+      is_closed: false,
+      opens_at: null,
+      closes_at: null,
     }
   })
 }
@@ -135,13 +135,15 @@ function BranchEditor({ branch, admins, onSaved }: BranchEditorProps) {
     await act(
       () => api.replaceGarageOperatingHours(
         branch.id,
-        hours.map((row) => ({
-          weekday: row.weekday,
-          slot_no: 1,
-          is_closed: row.is_closed,
-          opens_at: row.is_closed ? null : row.opens_at,
-          closes_at: row.is_closed ? null : row.closes_at,
-        })),
+        hours
+          .filter((row) => row.is_closed || (row.opens_at && row.closes_at))
+          .map((row) => ({
+            weekday: row.weekday,
+            slot_no: 1,
+            is_closed: row.is_closed,
+            opens_at: row.is_closed ? null : row.opens_at,
+            closes_at: row.is_closed ? null : row.closes_at,
+          })),
       ),
       'Opening hours saved.',
     )
@@ -240,7 +242,7 @@ function BranchEditor({ branch, admins, onSaved }: BranchEditorProps) {
             <section className="space-y-3 border-t pt-5" aria-labelledby={`branch-hours-${branch.id}`}>
               <div>
                 <h4 id={`branch-hours-${branch.id}`} className="font-medium">Opening hours</h4>
-                <p className="text-sm text-gray-500">These are operating facts for this site, not inferred availability.</p>
+                <p className="text-sm text-gray-500">Only days you explicitly mark closed or give opening and closing times are saved. Blank days remain not recorded.</p>
               </div>
               <div className="space-y-2">
                 {hours.map((row, index) => (
@@ -255,7 +257,7 @@ function BranchEditor({ branch, admins, onSaved }: BranchEditorProps) {
                     <label className="flex items-center gap-1 whitespace-nowrap">
                       <input type="checkbox" checked={row.is_closed}
                         onChange={(e) => setHours((current) => current.map((h, i) => i === index
-                          ? { ...h, is_closed: e.target.checked, opens_at: e.target.checked ? null : (h.opens_at || '08:00'), closes_at: e.target.checked ? null : (h.closes_at || '17:00') }
+                          ? { ...h, is_closed: e.target.checked, opens_at: e.target.checked ? null : h.opens_at, closes_at: e.target.checked ? null : h.closes_at }
                           : h))} />
                       Closed
                     </label>
