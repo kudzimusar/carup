@@ -4,7 +4,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Field, FilterChip, Notice } from '../../components/ui/NativePrimitives';
 import { getMyVehicles } from '../../utils/ownerGarageApi';
-import { createSellerDraft, updateSellerDraft } from '../../utils/sellerApi';
+import {
+  createSellerDraft,
+  SELLER_LISTING_LOCK_MESSAGES,
+  SellerListingLockedError,
+  sellerListingLockFor,
+  updateSellerDraft,
+  type SellerListingLock,
+} from '../../utils/sellerApi';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 
 type Currency = 'USD' | 'ZiG';
@@ -37,6 +44,10 @@ export default function SellDetailsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // CARUP-MVP-STAB-01 F-007 / F-008 — a public or closed listing is never edited here: either the
+  // loaded vehicle already says so, or the server refused a save with a coded 409.
+  const [refusedLock, setRefusedLock] = useState<SellerListingLock | null>(null);
+  const listingLock = refusedLock ?? (resume ? sellerListingLockFor(ownedVehicle) : null);
 
   useEffect(() => {
     if (!ownedVehicle) return;
@@ -51,6 +62,7 @@ export default function SellDetailsScreen() {
   }, [ownedVehicle]);
 
   const save = async () => {
+    if (listingLock) return setError(SELLER_LISTING_LOCK_MESSAGES[listingLock]);
     const numericPrice = Number(price);
     const numericMileage = Number(mileage);
     const numericYear = year.trim() ? Number(year) : null;
@@ -98,11 +110,31 @@ export default function SellDetailsScreen() {
       }
       setSaved(true);
     } catch (cause) {
+      if (cause instanceof SellerListingLockedError) {
+        setRefusedLock(cause.lock);
+        return;
+      }
       setError(cause instanceof Error ? cause.message : 'CarUp could not save this draft.');
     } finally {
       setSaving(false);
     }
   };
+
+  if (listingLock) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center', padding: spacing[5] }}>
+        <Notice
+          title={listingLock === 'sold' ? 'Listing closed' : 'Listing is public'}
+          body={SELLER_LISTING_LOCK_MESSAGES[listingLock]}
+          tone="info"
+        />
+        <View style={{ marginTop: spacing[5], gap: spacing[2] }}>
+          <Button label="Open My Garage" onPress={() => router.replace('/(tabs)/garage' as never)} />
+          <Button label="Back" variant="secondary" onPress={() => router.back()} />
+        </View>
+      </View>
+    );
+  }
 
   if (saved) {
     return (

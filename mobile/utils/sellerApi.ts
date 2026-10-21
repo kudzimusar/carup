@@ -23,6 +23,60 @@ export interface NativeSellerDraftReceipt {
   [key: string]: unknown;
 }
 
+/**
+ * CARUP-MVP-STAB-01 F-007 / F-008 — a public or closed listing is not edited from this app.
+ * A PUBLISHED listing is changed only by the explicit published-listing save on the website, and a
+ * SOLD one is read-only; the server refuses both with a coded 409. The app turns those refusals —
+ * and a loaded vehicle already in either state — into a plain message and performs no write.
+ */
+export type SellerListingLock = 'published' | 'sold';
+
+export const SELLER_LISTING_LOCK_MESSAGES: Record<SellerListingLock, string> = {
+  published: 'This listing is public. Edit it from My Listings on the CarUp website.',
+  sold: 'This listing is sold and closed.',
+};
+
+const LOCK_BY_REFUSAL_CODE: Record<string, SellerListingLock> = {
+  SELLER_LISTING_PUBLISHED_EXPLICIT_SAVE_REQUIRED: 'published',
+  SELLER_LISTING_PUBLISHED_USE_EXPLICIT_SAVE: 'published',
+  SELLER_LISTING_SOLD_READ_ONLY: 'sold',
+};
+
+export class SellerListingLockedError extends Error {
+  readonly lock: SellerListingLock;
+  readonly code: string | null;
+
+  constructor(lock: SellerListingLock, code: string | null) {
+    super(SELLER_LISTING_LOCK_MESSAGES[lock]);
+    this.name = 'SellerListingLockedError';
+    this.lock = lock;
+    this.code = code;
+  }
+}
+
+/** Sold wins; then only `published` is public; anything else is an editable draft (null). */
+export function sellerListingLockFor(
+  vehicle?: { status?: string | null; publication_status?: string | null } | null,
+): SellerListingLock | null {
+  if (!vehicle) return null;
+  if (String(vehicle.status ?? '').trim().toLowerCase() === 'sold') return 'sold';
+  if (vehicle.publication_status === 'published') return 'published';
+  return null;
+}
+
+function lockedRefusal(status: number, body: Record<string, unknown>): SellerListingLockedError | null {
+  const code = typeof body?.code === 'string' ? body.code : null;
+  if (code && LOCK_BY_REFUSAL_CODE[code]) return new SellerListingLockedError(LOCK_BY_REFUSAL_CODE[code], code);
+  // A backend that predates the codes still states the lifecycle in its 409 body.
+  const lock = status === 409
+    ? sellerListingLockFor({
+      status: typeof body?.status === 'string' ? body.status : null,
+      publication_status: typeof body?.publication_status === 'string' ? body.publication_status : null,
+    })
+    : null;
+  return lock ? new SellerListingLockedError(lock, null) : null;
+}
+
 async function mutationHeaders(): Promise<Record<string, string>> {
   const { token, user } = useAuthStore.getState();
   if (!token || !user) throw new Error('Sign in before starting a listing.');
@@ -62,6 +116,8 @@ export async function createSellerDraft(input: NativeSellerDraftInput): Promise<
 
   const body = await response.json().catch(() => ({} as Record<string, unknown>));
   if (!response.ok) {
+    const locked = lockedRefusal(response.status, body);
+    if (locked) throw locked;
     const message =
       typeof body?.error === 'string'
         ? body.error
@@ -93,6 +149,8 @@ export async function updateSellerDraft(
   });
   const body = await response.json().catch(() => ({} as Record<string, unknown>));
   if (!response.ok) {
+    const locked = lockedRefusal(response.status, body);
+    if (locked) throw locked;
     const message =
       typeof body?.error === 'string'
         ? body.error
