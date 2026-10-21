@@ -192,21 +192,23 @@ export function buildTrustSummary({
   return summary;
 }
 
+// Public copy in plain words (CARUP-MVP-STAB-01 F-013): an inquiry is not "verified", and "inquiry
+// flow" is an implementation word — the buyer is told to keep the conversation in CarUp messages.
 function buildSafePublicCopy({ badgeCount, risk_status, evidenceStatus, partsentry_status }) {
   if (risk_status === 'blocked') {
-    return 'This listing is under review. Please use the verified inquiry flow and request an independent inspection.';
+    return 'This listing is under review. Keep the conversation in CarUp messages and request an independent inspection.';
   }
   if (risk_status === 'flagged' || risk_status === 'watch') {
-    return 'Some trust signals on this listing are under review. Verify details through the inquiry flow before transacting.';
+    return 'Some trust signals on this listing are under review. Confirm the details with the seller in CarUp messages before transacting.';
   }
   const parts = [];
   if (badgeCount > 0) parts.push(`${badgeCount} verified trust signal${badgeCount === 1 ? '' : 's'} on record`);
   if (evidenceStatus === 'verified' || evidenceStatus === 'partial') parts.push('supporting evidence on file');
   if (partsentry_status === 'eligible') parts.push('PartSentry repair history checked');
   if (!parts.length) {
-    return 'Trust signals are limited for this listing. Request an inspection and use the verified inquiry flow.';
+    return 'Trust signals are limited for this listing. Request an inspection and keep the conversation in CarUp messages.';
   }
-  return `${parts.join(', ')}. Always confirm via the verified inquiry flow and consider an inspection.`;
+  return `${parts.join(', ')}. Keep the conversation in CarUp messages and consider an inspection.`;
 }
 
 function buildAdminExplanation({ evidenceStatus, suspicion, partsentry_status, partsentry_suppressed, quarantined, badge_count }) {
@@ -238,7 +240,7 @@ export function buildVerificationSummary({ vehicle = {}, listingSummary = {}, ev
   if (boolValue(listingSummary.passport_verified)) verification_notes_public.push('Vehicle passport has been verified.');
   if (inspection_available) verification_notes_public.push('An independent inspection can be requested.');
   if (!verification_notes_public.length) {
-    verification_notes_public.push('Verification is limited. Request evidence and an inspection through the inquiry flow.');
+    verification_notes_public.push('Verification is limited. Ask the seller for evidence and request an inspection in CarUp messages.');
   }
 
   return {
