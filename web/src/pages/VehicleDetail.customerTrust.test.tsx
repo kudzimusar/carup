@@ -469,6 +469,34 @@ describe('F-006 (VehicleDetail) — the Seller preview banner tells the truth ab
     const banner = await screen.findByTestId('seller-preview-banner')
     expect(banner.textContent).toContain('Buyer Preview — not public')
     expect(banner.textContent).not.toContain(PUBLISHED_COPY)
+    expect(banner.textContent).toContain('Return to editing')
+    expect(banner.getAttribute('data-lifecycle')).toBe('draft')
+  })
+
+  it('a PUBLISHED listing offers editing the public listing and viewing it, never "Return to editing"', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: VIN, publication_status: 'published', status: 'Available' }])
+    renderSellerPreview()
+    const banner = await screen.findByTestId('seller-preview-banner')
+    await waitFor(() => expect(banner.getAttribute('data-lifecycle')).toBe('published'))
+    expect(banner.textContent).toContain('Edit public listing')
+    expect(banner.textContent).toContain('View public listing')
+    expect(banner.textContent).not.toContain('Return to editing')
+    expect(banner.textContent).not.toContain('not public')
+    const view = Array.from(banner.querySelectorAll('a')).find((a) => a.textContent === 'View public listing')
+    expect(view?.getAttribute('href')).toBe(`/marketplace/${VIN}`)
+  })
+
+  it('a SOLD listing says the sale is closed and offers the Passport, not editing', async () => {
+    fetchOwnedVehicles.mockResolvedValue([{ vin: VIN, publication_status: 'published', status: 'Sold' }])
+    renderSellerPreview()
+    const banner = await screen.findByTestId('seller-preview-banner')
+    await waitFor(() => expect(banner.getAttribute('data-lifecycle')).toBe('sold'))
+    expect(banner.textContent).toContain('Sale completed — this listing is closed.')
+    expect(banner.textContent).toContain('Open Vehicle Passport')
+    expect(banner.textContent).not.toContain('Return to editing')
+    expect(banner.textContent).not.toContain('Edit public listing')
+    const passport = Array.from(banner.querySelectorAll('a')).find((a) => a.textContent === 'Open Vehicle Passport')
+    expect(passport?.getAttribute('href')).toBe(`/dashboard/garage/${VIN}`)
   })
 
   it('a published listing the public Marketplace refuses (404) is not claimed to be what buyers see', async () => {

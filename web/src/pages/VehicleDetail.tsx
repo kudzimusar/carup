@@ -57,6 +57,7 @@ import { VehicleIntelligenceStory } from '@/components/marketplace/VehicleIntell
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
 import { presentTrustForCustomer } from '@shared/trust/customerTrustPresentation'
+import { sellerStudioMode } from '@/lib/sellerStudioLifecycle'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
 function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
@@ -1270,6 +1271,7 @@ export default function VehicleDetail() {
   // The Seller's own `publication_status` for the previewed VIN, from the same /vehicles/me row that
   // authorises the preview. Null until that row is read.
   const [sellerPreviewPublication, setSellerPreviewPublication] = useState<string | null>(null)
+  const [sellerPreviewStatus, setSellerPreviewStatus] = useState<string | null>(null)
   // A plate / temporary-identifier lookup is refused for signed-out visitors by design. That is a
   // statement about the caller, not about the vehicle, so it must not render as "Vehicle Not Found".
   const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
@@ -1315,6 +1317,7 @@ export default function VehicleDetail() {
         const owned = (rows || []).find((row) =>
           String(row.vin || '').toUpperCase() === String(id).toUpperCase())
         setSellerPreviewPublication(owned?.publication_status ?? null)
+        setSellerPreviewStatus(typeof owned?.status === "string" ? owned.status : null)
         setSellerPreviewAuthorization(owned ? 'allowed' : 'denied')
       } catch {
         if (active) setSellerPreviewAuthorization('error')
@@ -1861,6 +1864,9 @@ export default function VehicleDetail() {
     detail?.public_status === 'public'
     || (sellerPreviewPublication === 'published' && detailFailure !== 'not_found')
   )
+  // One lifecycle rule for the Seller surfaces (sellerStudioMode): a closed sale wins, then a listing buyers can
+  // actually open (previewIsPublicListing — a 404 is never public, whatever the owned row says), else a draft.
+  const previewMode = sellerStudioMode({ status: sellerPreviewStatus, publication_status: previewIsPublicListing ? 'published' : 'draft' })
 
   // Location, from the passport's governed claim — the same leaves the Marketplace summary composes
   // server-side, read through the shared rule so one VIN cannot print two different places. When the
@@ -1973,8 +1979,14 @@ export default function VehicleDetail() {
 
       <div className="section-padding mx-auto max-w-[1440px] py-7 sm:py-9">
         {isSellerPreview && (
-          <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner" data-publication={previewIsPublicListing ? 'public' : 'not_public'}>
-            {previewIsPublicListing ? (
+          <div className="mb-6 flex flex-col gap-4 border-l-4 border-orange-500 bg-orange-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" data-testid="seller-preview-banner" data-publication={previewIsPublicListing ? 'public' : 'not_public'} data-lifecycle={previewMode}>
+            {previewMode === 'sold' ? (
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Sale completed — this listing is closed.</p>
+                <p className="mt-1 text-sm font-bold text-slate-950">Buyers can no longer act on this listing.</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">The Vehicle Passport keeps the vehicle's history.</p>
+              </div>
+            ) : previewMode === 'published' ? (
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700">Your public listing</p>
                 <p className="mt-1 text-sm font-bold text-slate-950">{"You're viewing your public listing — this is what buyers see."}</p>
@@ -1987,9 +1999,24 @@ export default function VehicleDetail() {
                 <p className="mt-1 text-xs leading-5 text-slate-600">Save, compare, share, inquiry, reservation and financing controls are disabled here. Publication state is not changed by previewing.</p>
               </div>
             )}
-            <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
-              <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
-            </Button>
+            {previewMode === 'sold' ? (
+              <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
+                <Link to={`/dashboard/garage/${encodeURIComponent(vehicle.vin)}`}>Open Vehicle Passport</Link>
+              </Button>
+            ) : previewMode === 'published' ? (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
+                  <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit public listing</Link>
+                </Button>
+                <Button asChild variant="outline" className="min-h-11 rounded-none font-black">
+                  <Link to={`/marketplace/${encodeURIComponent(vehicle.vin)}`}>View public listing</Link>
+                </Button>
+              </div>
+            ) : (
+              <Button asChild className="min-h-11 rounded-none bg-slate-950 font-black hover:bg-orange-600">
+                <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Return to editing</Link>
+              </Button>
+            )}
           </div>
         )}
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
