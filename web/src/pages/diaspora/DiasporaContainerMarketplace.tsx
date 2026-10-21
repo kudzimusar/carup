@@ -86,6 +86,98 @@ function dateOf(value: unknown) {
   return value ? String(value).slice(0, 10) : null
 }
 
+/**
+ * F-022 — how a sailing may be booked NOW. A stored BOOKING_OPEN is not the same as bookable:
+ * nothing closes a sailing on its own, so a sailing whose cut-off (or departure) has passed can
+ * still be stored as open. The server's `booking_eligibility` annotation is the authority; the
+ * fallback below applies the same rule only so a response without it (an older backend) can never
+ * make an expired sailing look bookable.
+ */
+type BookingEligibilityState = 'open' | 'not_open' | 'departed' | 'deadline_passed' | 'full'
+interface BookingEligibility { state: BookingEligibilityState; bookable: boolean; reason: string | null }
+const ELIGIBILITY_STATES = new Set<string>(['open', 'not_open', 'departed', 'deadline_passed', 'full'])
+// The refusal codes the server raises when the booking window no longer allows a request.
+const BOOKING_WINDOW_CODES = new Set<string>([
+  'DIASPORA_CONTAINER/BOOKING_DEADLINE_PASSED',
+  'DIASPORA_CONTAINER/SAILING_DEPARTED',
+  'DIASPORA_CONTAINER/SAILING_FULL',
+])
+
+/** null when absent; NaN when present but unreadable; otherwise epoch milliseconds. */
+function instantOf(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return value
+  return Date.parse(String(value))
+}
+
+function eligibilityOf(c: DiasporaMarketplaceContainer, nowMs: number): BookingEligibility {
+  const annotated = c.booking_eligibility as Partial<BookingEligibility> | null | undefined
+  if (annotated && typeof annotated === 'object' && typeof annotated.state === 'string'
+    && ELIGIBILITY_STATES.has(annotated.state) && typeof annotated.bookable === 'boolean') {
+    return { state: annotated.state as BookingEligibilityState, bookable: annotated.bookable, reason: typeof annotated.reason === 'string' ? annotated.reason : null }
+  }
+  if (c.status !== 'BOOKING_OPEN') return { state: 'not_open', bookable: false, reason: null }
+  const passed = (value: unknown) => {
+    const t = instantOf(value)
+    return t !== null && (!Number.isFinite(t) || t < nowMs)
+  }
+  if (passed(c.departure_date)) return { state: 'departed', bookable: false, reason: null }
+  if (passed(c.booking_deadline)) return { state: 'deadline_passed', bookable: false, reason: null }
+  const rawAvailable: unknown = c.available_capacity_volume
+  const available = rawAvailable === null || rawAvailable === undefined || rawAvailable === '' ? Number.NaN : Number(rawAvailable)
+  if (c.metadata?.capacity?.full === true || (Number.isFinite(available) && available <= 0)) {
+    return { state: 'full', bookable: false, reason: null }
+  }
+  return { state: 'open', bookable: true, reason: null }
+}
+
+/**
+ * Does this viewer run the sailing? Presentation only — the server decides who may close it. A
+ * tenant admin looking at ANOTHER organisation's sailing is a participant there, and is told what a
+ * participant is told. (Primitives in, so the page's memoized loaders keep their memoization.)
+ */
+function operatesSailingAs(c: DiasporaMarketplaceContainer, platformOperator: boolean, operatorTenantId: string, viewerId: string) {
+  return platformOperator
+    || (Boolean(operatorTenantId) && String(c.tenant_id || '') === operatorTenantId)
+    || (Boolean(viewerId) && String(c.coordinator_id || '') === viewerId)
+}
+
+/** The booking window has closed by the calendar (as opposed to by capacity or the organiser). */
+function windowClosedByDate(eligibility: BookingEligibility) {
+  return eligibility.state === 'deadline_passed' || eligibility.state === 'departed'
+}
+
+// A plain calendar date in UTC — the same day the stored value names, wherever the viewer is.
+const SAILING_DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+
+function sailingDate(value: unknown): string | null {
+  const t = instantOf(value)
+  return t !== null && Number.isFinite(t) ? SAILING_DATE.format(new Date(t)) : null
+}
+
+/** What a participant is told about a sailing that cannot take a request now. */
+function participantNotice(c: DiasporaMarketplaceContainer, eligibility: BookingEligibility): string | null {
+  if (eligibility.state === 'deadline_passed') {
+    const date = sailingDate(c.booking_deadline)
+    return date ? `Booking closed — the cut-off passed on ${date}` : 'Booking closed — the booking cut-off has passed'
+  }
+  if (eligibility.state === 'departed') {
+    const date = sailingDate(c.departure_date)
+    return date ? `Booking closed — this sailing departed on ${date}` : 'Booking closed — this sailing has departed'
+  }
+  if (eligibility.state === 'full') return 'This sailing is full — no more space can be requested'
+  return null
+}
+
+/** What the operator running a sailing is told once its booking window has closed by date. */
+function operatorCutOffDetail(c: DiasporaMarketplaceContainer, eligibility: BookingEligibility): string {
+  const departed = eligibility.state === 'departed'
+  const date = departed ? sailingDate(c.departure_date) : sailingDate(c.booking_deadline)
+  const fact = departed ? `The planned departure was ${date || 'not readable'}.` : `The booking cut-off was ${date || 'not readable'}.`
+  return `${fact} Participants can no longer request space, but the sailing still shows as open until you close booking.`
+}
+
 function routeLabel(c: DiasporaMarketplaceContainer) {
   const from = [c.origin_city, c.origin_country].filter(Boolean).join(', ')
   const to = [c.destination_city, c.destination_country].filter(Boolean).join(', ')
@@ -108,14 +200,16 @@ function Fact({ label, value }: { label: string; value: string | null | undefine
  * Truthful transaction stages (owner UAT #9): a stage is only "done"/"current" when authoritative
  * state supports it; downstream domains with no usable state say so instead of pretending.
  */
-function StageStrip({ container, approvedCount, requestedTotal }: { container: DiasporaMarketplaceContainer; approvedCount: number; requestedTotal: number }) {
-  const closed = container.status === 'BOOKING_CLOSED'
+function StageStrip({ container, approvedCount, requestedTotal, cutOffPassed = false }: { container: DiasporaMarketplaceContainer; approvedCount: number; requestedTotal: number; cutOffPassed?: boolean }) {
+  // F-022: a passed cut-off closes booking in fact even before the organiser records it.
+  const closedByOrganiser = container.status === 'BOOKING_CLOSED'
+  const closed = closedByOrganiser || cutOffPassed
   const stages: Array<{ label: string; state: 'done' | 'current' | 'todo' | 'na'; note?: string }> = [
     { label: 'Booking open', state: closed ? 'done' : 'current' },
     { label: 'Space requested', state: requestedTotal > 0 ? 'done' : 'todo' },
     { label: 'Space approved', state: approvedCount > 0 ? 'done' : 'todo' },
     { label: 'Loading preparation', state: 'na', note: 'Not started' },
-    { label: 'Booking closed', state: closed ? 'current' : 'todo' },
+    { label: 'Booking closed', state: closed ? 'current' : 'todo', note: closed && !closedByOrganiser ? 'cut-off passed' : undefined },
     { label: 'Shipment', state: 'na', note: 'Not connected' },
   ]
   return (
@@ -198,9 +292,12 @@ export default function DiasporaContainerMarketplace() {
   const role = (user?.role || '').toLowerCase()
   const canView = isAuthenticated && allowedRoles.has(role)
   const tenantOperator = Boolean(user?.active_tenant_id) && tenantOperatorRoles.has((user?.tenant_role || '').toLowerCase())
-  const isOperator = reviewerRoles.has(role) || tenantOperator
+  const platformOperator = reviewerRoles.has(role)
+  const isOperator = platformOperator || tenantOperator
 
   const [containers, setContainers] = useState<DiasporaMarketplaceContainer[]>([])
+  // When the list was read: the clock the fallback eligibility rule judges against (never render time).
+  const [listedAt, setListedAt] = useState(0)
   const [selected, setSelected] = useState<DiasporaMarketplaceContainer | null>(null)
   const [reservations, setReservations] = useState<DiasporaMarketplaceReservation[]>([])
   const [reservationsUnreadable, setReservationsUnreadable] = useState(false)
@@ -259,7 +356,9 @@ export default function DiasporaContainerMarketplace() {
     setLoading(true)
     setError('')
     try {
-      setContainers(await fetchDiasporaMarketplaceContainers())
+      const rows = await fetchDiasporaMarketplaceContainers()
+      setListedAt(Date.now())
+      setContainers(rows)
       // T5.3 — an operator also sees their OWN unpublished drafts. The server scopes any
       // non-open status to the caller's operated sailings, so this returns nothing for
       // ordinary participants and never anyone else's plans.
@@ -365,6 +464,13 @@ export default function DiasporaContainerMarketplace() {
       await refreshSelected()
     } catch (err) {
       setReserveError(err instanceof Error ? err.message : 'Reservation rejected')
+      // The booking window closed while the form was open: re-read the sailing, so the screen
+      // stops offering a request the server will not take. The refusal above already says why.
+      // If the re-read itself fails, the refusal message simply stays on screen.
+      const code = (err as { code?: unknown } | null)?.code
+      if (typeof code === 'string' && BOOKING_WINDOW_CODES.has(code)) {
+        await refreshSelected().catch(() => undefined)
+      }
     }
   }
 
@@ -447,6 +553,20 @@ export default function DiasporaContainerMarketplace() {
   const userId = user?.id ? String(user.id) : ''
   const ownsReservation = (r: DiasporaMarketplaceReservation) =>
     Boolean(userId) && (String(r.buyer_id || '') === userId || String(r.created_by || '') === userId)
+  const operatorTenantId = tenantOperator && user?.active_tenant_id ? String(user.active_tenant_id) : ''
+  // F-022 — what this viewer is shown, and how each sailing may be booked now. A departed sailing
+  // is never shown to a participant (the server already leaves it out; this holds even if it did
+  // not). Sailings an operator runs stay visible: an expired open sailing is their work to close.
+  const listed = containers
+    .map((c) => ({ c, eligibility: eligibilityOf(c, listedAt), operates: operatesSailingAs(c, platformOperator, operatorTenantId, userId) }))
+    .filter(({ eligibility, operates }) => operates || eligibility.state !== 'departed')
+  const bookableCount = listed.filter(({ eligibility }) => eligibility.bookable).length
+  const selectedEligibility = selected ? eligibilityOf(selected, listedAt) : null
+  const selectedOperates = selected ? operatesSailingAs(selected, platformOperator, operatorTenantId, userId) : false
+  const selectedCutOffPassed = Boolean(selectedEligibility && windowClosedByDate(selectedEligibility))
+  const selectedNotice = selected && selectedEligibility && !selectedEligibility.bookable && selected.status === 'BOOKING_OPEN'
+    ? participantNotice(selected, selectedEligibility)
+    : null
   const meta = (selected?.metadata || {}) as Record<string, unknown>
   const metaText = (key: string): string | null => (typeof meta[key] === 'string' && meta[key] ? String(meta[key]) : null)
   const maxWeight = meta.total_capacity_weight
@@ -663,20 +783,24 @@ export default function DiasporaContainerMarketplace() {
             )}
             <div className="flex items-baseline justify-between border-b-2 border-gray-950 pb-2">
               <h2 className="text-lg font-bold text-gray-950">Open sailings</h2>
-              <span className="text-xs uppercase tracking-wide text-gray-500">{containers.length} open</span>
+              <span className="text-xs uppercase tracking-wide text-gray-500" data-testid="diaspora-container-open-count">
+                {bookableCount} open{listed.length > bookableCount ? ` · ${listed.length - bookableCount} not taking requests` : ''}
+              </span>
             </div>
             {loading && <p className="mt-4 flex items-center gap-2 text-sm text-orange-700" data-testid="diaspora-container-loading"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>}
             {error && <Alert className="mt-4 border-red-200 bg-red-50" data-testid="diaspora-container-error"><AlertTriangle className="h-4 w-4 text-red-700" /><AlertDescription>{error}</AlertDescription></Alert>}
-            {!loading && !error && containers.length === 0 && (
+            {!loading && !error && listed.length === 0 && (
               <p className="mt-4 text-sm text-gray-600" data-testid="diaspora-container-empty">
                 No open containers. {isOperator ? 'Create the first sailing to open bookings.' : 'Check back when an organiser opens a sailing.'}
               </p>
             )}
             <div className="divide-y divide-gray-200">
-              {containers.map((c) => {
+              {listed.map(({ c, eligibility, operates }) => {
                 const f = fillOf(c)
                 const r = routeLabel(c)
                 const isSel = selected?.id === c.id
+                const cutOffPassed = windowClosedByDate(eligibility)
+                const notice = !eligibility.bookable && c.status === 'BOOKING_OPEN' ? participantNotice(c, eligibility) : null
                 return (
                   <article
                     key={c.id}
@@ -686,6 +810,7 @@ export default function DiasporaContainerMarketplace() {
                     // address the exact sailing it created, not "the first card" or one matched by
                     // a capacity string, both of which have silently read a stranger's container.
                     data-container-id={c.id}
+                    data-booking-state={eligibility.state}
                   >
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -699,7 +824,9 @@ export default function DiasporaContainerMarketplace() {
                           {c.container_type} · departs {dateOf(c.departure_date) || 'TBD'} · book by {dateOf(c.booking_deadline) || 'TBD'}
                         </p>
                       </div>
-                      <StatusChip status={c.status} testid="diaspora-container-status" />
+                      {/* To a participant a passed cut-off IS a closed booking; the operator still
+                          sees the stored status, because recording the close is theirs to do. */}
+                      <StatusChip status={cutOffPassed && !operates ? 'BOOKING_CLOSED' : c.status} testid="diaspora-container-status" />
                     </div>
                     <div className="mt-3">
                       <CapacityMeter pct={f.pct} full={f.full} readyToClose={f.readyToClose} />
@@ -711,6 +838,11 @@ export default function DiasporaContainerMarketplace() {
                       {f.readyToClose && !f.full && <span className="border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900" data-testid="diaspora-container-ready-to-close">Ready to close</span>}
                       {f.full && <span className="border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-800" data-testid="diaspora-container-full">Full</span>}
                     </div>
+                    {cutOffPassed && operates && c.status === 'BOOKING_OPEN' ? (
+                      <p className="mt-2 text-xs font-semibold text-amber-900" data-testid="diaspora-container-cutoff-passed">Cut-off passed — close this sailing</p>
+                    ) : notice && !(eligibility.state === 'full' && f.full) ? (
+                      <p className="mt-2 text-xs font-semibold text-gray-800" data-testid="diaspora-container-booking-closed">{notice}</p>
+                    ) : null}
                     <Button size="sm" variant={isSel ? 'secondary' : 'outline'} className="mt-3 rounded-none" onClick={() => open(c)} data-testid="diaspora-container-open">
                       {isSel ? 'Selected' : 'Open'}
                     </Button>
@@ -725,7 +857,7 @@ export default function DiasporaContainerMarketplace() {
               <div className="min-w-0" data-testid="diaspora-container-detail">
                 <div className="border-b-2 border-gray-950 pb-4">
                   <p className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">
-                    Selected sailing <StatusChip status={selected.status} />
+                    Selected sailing <StatusChip status={selectedCutOffPassed && !selectedOperates ? 'BOOKING_CLOSED' : selected.status} />
                   </p>
                   <h2 className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-2xl font-bold tracking-tight text-gray-950">
                     <span className="truncate">{routeLabel(selected).from}</span>
@@ -771,7 +903,7 @@ export default function DiasporaContainerMarketplace() {
                 )}
 
                 <div className="mt-4 border-y border-gray-200 py-3">
-                  <StageStrip container={selected} approvedCount={counts.approved} requestedTotal={reservations.length} />
+                  <StageStrip container={selected} approvedCount={counts.approved} requestedTotal={reservations.length} cutOffPassed={selectedCutOffPassed} />
                 </div>
 
                 {metaText('participant_notes') && (
@@ -780,8 +912,20 @@ export default function DiasporaContainerMarketplace() {
                   </div>
                 )}
 
-                {selected.status === 'BOOKING_OPEN' && (
-                  <div className="mt-6 min-w-0 border border-gray-200 bg-gray-50 p-4 sm:p-5">
+                {/* F-022: a stored BOOKING_OPEN is not enough — the form is offered only while the
+                    sailing can actually take a request (cut-off ahead, not departed, not full). */}
+                {selectedNotice && !(selectedOperates && selectedCutOffPassed) && (
+                  <div className="mt-6 min-w-0 border border-gray-300 bg-gray-50 p-4 sm:p-5" data-testid="diaspora-container-booking-unavailable">
+                    <p className="text-sm font-semibold text-gray-950">{selectedNotice}</p>
+                    <p className="mt-1 max-w-xl text-xs text-gray-600">
+                      New space cannot be requested on this sailing. Requests already made stay on record, and the
+                      organiser still decides them.
+                    </p>
+                  </div>
+                )}
+
+                {selectedEligibility?.bookable && (
+                  <div className="mt-6 min-w-0 border border-gray-200 bg-gray-50 p-4 sm:p-5" data-testid="diaspora-container-request-form">
                     <h3 className="text-base font-bold text-gray-950">Request cargo space</h3>
                     <div className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2">
                       <label className={fieldLabel}>Cargo category
@@ -905,7 +1049,7 @@ export default function DiasporaContainerMarketplace() {
                     {reserveError && <p className="mt-2 text-sm font-medium text-red-700" data-testid="diaspora-container-reserve-error">{reserveError}</p>}
                   </div>
                 )}
-                {selected.status !== 'BOOKING_OPEN' && reserveError && (
+                {!selectedEligibility?.bookable && reserveError && (
                   <p className="mt-3 text-sm font-medium text-red-700" data-testid="diaspora-container-reserve-error">{reserveError}</p>
                 )}
 
@@ -1042,7 +1186,21 @@ export default function DiasporaContainerMarketplace() {
 
                 {isOperator && selected.status === 'BOOKING_OPEN' && (
                   <div className="mt-8 border-t border-gray-200 pt-5">
-                    <Button variant="outline" className="rounded-none border-gray-400 text-gray-800" onClick={() => act(() => closeDiasporaContainerBooking(selected.id))} data-testid="diaspora-container-close-booking">Close booking</Button>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                      <Button variant="outline" className="rounded-none border-gray-400 text-gray-800" onClick={() => act(() => closeDiasporaContainerBooking(selected.id))} data-testid="diaspora-container-close-booking">Close booking</Button>
+                      {/* F-022: nothing closes a sailing on its own. Once its cut-off has passed the
+                          sailing still reads as open until the organiser records the close. */}
+                      {selectedOperates && selectedCutOffPassed && (
+                        <span className="border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900" data-testid="diaspora-container-cutoff-prompt">
+                          Cut-off passed — close this sailing
+                        </span>
+                      )}
+                    </div>
+                    {selectedOperates && selectedCutOffPassed && selectedEligibility && (
+                      <p className="mt-2 max-w-xl text-xs text-gray-700" data-testid="diaspora-container-cutoff-detail">
+                        {operatorCutOffDetail(selected, selectedEligibility)}
+                      </p>
+                    )}
                     <p className="mt-2 max-w-xl text-[11px] leading-snug text-gray-500">
                       Closing stops new requests. It does not mean the container has departed, cleared customs,
                       been paid for or been delivered.
