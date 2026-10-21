@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, Bell, Languages, MessageSquare, Search, Send, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { BarChart3, Bell, Languages, MessageSquare, Search, Send, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { threadLabel } from './threadLabel'
 import {
@@ -18,12 +16,12 @@ import {
 import { CommunicationMessagePartView } from '@/components/communications/CommunicationMessagePartView'
 import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
 import { ConversationPerformance, type AnalyticsReadState } from '@/features/communications/ConversationPerformance'
+import { DeliveryPreferencesCard } from '@/features/communications/DeliveryPreferencesCard'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
 type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
 type NotificationSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationNotifications']>>['notifications'][number]
 type AccountActivitySummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationAccountActivity']>>['activity'][number]
-type CommunicationPreferences = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationPreferences']>>['preferences']>
 
 type ConversationThread = ThreadSummary & {
   subject_type?: string
@@ -95,7 +93,6 @@ export default function Communications() {
   const [detail, setDetail] = useState<ConversationDetail | null>(null)
   const [notifications, setNotifications] = useState<NotificationSummary[]>([])
   const [accountActivity, setAccountActivity] = useState<AccountActivitySummary[]>([])
-  const [preferences, setPreferences] = useState<CommunicationPreferences | null>(null)
   const [analytics, setAnalytics] = useState<CommunicationProductAnalytics | null>(null)
   // OC-NATIVE-FINAL-02-R1 D4: a failed analytics read is a failure, not "nothing has accumulated yet".
   const [analyticsState, setAnalyticsState] = useState<AnalyticsReadState>('loading')
@@ -146,21 +143,21 @@ export default function Communications() {
     return next
   }, [fetchCommunicationThreads])
 
+  // Delivery preferences are not side data: DeliveryPreferencesCard reads them itself, so a failed
+  // read is its own state rather than an empty object turned into editable all-off switches (F-018).
   const loadSideData = useCallback(async () => {
-    const [notificationRes, accountActivityRes, prefRes, analyticsRes] = await Promise.all([
+    const [notificationRes, accountActivityRes, analyticsRes] = await Promise.all([
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
       fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
-      fetchCommunicationPreferences().catch(() => ({ preferences: null })),
       fetchAnalytics().catch(() => ({ analytics: null })),
     ])
     setNotifications(notificationRes.notifications || [])
     setAccountActivity(accountActivityRes.activity || [])
-    setPreferences(prefRes.preferences || null)
     setAnalytics(analyticsRes.analytics)
     setAnalyticsState(analyticsRes.analytics ? 'ready' : 'unavailable')
     const health = await fetchAiHealth().catch(() => ({ ai: { available: false } }))
     setAiAvailable(Boolean(health.ai?.available))
-  }, [fetchAnalytics, fetchAiHealth, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences])
+  }, [fetchAnalytics, fetchAiHealth, fetchCommunicationAccountActivity, fetchCommunicationNotifications])
 
   const refreshActiveConversation = useCallback(async () => {
     if (!activeId) return
@@ -175,23 +172,21 @@ export default function Communications() {
       fetchCommunicationThreads().catch(() => ({ threads: [] })),
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
       fetchCommunicationAccountActivity().catch(() => ({ activity: [] })),
-      fetchCommunicationPreferences().catch(() => ({ preferences: null })),
       fetchAnalytics().catch(() => ({ analytics: null })),
       fetchAiHealth().catch(() => ({ ai: { available: false } })),
-    ]).then(([threadRes, notificationRes, accountActivityRes, prefRes, analyticsRes, health]) => {
+    ]).then(([threadRes, notificationRes, accountActivityRes, analyticsRes, health]) => {
       if (!active) return
       const next = (threadRes.threads || []) as ConversationThread[]
       setThreads(next)
       setActiveId((current) => current || next[0]?.id || null)
       setNotifications(notificationRes.notifications || [])
       setAccountActivity(accountActivityRes.activity || [])
-      setPreferences(prefRes.preferences || null)
       setAnalytics(analyticsRes.analytics)
       setAnalyticsState(analyticsRes.analytics ? 'ready' : 'unavailable')
       setAiAvailable(Boolean(health.ai?.available))
     })
     return () => { active = false }
-  }, [fetchAiHealth, fetchAnalytics, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationPreferences, fetchCommunicationThreads])
+  }, [fetchAiHealth, fetchAnalytics, fetchCommunicationAccountActivity, fetchCommunicationNotifications, fetchCommunicationThreads])
 
   useEffect(() => {
     if (!activeId) return
@@ -284,12 +279,6 @@ export default function Communications() {
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Could not request another verification Email')
     }
-  }
-
-  async function savePreferences() {
-    const saved = await updateCommunicationPreferences(preferences || {})
-    setPreferences(saved.preferences)
-    setStatus('Preferences saved')
   }
 
   return (
@@ -510,29 +499,9 @@ export default function Communications() {
             </CardContent>
           </Card>
 
-          <Card className="border-0 card-shadow">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="h-5 w-5 text-orange-500" /> Channels & consent</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {[
-                ['transactional_enabled', 'Transactional updates'],
-                ['marketing_enabled', 'Marketing'],
-                ['email_enabled', 'Email'],
-                ['push_enabled', 'Push'],
-                ['in_app_enabled', 'In-app'],
-                ['whatsapp_enabled', 'WhatsApp'],
-                ['sms_enabled', 'SMS'],
-              ].map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between gap-3">
-                  <Label htmlFor={key}>{label}</Label>
-                  <Switch id={key} checked={Boolean(preferences?.[key])} onCheckedChange={(checked) => setPreferences((prev) => ({ ...(prev || {}), [key]: checked }))} />
-                </div>
-              ))}
-              <p className="text-[11px] text-gray-500">Transactional and marketing consent are independent. Channel availability never opts you into marketing, and delivery suppression does not delete the CarUp conversation.</p>
-              <Button onClick={savePreferences} variant="secondary" className="w-full">Save preferences</Button>
-            </CardContent>
-          </Card>
+          {/* F-018: read, never assumed; one preference per save; a channel looks operational only
+              while the runtime can deliver on it. */}
+          <DeliveryPreferencesCard read={fetchCommunicationPreferences} save={updateCommunicationPreferences} />
         </aside>
       </div>
     </div>
