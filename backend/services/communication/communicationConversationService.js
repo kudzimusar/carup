@@ -22,6 +22,20 @@ function bindingTime(binding = {}) {
   return Date.parse(binding.last_used_at || binding.updated_at || binding.created_at || 0) || 0;
 }
 
+/** F-005 — a reconciliation is always attributable: a run id and the person who ran it, or nothing runs. */
+function reconciliationRun(options = {}) {
+  const runId = String(options.reconciliationRunId || '').trim();
+  const actorId = actorUserId(options.actor || {});
+  if (!runId || !actorId) {
+    throw new Error('A conversation reconciliation needs a reconciliation run id and the actor running it.');
+  }
+  return {
+    runId,
+    actorId,
+    stamp: { reconciled_at: nowIso(), reconciliation_run_id: runId, reconciled_by: String(actorId) },
+  };
+}
+
 function safeParticipantProjection(participant, selfId) {
   return {
     id: participant.id,
@@ -407,20 +421,40 @@ export class CommunicationConversationService {
     }
   }
 
-  async canonicalizeMarketplaceInquiry(event = {}) {
+  /**
+   * The canonical buyer↔seller conversation of one Marketplace inquiry, from its creation event.
+   *
+   * CARUP-MVP-STAB-01 F-005 — `options.mode === 'reconciliation'` (additive; the event path is unchanged)
+   * builds the conversation an inquiry never got, deliberately and silently, for an attributable run:
+   *  · the inquiry ROW alone decides seller, buyer and listing — nothing in an event payload can;
+   *  · the same canonical thread key (find-or-create); a conversation reconciliation did not create is
+   *    returned untouched as `already_present`, and one it created but did not finish is completed;
+   *  · no guest channel identity or binding — consent is not re-derived by an operator's batch action,
+   *    so a guest is the `buyer_unresolved` placeholder;
+   *  · the first message is the inquiry's exact text at the inquiry's own time;
+   *  · no notification of any kind (routeMessage is not called) and no funnel/analytics events;
+   *  · the inquiry row is never written.
+   */
+  async canonicalizeMarketplaceInquiry(event = {}, options = {}) {
+    const reconciliation = options?.mode === 'reconciliation' ? reconciliationRun(options) : null;
     const payload = event.payload || event;
     const inquiryId = payload.inquiryId || payload.inquiry_id;
     if (!inquiryId) return [];
     const inquiry = await this.repository.findOne('marketplace_inquiries', { id: inquiryId });
     if (!inquiry) throw new Error(`Marketplace inquiry ${inquiryId} was not found for conversation canonicalization.`);
 
-    const sellerId = inquiry.seller_id || payload.sellerId || payload.seller_id || null;
-    const buyerId = inquiry.buyer_id || payload.buyerId || payload.buyer_id || null;
+    const sellerId = reconciliation
+      ? (inquiry.seller_id || null)
+      : (inquiry.seller_id || payload.sellerId || payload.seller_id || null);
+    const buyerId = reconciliation
+      ? (inquiry.buyer_id || null)
+      : (inquiry.buyer_id || payload.buyerId || payload.buyer_id || null);
     if (!sellerId) throw new Error(`Marketplace inquiry ${inquiryId} has no seller participant.`);
 
     const tenantId = inquiry.seller_tenant_id || event.tenant_id || payload.tenant_id || null;
     const threadKey = buildDedupeKey(['communications-2', 'marketplace_inquiry', inquiryId]);
-    let { thread } = await this.threadService.resolveOrCreateThread({
+    const clientMessageId = `marketplace-inquiry:${inquiryId}`;
+    let { thread, created: threadCreated } = await this.threadService.resolveOrCreateThread({
       tenant_id: tenantId,
       thread_key: threadKey,
       thread_type: 'marketplace_inquiry',
@@ -428,10 +462,27 @@ export class CommunicationConversationService {
       subject_id: inquiryId,
       primary_user_id: sellerId, // compatibility projection only; auth is participant-based.
       primary_channel: 'in_app',
-      marketplace_listing_id: inquiry.listing_id || payload.listingId || payload.listing_id || null,
+      marketplace_listing_id: reconciliation
+        ? (inquiry.listing_id || null)
+        : (inquiry.listing_id || payload.listingId || payload.listing_id || null),
       priority: inquiry.risk_status === 'watch' ? 'high' : 'normal',
-      metadata: { event_type: 'marketplace.inquiry.created' },
+      // A reconciled thread carries its run stamp from the moment it exists, so a run interrupted half-way
+      // is recognisable — and resumable — rather than mistaken for a finished conversation.
+      metadata: { event_type: 'marketplace.inquiry.created', ...(reconciliation ? reconciliation.stamp : {}) },
     });
+    if (reconciliation && !threadCreated) {
+      const reconciledEarlier = Boolean(thread.metadata?.reconciliation_run_id);
+      const finished = reconciledEarlier
+        ? (await this.repository.list('messages', { thread_id: thread.id }))
+          .find((row) => row.client_message_id === clientMessageId) || null
+        : null;
+      if (!reconciledEarlier || finished) {
+        return [{
+          thread, message: finished, seller: null, buyer: null, deliveries: [], canonical: true,
+          reconciliation: { outcome: 'already_present', thread_created: false },
+        }];
+      }
+    }
     thread = await this.repository.updateById('message_threads', thread.id, {
       business_workflow: 'marketplace',
       funnel_stage: 'conversation',
@@ -470,7 +521,9 @@ export class CommunicationConversationService {
 
     const preferred = String(inquiry.metadata?.preferred_contact || '').toLowerCase();
     const canUseWhatsapp = Boolean(inquiry.guest_phone && (preferred === 'whatsapp' || inquiry.source_channel === 'whatsapp'));
-    if (canUseWhatsapp) {
+    // Guest channel identities and their transactional consent come from the buyer's own submit, at the
+    // time of that submit — never from a later reconciliation.
+    if (!reconciliation && canUseWhatsapp) {
       const identity = await this.identityService.resolveOrCreateIdentity({
         tenant_id: tenantId,
         user_id: buyerId,
@@ -502,7 +555,7 @@ export class CommunicationConversationService {
         primary: true,
         metadata: { marketplace_inquiry_id: inquiryId },
       });
-    } else if (!buyer && inquiry.guest_email) {
+    } else if (!reconciliation && !buyer && inquiry.guest_email) {
       const identity = await this.identityService.resolveOrCreateIdentity({
         tenant_id: tenantId,
         channel: 'email',
@@ -533,6 +586,13 @@ export class CommunicationConversationService {
       });
     }
 
+    if (!buyer && reconciliation) {
+      // A placeholder has no user or identity to be matched on, so a resumed reconciliation finds the one
+      // it already made instead of adding a second.
+      buyer = (await this.activeParticipants(thread.id)).find((row) => (
+        (row.stakeholder_role || row.role) === 'buyer_unresolved' && row.metadata?.inquiry_id === inquiryId
+      )) || null;
+    }
     if (!buyer) {
       // Authenticated buyer without a bound external identity is still a real
       // participant and can continue in CarUp. Do not expose contact as a workaround.
@@ -541,11 +601,14 @@ export class CommunicationConversationService {
         stakeholder_role: 'buyer_unresolved',
         display_name: inquiry.guest_name || 'Buyer',
         permissions: { read: false, send: false },
-        metadata: { inquiry_id: inquiryId, routing_pending: true },
+        metadata: {
+          inquiry_id: inquiryId,
+          routing_pending: true,
+          ...(reconciliation ? { reconciliation_run_id: reconciliation.runId } : {}),
+        },
       });
     }
 
-    const clientMessageId = `marketplace-inquiry:${inquiryId}`;
     let message = (await this.repository.list('messages', { thread_id: thread.id }))
       .find((row) => row.client_message_id === clientMessageId) || null;
     // The canonical message is deduped by client_message_id, so a replayed domain event reuses it.
@@ -568,9 +631,12 @@ export class CommunicationConversationService {
           listing_id: inquiry.listing_id || null,
           source_channel: inquiry.source_channel || null,
           ai_derived: false,
+          ...(reconciliation ? { reconciled: true } : {}),
         },
         status: 'received',
         thread_status: 'open',
+        // A reconciled first message keeps the inquiry's own time: the conversation reads in its true order.
+        ...(reconciliation && inquiry.created_at ? { original_created_at: inquiry.created_at } : {}),
       });
       await this.repository.updateById('message_threads', thread.id, { last_inbound_at: message.created_at });
     }
@@ -583,12 +649,17 @@ export class CommunicationConversationService {
     // SENDER (the buyer, so no self-echo), skips system/agent placeholders, requires read
     // permission, and dedupes on the MESSAGE id — so a replayed event reuses the deduped message
     // and cannot produce a second seller notification.
-    const deliveries = await this.routeMessage(thread, buyer, message);
+    //
+    // F-005: a reconciled conversation is history, not news. Its first message is delivered to no one —
+    // not by the reconciliation, and not by a later replay of the creation event (a requeued dead letter)
+    // over the conversation reconciliation made, which would otherwise send that old message as new.
+    const silent = Boolean(reconciliation) || (!messageCreated && Boolean(thread.metadata?.reconciliation_run_id));
+    const deliveries = silent ? [] : await this.routeMessage(thread, buyer, message);
 
     // Analytics is only idempotent if it is tied to message creation. conversation_started and
     // inquiry_created have no dedupe of their own, so emitting them per invocation double-counted
-    // the funnel on every replay of the same inquiry.
-    if (messageCreated) {
+    // the funnel on every replay of the same inquiry. A reconciliation is not a funnel event at all.
+    if (messageCreated && !reconciliation) {
       const attribution = {
         source: inquiry.source_channel || null,
         referral_code: inquiry.referral_code || null,
@@ -617,7 +688,12 @@ export class CommunicationConversationService {
       });
     }
 
-    return [{ thread, message, seller, buyer, deliveries, canonical: true }];
+    return [{
+      thread, message, seller, buyer, deliveries, canonical: true,
+      ...(reconciliation
+        ? { reconciliation: { outcome: messageCreated ? 'created' : 'already_present', thread_created: threadCreated } }
+        : {}),
+    }];
   }
 
   async sendParticipantMessage(threadId, actor = {}, input = {}) {

@@ -571,3 +571,8 @@ async function patchInquiry(client, inquiryId, patch) {
 }
 
 export const __inquiryProjections = { toPublicInquiry, toSellerInquiry, toAdminInquiry };
+
+/** The inquiry types routed to a governed seller — the only ones that can have a buyer↔seller conversation. */
+export function isVehicleBoundInquiryType(inquiryType) {
+  return VEHICLE_BOUND_TYPES.has(String(inquiryType || ''));
+}
