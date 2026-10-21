@@ -1,0 +1,312 @@
+name: CARUP-MVP-STAB-01 Final Native Visual Evidence
+
+on:
+  push:
+    branches:
+      - fix/carup-mvp-stab-01-client-readiness
+    paths:
+      - .github/workflows/carup-mvp-stab-01-native-visual-evidence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CANDIDATE_SHA: 88bffa50b34d81cdeb1f13f2c90bfb957190c732
+  API_ORIGIN: https://carup-backend-staging-lmnyhj874-11-11.vercel.app
+  STAGING_SUPABASE_REF: eoyenigwevnxwwhyhaer
+  APK_SOURCE_RUN_ID: "39607550267"
+  APK_ARTIFACT_NAME: carup-mvp-stab-01-candidate-staging-apk-88bffa50b34d81cdeb1f13f2c90bfb957190c732
+  APK_SHA256: 6a5c056f2e26fd17625db79ac5b661a104136e915b98d148f729ef2a38b75415
+
+jobs:
+  native-visual-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download exact-candidate APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.APK_ARTIFACT_NAME }}
+          path: ${{ runner.temp }}/carup-mvp-native-proof/apk
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: kudzimusar/carup
+          run-id: ${{ env.APK_SOURCE_RUN_ID }}
+
+      - name: Verify APK and staging pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          OUT="$RUNNER_TEMP/carup-mvp-native-proof"
+          mkdir -p "$OUT"
+          APK="$(find "$OUT/apk" -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test "$(shasum -a 256 "$APK" | awk '{print $1}')" = "$APK_SHA256"
+          curl -fsS --max-time 30 "$API_ORIGIN/api/health" > "$OUT/backend-health.json"
+          node <<'NODE'
+          const fs=require('fs');
+          const h=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/carup-mvp-native-proof/backend-health.json','utf8'));
+          if(h.build?.commit_sha!==process.env.CANDIDATE_SHA || h.build?.environment!=='preview') throw new Error('wrong backend candidate');
+          if(h.database?.supabase_project_ref!==process.env.STAGING_SUPABASE_REF || h.database?.consistent!==true) throw new Error('wrong staging database');
+          if(h.communications?.outbound?.kill_switch!=='active' || h.communications?.outbound?.external_sends!=='disabled') throw new Error('communications kill switch is not active');
+          NODE
+
+      - name: Create staging-only Native evidence account
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/carup-mvp-native-proof"
+          CREDS="$OUT/native-proof.env"
+          export CREDS
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const API=process.env.API_ORIGIN+'/api';
+          const run=String(process.env.GITHUB_RUN_ID)+String(process.env.GITHUB_RUN_ATTEMPT);
+          const email='mvp01.nativeproof.'+run+'@carup-staging.test';
+          const password='Mvp01Native'+run+'X9aBc';
+
+          async function csrf(headers={}) {
+            const r=await fetch(API+'/security/csrf-token',{headers,signal:AbortSignal.timeout(30000)});
+            const j=await r.json().catch(()=>({}));
+            const cookie=(r.headers.get('set-cookie')||'').split(';')[0];
+            if(!r.ok||!j.csrfToken) throw new Error('csrf '+r.status);
+            return {token:j.csrfToken,cookie};
+          }
+          async function post(path,body,auth={}) {
+            const base={};
+            if(auth.token) base['x-session-token']=auth.token;
+            if(auth.userId) base['x-user-id']=auth.userId;
+            const c=await csrf(base);
+            const headers={...base,'content-type':'application/json','x-csrf-token':c.token};
+            if(c.cookie) headers.cookie=c.cookie;
+            const r=await fetch(API+path,{method:'POST',headers,body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
+            return {status:r.status,json:await r.json().catch(()=>({}))};
+          }
+          const reg=await post('/auth/register',{
+            name:'MVP01 Native Proof '+run,
+            email,
+            password,
+            registration_profile:{
+              terms_acknowledged:true,
+              privacy_acknowledged:true,
+              account_kind:'individual',
+              market_relationship:'zimbabwe_local',
+              country_of_residence:'Zimbabwe',
+              city:'Harare',
+              intended_use:'buy'
+            }
+          });
+          if(reg.status!==200||!reg.json?.token||!reg.json?.user?.id) throw new Error('registration failed '+reg.status);
+          console.log('::add-mask::'+email);
+          console.log('::add-mask::'+password);
+          const userId=reg.json.user.id;
+          const logout=await post('/auth/logout',{}, {token:reg.json.token,userId});
+          if(logout.status!==200) throw new Error('registration-session cleanup failed '+logout.status);
+          writeFileSync(process.env.CREDS,'NATIVE_EMAIL='+email+'\nNATIVE_PASSWORD='+password+'\nNATIVE_USER_ID='+userId+'\n',{mode:0o600});
+          NODE
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Capture Native screenshots and cleanup
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          NATIVE_VISUAL_SCRIPT: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/carup-mvp-native-proof"
+            source "$OUT/native-proof.env"
+            APK="$(find "$OUT/apk" -type f -name '*.apk' -print -quit)"
+            PACKAGE_NAME="com.carup.mobile"
+            mkdir -p "$OUT/screens"
+            adb wait-for-device
+            for i in $(seq 1 90); do
+              if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then break; fi
+              sleep 2
+            done
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+            adb install -r "$APK" >/dev/null
+            adb shell pm clear "$PACKAGE_NAME" >/dev/null
+
+            dump_ui() {
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+              adb pull /sdcard/window.xml "$OUT/screens/$1.xml" >/dev/null 2>&1
+            }
+            shot() { adb exec-out screencap -p > "$OUT/screens/$1.png"; }
+            tap_id() {
+              xy="$(python - "$1" "$2" <<'PY'
+            import re,sys
+            src=open(sys.argv[2],encoding='utf-8').read()
+            m=re.search(r'<node[^>]+resource-id="'+re.escape(sys.argv[1])+r'"[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',src)
+            if not m: raise SystemExit(2)
+            x1,y1,x2,y2=map(int,m.groups()); print((x1+x2)//2,(y1+y2)//2)
+            PY
+              )"
+              read -r x y <<< "$xy"
+              adb shell input tap "$x" "$y"
+            }
+            tap_desc() {
+              xy="$(python - "$1" "$2" <<'PY'
+            import re,sys
+            src=open(sys.argv[2],encoding='utf-8').read()
+            m=re.search(r'<node[^>]+content-desc="'+re.escape(sys.argv[1])+r'"[^>]+bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',src)
+            if not m: raise SystemExit(2)
+            x1,y1,x2,y2=map(int,m.groups()); print((x1+x2)//2,(y1+y2)//2)
+            PY
+              )"
+              read -r x y <<< "$xy"
+              adb shell input tap "$x" "$y"
+            }
+            wait_text() {
+              name="$1"; text="$2"; loops="$3"
+              for i in $(seq 1 "$loops"); do
+                dump_ui "$name-current"
+                if grep -Fq "$text" "$OUT/screens/$name-current.xml"; then
+                  cp "$OUT/screens/$name-current.xml" "$OUT/screens/$name.xml"
+                  return 0
+                fi
+                sleep 1
+              done
+              return 1
+            }
+            scroll_until() {
+              name="$1"; shift
+              for i in $(seq 1 12); do
+                dump_ui "$name-current"
+                ok=1
+                for t in "$@"; do grep -Fq "$t" "$OUT/screens/$name-current.xml" || ok=0; done
+                if [ "$ok" = "1" ]; then
+                  cp "$OUT/screens/$name-current.xml" "$OUT/screens/$name.xml"
+                  shot "$name"
+                  return 0
+                fi
+                adb shell input swipe 540 1850 540 650 450
+                sleep 1
+              done
+              return 1
+            }
+
+            # Public Serena Trust — read only.
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://vehicle/GFC27-027051?from=marketplace" "$PACKAGE_NAME" > "$OUT/screens/trust-deeplink.txt"
+            sleep 6
+            scroll_until native-trust "CarUp Trust" "Confidence" "Evidence support" "Connected official sources"
+            grep -Fq 'Low' "$OUT/screens/native-trust.xml"
+            grep -Fq '0 of 7 vehicle facts independently confirmed' "$OUT/screens/native-trust.xml"
+            echo "native_trust_rows=PASS" > "$OUT/native-visual-proof.txt"
+
+            # Real Native login.
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" "$PACKAGE_NAME" > "$OUT/screens/login-deeplink.txt"
+            wait_text login "Sign in to CarUp" 35
+            tap_id login-email "$OUT/screens/login.xml"
+            adb shell input text "$NATIVE_EMAIL"
+            tap_id login-password "$OUT/screens/login.xml"
+            adb shell input text "$NATIVE_PASSWORD"
+            tap_id login-submit "$OUT/screens/login.xml"
+            sleep 6
+
+            # Delivery labels.
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://account" "$PACKAGE_NAME" > "$OUT/screens/account-deeplink.txt"
+            sleep 5
+            scroll_until native-preferences "Messages &amp; delivery" "WhatsApp"
+            grep -Eq 'Setup pending|Temporarily unavailable|Could not check' "$OUT/screens/native-preferences.xml"
+            echo "native_preference_labels=PASS" >> "$OUT/native-visual-proof.txt"
+            if grep -Fq 'Email' "$OUT/screens/native-preferences.xml"; then
+              cp "$OUT/screens/native-preferences.xml" "$OUT/screens/native-preferences-email.xml"
+              cp "$OUT/screens/native-preferences.png" "$OUT/screens/native-preferences-email.png"
+            else
+              scroll_until native-preferences-email "Email"
+            fi
+            grep -Fq 'Email' "$OUT/screens/native-preferences-email.xml"
+
+            # F-040 Inbox wording — never send.
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://inbox" "$PACKAGE_NAME" > "$OUT/screens/inbox-deeplink.txt"
+            for i in $(seq 1 35); do
+              dump_ui inbox-current
+              if grep -Fq "CarUp isn't sending messages outside the app right now, so replies arrive here." "$OUT/screens/inbox-current.xml"; then
+                cp "$OUT/screens/inbox-current.xml" "$OUT/screens/native-inbox-f040.xml"
+                shot native-inbox-f040
+                break
+              fi
+              sleep 1
+            done
+            test -f "$OUT/screens/native-inbox-f040.xml"
+            grep -Fq 'Your conversations stay in CarUp.' "$OUT/screens/native-inbox-f040.xml"
+            ! grep -Fq 'WhatsApp or email can carry messages' "$OUT/screens/native-inbox-f040.xml"
+            ! grep -Fq 'Messages may also be delivered by WhatsApp or email' "$OUT/screens/native-inbox-f040.xml"
+            echo "native_inbox_f040=PASS" >> "$OUT/native-visual-proof.txt"
+            echo "native_send_performed=NO" >> "$OUT/native-visual-proof.txt"
+
+            # Product-path sign out and post-logout proof.
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://account" "$PACKAGE_NAME" > "$OUT/screens/account-cleanup.txt"
+            sleep 3
+            found=0
+            for i in $(seq 1 12); do
+              dump_ui signout-current
+              if grep -Fq 'Sign out' "$OUT/screens/signout-current.xml"; then
+                cp "$OUT/screens/signout-current.xml" "$OUT/screens/signout.xml"
+                found=1
+                break
+              fi
+              adb shell input swipe 540 1850 540 650 450
+              sleep 1
+            done
+            test "$found" = "1"
+            tap_desc "Sign out" "$OUT/screens/signout.xml"
+            sleep 4
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://account" "$PACKAGE_NAME" > "$OUT/screens/account-after-logout.txt"
+            wait_text signed-out "Your CarUp account" 20
+            grep -Fq 'Sign in to see your vehicles, selling tools and account settings.' "$OUT/screens/signed-out.xml"
+            echo "native_session_cleanup=PASS" >> "$OUT/native-visual-proof.txt"
+            echo "owner_credentials_used=NO" >> "$OUT/native-visual-proof.txt"
+            echo "production_touched=NO" >> "$OUT/native-visual-proof.txt"
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: bash -c "$NATIVE_VISUAL_SCRIPT"
+
+      - name: Write evidence receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/carup-mvp-native-proof"
+          source "$OUT/native-proof.env"
+          cat > "$OUT/native-visual-receipt.json" <<EOF
+          {
+            "work_unit": "CARUP-MVP-STAB-01",
+            "candidate_sha": "$CANDIDATE_SHA",
+            "apk_source_run_id": $APK_SOURCE_RUN_ID,
+            "apk_sha256": "$APK_SHA256",
+            "staging_user_id": "$NATIVE_USER_ID",
+            "native_send_performed": "NO",
+            "owner_credentials_used": "NO",
+            "production_touched": "NO"
+          }
+          EOF
+
+      - name: Upload Native visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carup-mvp-stab-01-native-visual-evidence-${{ env.CANDIDATE_SHA }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/carup-mvp-native-proof
+          if-no-files-found: error
+          retention-days: 30
