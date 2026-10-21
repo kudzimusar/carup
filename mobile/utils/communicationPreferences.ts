@@ -89,12 +89,25 @@ export function canMutatePreferences(view: PreferenceViewState): view is Extract
 }
 
 /**
- * CARUP-MVP-STAB-01 F-018 — a delivery preference switch is operable only when both hold: the current
- * values were read (D2), and CarUp's health reading says the channel can deliver right now. A saved
- * preference is never provider readiness.
+ * CARUP-MVP-STAB-01 F-018 — withdrawing consent is never blocked. Turning a channel OFF is always
+ * allowed; turning one ON is allowed only while CarUp's health reading says that channel can deliver
+ * right now. A saved preference is never provider readiness.
  */
-export function canChangeChannelPreference(view: PreferenceViewState, availability: ChannelAvailability): boolean {
-  return canMutatePreferences(view) && availability === 'available';
+export function channelPreferenceChangeAllowed(availability: ChannelAvailability, nextValue: boolean): boolean {
+  return nextValue === false || availability === 'available';
+}
+
+/**
+ * Whether a delivery switch showing `currentValue` is operable: the current values were read (D2) and
+ * the change it would make is allowed. An ON switch can always be turned off, whatever the channel's
+ * availability; an OFF switch can be turned on only for an available channel.
+ */
+export function canChangeChannelPreference(
+  view: PreferenceViewState,
+  availability: ChannelAvailability,
+  currentValue: boolean,
+): boolean {
+  return canMutatePreferences(view) && channelPreferenceChangeAllowed(availability, !currentValue);
 }
 
 export async function savePreferenceChange(

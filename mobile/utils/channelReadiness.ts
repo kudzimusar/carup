@@ -2,9 +2,10 @@
  * CARUP-MVP-STAB-01 F-018 — which delivery channels can operate right now, read from CarUp's own
  * `/api/health` evidence through the same shared reading the web uses.
  *
- * A saved preference is never provider readiness. A preference switch may be offered as working only
- * when this reading says its channel is `available`; while the reading is in progress, failed or
- * unreadable, no channel is treated as available (in-app included), and the person is told so.
+ * A saved preference is never provider readiness. A channel may be turned ON only when this reading
+ * says it is `available`; while the reading is in progress, failed or unreadable, no channel is treated
+ * as available (in-app included), and the person is told so. Turning a channel OFF is never blocked:
+ * withdrawing consent does not depend on provider readiness.
  */
 import { useQuery } from '@tanstack/react-query';
 import { apiUrl } from './apiBase';
@@ -116,8 +117,11 @@ export const CHANNEL_AVAILABILITY_EXPLANATION: Readonly<Record<ChannelAvailabili
 
 export interface ChannelSwitchPresentation {
   availability: ChannelAvailability;
-  /** Whether the channel can deliver now. Whether preferences were read is decided separately (D2). */
-  enabled: boolean;
+  /**
+   * Whether the channel can deliver now. This is not whether the switch is operable: an ON switch can
+   * always be turned off (communicationPreferences.canChangeChannelPreference decides operability).
+   */
+  available: boolean;
   statusLabel: string;
   explanation: string | null;
 }
@@ -126,7 +130,7 @@ export function channelSwitchPresentation(view: ChannelReadinessView, preference
   const availability = preferenceChannelAvailability(view, preferenceKey);
   return {
     availability,
-    enabled: availability === 'available',
+    available: availability === 'available',
     statusLabel: CHANNEL_AVAILABILITY_LABEL[availability],
     explanation: CHANNEL_AVAILABILITY_EXPLANATION[availability],
   };

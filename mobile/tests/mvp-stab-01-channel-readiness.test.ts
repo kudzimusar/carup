@@ -19,7 +19,11 @@ import {
   readChannelReadiness,
   type ChannelReadinessView,
 } from '../utils/channelReadiness';
-import { canChangeChannelPreference, type PreferenceViewState } from '../utils/communicationPreferences';
+import {
+  canChangeChannelPreference,
+  channelPreferenceChangeAllowed,
+  type PreferenceViewState,
+} from '../utils/communicationPreferences';
 
 /**
  * CARUP-MVP-STAB-01 F-018 (Native) — a delivery preference switch looks operational only when CarUp's
@@ -92,25 +96,25 @@ describe('CARUP-MVP-STAB-01 F-018 · channel availability comes from CarUp healt
     for (const key of EXTERNAL_KEYS) {
       expect(preferenceChannelAvailability(view, key), key).not.toBe('available');
       expect(['temporarily_unavailable', 'setup_pending'], key).toContain(preferenceChannelAvailability(view, key));
-      expect(channelSwitchPresentation(view, key).enabled, key).toBe(false);
+      expect(channelSwitchPresentation(view, key).available, key).toBe(false);
     }
     expect(preferenceChannelAvailability(view, 'whatsapp_enabled')).toBe('temporarily_unavailable');
     expect(preferenceChannelAvailability(view, 'telegram_enabled')).toBe('setup_pending');
     expect(preferenceChannelAvailability(view, 'in_app_enabled')).toBe('available');
-    expect(channelSwitchPresentation(view, 'in_app_enabled').enabled).toBe(true);
+    expect(channelSwitchPresentation(view, 'in_app_enabled').available).toBe(true);
   });
 
   it('a paused or unconnected channel says so in plain words', async () => {
     const view = await viewFromHealth(STAGING_PAUSED);
     expect(channelSwitchPresentation(view, 'whatsapp_enabled')).toEqual({
       availability: 'temporarily_unavailable',
-      enabled: false,
+      available: false,
       statusLabel: 'Temporarily unavailable',
       explanation: "CarUp isn't sending outside the app right now. Your messages stay in your CarUp Inbox.",
     });
     expect(channelSwitchPresentation(view, 'sms_enabled')).toEqual({
       availability: 'setup_pending',
-      enabled: false,
+      available: false,
       statusLabel: 'Setup pending',
       explanation: 'Not set up for CarUp yet.',
     });
@@ -120,7 +124,7 @@ describe('CARUP-MVP-STAB-01 F-018 · channel availability comes from CarUp healt
     const view = await viewFromHealth(health());
     for (const key of [...EXTERNAL_KEYS, 'in_app_enabled']) {
       expect(preferenceChannelAvailability(view, key), key).toBe('available');
-      expect(channelSwitchPresentation(view, key).enabled, key).toBe(true);
+      expect(channelSwitchPresentation(view, key).available, key).toBe(true);
     }
   });
 
@@ -131,7 +135,7 @@ describe('CARUP-MVP-STAB-01 F-018 · channel availability comes from CarUp healt
   ])('fails closed when %s', async (_name, overrides) => {
     const view = await viewFromHealth(health(overrides));
     expect(preferenceChannelAvailability(view, 'whatsapp_enabled')).not.toBe('available');
-    expect(channelSwitchPresentation(view, 'whatsapp_enabled').enabled).toBe(false);
+    expect(channelSwitchPresentation(view, 'whatsapp_enabled').available).toBe(false);
   });
 
   it('an unreadable health answer is a failed check, and every switch reads "Could not check"', async () => {
@@ -143,7 +147,7 @@ describe('CARUP-MVP-STAB-01 F-018 · channel availability comes from CarUp healt
       expect(preferenceChannelAvailability(UNKNOWN_VIEW, key), key).toBe('unknown');
       expect(channelSwitchPresentation(UNKNOWN_VIEW, key), key).toEqual({
         availability: 'unknown',
-        enabled: false,
+        available: false,
         statusLabel: 'Could not check',
         explanation: 'Could not check this channel right now.',
       });
@@ -160,10 +164,10 @@ describe('CARUP-MVP-STAB-01 F-018 · channel availability comes from CarUp healt
     expect(CHANNEL_HEALTH_TIMEOUT_MS).toBe(8000);
   });
 
-  it('while the check runs, every switch is disabled and says it is checking', () => {
+  it('while the check runs, no channel is treated as available and every switch says it is checking', () => {
     const checking = channelReadinessView({ data: undefined, error: null, isPending: true });
     for (const key of [...EXTERNAL_KEYS, 'in_app_enabled']) {
-      expect(channelSwitchPresentation(checking, key)).toEqual({ availability: 'checking', enabled: false, statusLabel: 'Checking…', explanation: null });
+      expect(channelSwitchPresentation(checking, key)).toEqual({ availability: 'checking', available: false, statusLabel: 'Checking…', explanation: null });
     }
   });
 
@@ -199,16 +203,46 @@ describe('CARUP-MVP-STAB-01 F-018 · channel availability comes from CarUp healt
   });
 });
 
-describe('CARUP-MVP-STAB-01 F-018 · a preference changes only after a valid read, and only while its channel works', () => {
+describe('CARUP-MVP-STAB-01 F-018 · withdrawing consent is never blocked; turning a channel on needs a channel that works', () => {
   const ready: PreferenceViewState = { state: 'READY', preferences: { whatsapp_enabled: true } };
+  const NOT_AVAILABLE = ['temporarily_unavailable', 'setup_pending', 'not_offered', 'checking', 'unknown'] as const;
 
-  it('both conditions are required', () => {
-    expect(canChangeChannelPreference(ready, 'available')).toBe(true);
-    for (const availability of ['temporarily_unavailable', 'setup_pending', 'not_offered', 'checking', 'unknown'] as const) {
-      expect(canChangeChannelPreference(ready, availability), availability).toBe(false);
+  it('on → off is always allowed; off → on only while the channel is available', () => {
+    expect(channelPreferenceChangeAllowed('available', true)).toBe(true);
+    expect(channelPreferenceChangeAllowed('available', false)).toBe(true);
+    for (const availability of NOT_AVAILABLE) {
+      expect(channelPreferenceChangeAllowed(availability, false), `${availability}: on → off`).toBe(true);
+      expect(channelPreferenceChangeAllowed(availability, true), `${availability}: off → on`).toBe(false);
     }
-    expect(canChangeChannelPreference({ state: 'LOADING' }, 'available')).toBe(false);
-    expect(canChangeChannelPreference({ state: 'READ_FAILED', failure: 'network', statusCode: null }, 'available')).toBe(false);
+  });
+
+  it('a switch that is ON stays operable whatever the availability, so it can be turned off; an OFF one waits for the channel', () => {
+    for (const availability of NOT_AVAILABLE) {
+      expect(canChangeChannelPreference(ready, availability, true), `${availability}: ON switch`).toBe(true);
+      expect(canChangeChannelPreference(ready, availability, false), `${availability}: OFF switch`).toBe(false);
+    }
+    expect(canChangeChannelPreference(ready, 'available', true)).toBe(true);
+    expect(canChangeChannelPreference(ready, 'available', false)).toBe(true);
+  });
+
+  it('nothing is changeable before the current preferences were read (D2), in either direction', () => {
+    const unread: PreferenceViewState[] = [{ state: 'LOADING' }, { state: 'READ_FAILED', failure: 'network', statusCode: null }];
+    for (const view of unread) {
+      for (const current of [true, false]) {
+        expect(canChangeChannelPreference(view, 'available', current), `${view.state} ${current}`).toBe(false);
+        expect(canChangeChannelPreference(view, 'temporarily_unavailable', current), `${view.state} ${current}`).toBe(false);
+      }
+    }
+  });
+
+  it('staging with the kill switch active: WhatsApp ON can be turned off, WhatsApp OFF cannot be turned on', async () => {
+    const view = await viewFromHealth(STAGING_PAUSED);
+    const whatsapp = preferenceChannelAvailability(view, 'whatsapp_enabled');
+    expect(whatsapp).toBe('temporarily_unavailable');
+    expect(canChangeChannelPreference(ready, whatsapp, true)).toBe(true);
+    expect(channelPreferenceChangeAllowed(whatsapp, false)).toBe(true);
+    expect(canChangeChannelPreference(ready, whatsapp, false)).toBe(false);
+    expect(channelPreferenceChangeAllowed(whatsapp, true)).toBe(false);
   });
 });
 
@@ -227,25 +261,30 @@ describe('CARUP-MVP-STAB-01 F-018 · Account and Communications render availabil
   it.each([
     ['Account', account, '{CHANNELS.map(', '{preferenceError ? ('],
     ['Communications', messages, 'PREFERENCE_CHANNELS.map(', '{preferenceStatus ? '],
-  ])('%s: the switch is enabled only for an available channel and a disabled one shows its label and reason', (_name, source, start, end) => {
+  ])('%s: an ON switch can always be turned off, an OFF one turns on only for an available channel, and the label shows either way', (_name, source, start, end) => {
     expect(source).toMatch(/useChannelReadiness\(/);
     const rows = section(source, start, end);
     expect(rows).toMatch(/const delivery = channelSwitchPresentation\(\s*readiness,\s*[\w.]+\s*\);/);
-    expect(rows).toMatch(/const changeable = canChangeChannelPreference\(\s*preferenceView,\s*delivery\.availability\s*\);/);
+    expect(rows).toMatch(/const current = Boolean\(preferenceView\.preferences\[[\w.]+\]\);/);
+    expect(rows).toMatch(/const changeable = canChangeChannelPreference\(\s*preferenceView,\s*delivery\.availability,\s*current\s*\);/);
     expect(rows).toMatch(/const disabled = Boolean\(saving\w+\) \|\| !changeable;/);
     expect(rows).toMatch(/\sdisabled=\{disabled\}/);
+    expect(rows).toMatch(/\svalue=\{current\}/);
     expect(rows).toMatch(/accessibilityState=\{\{ disabled \}\}/);
-    expect(rows).toMatch(/\.statusLabel\b/);
-    expect(rows).toMatch(/\.explanation\b/);
     expect(rows).toMatch(/accessibilityHint=/);
+    // The availability label and its reason depend on the channel only, never on whether the switch is ON.
+    const label = section(rows, '{delivery.available ? ', '<Switch');
+    expect(label).toMatch(/\.statusLabel\b/);
+    expect(label).toMatch(/\.explanation\b/);
+    expect(label).not.toMatch(/\bcurrent\b/);
   });
 
   it('Account no longer promises delivery "when this channel is available"', () => {
     expect(account).not.toContain('Delivery when this channel is available');
   });
 
-  it('a save is refused in code, not only by the disabled switch', () => {
-    expect(account).toMatch(/if \(savingChannel \|\| !channelSwitchPresentation\(readiness, key\)\.enabled\) return;/);
-    expect(messages).toMatch(/if \(savingKey \|\| !channelSwitchPresentation\(readiness, key\)\.enabled\) return;/);
+  it('the save is guarded in code too: turning on an unavailable channel is refused, turning off never is', () => {
+    expect(account).toMatch(/if \(savingChannel \|\| !channelPreferenceChangeAllowed\(preferenceChannelAvailability\(readiness, key\), value\)\) return;/);
+    expect(messages).toMatch(/if \(savingKey \|\| !channelPreferenceChangeAllowed\(preferenceChannelAvailability\(readiness, key\), value\)\) return;/);
   });
 });

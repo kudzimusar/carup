@@ -11,6 +11,7 @@ import {
 } from '../../components/ui/NativePrimitives';
 import {
   canChangeChannelPreference,
+  channelPreferenceChangeAllowed,
   PreferenceMutationBlockedError,
   preferenceFailureCopy,
   preferenceViewState,
@@ -19,7 +20,7 @@ import {
   shouldRetryPreferenceRead,
   type CommunicationPreferences,
 } from '../../utils/communicationPreferences';
-import { channelSwitchPresentation, useChannelReadiness } from '../../utils/channelReadiness';
+import { channelSwitchPresentation, preferenceChannelAvailability, useChannelReadiness } from '../../utils/channelReadiness';
 import { spacing, typeScale, useNativeTheme } from '../../theme/tokens';
 import { useAuthStore } from '../../store/authStore';
 import { useFeatureGovernanceStore } from '../../store/featureGovernanceStore';
@@ -101,7 +102,8 @@ export default function AccountScreen() {
   const canUseReferrals = canUse('/dashboard/referral', 'owner.referrals');
 
   const saveChannel = async (key: string, value: boolean) => {
-    if (savingChannel || !channelSwitchPresentation(readiness, key).enabled) return;
+    // Turning a channel off is never blocked; turning one on needs a channel CarUp can deliver on now.
+    if (savingChannel || !channelPreferenceChangeAllowed(preferenceChannelAvailability(readiness, key), value)) return;
     setPreferenceError(null);
     setSavingChannel(key);
     try {
@@ -185,7 +187,9 @@ export default function AccountScreen() {
             <View style={{ marginTop: spacing[3] }}>
               {CHANNELS.map((channel) => {
                 const delivery = channelSwitchPresentation(readiness, channel.key);
-                const changeable = canChangeChannelPreference(preferenceView, delivery.availability);
+                const current = Boolean(preferenceView.preferences[channel.key]);
+                // An ON switch can always be turned off; an OFF one turns on only for an available channel.
+                const changeable = canChangeChannelPreference(preferenceView, delivery.availability, current);
                 const disabled = Boolean(savingChannel) || !changeable;
                 return (
                   <View
@@ -203,7 +207,7 @@ export default function AccountScreen() {
                   >
                     <View style={{ flex: 1 }}>
                       <Text allowFontScaling style={{ ...typeScale.bodyStrong, color: theme.text.primary }}>{channel.label}</Text>
-                      {delivery.enabled ? (
+                      {delivery.available ? (
                         <Text allowFontScaling style={{ ...typeScale.metadata, color: theme.text.muted, marginTop: 2 }}>{channel.note}</Text>
                       ) : (
                         <>
@@ -216,10 +220,10 @@ export default function AccountScreen() {
                     </View>
                     <Switch
                       accessibilityLabel={`${channel.label} delivery`}
-                      accessibilityHint={delivery.enabled ? undefined : [delivery.statusLabel, delivery.explanation].filter(Boolean).join('. ')}
+                      accessibilityHint={delivery.available ? undefined : [delivery.statusLabel, delivery.explanation].filter(Boolean).join('. ')}
                       accessibilityState={{ disabled }}
                       disabled={disabled}
-                      value={Boolean(preferenceView.preferences[channel.key])}
+                      value={current}
                       onValueChange={(value) => void saveChannel(channel.key, value)}
                     />
                   </View>

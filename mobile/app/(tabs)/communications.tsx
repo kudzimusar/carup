@@ -10,6 +10,7 @@ import {
 } from '../../utils/communicationApi';
 import {
   canChangeChannelPreference,
+  channelPreferenceChangeAllowed,
   PreferenceMutationBlockedError,
   preferenceFailureCopy,
   preferenceViewState,
@@ -17,7 +18,7 @@ import {
   savePreferenceChange,
   type PreferenceViewState,
 } from '../../utils/communicationPreferences';
-import { channelSwitchPresentation, useChannelReadiness } from '../../utils/channelReadiness';
+import { channelSwitchPresentation, preferenceChannelAvailability, useChannelReadiness } from '../../utils/channelReadiness';
 
 const PREFERENCE_CHANNELS = [
   ['in_app_enabled', 'In-app'],
@@ -101,7 +102,8 @@ function CommunicationsScreenInner() {
   }
 
   async function savePreference(key: string, value: boolean) {
-    if (savingKey || !channelSwitchPresentation(readiness, key).enabled) return;
+    // Turning a channel off is never blocked; turning one on needs a channel CarUp can deliver on now.
+    if (savingKey || !channelPreferenceChangeAllowed(preferenceChannelAvailability(readiness, key), value)) return;
     setPreferenceStatus(null);
     setSavingKey(key);
     try {
@@ -197,13 +199,15 @@ function CommunicationsScreenInner() {
         ) : (
           PREFERENCE_CHANNELS.map(([key, label]) => {
             const delivery = channelSwitchPresentation(readiness, key);
-            const changeable = canChangeChannelPreference(preferenceView, delivery.availability);
+            const current = Boolean(preferenceView.preferences[key]);
+            // An ON switch can always be turned off; an OFF one turns on only for an available channel.
+            const changeable = canChangeChannelPreference(preferenceView, delivery.availability, current);
             const disabled = Boolean(savingKey) || !changeable;
             return (
               <View key={key} className="flex-row items-center justify-between py-2">
                 <View className="flex-1 pr-3">
                   <Text className="text-slate-700">{label}</Text>
-                  {delivery.enabled ? null : (
+                  {delivery.available ? null : (
                     <>
                       <Text className="text-slate-600 text-xs font-semibold mt-1">{delivery.statusLabel}</Text>
                       {delivery.explanation ? (
@@ -214,10 +218,10 @@ function CommunicationsScreenInner() {
                 </View>
                 <Switch
                   accessibilityLabel={`${label} delivery`}
-                  accessibilityHint={delivery.enabled ? undefined : [delivery.statusLabel, delivery.explanation].filter(Boolean).join('. ')}
+                  accessibilityHint={delivery.available ? undefined : [delivery.statusLabel, delivery.explanation].filter(Boolean).join('. ')}
                   accessibilityState={{ disabled }}
                   disabled={disabled}
-                  value={Boolean(preferenceView.preferences[key])}
+                  value={current}
                   onValueChange={(value) => void savePreference(key, value)}
                   testID={`communication-pref-${key}`}
                 />
