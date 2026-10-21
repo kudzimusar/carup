@@ -42,6 +42,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_garage_branches_tenant_code
   ON public.garage_branches(tenant_id, code)
   WHERE code IS NOT NULL;
 
+-- A branch manager is not merely a member: management is an admin capability.
+CREATE OR REPLACE FUNCTION public.garage_branch_manager_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $
+BEGIN
+  IF NEW.manager_user_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM public.tenant_users
+    WHERE tenant_id = NEW.tenant_id
+      AND user_id = NEW.manager_user_id
+      AND LOWER(role) = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_BRANCH_MANAGER_ADMIN_REQUIRED' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_garage_branch_manager_guard ON public.garage_branches;
+CREATE TRIGGER trg_garage_branch_manager_guard
+  BEFORE INSERT OR UPDATE OF tenant_id, manager_user_id ON public.garage_branches
+  FOR EACH ROW EXECUTE FUNCTION public.garage_branch_manager_guard();
+
 CREATE TABLE IF NOT EXISTS public.garage_branch_hours (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE RESTRICT,
@@ -168,6 +194,60 @@ CREATE TABLE IF NOT EXISTS public.garage_staff_certifications (
 CREATE INDEX IF NOT EXISTS idx_garage_staff_certifications_staff
   ON public.garage_staff_certifications(tenant_id, user_id);
 
+-- Metadata never creates membership. Every metadata write must name a current tenant member.
+CREATE OR REPLACE FUNCTION public.garage_staff_metadata_membership_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tenant_users
+    WHERE tenant_id = NEW.tenant_id AND user_id = NEW.user_id
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_OPS_MEMBER_REQUIRED' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_garage_staff_profile_member ON public.garage_staff_profiles;
+CREATE TRIGGER trg_garage_staff_profile_member
+  BEFORE INSERT OR UPDATE OF tenant_id, user_id ON public.garage_staff_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_metadata_membership_guard();
+
+DROP TRIGGER IF EXISTS trg_garage_staff_assignment_member ON public.garage_staff_branch_assignments;
+CREATE TRIGGER trg_garage_staff_assignment_member
+  BEFORE INSERT OR UPDATE OF tenant_id, user_id ON public.garage_staff_branch_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_metadata_membership_guard();
+
+DROP TRIGGER IF EXISTS trg_garage_staff_skill_member ON public.garage_staff_skills;
+CREATE TRIGGER trg_garage_staff_skill_member
+  BEFORE INSERT OR UPDATE OF tenant_id, user_id ON public.garage_staff_skills
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_metadata_membership_guard();
+
+DROP TRIGGER IF EXISTS trg_garage_staff_certification_member ON public.garage_staff_certifications;
+CREATE TRIGGER trg_garage_staff_certification_member
+  BEFORE INSERT OR UPDATE OF tenant_id, user_id ON public.garage_staff_certifications
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_metadata_membership_guard();
+
+CREATE OR REPLACE FUNCTION public.garage_staff_branch_assignments_no_delete()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $
+BEGIN
+  RAISE EXCEPTION 'GARAGE_STAFF_ASSIGNMENT_HISTORY_DELETE_FORBIDDEN' USING ERRCODE = 'restrict_violation';
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_garage_staff_branch_assignments_no_delete ON public.garage_staff_branch_assignments;
+CREATE TRIGGER trg_garage_staff_branch_assignments_no_delete
+  BEFORE DELETE ON public.garage_staff_branch_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_branch_assignments_no_delete();
+
 -- Service-role-only posture. Browser/client roles never access these tables directly.
 DO $$
 DECLARE
@@ -187,7 +267,15 @@ BEGIN
     EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, anon, authenticated', t);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO service_role', t);
   END LOOP;
-END $$;
+END $;
+
+-- Placement history is closed by ended_at, never physically deleted.
+REVOKE DELETE ON TABLE public.garage_staff_branch_assignments FROM service_role;
+
+-- These guard functions are trigger-only. No client or application role calls them directly.
+REVOKE ALL ON FUNCTION public.garage_branch_manager_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.garage_staff_metadata_membership_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.garage_staff_branch_assignments_no_delete() FROM PUBLIC, anon, authenticated, service_role;
 
 -- Atomic branch-hours replacement. A malformed replacement changes nothing.
 CREATE OR REPLACE FUNCTION public.replace_garage_branch_hours(
@@ -471,6 +559,15 @@ GRANT EXECUTE ON FUNCTION public.remove_garage_member_ops01(UUID, TEXT, TEXT) TO
 
 -- +migrate Down
 DROP FUNCTION IF EXISTS public.remove_garage_member_ops01(UUID, TEXT, TEXT);
+DROP TRIGGER IF EXISTS trg_garage_staff_branch_assignments_no_delete ON public.garage_staff_branch_assignments;
+DROP TRIGGER IF EXISTS trg_garage_staff_certification_member ON public.garage_staff_certifications;
+DROP TRIGGER IF EXISTS trg_garage_staff_skill_member ON public.garage_staff_skills;
+DROP TRIGGER IF EXISTS trg_garage_staff_assignment_member ON public.garage_staff_branch_assignments;
+DROP TRIGGER IF EXISTS trg_garage_staff_profile_member ON public.garage_staff_profiles;
+DROP FUNCTION IF EXISTS public.garage_staff_branch_assignments_no_delete();
+DROP FUNCTION IF EXISTS public.garage_staff_metadata_membership_guard();
+DROP TRIGGER IF EXISTS trg_garage_branch_manager_guard ON public.garage_branches;
+DROP FUNCTION IF EXISTS public.garage_branch_manager_guard();
 DROP FUNCTION IF EXISTS public.end_garage_staff_branch_assignment(UUID, UUID, TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.assign_garage_staff_branch(UUID, TEXT, UUID, BOOLEAN, TEXT);
 DROP FUNCTION IF EXISTS public.replace_garage_branch_hours(UUID, UUID, JSONB, TEXT);
