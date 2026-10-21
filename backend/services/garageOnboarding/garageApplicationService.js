@@ -1,4 +1,5 @@
 import { supabase as defaultClient } from '../../db/supabase.js';
+import { logAuditEvent } from '../auditLogger.js';
 import { ValidationError, ForbiddenError, NotFoundError, ConflictError, DatabaseError } from '../../utils/errors.js';
 // The ONE identity-prerequisite rule, read from the reviewer's side so the applicant is told exactly
 // what blocks the reviewer (CARUP-MVP-STAB-01). A pure read: it decides and grants nothing. (The
@@ -266,12 +267,36 @@ export async function getMyApplication(client = defaultClient, actor = {}, deps 
 }
 
 /**
+ * ADM-006 — the applicant's own lifecycle steps in the audit trail. The actor and the application,
+ * never what they typed (a garage name, a phone number and an address are the applicant's, not the
+ * audit trail's).
+ *
+ * Written AFTER the change, so the trail never records a creation or a submission that did not
+ * happen; and best-effort, because the applicant's completed work must not be reported as failed
+ * once it has been saved. A failed write is reported for operations, naming the application.
+ */
+async function auditApplicantStep(client, actor, event) {
+  try {
+    const result = await logAuditEvent(client, {
+      actor_user_id: actorId(actor),
+      actor_role: actor.role || null,
+      targetType: 'garage_application',
+      targetId: event.new_value.application_id,
+      ...event,
+    });
+    if (!result.success) throw new Error(result.error || result.fallbackError || 'unknown error');
+  } catch (err) {
+    console.error(`garageApplicationService: ${event.event_type} not audited for application ${event.new_value.application_id}:`, err?.message || err);
+  }
+}
+
+/**
  * Start an application, or return the live one.
  *
  * Idempotent by design: a double-tap on "Finish setting up your garage", or a retried request, must
  * not create two applications. The partial unique index is the backstop if two requests race.
  */
-export async function startApplication(client = defaultClient, actor = {}, { supersedes = null } = {}) {
+export async function startApplication(client = defaultClient, actor = {}, { supersedes = null, req = null } = {}) {
   const userId = requireApplicant(actor);
 
   // The live application, as the caller would read it — returned as is, never duplicated.
@@ -323,6 +348,13 @@ export async function startApplication(client = defaultClient, actor = {}, { sup
     throw new DatabaseError(`Could not start your application: ${error.message}`);
   }
 
+  // Only a real creation is audited: the idempotent and race-lost answers above built nothing.
+  await auditApplicantStep(client, actor, {
+    req,
+    event_type: 'GARAGE_APPLICATION_CREATED',
+    source_route: '/api/garage-onboarding/application',
+    new_value: { application_id: data.id, status: data.status, supersedes_application_id: data.supersedes_application_id ?? null },
+  });
   return { application: toApplicantView(data), created: true, blockers: submissionBlockers(data) };
 }
 
@@ -390,6 +422,15 @@ export async function submitApplication(client = defaultClient, actor = {}, appl
     .maybeSingle();
   if (error) throw new DatabaseError(`Could not submit your application: ${error.message}`);
   if (!data) throw new ConflictError('This application changed while you were submitting it; reload and try again.');
+
+  await auditApplicantStep(client, actor, {
+    req: deps.req,
+    event_type: 'GARAGE_APPLICATION_SUBMITTED',
+    source_route: '/api/garage-onboarding/application/:id/submit',
+    previous_value: { application_id: data.id, status: current.status },
+    // From information_required this is the SAME application answering CarUp's question (PO-5).
+    new_value: { application_id: data.id, status: data.status, resubmission: current.status === 'information_required' },
+  });
 
   // The person-level onboarding status moves in step. Different object, not a synonym: the
   // application has its own six-state lifecycle; this is the coarse state on the person's profile.

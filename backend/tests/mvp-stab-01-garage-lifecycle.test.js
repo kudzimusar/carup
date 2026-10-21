@@ -1,6 +1,6 @@
 /**
  * CARUP-MVP-STAB-01 — the garage application lifecycle as the applicant and the reviewer see it
- * (F-019).
+ * (F-019 support, ADM-006).
  *
  * Over real PostgreSQL (PGlite) built only from the repository's own migrations
  * (helpers/gmoGarageWorld.js, plus the registration-profile table 20260829123000 the applicant gate
@@ -11,13 +11,21 @@
  *                       (rejected) — the applicant-facing reason, never who decided. Its
  *                       `approval_prerequisites` is the SAME identity check the reviewer's approval
  *                       blocker applies (identityPrerequisite), never a second copy of it.
+ *   AUDIT               creating and submitting an application each write ONE trust_audit_events row
+ *                       naming the actor and the application — and nothing the applicant typed.
+ *   PROFILE SYNC        a reviewer decision moves user_registration_profiles.onboarding_status in step
+ *                       (approve → approved, reject → rejected, otherwise in_review); a sync that fails
+ *                       is logged and the decision — the authority — stands.
  */
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 
-for (const method of ['log', 'info', 'warn', 'debug', 'error']) console[method] = () => {};
+// Silenced, but kept: the profile-sync failure must be REPORTED, so its test reads what was logged.
+const logged = [];
+for (const method of ['log', 'info', 'warn', 'debug']) console[method] = () => {};
+console.error = (...args) => { logged.push(args.map(String).join(' ')); };
 
 process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL ||= 'http://localhost:54321';
@@ -30,7 +38,7 @@ const { app } = await import('../server.js');
 const { supabase } = await import('../db/supabase.js');
 const { buildSessionRow } = await import('../services/auth/sessionRow.js');
 const { approvalBlockers, identityPrerequisite, recordDecision } = await import('../services/garageOnboarding/garageReviewService.js');
-const { getMyApplication } = await import('../services/garageOnboarding/garageApplicationService.js');
+const { getMyApplication, startApplication, submitApplication } = await import('../services/garageOnboarding/garageApplicationService.js');
 
 const FUTURE = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
 // Distinctive ids, so "this id never appears in the response" cannot pass by accident.
@@ -111,7 +119,28 @@ async function readyApplication(who) {
   return id;
 }
 
+/**
+ * A query chain that answers `result` however it is built (`.update().eq()`, `.select().eq().maybeSingle()`
+ * …), so a fault injected into one table does not depend on the exact shape of the query against it.
+ */
+function answering(result) {
+  const chain = new Proxy({}, {
+    get: (_target, prop) => (prop === 'then' ? (resolve, reject) => Promise.resolve(result).then(resolve, reject) : () => chain),
+  });
+  return chain;
+}
+
+/** The real database, except that one table answers with a fault. */
+const faultyOver = (table, fault) => ({
+  rpc: (name, args) => installed.client.rpc(name, args),
+  from: (name) => (name === table ? fault() : installed.client.from(name)),
+});
+
 const decideAsReviewer = (id, body) => call(`/api/admin/garage-applications/${id}/decision`, { who: REVIEWER, method: 'POST', body });
+const onboardingStatus = async (userId) => (await db.query('SELECT onboarding_status FROM user_registration_profiles WHERE user_id = $1', [userId])).rows[0]?.onboarding_status;
+const auditsFor = async (eventType, applicationId) => (await db.query(
+  `SELECT event_type, actor_user_id, actor_role, previous_value, new_value, source_route FROM trust_audit_events
+    WHERE event_type = $1 AND new_value->>'application_id' = $2 ORDER BY created_at`, [eventType, applicationId])).rows;
 
 // ── APPLICANT FEEDBACK ───────────────────────────────────────────────────────────────────────────
 
@@ -244,4 +273,115 @@ test('service: an identity read that FAILS is "could not check", never "not veri
     getIdentityAssurance: async () => { throw new Error('connection reset'); },
   });
   assert.deepEqual(mine.approval_prerequisites, { identity_ready: null, identity_next_step: 'try_again_later' });
+});
+
+// ── AUDIT ────────────────────────────────────────────────────────────────────────────────────────
+
+test('shipped: creating and submitting are each audited once — the actor and the application, nothing the applicant typed', async () => {
+  const who = await garageApplicant({ identity: true });
+  const id = await readyApplication(who);
+  // A second "start" (a double tap) returns the same draft and is not a second creation.
+  const tapAgain = await call('/api/garage-onboarding/application', { who, method: 'POST', body: {} });
+  assert.equal(tapAgain.status, 200);
+  assert.equal(tapAgain.body.created, false);
+
+  const created = await auditsFor('GARAGE_APPLICATION_CREATED', id);
+  assert.equal(created.length, 1, 'one creation, one audit row');
+  assert.equal(created[0].actor_user_id, who);
+  assert.equal(created[0].actor_role, 'owner');
+  assert.deepEqual(created[0].new_value, { application_id: id, status: 'draft', supersedes_application_id: null });
+
+  assert.equal((await call(`/api/garage-onboarding/application/${id}/submit`, { who, method: 'POST', body: {} })).status, 200);
+  const submitted = await auditsFor('GARAGE_APPLICATION_SUBMITTED', id);
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0].actor_user_id, who);
+  assert.deepEqual(submitted[0].previous_value, { application_id: id, status: 'draft' });
+  assert.deepEqual(submitted[0].new_value, { application_id: id, status: 'submitted', resubmission: false });
+
+  // No PII: none of what the applicant typed travels into the audit trail.
+  const { rows } = await db.query(`SELECT row_to_json(t)::text AS j FROM trust_audit_events t WHERE event_type IN ('GARAGE_APPLICATION_CREATED','GARAGE_APPLICATION_SUBMITTED') AND new_value->>'application_id' = $1`, [id]);
+  for (const { j } of rows) {
+    for (const typed of [COMPLETE.trading_name, COMPLETE.address_line, COMPLETE.contact_phone, COMPLETE.contact_email]) {
+      assert.ok(!j.includes(typed), `the audit row carries "${typed}"`);
+    }
+  }
+
+  // A resubmission after "information required" says so.
+  assert.equal((await decideAsReviewer(id, { decision: 'request_more_info', reason: REASON_INFO })).status, 201);
+  assert.equal((await call(`/api/garage-onboarding/application/${id}/submit`, { who, method: 'POST', body: {} })).status, 200);
+  const both = await auditsFor('GARAGE_APPLICATION_SUBMITTED', id);
+  assert.equal(both.length, 2);
+  assert.deepEqual(both[1].previous_value, { application_id: id, status: 'information_required' });
+  assert.equal(both[1].new_value.resubmission, true);
+});
+
+test('service: a refused submission or a foreign application writes no audit row', async () => {
+  const who = await garageApplicant();
+  const stranger = await garageApplicant();
+  const { application } = await startApplication(supabase, { id: who, role: 'owner' });
+  await assert.rejects(submitApplication(supabase, { id: who, role: 'owner' }, application.id), /Before you can submit/);
+  await assert.rejects(submitApplication(supabase, { id: stranger, role: 'owner' }, application.id), /Application not found/);
+  assert.equal((await auditsFor('GARAGE_APPLICATION_SUBMITTED', application.id)).length, 0);
+});
+
+test('service: a reapplication is audited with the application it follows', async () => {
+  const who = await garageApplicant({ identity: true });
+  const old = await seedSubmittedApplication(db, who, { tradingName: 'Second Try Motors' });
+  await recordDecision(supabase, { id: REVIEWER, role: 'admin' }, old.id, { decision: 'reject', reason: REASON_REJECT });
+  const { application, created } = await startApplication(supabase, { id: who, role: 'owner' }, { supersedes: old.id });
+  assert.equal(created, true);
+  const rows = await auditsFor('GARAGE_APPLICATION_CREATED', application.id);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].new_value.supersedes_application_id, old.id);
+});
+
+// ── PROFILE SYNC ─────────────────────────────────────────────────────────────────────────────────
+
+test('service: each reviewer decision moves the person-level onboarding status in step', async () => {
+  const actor = { id: REVIEWER, role: 'admin' };
+  for (const [decisions, expected] of [
+    [[['start_review']], 'in_review'],
+    [[['request_more_info', 'Need a clearer sign photo.']], 'in_review'],
+    [[['reject', REASON_REJECT]], 'rejected'],
+    [[['start_review'], ['approve']], 'approved'],
+  ]) {
+    const who = await garageApplicant({ identity: true, onboardingStatus: 'requested' });
+    const row = await seedSubmittedApplication(db, who, { tradingName: `Sync ${expected} Motors` });
+    for (const [decision, reason] of decisions) {
+      await recordDecision(supabase, actor, row.id, { decision, reason });
+    }
+    assert.equal(await onboardingStatus(who), expected, `${decisions.map((d) => d[0]).join(' → ')} leaves the profile ${expected}`);
+  }
+});
+
+test('shipped: the decision route syncs the profile too (approve, through step-up)', async () => {
+  const who = await garageApplicant({ identity: true, onboardingStatus: 'in_review' });
+  const row = await seedSubmittedApplication(db, who, { tradingName: 'Route Sync Motors' });
+  const approved = await decideAsReviewer(row.id, { decision: 'approve' });
+  assert.equal(approved.status, 201, approved.text);
+  assert.equal(await onboardingStatus(who), 'approved');
+});
+
+test('service: a profile sync that fails is logged, and the decision — the authority — stands', async () => {
+  const actor = { id: REVIEWER, role: 'admin' };
+  const failing = {
+    'an error result': () => answering({ data: null, error: { message: 'profiles unavailable' } }),
+    'a thrown error': () => { throw new Error('profiles exploded'); },
+  };
+  for (const [label, fault] of Object.entries(failing)) {
+    const who = await garageApplicant({ identity: true, onboardingStatus: 'in_review' });
+    const row = await seedSubmittedApplication(db, who, { tradingName: `Unsynced Motors ${label}` });
+    const client = faultyOver('user_registration_profiles', fault);
+    const before = logged.length;
+    const result = await recordDecision(client, actor, row.id, { decision: 'reject', reason: REASON_REJECT });
+    assert.equal(result.application.status, 'rejected', `${label}: the decision is returned as made`);
+    const { rows: [stored] } = await db.query('SELECT status FROM garage_applications WHERE id = $1', [row.id]);
+    assert.equal(stored.status, 'rejected', `${label}: the decision is committed`);
+    const { rows: ledger } = await db.query('SELECT decision FROM garage_application_decisions WHERE application_id = $1', [row.id]);
+    assert.deepEqual(ledger.map((r) => r.decision), ['reject'], `${label}: the ledger is intact`);
+    assert.equal((await auditsFor('GARAGE_APPLICATION_DECISION', row.id)).length, 1, `${label}: the decision is audited`);
+    assert.equal(await onboardingStatus(who), 'in_review', `${label}: the profile did not move`);
+    assert.ok(logged.slice(before).some((line) => /onboarding_status/.test(line) && line.includes(row.id)),
+      `${label}: the failed sync is reported, naming the application`);
+  }
 });

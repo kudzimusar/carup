@@ -29,7 +29,7 @@ router.get('/api/garage-onboarding/application', ...applicant, asyncHandler(asyn
 }));
 
 router.post('/api/garage-onboarding/application', ...applicant, asyncHandler(async (req, res) => {
-  const result = await startApplication(supabase, req.userContext, { supersedes: req.body?.supersedes || null });
+  const result = await startApplication(supabase, req.userContext, { supersedes: req.body?.supersedes || null, req });
   res.status(result.created ? 201 : 200).json(result);
 }));
 
@@ -40,7 +40,7 @@ router.patch('/api/garage-onboarding/application/:applicationId', ...applicant, 
 router.post('/api/garage-onboarding/application/:applicationId/submit', ...applicant, asyncHandler(async (req, res) => {
   // Submission hands the ordinary application to its external reviewer authority. This route cannot
   // approve, activate, create a tenant, grant Garage Admin or publish a Garage.
-  res.json(await submitApplication(supabase, req.userContext, req.params.applicationId));
+  res.json(await submitApplication(supabase, req.userContext, req.params.applicationId, { req }));
 }));
 
 router.get('/api/garage-onboarding/application/:applicationId/evidence', ...applicant, asyncHandler(async (req, res) => {

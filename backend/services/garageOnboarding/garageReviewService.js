@@ -203,6 +203,39 @@ export function approvalBlockers(application, documents = [], identity = null, i
   return blockers;
 }
 
+/**
+ * ADM-006 — the person-level onboarding status after each decision. A different object from the
+ * application (see 20260918090000): the coarse state on the person's registration profile, which
+ * submission already moves to `in_review` and nothing else used to move on.
+ */
+const ONBOARDING_STATUS_AFTER = Object.freeze({
+  start_review: 'in_review',
+  request_more_info: 'in_review',
+  approve: 'approved',
+  reject: 'rejected',
+});
+
+/**
+ * Keep the registration profile in step with a decision that is ALREADY committed.
+ *
+ * Best-effort by design: the authority is the application and, once activated, the tenant
+ * membership — never this profile. A failure is reported (naming the application, so operations can
+ * repair it) and never blocks, reverses or misreports the decision.
+ */
+async function syncRegistrationOnboardingStatus(client, applicantUserId, applicationId, decision) {
+  const onboardingStatus = ONBOARDING_STATUS_AFTER[decision];
+  if (!onboardingStatus) return;
+  try {
+    const { error } = await client
+      .from('user_registration_profiles')
+      .update({ onboarding_status: onboardingStatus, updated_at: new Date().toISOString() })
+      .eq('user_id', applicantUserId);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    console.error(`garageReviewService: onboarding_status not synced to ${onboardingStatus} after ${decision} on application ${applicationId}:`, err?.message || err);
+  }
+}
+
 /** The database's refusal, in the reviewer's words; anything else is a failure, not a finding. */
 function decisionRefusal(error) {
   const message = String(error?.message || '');
@@ -274,6 +307,9 @@ export async function recordDecision(client = defaultClient, actor = {}, applica
   });
   if (error) throw decisionRefusal(error);
   if (!outcome?.application) throw new DatabaseError('The decision returned no application.');
+
+  // The decision is committed; the profile follows it whatever happens next.
+  await syncRegistrationOnboardingStatus(client, current.applicant_user_id, applicationId, decision);
 
   await writeAudit(client, {
     req: options.req,
