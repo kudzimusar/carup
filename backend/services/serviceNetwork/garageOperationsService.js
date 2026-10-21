@@ -297,8 +297,7 @@ async function assertBranchMayDeactivate(client, tenantId, branchId) {
 
   const { data: workOrders, error: workError } = await client
     .from('mechanic_work_orders')
-    .select('id, status')
-    .eq('tenant_id', tenantId)
+    .select('id, status, tenant_id')
     .eq('branch_id', branchId);
   if (workError) throw new DatabaseError(`Could not verify branch work orders: ${workError.message}`);
   const terminal = new Set(['completed', 'cancelled', 'complete', 'closed', 'done']);
@@ -743,8 +742,17 @@ export async function removeGarageStaffCertification(client, actor = {}, userId,
 export async function listGarageStaffOperations(client, actor = {}) {
   const tenantId = adminTenant(actor);
 
+  const membersResult = await client
+    .from('tenant_users')
+    .select('id, user_id, role, joined_at')
+    .eq('tenant_id', tenantId)
+    .order('joined_at', { ascending: true });
+  if (membersResult.error) throw new DatabaseError(`Could not load garage members: ${membersResult.error.message}`);
+
+  const members = membersResult.data || [];
+  const memberIds = [...new Set(members.map((m) => m.user_id).filter(Boolean))];
+
   const [
-    membersResult,
     usersResult,
     profilesResult,
     branchesResult,
@@ -753,8 +761,9 @@ export async function listGarageStaffOperations(client, actor = {}) {
     skillsResult,
     certificationsResult,
   ] = await Promise.all([
-    client.from('tenant_users').select('id, user_id, role, joined_at').eq('tenant_id', tenantId).order('joined_at', { ascending: true }),
-    client.from('users').select('id, name, email'),
+    memberIds.length
+      ? client.from('users').select('id, name, email').in('id', memberIds)
+      : Promise.resolve({ data: [], error: null }),
     client.from('garage_staff_profiles').select('*').eq('tenant_id', tenantId),
     client.from('garage_branches').select('id, name, code, is_active').eq('tenant_id', tenantId),
     client.from('garage_staff_branch_assignments').select('*').eq('tenant_id', tenantId).is('ended_at', null),
@@ -764,7 +773,6 @@ export async function listGarageStaffOperations(client, actor = {}) {
   ]);
 
   for (const [label, result] of [
-    ['members', membersResult],
     ['users', usersResult],
     ['staff profiles', profilesResult],
     ['branches', branchesResult],
@@ -776,9 +784,7 @@ export async function listGarageStaffOperations(client, actor = {}) {
     if (result.error) throw new DatabaseError(`Could not load garage ${label}: ${result.error.message}`);
   }
 
-  const members = membersResult.data || [];
-  const ids = new Set(members.map((m) => m.user_id));
-  const usersById = new Map((usersResult.data || []).filter((u) => ids.has(u.id)).map((u) => [u.id, u]));
+  const usersById = new Map((usersResult.data || []).map((u) => [u.id, u]));
   const profileByUser = new Map((profilesResult.data || []).map((p) => [p.user_id, p]));
   const branchById = new Map((branchesResult.data || []).map((b) => [b.id, b]));
   const departmentById = new Map((departmentsResult.data || []).map((d) => [d.id, d]));
