@@ -54,6 +54,7 @@ function membershipRefusal(error) {
   }
   if (message.includes('GARAGE_MEMBERSHIP_ROLE_INVALID')) return new ValidationError(`role must be one of: ${GARAGE_MEMBER_ROLES.join(', ')}.`);
   if (message.includes('GARAGE_MEMBERSHIP_NOT_A_GARAGE')) return new ForbiddenError('This action is for a garage; the organisation you selected is not one.');
+  if (message.includes('GARAGE_MEMBERSHIP_BRANCH_MANAGER')) return new ConflictError('This person manages a branch. Reassign or clear that branch manager before removing them.');
   return new DatabaseError(`That membership could not be changed: ${message}`);
 }
 
@@ -101,14 +102,14 @@ export async function listMembers(client = defaultClient, actor = {}) {
   };
 }
 
-/** Remove someone from this garage. Ends future authority; touches no record of work already done. */
+/** Remove someone from this garage. OPS01 closes live branch placements in the same transaction, refuses removal of a current branch manager, ends future authority, and touches no record of work already done. */
 export async function removeMember(client = defaultClient, actor = {}, userId, options = {}) {
   const tenantId = requireGarageTenant(actor, GARAGE_ADMIN_ROLES);
   const removerId = actorId(actor);
   const target = String(userId || '').trim();
   if (!target) throw new ValidationError('Say who you are removing.');
 
-  const { data: outcome, error } = await client.rpc('remove_garage_member', {
+  const { data: outcome, error } = await client.rpc('remove_garage_member_ops01', {
     p_tenant_id: tenantId,
     p_user_id: target,
     p_actor_user_id: String(removerId),
