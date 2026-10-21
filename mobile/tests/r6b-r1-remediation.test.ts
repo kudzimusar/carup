@@ -172,6 +172,10 @@ describe('Inbox canonical context and unread convergence', () => {
     expect(thread).toContain('invalidateQueries({ queryKey: threadListKey })');
     expect(thread).toContain('refetchQueries({ queryKey: threadListKey })');
     expect(header).toContain('communicationQueryKeys.threads(communicationScope)');
+    // CARUP-MVP-STAB-01 F-031: the shared unread cache feeds a count of CONVERSATIONS with unread
+    // messages; summing per-thread message counts is gone.
+    expect(header).toMatch(/Number\(thread\?\.unread_count \|\| 0\) > 0/);
+    expect(header).not.toMatch(/sum \+ Math\.max\(0, Number\(thread\?\.unread_count/);
     expect(root).toContain('invalidateQueries({ queryKey: communicationQueryKeys.root })');
     expect(root).toContain("refetchQueries({ queryKey: communicationQueryKeys.root, type: 'active' })");
   });

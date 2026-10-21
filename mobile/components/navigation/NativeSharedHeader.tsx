@@ -84,13 +84,21 @@ export function NativeSharedHeader() {
     staleTime: 30_000,
   });
 
-  const unreadCount = useMemo(
-    () => (threadsQuery.data?.threads || []).reduce(
-      (sum: number, thread: any) => sum + Math.max(0, Number(thread?.unread_count || 0)),
-      0,
-    ),
+  // CARUP-MVP-STAB-01 F-031: this is the Inbox, and its number counts CONVERSATIONS with something
+  // unread. `unread_count` counts unread messages inside one thread, so summing it overstated the
+  // badge; and a failed read is said to be unknown instead of looking like zero.
+  const unreadConversations = useMemo(
+    () => (threadsQuery.data?.threads || []).filter(
+      (thread: any) => Number(thread?.unread_count || 0) > 0,
+    ).length,
     [threadsQuery.data],
   );
+  const unreadUnavailable = canReadInbox && threadsQuery.isError;
+  const inboxLabel = unreadUnavailable
+    ? 'Inbox, unread count unavailable'
+    : unreadConversations > 0
+      ? `Inbox, ${unreadConversations} unread conversation${unreadConversations === 1 ? '' : 's'}`
+      : 'Inbox';
 
   return (
     <View
@@ -110,13 +118,13 @@ export function NativeSharedHeader() {
       <CarUpWordmark tone="light" />
       <View
         accessibilityRole="toolbar"
-        accessibilityLabel="Notifications and Profile"
+        accessibilityLabel="Inbox and Profile"
         style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2] }}
       >
         <HeaderControl
-          icon="notifications-outline"
-          label={unreadCount > 0 ? `Notifications, ${unreadCount} unread conversations` : 'Notifications'}
-          badge={unreadCount > 0 ? unreadCount : undefined}
+          icon="chatbubbles-outline"
+          label={inboxLabel}
+          badge={!unreadUnavailable && unreadConversations > 0 ? unreadConversations : undefined}
           onPress={() => router.push('/(tabs)/inbox' as never)}
         />
         <HeaderControl
