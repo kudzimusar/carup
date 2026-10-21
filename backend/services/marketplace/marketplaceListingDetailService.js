@@ -77,11 +77,13 @@ import {
 } from '../reservation/reservationProjectionService.js';
 import { NotFoundError } from '../../utils/errors.js';
 
+// Plain words, and no verification claim (CARUP-MVP-STAB-01 F-013): nothing about an inquiry is
+// "verified", and "inquiry flow" / "backend-governed" are implementation words, not buyer guidance.
 const PUBLIC_SAFETY_WARNINGS = [
   'Do not pay outside CarUp.',
-  'Use the verified inquiry flow to contact the seller.',
+  'Contact the seller through CarUp and keep the conversation in CarUp messages.',
   'An independent inspection is recommended before purchase.',
-  'Public trust badges are evidence-based and backend-governed.',
+  'CarUp shows a badge only when its records support it.',
   'Report any listing that asks you to transact off-platform.',
 ];
 

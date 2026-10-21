@@ -361,16 +361,21 @@ describe('VehicleDetail — insufficient evidence is its own state, not a low sc
 
   it('surfaces the evidence basis, the confidence and the unbacked legacy claim', async () => {
     servePassportTrust(insufficient)
-    renderDetail()
+    const { container } = renderDetail()
     await waitFor(() => expect(screen.getByTestId('trust-evidence-basis')).toBeTruthy())
 
     expect(screen.getByTestId('trust-evidence-basis').textContent).toMatch(/0 of 7/)
     expect(screen.getByTestId('trust-unbacked-claims').textContent).toBe('2')
     // Confidence is floored by the evidence that exists, and the page publishes that axis.
     expect(screen.getByTestId('trust-confidence').textContent).toMatch(/Low confidence/i)
-    // The disclosure that a stored legacy flag is unbacked must actually reach a shopper.
+    // The disclosure that a stored legacy flag is unbacked must actually reach a shopper — in words a
+    // shopper can read. CARUP-MVP-STAB-01 F-011 replaced the backend sentence, which names the
+    // `zimra_verified` column, with the shared customer sentence. Stronger than the pin it replaces:
+    // the disclosure must be present AND the internal column name and backend wording must be absent.
     expect(screen.getByTestId('trust-known-limitations').textContent)
-      .toMatch(/'zimra_verified' flag .* is not supported by any authoritative record/i)
+      .toContain('A stored vehicle check is not backed by an official record, so CarUp does not show it.')
+    expect(container.textContent || '').not.toMatch(/zimra_verified/i)
+    expect(container.textContent || '').not.toMatch(/not supported by any authoritative record/i)
   })
 
   it('prints "Not recorded", never 0, for an evidence count that was never resolved', async () => {
@@ -405,14 +410,21 @@ describe('VehicleDetail — a stale evaluation is never shown as a current score
 
   it('withholds the number and names the superseded rules', async () => {
     servePassportTrust(stale)
-    renderDetail()
+    const { container } = renderDetail()
     await waitFor(() => expect(screen.getByTestId('trust-score-label')).toBeTruthy())
 
     expect(screen.queryByTestId('trust-score-value')).toBeNull()
     expect(screen.getByTestId('trust-score-label').textContent).toMatch(/out of date/i)
     expect(screen.getByTestId('trust-score-badge').textContent).not.toMatch(/\d/)
     expect(screen.getByTestId('trust-state-detail').textContent).toMatch(/superseded rules/i)
-    expect(screen.getByTestId('trust-known-limitations').textContent).toContain('trust-decision-v1')
+    // The limitation that explains the withholding reaches the buyer as the shared customer sentence
+    // (CARUP-MVP-STAB-01 F-011), which deliberately names no version. The superseded rules are still
+    // named — by `trust-state-detail` above — and this pin now also asserts what the old one could not:
+    // neither the internal version string nor the backend sentence is shown.
+    expect(screen.getByTestId('trust-known-limitations').textContent)
+      .toContain("This vehicle's Trust result is out of date and is waiting to be refreshed.")
+    expect(container.textContent || '').not.toContain('trust-decision-v1')
+    expect(container.textContent || '').not.toMatch(/calculation version|not published as canonical/i)
   })
 
   it('fails closed: a score arriving with a non-evaluated state is still not printed', async () => {

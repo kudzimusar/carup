@@ -257,13 +257,34 @@ export async function getVehicleTimeline(vin) {
   return events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 }
 
+/**
+ * What the odometer readings can support (CARUP-MVP-STAB-01 F-012; the OPEN "odometer-audit returns
+ * verified:true for any unknown VIN" entry in docs/hardening/AUTHORITY_AUDIT_REGISTER.md).
+ *
+ *   unavailable                — a read failed: nothing is known in either direction
+ *   not_evaluated              — no such vehicle, or no readings
+ *   insufficient_evidence      — exactly one reading
+ *   inconsistency_detected     — two or more readings, at least one goes backwards
+ *   no_inconsistency_detected  — two or more readings, none goes backwards
+ *
+ * TWO READINGS MINIMUM. Consistency is a relation between readings, so a single reading is consistent
+ * with nothing; the fraud engine applies the same rule before it analyses odometer readings at all
+ * (services/fraud/fraudEngine.js: `if (readings.length < 2) return signals;`).
+ */
+function odometerEvidenceState({ readFailed, vehicleKnown, readingCount, anomalyCount }) {
+  if (readFailed) return 'unavailable';
+  if (!vehicleKnown || readingCount === 0) return 'not_evaluated';
+  if (readingCount < 2) return 'insufficient_evidence';
+  return anomalyCount > 0 ? 'inconsistency_detected' : 'no_inconsistency_detected';
+}
+
 export async function runOdometerAudit(vin) {
   // Use the vehicle's recorded base mileage
-  const { data: vehicle } = await supabase.from('vehicles').select('mileage').eq('vin', vin).single();
+  const { data: vehicle, error: vehicleError } = await supabase.from('vehicles').select('mileage').eq('vin', vin).single();
   const baseMileage = vehicle ? vehicle.mileage : 0;
   
   const nowIso = new Date().toISOString();
-  const { data: serviceLogs } = await supabase
+  const { data: serviceLogs, error: serviceLogsError } = await supabase
     .from('partsentry_logs')
     .select('mileage, timestamp, id')
     .eq('vin', vin)
@@ -300,13 +321,30 @@ export async function runOdometerAudit(vin) {
     lastMileage = log.mileage;
   }
 
+  // PostgREST answers `.single()` with PGRST116 when there is no such row: an unknown VIN, which is
+  // `not_evaluated`. Any other error is a failed read, which is `unavailable`.
+  const readFailed = Boolean(serviceLogsError) || Boolean(vehicleError && vehicleError.code !== 'PGRST116');
+  const evidenceState = odometerEvidenceState({
+    readFailed,
+    vehicleKnown: Boolean(vehicle),
+    readingCount: deduplicatedLogs.length,
+    anomalyCount: anomalies.length,
+  });
+
   return {
     vin,
+    // DEPRECATED — kept with its old value for legacy clients. It is VACUOUS with fewer than two
+    // readings (zero or one reading, an unknown VIN and a failed read all answer `true`), so it is not
+    // a consistency claim; read `evidence_state`.
     verified: anomalies.length === 0,
     checkpointsCount: deduplicatedLogs.length,
     baseMileage,
     anomalies,
-    milestones: deduplicatedLogs
+    milestones: deduplicatedLogs,
+    evidence_state: evidenceState,
+    // Distinct readings behind `evidence_state` (partsentry_logs.mileage is NOT NULL); null when a read
+    // failed, because a failed read counted nothing — the number is unknown, not zero.
+    observation_count: evidenceState === 'unavailable' ? null : deduplicatedLogs.length,
   };
 }
 
@@ -459,7 +497,11 @@ async function computeVehicleTrustScoreContext(vin, { vehicleRow, ledgerVerdict 
       zimra_duty: dutyPaidReal,
       zrp_police_cleared: policeVerifiedReal,
       blockchain_audit_valid: ledgerAudit.verified,
+      // DEPRECATED, legacy value unchanged: vacuously true with fewer than two readings. The two keys
+      // below say what the readings support (F-012); an audit that reports no state is `unavailable`.
       odometer_consistent: odoAudit.verified,
+      odometer_evidence_state: odoAudit.evidence_state ?? 'unavailable',
+      odometer_observation_count: Number.isInteger(odoAudit.observation_count) ? odoAudit.observation_count : null,
       maintenance_logs_count: serviceCount || 0,
       stolen_alert_active: !!stolenRecord,
       evidence_trust_impact: evidenceTrustImpact,

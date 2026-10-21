@@ -86,9 +86,14 @@ export function TrustSummaryPanel({
           testid="marketplace-evidence-status"
         />
         <TrustRow label="Passport" value={trust.vehicle_passport_available ? 'Available' : 'Not available'} />
+        {/* 'clear' is what the backend answers for ZERO PartSentry records (and for rows with no
+            suspicion status), so it is not an all-clear verdict: it reads "No concerns recorded",
+            which is true in every one of those cases (CARUP-MVP-STAB-01 F-013). */}
         <TrustRow
           label="Suspicion"
-          value={trust.suspicion_status === 'unavailable' ? 'Not checked' : trust.suspicion_status}
+          value={trust.suspicion_status === 'unavailable'
+            ? 'Not checked'
+            : trust.suspicion_status === 'clear' ? 'No concerns recorded' : trust.suspicion_status}
           testid="marketplace-suspicion-status"
         />
       </div>

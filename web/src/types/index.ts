@@ -2171,19 +2171,47 @@ export interface VehicleEvidenceSummary {
   file_url?: string | null;
 }
 
+/**
+ * What the odometer readings support — `runOdometerAudit().evidence_state` (CARUP-MVP-STAB-01 F-012).
+ * Consistency needs at least two readings; a failed read is `unavailable`, never consistent.
+ */
+export type OdometerEvidenceState =
+  | 'not_evaluated'
+  | 'insufficient_evidence'
+  | 'no_inconsistency_detected'
+  | 'inconsistency_detected'
+  | 'unavailable';
+
 // 23. TrustMetrics — exact keys from computeVehicleTrustScore() (the read-only trustGraph report)
 export interface TrustMetrics {
   cvr_synced: boolean;
   zimra_duty: boolean;
   zrp_police_cleared: boolean;
   blockchain_audit_valid: boolean;
+  /**
+   * @deprecated Vacuously `true` with zero or one reading, an unknown VIN or a failed read. Never
+   * render it; read `odometer_evidence_state`.
+   */
   odometer_consistent: boolean;
+  /** Absent only from a backend older than F-012 — treat absence as "could not be checked". */
+  odometer_evidence_state?: OdometerEvidenceState | string;
+  /** Distinct readings behind the state; null when the read failed. */
+  odometer_observation_count?: number | null;
   maintenance_logs_count: number;
   stolen_alert_active: boolean;
   evidence_trust_impact?: number;
   verified_evidence_count?: number;
   rejected_evidence_count?: number;
 }
+
+/**
+ * The passport's non-score signals (`passport.trustSignals`): TrustMetrics minus the raw scoring
+ * component, stamped so no client mistakes them for the Trust assessment. Every key is optional —
+ * an absent signal states nothing in either direction.
+ */
+export type PassportTrustSignals = Partial<Omit<TrustMetrics, 'evidence_trust_impact'>> & {
+  signals_are_not_a_trust_score?: boolean;
+};
 
 // 24. TrustReport — from computeVehicleTrustScore() (the read-only trustGraph report)
 export interface TrustReport {
@@ -2194,7 +2222,10 @@ export interface TrustReport {
 
 // 25. ChainVerification — from verifyChain()
 export interface ChainVerification {
+  /** True for an EMPTY chain too (nothing to tamper with) — read `count` before saying anything. */
   verified: boolean;
+  /** Ledger entries checked. Present when the check passed; absent when it failed. */
+  count?: number;
   integrity?: string;
   blocksChecked?: number;
   errors?: string[];
@@ -2203,7 +2234,19 @@ export interface ChainVerification {
 // 26. PassportVerificationSource — UI model for the Verification tab
 export interface PassportVerificationSource {
   label: string;
-  status: 'verified' | 'recorded' | 'none_recorded' | 'not_verified' | 'warning' | 'unknown';
+  status:
+    | 'verified'
+    | 'recorded'
+    | 'none_recorded'
+    | 'not_verified'
+    | 'warning'
+    | 'unknown'
+    // CARUP-MVP-STAB-01 F-012/F-013 — states that report a result without claiming verification.
+    | 'not_evaluated'
+    | 'insufficient_evidence'
+    | 'no_inconsistency_detected'
+    | 'unavailable'
+    | 'intact';
   detail?: string;
 }
 
@@ -2344,6 +2387,8 @@ export interface VehiclePassport {
   lifecycle?: VehicleLifecycleProjection;
   evidenceVault?: VehicleEvidence[];
   trustReport: TrustReport;
+  /** Observed non-score signals (server.js `trustSignals`); null when the passport carried none. */
+  trustSignals?: PassportTrustSignals | null;
   chainVerification: ChainVerification;
   identity: VehicleIdentity;
   plateHistory: VehiclePlateHistory[];
