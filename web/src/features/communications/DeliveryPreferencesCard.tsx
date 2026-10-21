@@ -12,15 +12,17 @@ import {
   PREFERENCE_SAVE_FAILED,
   PREFERENCES_READ_FAILED,
   channelControl,
-  preferencesFrom,
+  channelSwitchOperable,
+  preferenceRefusalCopy,
   readPreferenceView,
+  savePreferenceChange,
   type PreferenceView,
 } from './deliveryPreferences'
 
 /**
  * Channels & consent (CARUP-MVP-STAB-01 F-018). The rules live in ./deliveryPreferences; this card
  * only renders them: no switch before a successful read, one preference per save, a failure said out
- * loud, and a channel offered as a working switch only while the runtime can deliver on it.
+ * loud, a channel turned ON only while the runtime can deliver on it, and OFF always allowed.
  */
 export function DeliveryPreferencesCard({
   read,
@@ -47,26 +49,24 @@ export function DeliveryPreferencesCard({
     setAttempt((count) => count + 1)
   }
 
-  async function change(key: string, value: boolean) {
-    // D2: nothing changes before the current values were read, and one change at a time.
-    if (view.state !== 'ready' || savingKey) return
-    const confirmedBefore = view.preferences
+  async function change(key: string, value: boolean, label: string) {
+    if (savingKey) return
     setSavingKey(key)
     setNotice(null)
-    try {
-      const confirmed = preferencesFrom(await save({ [key]: value }))
-      if (!confirmed) throw new Error('CarUp returned no preference values')
-      const next = { ...confirmedBefore, ...confirmed }
-      setView({ state: 'ready', preferences: next })
-      setNotice(Boolean(next[key]) === value
-        ? { tone: 'saved', text: PREFERENCE_SAVED }
-        : { tone: 'error', text: PREFERENCE_SAVE_FAILED })
-    } catch {
+    const result = await savePreferenceChange({ view, key, value, capability, checking, save })
+    if (result.outcome === 'saved') {
+      setView({ state: 'ready', preferences: result.preferences })
+      setNotice({ tone: 'saved', text: PREFERENCE_SAVED })
+    } else if (result.outcome === 'not_confirmed') {
+      setView({ state: 'ready', preferences: result.preferences })
+      setNotice({ tone: 'error', text: PREFERENCE_SAVE_FAILED })
+    } else if (result.outcome === 'refused') {
+      setNotice({ tone: 'error', text: preferenceRefusalCopy(result.reason, label) })
+    } else {
       // The switches keep the last values CarUp confirmed; nothing is claimed that was not saved.
       setNotice({ tone: 'error', text: PREFERENCE_SAVE_FAILED })
-    } finally {
-      setSavingKey(null)
     }
+    setSavingKey(null)
   }
 
   return (
@@ -101,7 +101,7 @@ export function DeliveryPreferencesCard({
                     id={`pref-${row.key}`}
                     checked={Boolean(view.preferences[row.key])}
                     disabled={Boolean(savingKey)}
-                    onCheckedChange={(checked) => void change(row.key, checked)}
+                    onCheckedChange={(checked) => void change(row.key, checked, row.label)}
                     data-testid={`delivery-pref-${row.key}`}
                   />
                 </div>
@@ -111,13 +111,14 @@ export function DeliveryPreferencesCard({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Delivery channels</p>
               {CHANNEL_ROWS.map((row) => {
                 const control = channelControl(capability, row.channel, { checking })
+                const checked = Boolean(view.preferences[row.key])
                 return (
                   <div key={row.key} className="flex items-start justify-between gap-3" data-availability={control.availability}>
                     <div className="min-w-0">
                       <Label htmlFor={`pref-${row.key}`}>{row.label}</Label>
                       <p
                         id={`pref-${row.key}-availability`}
-                        className={`mt-0.5 text-[11px] ${control.editable ? 'text-gray-400' : 'text-gray-500'}`}
+                        className={`mt-0.5 text-[11px] ${control.canEnable ? 'text-gray-400' : 'text-gray-500'}`}
                         data-testid={`delivery-pref-${row.key}-availability`}
                       >
                         {control.note}
@@ -125,10 +126,11 @@ export function DeliveryPreferencesCard({
                     </div>
                     <Switch
                       id={`pref-${row.key}`}
-                      checked={Boolean(view.preferences[row.key])}
-                      disabled={!control.editable || Boolean(savingKey)}
+                      checked={checked}
+                      // ON can always be turned off; OFF can be turned on only while available.
+                      disabled={Boolean(savingKey) || !channelSwitchOperable(control, checked)}
                       aria-describedby={`pref-${row.key}-availability`}
-                      onCheckedChange={(checked) => void change(row.key, checked)}
+                      onCheckedChange={(next) => void change(row.key, next, row.label)}
                       data-testid={`delivery-pref-${row.key}`}
                     />
                   </div>

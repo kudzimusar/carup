@@ -87,8 +87,12 @@ describe('owner Communications — Channels & consent wiring (F-018)', () => {
     api.updateCommunicationPreferences.mockResolvedValue({ preferences: { transactional_enabled: true, marketing_enabled: true, email_enabled: true, in_app_enabled: true } })
     renderPage()
 
-    const email = await screen.findByTestId('delivery-pref-email_enabled')
-    expect(email).toBeDisabled()
+    // WhatsApp is off and the kill switch holds it: it cannot be turned on, and says why.
+    const whatsapp = await screen.findByTestId('delivery-pref-whatsapp_enabled')
+    expect(whatsapp).toBeDisabled()
+    expect(screen.getByTestId('delivery-pref-whatsapp_enabled-availability').textContent).toContain('Temporarily unavailable')
+    // Email is on: it stays operable so it can be turned off, and still says it is unavailable.
+    expect(screen.getByTestId('delivery-pref-email_enabled')).not.toBeDisabled()
     expect(screen.getByTestId('delivery-pref-email_enabled-availability').textContent).toContain('Temporarily unavailable')
     expect(screen.getByTestId('delivery-pref-in_app_enabled')).not.toBeDisabled()
 

@@ -104,17 +104,22 @@ describe('reading preferences (D2 on the web)', () => {
 })
 
 describe('only a channel the runtime can deliver on looks operational (F-018)', () => {
-  it('kill switch active: email, push, WhatsApp and SMS are disabled and say why', async () => {
+  it('kill switch active: no external channel can be turned on, every one says why — and any that is on can still be turned off', async () => {
     read.mockResolvedValue({ preferences: STORED })
     renderCard()
     await waitFor(() => expect(sw('email_enabled')).toBeTruthy())
 
     for (const key of ['email_enabled', 'push_enabled', 'whatsapp_enabled', 'sms_enabled']) {
-      expect(sw(key), key).toBeDisabled()
       const note = screen.getByTestId(`delivery-pref-${key}-availability`).textContent
       expect(note, key).toContain('Temporarily unavailable')
       expect(note, key).toContain("CarUp isn't sending outside the app right now. Your messages stay in your CarUp Inbox.")
     }
+    // OFF and unavailable: cannot be turned on.
+    expect(sw('whatsapp_enabled')).toBeDisabled()
+    expect(sw('sms_enabled')).toBeDisabled()
+    // ON and unavailable: withdrawing is never blocked by provider readiness (lead decision).
+    expect(sw('email_enabled')).not.toBeDisabled()
+    expect(sw('push_enabled')).not.toBeDisabled()
     // In-app is internal: it is available while internal channels are enabled.
     expect(sw('in_app_enabled')).not.toBeDisabled()
     expect(screen.getByTestId('delivery-pref-in_app_enabled-availability').textContent).toContain('Available')
@@ -134,26 +139,28 @@ describe('only a channel the runtime can deliver on looks operational (F-018)', 
     expect(screen.getByTestId('delivery-pref-email_enabled-availability').textContent).toContain('Temporarily unavailable')
   })
 
-  it('readiness could not be checked: every channel switch is disabled, in-app included', async () => {
+  it('readiness could not be checked: no channel can be turned on, in-app included; those on can be turned off', async () => {
     capabilityState = { capability: UNKNOWN_CAPABILITY, checking: false }
     read.mockResolvedValue({ preferences: STORED })
     renderCard()
     await waitFor(() => expect(sw('in_app_enabled')).toBeTruthy())
 
     for (const key of ['in_app_enabled', 'email_enabled', 'push_enabled', 'whatsapp_enabled', 'sms_enabled']) {
-      expect(sw(key), key).toBeDisabled()
       expect(screen.getByTestId(`delivery-pref-${key}-availability`).textContent, key)
         .toBe('Could not check — Could not check this channel right now.')
     }
+    for (const key of ['whatsapp_enabled', 'sms_enabled']) expect(sw(key), key).toBeDisabled()
+    for (const key of ['in_app_enabled', 'email_enabled', 'push_enabled']) expect(sw(key), key).not.toBeDisabled()
   })
 
-  it('while readiness is still being checked, channels are not offered as working', async () => {
+  it('while readiness is still being checked, a channel that is off cannot be turned on', async () => {
     capabilityState = { capability: UNKNOWN_CAPABILITY, checking: true }
     read.mockResolvedValue({ preferences: STORED })
     renderCard()
-    await waitFor(() => expect(sw('email_enabled')).toBeTruthy())
-    expect(sw('email_enabled')).toBeDisabled()
-    expect(screen.getByTestId('delivery-pref-email_enabled-availability').textContent).toContain('Checking')
+    await waitFor(() => expect(sw('whatsapp_enabled')).toBeTruthy())
+    expect(sw('whatsapp_enabled')).toBeDisabled()
+    expect(screen.getByTestId('delivery-pref-whatsapp_enabled-availability').textContent).toContain('Checking')
+    expect(sw('email_enabled')).not.toBeDisabled()
   })
 
   it('a runtime that can deliver offers the channel switches', async () => {
@@ -229,11 +236,36 @@ describe('saving a change (single key, failure stated)', () => {
     expect(sw('marketing_enabled').getAttribute('aria-checked')).toBe('false')
   })
 
-  it('an unavailable channel cannot be changed at all', async () => {
+  // Lead decision (CARUP-MVP-STAB-01): turning a channel OFF is never blocked by provider readiness.
+  it('on → off while the channel is unavailable is allowed, sent, and then cannot be turned back on', async () => {
+    read.mockResolvedValue({ preferences: STORED })
+    save.mockResolvedValue({ preferences: { ...STORED, email_enabled: false } })
+    renderCard()
+    await waitFor(() => expect(sw('email_enabled')).toBeTruthy())
+    expect(sw('email_enabled').getAttribute('aria-checked')).toBe('true')
+    expect(sw('email_enabled')).not.toBeDisabled()
+
+    await act(async () => { fireEvent.click(sw('email_enabled')) })
+
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenCalledWith({ email_enabled: false })
+    await waitFor(() => expect(sw('email_enabled').getAttribute('aria-checked')).toBe('false'))
+    expect(screen.getByTestId('delivery-preferences-status').textContent).toBe('Preference saved.')
+    // Now OFF and still unavailable: it cannot be switched back on, and still says why.
+    expect(sw('email_enabled')).toBeDisabled()
+    expect(screen.getByTestId('delivery-pref-email_enabled-availability').textContent).toContain('Temporarily unavailable')
+  })
+
+  it('off → on while the channel is unavailable is refused: the switch is inoperable and nothing is sent', async () => {
     read.mockResolvedValue({ preferences: STORED })
     renderCard()
     await waitFor(() => expect(sw('whatsapp_enabled')).toBeTruthy())
+    expect(sw('whatsapp_enabled').getAttribute('aria-checked')).toBe('false')
+    expect(sw('whatsapp_enabled')).toBeDisabled()
+
     await act(async () => { fireEvent.click(sw('whatsapp_enabled')) })
+
     expect(save).not.toHaveBeenCalled()
+    expect(sw('whatsapp_enabled').getAttribute('aria-checked')).toBe('false')
   })
 })
