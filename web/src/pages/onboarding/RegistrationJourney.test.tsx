@@ -12,7 +12,7 @@
  * a registered account type / business type is shown read-only; documents are images only.
  */
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import RegistrationJourney from './RegistrationJourney'
 import userEvent from '@testing-library/user-event'
@@ -296,6 +296,42 @@ describe('RegistrationJourney', () => {
     renderPage()
     await waitFor(() => expect(screen.getByTestId('who-must-act')).toBeTruthy())
     expect(screen.queryByTestId('start-dealer-onboarding')).toBeNull()
+  })
+
+  it('CARUP-MVP-STAB-01 F-019: a registered garage is offered its garage application; a dealer is not', async () => {
+    const garage = { account_kind: 'business', business_type: 'garage', organization_name: 'Moyo Garage', market_relationship: 'zimbabwe_local', country_of_residence: 'Zimbabwe', city: 'Harare', intended_use: 'professional_services' }
+    const established = { ...journeyFixture().journey, steps: { ...journeyFixture().journey.steps, context_established: true } }
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({ profile: garage, journey: established }))
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/onboarding']}>
+        <Routes>
+          <Route path="/onboarding" element={<RegistrationJourney />} />
+          <Route path="/dashboard/garage-setup" element={<div data-testid="at-garage-setup" />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const start = await screen.findByTestId('start-garage-application')
+    expect(start).toHaveTextContent('Start your garage application')
+    fireEvent.click(start)
+    expect(await screen.findByTestId('at-garage-setup')).toBeTruthy()
+    unmount()
+
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({ profile: { ...garage, business_type: 'dealer' }, journey: established }))
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('context-summary')).toBeTruthy())
+    expect(screen.queryByTestId('start-garage-application')).toBeNull()
+  })
+
+  it('CARUP-MVP-STAB-01 F-020: a registered mechanic is told CarUp does not activate independent mechanics — and offered no garage application', async () => {
+    fetchRegistrationJourney.mockResolvedValue(journeyFixture({
+      profile: { account_kind: 'business', business_type: 'mechanic', organization_name: 'Moyo Repairs', market_relationship: 'zimbabwe_local', country_of_residence: 'Zimbabwe', city: 'Harare', intended_use: 'professional_services' },
+      journey: { ...journeyFixture().journey, steps: { ...journeyFixture().journey.steps, context_established: true } },
+    }))
+    renderPage()
+    expect(await screen.findByTestId('mechanic-no-activation')).toHaveTextContent(
+      "CarUp doesn't activate independent mechanic accounts yet. If you work at a garage, ask its administrator to invite you to the garage's workspace.",
+    )
+    expect(screen.queryByTestId('start-garage-application')).toBeNull()
   })
 
   it('the identity wizard drives the applicant routes: start, per-side upload with visible state, submit', async () => {

@@ -97,6 +97,71 @@ export const STATUS_TONE_CLASS: Record<StatusPresentation['tone'], string> = {
   closed: 'bg-gray-500 text-white',
 }
 
+/* ── CARUP-MVP-STAB-01: what CarUp decided, and what still stands in the way ─────────────────── */
+
+/** Where a garage applicant works on their application. */
+export const GARAGE_SETUP_ROUTE = '/dashboard/garage-setup'
+
+/** Where a person verifies their identity — the identity flow on their account setup page. */
+export const IDENTITY_FLOW_ROUTE = '/onboarding'
+
+/**
+ * F-020 — the truthful answer for a mechanic. There is no independent mechanic account to activate
+ * (and none is modelled as a one-person garage); a garage's administrator invites its mechanics.
+ */
+export const MECHANIC_NO_ACTIVATION =
+  "CarUp doesn't activate independent mechanic accounts yet. If you work at a garage, ask its administrator to invite you to the garage's workspace."
+
+/** What the reviewer said to the applicant — sent only while information_required or rejected. */
+export type ApplicantDecision = {
+  decision: string
+  reason_code: string | null
+  reason: string | null
+  decided_at: string
+}
+
+export type IdentityNextStep = 'verify_identity' | 'identity_review_pending' | 'identity_on_hold' | 'try_again_later'
+
+/** The server's identity-prerequisite answer: the same rule the reviewer's approval blocker applies. */
+export type ApprovalPrerequisites = {
+  identity_ready: boolean | null
+  identity_next_step: IdentityNextStep | null
+}
+
+export type IdentityNotice = { text: string; linkLabel: string | null }
+
+/**
+ * The applicant's identity notice, or null when identity does not stand in the way. `null`
+ * readiness means the check could not be made — said as a system problem, never as "not verified".
+ */
+export function identityNotice(prerequisites: ApprovalPrerequisites | null | undefined): IdentityNotice | null {
+  if (!prerequisites || prerequisites.identity_ready === true) return null
+  if (prerequisites.identity_ready !== false) {
+    return {
+      text: 'CarUp could not check your identity status just now. This is a system problem, not a decision about you — try again later.',
+      linkLabel: null,
+    }
+  }
+  const lead = 'Before CarUp can approve your garage, your identity must be verified.'
+  switch (prerequisites.identity_next_step) {
+    case 'identity_review_pending':
+      return { text: `${lead} Your identity documents are with CarUp for review.`, linkLabel: 'See your identity status' }
+    case 'identity_on_hold':
+      return { text: `${lead} Identity-dependent steps are paused on your account; your account setup page explains what happens next.`, linkLabel: 'Open your account setup' }
+    default:
+      return { text: lead, linkLabel: 'Verify your identity' }
+  }
+}
+
+/** Who holds an application now, as the reviewer reads it (server-derived). */
+export type WhoMustAct = 'carup_review' | 'applicant' | 'none'
+
+export const WHO_MUST_ACT_LABEL: Record<WhoMustAct, string> = {
+  carup_review: 'Waiting on CarUp',
+  applicant: 'Waiting on the applicant',
+  none: 'Nothing outstanding',
+}
+
 /** PO-2 field 6 — a declaration, not proof. */
 export const APPLICANT_RELATIONSHIPS = [
   ['owner', 'I own this business'],

@@ -22,6 +22,7 @@ import { CheckCircle, Circle, Lock, Camera, RefreshCw, ShieldCheck, Hourglass, A
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
+import { GARAGE_SETUP_ROUTE, MECHANIC_NO_ACTIVATION } from '@/lib/garageOnboarding'
 
 type FieldCandidate = { state: string; value?: string; extracted_from?: string }
 
@@ -400,6 +401,17 @@ export default function RegistrationJourney() {
             <Button size="sm" variant="outline" onClick={() => navigate('/dealer/onboarding')} data-testid="start-dealer-onboarding">
               Start Dealer onboarding
             </Button>
+          )}
+          {/* CARUP-MVP-STAB-01 F-019: a registered garage's onboarding is its garage application. The
+              application's own gate (the server's) still decides; this only shows the way there. */}
+          {journey.journey.steps.context_established && journey.profile?.account_kind === 'business' && journey.profile?.business_type === 'garage' && (
+            <Button size="sm" variant="outline" onClick={() => navigate(GARAGE_SETUP_ROUTE)} data-testid="start-garage-application">
+              Start your garage application
+            </Button>
+          )}
+          {/* F-020: no independent mechanic activation exists, so none is offered or implied. */}
+          {journey.profile?.account_kind === 'business' && journey.profile?.business_type === 'mechanic' && (
+            <p className="text-sm text-muted-foreground" data-testid="mechanic-no-activation">{MECHANIC_NO_ACTIVATION}</p>
           )}
           <div className="border-t border-border pt-3 space-y-1">
             {journey.journey.locked_capabilities.map((lock) => (

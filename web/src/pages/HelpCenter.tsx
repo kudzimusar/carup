@@ -92,9 +92,10 @@ const FAQS: FAQ[] = [
   {
     id: 'faq-9',
     category: 'mechanic',
-    question: 'How do independent garages join the CarUp Mechanic network?',
-    answer: 'Independent mechanics can apply through the Mechanic Directory with their trade certifications and garage address. CarUp does not inspect a garage or accredit anyone, and it awards no reputation points — listing creates a directory entry and access to write repair records, not an endorsement.',
-    tags: ['mechanics', 'garages', 'PartSentry', 'accreditation']
+    // CARUP-MVP-STAB-01 F-020: there is no Mechanic Directory and no independent mechanic activation.
+    question: 'How do garages and mechanics join CarUp?',
+    answer: 'Garages and service centres register on CarUp and apply for a garage workspace, and CarUp reviews each application. Independent mechanics can\'t apply on their own yet — a garage can invite its mechanics to join its workspace. CarUp does not inspect garages or accredit anyone, and listing does not make a garage a CarUp partner.',
+    tags: ['mechanics', 'garages', 'garage application', 'accreditation']
   }
 ];
 
@@ -228,6 +229,12 @@ export default function HelpCenter() {
     setSelectedCategory(null);
   };
 
+  // CARUP-MVP-STAB-01 F-026: a popular search is exactly typing its text — the query only; the
+  // selected category stays, as it does when someone types.
+  const handleSuggestionClick = (query: string) => {
+    setSearchQuery(query);
+  };
+
   const handleCategorySelect = (categoryId: string) => {
     if (selectedCategory === categoryId) {
       setSelectedCategory(null); // Deselect if already selected
@@ -295,16 +302,17 @@ export default function HelpCenter() {
             <span className="font-medium text-gray-500 flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-orange-400" /> Popular searches:
             </span>
+            {/* Each one is a query the FAQs actually answer (four of the five old phrases matched nothing). */}
             {[
-              'ZINARA clearance',
+              'ZINARA',
               'PartSentry',
-              'Transit imports',
-              'ZiG payments',
-              'Trust score calculation'
+              'Transit',
+              'ZiG',
+              'Trust score'
             ].map((tag) => (
               <button
                 key={tag}
-                onClick={() => handleTagClick(tag)}
+                onClick={() => handleSuggestionClick(tag)}
                 className="min-h-11 sm:min-h-0 px-3 py-1.5 rounded-full bg-[hsl(222,47%,12%)] border border-[hsl(222,47%,20%)] text-xs text-gray-300 hover:text-orange-400 hover:border-orange-500/30 transition-all duration-200"
               >
                 {tag}

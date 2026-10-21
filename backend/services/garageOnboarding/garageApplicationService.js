@@ -1,5 +1,11 @@
 import { supabase as defaultClient } from '../../db/supabase.js';
+import { logAuditEvent } from '../auditLogger.js';
 import { ValidationError, ForbiddenError, NotFoundError, ConflictError, DatabaseError } from '../../utils/errors.js';
+// The ONE identity-prerequisite rule, read from the reviewer's side so the applicant is told exactly
+// what blocks the reviewer (CARUP-MVP-STAB-01). A pure read: it decides and grants nothing. (The
+// reviewer module reaches back into this one through garageEvidenceService only inside functions,
+// so the import cycle is inert at load time.)
+import { applicantIdentityPrerequisite } from './garageReviewService.js';
 // C3 deliberately does not import #209's wider Service Network lane. This is the frozen Garage
 // application vocabulary the source service consumed; it validates applicant input only and grants
 // no publication, tenant, membership, mechanic, or reviewer authority.
@@ -177,9 +183,55 @@ export async function countLiveEvidence(client = defaultClient, applicationId) {
   return count || 0;
 }
 
-/** The applicant's own live application, or the most recent terminal one. */
-export async function getMyApplication(client = defaultClient, actor = {}) {
-  const userId = requireApplicant(actor);
+/**
+ * The application as its APPLICANT sees it. Everything they gave CarUp and the state it is in — but
+ * not which reviewer decided it (OC-5C: the applicant's projection never carries the reviewer's
+ * identity). `decision_reason` stays: it is what the reviewer wrote TO the applicant.
+ */
+function toApplicantView(row) {
+  if (!row) return row;
+  const { decided_by_user_id: _reviewer, ...view } = row;
+  return view;
+}
+
+/**
+ * The decision that put an application in a state the applicant must read: CarUp asked for more
+ * (information_required) or closed it (rejected). Nothing else is "the" decision — a pending
+ * application has none to show, and an earlier question answered by a resubmission is history.
+ */
+const DECISION_SHOWN_FOR = Object.freeze({
+  information_required: 'request_more_info',
+  rejected: 'reject',
+});
+
+/**
+ * What the reviewer said to the applicant, and when — never who said it. The ledger's free-text
+ * `reason` IS the applicant-facing reason (the reviewer is told "the applicant sees this"); the
+ * reviewer's identity and role are not selected at all.
+ */
+async function latestApplicantDecision(client, application) {
+  const decision = application ? DECISION_SHOWN_FOR[application.status] : null;
+  if (!decision) return null;
+  const { data, error } = await client
+    .from('garage_application_decisions')
+    .select('decision, reason_code, reason, created_at')
+    .eq('application_id', application.id)
+    .eq('decision', decision)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new DatabaseError(`Could not load CarUp's decision on your application: ${error.message}`);
+  if (!data) return null;
+  return {
+    decision: data.decision,
+    reason_code: data.reason_code ?? null,
+    reason: data.reason ?? null,
+    decided_at: data.created_at,
+  };
+}
+
+/** The applicant's own applications, newest first, and which one is "the" application. */
+async function readOwnApplications(client, userId) {
   const { data, error } = await client
     .from('garage_applications')
     .select('*')
@@ -190,9 +242,15 @@ export async function getMyApplication(client = defaultClient, actor = {}) {
 
   const rows = data || [];
   const live = rows.find((r) => LIVE_STATUSES.includes(r.status)) || null;
-  const latest = live || rows[0] || null;
+  return { rows, latest: live || rows[0] || null };
+}
+
+/** The applicant's own live application, or the most recent terminal one. */
+export async function getMyApplication(client = defaultClient, actor = {}, deps = {}) {
+  const userId = requireApplicant(actor);
+  const { rows, latest } = await readOwnApplications(client, userId);
   return {
-    application: latest,
+    application: toApplicantView(latest),
     // History matters for PO-5: a reapplication must be able to show what it follows.
     history: rows.filter((r) => r !== latest).map((r) => ({
       id: r.id, status: r.status, decided_at: r.decided_at,
@@ -200,7 +258,36 @@ export async function getMyApplication(client = defaultClient, actor = {}) {
     })),
     blockers: latest ? submissionBlockers(latest, latest ? await countLiveEvidence(client, latest.id) : null) : null,
     editable: Boolean(latest && APPLICANT_EDITABLE.includes(latest.status)),
+    latest_decision: await latestApplicantDecision(client, latest),
+    // Only an application still heading for a decision waits on an approval.
+    approval_prerequisites: latest && LIVE_STATUSES.includes(latest.status)
+      ? await applicantIdentityPrerequisite(client, userId, deps)
+      : null,
   };
+}
+
+/**
+ * ADM-006 — the applicant's own lifecycle steps in the audit trail. The actor and the application,
+ * never what they typed (a garage name, a phone number and an address are the applicant's, not the
+ * audit trail's).
+ *
+ * Written AFTER the change, so the trail never records a creation or a submission that did not
+ * happen; and best-effort, because the applicant's completed work must not be reported as failed
+ * once it has been saved. A failed write is reported for operations, naming the application.
+ */
+async function auditApplicantStep(client, actor, event) {
+  try {
+    const result = await logAuditEvent(client, {
+      actor_user_id: actorId(actor),
+      actor_role: actor.role || null,
+      targetType: 'garage_application',
+      targetId: event.new_value.application_id,
+      ...event,
+    });
+    if (!result.success) throw new Error(result.error || result.fallbackError || 'unknown error');
+  } catch (err) {
+    console.error(`garageApplicationService: ${event.event_type} not audited for application ${event.new_value.application_id}:`, err?.message || err);
+  }
 }
 
 /**
@@ -209,21 +296,31 @@ export async function getMyApplication(client = defaultClient, actor = {}) {
  * Idempotent by design: a double-tap on "Finish setting up your garage", or a retried request, must
  * not create two applications. The partial unique index is the backstop if two requests race.
  */
-export async function startApplication(client = defaultClient, actor = {}, { supersedes = null } = {}) {
+export async function startApplication(client = defaultClient, actor = {}, { supersedes = null, req = null } = {}) {
   const userId = requireApplicant(actor);
 
-  const existing = await getMyApplication(client, actor);
-  if (existing.application && LIVE_STATUSES.includes(existing.application.status)) {
-    return { application: existing.application, created: false, blockers: existing.blockers };
-  }
+  // The live application, as the caller would read it — returned as is, never duplicated.
+  const liveOne = async () => {
+    const { latest } = await readOwnApplications(client, userId);
+    if (!latest || !LIVE_STATUSES.includes(latest.status)) return { latest, live: null };
+    return {
+      latest,
+      live: {
+        application: toApplicantView(latest),
+        created: false,
+        blockers: submissionBlockers(latest, await countLiveEvidence(client, latest.id)),
+      },
+    };
+  };
+
+  const { latest, live } = await liveOne();
+  if (live) return live;
 
   // PO-5: a new application may follow a rejected one, carrying the link so the prior audit trail
   // stays attached rather than being overwritten.
   let supersedesId = null;
   if (supersedes) {
-    const prior = (existing.application && existing.application.id === supersedes)
-      ? existing.application
-      : null;
+    const prior = (latest && latest.id === supersedes) ? latest : null;
     const priorRow = prior || (await client
       .from('garage_applications').select('id, applicant_user_id, status')
       .eq('id', supersedes).maybeSingle()).data;
@@ -245,12 +342,20 @@ export async function startApplication(client = defaultClient, actor = {}, { sup
     // 23505 = the partial unique index caught a race. The other request won; return its row rather
     // than failing a person who merely double-tapped.
     if (String(error.code) === '23505') {
-      const again = await getMyApplication(client, actor);
-      if (again.application) return { application: again.application, created: false, blockers: again.blockers };
+      const again = await liveOne();
+      if (again.live) return again.live;
     }
     throw new DatabaseError(`Could not start your application: ${error.message}`);
   }
-  return { application: data, created: true, blockers: submissionBlockers(data) };
+
+  // Only a real creation is audited: the idempotent and race-lost answers above built nothing.
+  await auditApplicantStep(client, actor, {
+    req,
+    event_type: 'GARAGE_APPLICATION_CREATED',
+    source_route: '/api/garage-onboarding/application',
+    new_value: { application_id: data.id, status: data.status, supersedes_application_id: data.supersedes_application_id ?? null },
+  });
+  return { application: toApplicantView(data), created: true, blockers: submissionBlockers(data) };
 }
 
 /** Save progress. Autosave-safe: partial bodies are expected and fine. */
@@ -269,7 +374,7 @@ export async function updateApplication(client = defaultClient, actor = {}, appl
     throw new ConflictError(`This application is ${current.status.replace(/_/g, ' ')} and cannot be edited right now.`);
   }
   if (Object.keys(patch).length === 0) {
-    return { application: current, blockers: submissionBlockers(current) };
+    return { application: toApplicantView(current), blockers: submissionBlockers(current) };
   }
 
   const { data, error } = await client
@@ -280,7 +385,7 @@ export async function updateApplication(client = defaultClient, actor = {}, appl
     .select()
     .single();
   if (error) throw new DatabaseError(`Could not save your application: ${error.message}`);
-  return { application: data, blockers: submissionBlockers(data) };
+  return { application: toApplicantView(data), blockers: submissionBlockers(data) };
 }
 
 /**
@@ -318,6 +423,15 @@ export async function submitApplication(client = defaultClient, actor = {}, appl
   if (error) throw new DatabaseError(`Could not submit your application: ${error.message}`);
   if (!data) throw new ConflictError('This application changed while you were submitting it; reload and try again.');
 
+  await auditApplicantStep(client, actor, {
+    req: deps.req,
+    event_type: 'GARAGE_APPLICATION_SUBMITTED',
+    source_route: '/api/garage-onboarding/application/:id/submit',
+    previous_value: { application_id: data.id, status: current.status },
+    // From information_required this is the SAME application answering CarUp's question (PO-5).
+    new_value: { application_id: data.id, status: data.status, resubmission: current.status === 'information_required' },
+  });
+
   // The person-level onboarding status moves in step. Different object, not a synonym: the
   // application has its own six-state lifecycle; this is the coarse state on the person's profile.
   const { error: profileError } = await client
@@ -335,5 +449,5 @@ export async function submitApplication(client = defaultClient, actor = {}, appl
     }).catch((e) => console.error('garage.application.submitted not emitted:', e?.message || e));
   }
 
-  return { application: data };
+  return { application: toApplicantView(data) };
 }

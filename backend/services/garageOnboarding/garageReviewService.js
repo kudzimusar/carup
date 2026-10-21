@@ -1,6 +1,6 @@
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
-import { getIdentityAssurance } from '../identity/identityAssuranceService.js';
+import { ASSURANCE_LEVELS, getIdentityAssurance } from '../identity/identityAssuranceService.js';
 import { listEvidence, garageEvidenceStorage, GARAGE_EVIDENCE_BUCKET } from './garageEvidenceService.js';
 import { ForbiddenError, NotFoundError, ValidationError, DatabaseError, ConflictError } from '../../utils/errors.js';
 
@@ -103,28 +103,113 @@ async function readIdentity(client, applicantUserId, deps = {}) {
 }
 
 /**
+ * PO-2's person-identity prerequisite — the ONE reading of it.
+ *
+ * The reviewer's approval blocker (`approvalBlockers`) and the applicant's own "before CarUp can
+ * approve your garage" notice (`applicantIdentityPrerequisite`) both answer from here, so the two can
+ * never disagree about whether identity stands in the way.
+ *
+ *   ready: true    the identity is usable for identity-gated actions
+ *   ready: false   it is not — no record, or not approved
+ *   ready: null    it could not be read just now: a system problem, never a finding about the person
+ *
+ * `next_step` is what the APPLICANT can do about it, in subject-safe codes: it never names the
+ * internal lifecycle state (OC-5C — a compromised identity reads as on hold, never "compromised").
+ */
+export function identityPrerequisite(identity, identityError = null) {
+  if (identityError) return { ready: null, finding: 'unreadable', identity_state: null, next_step: 'try_again_later' };
+  if (!identity) return { ready: false, finding: 'missing', identity_state: null, next_step: 'verify_identity' };
+  if (identity.usable_for_identity_gated_actions !== true) {
+    let nextStep = 'verify_identity';
+    if (identity.assurance_level === ASSURANCE_LEVELS.UNUSABLE) nextStep = 'identity_on_hold';
+    else if (identity.pending_review === true) nextStep = 'identity_review_pending';
+    return { ready: false, finding: 'not_approved', identity_state: identity.identity_state || null, next_step: nextStep };
+  }
+  return { ready: true, finding: 'ready', identity_state: identity.identity_state || null, next_step: null };
+}
+
+/**
+ * The applicant's view of the identity prerequisite: whether it stands between their garage and an
+ * approval, and what they can do about it. Read through the reviewer's own reader and decided by
+ * `identityPrerequisite` — nothing here is a second copy of the rule.
+ */
+export async function applicantIdentityPrerequisite(client = defaultClient, applicantUserId, deps = {}) {
+  const { identity, identityError } = await readIdentity(client, applicantUserId, deps);
+  const prerequisite = identityPrerequisite(identity, identityError);
+  return { identity_ready: prerequisite.ready, identity_next_step: prerequisite.next_step };
+}
+
+/**
+ * Who holds the application now (DESIGN.md §17: the responsible party). An approved application whose
+ * workspace was not built is still CarUp's: the reviewer owes the activation retry (GMO-4), so it is
+ * not "nobody".
+ */
+export function whoMustAct(application = {}) {
+  switch (application.status) {
+    case 'submitted':
+    case 'under_review':
+      return 'carup_review';
+    case 'information_required':
+      return 'applicant';
+    case 'approved':
+      return application.activated_tenant_id ? 'none' : 'carup_review';
+    case 'rejected':
+      return 'none';
+    default:
+      return null;
+  }
+}
+
+/** The history a reviewer reads: what was decided, why, and in which role — never which reviewer. */
+const HISTORY_COLUMNS = 'id, decision, reason_code, reason, actor_role, created_at';
+
+/**
  * Everything a reviewer needs to decide, gathered in one read.
  *
  * The applicant's identity assurance is included because PO-2 makes governed person-identity
  * approval a prerequisite for activation. It is O2's answer (identity_assurance.v1), consumed here —
  * never re-derived, and never inferred from the application's own contents.
+ *
+ * SVC-004: who applied (their account's name and email — the application itself names only a user
+ * id), and who must act next. A summary that cannot be read fails the read; it is never shown as an
+ * applicant nobody knows.
  */
 export async function getApplicationForReview(client = defaultClient, applicationId, deps = {}) {
   const application = await loadVisibleApplication(client, applicationId);
 
   const { data: decisions, error: decisionsError } = await client
     .from('garage_application_decisions')
-    .select('*')
+    .select(HISTORY_COLUMNS)
     .eq('application_id', applicationId)
     .order('created_at', { ascending: false });
   if (decisionsError) throw new DatabaseError(`Could not load this application's history: ${decisionsError.message}`);
+
+  const { data: applicantRow, error: applicantError } = await client
+    .from('users')
+    .select('id, name, email')
+    .eq('id', application.applicant_user_id)
+    .maybeSingle();
+  if (applicantError) throw new DatabaseError(`Could not load the applicant: ${applicantError.message}`);
 
   const documents = await listEvidence(client, applicationId, { includeRemoved: true });
   const { identity, identityError } = await readIdentity(client, application.applicant_user_id, deps);
 
   return {
     application,
-    decisions: decisions || [],
+    applicant: {
+      user_id: application.applicant_user_id,
+      name: applicantRow?.name || null,
+      email: applicantRow?.email || null,
+    },
+    decisions: (decisions || []).map((d) => ({
+      id: d.id,
+      decision: d.decision,
+      reason_code: d.reason_code ?? null,
+      reason: d.reason ?? null,
+      actor_role: d.actor_role ?? null,
+      created_at: d.created_at,
+    })),
+    who_must_act: whoMustAct(application),
     documents,
     identity,
     identity_error: identityError,
@@ -151,18 +236,52 @@ export function allowedDecisions(status) {
  */
 export function approvalBlockers(application, documents = [], identity = null, identityError = null) {
   const blockers = [];
-  if (identityError) {
+  const prerequisite = identityPrerequisite(identity, identityError);
+  if (prerequisite.finding === 'unreadable') {
     blockers.push('The applicant\'s identity status could not be read just now. This is a system problem, not a finding against them — try again before deciding.');
-  } else if (!identity) {
+  } else if (prerequisite.finding === 'missing') {
     blockers.push('No identity record was found for this applicant.');
-  } else if (identity.usable_for_identity_gated_actions !== true) {
-    blockers.push(`The applicant's identity is not approved (${identity.identity_state || 'unknown state'}). Person identity must be approved before a garage workspace is created.`);
+  } else if (prerequisite.finding === 'not_approved') {
+    blockers.push(`The applicant's identity is not approved (${prerequisite.identity_state || 'unknown state'}). Person identity must be approved before a garage workspace is created.`);
   }
   const live = (documents || []).filter((d) => !d.removed_at);
   if (live.length === 0) {
     blockers.push('No business-presence evidence has been provided.');
   }
   return blockers;
+}
+
+/**
+ * ADM-006 — the person-level onboarding status after each decision. A different object from the
+ * application (see 20260918090000): the coarse state on the person's registration profile, which
+ * submission already moves to `in_review` and nothing else used to move on.
+ */
+const ONBOARDING_STATUS_AFTER = Object.freeze({
+  start_review: 'in_review',
+  request_more_info: 'in_review',
+  approve: 'approved',
+  reject: 'rejected',
+});
+
+/**
+ * Keep the registration profile in step with a decision that is ALREADY committed.
+ *
+ * Best-effort by design: the authority is the application and, once activated, the tenant
+ * membership — never this profile. A failure is reported (naming the application, so operations can
+ * repair it) and never blocks, reverses or misreports the decision.
+ */
+async function syncRegistrationOnboardingStatus(client, applicantUserId, applicationId, decision) {
+  const onboardingStatus = ONBOARDING_STATUS_AFTER[decision];
+  if (!onboardingStatus) return;
+  try {
+    const { error } = await client
+      .from('user_registration_profiles')
+      .update({ onboarding_status: onboardingStatus, updated_at: new Date().toISOString() })
+      .eq('user_id', applicantUserId);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    console.error(`garageReviewService: onboarding_status not synced to ${onboardingStatus} after ${decision} on application ${applicationId}:`, err?.message || err);
+  }
 }
 
 /** The database's refusal, in the reviewer's words; anything else is a failure, not a finding. */
@@ -236,6 +355,9 @@ export async function recordDecision(client = defaultClient, actor = {}, applica
   });
   if (error) throw decisionRefusal(error);
   if (!outcome?.application) throw new DatabaseError('The decision returned no application.');
+
+  // The decision is committed; the profile follows it whatever happens next.
+  await syncRegistrationOnboardingStatus(client, current.applicant_user_id, applicationId, decision);
 
   await writeAudit(client, {
     req: options.req,

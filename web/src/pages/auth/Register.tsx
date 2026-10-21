@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
 import { resolvePostLoginRoute } from '@/lib/returnTo'
+import { GARAGE_SETUP_ROUTE, MECHANIC_NO_ACTIVATION } from '@/lib/garageOnboarding'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -74,6 +75,8 @@ export default function Register() {
     email: string
     emailStatus: 'sent' | 'queued' | 'delivery_failed' | 'queue_failed'
     onboardingRequested: boolean
+    /** Server-recorded business type (F-019/F-020): garage and mechanic get their own truthful handoff. */
+    businessType: string | null
     role: string
   } | null>(null)
   const [resending, setResending] = useState(false)
@@ -131,7 +134,8 @@ export default function Register() {
         user: AuthUser
         token: string
         email_verification?: { status?: 'sent' | 'queued' | 'delivery_failed' | 'queue_failed' }
-        onboarding?: { status?: string } | null
+        // The business type the SERVER recorded — what the handoff below keys off, never the form.
+        onboarding?: { status?: string; business_type?: string | null } | null
       }>({
         baseUrl: API_BASE,
         path: '/auth/register',
@@ -163,13 +167,21 @@ export default function Register() {
       })
 
       login(data.user, data.token)
+      const businessType = data.onboarding?.business_type ?? null
       setRegistered({
         email: data.user.email,
         emailStatus: data.email_verification?.status || 'queue_failed',
         onboardingRequested: data.onboarding?.status === 'requested',
+        businessType,
         role: data.user.role,
       })
-      toast.success('Account created. Your Seller draft is still waiting for you.')
+      toast.success(
+        businessType === 'garage'
+          ? 'Account created. Next, tell CarUp about your garage.'
+          : businessType === 'mechanic'
+            ? 'Account created.'
+            : 'Account created. Your Seller draft is still waiting for you.',
+      )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Registration failed')
     } finally {
@@ -202,6 +214,8 @@ export default function Register() {
     : resolvePostLoginRoute(null, registered?.role || 'owner')
 
   if (registered) {
+    const isGarage = registered.businessType === 'garage'
+    const isMechanic = registered.businessType === 'mechanic'
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] p-4">
         <Card className="w-full max-w-lg border-0 shadow-2xl">
@@ -211,8 +225,11 @@ export default function Register() {
             </div>
             <h1 className="mt-5 text-center text-2xl font-bold text-slate-950">Your account is ready</h1>
             <p className="mt-2 text-center text-sm leading-6 text-slate-600">
-              We created a secure base account and kept your Seller handoff separate from any
-              privileged business access.
+              {isGarage
+                ? 'We created a secure base account. A garage workspace is created only after CarUp approves your garage application.'
+                : isMechanic
+                  ? 'We created a secure base account.'
+                  : 'We created a secure base account and kept your Seller handoff separate from any privileged business access.'}
             </p>
 
             <div className="mt-6 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -229,7 +246,28 @@ export default function Register() {
                   </p>
                 </div>
               </div>
-              {registered.onboardingRequested && (
+              {/* F-019: a garage's next step is its application — not dealer or exporter review. */}
+              {isGarage && (
+                <div className="flex items-start gap-3" data-testid="registration-garage-next">
+                  <Building2 className="mt-0.5 h-4 w-4 flex-none text-orange-600" />
+                  <div>
+                    <p className="font-semibold text-slate-900">Next: your garage application</p>
+                    <p className="mt-0.5 text-slate-600">
+                      Tell CarUp about your garage — its name, address and the work it does — and add a
+                      photo or document that shows it is real. CarUp reviews every application before it
+                      creates a garage workspace; creating this account does not create one.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* F-020: there is no independent mechanic activation, so none is promised. */}
+              {isMechanic && (
+                <div className="flex items-start gap-3" data-testid="registration-mechanic-note">
+                  <Building2 className="mt-0.5 h-4 w-4 flex-none text-orange-600" />
+                  <p className="text-slate-600">{MECHANIC_NO_ACTIVATION}</p>
+                </div>
+              )}
+              {registered.onboardingRequested && !isGarage && !isMechanic && (
                 <div className="flex items-start gap-3">
                   <Building2 className="mt-0.5 h-4 w-4 flex-none text-orange-600" />
                   <div>
@@ -244,14 +282,26 @@ export default function Register() {
             </div>
 
             <div className="mt-6 grid gap-3">
-              <Button
-                type="button"
-                className="h-11 bg-orange-500 hover:bg-orange-600"
-                onClick={() => navigate(continueRoute)}
-                data-testid="registration-continue"
-              >
-                Continue to my Seller draft <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              {/* One primary action (DESIGN.md §7): a garage's is its application. */}
+              {isGarage ? (
+                <Button
+                  type="button"
+                  className="h-11 bg-orange-500 hover:bg-orange-600"
+                  onClick={() => navigate(GARAGE_SETUP_ROUTE)}
+                  data-testid="registration-continue-garage"
+                >
+                  Continue to your garage application <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="h-11 bg-orange-500 hover:bg-orange-600"
+                  onClick={() => navigate(continueRoute)}
+                  data-testid="registration-continue"
+                >
+                  {isMechanic ? 'Continue to your account' : 'Continue to my Seller draft'} <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={resendVerification} disabled={resending}>
                 {resending ? 'Requesting…' : 'Resend verification email'}
               </Button>

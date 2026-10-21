@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
 import { PUBLIC_CONTACTS } from '@/config/publicIdentity'
+import { GARAGE_SETUP_ROUTE } from '@/lib/garageOnboarding'
 
 /**
  * PC01-J-R1 — the supply-side path on a public directory.
@@ -12,6 +13,11 @@ import { PUBLIC_CONTACTS } from '@/config/publicIdentity'
  * journey offers "Dealer / dealership" and "Garage / service centre" as business types — so the card
  * points there, and says plainly that an account is not a listing. Insurers have no onboarding yet,
  * so their card offers the approved general address rather than a flow that does not exist.
+ *
+ * CARUP-MVP-STAB-01 F-019: /onboarding never offered a garage its application. A signed-in visitor
+ * now goes straight to /dashboard/garage-setup (whose own server gate decides who may apply); a
+ * signed-out one registers — the registration card hands a garage to its application — or signs in
+ * and returns to it.
  */
 const ONBOARDING = '/onboarding'
 
@@ -22,7 +28,21 @@ const COPY = {
   },
   garage: {
     title: 'Run a garage or service centre?',
-    body: 'Create a CarUp account, then choose “Garage / service centre” in your onboarding. A garage appears here once it has published its own profile.',
+    body: 'Create a CarUp account as a “Garage / service centre” business, then send CarUp your garage application. CarUp reviews every application. A garage appears here once its application is approved and it publishes its own profile — a listing is not an inspection or an endorsement.',
+  },
+} as const
+
+/** Where each kind's way in leads: signed in, and the registration / sign-in pair when signed out. */
+const LINKS = {
+  dealer: {
+    signedIn: { to: ONBOARDING, label: 'Open your onboarding' },
+    register: `/register?returnTo=${encodeURIComponent(ONBOARDING)}`,
+    signIn: `/login?returnTo=${encodeURIComponent(ONBOARDING)}`,
+  },
+  garage: {
+    signedIn: { to: GARAGE_SETUP_ROUTE, label: 'Start your garage application' },
+    register: '/register',
+    signIn: `/login?returnTo=${encodeURIComponent(GARAGE_SETUP_ROUTE)}`,
   },
 } as const
 
@@ -46,7 +66,7 @@ export function DirectoryJoinCard({ kind }: { kind: 'dealer' | 'garage' | 'insur
   }
 
   const copy = COPY[kind]
-  const returnTo = encodeURIComponent(ONBOARDING)
+  const links = LINKS[kind]
   return (
     <Card className="border-slate-200 py-0" data-testid={`directory-join-${kind}`}>
       <CardContent className="space-y-3 p-6">
@@ -55,15 +75,15 @@ export function DirectoryJoinCard({ kind }: { kind: 'dealer' | 'garage' | 'insur
         <div className="flex flex-wrap gap-2">
           {isAuthenticated ? (
             <Button asChild className="min-h-11 bg-orange-500 hover:bg-orange-600">
-              <Link to={ONBOARDING}>Open your onboarding</Link>
+              <Link to={links.signedIn.to}>{links.signedIn.label}</Link>
             </Button>
           ) : (
             <>
               <Button asChild className="min-h-11 bg-orange-500 hover:bg-orange-600">
-                <Link to={`/register?returnTo=${returnTo}`}>Create an account</Link>
+                <Link to={links.register}>Create an account</Link>
               </Button>
               <Button asChild variant="outline" className="min-h-11">
-                <Link to={`/login?returnTo=${returnTo}`}>Sign in</Link>
+                <Link to={links.signIn}>Sign in</Link>
               </Button>
             </>
           )}

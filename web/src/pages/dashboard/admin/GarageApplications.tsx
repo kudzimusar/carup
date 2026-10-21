@@ -6,13 +6,17 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useStepUpGuard, apiErrorCode, STEP_UP_REQUIRED } from '@/hooks/useStepUpGuard'
 import { SN_PAGE, SN_DETAIL_COLUMN } from '@/lib/serviceNetworkLayout'
 import {
-  statusPresentation, STATUS_TONE_CLASS, evidenceTypeLabel,
-  type GarageApplication, type EvidenceDocument,
+  statusPresentation, STATUS_TONE_CLASS, evidenceTypeLabel, WHO_MUST_ACT_LABEL,
+  type GarageApplication, type EvidenceDocument, type WhoMustAct,
 } from '@/lib/garageOnboarding'
 
 type Detail = {
   application: GarageApplication
-  decisions: Array<{ id: string; decision: string; reason: string | null; actor_role: string | null; created_at: string }>
+  /** SVC-004: who applied, from their account. Absent from an older server: then not shown. */
+  applicant?: { user_id: string; name: string | null; email: string | null } | null
+  /** SVC-004: who holds the application now (server-derived). */
+  who_must_act?: WhoMustAct | null
+  decisions: Array<{ id: string; decision: string; reason_code?: string | null; reason: string | null; actor_role: string | null; created_at: string }>
   documents: Array<EvidenceDocument & { removed_at?: string | null }>
   identity: { identity_state?: string; usable_for_identity_gated_actions?: boolean } | null
   identity_error: string | null
@@ -233,9 +237,15 @@ export default function GarageApplications() {
           <div className="rounded-xl border border-gray-200 bg-white p-5" data-testid="application-detail">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h1 className="text-xl font-semibold text-gray-900">{detail.application.trading_name || 'Unnamed garage'}</h1>
-              <Badge className={STATUS_TONE_CLASS[statusPresentation(detail.application.status).tone]} data-testid="detail-status">
-                {statusPresentation(detail.application.status).label}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={STATUS_TONE_CLASS[statusPresentation(detail.application.status).tone]} data-testid="detail-status">
+                  {statusPresentation(detail.application.status).label}
+                </Badge>
+                {/* DESIGN.md §17: the responsible party, as the server derived it. */}
+                {detail.who_must_act && WHO_MUST_ACT_LABEL[detail.who_must_act] && (
+                  <Badge variant="outline" data-testid="who-must-act">{WHO_MUST_ACT_LABEL[detail.who_must_act]}</Badge>
+                )}
+              </div>
             </div>
             <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 mt-4 text-sm">
               {([
@@ -260,6 +270,25 @@ export default function GarageApplications() {
               </p>
             ) : null}
           </div>
+
+          {/* SVC-004: who applied — the applicant's account, which the application itself does not name. */}
+          {detail.applicant && (
+            <div className="rounded-xl border border-gray-200 bg-white p-5" data-testid="applicant-summary">
+              <h2 className="font-medium text-gray-900">Applicant</h2>
+              <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 mt-3 text-sm">
+                {([
+                  ['Name', detail.applicant.name],
+                  ['Account email', detail.applicant.email],
+                  ['Account id', detail.applicant.user_id],
+                ] as const).map(([label, value]) => (
+                  <div key={label}>
+                    <dt className="text-gray-500">{label}</dt>
+                    <dd className="text-gray-900 break-all">{value || <span className="text-gray-400">Not recorded</span>}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
 
           {/* PO-2: person identity is a prerequisite for a workspace. O2 owns this answer. */}
           <div className="rounded-xl border border-gray-200 bg-white p-5" data-testid="identity-panel">
@@ -350,7 +379,7 @@ export default function GarageApplications() {
                   id="decision-reason" data-testid="decision-reason" rows={3}
                   value={reason} onChange={(e) => setReason(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  placeholder="The applicant sees this. Say what would change the outcome."
+                  placeholder="When you ask for more or do not approve, the applicant sees this. Say what would change the outcome."
                 />
               </div>
               <div className="flex flex-wrap gap-2">
@@ -399,7 +428,10 @@ export default function GarageApplications() {
                   <li key={d.id} className="text-sm border-b last:border-0 pb-2" data-testid="history-item">
                     <span className="font-medium text-gray-900">{DECISION_LABEL[d.decision] ?? d.decision}</span>
                     <span className="text-gray-500"> · {new Date(d.created_at).toLocaleString()}</span>
+                    {/* A role, never which reviewer (SVC-004). */}
+                    {d.actor_role && <span className="text-gray-500"> · by {d.actor_role}</span>}
                     {d.reason && <p className="text-gray-700 mt-0.5">{d.reason}</p>}
+                    {d.reason_code && <p className="text-xs text-gray-500 mt-0.5">Reason code: {d.reason_code}</p>}
                   </li>
                 ))}
               </ol>
