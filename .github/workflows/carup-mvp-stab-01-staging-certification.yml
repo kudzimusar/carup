@@ -1,0 +1,72 @@
+name: CARUP-MVP-STAB-01 Staging Certification Journeys
+
+# Runtime certification of the CARUP-MVP-STAB-01 candidate on ONE exact immutable staging pair.
+# Dispatch only (no push / pull_request trigger), so nothing re-runs it as a side effect of a push.
+# Staging only: the script refuses any database that is not eoyenigwevnxwwhyhaer, any backend that is not an
+# immutable Preview serving this exact SHA, and any run while external communications are enabled.
+# Identities: one dedicated staging reviewer owned by this gate + per-run seller/buyer/garage applicant registered
+# through the public product path. No Owner account, no Serena mutation, no deletion.
+on:
+  workflow_dispatch:
+    inputs:
+      backend_host:
+        description: Immutable backend Preview host built from this exact SHA
+        required: true
+        type: string
+      web_host:
+        description: Immutable web Preview host built from this exact SHA (optional; proves the exact pair)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carup-mvp-stab-01-certification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPECTED_SHA: ${{ github.sha }}
+      BACKEND_HOST: ${{ inputs.backend_host }}
+      WEB_HOST: ${{ inputs.web_host }}
+      STAGING_RUN_ID: seller-${{ github.run_id }}-${{ github.run_attempt }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      CERT_OUT_DIR: ${{ runner.temp }}/carup-mvp-stab-01-certification
+      SELLER_MEDIA_FIXTURES: web/e2e/fixtures/seller-media
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: Assert exact candidate checkout and staging-only secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          [ -n "$DIASPORA_STAGING_DATABASE_URL" ] || { echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured'; exit 1; }
+          case "$DIASPORA_STAGING_DATABASE_URL" in *"$EXPECTED_STAGING_PROJECT_REF"*) ;; *) echo '::error::Refusing: not the staging project'; exit 1;; esac
+          [[ "$BACKEND_HOST" =~ ^carup-backend-staging-[a-z0-9]+-11-11\.vercel\.app$ ]] || { echo '::error::backend_host must be an immutable Preview host'; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run certification journeys
+        run: node scripts/ci/carup-mvp-stab-01-staging-certification.mjs
+
+      - name: Upload certification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carup-mvp-stab-01-certification-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/carup-mvp-stab-01-certification
+          if-no-files-found: error
+          retention-days: 30

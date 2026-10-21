@@ -1,0 +1,334 @@
+name: CARUP-MVP-STAB-01 Candidate Staging APK
+
+# Exact-SHA candidate APK for CARUP-MVP-STAB-01. Sibling of the frozen 01C Owner-UAT workflow (never mutated):
+# the same build / install / launch mechanics, but paired with the candidate's IMMUTABLE backend Preview instead
+# of the canonical api-staging alias, which this work unit must not move. Dispatch only: no push trigger, so no
+# branch push can rebuild it. Not a Production APK.
+on:
+  workflow_dispatch:
+    inputs:
+      backend_host:
+        description: Immutable backend Preview host built from this exact SHA (carup-backend-staging-<hash>-11-11.vercel.app)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carup-mvp-stab-01-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  BASE_AUTHORITY_SHA: 0fc425a997e1e2e02a039e728dcd5ee90f5fd936
+  FROZEN_01C_WORKFLOW: .github/workflows/oc-native-final-01c-owner-uat-apk.yml
+  FROZEN_R2_R1_WORKFLOW: .github/workflows/oc-native-final-01a-r2-pre-uat.yml
+  BACKEND_HOST: ${{ inputs.backend_host }}
+  EXPO_PUBLIC_API_URL: https://${{ inputs.backend_host }}
+  CANONICAL_API_HOST: api-staging.carup.dev
+  PRE_UAT_ISOLATED_HOST: oc-native-final-isolated.invalid
+  STAGING_SUPABASE_REF: eoyenigwevnxwwhyhaer
+  SUPABASE_URL: http://127.0.0.1:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+
+jobs:
+  android-candidate-package:
+    name: Android · candidate staging APK (immutable backend Preview) + install + launch
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Exact-head custody, host shape and frozen-workflow guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE_AUTHORITY_SHA" HEAD
+          [[ "$BACKEND_HOST" =~ ^carup-backend-staging-[a-z0-9]+-11-11\.vercel\.app$ ]] || { echo "::error::backend_host must be an immutable carup-backend-staging Preview host"; exit 1; }
+          test "$(git rev-parse "$BASE_AUTHORITY_SHA:$FROZEN_01C_WORKFLOW")" = "$(git rev-parse "HEAD:$FROZEN_01C_WORKFLOW")"
+          test "$(git rev-parse "$BASE_AUTHORITY_SHA:$FROZEN_R2_R1_WORKFLOW")" = "$(git rev-parse "HEAD:$FROZEN_R2_R1_WORKFLOW")"
+          git diff --check "$BASE_AUTHORITY_SHA..HEAD"
+          mkdir -p "$RUNNER_TEMP/carup-mvp-stab-01"
+          git diff --name-only "$BASE_AUTHORITY_SHA..HEAD" | LC_ALL=C sort > "$RUNNER_TEMP/carup-mvp-stab-01/changed-files.txt"
+          wc -l < "$RUNNER_TEMP/carup-mvp-stab-01/changed-files.txt"
+
+      - name: Exact backend pairing preflight (no APK without the exact-SHA backend)
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/carup-mvp-stab-01"
+          curl -fsS --max-time 30 "$EXPO_PUBLIC_API_URL/api/health" > "$OUT/backend-health.json"
+          node - "$OUT/backend-health.json" <<'NODE'
+          const fs = require('fs');
+          const h = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const b = h.build || {}; const d = h.database || {}; const o = (h.communications || {}).outbound || {};
+          const proof = { api: process.env.EXPO_PUBLIC_API_URL, commit_sha: b.commit_sha, deployment_id: b.deployment_id,
+            environment: b.environment, source: b.source, supabase_project_ref: d.supabase_project_ref, consistent: d.consistent,
+            kill_switch: o.kill_switch, external_sends: o.external_sends };
+          console.log(JSON.stringify(proof, null, 2));
+          if (b.commit_sha !== process.env.GITHUB_SHA) throw new Error('backend Preview is not serving this exact source SHA');
+          if (b.environment !== 'preview') throw new Error('backend must be an immutable Preview, not a canonical/production target');
+          if (d.supabase_project_ref !== process.env.STAGING_SUPABASE_REF || d.consistent !== true) throw new Error('backend is not on the staging database');
+          if (o.kill_switch !== 'active' || o.external_sends !== 'disabled') throw new Error('outbound communications are not disabled');
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/carup-mvp-stab-01/backend-pairing-proof.json', JSON.stringify(proof, null, 2));
+          NODE
+          CODE="$(curl -sS -o "$OUT/xuid-discriminator.json" -w '%{http_code}' --max-time 30 \
+            -H 'x-user-id: u_mvp_stab_01_ci_probe_absent_identity' "$EXPO_PUBLIC_API_URL/api/auth/me")"
+          test "$CODE" = "401"
+          node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if (j.error !== "Unauthorized. x-user-id fallback is unavailable outside local/test mode.") process.exit(1)' "$OUT/xuid-discriminator.json"
+          echo "exact_backend_pairing=PASS" > "$OUT/package-authority.txt"
+          echo "x_user_id_fallback=DENIED" >> "$OUT/package-authority.txt"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove true Expo / React Native application authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('mobile/package.json', 'utf8'));
+          const app = JSON.parse(fs.readFileSync('mobile/app.json', 'utf8'));
+          const eas = JSON.parse(fs.readFileSync('mobile/eas.json', 'utf8'));
+          if (pkg.main !== 'expo-router/entry') throw new Error('Expo Router entry missing');
+          if (pkg.dependencies.expo !== '~54.0.37') throw new Error('Unexpected Expo authority');
+          if (pkg.dependencies['react-native'] !== '0.81.5') throw new Error('Unexpected React Native authority');
+          if (app.expo.sdkVersion !== '54.0.0') throw new Error('Unexpected SDK version');
+          if (app.expo.version !== '1.0.0') throw new Error('Unexpected application version');
+          if (app.expo.android.package !== 'com.carup.mobile') throw new Error('Unexpected Android package');
+          if (!app.expo.plugins.some((x) => x === 'expo-router')) throw new Error('expo-router plugin missing');
+          if (!app.expo.plugins.some((x) => x === 'expo-secure-store')) throw new Error('expo-secure-store plugin missing');
+          if (eas.build?.['android-device']?.distribution !== 'internal') throw new Error('android-device must remain internal');
+          if (eas.build?.['android-device']?.android?.buildType !== 'apk') throw new Error('android-device must remain APK');
+          for (const dep of ['@capacitor/core', '@capacitor/android', 'react-native-webview']) {
+            if (pkg.dependencies?.[dep] || pkg.devDependencies?.[dep]) throw new Error('Forbidden wrapper dependency: ' + dep);
+          }
+          NODE
+          if grep -R -E -n --include='*.ts' --include='*.tsx' --include='*.js' 'from ["'"'"']react-native-webview["'"'"']|require\(["'"'"']react-native-webview["'"'"']\)|@capacitor|TrustedWebActivity|TWA launcher' mobile; then
+            echo "::error::Web-wrapper implementation detected"
+            exit 1
+          fi
+          echo "true_expo_react_native=PASS" >> "$RUNNER_TEMP/carup-mvp-stab-01/package-authority.txt"
+
+      - name: Expo configuration validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mobile
+          npx expo config --type public --json > "$RUNNER_TEMP/carup-mvp-stab-01/expo-config.json"
+          node -e 'const j=require(process.argv[1]); if(j.android?.package!=="com.carup.mobile") process.exit(1); if(j.scheme!=="carup") process.exit(1)' "$RUNNER_TEMP/carup-mvp-stab-01/expo-config.json"
+          npx expo install --check
+
+      - name: Prebuild Android from Expo authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mobile
+          npx expo prebuild --platform android --clean --no-install
+          MAIN_ACTIVITY="$(find android/app/src/main/java -type f -name 'MainActivity.kt' -print -quit)"
+          if [ -z "$MAIN_ACTIVITY" ]; then MAIN_ACTIVITY="$(find android/app/src/main/java -type f -name 'MainActivity.java' -print -quit)"; fi
+          test -n "$MAIN_ACTIVITY"
+          grep -Eq 'ReactActivity' "$MAIN_ACTIVITY"
+          if grep -R -Eiq 'Capacitor|TrustedWebActivity|androidbrowserhelper|android\\.webkit\\.WebView' android/app/src/main; then
+            echo "::error::Generated Android app contains a web-wrapper/TWA/Capacitor indicator"
+            exit 1
+          fi
+          echo "react_activity_main=PASS" >> "$RUNNER_TEMP/carup-mvp-stab-01/package-authority.txt"
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build, install, launch and record the candidate package
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          MVP_ANDROID_SCRIPT: |
+            set -euo pipefail
+            OUT="$RUNNER_TEMP/carup-mvp-stab-01"
+            mkdir -p "$OUT"
+            RUNTIME="$OUT/runtime-proof.txt"
+            : > "$RUNTIME"
+            echo "runtime_complete=NO" >> "$RUNTIME"
+            DEVICE_ID="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
+            test -n "$DEVICE_ID" || { echo "::error::No Android emulator"; exit 1; }
+            adb wait-for-device
+            BOOT_READY=NO
+            for i in $(seq 1 90); do
+              if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] \
+                && adb shell pm list packages android >/dev/null 2>&1 \
+                && adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1; then
+                BOOT_READY=YES; break
+              fi
+              sleep 2
+            done
+            test "$BOOT_READY" = "YES" || { echo "::error::Android emulator never reached a stable boot"; exit 1; }
+            echo "android_boot_stable=PASS" >> "$RUNTIME"
+
+            cd mobile/android
+            ./gradlew assembleRelease --no-daemon
+            APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+            test -n "$APK" || { echo "::error::No Android release APK"; exit 1; }
+            cp "$APK" "$OUT/carup-mvp-stab-01-candidate-staging.apk"
+            APK_SHA256="$(sha256sum "$OUT/carup-mvp-stab-01-candidate-staging.apk" | awk '{print $1}')"
+            printf '%s  %s\n' "$APK_SHA256" "carup-mvp-stab-01-candidate-staging.apk" > "$OUT/apk-sha256.txt"
+            PACKAGE_NAME="com.carup.mobile"
+            echo "apk_build=PASS" >> "$RUNTIME"
+
+            unzip -p "$OUT/carup-mvp-stab-01-candidate-staging.apk" assets/index.android.bundle > "$OUT/apk-index.android.bundle"
+            test -s "$OUT/apk-index.android.bundle"
+            strings "$OUT/apk-index.android.bundle" | grep -F "$EXPO_PUBLIC_API_URL" > "$OUT/api-base-apk-binary-proof.txt"
+            for forbidden in "$PRE_UAT_ISOLATED_HOST" "https://$CANONICAL_API_HOST"; do
+              if strings "$OUT/apk-index.android.bundle" | grep -F "$forbidden"; then
+                echo "::error::$forbidden is baked into the candidate APK"; exit 1
+              fi
+            done
+            echo "api_base_baked_into_apk=PASS" >> "$RUNTIME"
+            echo "canonical_api_host_in_apk=ABSENT" >> "$RUNTIME"
+            APK_SIZE="$(stat -c %s "$OUT/carup-mvp-stab-01-candidate-staging.apk")"
+            mkdir -p "$RUNNER_TEMP/carup-mvp-stab-01-apk"
+            cp "$OUT/carup-mvp-stab-01-candidate-staging.apk" "$RUNNER_TEMP/carup-mvp-stab-01-apk/carup-mvp-stab-01-candidate-staging.apk"
+            cp "$OUT/apk-sha256.txt" "$RUNNER_TEMP/carup-mvp-stab-01-apk/SHA256SUMS.txt"
+
+            adb uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
+            adb install "$APK"
+            adb shell pm path "$PACKAGE_NAME" | tee "$OUT/install-proof.txt"
+            grep -Fq 'package:' "$OUT/install-proof.txt"
+            echo "apk_install=PASS" >> "$RUNTIME"
+            adb shell dumpsys package "$PACKAGE_NAME" > "$OUT/package-dumpsys.txt"
+            VERSION_CODE="$(sed -n 's/.*versionCode=\([0-9][0-9]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
+            VERSION_NAME="$(sed -n 's/.*versionName=\([^[:space:]]*\).*/\1/p' "$OUT/package-dumpsys.txt" | head -n1)"
+            test "$VERSION_NAME" = "1.0.0"
+            test "$VERSION_CODE" = "1"
+            adb shell pm clear "$PACKAGE_NAME" >/dev/null
+            LAUNCH_COMPONENT="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "$PACKAGE_NAME" | tr -d '\r' | tail -n1)"
+            case "$LAUNCH_COMPONENT" in com.carup.mobile/*) ;; *) echo "::error::Invalid launcher $LAUNCH_COMPONENT"; exit 1;; esac
+
+            assert_foreground() {
+              local resumed
+              resumed="$(adb shell dumpsys activity activities | tr -d '\r' | grep -E -m1 'mResumedActivity|topResumedActivity' || true)"
+              echo "$1: $resumed" >> "$OUT/foreground-proof.txt"
+              [[ "$resumed" == *"com.carup.mobile/"* ]] || { echo "::error::CarUp is not foreground for $1"; exit 1; }
+            }
+            dump_ui() {
+              adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
+              adb pull /sdcard/window.xml "$OUT/$1.xml" >/dev/null 2>&1 || return 1
+            }
+            wait_for_native_ui() {
+              local label="$1" required="$2" loops="$3"
+              for i in $(seq 1 "$loops"); do
+                if dump_ui "$label-current"; then
+                  if grep -Fq "CarUp isn't responding" "$OUT/$label-current.xml" || grep -Fq "CarUp keeps stopping" "$OUT/$label-current.xml"; then
+                    echo "::error::CarUp ANR/crash dialog"; exit 1
+                  fi
+                  if grep -Fq "$required" "$OUT/$label-current.xml"; then
+                    cp "$OUT/$label-current.xml" "$OUT/$label.xml"
+                    grep -Fq 'package="com.carup.mobile"' "$OUT/$label.xml" || { echo "::error::$label not rendered by CarUp"; exit 1; }
+                    return 0
+                  fi
+                fi
+                sleep 1
+              done
+              echo "::error::Expected CarUp UI '$required' did not appear for $label"; exit 1
+            }
+
+            adb logcat -c
+            adb shell am force-stop "$PACKAGE_NAME"
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/cold-launch.txt"
+            grep -Fq 'Status: ok' "$OUT/cold-launch.txt"
+            sleep 8
+            assert_foreground cold-launch
+            adb exec-out screencap -p > "$OUT/cold-launch.png"
+            echo "cold_launch=PASS" >> "$RUNTIME"
+            adb logcat -d -s ReactNativeJS:I > "$OUT/cold-launch-reactnativejs.txt" || true
+            grep -F '[carup-startup]' "$OUT/cold-launch-reactnativejs.txt" > "$OUT/startup-marks.txt" || echo "startup_marks=NOT_CAPTURED" >> "$RUNTIME"
+
+            {
+              echo "classification=CARUP_MVP_STAB_01_CANDIDATE_STAGING_APK"
+              echo "not_a_production_apk=YES"
+              echo "source_sha=$GITHUB_SHA"
+              echo "base_authority=$BASE_AUTHORITY_SHA"
+              echo "builder=expo-prebuild+gradle-assembleRelease"
+              echo "application_id=$PACKAGE_NAME"
+              echo "version=$VERSION_NAME"
+              echo "version_code=$VERSION_CODE"
+              echo "apk_sha256=$APK_SHA256"
+              echo "apk_size_bytes=$APK_SIZE"
+              echo "apk_artifact_name=carup-mvp-stab-01-candidate-staging-apk-$GITHUB_SHA"
+              echo "api_base=$EXPO_PUBLIC_API_URL"
+              echo "backend_commit=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).commit_sha)' "$OUT/backend-pairing-proof.json")"
+              echo "backend_deployment=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).deployment_id)' "$OUT/backend-pairing-proof.json")"
+              echo "canonical_aliases_moved=NO"
+              echo "production_touched=NO"
+              echo "owner_credentials_used=NO"
+              echo "device=$(adb shell getprop ro.product.model | tr -d '\r')"
+              echo "android_api=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+            } > "$OUT/custody.txt"
+
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://login" "$PACKAGE_NAME" | tee "$OUT/login-deeplink.txt"
+            wait_for_native_ui login 'Sign in to CarUp' 35
+            adb exec-out screencap -p > "$OUT/login.png"
+            echo "login_native_ui=PASS" >> "$RUNTIME"
+            adb shell am start -W -a android.intent.action.VIEW -d "carup://register" "$PACKAGE_NAME" | tee "$OUT/register-deeplink.txt"
+            wait_for_native_ui register 'Create Account' 35
+            adb exec-out screencap -p > "$OUT/register.png"
+            echo "register_native_ui=PASS" >> "$RUNTIME"
+
+            adb shell am force-stop "$PACKAGE_NAME"
+            adb shell am start -W -n "$LAUNCH_COMPONENT" | tee "$OUT/restart.txt"
+            grep -Fq 'Status: ok' "$OUT/restart.txt"
+            sleep 5
+            assert_foreground full-restart
+            echo "full_restart=PASS" >> "$RUNTIME"
+            adb logcat -d > "$OUT/carup-logcat.txt" || true
+            if grep -Eiq 'ANR in com\.carup\.mobile|Process: com\.carup\.mobile' "$OUT/carup-logcat.txt"; then
+              echo "::error::CarUp ANR/fatal process evidence in logcat"; exit 1
+            fi
+            echo "carup_fatal_exception=ABSENT" >> "$RUNTIME"
+            echo "runtime_complete=YES" >> "$RUNTIME"
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: default
+          disable-animations: true
+          script: bash -c "$MVP_ANDROID_SCRIPT"
+
+      - name: Upload candidate runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carup-mvp-stab-01-candidate-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/carup-mvp-stab-01
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload candidate staging APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carup-mvp-stab-01-candidate-staging-apk-${{ github.sha }}
+          path: ${{ runner.temp }}/carup-mvp-stab-01-apk
+          if-no-files-found: error
+          retention-days: 30
