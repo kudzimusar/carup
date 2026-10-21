@@ -129,7 +129,10 @@ async function provisionReviewer() {
   const login = await client.post('/auth/login', { email, password });
   if (login.status !== 200 || !login.json?.token) throw new Error(`reviewer login failed (${login.status})`);
   client.token = login.json.token; client.userId = login.json.user?.id || null; client.csrf = null;
-  return { client, id: client.userId };
+  // Garage decisions require a SENSITIVE step-up (a password re-proof on this session). The password stays in
+  // this closure; only the status is ever recorded.
+  const stepUp = async () => (await client.post('/auth/step-up', { password })).status;
+  return { client, id: client.userId, stepUp };
 }
 
 async function registerIdentity(label, profile) {
@@ -250,7 +253,7 @@ async function main() {
   expect('S4.canonical_conversation_created', Boolean(thread), { thread_id: thread?.id || null, waited_for_worker: true });
   const detail = await buyer.client.get(`/communications/threads/${thread.id}`);
   const messages = detail.json?.messages || detail.json?.thread?.messages || [];
-  expect('S4.first_message_is_exact_text', messages.some((m) => (m.content_text || m.body || m.message) === exactText), { messages: messages.length });
+  expect('S4.first_message_is_exact_text', messages.some((m) => (m.text ?? m.content_text) === exactText), { messages: messages.length });
   const sellerList = await seller.client.get('/communications/threads');
   const sellerThreads = sellerList.json?.threads || sellerList.json?.data || (Array.isArray(sellerList.json) ? sellerList.json : []);
   expect('S4.seller_sees_same_conversation', sellerThreads.some((t) => t.id === thread.id), { seller_threads: sellerThreads.length });
@@ -290,13 +293,22 @@ async function main() {
   const reviewDetail = await reviewer.client.get(`/admin/garage-applications/${appId}`);
   expect('S6.reviewer_detail_applicant_and_history', reviewDetail.status === 200 && Boolean(reviewDetail.json?.applicant || reviewDetail.json?.application?.applicant) && (reviewDetail.json?.who_must_act || reviewDetail.json?.application?.who_must_act) === 'carup_review',
     { status: reviewDetail.status, who_must_act: reviewDetail.json?.who_must_act || reviewDetail.json?.application?.who_must_act || null });
+  const stepUp = await reviewer.stepUp();
+  expect('S6.reviewer_step_up', stepUp === 200, { status: stepUp });
   const correctionReason = 'Certification: please add a clearer photo of the garage signage.';
   const more = await reviewer.client.post(`/admin/garage-applications/${appId}/decision`, { decision: 'request_more_info', reason_code: 'evidence_unclear', reason: correctionReason });
   const afterMore = await applicant.client.get('/garage-onboarding/application');
-  expect('S6.applicant_sees_correction_reason', more.status === 200 && afterMore.json?.application?.status === 'information_required' && afterMore.json?.latest_decision?.reason === correctionReason,
+  expect('S6.applicant_sees_correction_reason', more.status === 201 && afterMore.json?.application?.status === 'information_required' && afterMore.json?.latest_decision?.reason === correctionReason,
     { decision: more.status, status: afterMore.json?.application?.status, reason_visible: afterMore.json?.latest_decision?.reason === correctionReason });
   const resubmit = await applicant.client.post(`/garage-onboarding/application/${appId}/submit`, {});
   expect('S6.resubmitted', resubmit.status === 200, { status: resubmit.status });
+  // Negative control only: an approval is attempted ONLY when the server itself already reports an approval
+  // blocker for this applicant (no verified identity). Otherwise the run stops here, so it can never create a
+  // garage workspace for a fixture.
+  const beforeApprove = await reviewer.client.get(`/admin/garage-applications/${appId}`);
+  const blocking = Array.isArray(beforeApprove.json?.blocking) ? beforeApprove.json.blocking : [];
+  expect('S6.server_reports_approval_blocker', beforeApprove.status === 200 && blocking.length > 0 && beforeApprove.json?.identity?.usable_for_identity_gated_actions !== true,
+    { status: beforeApprove.status, blockers: blocking.length, identity_state: beforeApprove.json?.identity?.identity_state || null });
   const approve = await reviewer.client.post(`/admin/garage-applications/${appId}/decision`, { decision: 'approve' });
   const [afterApprove] = await q('select status, activated_tenant_id from public.garage_applications where id = $1', [appId]);
   expect('S6.approval_refused_without_verified_identity', approve.status >= 400 && afterApprove.status !== 'approved' && afterApprove.activated_tenant_id === null, { status: approve.status, code: errorCode(approve), app_status: afterApprove.status });
@@ -306,7 +318,7 @@ async function main() {
   const decisions = await q('select decision, reason from public.garage_application_decisions where application_id = $1 order by created_at', [appId]);
   const audits = await q(`select event_type, count(*)::int as n from public.trust_audit_events where created_at >= $1 and (previous_value::text like $2 or new_value::text like $2) group by event_type`, [started, `%${appId}%`]);
   const [profileRow] = await q('select onboarding_status from public.user_registration_profiles where user_id = $1', [applicant.id]);
-  expect('S6.rejected_with_reason_audited', reject.status === 200 && afterReject.json?.application?.status === 'rejected' && afterReject.json?.latest_decision?.reason === rejectReason
+  expect('S6.rejected_with_reason_audited', reject.status === 201 && afterReject.json?.application?.status === 'rejected' && afterReject.json?.latest_decision?.reason === rejectReason
     && decisions.map((d) => d.decision).join(',') === 'request_more_info,reject',
   { decision: reject.status, status: afterReject.json?.application?.status, ledger: decisions.map((d) => d.decision), audit_events: Object.fromEntries(audits.map((a) => [a.event_type, a.n])), registration_profile_status: profileRow?.onboarding_status || null });
 
