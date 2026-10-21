@@ -26,7 +26,8 @@ import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { useGarageOperator } from '@/hooks/useGarageOperator'
-import type { Vehicle, Escrow } from '@/types'
+import type { Vehicle } from '@/types'
+import { describeSafePayRead, readSafePaySessions, type SafePayRead } from '@/lib/safePaySummary'
 import { readOwnerTrustClaim, statedCount, statedMileage } from './ownerStatedValues'
 
 // ── The canonical trust claim on the owner's list surfaces (Issue #164, Phases 3 & 4) ───────
@@ -106,35 +107,29 @@ export default function OwnerDashboard() {
   // rather than restated more carefully.
   const [lowBandwidth, setLowBandwidth] = useState(false)
 
-  // SafePay escrow is the only authoritative money source this dashboard has. There is no
+  // SafePay is the only authoritative transaction source this dashboard has. There is no
   // per-user wallet/ledger endpoint and no per-user trust-score endpoint, so those cards must
   // report that no authoritative value exists rather than render invented figures — previously
   // fixed balances, a fixed trust percentage and a verified-status label were shown to every
   // account, including brand-new ones.
-  const [escrow, setEscrow] = useState<{ status: 'loading' | 'ready' | 'error'; usd: number; count: number }>({
-    status: 'loading',
-    usd: 0,
-    count: 0,
-  })
+  //
+  // CARUP-MVP-STAB-01 F-024: the card summed `amount`/`currency`, which `/api/safepay/list` does not
+  // return (it answers `listing_amount`/`listing_currency`), so it always read $0; and it counted
+  // settled and cancelled sessions as "active". `readSafePaySessions` is the one reading of that
+  // list: loading, a failed read, an empty account and purchases in progress are four statements.
+  const [safePay, setSafePay] = useState<SafePayRead | { state: 'loading' }>({ state: 'loading' })
 
-  // Fetch SafePay escrows on mount
   useEffect(() => {
     let mounted = true
-    const loadEscrows = async () => {
-      try {
-        const escrows = await fetchSafePayEscrows()
-        if (!mounted) return
-        const list = escrows || []
-        const totalUsd = list.reduce((sum: number, e: Escrow) => e.currency === 'USD' ? sum + e.amount : sum, 0)
-        setEscrow({ status: 'ready', usd: totalUsd, count: list.length })
-      } catch (err) {
+    fetchSafePayEscrows()
+      .then((sessions) => { if (mounted) setSafePay(readSafePaySessions(sessions)) })
+      .catch((err) => {
         console.error('Failed to load escrows', err)
-        if (mounted) setEscrow({ status: 'error', usd: 0, count: 0 })
-      }
-    }
-    loadEscrows()
+        if (mounted) setSafePay({ state: 'error' })
+      })
     return () => { mounted = false }
   }, [fetchSafePayEscrows])
+  const safePaySummary = describeSafePayRead(safePay)
 
   // ── Needs Your Attention ───────────────────────────────────────────────────
   // Ported from the Owner-experience work, rebuilt on the canonical contracts. Every item is derived
@@ -285,20 +280,21 @@ export default function OwnerDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 card-shadow">
+        <Card className="border-0 card-shadow" data-testid="safepay-card" data-state={safePay.state}>
           <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase font-semibold">Locked SafePay Escrows</p>
-                {escrow.status === 'loading' && <p data-testid="escrow-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Loading…</p>}
-                {escrow.status === 'error' && <p data-testid="escrow-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>}
-                {escrow.status === 'ready' && <p data-testid="escrow-usd-value" className="text-2xl font-bold mt-1">${escrow.usd.toLocaleString()}</p>}
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {escrow.status === 'ready'
-                    ? `${escrow.count} active purchase escrow${escrow.count !== 1 ? 's' : ''}`
-                    : escrow.status === 'error'
-                      ? 'Could not load your escrows'
-                      : 'Checking your escrows'}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500 uppercase font-semibold">SafePay purchases</p>
+                <p
+                  data-testid="safepay-summary-value"
+                  className={safePay.state === 'ready' && safePay.inProgress > 0
+                    ? 'text-2xl font-bold mt-1'
+                    : 'text-lg font-semibold mt-1 text-gray-500'}
+                >
+                  {safePaySummary.value}
+                </p>
+                <p data-testid="safepay-summary-detail" className="text-[10px] text-gray-400 mt-1">
+                  {safePaySummary.detail}
                 </p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center">
