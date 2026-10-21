@@ -1494,7 +1494,11 @@ async function buildVehiclePassport(
       zimra_duty: legacyMetrics.zimra_duty,
       zrp_police_cleared: legacyMetrics.zrp_police_cleared,
       blockchain_audit_valid: legacyMetrics.blockchain_audit_valid,
+      // DEPRECATED, legacy value unchanged: vacuously true with zero or one reading, an unknown VIN
+      // or a failed read. `odometer_evidence_state` (+ its reading count) is what a client renders.
       odometer_consistent: legacyMetrics.odometer_consistent,
+      odometer_evidence_state: legacyMetrics.odometer_evidence_state,
+      odometer_observation_count: legacyMetrics.odometer_observation_count,
       maintenance_logs_count: legacyMetrics.maintenance_logs_count,
       stolen_alert_active: legacyMetrics.stolen_alert_active,
       verified_evidence_count: legacyMetrics.verified_evidence_count,

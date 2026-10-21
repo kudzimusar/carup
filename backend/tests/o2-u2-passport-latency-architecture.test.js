@@ -260,6 +260,39 @@ describe('U2 — the passport fetches concurrently', () => {
     assert.equal(body.chainVerification, verdict);
     assert.equal(body.trust_signals?.blockchain_audit_valid ?? body.trustSignals?.blockchain_audit_valid, true);
   });
+
+  it('CARUP-MVP-STAB-01 F-012: the passport publishes the odometer evidence state and its count beside the deprecated boolean — exactly this key set', async () => {
+    const { client } = pendingSupabase({
+      vehicles: { data: { ...VEHICLE_ROW, current_seller_id: null }, error: null },
+      vehicle_evidence: { data: [], error: null },
+      vehicle_plate_history: { data: [], error: null },
+      vehicle_ownership_history: { data: [], error: null },
+    });
+    const { fn } = instantiatePassport(passportSource(), client, {
+      verifyChain: async () => ({ verified: true, count: 0, chain: [] }),
+      computeVehicleTrustScore: async () => ({
+        trustScore: 75,
+        metrics: {
+          cvr_synced: false, zimra_duty: false, zrp_police_cleared: false, blockchain_audit_valid: true,
+          odometer_consistent: true, odometer_evidence_state: 'insufficient_evidence', odometer_observation_count: 1,
+          maintenance_logs_count: 1, stolen_alert_active: false,
+          evidence_trust_impact: 0, verified_evidence_count: 0, rejected_evidence_count: 0,
+        },
+      }),
+    });
+    const body = await fn(VIN, {}, null, null, null, null, null, null, null);
+    assert.deepEqual(body.trustSignals, {
+      cvr_synced: false, zimra_duty: false, zrp_police_cleared: false, blockchain_audit_valid: true,
+      // Deprecated and published unchanged for legacy clients: vacuously true with one reading.
+      odometer_consistent: true,
+      // What one reading actually supports, and how many readings there are.
+      odometer_evidence_state: 'insufficient_evidence',
+      odometer_observation_count: 1,
+      maintenance_logs_count: 1, stolen_alert_active: false,
+      verified_evidence_count: 0, rejected_evidence_count: 0,
+      signals_are_not_a_trust_score: true,
+    }, 'the score and evidence_trust_impact stay off the passport; the two odometer keys are carried through');
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -329,15 +362,32 @@ describe('U2 — the trust score context fetches concurrently and scores identic
   it('THE ANSWER DID NOT MOVE — a fully-signalled vehicle (genuine registry rows) still scores exactly the same', async () => {
     // 70 baseline +10 duty +10 police +5 cvr +5 VID pass +5 service history = 105, clamped to 100.
     const { client } = pendingSupabase(SIGNALLED);
-    const { fn } = instantiateTrust(trustContextSource(), client, { odo: async () => ({ verified: true }), ledger: async () => ({ verified: true }) });
+    // The odometer audit answers the way runOdometerAudit does for four rising readings. CARUP-MVP-STAB-01
+    // F-012 added `evidence_state`/`observation_count` to that answer and the two keys below to the
+    // metrics; the comparison stays exact, so it now pins those values as well as every original one.
+    const { fn } = instantiateTrust(trustContextSource(), client, {
+      odo: async () => ({ verified: true, evidence_state: 'no_inconsistency_detected', observation_count: 4 }),
+      ledger: async () => ({ verified: true }),
+    });
     const { report, triggerEvents } = await fn(VIN);
     assert.equal(report.trustScore, 100);
     assert.deepEqual(report.metrics, {
       cvr_synced: true, zimra_duty: true, zrp_police_cleared: true, blockchain_audit_valid: true,
-      odometer_consistent: true, maintenance_logs_count: 4, stolen_alert_active: false,
+      odometer_consistent: true, odometer_evidence_state: 'no_inconsistency_detected', odometer_observation_count: 4,
+      maintenance_logs_count: 4, stolen_alert_active: false,
       evidence_trust_impact: 0, verified_evidence_count: 2, rejected_evidence_count: 1,
     });
     assert.deepEqual(triggerEvents, ['ROUTINE_RECALCULATION']);
+  });
+
+  it('CARUP-MVP-STAB-01 F-012: an odometer audit that reports no evidence state is published as unavailable — never inferred from the boolean', async () => {
+    const { client } = pendingSupabase(SIGNALLED);
+    const { fn } = instantiateTrust(trustContextSource(), client, { odo: async () => ({ verified: true }), ledger: async () => ({ verified: true }) });
+    const { report } = await fn(VIN);
+    assert.equal(report.metrics.odometer_consistent, true, 'the deprecated boolean is copied unchanged');
+    assert.equal(report.metrics.odometer_evidence_state, 'unavailable');
+    assert.equal(report.metrics.odometer_observation_count, null);
+    assert.equal(report.trustScore, 100, 'the legacy arithmetic does not move');
   });
 
   it('T12.1 still holds in the wave — a FORGED registry row (a CUS_ reference) is worth nothing', async () => {
