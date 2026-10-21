@@ -173,12 +173,25 @@ export default function RegisterScreen() {
             )}
           </View>
 
-          {/* Public sign-up always creates a Car Owner. Dealers, garages, and partners are onboarded
-              through governed, authenticated flows — no privileged role is selectable or transmitted. */}
+          {/* Public sign-up always creates a Car Owner; no privileged role is selectable or transmitted.
+              CARUP-MVP-STAB-01 F-021: this form records no business type, so a garage cannot apply from
+              here. The screen names the real route (the website's business registration, then the garage
+              application) in words: the app has no configured web address to link to. */}
           <View className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <Text className="text-xs text-slate-600">
-              You&apos;re creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account. Dealers, garages, and
-              partners are onboarded separately by the CarUp team.
+              You&apos;re creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account.
+            </Text>
+            <Text accessibilityRole="header" className="text-sm font-semibold text-slate-900 mt-3">
+              Registering a garage or service centre?
+            </Text>
+            <Text className="text-xs text-slate-600 mt-1">
+              Garage and service-centre accounts are created on the CarUp website: create an account there, choose
+              Business / professional, pick Garage / service centre as the business type, then complete the garage
+              application.
+            </Text>
+            <Text className="text-xs text-slate-600 mt-2">
+              Dealers and other automotive businesses also register on the website under Business / professional.
+              CarUp reviews each business before its business tools are switched on.
             </Text>
           </View>
 
