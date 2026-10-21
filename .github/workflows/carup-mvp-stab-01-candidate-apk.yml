@@ -335,7 +335,7 @@ PY
               echo "version_code=$VERSION_CODE"
               echo "apk_sha256=$APK_SHA256"
               echo "apk_size_bytes=$APK_SIZE"
-              echo "apk_artifact_name=carup-mvp-stab-01-candidate-staging-apk-$GITHUB_SHA"
+              echo "apk_artifact_name=carup-mvp-stab-01-candidate-staging-apk-$CANDIDATE_SHA"
               echo "api_base=$EXPO_PUBLIC_API_URL"
               echo "backend_commit=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).commit_sha)' "$OUT/backend-pairing-proof.json")"
               echo "backend_deployment=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).deployment_id)' "$OUT/backend-pairing-proof.json")"
