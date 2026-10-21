@@ -68,6 +68,31 @@ CREATE TRIGGER trg_garage_branch_manager_guard
   BEFORE INSERT OR UPDATE OF tenant_id, manager_user_id ON public.garage_branches
   FOR EACH ROW EXECUTE FUNCTION public.garage_branch_manager_guard();
 
+-- A membership role change must not silently strand a branch with a non-admin manager.
+CREATE OR REPLACE FUNCTION public.garage_branch_manager_role_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $
+BEGIN
+  IF LOWER(COALESCE(OLD.role, '')) = 'admin'
+     AND LOWER(COALESCE(NEW.role, '')) <> 'admin'
+     AND EXISTS (
+       SELECT 1 FROM public.garage_branches
+       WHERE tenant_id = OLD.tenant_id AND manager_user_id = OLD.user_id
+     ) THEN
+    RAISE EXCEPTION 'GARAGE_MEMBERSHIP_BRANCH_MANAGER' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_garage_branch_manager_role_guard ON public.tenant_users;
+CREATE TRIGGER trg_garage_branch_manager_role_guard
+  BEFORE UPDATE OF role ON public.tenant_users
+  FOR EACH ROW EXECUTE FUNCTION public.garage_branch_manager_role_guard();
+
 CREATE TABLE IF NOT EXISTS public.garage_branch_hours (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE RESTRICT,
@@ -222,6 +247,50 @@ CREATE TRIGGER trg_garage_staff_assignment_member
   BEFORE INSERT OR UPDATE OF tenant_id, user_id ON public.garage_staff_branch_assignments
   FOR EACH ROW EXECUTE FUNCTION public.garage_staff_metadata_membership_guard();
 
+CREATE OR REPLACE FUNCTION public.garage_staff_assignment_branch_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.garage_branches
+    WHERE id = NEW.branch_id AND tenant_id = NEW.tenant_id AND is_active = TRUE
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_BRANCH_NOT_ACTIVE' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_garage_staff_assignment_branch ON public.garage_staff_branch_assignments;
+CREATE TRIGGER trg_garage_staff_assignment_branch
+  BEFORE INSERT OR UPDATE OF tenant_id, branch_id ON public.garage_staff_branch_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_assignment_branch_guard();
+
+CREATE OR REPLACE FUNCTION public.garage_staff_profile_department_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $
+BEGIN
+  IF NEW.department_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.garage_departments
+    WHERE id = NEW.department_id AND tenant_id = NEW.tenant_id AND is_active = TRUE
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_DEPARTMENT_NOT_ACTIVE' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_garage_staff_profile_department ON public.garage_staff_profiles;
+CREATE TRIGGER trg_garage_staff_profile_department
+  BEFORE INSERT OR UPDATE OF tenant_id, department_id ON public.garage_staff_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.garage_staff_profile_department_guard();
+
 DROP TRIGGER IF EXISTS trg_garage_staff_skill_member ON public.garage_staff_skills;
 CREATE TRIGGER trg_garage_staff_skill_member
   BEFORE INSERT OR UPDATE OF tenant_id, user_id ON public.garage_staff_skills
@@ -274,7 +343,10 @@ REVOKE DELETE ON TABLE public.garage_staff_branch_assignments FROM service_role;
 
 -- These guard functions are trigger-only. No client or application role calls them directly.
 REVOKE ALL ON FUNCTION public.garage_branch_manager_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.garage_branch_manager_role_guard() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.garage_staff_metadata_membership_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.garage_staff_assignment_branch_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.garage_staff_profile_department_guard() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.garage_staff_branch_assignments_no_delete() FROM PUBLIC, anon, authenticated, service_role;
 
 -- Atomic branch-hours replacement. A malformed replacement changes nothing.
@@ -565,7 +637,13 @@ DROP TRIGGER IF EXISTS trg_garage_staff_skill_member ON public.garage_staff_skil
 DROP TRIGGER IF EXISTS trg_garage_staff_assignment_member ON public.garage_staff_branch_assignments;
 DROP TRIGGER IF EXISTS trg_garage_staff_profile_member ON public.garage_staff_profiles;
 DROP FUNCTION IF EXISTS public.garage_staff_branch_assignments_no_delete();
+DROP TRIGGER IF EXISTS trg_garage_staff_profile_department ON public.garage_staff_profiles;
+DROP FUNCTION IF EXISTS public.garage_staff_profile_department_guard();
+DROP TRIGGER IF EXISTS trg_garage_staff_assignment_branch ON public.garage_staff_branch_assignments;
+DROP FUNCTION IF EXISTS public.garage_staff_assignment_branch_guard();
 DROP FUNCTION IF EXISTS public.garage_staff_metadata_membership_guard();
+DROP TRIGGER IF EXISTS trg_garage_branch_manager_role_guard ON public.tenant_users;
+DROP FUNCTION IF EXISTS public.garage_branch_manager_role_guard();
 DROP TRIGGER IF EXISTS trg_garage_branch_manager_guard ON public.garage_branches;
 DROP FUNCTION IF EXISTS public.garage_branch_manager_guard();
 DROP FUNCTION IF EXISTS public.end_garage_staff_branch_assignment(UUID, UUID, TEXT, TEXT);
