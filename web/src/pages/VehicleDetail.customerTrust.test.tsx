@@ -308,6 +308,17 @@ describe('F-011 — limitations are customer sentences on every part of the page
     expect(basis).toMatch(/0 of 7/)
     expect(basis).not.toMatch(/governed/i)
   })
+
+  it('the Trust rules version is stated in words, and no internal identifier or implementation term reaches the page', async () => {
+    const { container } = renderPublic()
+    await waitFor(() => expect(screen.getByTestId('trust-calculation-version')).toBeTruthy())
+    expect(screen.getByTestId('trust-calculation-version').textContent).toBe('Trust rules version 1.1.0')
+    const page = container.textContent || ''
+    expect(page).not.toContain('trust-decision-')
+    for (const term of [/\bgoverned\b/i, /\bprovenance\b/i, /\bcanonical\b/i, /\bauthoritative\b/i, /\bartifacts?\b/i]) {
+      expect(page, `implementation term on the public vehicle page: ${term}`).not.toMatch(term)
+    }
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -274,7 +274,7 @@ export default function Register() {
                     <p className="font-semibold text-slate-900">Business onboarding requested</p>
                     <p className="mt-0.5 text-slate-600">
                       Dealer, exporter and other professional permissions are granted only after
-                      governed business review. Signup itself does not grant those privileges.
+                      CarUp reviews the business. Signup itself does not grant those permissions.
                     </p>
                   </div>
                 </div>
@@ -373,8 +373,8 @@ export default function Register() {
                     <Input required autoComplete="tel" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+263 7XX XXX XXX" />
                   </Field>
                   <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
-                    We do not ask for passport, ID or ownership documents at signup. CarUp requests
-                    sensitive evidence later, inside the governed verification or Vehicle Passport journey.
+                    We do not ask for passport, ID or ownership documents at signup. CarUp asks for
+                    sensitive documents later, only inside identity verification or the Vehicle Passport.
                   </div>
                 </>
               )}
@@ -521,8 +521,8 @@ export default function Register() {
                     <div>
                       <p className="text-sm font-semibold">Verification is separate from signup</p>
                       <p className="mt-1 text-xs leading-5 text-slate-400">
-                        We will send a one-time email confirmation. Vehicle ownership, identity/KYC,
-                        Dealer or Exporter approval remain governed workflows and are never implied by this form.
+                        We will send a one-time email confirmation. Vehicle ownership, identity checks and
+                        Dealer or Exporter approval are separate reviews and are never implied by this form.
                       </p>
                     </div>
                   </div>

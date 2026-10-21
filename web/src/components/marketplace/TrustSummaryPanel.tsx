@@ -42,7 +42,7 @@ export function TrustSummaryPanel({
         <div className="mb-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700" data-testid="marketplace-trust-inputs-unreadable">
           <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            CarUp could not read this vehicle’s evidence or parts-provenance records. Nothing below
+            CarUp could not read this vehicle’s evidence or parts records. Nothing below
             is a finding about this vehicle, and the absence of a warning here is not an all-clear.
           </span>
         </div>

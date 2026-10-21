@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   customerTrustLimitation,
   customerTrustLimitations,
+  customerTrustRulesVersion,
   presentTrustForCustomer,
 } from '@shared/trust/customerTrustPresentation'
 
@@ -138,5 +139,18 @@ describe('customerTrustLimitation', () => {
       "The stored 'zimra_verified' flag on this vehicle is not supported by any authoritative record and is not published.",
       "The stored 'police_verified' flag on this vehicle is not supported by any authoritative record and is not published.",
     ])).toEqual(['A stored vehicle check is not backed by an official record, so CarUp does not show it.'])
+  })
+})
+
+describe('customerTrustRulesVersion', () => {
+  it('keeps the version but not the internal identifier format', () => {
+    expect(customerTrustRulesVersion('trust-decision-1.1.0')).toBe('Trust rules version 1.1.0')
+    expect(customerTrustRulesVersion('trust-decision-v1')).toBe('Trust rules version 1')
+  })
+
+  it('states an unrecognised version as received, and an absent one as not recorded', () => {
+    expect(customerTrustRulesVersion('2026-10')).toBe('Trust rules version 2026-10')
+    expect(customerTrustRulesVersion(null)).toBe('Trust rules version not recorded')
+    expect(customerTrustRulesVersion('  ')).toBe('Trust rules version not recorded')
   })
 })

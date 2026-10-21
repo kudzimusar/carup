@@ -72,7 +72,7 @@ const FAQS: FAQ[] = [
     id: 'faq-6',
     category: 'mechanic',
     question: 'What is the PartSentry ledger, and how does it protect my car?',
-    answer: 'PartSentry records a part change against a vehicle: what was replaced, by whom, and at what odometer reading. It records what a mechanic entered — it does not inspect the part, authenticate it, or prevent a counterfeit being fitted or sold. Entries are signed so a later edit is detectable, and a reviewed entry can become governed evidence that informs the vehicle\'s Trust position.',
+    answer: 'PartSentry records a part change against a vehicle: what was replaced, by whom, and at what odometer reading. It records what a mechanic entered — it does not inspect the part, authenticate it, or prevent a counterfeit being fitted or sold. Entries are signed so a later edit is detectable, and an entry CarUp has reviewed can count towards the vehicle\'s Trust position.',
     tags: ['PartSentry', 'mechanics', 'parts', 'audit ledger', 'maintenance']
   },
   {

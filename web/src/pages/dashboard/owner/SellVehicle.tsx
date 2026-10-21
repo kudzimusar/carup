@@ -590,7 +590,7 @@ export default function SellVehicle() {
       if (result.status === 'recognized') {
         toast.success('CarUp recognizes your existing relationship to this Passport.')
       } else {
-        toast.info('Your seller-authority claim is recorded. Upload supporting evidence for governed review.')
+        toast.info('Your seller-authority claim is recorded. Upload supporting documents for CarUp to review.')
       }
     } catch {
       setAuthorityState('error')
@@ -687,7 +687,7 @@ export default function SellVehicle() {
       } else if (identification.state === 'passport_exists' && authorityState === 'checking') {
         e.vin = 'Wait for the seller-authority check to finish'
       } else if (identification.state === 'passport_exists' && authorityState === 'evidence_required') {
-        e.vin = 'Upload seller-authority evidence and wait for governed review before listing this Passport'
+        e.vin = 'Upload documents showing you may sell this vehicle, and wait for CarUp’s review before listing it'
       }
       if (!form.color) e.color = 'Required'
     }
@@ -1157,8 +1157,8 @@ export default function SellVehicle() {
         eyebrow="Seller Studio"
         title={isPublishedListing ? 'Edit your public listing' : resumeVin ? 'Continue listing' : 'Build your listing'}
         description={isPublishedListing
-          ? 'Update the details buyers see on your live listing. Ownership evidence and Trust remain governed separately.'
-          : 'Save commercial details and listing media as a private draft. Ownership evidence and publication readiness remain governed separately.'}
+          ? 'Update the details buyers see on your live listing. Ownership documents and Trust are reviewed separately.'
+          : 'Save the price, description and photos as a private draft. Ownership documents and readiness to publish are reviewed separately.'}
         backHref="/dashboard/garage"
         backLabel="Back to My Garage"
         objectIdentity={resumeVin || form.vin || null}
@@ -1188,8 +1188,8 @@ export default function SellVehicle() {
               {isPublishedListing
                 ? 'Vehicle identity, listing photos and the price are locked here while this listing is public. Seller copy and privacy choices remain editable.'
                 : canonicalLocked
-                  ? 'Canonical vehicle identity/specification fields are locked to this Passport. Seller-commercial copy, price, privacy and listing media remain editable.'
-                  : 'Vehicle identity becomes canonical when the draft is claimed to an account. Seller statements remain separate from reviewed evidence and canonical Trust.'}
+                  ? 'The vehicle’s identity and specification are fixed by its Passport. Your description, price, privacy choices and photos stay editable.'
+                  : 'The vehicle’s identity is fixed once the draft belongs to an account. What you state as the seller stays separate from reviewed documents and from Trust.'}
             </p>
 
             <div className="mt-7 grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-4">
@@ -1423,7 +1423,7 @@ export default function SellVehicle() {
                     {authorityState === 'evidence_required' && (
                       <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                         <p className="font-semibold">Seller-authority evidence required.</p>
-                        <p className="mt-1">Your claim is recorded. The Passport is not reassigned until governed review supports it.</p>
+                        <p className="mt-1">Your claim is recorded. The Passport is not reassigned until CarUp’s review supports it.</p>
                         <Button asChild size="sm" variant="outline" className="mt-2">
                           <Link to={`/dashboard/garage/${encodeURIComponent(form.vin)}?upload=1`}>Upload evidence to this Passport</Link>
                         </Button>

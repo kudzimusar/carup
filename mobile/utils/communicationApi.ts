@@ -115,7 +115,7 @@ export async function resolveMarketplaceInquiryConversation(
     ));
 
     if (matches.length > 1) {
-      throw new CommunicationApiError('More than one canonical conversation matched this inquiry.', 409);
+      throw new CommunicationApiError('More than one conversation matched this inquiry.', 409);
     }
 
     const thread = matches[0] || null;
@@ -124,7 +124,7 @@ export async function resolveMarketplaceInquiryConversation(
         ? null
         : String(thread.marketplace_listing_id);
       if (listing && canonicalListingId !== listing) {
-        throw new CommunicationApiError('Canonical conversation does not match the Marketplace listing.', 409);
+        throw new CommunicationApiError('This conversation is for a different Marketplace listing.', 409);
       }
       return {
         state: 'resolved',

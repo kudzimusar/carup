@@ -413,7 +413,7 @@ export default function VehicleProfile() {
     : (TRUST_STATE_LABELS[trustState] ?? TRUST_STATE_LABELS.unavailable)
   const trustDetail = trustScore !== null
     ? (publicTrust?.band === 'insufficient_evidence'
-      ? 'CarUp evaluated this vehicle and found too little authoritative evidence to support a '
+      ? 'CarUp evaluated this vehicle and found too few facts confirmed against official records to support a '
         + 'higher score. This is a measured result, not a missing one.'
       : 'Published by CarUp’s trust authority under its current calculation rules.')
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)

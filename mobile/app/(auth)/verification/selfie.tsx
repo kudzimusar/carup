@@ -63,7 +63,7 @@ function SelfieCapture() {
           />
           <Notice
             title="Liveness status"
-            body="This viewfinder does not perform face or liveness detection. The current development liveness step remains separate and non-authoritative."
+            body="This viewfinder does not perform face or liveness detection. The current liveness step is a development step and does not count as a liveness check."
             tone="warning"
           />
         </>

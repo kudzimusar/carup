@@ -107,7 +107,7 @@ function BuyerTransactionScreenInner() {
     } catch (error) {
       Alert.alert(
         'CarUp could not complete this action',
-        error instanceof Error ? error.message : 'The canonical transaction authority rejected the request.',
+        error instanceof Error ? error.message : 'CarUp did not accept this request.',
       );
     } finally {
       setActing(null);
@@ -117,7 +117,7 @@ function BuyerTransactionScreenInner() {
   const reserve = () => runAction('reserve', async () => {
     const result = await reserveBuyerVehicle(canonicalVin);
     if (result.vin !== canonicalVin) throw new Error('Reservation authority returned a different VIN.');
-    if (!result.transactionIntentId) throw new Error('Reservation authority returned no canonical transaction intent.');
+    if (!result.transactionIntentId) throw new Error('CarUp did not return a purchase reference for this request.');
     setSelectedTransactionIntentId(result.transactionIntentId);
     setEligibility(null);
     setPaymentPreparation(null);
@@ -150,7 +150,7 @@ function BuyerTransactionScreenInner() {
     if (!transaction) return;
     Alert.alert(
       'Prepare SafePay deposit?',
-      'This asks the canonical payment provider to create a payment intent. CarUp will not mark funds held or settled until provider-confirmed state is recorded.',
+      'This asks the payment provider to prepare a SafePay deposit. CarUp will not show funds as held or settled until the provider confirms it.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -180,13 +180,13 @@ function BuyerTransactionScreenInner() {
     if (resolution.state === 'ambiguous') {
       throw new Error('More than one Marketplace inquiry conversation exists for this VIN, and the transaction projection does not expose inquiry_id. No thread was guessed.');
     }
-    throw new Error('No canonical Marketplace inquiry conversation is available for this VIN.');
+    throw new Error('There is no CarUp conversation with the seller for this vehicle yet.');
   });
 
   if (!canonicalVin) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center' }}>
-        <EmptyState title="Purchase journey unavailable" body="A canonical VIN is required." />
+        <EmptyState title="Purchase journey unavailable" body="This screen needs the vehicle’s VIN." />
       </View>
     );
   }
@@ -204,7 +204,7 @@ function BuyerTransactionScreenInner() {
       <View style={{ flex: 1, backgroundColor: theme.background.canvas, justifyContent: 'center' }}>
         <EmptyState
           title="Purchase journey unavailable"
-          body="CarUp could not load the canonical Marketplace listing for this VIN."
+          body="CarUp could not load the Marketplace listing for this vehicle."
           actionLabel="Try again"
           onAction={() => void detailQuery.refetch()}
           secondaryLabel="Back to vehicle"
@@ -277,14 +277,14 @@ function BuyerTransactionScreenInner() {
 
         {transaction ? (
           <Notice
-            title="Canonical transaction"
-            body={`Transaction intent ${transaction.transaction_intent_id} was returned by CarUp's participant-scoped transaction authority for VIN ${transaction.vin}. Native does not maintain a second transaction state machine.`}
+            title="Your purchase in CarUp"
+            body={`Purchase reference ${transaction.transaction_intent_id} for VIN ${transaction.vin}. This app shows CarUp's record of the purchase and never keeps a separate one.`}
             tone="info"
           />
         ) : transactionResolution.state === 'ambiguous' ? (
           <Notice
-            title="Transaction selection requires canonical identity"
-            body={`CarUp returned ${transactionResolution.count} participant transaction records for this VIN. Native will not choose one by timestamp. A reservation response with an exact transaction intent is required to continue safely.`}
+            title="CarUp needs to know which purchase this is"
+            body={`CarUp has ${transactionResolution.count} purchase records for this vehicle, and the app will not guess which one is yours. Start again from the reservation so CarUp can name the exact purchase.`}
             tone="warning"
           />
         ) : token && !transactionsQuery.isLoading ? (
@@ -327,7 +327,7 @@ function BuyerTransactionScreenInner() {
               <Notice
                 title={eligibility.eligibility === 'eligible' ? 'Deposit eligible' : 'Deposit not eligible'}
                 body={eligibility.eligibility === 'eligible'
-                  ? `Canonical policy permits ${eligibility.currency || ''} ${eligibility.amount ?? ''}. No funds have been marked held by this eligibility check.`.trim()
+                  ? `CarUp allows a deposit of ${eligibility.currency || ''} ${eligibility.amount ?? ''}. No money is held yet — this is only an eligibility check.`.trim()
                   : `CarUp declined deposit eligibility: ${eligibility.reasons.join(', ') || 'reason unavailable'}.`}
                 tone={eligibility.eligibility === 'eligible' ? 'success' : 'warning'}
               />
@@ -363,8 +363,8 @@ function BuyerTransactionScreenInner() {
         <View>
           <SectionHeader title="SafePay authority" />
           <Notice
-            title="Provider-confirmed state only"
-            body="Native can request buyer-authorized actions, but it never decides funds held, inspection approval, release approval, settlement or refund. Those states remain under canonical backend, provider and governance authority."
+            title="Only what the payment provider confirms"
+            body="This app can ask for the steps you authorise, but it never decides funds held, inspection approval, release approval, settlement or refund. CarUp and the payment provider decide those."
             tone="info"
           />
         </View>
@@ -372,12 +372,12 @@ function BuyerTransactionScreenInner() {
         <View>
           <SectionHeader title="Ownership" />
           {ownershipQuery.isLoading ? (
-            <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Checking canonical ownership" />
+            <ActivityIndicator color={theme.brand.primary} accessibilityLabel="Checking ownership" />
           ) : ownershipOwned ? (
             <View style={{ gap: spacing[3] }}>
               <Notice
                 title="Ownership recorded"
-                body={`The canonical owned-vehicle projection records the current account as owner of VIN ${canonicalVin}. No separate Native ownership record was created.`}
+                body={`CarUp records this account as the owner of VIN ${canonicalVin}. The app keeps no ownership record of its own.`}
                 tone="success"
               />
               <Button label="Open My Garage" onPress={() => router.push('/(tabs)/garage' as never)} />
@@ -385,7 +385,7 @@ function BuyerTransactionScreenInner() {
           ) : ownership?.state === 'not_owned' ? (
             <Notice
               title="Ownership not complete"
-              body="CarUp does not treat reservation, payment preparation or transaction settlement as legal ownership. This VIN will become an owned Garage vehicle only after canonical ownership authority records the current account as owner."
+              body="CarUp does not treat reservation, payment preparation or transaction settlement as legal ownership. This vehicle becomes an owned Garage vehicle only after CarUp records this account as its owner."
               tone="warning"
             />
           ) : (
@@ -393,7 +393,7 @@ function BuyerTransactionScreenInner() {
               title="Ownership proof unavailable"
               body={ownership?.state === 'unavailable'
                 ? ownership.reason
-                : 'Sign in with an account permitted to read the canonical owned-vehicle projection.'}
+                : 'Sign in with the account that owns this vehicle to see its ownership.'}
               tone="warning"
             />
           )}

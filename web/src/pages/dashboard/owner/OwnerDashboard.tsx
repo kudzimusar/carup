@@ -151,7 +151,7 @@ export default function OwnerDashboard() {
     attentionItems.push({
       key: 'awaiting-trust',
       label: `${awaitingTrust} ${awaitingTrust === 1 ? 'vehicle has' : 'vehicles have'} no completed trust assessment`,
-      detail: 'CarUp evaluates a vehicle once its governed evidence is in place. Upload or complete the outstanding documents.',
+      detail: 'CarUp evaluates a vehicle once the documents it needs are in place. Upload or complete the outstanding ones.',
       to: '/dashboard/garage', cta: 'Open garage',
     })
   } else if (vehiclesState === 'unavailable') {

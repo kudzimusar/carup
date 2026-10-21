@@ -124,6 +124,18 @@ function capitalise(text: string): string {
   return text.length ? text[0].toUpperCase() + text.slice(1) : text
 }
 
+/**
+ * The Trust rules a published score was calculated under, worded for a customer. The version stays visible
+ * (a number without the rules it came from has no provenance), but the internal identifier format does not:
+ * `trust-decision-1.1.0` reads "Trust rules version 1.1.0". Anything else is stated as received.
+ */
+export function customerTrustRulesVersion(raw: string | null | undefined): string {
+  const value = String(raw ?? '').trim()
+  const semver = value.match(/^trust-decision-v?(\d+(?:\.\d+){0,2})$/i)
+  if (semver) return `Trust rules version ${semver[1]}`
+  return value ? `Trust rules version ${value}` : 'Trust rules version not recorded'
+}
+
 /** Customer-facing wording for one limitation line, or null when the line must never be shown (reason codes). */
 export function customerTrustLimitation(raw: string): string | null {
   const line = String(raw ?? '').trim()

@@ -82,7 +82,7 @@ function TopicUnanswered({ blockRead, topic }: { blockRead: boolean; topic: stri
 function GovernedBadge() {
   return (
     <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-800">
-      Governed record
+      Lender record
     </span>
   )
 }
@@ -148,10 +148,10 @@ export function VehicleHistoryObligationsSections({
             )}
           </div>
           <p className="border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500" data-testid="history-accident-governed-state">
-            Governed accident and repair evidence — insurer assessments, police reports, repair
-            records with their source provenance — appears in the Vehicle History and Evidence
-            sections of this page when it exists. A seller statement is never converted into
-            verified evidence, and missing records are not proof of a clean history.
+            Accident and repair records from insurers, the police and repairers — each showing where
+            it came from — appear in the Vehicle History and Evidence sections of this page when CarUp
+            holds them. A seller statement never becomes a confirmed record, and missing records are
+            not proof of a clean history.
           </p>
         </div>
       </div>
@@ -179,7 +179,7 @@ export function VehicleHistoryObligationsSections({
           </div>
           <p className="border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500" data-testid="history-insurance-governed-state">
             Insurer-confirmed cover: no connected insurer source for this vehicle. A seller saying
-            “insured” never becomes provider confirmation; when a governed insurer record exists it
+            “insured” never becomes insurer confirmation; when CarUp holds the insurer’s own record it
             is shown separately here.
           </p>
         </div>
@@ -227,7 +227,7 @@ export function VehicleHistoryObligationsSections({
               <div data-testid="history-finance-governed-record">
                 <div className="flex items-center gap-2">
                   <GovernedBadge />
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Lender / governed record</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">From the lender, not the seller</span>
                 </div>
                 <ul className="mt-1.5 space-y-2">
                   {liveObligations.map((obligation, index) => (
@@ -289,7 +289,7 @@ export function VehicleHistoryObligationsSections({
       <p className="flex items-start gap-2 px-1 text-[11px] leading-4 text-slate-400">
         <FileQuestion className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
         Seller declarations above are statements by the seller, recorded with their listing. CarUp
-        compares them with governed evidence where sources exist; reviewed discrepancies appear in
+        compares them with official and professional records where those exist; reviewed discrepancies appear in
         the Disclosure Review section.
       </p>
     </section>

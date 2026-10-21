@@ -82,7 +82,7 @@ describe('VehicleHistoryObligationsSections', () => {
     // …and each section states the GOVERNED side's own honest state rather than echoing the seller.
     expect(screen.getByTestId('history-insurance-governed-state').textContent).toMatch(/no connected insurer source/i)
     expect(screen.getByTestId('history-finance-governed-state').textContent).toMatch(/no connected lender source/i)
-    expect(screen.getByTestId('history-accident-governed-state').textContent).toMatch(/never converted into\s+verified evidence/i)
+    expect(screen.getByTestId('history-accident-governed-state').textContent).toMatch(/A seller statement never becomes a confirmed record/i)
   })
 
   it('renders structured accident events only for an explicit "yes"', () => {
@@ -189,7 +189,8 @@ describe('VehicleHistoryObligationsSections — governed finance obligation', ()
     // "none known" while the lender record says an interest is active. Neither overwrites the other.
     expect(screen.getByTestId('history-finance-statement').textContent).toMatch(/no finance|none/i)
     const governed = screen.getByTestId('history-finance-governed-record')
-    expect(governed.textContent).toMatch(/Governed record/i)
+    expect(governed.textContent).toMatch(/Lender record/i)
+    expect(screen.getByTestId('history-finance-statement').textContent).not.toMatch(/Lender record/i)
     expect(governed.textContent).toMatch(/settlement required before transfer/i)
   })
 

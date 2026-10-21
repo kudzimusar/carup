@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { TrustDecision, TrustDimension } from '@/types'
-import { customerTrustLimitations } from '@shared/trust/customerTrustPresentation'
+import { customerTrustLimitations, customerTrustRulesVersion } from '@shared/trust/customerTrustPresentation'
 
 // Buyer-safe presentation of the unified trust decision. Each dimension is shown
 // SEPARATELY (never collapsed into one "verified"). Private dimensions (e.g. finance)
@@ -97,7 +97,7 @@ export function TrustDecisionPanel({ vin, initialData }: { vin: string; initialD
             </ul>
           </div>
         )}
-        <p className="text-xs text-gray-400 pt-1">Each signal is shown separately. CarUp never collapses these into a single "verified" badge. Version {data.calculation_version}.</p>
+        <p className="text-xs text-gray-400 pt-1">Each signal is shown separately. CarUp never collapses these into a single "verified" badge. {customerTrustRulesVersion(data.calculation_version)}.</p>
       </CardContent>
     </Card>
   )
