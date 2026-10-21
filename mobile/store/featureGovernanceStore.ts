@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { NativeEffectiveStateMap } from '../navigation/types';
 import { fetchEffectiveStates } from '../utils/featureGovernanceApi';
+import { markStartupPhase } from '../utils/nativePerformance';
 import {
   currentIdentityKey,
   computeRefreshStart,
@@ -21,6 +22,14 @@ import {
 export { currentIdentityKey, computeRefreshStart, isGovernanceReadyForIdentity };
 
 const NAV_COHORT_KEY = 'carup_nav_cohort';
+
+/**
+ * Every refresh takes a number; only the newest may write the store. CARUP-MVP-STAB-01 F-015: the
+ * anonymous refresh started before the saved session was restored used to finish after the signed-in
+ * refresh had begun, and its "identity changed" exit cleared `loading` for the newer request — so a
+ * governed screen briefly evaluated the signed-in person against an empty map.
+ */
+let latestRefresh = 0;
 
 /** In-process cache so we don't hit SecureStore on every fetch. */
 let _cohortCache: string | null = null;
@@ -88,10 +97,16 @@ export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) =>
     // read the previous identity's gating during/after the fetch (see
     // computeRefreshStart). A same-identity refresh keeps the map (no flicker).
     // Either way clear `error` while a fresh attempt is in flight.
+    const refreshNumber = ++latestRefresh;
     const { loadedForKey } = useFeatureGovernanceStore.getState();
     set({ ...computeRefreshStart(loadedForKey, requestedKey), error: false });
 
+    markStartupPhase('governance_start');
     const result = await fetchEffectiveStates();
+    markStartupPhase('governance_end', { ok: result.ok });
+
+    // A newer refresh owns the store now: never clobber its loading/error/map.
+    if (refreshNumber !== latestRefresh) return;
 
     // Identity guard: only apply if the identity hasn't changed mid-flight.
     const after = useAuthStore.getState();

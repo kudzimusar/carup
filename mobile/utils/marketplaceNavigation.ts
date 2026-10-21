@@ -23,8 +23,13 @@ export function marketplaceResultsReturnHref(
   return `/market/results?saved=true${serialized ? `&${serialized}` : ''}`;
 }
 
+/**
+ * CARUP-MVP-STAB-01 F-003: a Results entry names its source, so Vehicle Detail can return to these
+ * exact results even with no history. Same shape as `vehicleHref(vin, { from: 'results', marketReturn })`
+ * in utils/vehicleNavigation.ts (pinned by tests/mvp-stab-01-vehicle-navigation.test.ts).
+ */
 export function marketplaceVehicleHref(vin: string, returnHref: string): string {
-  return `/vehicle/${encodeURIComponent(vin)}?marketReturn=${encodeURIComponent(returnHref)}`;
+  return `/vehicle/${encodeURIComponent(vin)}?from=results&marketReturn=${encodeURIComponent(returnHref)}`;
 }
 
 /**

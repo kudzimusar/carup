@@ -9,7 +9,7 @@
  * it renders backend-supplied projections and posts actions through governed endpoints.
  */
 import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
-import { nativeNow, recordNetworkResponse } from './nativePerformance';
+import { fetchWithTimeout, nativeNow, recordNetworkResponse } from './nativePerformance';
 import type {
   MarketplacePublicTrust,
   MarketplaceTrustEvaluationState,
@@ -18,10 +18,13 @@ import type {
 
 export class MarketplaceApiError extends Error {
   statusCode: number | null;
-  constructor(message: string, statusCode: number | null = null) {
+  /** The server's machine code (e.g. INQUIRY_IDEMPOTENCY_MISMATCH), when it sent one. */
+  code: string | null;
+  constructor(message: string, statusCode: number | null = null, code: string | null = null) {
     super(message);
     this.name = 'MarketplaceApiError';
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
@@ -196,7 +199,23 @@ export interface MobileInquiryInput {
   referral_code?: string;
   campaign_code?: string;
   source_channel?: 'mobile';
+  /**
+   * CARUP-MVP-STAB-01 F-002: one id per composer session, repeated on every retry of the same
+   * message so the server answers a repeat with the original inquiry instead of creating another.
+   */
+  client_request_id?: string;
+  /** Allow-listed context only (backend marketplaceInquiryService ALLOWED_METADATA_KEYS). */
+  metadata?: { source_page?: string };
 }
+
+export interface MobileInquiryCreateResult {
+  inquiry: { id: string; status: string; referral_attributed: boolean };
+  /** True when the server recognised the client_request_id and returned the original inquiry. */
+  idempotent_replay?: boolean;
+}
+
+/** A send that has not answered by now is reported as unconfirmed so the buyer can retry it. */
+export const INQUIRY_SEND_TIMEOUT_MS = 20_000;
 
 async function authHeaders(): Promise<Record<string, string>> {
   const { useAuthStore } = await import('../store/authStore');
@@ -230,7 +249,7 @@ async function getCsrf(baseUrl: string, force = false): Promise<string> {
   return token;
 }
 
-async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function requestJson<T>(path: string, options: RequestInit = {}, timing: { timeoutMs?: number } = {}): Promise<T> {
   const baseUrl = getVerificationApiBaseUrl();
   const method = (options.method || 'GET').toUpperCase();
   const perform = async (forceCsrf: boolean) => {
@@ -239,7 +258,8 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
       ...((options.headers as Record<string, string>) || {}),
     };
     if (MUTATING_METHODS.has(method)) headers['x-csrf-token'] = await getCsrf(baseUrl, forceCsrf);
-    return fetch(`${baseUrl}${path}`, { ...options, headers });
+    const init: RequestInit = { ...options, headers };
+    return timing.timeoutMs ? fetchWithTimeout(fetch, `${baseUrl}${path}`, init, timing.timeoutMs) : fetch(`${baseUrl}${path}`, init);
   };
   const startedAt = nativeNow();
   let response = await perform(false);
@@ -247,11 +267,13 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
   recordNetworkResponse(method === 'GET' ? 'api.marketplace' : 'api.marketplace_action', startedAt, response);
   if (!response.ok) {
     let message = `Marketplace API returned HTTP ${response.status}`;
+    let code: string | null = null;
     try {
       const body = await response.json();
       message = body?.error?.message || body?.error || message;
+      code = typeof body?.error?.code === 'string' ? body.error.code : typeof body?.code === 'string' ? body.code : null;
     } catch { /* keep status message */ }
-    throw new MarketplaceApiError(message, response.status);
+    throw new MarketplaceApiError(message, response.status, code);
   }
   return response.json();
 }
@@ -292,8 +314,20 @@ export async function getMarketplaceCategories(): Promise<{ listing_types: { slu
   return requestJson(`/api/marketplace/categories`);
 }
 
-export async function createMarketplaceInquiry(payload: MobileInquiryInput): Promise<{ inquiry: { id: string; status: string; referral_attributed: boolean } }> {
-  return requestJson(`/api/marketplace/inquiries`, { method: 'POST', body: JSON.stringify({ ...payload, source_channel: 'mobile' }) });
+/**
+ * POST one buyer inquiry. A first create answers 201 and a recognised repeat of the same
+ * client_request_id answers 200 with `idempotent_replay: true`; both are success. Older servers
+ * ignore the field. The 403 CSRF retry in requestJson re-sends the identical body.
+ */
+export async function createMarketplaceInquiry(
+  payload: MobileInquiryInput,
+  options: { timeoutMs?: number } = {},
+): Promise<MobileInquiryCreateResult> {
+  return requestJson<MobileInquiryCreateResult>(
+    `/api/marketplace/inquiries`,
+    { method: 'POST', body: JSON.stringify({ ...payload, source_channel: 'mobile' }) },
+    { timeoutMs: options.timeoutMs ?? INQUIRY_SEND_TIMEOUT_MS },
+  );
 }
 
 export async function getSavedMarketplaceListings(): Promise<MobileListingsResponse> {

@@ -39,11 +39,15 @@ assert.doesNotMatch(layout, /stableOptions\('marketplace', 'Market'\)/);
 assert.match(sellTab, /SellStartExperience/);
 assert.doesNotMatch(sellTab, /Redirect/);
 
-assert.match(header, /notifications-outline/);
+// CARUP-MVP-STAB-01 F-031: the header control is the Inbox (conversations), not a notifications bell,
+// and its count is conversations with something unread — unknown when the read fails.
+assert.match(header, /chatbubbles-outline/);
+assert.doesNotMatch(header, /notifications-outline/);
 assert.match(header, /person-outline/);
-assert.match(header, /accessibilityLabel="Notifications and Profile"/);
+assert.match(header, /accessibilityLabel="Inbox and Profile"/);
 assert.match(header, /listCommunicationThreads/);
-assert.match(header, /unread_count/);
+assert.match(header, /Number\(thread\?\.unread_count \|\| 0\) > 0/);
+assert.match(header, /Inbox, unread count unavailable/);
 assert.match(header, /router\.push\('\/\(tabs\)\/inbox'/);
 assert.match(header, /router\.push\('\/\(tabs\)\/account'/);
 assert.match(account, /Inbox \/ Messages/);

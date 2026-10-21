@@ -19,7 +19,14 @@
  * marketplaceApi builds URLs — so the path is `/api/features/effective`.
  */
 import { apiUrl } from './apiBase';
+import { fetchWithTimeout, isNativeTimeoutError } from './nativePerformance';
 import type { NativeEffectiveState, NativeEffectiveStateMap } from '../navigation/types';
+
+/**
+ * CARUP-MVP-STAB-01 F-015: the feature check is abandoned after this long and reported as an
+ * ordinary failure (the boundary then offers Retry) instead of holding the screen indefinitely.
+ */
+export const GOVERNANCE_FETCH_TIMEOUT_MS = 8000;
 
 const LIFECYCLES = new Set([
   'active',
@@ -76,7 +83,7 @@ async function governanceHeaders(): Promise<Record<string, string>> {
  */
 export type FetchEffectiveStatesResult =
   | { ok: true; map: NativeEffectiveStateMap }
-  | { ok: false; map: NativeEffectiveStateMap; unauthorized?: boolean };
+  | { ok: false; map: NativeEffectiveStateMap; unauthorized?: boolean; timedOut?: boolean };
 
 /**
  * Fetch the effective feature states for the current session. NEVER throws.
@@ -95,7 +102,7 @@ export async function fetchEffectiveStates(): Promise<FetchEffectiveStatesResult
 
   try {
     const headers = await governanceHeaders();
-    const response = await fetch(url, { headers });
+    const response = await fetchWithTimeout(fetch, url, { headers }, GOVERNANCE_FETCH_TIMEOUT_MS);
     if (!response.ok) {
       // 401/403 means the SESSION is invalid (stale/expired token), which is a
       // different failure class from network/5xx: the caller must clear the
@@ -122,7 +129,7 @@ export async function fetchEffectiveStates(): Promise<FetchEffectiveStatesResult
       if (isEffectiveState(f)) map[f.featureId] = f;
     }
     return { ok: true, map };
-  } catch {
-    return { ok: false, map: {} };
+  } catch (error) {
+    return isNativeTimeoutError(error) ? { ok: false, map: {}, timedOut: true } : { ok: false, map: {} };
   }
 }
