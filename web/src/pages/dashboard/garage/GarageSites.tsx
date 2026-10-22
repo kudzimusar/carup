@@ -107,7 +107,7 @@ export default function GarageSites() {
 
   if (state === 'loading') return <div className="p-6 flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Loading sites…</div>
   if (state === 'error') return (
-    <div className="p-6 max-w-5xl mx-auto" data-testid="sites-error">
+    <div className={`p-6 ${SN_PAGE}`} data-testid="sites-error">
       <h1 className="text-2xl font-bold">Sites</h1>
       <p className="mt-4 text-sm text-red-700">Your sites could not be loaded. This does not mean your garage has no sites.</p>
       <Button variant="outline" className="mt-4 min-h-11" onClick={() => void load()}>Try again</Button>
