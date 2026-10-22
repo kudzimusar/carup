@@ -1,5 +1,6 @@
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_WORKSPACE_ROLES, requireGarageTenant } from './serviceAuthority.js';
+import { createGarageSite, setGarageSiteStatus } from '../garageOperations/garageOperationsService.js';
 
 /**
  * Service Network S1 — Governed Garage Identity & Publication.
@@ -354,4 +355,28 @@ export async function unpublishMyGarageProfile(supabaseClient, userContext) {
     .single();
   if (error) throw new DatabaseError(`Failed to unpublish garage profile: ${error.message}`);
   return { profile: toPublicGarage(data, { includeTenantScopedExtras: true }) };
+}
+
+
+/**
+ * OPS01 compatibility bridge for the pre-existing Service Network branch service API.
+ *
+ * These exports remain so existing in-process callers and S1 regression tests do not lose the
+ * accepted Service Network contract. They delegate to the ONE OPS01 site authority rather than
+ * retaining a second branch writer. The legacy create path preserves its historical public-branch
+ * meaning when the caller does not explicitly choose visibility.
+ */
+export async function createMyGarageBranch(supabaseClient, userContext, body = {}, options = {}) {
+  const result = await createGarageSite(
+    supabaseClient,
+    userContext,
+    { ...body, is_public: body.is_public ?? true },
+    options,
+  );
+  return { branch: result.site };
+}
+
+export async function deactivateMyGarageBranch(supabaseClient, userContext, branchId, options = {}) {
+  const result = await setGarageSiteStatus(supabaseClient, userContext, branchId, 'inactive', options);
+  return { branch: result.site };
 }
