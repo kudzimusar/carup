@@ -79,6 +79,8 @@ const GARAGE_WORKFLOW = [
   '/src/pages/dashboard/garage/GarageCustomers.tsx',
   '/src/pages/dashboard/garage/GarageProfileEditor.tsx',
   '/src/pages/dashboard/garage/GarageTeam.tsx',
+  '/src/pages/dashboard/garage/GarageSites.tsx',
+  '/src/pages/dashboard/garage/GarageWorkforce.tsx',
   '/src/pages/dashboard/owner/ServiceRequests.tsx',
 ]
 
