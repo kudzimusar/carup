@@ -229,6 +229,7 @@ export async function getPublicGarageDetail(supabaseClient, slugValue) {
     .select('*')
     .eq('tenant_id', data.tenant_id)
     .eq('is_active', true)
+    .eq('is_public', true)
     .order('name', { ascending: true });
   if (brErr) throw new DatabaseError(`Failed to load branches: ${brErr.message}`);
   const partsentry = await derivePartsentryParticipation(supabaseClient, data.tenant_id);
@@ -353,55 +354,4 @@ export async function unpublishMyGarageProfile(supabaseClient, userContext) {
     .single();
   if (error) throw new DatabaseError(`Failed to unpublish garage profile: ${error.message}`);
   return { profile: toPublicGarage(data, { includeTenantScopedExtras: true }) };
-}
-
-// ─────────────────────────── branch management ───────────────────────────
-
-function normalizeBranchInput(body = {}) {
-  const name = String(body.name || '').trim();
-  if (name.length < 2 || name.length > 120) throw new ValidationError('branch name must be 2-120 characters');
-  const out = { name };
-  for (const key of ['location_city', 'location_province', 'address_public']) {
-    if (body[key] !== undefined) {
-      const v = body[key] === null ? null : String(body[key]).trim();
-      if (v && v.length > 200) throw new ValidationError(`${key} must be at most 200 characters`);
-      out[key] = v || null;
-    }
-  }
-  return out;
-}
-
-export async function createMyGarageBranch(supabaseClient, userContext, body = {}) {
-  const tenantId = adminTenant(userContext);
-  const input = normalizeBranchInput(body);
-  const now = new Date().toISOString();
-  const { data, error } = await supabaseClient
-    .from('garage_branches')
-    .insert({ tenant_id: tenantId, ...input, is_active: true, created_at: now, updated_at: now })
-    .select()
-    .single();
-  if (error) {
-    if (String(error.code) === '23505') {
-      throw new ValidationError('A branch with that name already exists for this garage');
-    }
-    throw new DatabaseError(`Failed to create branch: ${error.message}`);
-  }
-  return { branch: data };
-}
-
-export async function deactivateMyGarageBranch(supabaseClient, userContext, branchId) {
-  const tenantId = adminTenant(userContext);
-  const id = String(branchId || '').trim();
-  if (!id) throw new ValidationError('branch id is required');
-  // Tenant scoping inside the UPDATE: cross-tenant rows read as not-found (workOrdersRoutes pattern).
-  const { data, error } = await supabaseClient
-    .from('garage_branches')
-    .update({ is_active: false, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .eq('tenant_id', tenantId)
-    .select()
-    .maybeSingle();
-  if (error) throw new DatabaseError(`Failed to deactivate branch: ${error.message}`);
-  if (!data) throw new NotFoundError('Branch not found');
-  return { branch: data };
 }
