@@ -25,7 +25,7 @@ type Certification = {
 type WorkforceProfile = {
   id: string; tenant_id: string; user_id: string; staff_code: string; job_title: string | null
   employment_classification: 'owner'|'employee'|'contractor'|'other'
-  employment_status: 'active'|'inactive'|'ended'
+  employment_status: 'pending'|'active'|'inactive'|'ended'
   start_date: string; end_date: string | null; department_id: string | null
   internal_notes: string | null
   user?: { id: string; name: string | null; email: string | null } | null
@@ -113,6 +113,10 @@ export default function GarageWorkforce() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedUserId) return
+    if (selectedMember?.role === 'mechanic' && !form.primary_branch_id) {
+      setError('Assign a primary active site before activating this mechanic.')
+      return
+    }
     setBusy('profile'); setError(null)
     try {
       const payload = {
@@ -134,8 +138,10 @@ export default function GarageWorkforce() {
       }
       const skills = [...new Set(form.skills.split(',').map((s) => s.trim()).filter(Boolean))]
       await replaceGarageWorkforceSkills(selectedUserId, skills)
+      if (selectedMember?.role === 'mechanic' && (!selectedProfile || selectedProfile.employment_status === 'pending')) {
+        await setGarageWorkforceStatus(selectedUserId, 'active')
+      }
       await load()
-      choose(selectedUserId)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The workforce profile could not be saved.')
     } finally { setBusy(null) }
@@ -144,7 +150,7 @@ export default function GarageWorkforce() {
   async function changeStatus(status: 'active'|'inactive'|'ended') {
     if (!selectedUserId) return
     setBusy('status'); setError(null)
-    try { await setGarageWorkforceStatus(selectedUserId, status); await load(); choose(selectedUserId) }
+    try { await setGarageWorkforceStatus(selectedUserId, status); await load() }
     catch (e) { setError(e instanceof Error ? e.message : 'The workforce status could not be changed.') }
     finally { setBusy(null) }
   }
@@ -175,7 +181,7 @@ export default function GarageWorkforce() {
         expiry_date: cert.expiry_date || null,
       })
       setCert({ name: '', issuer: '', reference_number: '', issue_date: '', expiry_date: '' })
-      await load(); choose(selectedUserId)
+      await load()
     } catch (e) { setError(e instanceof Error ? e.message : 'The certification could not be recorded.') }
     finally { setBusy(null) }
   }
@@ -332,7 +338,7 @@ export default function GarageWorkforce() {
                     {busy === 'profile' && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                     {selectedProfile ? 'Save workforce profile' : 'Create workforce profile'}
                   </Button>
-                  {selectedProfile && selectedProfile.employment_status !== 'active' && <Button type="button" variant="outline" onClick={() => void changeStatus('active')} disabled={busy === 'status'}>Reactivate</Button>}
+                  {selectedProfile && selectedProfile.employment_status !== 'active' && selectedProfile.employment_status !== 'ended' && <Button type="button" variant="outline" onClick={() => void changeStatus('active')} disabled={busy === 'status'}>{selectedProfile.employment_status === 'pending' ? 'Activate' : 'Reactivate'}</Button>}
                   {selectedProfile?.employment_status === 'active' && <Button type="button" variant="outline" onClick={() => void changeStatus('inactive')} disabled={busy === 'status'}>Mark inactive</Button>}
                   {selectedProfile && selectedProfile.employment_status !== 'ended' && <Button type="button" variant="outline" onClick={() => void changeStatus('ended')} disabled={busy === 'status'}>End workforce record</Button>}
                 </div>
