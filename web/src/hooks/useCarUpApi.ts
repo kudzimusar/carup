@@ -3348,7 +3348,7 @@ export function useCarUpApi() {
   const createGarageWorkforceProfile = useCallback(async (body: Record<string, unknown>): Promise<GarageApiJson> =>
     request<GarageApiJson>('/garage/workforce', { method: 'POST', body: JSON.stringify(body) }), [request])
 
-  const setGarageWorkforceStatus = useCallback(async (userId: string, status: 'active' | 'inactive' | 'ended'): Promise<GarageApiJson> =>
+  const setGarageWorkforceStatus = useCallback(async (userId: string, status: 'pending' | 'active' | 'inactive' | 'ended'): Promise<GarageApiJson> =>
     request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
 
   const setGarageWorkforceBranches = useCallback(async (userId: string, body: { primary_branch_id: string; additional_branch_ids?: string[] }): Promise<GarageApiJson> =>
