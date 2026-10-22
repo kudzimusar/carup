@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, Plus, UserCog, Award, MapPin } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 type Member = {
   membershipId: string
@@ -222,7 +223,7 @@ export default function GarageWorkforce() {
   )
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
+    <div className={`p-4 sm:p-6 ${SN_PAGE}`}>
       <div>
         <h1 className="text-2xl font-bold">Workforce</h1>
         <p className="text-sm text-gray-600 mt-1">
