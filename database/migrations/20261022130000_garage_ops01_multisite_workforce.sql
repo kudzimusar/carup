@@ -297,7 +297,7 @@ BEGIN
    WHERE id = NEW.branch_id
      AND tenant_id = NEW.tenant_id;
 
-  IF branch_active IS DISTINCT FROM true THEN
+  IF branch_active IS false THEN
     RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_BRANCH_INACTIVE';
   END IF;
 
