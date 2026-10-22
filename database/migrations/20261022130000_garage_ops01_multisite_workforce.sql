@@ -122,8 +122,8 @@ CREATE TABLE IF NOT EXISTS garage_workforce_profiles (
   job_title TEXT,
   employment_classification TEXT NOT NULL
     CHECK (employment_classification IN ('owner','employee','contractor','other')),
-  employment_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (employment_status IN ('active','inactive','ended')),
+  employment_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (employment_status IN ('pending','active','inactive','ended')),
   start_date DATE NOT NULL,
   end_date DATE,
   department_id UUID,
@@ -156,7 +156,9 @@ CREATE INDEX IF NOT EXISTS idx_garage_workforce_user
 -- An ACTIVE workforce profile must still be a current Garage member. Historical ended profiles survive
 -- membership removal and therefore deliberately do not carry a destructive FK to tenant_users.
 CREATE OR REPLACE FUNCTION garage_ops01_validate_active_workforce()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER LANGUAGE plpgsql AS $
+DECLARE
+  membership_role TEXT;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM tenants t WHERE t.id = NEW.tenant_id AND t.type = 'garage'
@@ -164,16 +166,34 @@ BEGIN
     RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_GARAGE_TENANT';
   END IF;
 
-  IF NEW.employment_status = 'active' AND NOT EXISTS (
-    SELECT 1 FROM tenant_users tu
+  IF NEW.employment_status IN ('pending','active') THEN
+    SELECT lower(tu.role) INTO membership_role
+      FROM tenant_users tu
      WHERE tu.tenant_id = NEW.tenant_id
-       AND tu.user_id = NEW.user_id
-  ) THEN
-    RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_MEMBER';
+       AND tu.user_id = NEW.user_id;
+
+    IF membership_role IS NULL THEN
+      RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_MEMBER';
+    END IF;
+  END IF;
+
+  -- An operational mechanic must have exactly one live primary site. A new mechanic profile begins
+  -- PENDING, receives its governed site assignment, and only then may become ACTIVE.
+  IF NEW.employment_status = 'active'
+     AND membership_role = 'mechanic'
+     AND NOT EXISTS (
+       SELECT 1
+         FROM garage_workforce_branch_assignments a
+        WHERE a.tenant_id = NEW.tenant_id
+          AND a.workforce_profile_id = NEW.id
+          AND a.ended_at IS NULL
+          AND a.is_primary = true
+     ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_PRIMARY_SITE_REQUIRED';
   END IF;
 
   RETURN NEW;
-END $$;
+END $;
 
 DROP TRIGGER IF EXISTS trg_garage_ops01_validate_active_workforce ON garage_workforce_profiles;
 CREATE TRIGGER trg_garage_ops01_validate_active_workforce
@@ -228,8 +248,20 @@ BEGIN
    WHERE id = NEW.workforce_profile_id
      AND tenant_id = NEW.tenant_id;
 
-  IF profile_status IS DISTINCT FROM 'active' THEN
+  IF profile_status NOT IN ('pending','active') THEN
     RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_PROFILE_INACTIVE';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM garage_workforce_profiles p
+      JOIN tenant_users tu
+        ON tu.tenant_id = p.tenant_id
+       AND tu.user_id = p.user_id
+     WHERE p.id = NEW.workforce_profile_id
+       AND p.tenant_id = NEW.tenant_id
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_NOT_MEMBER';
   END IF;
 
   SELECT is_active INTO branch_active
