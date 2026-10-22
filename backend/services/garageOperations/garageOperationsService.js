@@ -491,6 +491,9 @@ export async function setGarageWorkforceStatus(client = defaultClient, actor = {
   const profile = await loadWorkforceProfile(client, tenantId, userId);
   const next = String(status || '').trim().toLowerCase();
   if (!GARAGE_WORKFORCE_STATUSES.includes(next)) throw new ValidationError('status must be pending, active, inactive or ended');
+
+  // Keep the route-level preflight for a precise operator error; PostgreSQL repeats the same
+  // authority/invariant checks inside the atomic transition so a race cannot bypass them.
   if (next === 'active') {
     const member = await assertMember(client, tenantId, profile.user_id);
     if (String(member.role || '').toLowerCase() === 'mechanic') {
@@ -506,28 +509,23 @@ export async function setGarageWorkforceStatus(client = defaultClient, actor = {
   } else if (next === 'pending') {
     await assertMember(client, tenantId, profile.user_id);
   }
-  const now = new Date().toISOString();
-  if (next !== 'active') {
-    const { error: assignError } = await client.from('garage_workforce_branch_assignments')
-      .update({ ended_at: now, ended_by_user_id: actorId(actor), is_primary: false })
-      .eq('tenant_id', tenantId).eq('workforce_profile_id', profile.id).is('ended_at', null);
-    if (assignError) throw new DatabaseError(`Could not close staff branch assignments: ${assignError.message}`);
-    const { error: managerError } = await client.from('garage_branches')
-      .update({ manager_user_id: null, updated_at: now })
-      .eq('tenant_id', tenantId).eq('manager_user_id', profile.user_id);
-    if (managerError) throw new DatabaseError(`Could not close manager responsibility: ${managerError.message}`);
-  }
-  const { data, error } = await client.from('garage_workforce_profiles').update({
-    employment_status: next,
-    end_date: next === 'ended' ? (profile.end_date || now.slice(0, 10)) : (next === 'active' ? null : profile.end_date),
-    updated_at: now,
-  }).eq('id', profile.id).eq('tenant_id', tenantId).select().single();
+
+  const { data: changed, error } = await client.rpc('garage_ops01_set_workforce_status', {
+    p_tenant_id: tenantId,
+    p_workforce_profile_id: profile.id,
+    p_status: next,
+    p_actor_user_id: actorId(actor),
+  });
   if (error) throw new DatabaseError(`Could not change workforce status: ${error.message}`);
+
+  const updated = await loadWorkforceProfile(client, tenantId, userId);
+  if (changed !== true) return { profile: await workforceEnvelope(client, tenantId, updated), changed: false };
+
   await requiredAudit(client, actor, 'GARAGE_WORKFORCE_STATUS_CHANGED', 'garage_workforce_profile', profile.id,
     { employment_status: profile.employment_status, end_date: profile.end_date },
-    { employment_status: data.employment_status, end_date: data.end_date },
+    { employment_status: updated.employment_status, end_date: updated.end_date },
     '/api/garage/workforce/:userId/status', options.req);
-  return { profile: await workforceEnvelope(client, tenantId, data), changed: profile.employment_status !== next };
+  return { profile: await workforceEnvelope(client, tenantId, updated), changed: true };
 }
 
 export async function setGarageWorkforceBranches(client = defaultClient, actor = {}, userId, body = {}, options = {}) {
