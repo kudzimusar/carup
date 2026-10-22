@@ -365,6 +365,97 @@ test('atomic staff-site replacement is service-role-only and rolls back a failed
   assert.equal(noOp.rows[0].changed, false, 'same assignment shape is idempotent');
 });
 
+test('atomic workforce status transition rolls back assignment and manager cleanup on failure', async () => {
+  const signature = 'garage_ops01_set_workforce_status(uuid,uuid,text,text)';
+  const { rows: [privileges] } = await db.query(
+    `SELECT
+       has_function_privilege('anon', $1, 'EXECUTE') AS anon,
+       has_function_privilege('authenticated', $1, 'EXECUTE') AS authenticated,
+       has_function_privilege('service_role', $1, 'EXECUTE') AS service_role`,
+    [signature],
+  );
+  assert.deepEqual(privileges, { anon: false, authenticated: false, service_role: true });
+
+  await db.query(`UPDATE garage_branches SET manager_user_id='mech-a' WHERE id=$1`, [B.a1]);
+  const liveBefore = (await db.query(
+    `SELECT count(*)::int AS n FROM garage_workforce_branch_assignments
+      WHERE tenant_id=$1 AND workforce_profile_id=$2 AND ended_at IS NULL`,
+    [T.a, T.profileA],
+  )).rows[0].n;
+  assert.ok(liveBefore >= 1);
+
+  await db.exec(`
+    CREATE OR REPLACE FUNCTION ops01_test_fail_status_update()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ops01_status_test$
+    BEGIN
+      IF NEW.employment_status = 'inactive' THEN
+        RAISE EXCEPTION 'OPS01_TEST_INJECTED_STATUS_FAILURE';
+      END IF;
+      RETURN NEW;
+    END
+    $ops01_status_test$;
+
+    DROP TRIGGER IF EXISTS trg_ops01_test_fail_status_update ON garage_workforce_profiles;
+    CREATE TRIGGER trg_ops01_test_fail_status_update
+      BEFORE UPDATE OF employment_status ON garage_workforce_profiles
+      FOR EACH ROW
+      EXECUTE FUNCTION ops01_test_fail_status_update();
+  `);
+
+  const failed = await refusal(db.query(
+    `SELECT garage_ops01_set_workforce_status($1,$2,'inactive','admin-a')`,
+    [T.a, T.profileA],
+  ));
+  assert.match(failed?.message || '', /OPS01_TEST_INJECTED_STATUS_FAILURE/);
+
+  await db.exec(`
+    DROP TRIGGER IF EXISTS trg_ops01_test_fail_status_update ON garage_workforce_profiles;
+    DROP FUNCTION IF EXISTS ops01_test_fail_status_update();
+  `);
+
+  const profileAfterFailure = (await db.query(
+    `SELECT employment_status FROM garage_workforce_profiles WHERE id=$1`,
+    [T.profileA],
+  )).rows[0];
+  assert.equal(profileAfterFailure.employment_status, 'active');
+
+  const liveAfterFailure = (await db.query(
+    `SELECT count(*)::int AS n FROM garage_workforce_branch_assignments
+      WHERE tenant_id=$1 AND workforce_profile_id=$2 AND ended_at IS NULL`,
+    [T.a, T.profileA],
+  )).rows[0].n;
+  assert.equal(liveAfterFailure, liveBefore, 'failed status transition restores live site assignments');
+  assert.equal(
+    (await db.query(`SELECT manager_user_id FROM garage_branches WHERE id=$1`, [B.a1])).rows[0].manager_user_id,
+    'mech-a',
+    'failed status transition restores manager responsibility',
+  );
+
+  const changed = await db.query(
+    `SELECT garage_ops01_set_workforce_status($1,$2,'inactive','admin-a') AS changed`,
+    [T.a, T.profileA],
+  );
+  assert.equal(changed.rows[0].changed, true);
+  assert.equal(
+    (await db.query(`SELECT employment_status FROM garage_workforce_profiles WHERE id=$1`, [T.profileA])).rows[0].employment_status,
+    'inactive',
+  );
+  assert.equal(
+    (await db.query(
+      `SELECT count(*)::int AS n FROM garage_workforce_branch_assignments
+        WHERE tenant_id=$1 AND workforce_profile_id=$2 AND ended_at IS NULL`,
+      [T.a, T.profileA],
+    )).rows[0].n,
+    0,
+  );
+  assert.equal(
+    (await db.query(`SELECT manager_user_id FROM garage_branches WHERE id=$1`, [B.a1])).rows[0].manager_user_id,
+    null,
+  );
+});
+
 test('membership removal ends future workforce authority while preserving workforce and assignment history', async () => {
   await db.query(`UPDATE garage_branches SET manager_user_id='mech-a' WHERE id=$1`, [B.a1]);
   const before = (await db.query(
