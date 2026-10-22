@@ -96,6 +96,62 @@ function seed() {
     organization_users: [],
     organization_audit_logs: [],
   });
+
+  world.rpcs.set('garage_ops01_replace_workforce_branches', async (params, { rowsOf }) => {
+    const {
+      p_tenant_id: tenantId,
+      p_workforce_profile_id: profileId,
+      p_primary_branch_id: primaryId,
+      p_additional_branch_ids: additional = [],
+      p_actor_user_id: actorUserId,
+    } = params || {};
+
+    const profile = rowsOf('garage_workforce_profiles')
+      .find((row) => row.id === profileId && row.tenant_id === tenantId);
+    if (!profile) return { data: null, error: { message: 'GARAGE_WORKFORCE_PROFILE_NOT_FOUND' } };
+    if (!['pending', 'active'].includes(profile.employment_status)) {
+      return { data: null, error: { message: 'GARAGE_WORKFORCE_ASSIGNMENT_PROFILE_INACTIVE' } };
+    }
+    const member = rowsOf('tenant_users')
+      .some((row) => row.tenant_id === tenantId && row.user_id === profile.user_id);
+    if (!member) return { data: null, error: { message: 'GARAGE_WORKFORCE_NOT_MEMBER' } };
+
+    const desired = [...new Set([primaryId, ...(additional || [])].filter(Boolean))].sort();
+    const valid = desired.every((branchId) => rowsOf('garage_branches')
+      .some((row) => row.id === branchId && row.tenant_id === tenantId && row.is_active === true));
+    if (!primaryId || !valid) {
+      return { data: null, error: { message: 'GARAGE_WORKFORCE_ASSIGNMENT_BRANCH_INVALID' } };
+    }
+
+    const current = rowsOf('garage_workforce_branch_assignments')
+      .filter((row) => row.tenant_id === tenantId && row.workforce_profile_id === profileId && !row.ended_at);
+    const currentIds = current.map((row) => row.branch_id).sort();
+    const currentPrimary = current.find((row) => row.is_primary)?.branch_id || null;
+    if (JSON.stringify(currentIds) === JSON.stringify(desired) && currentPrimary === primaryId) {
+      return { data: false, error: null };
+    }
+
+    const now = new Date().toISOString();
+    for (const row of current) {
+      row.ended_at = now;
+      row.ended_by_user_id = actorUserId || null;
+      row.is_primary = false;
+    }
+    for (const branchId of desired) {
+      rowsOf('garage_workforce_branch_assignments').push({
+        id: `rpc-assignment-${profileId}-${branchId}-${rowsOf('garage_workforce_branch_assignments').length + 1}`,
+        tenant_id: tenantId,
+        workforce_profile_id: profileId,
+        branch_id: branchId,
+        is_primary: branchId === primaryId,
+        assigned_at: now,
+        assigned_by_user_id: actorUserId || null,
+        ended_at: null,
+      });
+    }
+    return { data: true, error: null };
+  });
+
   restoreWorld = installSupabaseWorld(supabase, world);
 }
 
