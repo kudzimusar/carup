@@ -8,6 +8,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 type Hour = { day_of_week: number; is_closed: boolean; opens_at: string | null; closes_at: string | null }
+type FormHour = Hour & { recorded: boolean }
 type Site = {
   id: string; branch_code: string | null; name: string; address_public: string | null
   location_city: string | null; location_province: string | null; country_code: string | null
@@ -18,8 +19,8 @@ type Site = {
 type Workforce = { user_id: string; employment_status: string; staff_code: string; user?: { name?: string | null } | null }
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-const blankHours = (): Hour[] => DAYS.map((_, day_of_week) => ({
-  day_of_week, is_closed: day_of_week === 0, opens_at: day_of_week === 0 ? null : '08:00', closes_at: day_of_week === 0 ? null : '17:00',
+const blankHours = (): FormHour[] => DAYS.map((_, day_of_week) => ({
+  day_of_week, recorded: false, is_closed: false, opens_at: null, closes_at: null,
 }))
 const emptyForm = () => ({
   branch_code: '', name: '', address_line: '', location_city: '', location_province: '', country_code: '',
@@ -60,12 +61,17 @@ export default function GarageSites() {
       country_code: site.country_code || '', phone: site.phone || '', email: site.email || '',
       whatsapp: site.whatsapp || '', timezone: site.timezone || '', is_primary: site.is_primary,
       is_public: site.is_public, manager_user_id: site.manager_user_id || '',
-      opening_hours: DAYS.map((_, day) => byDay.get(day) || { day_of_week: day, is_closed: true, opens_at: null, closes_at: null }),
+      opening_hours: DAYS.map((_, day): FormHour => {
+        const recorded = byDay.get(day)
+        return recorded
+          ? { ...recorded, recorded: true }
+          : { day_of_week: day, recorded: false, is_closed: false, opens_at: null, closes_at: null }
+      }),
     })
     setError(null)
   }
 
-  function setHour(day: number, patch: Partial<Hour>) {
+  function setHour(day: number, patch: Partial<FormHour>) {
     setForm((f) => ({ ...f, opening_hours: f.opening_hours.map((h) => h.day_of_week === day ? { ...h, ...patch } : h) }))
   }
 
@@ -77,9 +83,11 @@ export default function GarageSites() {
       location_province: form.location_province || null,
       phone: form.phone || null, email: form.email || null, whatsapp: form.whatsapp || null,
       timezone: form.timezone || undefined,
-      opening_hours: form.opening_hours.map((h) => h.is_closed
-        ? { day_of_week: h.day_of_week, is_closed: true }
-        : { day_of_week: h.day_of_week, is_closed: false, opens_at: h.opens_at, closes_at: h.closes_at }),
+      opening_hours: form.opening_hours
+        .filter((h) => h.recorded)
+        .map((h) => h.is_closed
+          ? { day_of_week: h.day_of_week, is_closed: true }
+          : { day_of_week: h.day_of_week, is_closed: false, opens_at: h.opens_at, closes_at: h.closes_at }),
     }
     try {
       if (editing) {
@@ -185,15 +193,52 @@ export default function GarageSites() {
 
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Opening hours</legend>
+            <p className="text-xs text-gray-500">
+              Leave a day as Not recorded when the schedule is unknown. Closed is a recorded operational fact.
+            </p>
             <div className="space-y-2">
-              {form.opening_hours.map((h) => (
-                <div key={h.day_of_week} className="grid grid-cols-[3rem_5rem_1fr_1fr] gap-2 items-center text-sm">
-                  <span>{DAYS[h.day_of_week]}</span>
-                  <label className="flex items-center gap-1"><input type="checkbox" checked={h.is_closed} onChange={(e) => setHour(h.day_of_week, { is_closed: e.target.checked, opens_at: e.target.checked ? null : '08:00', closes_at: e.target.checked ? null : '17:00' })} /> Closed</label>
-                  <Input type="time" disabled={h.is_closed} value={h.opens_at || ''} onChange={(e) => setHour(h.day_of_week, { opens_at: e.target.value })} />
-                  <Input type="time" disabled={h.is_closed} value={h.closes_at || ''} onChange={(e) => setHour(h.day_of_week, { closes_at: e.target.value })} />
-                </div>
-              ))}
+              {form.opening_hours.map((h) => {
+                const state = !h.recorded ? 'unrecorded' : h.is_closed ? 'closed' : 'open'
+                return (
+                  <div key={h.day_of_week} className="grid gap-2 rounded-md border p-2 text-sm sm:grid-cols-[3rem_9rem_1fr_1fr] sm:items-center">
+                    <span>{DAYS[h.day_of_week]}</span>
+                    <select
+                      aria-label={`${DAYS[h.day_of_week]} hours status`}
+                      className="min-h-11 rounded-md border px-2"
+                      value={state}
+                      onChange={(e) => {
+                        if (e.target.value === 'unrecorded') {
+                          setHour(h.day_of_week, { recorded: false, is_closed: false, opens_at: null, closes_at: null })
+                        } else if (e.target.value === 'closed') {
+                          setHour(h.day_of_week, { recorded: true, is_closed: true, opens_at: null, closes_at: null })
+                        } else {
+                          setHour(h.day_of_week, { recorded: true, is_closed: false, opens_at: h.opens_at, closes_at: h.closes_at })
+                        }
+                      }}
+                    >
+                      <option value="unrecorded">Not recorded</option>
+                      <option value="closed">Closed</option>
+                      <option value="open">Open</option>
+                    </select>
+                    <Input
+                      aria-label={`${DAYS[h.day_of_week]} opening time`}
+                      type="time"
+                      required={h.recorded && !h.is_closed}
+                      disabled={!h.recorded || h.is_closed}
+                      value={h.opens_at || ''}
+                      onChange={(e) => setHour(h.day_of_week, { opens_at: e.target.value })}
+                    />
+                    <Input
+                      aria-label={`${DAYS[h.day_of_week]} closing time`}
+                      type="time"
+                      required={h.recorded && !h.is_closed}
+                      disabled={!h.recorded || h.is_closed}
+                      value={h.closes_at || ''}
+                      onChange={(e) => setHour(h.day_of_week, { closes_at: e.target.value })}
+                    />
+                  </div>
+                )
+              })}
             </div>
           </fieldset>
 
