@@ -285,14 +285,14 @@ export default function GarageWorkforce() {
                       <form onSubmit={saveDepartmentEdit} className="flex min-w-0 flex-1 flex-wrap gap-2">
                         <Input className="min-w-40 flex-1" value={editingDepartmentName} onChange={(e) => setEditingDepartmentName(e.target.value)} aria-label="Rename department" />
                         <Button type="submit" size="sm" variant="outline" disabled={busy === 'department-edit'} className="min-h-11">Save</Button>
-                        <Button type="button" size="sm" variant="ghost" onClick={() = className="min-h-11"> { setEditingDepartmentId(null); setEditingDepartmentName('') }}>Cancel</Button>
+                        <Button type="button" size="sm" variant="ghost" className="min-h-11" onClick={() => { setEditingDepartmentId(null); setEditingDepartmentName('') }}>Cancel</Button>
                       </form>
                     ) : (
                       <>
                         <Badge variant="secondary">{d.name}</Badge>
                         <div className="flex gap-2">
-                          <Button type="button" size="sm" variant="ghost" onClick={() = className="min-h-11"> { setEditingDepartmentId(d.id); setEditingDepartmentName(d.name) }}>Rename</Button>
-                          <Button type="button" size="sm" variant="ghost" disabled={busy === `department-${d.id}`} onClick={() = className="min-h-11"> void deactivateDepartment(d.id)}>Deactivate</Button>
+                          <Button type="button" size="sm" variant="ghost" className="min-h-11" onClick={() => { setEditingDepartmentId(d.id); setEditingDepartmentName(d.name) }}>Rename</Button>
+                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={busy === `department-${d.id}`} onClick={() => void deactivateDepartment(d.id)}>Deactivate</Button>
                         </div>
                       </>
                     )}
@@ -383,10 +383,10 @@ export default function GarageWorkforce() {
                     {busy === 'profile' && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                     {selectedProfile ? 'Save workforce profile' : 'Create workforce profile'}
                   </Button>
-                  {selectedProfile?.employment_status === 'pending' && <Button type="button" variant="outline" onClick={() = className="min-h-11"> void changeStatus('active')} disabled={busy === 'status'}>Activate</Button>}
-                  {selectedProfile?.employment_status === 'inactive' && <Button type="button" variant="outline" onClick={() = className="min-h-11"> void changeStatus('pending')} disabled={busy === 'status'}>Prepare reactivation</Button>}
-                  {selectedProfile?.employment_status === 'active' && <Button type="button" variant="outline" onClick={() = className="min-h-11"> void changeStatus('inactive')} disabled={busy === 'status'}>Mark inactive</Button>}
-                  {selectedProfile && selectedProfile.employment_status !== 'ended' && <Button type="button" variant="outline" onClick={() = className="min-h-11"> void changeStatus('ended')} disabled={busy === 'status'}>End workforce record</Button>}
+                  {selectedProfile?.employment_status === 'pending' && <Button type="button" variant="outline" className="min-h-11" onClick={() => void changeStatus('active')} disabled={busy === 'status'}>Activate</Button>}
+                  {selectedProfile?.employment_status === 'inactive' && <Button type="button" variant="outline" className="min-h-11" onClick={() => void changeStatus('pending')} disabled={busy === 'status'}>Prepare reactivation</Button>}
+                  {selectedProfile?.employment_status === 'active' && <Button type="button" variant="outline" className="min-h-11" onClick={() => void changeStatus('inactive')} disabled={busy === 'status'}>Mark inactive</Button>}
+                  {selectedProfile && selectedProfile.employment_status !== 'ended' && <Button type="button" variant="outline" className="min-h-11" onClick={() => void changeStatus('ended')} disabled={busy === 'status'}>End workforce record</Button>}
                 </div>
               </form>
 
