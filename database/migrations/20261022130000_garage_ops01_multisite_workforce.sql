@@ -198,6 +198,46 @@ CREATE INDEX IF NOT EXISTS idx_garage_workforce_assignments_branch
   ON garage_workforce_branch_assignments(tenant_id, branch_id)
   WHERE ended_at IS NULL;
 
+
+-- Membership role changes must preserve the active-mechanic primary-site invariant. A profile may
+-- legitimately be active without a site while its membership role is admin, but changing that
+-- same person to mechanic cannot silently create an active mechanic with no governed primary site.
+CREATE OR REPLACE FUNCTION garage_ops01_guard_membership_role()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF lower(COALESCE(NEW.role, '')) = 'mechanic'
+     AND EXISTS (
+       SELECT 1
+         FROM garage_workforce_profiles p
+        WHERE p.tenant_id = NEW.tenant_id
+          AND p.user_id = NEW.user_id
+          AND p.employment_status = 'active'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+         FROM garage_workforce_branch_assignments a
+         JOIN garage_workforce_profiles p
+           ON p.id = a.workforce_profile_id
+          AND p.tenant_id = a.tenant_id
+        WHERE p.tenant_id = NEW.tenant_id
+          AND p.user_id = NEW.user_id
+          AND a.ended_at IS NULL
+          AND a.is_primary = true
+     ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_PRIMARY_SITE_REQUIRED';
+  END IF;
+
+  RETURN NEW;
+END $;
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_guard_membership_role ON tenant_users;
+CREATE TRIGGER trg_garage_ops01_guard_membership_role
+  BEFORE UPDATE OF role ON tenant_users
+  FOR EACH ROW
+  EXECUTE FUNCTION garage_ops01_guard_membership_role();
+
 -- A pending/active workforce profile must still be a current Garage member. Historical inactive/ended
 -- profiles survive membership removal. Active mechanics additionally require one live primary site.
 CREATE OR REPLACE FUNCTION garage_ops01_validate_workforce()
