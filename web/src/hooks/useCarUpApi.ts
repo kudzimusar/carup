@@ -3307,6 +3307,59 @@ export function useCarUpApi() {
     return request<GarageApiJson>(`/garage/members/${encodeURIComponent(userId)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
   }, [request])
 
+  // GARAGE-1.0-OPS01 — governed sites + workforce. Tenant identity is never sent in these payloads;
+  // the server derives the selected active Garage from the proven session on every request.
+  const listGarageSites = useCallback(async (): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/sites', { method: 'GET' }), [request])
+
+  const getGarageSite = useCallback(async (siteId: string): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}`, { method: 'GET' }), [request])
+
+  const createGarageSite = useCallback(async (body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/sites', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const updateGarageSite = useCallback(async (siteId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const setGarageSiteStatus = useCallback(async (siteId: string, status: 'active' | 'inactive'): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
+
+  const setGarageSiteManager = useCallback(async (siteId: string, userId: string | null): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/sites/${encodeURIComponent(siteId)}/manager`, { method: 'PATCH', body: JSON.stringify({ user_id: userId }) }), [request])
+
+  const listGarageDepartments = useCallback(async (): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/departments', { method: 'GET' }), [request])
+
+  const createGarageDepartment = useCallback(async (name: string): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/departments', { method: 'POST', body: JSON.stringify({ name }) }), [request])
+
+  const updateGarageDepartment = useCallback(async (departmentId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/departments/${encodeURIComponent(departmentId)}`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const listGarageWorkforce = useCallback(async (): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/workforce', { method: 'GET' }), [request])
+
+  const getGarageWorkforceProfile = useCallback(async (userId: string): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}`, { method: 'GET' }), [request])
+
+  const upsertGarageWorkforceProfile = useCallback(async (userId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const createGarageWorkforceProfile = useCallback(async (body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>('/garage/workforce', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const setGarageWorkforceStatus = useCallback(async (userId: string, status: 'active' | 'inactive' | 'ended'): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
+
+  const setGarageWorkforceBranches = useCallback(async (userId: string, body: { primary_branch_id: string; additional_branch_ids?: string[] }): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/branches`, { method: 'PUT', body: JSON.stringify(body) }), [request])
+
+  const replaceGarageWorkforceSkills = useCallback(async (userId: string, skills: string[]): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/skills`, { method: 'PUT', body: JSON.stringify({ skills }) }), [request])
+
+  const addGarageWorkforceCertification = useCallback(async (userId: string, body: Record<string, unknown>): Promise<GarageApiJson> =>
+    request<GarageApiJson>(`/garage/workforce/${encodeURIComponent(userId)}/certifications`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
   // O2-X2 (ported by OC-5C) — the registration onboarding journey (self-scoped; describes, never grants)
   // and the applicant's own 7C identity wizard. Server-owned payloads travel as structural records;
   // the consuming page narrows them.
@@ -3390,6 +3443,23 @@ export function useCarUpApi() {
     listGarageMembers,
     removeGarageMember,
     changeGarageMemberRole,
+    listGarageSites,
+    getGarageSite,
+    createGarageSite,
+    updateGarageSite,
+    setGarageSiteStatus,
+    setGarageSiteManager,
+    listGarageDepartments,
+    createGarageDepartment,
+    updateGarageDepartment,
+    listGarageWorkforce,
+    getGarageWorkforceProfile,
+    createGarageWorkforceProfile,
+    upsertGarageWorkforceProfile,
+    setGarageWorkforceStatus,
+    setGarageWorkforceBranches,
+    replaceGarageWorkforceSkills,
+    addGarageWorkforceCertification,
     fetchSellerIntelligence,
     fetchListingIntelligence,
     fetchDealerIntelligence,
