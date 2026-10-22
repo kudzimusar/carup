@@ -281,6 +281,76 @@ test('staff-to-site assignments are same-tenant, support one primary + additiona
   assert.match(inactive?.message || '', /GARAGE_WORKFORCE_ASSIGNMENT_BRANCH_INACTIVE/);
 });
 
+test('atomic staff-site replacement is service-role-only and rolls back a failed replacement', async () => {
+  const signature = 'garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text)';
+  const { rows: [privileges] } = await db.query(
+    `SELECT
+       has_function_privilege('anon', $1, 'EXECUTE') AS anon,
+       has_function_privilege('authenticated', $1, 'EXECUTE') AS authenticated,
+       has_function_privilege('service_role', $1, 'EXECUTE') AS service_role`,
+    [signature],
+  );
+  assert.deepEqual(privileges, { anon: false, authenticated: false, service_role: true });
+
+  const wrongActor = await refusal(db.query(
+    `SELECT garage_ops01_replace_workforce_branches($1,$2,$3,ARRAY[]::uuid[],'mech-a')`,
+    [T.a, T.profileA, B.a1],
+  ));
+  assert.match(wrongActor?.message || '', /GARAGE_WORKFORCE_ASSIGNMENT_ACTOR_NOT_ADMIN/);
+
+  // Prove database transaction rollback AFTER the function has closed the previous rows:
+  // this test-only trigger fails the replacement insert. The original live primary must survive.
+  await db.query(`UPDATE garage_branches SET is_active=true WHERE id=$1`, [B.a2]);
+  await db.exec(`
+    CREATE OR REPLACE FUNCTION ops01_test_fail_assignment_insert()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ops01_test$
+    BEGIN
+      RAISE EXCEPTION 'OPS01_TEST_INJECTED_ASSIGNMENT_FAILURE';
+    END
+    $ops01_test$;
+
+    DROP TRIGGER IF EXISTS trg_ops01_test_fail_assignment_insert ON garage_workforce_branch_assignments;
+    CREATE TRIGGER trg_ops01_test_fail_assignment_insert
+      BEFORE INSERT ON garage_workforce_branch_assignments
+      FOR EACH ROW
+      EXECUTE FUNCTION ops01_test_fail_assignment_insert();
+  `);
+
+  const failed = await refusal(db.query(
+    `SELECT garage_ops01_replace_workforce_branches($1,$2,$3,ARRAY[]::uuid[],'admin-a')`,
+    [T.a, T.profileA, B.a2],
+  ));
+  assert.match(failed?.message || '', /OPS01_TEST_INJECTED_ASSIGNMENT_FAILURE/);
+
+  await db.exec(`
+    DROP TRIGGER IF EXISTS trg_ops01_test_fail_assignment_insert ON garage_workforce_branch_assignments;
+    DROP FUNCTION IF EXISTS ops01_test_fail_assignment_insert();
+  `);
+
+  const { rows: live } = await db.query(
+    `SELECT branch_id, is_primary, ended_at
+       FROM garage_workforce_branch_assignments
+      WHERE tenant_id=$1 AND workforce_profile_id=$2 AND ended_at IS NULL`,
+    [T.a, T.profileA],
+  );
+  assert.equal(live.length, 1, 'failed replacement did not close the prior live assignment');
+  assert.equal(live[0].branch_id, B.a1);
+  assert.equal(live[0].is_primary, true, 'the prior primary remains authoritative after rollback');
+
+  const success = await db.query(
+    `SELECT garage_ops01_replace_workforce_branches($1,$2,$3,ARRAY[$4]::uuid[],'admin-a') AS changed`,
+    [T.a, T.profileA, B.a2, B.a1],
+  );
+  assert.equal(success.rows[0].changed, true);
+  const noOp = await db.query(
+    `SELECT garage_ops01_replace_workforce_branches($1,$2,$3,ARRAY[$4]::uuid[],'admin-a') AS changed`,
+    [T.a, T.profileA, B.a2, B.a1],
+  );
+  assert.equal(noOp.rows[0].changed, false, 'same assignment shape is idempotent');
+});
+
 test('membership removal ends future workforce authority while preserving workforce and assignment history', async () => {
   await db.query(`UPDATE garage_branches SET manager_user_id='mech-a' WHERE id=$1`, [B.a1]);
   const before = (await db.query(
