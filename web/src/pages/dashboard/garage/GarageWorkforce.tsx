@@ -322,7 +322,7 @@ export default function GarageWorkforce() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="text-sm">Staff code<Input required value={form.staff_code} onChange={(e) => setForm({ ...form, staff_code: e.target.value.toUpperCase() })} placeholder="STAFF-001" data-testid="staff-code" /></label>
+                  <label className="text-sm">Staff code<Input required disabled={Boolean(selectedProfile)} value={form.staff_code} onChange={(e) => setForm({ ...form, staff_code: e.target.value.toUpperCase() })} placeholder="STAFF-001" data-testid="staff-code" /></label>
                   <label className="text-sm">Job title<Input value={form.job_title} onChange={(e) => setForm({ ...form, job_title: e.target.value })} placeholder="Branch Manager, Technician…" /></label>
                   <label className="text-sm">Classification
                     <select className="mt-1 min-h-11 w-full rounded-md border px-3" value={form.employment_classification} onChange={(e) => setForm({ ...form, employment_classification: e.target.value })}>
