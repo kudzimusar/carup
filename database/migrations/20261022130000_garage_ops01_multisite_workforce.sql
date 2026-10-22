@@ -220,7 +220,10 @@ BEGIN
     RAISE EXCEPTION 'GARAGE_WORKFORCE_STAFF_CODE_IMMUTABLE';
   END IF;
 
-  IF NEW.employment_status IN ('pending','active') THEN
+  -- Every workforce profile starts from a real Garage membership. Historical inactive/ended
+  -- profiles may survive AFTER that membership is removed, but a caller may not manufacture an
+  -- already-ended profile for a stranger and thereby create false employment history.
+  IF TG_OP = 'INSERT' OR NEW.employment_status IN ('pending','active') THEN
     SELECT lower(tu.role)
       INTO membership_role
       FROM tenant_users tu
