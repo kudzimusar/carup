@@ -55,7 +55,29 @@ describe('Garage Sites product truth', () => {
     expect(payload.branch_code).toBe('NORTH-01')
     expect(payload.country_code).toBe('ZW')
     expect(payload.tenant_id).toBeUndefined()
-    expect(Array.isArray(payload.opening_hours)).toBe(true)
+    expect(payload.opening_hours).toEqual([])
+  })
+
+  it('records opening hours only when the operator explicitly records them', async () => {
+    render(<GarageSites />)
+    await screen.findByTestId('sites-empty')
+    fireEvent.change(screen.getByLabelText('Branch code'), { target: { value: 'south-01' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'South Workshop' } })
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '20 Enterprise Road' } })
+    fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Harare' } })
+    fireEvent.change(screen.getByLabelText('Country code'), { target: { value: 'zw' } })
+    fireEvent.change(screen.getByLabelText('Mon hours status'), { target: { value: 'open' } })
+    fireEvent.change(screen.getByLabelText('Mon opening time'), { target: { value: '09:00' } })
+    fireEvent.change(screen.getByLabelText('Mon closing time'), { target: { value: '18:00' } })
+    fireEvent.change(screen.getByLabelText('Sun hours status'), { target: { value: 'closed' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create site/i }))
+
+    await waitFor(() => expect(createGarageSite).toHaveBeenCalledTimes(1))
+    const hours = createGarageSite.mock.calls[0][0].opening_hours
+    expect(hours).toEqual([
+      { day_of_week: 0, is_closed: true },
+      { day_of_week: 1, is_closed: false, opens_at: '09:00', closes_at: '18:00' },
+    ])
   })
 
   it('routes an edited manager responsibility through the dedicated audited endpoint', async () => {
