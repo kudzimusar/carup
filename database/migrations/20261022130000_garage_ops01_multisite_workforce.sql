@@ -465,6 +465,9 @@ GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_certifications TO service
 
 -- +migrate Down
 
+DROP TRIGGER IF EXISTS trg_garage_ops01_guard_membership_role ON tenant_users;
+DROP FUNCTION IF EXISTS garage_ops01_guard_membership_role();
+
 DROP TRIGGER IF EXISTS trg_garage_ops01_membership_removed ON tenant_users;
 DROP FUNCTION IF EXISTS garage_ops01_membership_removed();
 
