@@ -59,7 +59,7 @@ describe('Garage Workforce product truth', () => {
     fireEvent.click(member)
     fireEvent.change(screen.getByTestId('staff-code'), { target: { value: 'tech-001' } })
     fireEvent.change(screen.getByTestId('primary-site'), { target: { value: 's1' } })
-    fireEvent.change(screen.getByLabelText('Skills / specialties'), { target: { value: 'Brakes, Diagnostics' } })
+    fireEvent.change(screen.getByLabelText(/Skills \/ specialties/i), { target: { value: 'Brakes, Diagnostics' } })
     fireEvent.click(screen.getByRole('button', { name: /Create workforce profile/i }))
 
     await waitFor(() => expect(createGarageWorkforceProfile).toHaveBeenCalledTimes(1))
