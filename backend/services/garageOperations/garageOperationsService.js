@@ -549,32 +549,33 @@ export async function setGarageWorkforceBranches(client = defaultClient, actor =
   await assertMember(client, tenantId, profile.user_id);
   const primaryId = String(body.primary_branch_id || '').trim();
   if (!primaryId) throw new ValidationError('primary_branch_id is required');
-  const additional = Array.isArray(body.additional_branch_ids) ? body.additional_branch_ids.map((v) => String(v).trim()).filter(Boolean) : [];
+  const additional = Array.isArray(body.additional_branch_ids)
+    ? body.additional_branch_ids.map((v) => String(v).trim()).filter(Boolean)
+    : [];
   const desired = [...new Set([primaryId, ...additional])];
   for (const id of desired) await assertSite(client, tenantId, id, { active: true });
 
   const { data: current, error: currentError } = await client.from('garage_workforce_branch_assignments').select('*')
     .eq('tenant_id', tenantId).eq('workforce_profile_id', profile.id).is('ended_at', null);
   if (currentError) throw new DatabaseError(`Could not load current site assignments: ${currentError.message}`);
-  const currentShape = (current || []).map((a) => `${a.branch_id}:${a.is_primary === true}`).sort();
-  const desiredShape = desired.map((id) => `${id}:${id === primaryId}`).sort();
-  if (JSON.stringify(currentShape) === JSON.stringify(desiredShape)) {
-    return { profile: await workforceEnvelope(client, tenantId, profile), changed: false };
+
+  // The replacement itself is one database transaction. The previous implementation first ended
+  // every live assignment and then issued a second insert; an insert/network failure in between
+  // could strand an ACTIVE mechanic without the primary-site fact OPS01 requires.
+  const { data: changed, error: replaceError } = await client.rpc('garage_ops01_replace_workforce_branches', {
+    p_tenant_id: tenantId,
+    p_workforce_profile_id: profile.id,
+    p_primary_branch_id: primaryId,
+    p_additional_branch_ids: additional.filter((id) => id !== primaryId),
+    p_actor_user_id: actorId(actor),
+  });
+  if (replaceError) {
+    throw new DatabaseError(`Could not replace staff site assignments: ${replaceError.message}`);
   }
 
-  const now = new Date().toISOString();
-  if ((current || []).length) {
-    const { error } = await client.from('garage_workforce_branch_assignments')
-      .update({ ended_at: now, ended_by_user_id: actorId(actor), is_primary: false })
-      .eq('tenant_id', tenantId).eq('workforce_profile_id', profile.id).is('ended_at', null);
-    if (error) throw new DatabaseError(`Could not close previous site assignments: ${error.message}`);
-  }
-  const { error } = await client.from('garage_workforce_branch_assignments').insert(desired.map((branchId) => ({
-    tenant_id: tenantId, workforce_profile_id: profile.id, branch_id: branchId,
-    is_primary: branchId === primaryId, assigned_at: now, assigned_by_user_id: actorId(actor),
-  })));
-  if (error) throw dbError('Those branch assignments could not be saved', error);
   const next = await workforceEnvelope(client, tenantId, profile);
+  if (changed !== true) return { profile: next, changed: false };
+
   await requiredAudit(client, actor, 'GARAGE_WORKFORCE_BRANCH_ASSIGNMENT_CHANGED', 'garage_workforce_profile', profile.id,
     { assignments: current || [] }, { assignments: next.branch_assignments },
     '/api/garage/workforce/:userId/branches', options.req);
