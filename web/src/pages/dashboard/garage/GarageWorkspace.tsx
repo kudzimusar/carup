@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, Inbox, Car, ArrowRight, Users } from 'lucide-react'
+import { Loader2, Inbox, Car, ArrowRight, Users, Building2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
@@ -56,6 +56,7 @@ export default function GarageWorkspace() {
   useEffect(() => { load() }, [load])
 
   const visible = scope === 'mine' ? queue.filter((c) => assignedTo(c, user?.id)) : queue
+  const isGarageAdmin = user?.active_tenant?.type === 'garage' && user?.active_tenant?.role === 'admin'
 
   return (
     <div className={SN_PAGE}>
@@ -64,11 +65,20 @@ export default function GarageWorkspace() {
           <h1 className="text-2xl font-bold">Workshop</h1>
           <p className="text-gray-500">Service requests and jobs for your garage</p>
         </div>
-        <Link to="/garage/customers">
-          <Button variant="outline" className="min-h-11" data-testid="open-customers">
-            <Users className="w-4 h-4 mr-2" aria-hidden="true" /> Customers
-          </Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {isGarageAdmin && (
+            <Link to="/garage/operations">
+              <Button variant="outline" className="min-h-11" data-testid="open-garage-operations">
+                <Building2 className="w-4 h-4 mr-2" aria-hidden="true" /> Sites & staff
+              </Button>
+            </Link>
+          )}
+          <Link to="/garage/customers">
+            <Button variant="outline" className="min-h-11" data-testid="open-customers">
+              <Users className="w-4 h-4 mr-2" aria-hidden="true" /> Customers
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {state === 'loading' && (

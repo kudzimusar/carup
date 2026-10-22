@@ -1,0 +1,97 @@
+name: GARAGE-1.0 OPS01 Multi-Site Staff Foundation
+
+on:
+  push:
+    branches:
+      - feat/garage-1-0-ops01-multisite-staff-foundation
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garage-ops01-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPS01_PARENT_SHA: 0df4a72360e67fc3b935fbdba8f2a12b804935c6
+  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  NODE_ENV: test
+  SUPABASE_URL: http://localhost:54321
+  SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+  SUPABASE_ANON_KEY: test-anon-key
+  JWT_SECRET: test-jwt-secret
+
+jobs:
+  certify:
+    name: Exact custody + OPS01 product gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - name: Assert OPS01 ancestry and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git merge-base "$OPS01_PARENT_SHA" HEAD)" = "$OPS01_PARENT_SHA"
+
+          allowed='^(.github/workflows/garage-1-0-ops01.yml|backend/routes/garageDirectoryRoutes.js|backend/routes/garageOperationsRoutes.js|backend/server.js|backend/services/garageOnboarding/garageMembershipService.js|backend/services/serviceNetwork/garageOperationsService.js|backend/tests/garage-ops01-multisite-workforce.test.js|database/migrations/20261022090000_garage_ops01_multisite_workforce.sql|docs/garage-1.0/GARAGE_1_0_OPS01_MULTISITE_STAFF_FOUNDATION.md|web/src/App.tsx|web/src/config/featureRegistry.ts|web/src/hooks/useCarUpApi.ts|web/src/pages/dashboard/garage/GarageOperations.tsx|web/src/pages/dashboard/garage/GarageWorkspace.tsx)$'
+          changed="$(git diff --name-only "$OPS01_PARENT_SHA" HEAD)"
+          if printf '%s\n' "$changed" | grep -Ev "$allowed" | grep -q .; then
+            echo "::error::OPS01 contains out-of-scope changes."
+            printf '%s\n' "$changed" | grep -Ev "$allowed"
+            exit 1
+          fi
+          git diff --check "$OPS01_PARENT_SHA" HEAD
+
+      - name: Pin inherited Corporate / AUTH authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object backend/middleware/authMiddleware.js)" = "418f2a4450b599a7d904ac1304fc457560f8f870"
+          test "$(git hash-object backend/services/auth/activeTenantContext.js)" = "219f50158b7cfc7eb2b34b9630e346a75be34442"
+          test "$(git hash-object backend/services/auth/sessionAuthority.js)" = "beec71a459b3b8e85b68d90ce62557440008a3f6"
+          test "$(git hash-object database/migrations/20261016010000_ca_k3_auth_05_session_identity_authority.sql)" = "d45fbe1bb539383b24264fd996acd213792f14b0"
+          test "$(git hash-object database/migrations/20261016163834_ca_k3_auth_05_r4_atomic_owner_registration.sql)" = "8c15ba4cba0e8fb88adb860fc63f9b7c5b7cf983"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: OPS01 PostgreSQL + authority proof
+        run: node --test backend/tests/garage-ops01-multisite-workforce.test.js
+
+      - name: Garage convergence regressions
+        run: |
+          node --test \
+            backend/tests/garage-cv01-authority-convergence.test.js \
+            backend/tests/oc5d-service-network-authority.test.js \
+            backend/tests/oc5d-service-network-migrations.test.js \
+            backend/tests/oc5e-gmo-migrations.test.js \
+            backend/tests/oc5e-gmo3-garage-review.test.js \
+            backend/tests/oc5e-gmo4-garage-activation.test.js \
+            backend/tests/oc5e-gmo6-garage-invitations.test.js \
+            backend/tests/oc5e-gmo7-garage-membership.test.js \
+            backend/tests/oc5h-rc2-garage-journey.test.js \
+            backend/tests/service-network-s4-work-order.test.js \
+            backend/tests/service-network-s5-service-record.test.js \
+            backend/tests/intelligence-service-mechanic-garage.test.js
+
+      - name: Web typecheck and build
+        run: npm run build --workspace=web
+
+      - name: Credential scan
+        run: node scripts/cr1-secret-scan.mjs

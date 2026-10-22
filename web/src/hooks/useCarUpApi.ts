@@ -534,6 +534,64 @@ export type GarageProfileResponse = {
   } | null
   branches?: unknown[]
 }
+export type GarageOpeningHour = {
+  id?: string
+  weekday: number
+  slot_no: number
+  is_closed: boolean
+  opens_at: string | null
+  closes_at: string | null
+}
+export type GarageOperatingBranch = {
+  id: string
+  name: string
+  code: string | null
+  location_city: string | null
+  location_province: string | null
+  address_public: string | null
+  contact_phone: string | null
+  contact_email: string | null
+  manager_user_id: string | null
+  is_active: boolean
+  opening_hours?: GarageOpeningHour[]
+}
+export type GarageDepartment = {
+  id: string
+  code: string
+  name: string
+  is_active: boolean
+}
+export type GarageStaffOperatingRecord = {
+  membership_id: string
+  user_id: string
+  display_name: string | null
+  email: string | null
+  role: string | null
+  joined_at: string | null
+  profile: {
+    employee_code?: string | null
+    job_title?: string | null
+    department_id?: string | null
+    employment_type?: string | null
+    work_phone?: string | null
+    started_on?: string | null
+  } | null
+  department: GarageDepartment | null
+  branch_assignments: Array<{
+    id: string
+    branch_id: string
+    is_primary: boolean
+    assigned_at: string
+    branch: { id: string; name: string; code: string | null; is_active: boolean } | null
+  }>
+  skills: Array<{ skill_code: string; skill_name: string }>
+  certifications: Array<{ id: string; name: string; issuer?: string | null; credential_ref?: string | null; issued_on?: string | null; expires_on?: string | null }>
+}
+export type GarageStaffOperationsResponse = {
+  staff: GarageStaffOperatingRecord[]
+  branches: Array<{ id: string; name: string; code: string | null; is_active: boolean }>
+  departments: GarageDepartment[]
+}
 export type WorkOrderView = { id: string; status: string; service_case_id?: string | null; vin?: string }
 export type WorkOrderResult = { workOrder: WorkOrderView; created?: boolean }
 export type AssignmentResponse = {
@@ -2611,6 +2669,91 @@ export function useCarUpApi() {
     return request<GarageProfileResponse>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
   }, [request])
 
+  // GARAGE-1.0 OPS01 — the selected Garage's sites and workforce metadata.
+  // These calls never send tenant/user authority headers of their own; the shared request helper
+  // carries the session-selected organization and the backend re-verifies it.
+  const fetchGarageOperatingBranches = useCallback(async (): Promise<{ branches: GarageOperatingBranch[] }> => {
+    return request<{ branches: GarageOperatingBranch[] }>('/garage/operations/branches', { method: 'GET' })
+  }, [request])
+
+  const createGarageOperatingBranch = useCallback(async (body: Record<string, unknown>): Promise<{ branch: GarageOperatingBranch }> => {
+    return request<{ branch: GarageOperatingBranch }>('/garage/operations/branches', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const updateGarageOperatingBranch = useCallback(async (branchId: string, body: Record<string, unknown>): Promise<{ branch: GarageOperatingBranch }> => {
+    return request<{ branch: GarageOperatingBranch }>(`/garage/operations/branches/${encodeURIComponent(branchId)}`, { method: 'PATCH', body: JSON.stringify(body) })
+  }, [request])
+
+  const replaceGarageOperatingHours = useCallback(async (branchId: string, hours: GarageOpeningHour[]): Promise<{ hours: GarageOpeningHour[] }> => {
+    return request<{ hours: GarageOpeningHour[] }>(`/garage/operations/branches/${encodeURIComponent(branchId)}/hours`, {
+      method: 'PUT', body: JSON.stringify({ hours }),
+    })
+  }, [request])
+
+  const setGarageOperatingBranchActive = useCallback(async (branchId: string, active: boolean): Promise<{ branch: GarageOperatingBranch; changed?: boolean }> => {
+    return request<{ branch: GarageOperatingBranch; changed?: boolean }>(
+      `/garage/operations/branches/${encodeURIComponent(branchId)}/${active ? 'activate' : 'deactivate'}`,
+      { method: 'POST', body: '{}' },
+    )
+  }, [request])
+
+  const fetchGarageStaffOperations = useCallback(async (): Promise<GarageStaffOperationsResponse> => {
+    return request<GarageStaffOperationsResponse>('/garage/operations/staff', { method: 'GET' })
+  }, [request])
+
+  const createGarageDepartment = useCallback(async (body: { code: string; name: string }): Promise<{ department: GarageDepartment }> => {
+    return request<{ department: GarageDepartment }>('/garage/operations/departments', { method: 'POST', body: JSON.stringify(body) })
+  }, [request])
+
+  const updateGarageDepartment = useCallback(async (departmentId: string, body: Record<string, unknown>): Promise<{ department: GarageDepartment }> => {
+    return request<{ department: GarageDepartment }>(`/garage/operations/departments/${encodeURIComponent(departmentId)}`, { method: 'PATCH', body: JSON.stringify(body) })
+  }, [request])
+
+  const saveGarageStaffProfile = useCallback(async (userId: string, body: Record<string, unknown>): Promise<{ profile: Record<string, unknown>; created?: boolean }> => {
+    return request<{ profile: Record<string, unknown>; created?: boolean }>(`/garage/operations/staff/${encodeURIComponent(userId)}/profile`, {
+      method: 'PUT', body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const assignGarageStaffToBranch = useCallback(async (userId: string, branchId: string, isPrimary = false): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(`/garage/operations/staff/${encodeURIComponent(userId)}/branches`, {
+      method: 'POST', body: JSON.stringify({ branch_id: branchId, is_primary: isPrimary }),
+    })
+  }, [request])
+
+  const endGarageStaffBranchAssignment = useCallback(async (userId: string, assignmentId: string): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(
+      `/garage/operations/staff/${encodeURIComponent(userId)}/branches/${encodeURIComponent(assignmentId)}`,
+      { method: 'DELETE' },
+    )
+  }, [request])
+
+  const addGarageStaffSkill = useCallback(async (userId: string, skillName: string): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(`/garage/operations/staff/${encodeURIComponent(userId)}/skills`, {
+      method: 'POST', body: JSON.stringify({ skill_name: skillName }),
+    })
+  }, [request])
+
+  const removeGarageStaffSkill = useCallback(async (userId: string, skillCode: string): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(
+      `/garage/operations/staff/${encodeURIComponent(userId)}/skills/${encodeURIComponent(skillCode)}`,
+      { method: 'DELETE' },
+    )
+  }, [request])
+
+  const addGarageStaffCertification = useCallback(async (userId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(`/garage/operations/staff/${encodeURIComponent(userId)}/certifications`, {
+      method: 'POST', body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const removeGarageStaffCertification = useCallback(async (userId: string, certificationId: string): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(
+      `/garage/operations/staff/${encodeURIComponent(userId)}/certifications/${encodeURIComponent(certificationId)}`,
+      { method: 'DELETE' },
+    )
+  }, [request])
+
   const acceptServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
     return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: '{}' })
   }, [request])
@@ -3458,6 +3601,21 @@ export function useCarUpApi() {
     saveMyGarageProfile,
     publishMyGarageProfile,
     unpublishMyGarageProfile,
+    fetchGarageOperatingBranches,
+    createGarageOperatingBranch,
+    updateGarageOperatingBranch,
+    replaceGarageOperatingHours,
+    setGarageOperatingBranchActive,
+    fetchGarageStaffOperations,
+    createGarageDepartment,
+    updateGarageDepartment,
+    saveGarageStaffProfile,
+    assignGarageStaffToBranch,
+    endGarageStaffBranchAssignment,
+    addGarageStaffSkill,
+    removeGarageStaffSkill,
+    addGarageStaffCertification,
+    removeGarageStaffCertification,
     acceptServiceCase,
     declineServiceCase,
     startServiceCase,

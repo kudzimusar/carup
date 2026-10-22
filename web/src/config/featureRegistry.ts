@@ -635,6 +635,19 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Building2',
     description: 'What customers see when they find you on CarUp',
   },
+  {
+    id: 'garage.operations',
+    label: 'Sites & Staff',
+    route: '/garage/operations',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Configure Garage sites, departments and staff operating placement',
+  },
 
   // ─── Mechanic Dashboard ────────────────────────────────────────────────
   {
