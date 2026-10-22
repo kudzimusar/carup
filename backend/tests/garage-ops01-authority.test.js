@@ -151,6 +151,17 @@ test('Garage admin can manage own sites and a client-supplied tenant id cannot r
   assert.ok(listed.body.sites.every((site) => site.tenant_id === A));
 });
 
+test('site timezone is governed IANA authority, not arbitrary display text', async () => {
+  const before = world.rows('garage_branches').length;
+  const res = await call('POST', '/api/garage/sites', {
+    token: 'tok-admin-a',
+    body: siteBody({ branch_code: 'BADTZ-01', timezone: 'Moon/Base' }),
+  });
+  assert.equal(res.status, 400, res.text);
+  assert.match(String(res.body?.message || res.text), /valid IANA time zone/i);
+  assert.equal(world.rows('garage_branches').length, before, 'invalid timezone creates no site');
+});
+
 test('mechanic, dealership admin and platform admin without Garage membership cannot perform Garage-admin site mutations', async () => {
   for (const [token, expectedCode] of [
     ['tok-mech-a', 'ACTIVE_TENANT_ROLE'],
