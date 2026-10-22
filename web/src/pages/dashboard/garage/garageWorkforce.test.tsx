@@ -75,6 +75,23 @@ describe('Garage Workforce product truth', () => {
     expect(setGarageWorkforceStatus).toHaveBeenCalledWith('mech-1', 'active')
   })
 
+  it('prepares an inactive mechanic for reactivation before allowing a new site assignment', async () => {
+    listGarageWorkforce.mockResolvedValue({
+      workforce: [{
+        id: 'p1', tenant_id: 't1', user_id: 'mech-1', staff_code: 'TECH-001',
+        job_title: 'Technician', employment_classification: 'employee', employment_status: 'inactive',
+        start_date: '2026-10-01', end_date: null, department_id: null, internal_notes: null,
+        user: { id: 'mech-1', name: 'Tariro', email: 't@example.invalid' },
+        department: null, branch_assignments: [], skills: [], certifications: [],
+      }],
+    })
+    render(<GarageWorkforce />)
+    fireEvent.click(await screen.findByTestId('workforce-member'))
+    fireEvent.click(screen.getByRole('button', { name: /Prepare reactivation/i }))
+    await waitFor(() => expect(setGarageWorkforceStatus).toHaveBeenCalledWith('mech-1', 'pending'))
+    expect(setGarageWorkforceBranches).not.toHaveBeenCalled()
+  })
+
   it('states explicitly that workforce metadata does not replace membership authority', async () => {
     render(<GarageWorkforce />)
     await screen.findByTestId('workforce-member')
