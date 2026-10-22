@@ -152,6 +152,62 @@ function seed() {
     return { data: true, error: null };
   });
 
+
+
+  world.rpcs.set('garage_ops01_set_workforce_status', async (params, { rowsOf }) => {
+    const {
+      p_tenant_id: tenantId,
+      p_workforce_profile_id: profileId,
+      p_status: requestedStatus,
+      p_actor_user_id: actorUserId,
+    } = params || {};
+    const next = String(requestedStatus || '').toLowerCase();
+    const profile = rowsOf('garage_workforce_profiles')
+      .find((row) => row.id === profileId && row.tenant_id === tenantId);
+    if (!profile) return { data: null, error: { message: 'GARAGE_WORKFORCE_PROFILE_NOT_FOUND' } };
+    const actorAdmin = rowsOf('tenant_users')
+      .some((row) => row.tenant_id === tenantId && row.user_id === actorUserId && String(row.role).toLowerCase() === 'admin');
+    if (!actorAdmin) return { data: null, error: { message: 'GARAGE_WORKFORCE_STATUS_ACTOR_NOT_ADMIN' } };
+    if (!['pending', 'active', 'inactive', 'ended'].includes(next)) {
+      return { data: null, error: { message: 'GARAGE_WORKFORCE_STATUS_INVALID' } };
+    }
+    if (profile.employment_status === next) return { data: false, error: null };
+
+    const membership = rowsOf('tenant_users')
+      .find((row) => row.tenant_id === tenantId && row.user_id === profile.user_id);
+    if (['pending', 'active'].includes(next) && !membership) {
+      return { data: null, error: { message: 'GARAGE_WORKFORCE_NOT_MEMBER' } };
+    }
+    if (next === 'active' && String(membership?.role || '').toLowerCase() === 'mechanic') {
+      const primaryCount = rowsOf('garage_workforce_branch_assignments')
+        .filter((row) => row.tenant_id === tenantId && row.workforce_profile_id === profileId
+          && !row.ended_at && row.is_primary === true).length;
+      if (primaryCount !== 1) return { data: null, error: { message: 'GARAGE_WORKFORCE_PRIMARY_SITE_REQUIRED' } };
+    }
+
+    const now = new Date().toISOString();
+    if (next !== 'active') {
+      for (const row of rowsOf('garage_workforce_branch_assignments')) {
+        if (row.tenant_id === tenantId && row.workforce_profile_id === profileId && !row.ended_at) {
+          row.ended_at = now;
+          row.ended_by_user_id = actorUserId;
+          row.is_primary = false;
+        }
+      }
+      for (const row of rowsOf('garage_branches')) {
+        if (row.tenant_id === tenantId && row.manager_user_id === profile.user_id) {
+          row.manager_user_id = null;
+          row.updated_at = now;
+        }
+      }
+    }
+    profile.employment_status = next;
+    if (next === 'ended' && !profile.end_date) profile.end_date = now.slice(0, 10);
+    if (next === 'active') profile.end_date = null;
+    profile.updated_at = now;
+    return { data: true, error: null };
+  });
+
   restoreWorld = installSupabaseWorld(supabase, world);
 }
 
