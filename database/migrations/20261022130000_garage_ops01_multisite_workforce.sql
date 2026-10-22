@@ -397,6 +397,117 @@ REVOKE EXECUTE ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uui
 REVOKE EXECUTE ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text) FROM authenticated;
 GRANT EXECUTE ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text) TO service_role;
 
+
+-- Workforce lifecycle transition and the closure of live operational responsibilities are one fact.
+-- This prevents a failed later profile update from leaving an active mechanic with assignments already closed.
+CREATE OR REPLACE FUNCTION garage_ops01_set_workforce_status(
+  p_tenant_id uuid,
+  p_workforce_profile_id uuid,
+  p_status text,
+  p_actor_user_id text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $ops01_status$
+DECLARE
+  profile_user_id text;
+  previous_status text;
+  previous_end_date date;
+  membership_role text;
+  next_status text := lower(COALESCE(p_status, ''));
+  changed_at timestamptz := clock_timestamp();
+BEGIN
+  IF next_status NOT IN ('pending','active','inactive','ended') THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_STATUS_INVALID';
+  END IF;
+
+  SELECT p.user_id, p.employment_status, p.end_date
+    INTO profile_user_id, previous_status, previous_end_date
+    FROM garage_workforce_profiles p
+   WHERE p.id = p_workforce_profile_id
+     AND p.tenant_id = p_tenant_id
+   FOR UPDATE;
+
+  IF profile_user_id IS NULL THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_PROFILE_NOT_FOUND';
+  END IF;
+
+  IF p_actor_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM tenant_users tu
+     WHERE tu.tenant_id = p_tenant_id
+       AND tu.user_id = p_actor_user_id
+       AND lower(tu.role) = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_STATUS_ACTOR_NOT_ADMIN';
+  END IF;
+
+  IF previous_status = next_status THEN
+    RETURN false;
+  END IF;
+
+  IF next_status IN ('pending','active') THEN
+    SELECT lower(tu.role)
+      INTO membership_role
+      FROM tenant_users tu
+     WHERE tu.tenant_id = p_tenant_id
+       AND tu.user_id = profile_user_id;
+
+    IF membership_role IS NULL THEN
+      RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_MEMBER';
+    END IF;
+  END IF;
+
+  IF next_status = 'active'
+     AND membership_role = 'mechanic'
+     AND NOT EXISTS (
+       SELECT 1
+         FROM garage_workforce_branch_assignments a
+        WHERE a.tenant_id = p_tenant_id
+          AND a.workforce_profile_id = p_workforce_profile_id
+          AND a.ended_at IS NULL
+          AND a.is_primary = true
+     ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_PRIMARY_SITE_REQUIRED';
+  END IF;
+
+  IF next_status <> 'active' THEN
+    UPDATE garage_workforce_branch_assignments
+       SET ended_at = changed_at,
+           ended_by_user_id = p_actor_user_id,
+           is_primary = false
+     WHERE tenant_id = p_tenant_id
+       AND workforce_profile_id = p_workforce_profile_id
+       AND ended_at IS NULL;
+
+    UPDATE garage_branches
+       SET manager_user_id = NULL,
+           updated_at = changed_at
+     WHERE tenant_id = p_tenant_id
+       AND manager_user_id = profile_user_id;
+  END IF;
+
+  UPDATE garage_workforce_profiles
+     SET employment_status = next_status,
+         end_date = CASE
+           WHEN next_status = 'ended' THEN COALESCE(previous_end_date, changed_at::date)
+           WHEN next_status = 'active' THEN NULL
+           ELSE previous_end_date
+         END,
+         updated_at = changed_at
+   WHERE id = p_workforce_profile_id
+     AND tenant_id = p_tenant_id;
+
+  RETURN true;
+END
+$ops01_status$;
+
+REVOKE ALL ON FUNCTION garage_ops01_set_workforce_status(uuid,uuid,text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION garage_ops01_set_workforce_status(uuid,uuid,text,text) FROM anon;
+REVOKE EXECUTE ON FUNCTION garage_ops01_set_workforce_status(uuid,uuid,text,text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION garage_ops01_set_workforce_status(uuid,uuid,text,text) TO service_role;
+
 -- A pending/active workforce profile must still be a current Garage member. Historical inactive/ended
 -- profiles survive membership removal. Active mechanics additionally require one live primary site.
 CREATE OR REPLACE FUNCTION garage_ops01_validate_workforce()
@@ -624,6 +735,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_certifications TO service
 
 -- +migrate Down
 
+DROP FUNCTION IF EXISTS garage_ops01_set_workforce_status(uuid,uuid,text,text);
 DROP FUNCTION IF EXISTS garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text);
 
 DROP TRIGGER IF EXISTS trg_garage_ops01_guard_membership_role ON tenant_users;
