@@ -86,7 +86,10 @@ function seed() {
     garage_workforce_profiles: [
       { id: PROFILE_A, tenant_id: A, user_id: 'mech-a', staff_code: 'STAFF-001', job_title: 'Technician', employment_classification: 'employee', employment_status: 'active', start_date: '2026-01-01', end_date: null, department_id: null, created_by_user_id: 'admin-a' },
     ],
-    garage_workforce_branch_assignments: [],
+    garage_workforce_branch_assignments: [
+      { id: 'seed-assign-a', tenant_id: A, workforce_profile_id: PROFILE_A, branch_id: BRANCH_A,
+        is_primary: true, assigned_at: '2026-01-01T00:00:00Z', assigned_by_user_id: 'admin-a', ended_at: null },
+    ],
     garage_workforce_skills: [],
     garage_workforce_certifications: [],
     trust_audit_events: [],
@@ -258,10 +261,6 @@ test('staff assignment is same-Garage, requires active staff and an active site'
 
 test('deactivating workforce closes future site assignment and manager responsibility without deleting records', async () => {
   world.tables.garage_branches[0].manager_user_id = 'mech-a';
-  world.tables.garage_workforce_branch_assignments.push({
-    id: 'assign-1', tenant_id: A, workforce_profile_id: PROFILE_A, branch_id: BRANCH_A,
-    is_primary: true, assigned_at: '2026-10-01T00:00:00Z', assigned_by_user_id: 'admin-a', ended_at: null,
-  });
   const res = await call('PATCH', '/api/garage/workforce/mech-a/status', {
     token: 'tok-admin-a', body: { status: 'ended' },
   });
@@ -272,10 +271,6 @@ test('deactivating workforce closes future site assignment and manager responsib
 });
 
 test('site deactivation refuses to strand a live workforce assignment', async () => {
-  world.tables.garage_workforce_branch_assignments.push({
-    id: 'assign-1', tenant_id: A, workforce_profile_id: PROFILE_A, branch_id: BRANCH_A,
-    is_primary: true, assigned_at: '2026-10-01T00:00:00Z', assigned_by_user_id: 'admin-a', ended_at: null,
-  });
   const res = await call('PATCH', `/api/garage/sites/${BRANCH_A}/status`, {
     token: 'tok-admin-a', body: { status: 'inactive' },
   });
