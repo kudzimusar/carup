@@ -159,7 +159,7 @@ export default function GarageSites() {
         <form onSubmit={submit} className="rounded-xl border bg-white p-4 sm:p-5 space-y-4" data-testid="site-form">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-semibold">{editing ? 'Edit site' : 'Add a site'}</h2>
-            {editing && <Button type="button" variant="ghost" onClick={() => { setEditing(null); setForm(emptyForm()) }}>Cancel</Button>}
+            {editing && <Button type="button" variant="ghost" className="min-h-11" onClick={() => { setEditing(null); setForm(emptyForm()) }}>Cancel</Button>}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">Branch code<Input required disabled={Boolean(editing && form.branch_code)} value={form.branch_code} onChange={(e) => setForm({ ...form, branch_code: e.target.value.toUpperCase() })} placeholder="SITE-01" /></label>
