@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  OPS01_PARENT_SHA: 748a369055c11aed2d38b051945c3488f582ec9f
+  OPS01_PARENT_SHA: 0df4a72360e67fc3b935fbdba8f2a12b804935c6
   CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   NODE_ENV: test
   SUPABASE_URL: http://localhost:54321
