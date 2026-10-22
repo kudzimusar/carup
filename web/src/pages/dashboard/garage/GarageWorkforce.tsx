@@ -36,15 +36,28 @@ type WorkforceProfile = {
   certifications: Certification[]
 }
 
-const emptyProfile = () => ({
+type EmploymentClassification = WorkforceProfile['employment_classification']
+type WorkforceForm = {
+  staff_code: string
+  job_title: string
+  employment_classification: '' | EmploymentClassification
+  start_date: string
+  department_id: string
+  internal_notes: string
+  primary_branch_id: string
+  additional_branch_ids: string[]
+  skills: string
+}
+
+const emptyProfile = (): WorkforceForm => ({
   staff_code: '',
   job_title: '',
-  employment_classification: 'employee',
-  start_date: new Date().toISOString().slice(0, 10),
+  employment_classification: '',
+  start_date: '',
   department_id: '',
   internal_notes: '',
   primary_branch_id: '',
-  additional_branch_ids: [] as string[],
+  additional_branch_ids: [],
   skills: '',
 })
 
@@ -116,6 +129,24 @@ export default function GarageWorkforce() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedUserId) return
+
+    const staffCode = form.staff_code.trim()
+    if (!staffCode) {
+      setError('Enter a staff code.')
+      return
+    }
+
+    const employmentClassification = form.employment_classification
+    if (!employmentClassification) {
+      setError('Select an employment classification.')
+      return
+    }
+
+    if (!form.start_date) {
+      setError('Enter the workforce start date.')
+      return
+    }
+
     const needsOperationalSite = selectedMember?.role === 'mechanic'
       && (!selectedProfile || selectedProfile.employment_status === 'pending')
     if (needsOperationalSite && !form.primary_branch_id) {
@@ -125,9 +156,9 @@ export default function GarageWorkforce() {
     setBusy('profile'); setError(null)
     try {
       const payload = {
-        staff_code: form.staff_code.trim().toUpperCase(),
+        staff_code: staffCode.toUpperCase(),
         job_title: form.job_title.trim() || null,
-        employment_classification: form.employment_classification,
+        employment_classification: employmentClassification,
         start_date: form.start_date,
         department_id: form.department_id || null,
         internal_notes: form.internal_notes.trim() || null,
@@ -326,7 +357,13 @@ export default function GarageWorkforce() {
                   <label className="text-sm">Staff code<Input required disabled={Boolean(selectedProfile)} value={form.staff_code} onChange={(e) => setForm({ ...form, staff_code: e.target.value.toUpperCase() })} placeholder="STAFF-001" data-testid="staff-code" /></label>
                   <label className="text-sm">Job title<Input value={form.job_title} onChange={(e) => setForm({ ...form, job_title: e.target.value })} placeholder="Branch Manager, Technician…" /></label>
                   <label className="text-sm">Classification
-                    <select className="mt-1 min-h-11 w-full rounded-md border px-3" value={form.employment_classification} onChange={(e) => setForm({ ...form, employment_classification: e.target.value })}>
+                    <select
+                      required
+                      className="mt-1 min-h-11 w-full rounded-md border px-3"
+                      value={form.employment_classification}
+                      onChange={(e) => setForm({ ...form, employment_classification: e.target.value as WorkforceForm['employment_classification'] })}
+                    >
+                      <option value="" disabled>Select classification</option>
                       <option value="owner">Owner</option><option value="employee">Employee</option><option value="contractor">Contractor</option><option value="other">Other</option>
                     </select>
                   </label>
