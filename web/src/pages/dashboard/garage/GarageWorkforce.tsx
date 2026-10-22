@@ -50,7 +50,7 @@ const emptyProfile = () => ({
 export default function GarageWorkforce() {
   const {
     listGarageMembers, listGarageWorkforce, listGarageSites, listGarageDepartments,
-    createGarageDepartment, createGarageWorkforceProfile, upsertGarageWorkforceProfile,
+    createGarageDepartment, updateGarageDepartment, createGarageWorkforceProfile, upsertGarageWorkforceProfile,
     setGarageWorkforceStatus, setGarageWorkforceBranches, replaceGarageWorkforceSkills,
     addGarageWorkforceCertification,
   } = useCarUpApi()
@@ -63,6 +63,8 @@ export default function GarageWorkforce() {
   const [selectedUserId, setSelectedUserId] = useState('')
   const [form, setForm] = useState(emptyProfile)
   const [departmentName, setDepartmentName] = useState('')
+  const [editingDepartmentId, setEditingDepartmentId] = useState<string | null>(null)
+  const [editingDepartmentName, setEditingDepartmentName] = useState('')
   const [cert, setCert] = useState({ name: '', issuer: '', reference_number: '', issue_date: '', expiry_date: '' })
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -168,6 +170,25 @@ export default function GarageWorkforce() {
     finally { setBusy(null) }
   }
 
+  async function saveDepartmentEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingDepartmentId || !editingDepartmentName.trim()) return
+    setBusy('department-edit'); setError(null)
+    try {
+      await updateGarageDepartment(editingDepartmentId, { name: editingDepartmentName.trim() })
+      setEditingDepartmentId(null); setEditingDepartmentName('')
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'The department could not be renamed.') }
+    finally { setBusy(null) }
+  }
+
+  async function deactivateDepartment(id: string) {
+    setBusy(`department-${id}`); setError(null)
+    try { await updateGarageDepartment(id, { is_active: false }); await load() }
+    catch (e) { setError(e instanceof Error ? e.message : 'The department could not be deactivated.') }
+    finally { setBusy(null) }
+  }
+
   async function addCertification(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedUserId || !cert.name.trim()) return
@@ -251,8 +272,26 @@ export default function GarageWorkforce() {
                 <Input value={departmentName} onChange={(e) => setDepartmentName(e.target.value)} placeholder="Workshop, Service Desk…" data-testid="department-name" />
                 <Button type="submit" variant="outline" disabled={busy === 'department'}><Plus className="w-4 h-4" /></Button>
               </form>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {departments.map((d) => <Badge key={d.id} variant="secondary">{d.name}</Badge>)}
+              <div className="mt-3 space-y-2">
+                {departments.map((d) => (
+                  <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2">
+                    {editingDepartmentId === d.id ? (
+                      <form onSubmit={saveDepartmentEdit} className="flex min-w-0 flex-1 flex-wrap gap-2">
+                        <Input className="min-w-40 flex-1" value={editingDepartmentName} onChange={(e) => setEditingDepartmentName(e.target.value)} aria-label="Rename department" />
+                        <Button type="submit" size="sm" variant="outline" disabled={busy === 'department-edit'}>Save</Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => { setEditingDepartmentId(null); setEditingDepartmentName('') }}>Cancel</Button>
+                      </form>
+                    ) : (
+                      <>
+                        <Badge variant="secondary">{d.name}</Badge>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" variant="ghost" onClick={() => { setEditingDepartmentId(d.id); setEditingDepartmentName(d.name) }}>Rename</Button>
+                          <Button type="button" size="sm" variant="ghost" disabled={busy === `department-${d.id}`} onClick={() => void deactivateDepartment(d.id)}>Deactivate</Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
                 {departments.length === 0 && <span className="text-xs text-gray-500">No departments recorded.</span>}
               </div>
             </CardContent>
