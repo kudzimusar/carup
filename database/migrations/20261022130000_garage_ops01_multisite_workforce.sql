@@ -215,6 +215,11 @@ BEGIN
     RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_GARAGE_TENANT';
   END IF;
 
+  IF TG_OP = 'UPDATE'
+     AND OLD.staff_code IS DISTINCT FROM NEW.staff_code THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_STAFF_CODE_IMMUTABLE';
+  END IF;
+
   IF NEW.employment_status IN ('pending','active') THEN
     SELECT lower(tu.role)
       INTO membership_role
@@ -246,7 +251,7 @@ END $$;
 DROP TRIGGER IF EXISTS trg_garage_ops01_validate_active_workforce ON garage_workforce_profiles;
 DROP TRIGGER IF EXISTS trg_garage_ops01_validate_workforce ON garage_workforce_profiles;
 CREATE TRIGGER trg_garage_ops01_validate_workforce
-  BEFORE INSERT OR UPDATE OF tenant_id, user_id, employment_status
+  BEFORE INSERT OR UPDATE OF tenant_id, user_id, staff_code, employment_status
   ON garage_workforce_profiles
   FOR EACH ROW
   EXECUTE FUNCTION garage_ops01_validate_workforce();
