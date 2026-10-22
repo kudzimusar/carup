@@ -459,6 +459,9 @@ export async function upsertGarageWorkforceProfile(client = defaultClient, actor
     .eq('tenant_id', tenantId).eq('user_id', target).maybeSingle();
   if (loadError) throw new DatabaseError(`Could not check workforce profile: ${loadError.message}`);
   const patch = normalizeProfileInput(body, { create: !existing });
+  if (existing && patch.staff_code && patch.staff_code !== existing.staff_code) {
+    throw new ConflictError('staff_code is stable after the workforce profile is created');
+  }
   if (patch.department_id) await assertDepartment(client, tenantId, patch.department_id, { active: true });
   const now = new Date().toISOString();
   let data; let error;
