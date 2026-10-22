@@ -176,6 +176,17 @@ test('workforce profile requires real membership and staff code is unique only i
   ));
   assert.match(nonmember?.message || '', /GARAGE_WORKFORCE_NOT_MEMBER/);
 
+  const fabricatedHistory = await refusal(db.query(
+    `INSERT INTO garage_workforce_profiles
+      (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, end_date, created_by_user_id)
+     VALUES ($1, 'stranger', 'STAFF-998', 'contractor', 'ended', '2026-09-01', '2026-09-30', 'admin-a')`, [T.a],
+  ));
+  assert.match(
+    fabricatedHistory?.message || '',
+    /GARAGE_WORKFORCE_NOT_MEMBER/,
+    'an already-ended profile cannot manufacture employment history for a nonmember',
+  );
+
   const crossDepartment = await refusal(db.query(
     `UPDATE garage_workforce_profiles SET department_id = $1 WHERE id = $2`, [deptB, pA],
   ));
