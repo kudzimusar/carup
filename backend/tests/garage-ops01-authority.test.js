@@ -422,3 +422,115 @@ test('Service Network rejects inactive sites for new work but historical branch 
   const historical = await assertBranchBelongsToTenant(supabase, BRANCH_A_INACTIVE, A, { requireActive: false });
   assert.equal(historical.id, BRANCH_A_INACTIVE);
 });
+
+test('OPS01 operator journey: two sites plus governed workforce stay on one Garage authority', async () => {
+  const siteA = await call('POST', '/api/garage/sites', {
+    token: 'tok-admin-a',
+    body: siteBody({ branch_code: 'JOURNEY-A', name: 'Journey Site A' }),
+  });
+  assert.equal(siteA.status, 201, siteA.text);
+
+  const siteB = await call('POST', '/api/garage/sites', {
+    token: 'tok-admin-a',
+    body: siteBody({ branch_code: 'JOURNEY-B', name: 'Journey Site B', is_primary: false }),
+  });
+  assert.equal(siteB.status, 201, siteB.text);
+
+  const siteAId = siteA.body.site.id;
+  const siteBId = siteB.body.site.id;
+
+  const edited = await call('PATCH', `/api/garage/sites/${siteAId}`, {
+    token: 'tok-admin-a',
+    body: { name: 'Journey Site A — Updated' },
+  });
+  assert.equal(edited.status, 200, edited.text);
+  assert.equal(edited.body.site.name, 'Journey Site A — Updated');
+
+  const deactivated = await call('PATCH', `/api/garage/sites/${siteBId}/status`, {
+    token: 'tok-admin-a', body: { status: 'inactive' },
+  });
+  assert.equal(deactivated.status, 200, deactivated.text);
+  assert.equal(deactivated.body.site.is_active, false);
+
+  const reactivated = await call('PATCH', `/api/garage/sites/${siteBId}/status`, {
+    token: 'tok-admin-a', body: { status: 'active' },
+  });
+  assert.equal(reactivated.status, 200, reactivated.text);
+  assert.equal(reactivated.body.site.is_active, true);
+
+  const department = await call('POST', '/api/garage/departments', {
+    token: 'tok-admin-a', body: { name: 'Journey Workshop' },
+  });
+  assert.equal(department.status, 201, department.text);
+
+  const profile = await call('POST', '/api/garage/workforce', {
+    token: 'tok-admin-a',
+    body: {
+      user_id: 'member-a',
+      staff_code: 'JOURNEY-001',
+      job_title: 'Technician',
+      employment_classification: 'employee',
+      start_date: '2026-10-22',
+      department_id: department.body.department.id,
+    },
+  });
+  assert.equal(profile.status, 201, profile.text);
+  assert.equal(profile.body.profile.employment_status, 'pending');
+
+  const assigned = await call('PUT', '/api/garage/workforce/member-a/branches', {
+    token: 'tok-admin-a',
+    body: { primary_branch_id: siteAId, additional_branch_ids: [siteBId] },
+  });
+  assert.equal(assigned.status, 200, assigned.text);
+  assert.equal(assigned.body.profile.branch_assignments.length, 2);
+  assert.equal(assigned.body.profile.branch_assignments.filter((row) => row.is_primary).length, 1);
+
+  const skilled = await call('PUT', '/api/garage/workforce/member-a/skills', {
+    token: 'tok-admin-a',
+    body: { skills: ['Brakes', 'Diagnostics'] },
+  });
+  assert.equal(skilled.status, 200, skilled.text);
+  assert.deepEqual(
+    skilled.body.profile.skills.map((row) => row.skill_name).sort(),
+    ['Brakes', 'Diagnostics'],
+  );
+
+  const certified = await call('POST', '/api/garage/workforce/member-a/certifications', {
+    token: 'tok-admin-a',
+    body: {
+      name: 'Journey Brake Systems',
+      issuer: 'Recorded Training Body',
+      reference_number: 'JBS-001',
+      issue_date: '2026-01-10',
+      expiry_date: '2028-01-10',
+    },
+  });
+  assert.equal(certified.status, 201, certified.text);
+
+  const activated = await call('PATCH', '/api/garage/workforce/member-a/status', {
+    token: 'tok-admin-a', body: { status: 'active' },
+  });
+  assert.equal(activated.status, 200, activated.text);
+  assert.equal(activated.body.profile.employment_status, 'active');
+
+  const manager = await call('PATCH', `/api/garage/sites/${siteAId}/manager`, {
+    token: 'tok-admin-a', body: { user_id: 'member-a' },
+  });
+  assert.equal(manager.status, 200, manager.text);
+  assert.equal(manager.body.site.manager_user_id, 'member-a');
+
+  const workforce = await call('GET', '/api/garage/workforce/member-a', { token: 'tok-admin-a' });
+  assert.equal(workforce.status, 200, workforce.text);
+  assert.equal(workforce.body.profile.staff_code, 'JOURNEY-001');
+  assert.equal(workforce.body.profile.department.name, 'Journey Workshop');
+  assert.equal(workforce.body.profile.branch_assignments.length, 2);
+  assert.equal(workforce.body.profile.skills.length, 2);
+  assert.equal(workforce.body.profile.certifications.length, 1);
+
+  const sites = await call('GET', '/api/garage/sites', { token: 'tok-admin-a' });
+  assert.equal(sites.status, 200, sites.text);
+  const journeySites = sites.body.sites.filter((site) => ['JOURNEY-A', 'JOURNEY-B'].includes(site.branch_code));
+  assert.equal(journeySites.length, 2);
+  assert.ok(journeySites.every((site) => site.tenant_id === A));
+});
+
