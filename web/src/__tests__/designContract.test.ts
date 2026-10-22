@@ -59,8 +59,18 @@ const GARAGE_ONBOARDING_SURFACES = [
   '/src/pages/dashboard/garage/GarageWorkspaceReady.tsx',
 ]
 
+/** GARAGE-1.0-OPS01 internal operating surfaces. */
+const GARAGE_OPERATIONS_SURFACES = [
+  '/src/pages/dashboard/garage/GarageSites.tsx',
+  '/src/pages/dashboard/garage/GarageWorkforce.tsx',
+]
+
 /** Every surface this gate governs. */
-const GOVERNED_SURFACES = [...SERVICE_NETWORK_SURFACES, ...GARAGE_ONBOARDING_SURFACES]
+const GOVERNED_SURFACES = [
+  ...SERVICE_NETWORK_SURFACES,
+  ...GARAGE_ONBOARDING_SURFACES,
+  ...GARAGE_OPERATIONS_SURFACES,
+]
 
 /** The connected workspace routes of one workflow — §4.3 judges these together. */
 const GARAGE_WORKFLOW = [
