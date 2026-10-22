@@ -3,8 +3,6 @@ import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole, requireActiveTenant } from '../middleware/authMiddleware.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_TENANT_TYPE, GARAGE_WORKSPACE_ROLES } from '../services/serviceNetwork/serviceAuthority.js';
 import {
-  createMyGarageBranch,
-  deactivateMyGarageBranch,
   getMyGarageProfile,
   getPublicGarageDetail,
   getPublicGarageDirectory,
@@ -12,6 +10,7 @@ import {
   unpublishMyGarageProfile,
   upsertMyGarageProfile,
 } from '../services/serviceNetwork/garageDirectoryService.js';
+import { createGarageSite, setGarageSiteStatus } from '../services/garageOperations/garageOperationsService.js';
 
 /**
  * Service Network S1 routes.
@@ -74,13 +73,14 @@ router.post('/api/garage/profile/unpublish', GARAGE_ADMIN, asyncHandler(async (r
   res.json({ success: true, ...result });
 }));
 
+// Compatibility paths from Service Network Foundation now delegate to the ONE OPS01 site authority.
 router.post('/api/garage/branches', GARAGE_ADMIN, asyncHandler(async (req, res) => {
-  const result = await createMyGarageBranch(supabase, req.userContext, req.body);
+  const result = await createGarageSite(supabase, req.userContext, req.body, { req });
   res.status(201).json(result);
 }));
 
 router.delete('/api/garage/branches/:branchId', GARAGE_ADMIN, asyncHandler(async (req, res) => {
-  const result = await deactivateMyGarageBranch(supabase, req.userContext, req.params.branchId);
+  const result = await setGarageSiteStatus(supabase, req.userContext, req.params.branchId, 'inactive', { req });
   res.json({ success: true, ...result });
 }));
 
