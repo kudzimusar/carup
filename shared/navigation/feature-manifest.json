@@ -1039,9 +1039,41 @@
     ]
   },
   {
+    "id": "garage.sites",
+    "domain": "service",
+    "route": "/garage/sites",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin"
+    ]
+  },
+  {
     "id": "garage.team",
     "domain": "service",
     "route": "/garage/team",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin"
+    ]
+  },
+  {
+    "id": "garage.workforce",
+    "domain": "service",
+    "route": "/garage/workforce",
     "defaultLifecycle": "active",
     "defaultRoles": [],
     "immutableRoles": [],
