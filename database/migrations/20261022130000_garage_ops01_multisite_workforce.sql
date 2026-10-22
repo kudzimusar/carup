@@ -282,6 +282,16 @@ BEGIN
     RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_PROFILE_INACTIVE';
   END IF;
 
+  IF p_actor_user_id IS NULL OR NOT EXISTS (
+    SELECT 1
+      FROM tenant_users actor_membership
+     WHERE actor_membership.tenant_id = p_tenant_id
+       AND actor_membership.user_id = p_actor_user_id
+       AND lower(actor_membership.role) = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_ACTOR_NOT_ADMIN';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
       FROM tenant_users tu
