@@ -156,6 +156,11 @@ test('workforce profile requires real membership and staff code is unique only i
   ));
   assert.equal(duplicate?.code, '23505');
 
+  const renamedStaffCode = await refusal(db.query(
+    `UPDATE garage_workforce_profiles SET staff_code = 'STAFF-002' WHERE id = $1`, [pA],
+  ));
+  assert.match(renamedStaffCode?.message || '', /GARAGE_WORKFORCE_STAFF_CODE_IMMUTABLE/);
+
   const pB = (await db.query(
     `INSERT INTO garage_workforce_profiles
       (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, department_id, created_by_user_id)
