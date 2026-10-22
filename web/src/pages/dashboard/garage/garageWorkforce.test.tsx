@@ -72,6 +72,7 @@ describe('Garage Workforce product truth', () => {
       primary_branch_id: 's1', additional_branch_ids: [],
     }))
     expect(replaceGarageWorkforceSkills).toHaveBeenCalledWith('mech-1', ['Brakes', 'Diagnostics'])
+    expect(setGarageWorkforceStatus).toHaveBeenCalledWith('mech-1', 'active')
   })
 
   it('states explicitly that workforce metadata does not replace membership authority', async () => {
