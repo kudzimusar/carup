@@ -115,7 +115,9 @@ export default function GarageWorkforce() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedUserId) return
-    if (selectedMember?.role === 'mechanic' && !form.primary_branch_id) {
+    const needsOperationalSite = selectedMember?.role === 'mechanic'
+      && (!selectedProfile || selectedProfile.employment_status === 'pending')
+    if (needsOperationalSite && !form.primary_branch_id) {
       setError('Assign a primary active site before activating this mechanic.')
       return
     }
@@ -132,7 +134,10 @@ export default function GarageWorkforce() {
       if (selectedProfile) await upsertGarageWorkforceProfile(selectedUserId, payload)
       else await createGarageWorkforceProfile({ user_id: selectedUserId, ...payload })
 
-      if (form.primary_branch_id) {
+      const mayReceiveAssignments = !selectedProfile
+        || selectedProfile.employment_status === 'pending'
+        || selectedProfile.employment_status === 'active'
+      if (form.primary_branch_id && mayReceiveAssignments) {
         await setGarageWorkforceBranches(selectedUserId, {
           primary_branch_id: form.primary_branch_id,
           additional_branch_ids: form.additional_branch_ids,
@@ -149,7 +154,7 @@ export default function GarageWorkforce() {
     } finally { setBusy(null) }
   }
 
-  async function changeStatus(status: 'active'|'inactive'|'ended') {
+  async function changeStatus(status: 'pending'|'active'|'inactive'|'ended') {
     if (!selectedUserId) return
     setBusy('status'); setError(null)
     try { await setGarageWorkforceStatus(selectedUserId, status); await load() }
@@ -377,7 +382,8 @@ export default function GarageWorkforce() {
                     {busy === 'profile' && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                     {selectedProfile ? 'Save workforce profile' : 'Create workforce profile'}
                   </Button>
-                  {selectedProfile && selectedProfile.employment_status !== 'active' && selectedProfile.employment_status !== 'ended' && <Button type="button" variant="outline" onClick={() => void changeStatus('active')} disabled={busy === 'status'}>{selectedProfile.employment_status === 'pending' ? 'Activate' : 'Reactivate'}</Button>}
+                  {selectedProfile?.employment_status === 'pending' && <Button type="button" variant="outline" onClick={() => void changeStatus('active')} disabled={busy === 'status'}>Activate</Button>}
+                  {selectedProfile?.employment_status === 'inactive' && <Button type="button" variant="outline" onClick={() => void changeStatus('pending')} disabled={busy === 'status'}>Prepare reactivation</Button>}
                   {selectedProfile?.employment_status === 'active' && <Button type="button" variant="outline" onClick={() => void changeStatus('inactive')} disabled={busy === 'status'}>Mark inactive</Button>}
                   {selectedProfile && selectedProfile.employment_status !== 'ended' && <Button type="button" variant="outline" onClick={() => void changeStatus('ended')} disabled={busy === 'status'}>End workforce record</Button>}
                 </div>
