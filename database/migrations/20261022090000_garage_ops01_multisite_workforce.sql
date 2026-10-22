@@ -48,7 +48,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public, pg_temp
-AS $
+AS $$
 BEGIN
   IF NEW.manager_user_id IS NOT NULL AND NOT EXISTS (
     SELECT 1
@@ -61,7 +61,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_garage_branch_manager_guard ON public.garage_branches;
 CREATE TRIGGER trg_garage_branch_manager_guard
@@ -74,7 +74,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public, pg_temp
-AS $
+AS $$
 BEGIN
   IF LOWER(COALESCE(OLD.role, '')) = 'admin'
      AND LOWER(COALESCE(NEW.role, '')) <> 'admin'
@@ -86,7 +86,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_garage_branch_manager_role_guard ON public.tenant_users;
 CREATE TRIGGER trg_garage_branch_manager_role_guard
@@ -225,7 +225,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public, pg_temp
-AS $
+AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.tenant_users
@@ -235,7 +235,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_garage_staff_profile_member ON public.garage_staff_profiles;
 CREATE TRIGGER trg_garage_staff_profile_member
@@ -252,7 +252,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public, pg_temp
-AS $
+AS $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.garage_branches
@@ -262,7 +262,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_garage_staff_assignment_branch ON public.garage_staff_branch_assignments;
 CREATE TRIGGER trg_garage_staff_assignment_branch
@@ -274,7 +274,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public, pg_temp
-AS $
+AS $$
 BEGIN
   IF NEW.department_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM public.garage_departments
@@ -284,7 +284,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_garage_staff_profile_department ON public.garage_staff_profiles;
 CREATE TRIGGER trg_garage_staff_profile_department
@@ -306,11 +306,11 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public, pg_temp
-AS $
+AS $$
 BEGIN
   RAISE EXCEPTION 'GARAGE_STAFF_ASSIGNMENT_HISTORY_DELETE_FORBIDDEN' USING ERRCODE = 'restrict_violation';
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_garage_staff_branch_assignments_no_delete ON public.garage_staff_branch_assignments;
 CREATE TRIGGER trg_garage_staff_branch_assignments_no_delete
