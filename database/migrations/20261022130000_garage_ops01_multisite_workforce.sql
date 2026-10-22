@@ -141,9 +141,248 @@ CREATE TABLE IF NOT EXISTS garage_workforce_profiles (
     CHECK (end_date IS NULL OR end_date >= start_date)
 );
 
-ALTER TABLE garage_workforce_profiles
-  ADD CONSTRAINT garage_workforce_staff_code_format
-  CHECK (staff_code ~ '^[A-Z0-9][A-Z0-9-]{1,23}$');
+DO $
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'garage_workforce_staff_code_format') THEN
+    ALTER TABLE garage_workforce_profiles
+      ADD CONSTRAINT garage_workforce_staff_code_format
+      CHECK (staff_code ~ '^[A-Z0-9][A-Z0-9-]{1,23}
+
+CREATE INDEX IF NOT EXISTS idx_garage_workforce_tenant_status
+  ON garage_workforce_profiles(tenant_id, employment_status);
+CREATE INDEX IF NOT EXISTS idx_garage_workforce_user
+  ON garage_workforce_profiles(user_id);
+
+-- An ACTIVE workforce profile must still be a current Garage member. Historical ended profiles survive
+-- membership removal and therefore deliberately do not carry a destructive FK to tenant_users.
+CREATE OR REPLACE FUNCTION garage_ops01_validate_active_workforce()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM tenants t WHERE t.id = NEW.tenant_id AND t.type = 'garage'
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_GARAGE_TENANT';
+  END IF;
+
+  IF NEW.employment_status = 'active' AND NOT EXISTS (
+    SELECT 1 FROM tenant_users tu
+     WHERE tu.tenant_id = NEW.tenant_id
+       AND tu.user_id = NEW.user_id
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_MEMBER';
+  END IF;
+
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_validate_active_workforce ON garage_workforce_profiles;
+CREATE TRIGGER trg_garage_ops01_validate_active_workforce
+  BEFORE INSERT OR UPDATE OF tenant_id, user_id, employment_status ON garage_workforce_profiles
+  FOR EACH ROW EXECUTE FUNCTION garage_ops01_validate_active_workforce();
+
+-- ── Historical staff ↔ branch assignments ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS garage_workforce_branch_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  workforce_profile_id UUID NOT NULL,
+  branch_id UUID NOT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  assigned_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  ended_at TIMESTAMPTZ,
+  ended_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT garage_workforce_assignment_profile_tenant_fk
+    FOREIGN KEY (workforce_profile_id, tenant_id)
+    REFERENCES garage_workforce_profiles(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT garage_workforce_assignment_branch_tenant_fk
+    FOREIGN KEY (branch_id, tenant_id)
+    REFERENCES garage_branches(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT garage_workforce_assignment_dates_check
+    CHECK (ended_at IS NULL OR ended_at >= assigned_at)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_garage_workforce_live_branch_assignment
+  ON garage_workforce_branch_assignments(tenant_id, workforce_profile_id, branch_id)
+  WHERE ended_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_garage_workforce_live_primary
+  ON garage_workforce_branch_assignments(tenant_id, workforce_profile_id)
+  WHERE ended_at IS NULL AND is_primary = true;
+
+CREATE INDEX IF NOT EXISTS idx_garage_workforce_assignments_branch
+  ON garage_workforce_branch_assignments(tenant_id, branch_id)
+  WHERE ended_at IS NULL;
+
+CREATE OR REPLACE FUNCTION garage_ops01_validate_live_assignment()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  profile_status TEXT;
+  branch_active BOOLEAN;
+BEGIN
+  IF NEW.ended_at IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT employment_status INTO profile_status
+    FROM garage_workforce_profiles
+   WHERE id = NEW.workforce_profile_id
+     AND tenant_id = NEW.tenant_id;
+
+  IF profile_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_PROFILE_INACTIVE';
+  END IF;
+
+  SELECT is_active INTO branch_active
+    FROM garage_branches
+   WHERE id = NEW.branch_id
+     AND tenant_id = NEW.tenant_id;
+
+  IF branch_active IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_BRANCH_INACTIVE';
+  END IF;
+
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_validate_live_assignment ON garage_workforce_branch_assignments;
+CREATE TRIGGER trg_garage_ops01_validate_live_assignment
+  BEFORE INSERT OR UPDATE OF tenant_id, workforce_profile_id, branch_id, ended_at
+  ON garage_workforce_branch_assignments
+  FOR EACH ROW EXECUTE FUNCTION garage_ops01_validate_live_assignment();
+
+-- ── Structured skills and recorded certifications ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS garage_workforce_skills (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  workforce_profile_id UUID NOT NULL,
+  skill_name TEXT NOT NULL,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  recorded_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  removed_at TIMESTAMPTZ,
+  removed_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT garage_workforce_skill_profile_tenant_fk
+    FOREIGN KEY (workforce_profile_id, tenant_id)
+    REFERENCES garage_workforce_profiles(id, tenant_id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_garage_workforce_live_skill
+  ON garage_workforce_skills(tenant_id, workforce_profile_id, lower(skill_name))
+  WHERE removed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS garage_workforce_certifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+  workforce_profile_id UUID NOT NULL,
+  name TEXT NOT NULL,
+  issuer TEXT,
+  reference_number TEXT,
+  issue_date DATE,
+  expiry_date DATE,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  recorded_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  withdrawn_at TIMESTAMPTZ,
+  withdrawn_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT garage_workforce_cert_profile_tenant_fk
+    FOREIGN KEY (workforce_profile_id, tenant_id)
+    REFERENCES garage_workforce_profiles(id, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT garage_workforce_cert_dates_check
+    CHECK (expiry_date IS NULL OR issue_date IS NULL OR expiry_date >= issue_date)
+);
+
+-- Membership removal remains the future-authority event. OPS01 closes current operational
+-- responsibilities while preserving every workforce/branch-assignment row as history.
+CREATE OR REPLACE FUNCTION garage_ops01_membership_removed()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE garage_branches
+     SET manager_user_id = NULL,
+         updated_at = NOW()
+   WHERE tenant_id = OLD.tenant_id
+     AND manager_user_id = OLD.user_id;
+
+  UPDATE garage_workforce_branch_assignments a
+     SET ended_at = COALESCE(a.ended_at, NOW()),
+         is_primary = false
+    FROM garage_workforce_profiles p
+   WHERE p.id = a.workforce_profile_id
+     AND p.tenant_id = OLD.tenant_id
+     AND p.user_id = OLD.user_id
+     AND a.tenant_id = OLD.tenant_id
+     AND a.ended_at IS NULL;
+
+  UPDATE garage_workforce_profiles
+     SET employment_status = 'ended',
+         end_date = COALESCE(end_date, CURRENT_DATE),
+         updated_at = NOW()
+   WHERE tenant_id = OLD.tenant_id
+     AND user_id = OLD.user_id
+     AND employment_status <> 'ended';
+
+  RETURN OLD;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_membership_removed ON tenant_users;
+CREATE TRIGGER trg_garage_ops01_membership_removed
+  AFTER DELETE ON tenant_users
+  FOR EACH ROW EXECUTE FUNCTION garage_ops01_membership_removed();
+
+-- Service-role-only posture, matching the Service Network tables. The web never talks to these directly.
+ALTER TABLE garage_branch_opening_hours ENABLE ROW LEVEL SECURITY;
+ALTER TABLE garage_branch_opening_hours FORCE ROW LEVEL SECURITY;
+ALTER TABLE garage_departments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE garage_departments FORCE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_profiles FORCE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_branch_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_branch_assignments FORCE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_skills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_skills FORCE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_certifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE garage_workforce_certifications FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE garage_branch_opening_hours, garage_departments, garage_workforce_profiles,
+  garage_workforce_branch_assignments, garage_workforce_skills, garage_workforce_certifications
+  FROM PUBLIC, anon, authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE garage_branch_opening_hours TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_departments TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_profiles TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_branch_assignments TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_skills TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_certifications TO service_role;
+
+-- +migrate Down
+DROP TRIGGER IF EXISTS trg_garage_ops01_membership_removed ON tenant_users;
+DROP FUNCTION IF EXISTS garage_ops01_membership_removed();
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_validate_live_assignment ON garage_workforce_branch_assignments;
+DROP FUNCTION IF EXISTS garage_ops01_validate_live_assignment();
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_validate_active_workforce ON garage_workforce_profiles;
+DROP FUNCTION IF EXISTS garage_ops01_validate_active_workforce();
+
+DROP TABLE IF EXISTS garage_workforce_certifications;
+DROP TABLE IF EXISTS garage_workforce_skills;
+DROP TABLE IF EXISTS garage_workforce_branch_assignments;
+DROP TABLE IF EXISTS garage_workforce_profiles;
+DROP TABLE IF EXISTS garage_departments;
+DROP TABLE IF EXISTS garage_branch_opening_hours;
+
+DROP TRIGGER IF EXISTS trg_garage_ops01_branch_identity ON garage_branches;
+DROP FUNCTION IF EXISTS garage_ops01_guard_branch_identity();
+
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS manager_user_id;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS is_public;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS is_primary;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS timezone;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS whatsapp;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS email;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS phone;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS country_code;
+ALTER TABLE garage_branches DROP COLUMN IF EXISTS branch_code;
+);
+  END IF;
+END $;
 
 CREATE INDEX IF NOT EXISTS idx_garage_workforce_tenant_status
   ON garage_workforce_profiles(tenant_id, employment_status);
