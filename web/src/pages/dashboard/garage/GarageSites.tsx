@@ -27,7 +27,7 @@ const emptyForm = () => ({
 })
 
 export default function GarageSites() {
-  const { listGarageSites, createGarageSite, updateGarageSite, setGarageSiteStatus, listGarageWorkforce } = useCarUpApi()
+  const { listGarageSites, createGarageSite, updateGarageSite, setGarageSiteStatus, setGarageSiteManager, listGarageWorkforce } = useCarUpApi()
   const [sites, setSites] = useState<Site[] | null>(null)
   const [workforce, setWorkforce] = useState<Workforce[]>([])
   const [state, setState] = useState<'loading'|'ready'|'error'>('loading')
@@ -81,8 +81,17 @@ export default function GarageSites() {
         : { day_of_week: h.day_of_week, is_closed: false, opens_at: h.opens_at, closes_at: h.closes_at }),
     }
     try {
-      if (editing) await updateGarageSite(editing, payload)
-      else await createGarageSite(payload)
+      if (editing) {
+        const previous = sites?.find((site) => site.id === editing) || null
+        const { manager_user_id: managerUserId, ...sitePayload } = payload
+        await updateGarageSite(editing, sitePayload)
+        const nextManager = managerUserId || null
+        if ((previous?.manager_user_id || null) !== nextManager) {
+          await setGarageSiteManager(editing, nextManager)
+        }
+      } else {
+        await createGarageSite(payload)
+      }
       setEditing(null); setForm(emptyForm()); await load()
     } catch (e) { setError(e instanceof Error ? e.message : 'The site could not be saved.') }
     finally { setBusy(false) }
