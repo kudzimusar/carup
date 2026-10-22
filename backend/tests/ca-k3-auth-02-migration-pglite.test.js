@@ -84,14 +84,21 @@ const stateOf = async (db, id) => (await db.query('SELECT state FROM corporate_m
 
 // CA-K3-AUTH-03 (Phase B), CA-K3-AUTH-04 (Phase C), CA-K3-AUTH-05, and its additive
 // atomic-registration closure are intentionally dated AFTER this migration. Each named successor
-// must prove a real dependency; every other later migration remains forbidden.
+// must prove a real dependency. This custody assertion is scoped to the CA-K3 AUTH lineage: later,
+// independent product migrations must not be forced to backdate themselves merely to satisfy a
+// historical Corporate sequence test.
 const PHASE_B_SUCCESSOR = '20261014020000_ca_k3_auth_03_corporate_membership_governance.sql';
 const PHASE_C_SUCCESSOR = '20261015010000_ca_k3_auth_04_corporate_permission_authority.sql';
 const AUTH_05_SUCCESSOR = '20261016010000_ca_k3_auth_05_session_identity_authority.sql';
 const AUTH_05_R4_SUCCESSOR = '20261016163834_ca_k3_auth_05_r4_atomic_owner_registration.sql';
-test('file: a canonical migration, sorted before only its four declared authority successors, with a unique version', () => {
+test('file: a canonical migration, sorted before only its four declared CA-K3 AUTH successors, with a unique version', () => {
   const all = readdirSync(DIR).filter((f) => /^\d{14}_.+\.sql$/.test(f)).sort();
-  assert.deepEqual(all.filter((f) => f > FILE), [PHASE_B_SUCCESSOR, PHASE_C_SUCCESSOR, AUTH_05_SUCCESSOR, AUTH_05_R4_SUCCESSOR], 'nothing but the declared Phase-B, Phase-C and AUTH-05 successors sorts after this migration');
+  const caK3Auth = all.filter((f) => f.includes('_ca_k3_auth_'));
+  assert.deepEqual(
+    caK3Auth.filter((f) => f > FILE),
+    [PHASE_B_SUCCESSOR, PHASE_C_SUCCESSOR, AUTH_05_SUCCESSOR, AUTH_05_R4_SUCCESSOR],
+    'nothing but the declared Phase-B, Phase-C and AUTH-05 successors may extend the CA-K3 AUTH lineage after this migration',
+  );
   assert.match(readFileSync(new URL(PHASE_B_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the Phase-B successor really depends on this migration');
   assert.match(readFileSync(new URL(PHASE_C_SUCCESSOR, DIR), 'utf8'), /REFERENCES public\.corporate_memberships\b/, 'the Phase-C successor really depends on this migration');
   const auth05 = readFileSync(new URL(AUTH_05_SUCCESSOR, DIR), 'utf8');
