@@ -5,6 +5,8 @@ on:
     branches:
       - feat/garage-1-0-cv01-authority-convergence
   pull_request:
+    branches:
+      - fix/ca-close-01-corporate-admin-closure
     types: [opened, synchronize, reopened]
   workflow_dispatch: {}
 
