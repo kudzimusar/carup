@@ -45,7 +45,7 @@ END $$;
 CREATE OR REPLACE FUNCTION garage_ops01_guard_branch_identity()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $$
+AS $ops01_branch$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM tenants t
@@ -82,7 +82,7 @@ BEGIN
   END IF;
 
   RETURN NEW;
-END $;
+END $ops01_branch$;
 
 DROP TRIGGER IF EXISTS trg_garage_ops01_branch_identity ON garage_branches;
 CREATE TRIGGER trg_garage_ops01_branch_identity
