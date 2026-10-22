@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, UserPlus, Copy, Check, X, UserMinus } from 'lucide-react'
@@ -133,8 +134,12 @@ export default function GarageTeam() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Your team</h1>
         <p className="text-sm text-gray-600 mt-1">
-          Invite the people who work with you. Mechanics take jobs and record the work they do.
+          Invite the people who work with you. Membership controls access; workforce records control operational assignment.
         </p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <Link to="/garage/workforce"><Button variant="outline" className="min-h-11">Manage workforce details</Button></Link>
+          <Link to="/garage/sites"><Button variant="outline" className="min-h-11">Manage sites</Button></Link>
+        </div>
       </div>
 
       <form onSubmit={invite} className="rounded-xl border border-gray-200 bg-white p-5 space-y-3" data-testid="invite-form">
