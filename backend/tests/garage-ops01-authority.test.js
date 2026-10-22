@@ -259,6 +259,37 @@ test('staff assignment is same-Garage, requires active staff and an active site'
   assert.equal(staffInactive.status, 409);
 });
 
+test('inactive mechanic reactivation requires pending preparation before a new primary-site assignment', async () => {
+  const inactive = await call('PATCH', '/api/garage/workforce/mech-a/status', {
+    token: 'tok-admin-a', body: { status: 'inactive' },
+  });
+  assert.equal(inactive.status, 200, inactive.text);
+  assert.equal(world.rows('garage_workforce_profiles')[0].employment_status, 'inactive');
+  assert.ok(world.rows('garage_workforce_branch_assignments')[0].ended_at);
+
+  const assignmentWhileInactive = await call('PUT', '/api/garage/workforce/mech-a/branches', {
+    token: 'tok-admin-a', body: { primary_branch_id: BRANCH_A },
+  });
+  assert.equal(assignmentWhileInactive.status, 409);
+
+  const pending = await call('PATCH', '/api/garage/workforce/mech-a/status', {
+    token: 'tok-admin-a', body: { status: 'pending' },
+  });
+  assert.equal(pending.status, 200, pending.text);
+
+  const reassigned = await call('PUT', '/api/garage/workforce/mech-a/branches', {
+    token: 'tok-admin-a', body: { primary_branch_id: BRANCH_A },
+  });
+  assert.equal(reassigned.status, 200, reassigned.text);
+  assert.equal(reassigned.body.profile.branch_assignments.filter((row) => row.is_primary).length, 1);
+
+  const active = await call('PATCH', '/api/garage/workforce/mech-a/status', {
+    token: 'tok-admin-a', body: { status: 'active' },
+  });
+  assert.equal(active.status, 200, active.text);
+  assert.equal(active.body.profile.employment_status, 'active');
+});
+
 test('deactivating workforce closes future site assignment and manager responsibility without deleting records', async () => {
   world.tables.garage_branches[0].manager_user_id = 'mech-a';
   const res = await call('PATCH', '/api/garage/workforce/mech-a/status', {
