@@ -204,20 +204,25 @@ export async function assertPractitionerAuthority(supabaseClient, userContext, p
  * clear error instead of a raw constraint violation, and covers callers that would
  * otherwise only discover the problem at write time.
  */
-export async function assertBranchBelongsToTenant(supabaseClient, branchId, tenantId) {
+export async function assertBranchBelongsToTenant(supabaseClient, branchId, tenantId, { requireActive = true } = {}) {
   const id = branchId ? String(branchId).trim() : null;
   if (!id) return null;
   if (!tenantId) throw new ForbiddenError('Select the garage you are acting for.');
 
   const { data: branch, error } = await supabaseClient
     .from('garage_branches')
-    .select('id, tenant_id')
+    .select('id, tenant_id, is_active')
     .eq('id', id)
     .maybeSingle();
   if (error) throw new DatabaseError(`Failed to load branch: ${error.message}`);
   if (!branch || branch.tenant_id !== tenantId) {
     // Another garage's branch is indistinguishable from a missing one.
     throw new ValidationError('That branch does not belong to this garage');
+  }
+  // OPS01: inactive sites remain historical truth but cannot receive NEW operational work.
+  // Callers resolving old records may opt out explicitly; all creation/assignment paths keep the default.
+  if (requireActive && branch.is_active !== true) {
+    throw new ValidationError('That garage site is inactive');
   }
   return branch;
 }
