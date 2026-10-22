@@ -246,11 +246,6 @@ export async function createGarageSite(client = defaultClient, actor = {}, body 
   }
   if (input.manager_user_id) await assertActiveWorkforceMember(client, tenantId, input.manager_user_id, 'branch manager');
   const hours = normalizeHours(body.opening_hours);
-  if (input.is_primary === true) {
-    const { error } = await client.from('garage_branches').update({ is_primary: false, updated_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId).eq('is_primary', true);
-    if (error) throw new DatabaseError(`Could not change primary site: ${error.message}`);
-  }
   const now = new Date().toISOString();
   const { data, error } = await client.from('garage_branches').insert({
     tenant_id: tenantId,
@@ -281,11 +276,6 @@ export async function updateGarageSite(client = defaultClient, actor = {}, siteI
   if (input.manager_user_id) {
     if (previous.is_active !== true) throw new ConflictError('Activate this site before assigning a branch manager');
     await assertActiveWorkforceMember(client, tenantId, input.manager_user_id, 'branch manager');
-  }
-  if (input.is_primary === true && previous.is_primary !== true) {
-    const { error } = await client.from('garage_branches').update({ is_primary: false, updated_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId).eq('is_primary', true);
-    if (error) throw new DatabaseError(`Could not change primary site: ${error.message}`);
   }
   const patch = { ...input, updated_at: new Date().toISOString() };
   const { data, error } = await client.from('garage_branches').update(patch)
