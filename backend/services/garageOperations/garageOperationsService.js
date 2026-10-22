@@ -31,6 +31,17 @@ function code(value, label) {
   if (!CODE_RE.test(v)) throw new ValidationError(`${label} must be 2-24 uppercase letters, numbers or hyphens`);
   return v;
 }
+function timezoneValue(value) {
+  const v = clean(value, 80);
+  if (!v) return null;
+  try {
+    // Intl rejects unknown IANA zones. A Garage operating timezone is authority, not display text.
+    new Intl.DateTimeFormat('en-US', { timeZone: v }).format(0);
+  } catch {
+    throw new ValidationError('timezone must be a valid IANA time zone');
+  }
+  return v;
+}
 function dateValue(value, label) {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
@@ -145,7 +156,7 @@ async function replaceHours(client, tenantId, branchId, hours) {
 async function tenantTimezone(client, tenantId) {
   const { data, error } = await client.from('tenant_settings').select('timezone').eq('tenant_id', tenantId).maybeSingle();
   if (error) throw new DatabaseError(`Could not load garage timezone: ${error.message}`);
-  return data?.timezone || null;
+  return data?.timezone ? timezoneValue(data.timezone) : null;
 }
 
 function normalizeSiteInput(body = {}, { create = false } = {}) {
@@ -187,7 +198,7 @@ function normalizeSiteInput(body = {}, { create = false } = {}) {
     if (v && !EMAIL_RE.test(v)) throw new ValidationError('email is not valid');
     out.email = v;
   }
-  if (body.timezone !== undefined) out.timezone = clean(body.timezone, 80);
+  if (body.timezone !== undefined) out.timezone = timezoneValue(body.timezone);
   if (body.is_primary !== undefined) out.is_primary = boolValue(body.is_primary);
   if (body.is_public !== undefined) out.is_public = boolValue(body.is_public);
   if (body.manager_user_id !== undefined) out.manager_user_id = clean(body.manager_user_id, 200);
