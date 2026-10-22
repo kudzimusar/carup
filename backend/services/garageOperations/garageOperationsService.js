@@ -260,6 +260,9 @@ export async function createGarageSite(client = defaultClient, actor = {}, body 
 export async function updateGarageSite(client = defaultClient, actor = {}, siteId, body = {}, options = {}) {
   const tenantId = tenantIdOf(actor);
   const previous = await assertSite(client, tenantId, siteId);
+  if (body.manager_user_id !== undefined) {
+    throw new ValidationError('Use the branch-manager endpoint to change manager responsibility');
+  }
   const input = normalizeSiteInput(body);
   if (input.branch_code && previous.branch_code && input.branch_code !== previous.branch_code) {
     throw new ConflictError('branch_code is stable after it has been set');
@@ -301,7 +304,7 @@ export async function setGarageSiteStatus(client = defaultClient, actor = {}, si
   }
   const { data, error } = await client.from('garage_branches').update({
     is_active: active,
-    ...(active ? {} : { is_primary: false }),
+    ...(active ? {} : { is_primary: false, manager_user_id: null }),
     updated_at: new Date().toISOString(),
   }).eq('id', previous.id).eq('tenant_id', tenantId).select().single();
   if (error) throw new DatabaseError(`Could not change site status: ${error.message}`);
