@@ -196,6 +196,50 @@ test('workforce profile requires real membership and staff code is unique only i
   T.profileA = pA;
 });
 
+test('an active workforce profile cannot become a mechanic until it has a live primary site', async () => {
+  // member-a begins as a mechanic in the fixture. Move them to admin first so an active,
+  // tenant-wide workforce profile is legal without a branch assignment; admin-a remains a
+  // separate Garage admin, so this does not exercise or bypass the last-admin rule.
+  await db.query(
+    `UPDATE tenant_users SET role='admin' WHERE tenant_id=$1 AND user_id='member-a'`,
+    [T.a],
+  );
+  const profile = (await db.query(
+    `INSERT INTO garage_workforce_profiles
+      (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, created_by_user_id)
+     VALUES ($1, 'member-a', 'ROLE-EDGE-01', 'employee', 'active', '2026-10-01', 'admin-a')
+     RETURNING id`,
+    [T.a],
+  )).rows[0].id;
+
+  const withoutSite = await refusal(db.query(
+    `UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id='member-a'`,
+    [T.a],
+  ));
+  assert.match(withoutSite?.message || '', /GARAGE_WORKFORCE_PRIMARY_SITE_REQUIRED/);
+  assert.equal(
+    (await db.query(`SELECT role FROM tenant_users WHERE tenant_id=$1 AND user_id='member-a'`, [T.a])).rows[0].role,
+    'admin',
+    'failed role transition leaves membership authority unchanged',
+  );
+
+  await db.query(
+    `INSERT INTO garage_workforce_branch_assignments
+      (tenant_id, workforce_profile_id, branch_id, is_primary, assigned_by_user_id)
+     VALUES ($1, $2, $3, true, 'admin-a')`,
+    [T.a, profile, B.a1],
+  );
+  await db.query(
+    `UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id='member-a'`,
+    [T.a],
+  );
+  assert.equal(
+    (await db.query(`SELECT role FROM tenant_users WHERE tenant_id=$1 AND user_id='member-a'`, [T.a])).rows[0].role,
+    'mechanic',
+    'the mechanic role is valid once the active workforce has a governed primary site',
+  );
+});
+
 test('staff-to-site assignments are same-tenant, support one primary + additional sites, and require active sites', async () => {
   B.a2 = (await db.query(
     `INSERT INTO garage_branches
