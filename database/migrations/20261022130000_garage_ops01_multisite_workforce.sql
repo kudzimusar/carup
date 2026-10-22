@@ -360,7 +360,6 @@ BEGIN
 
   UPDATE garage_workforce_branch_assignments a
      SET ended_at = COALESCE(a.ended_at, NOW()),
-         ended_by_user_id = COALESCE(a.ended_by_user_id, OLD.user_id),
          is_primary = false
     FROM garage_workforce_profiles p
    WHERE p.id = a.workforce_profile_id
