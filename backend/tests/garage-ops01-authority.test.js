@@ -278,6 +278,85 @@ test('site deactivation refuses to strand a live workforce assignment', async ()
   assert.equal(world.rows('garage_branches').find((b) => b.id === BRANCH_A).is_active, true);
 });
 
+test('material Garage administration writes authoritative tenant-attributed audit events', async () => {
+  const createdSite = await call('POST', '/api/garage/sites', {
+    token: 'tok-admin-a',
+    body: siteBody({ branch_code: 'AUDIT-01', name: 'Audit Site' }),
+  });
+  assert.equal(createdSite.status, 201, createdSite.text);
+  const siteId = createdSite.body.site.id;
+
+  assert.equal((await call('PATCH', `/api/garage/sites/${siteId}`, {
+    token: 'tok-admin-a', body: { name: 'Audit Site Updated' },
+  })).status, 200);
+  assert.equal((await call('PATCH', `/api/garage/sites/${siteId}/status`, {
+    token: 'tok-admin-a', body: { status: 'inactive' },
+  })).status, 200);
+  assert.equal((await call('PATCH', `/api/garage/sites/${siteId}/status`, {
+    token: 'tok-admin-a', body: { status: 'active' },
+  })).status, 200);
+  assert.equal((await call('PATCH', `/api/garage/sites/${siteId}/manager`, {
+    token: 'tok-admin-a', body: { user_id: 'mech-a' },
+  })).status, 200);
+
+  const department = await call('POST', '/api/garage/departments', {
+    token: 'tok-admin-a', body: { name: 'Audit Workshop' },
+  });
+  assert.equal(department.status, 201, department.text);
+  const departmentId = department.body.department.id;
+  assert.equal((await call('PATCH', `/api/garage/departments/${departmentId}`, {
+    token: 'tok-admin-a', body: { name: 'Audit Workshop Team' },
+  })).status, 200);
+
+  const profile = await call('POST', '/api/garage/workforce', {
+    token: 'tok-admin-a',
+    body: {
+      user_id: 'member-a',
+      staff_code: 'AUDIT-STAFF-01',
+      job_title: 'Technician',
+      employment_classification: 'employee',
+      start_date: '2026-10-01',
+      department_id: departmentId,
+    },
+  });
+  assert.equal(profile.status, 201, profile.text);
+
+  assert.equal((await call('PATCH', '/api/garage/workforce/member-a', {
+    token: 'tok-admin-a', body: { job_title: 'Senior Technician' },
+  })).status, 200);
+
+  assert.equal((await call('PUT', '/api/garage/workforce/member-a/branches', {
+    token: 'tok-admin-a',
+    body: { primary_branch_id: siteId, additional_branch_ids: [] },
+  })).status, 200);
+
+  assert.equal((await call('PATCH', '/api/garage/workforce/member-a/status', {
+    token: 'tok-admin-a', body: { status: 'active' },
+  })).status, 200);
+
+  const events = world.rows('trust_audit_events');
+  const eventTypes = new Set(events.map((event) => event.event_type));
+  for (const expected of [
+    'GARAGE_SITE_CREATED',
+    'GARAGE_SITE_UPDATED',
+    'GARAGE_SITE_DEACTIVATED',
+    'GARAGE_SITE_ACTIVATED',
+    'GARAGE_SITE_MANAGER_CHANGED',
+    'GARAGE_DEPARTMENT_CREATED',
+    'GARAGE_DEPARTMENT_UPDATED',
+    'GARAGE_WORKFORCE_PROFILE_CREATED',
+    'GARAGE_WORKFORCE_PROFILE_UPDATED',
+    'GARAGE_WORKFORCE_BRANCH_ASSIGNMENT_CHANGED',
+    'GARAGE_WORKFORCE_STATUS_CHANGED',
+  ]) {
+    assert.ok(eventTypes.has(expected), `missing audit event ${expected}`);
+  }
+  for (const event of events.filter((row) => String(row.event_type || '').startsWith('GARAGE_'))) {
+    assert.equal(event.actor_user_id, 'admin-a');
+    assert.equal(event.actor_tenant_id, A);
+  }
+});
+
 test('Service Network rejects inactive sites for new work but historical branch rows remain readable', async () => {
   const { assertBranchBelongsToTenant } = await import('../services/serviceNetwork/serviceAuthority.js');
   await assert.rejects(
