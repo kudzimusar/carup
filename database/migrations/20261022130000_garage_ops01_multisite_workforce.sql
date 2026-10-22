@@ -238,6 +238,143 @@ CREATE TRIGGER trg_garage_ops01_guard_membership_role
   FOR EACH ROW
   EXECUTE FUNCTION garage_ops01_guard_membership_role();
 
+
+-- Replacing a person's live site assignments is one operational fact and must commit atomically.
+-- The REST service must never close the old primary site and then fail before the replacement lands.
+CREATE OR REPLACE FUNCTION garage_ops01_replace_workforce_branches(
+  p_tenant_id uuid,
+  p_workforce_profile_id uuid,
+  p_primary_branch_id uuid,
+  p_additional_branch_ids uuid[] DEFAULT '{}'::uuid[],
+  p_actor_user_id text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $ops01_replace$
+DECLARE
+  profile_user_id text;
+  profile_status text;
+  requested_branch_ids uuid[];
+  current_branch_ids uuid[];
+  current_primary_branch_id uuid;
+  requested_count integer;
+  valid_count integer;
+  changed_at timestamptz := clock_timestamp();
+BEGIN
+  IF p_tenant_id IS NULL OR p_workforce_profile_id IS NULL OR p_primary_branch_id IS NULL THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_REQUIRED';
+  END IF;
+
+  SELECT p.user_id, p.employment_status
+    INTO profile_user_id, profile_status
+    FROM garage_workforce_profiles p
+   WHERE p.id = p_workforce_profile_id
+     AND p.tenant_id = p_tenant_id
+   FOR UPDATE;
+
+  IF profile_user_id IS NULL THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_PROFILE_NOT_FOUND';
+  END IF;
+
+  IF profile_status NOT IN ('pending', 'active') THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_PROFILE_INACTIVE';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM tenant_users tu
+     WHERE tu.tenant_id = p_tenant_id
+       AND tu.user_id = profile_user_id
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_NOT_MEMBER';
+  END IF;
+
+  requested_branch_ids := ARRAY(
+    SELECT DISTINCT branch_id
+      FROM unnest(
+        array_prepend(
+          p_primary_branch_id,
+          COALESCE(p_additional_branch_ids, '{}'::uuid[])
+        )
+      ) AS requested(branch_id)
+     WHERE branch_id IS NOT NULL
+     ORDER BY branch_id
+  );
+
+  requested_count := COALESCE(cardinality(requested_branch_ids), 0);
+
+  SELECT count(*)::integer
+    INTO valid_count
+    FROM garage_branches b
+   WHERE b.tenant_id = p_tenant_id
+     AND b.is_active = true
+     AND b.id = ANY(requested_branch_ids);
+
+  IF valid_count <> requested_count THEN
+    RAISE EXCEPTION 'GARAGE_WORKFORCE_ASSIGNMENT_BRANCH_INVALID';
+  END IF;
+
+  SELECT
+    ARRAY(
+      SELECT a.branch_id
+        FROM garage_workforce_branch_assignments a
+       WHERE a.tenant_id = p_tenant_id
+         AND a.workforce_profile_id = p_workforce_profile_id
+         AND a.ended_at IS NULL
+       ORDER BY a.branch_id
+    ),
+    (
+      SELECT a.branch_id
+        FROM garage_workforce_branch_assignments a
+       WHERE a.tenant_id = p_tenant_id
+         AND a.workforce_profile_id = p_workforce_profile_id
+         AND a.ended_at IS NULL
+         AND a.is_primary = true
+       LIMIT 1
+    )
+    INTO current_branch_ids, current_primary_branch_id;
+
+  IF COALESCE(current_branch_ids, '{}'::uuid[]) = requested_branch_ids
+     AND current_primary_branch_id = p_primary_branch_id THEN
+    RETURN false;
+  END IF;
+
+  UPDATE garage_workforce_branch_assignments
+     SET ended_at = changed_at,
+         ended_by_user_id = p_actor_user_id,
+         is_primary = false
+   WHERE tenant_id = p_tenant_id
+     AND workforce_profile_id = p_workforce_profile_id
+     AND ended_at IS NULL;
+
+  INSERT INTO garage_workforce_branch_assignments (
+    tenant_id,
+    workforce_profile_id,
+    branch_id,
+    is_primary,
+    assigned_at,
+    assigned_by_user_id
+  )
+  SELECT
+    p_tenant_id,
+    p_workforce_profile_id,
+    branch_id,
+    branch_id = p_primary_branch_id,
+    changed_at,
+    p_actor_user_id
+    FROM unnest(requested_branch_ids) AS requested(branch_id);
+
+  RETURN true;
+END
+$ops01_replace$;
+
+REVOKE ALL ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text) FROM anon;
+REVOKE EXECUTE ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text) TO service_role;
+
 -- A pending/active workforce profile must still be a current Garage member. Historical inactive/ended
 -- profiles survive membership removal. Active mechanics additionally require one live primary site.
 CREATE OR REPLACE FUNCTION garage_ops01_validate_workforce()
@@ -464,6 +601,8 @@ GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_skills TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE garage_workforce_certifications TO service_role;
 
 -- +migrate Down
+
+DROP FUNCTION IF EXISTS garage_ops01_replace_workforce_branches(uuid,uuid,uuid,uuid[],text);
 
 DROP TRIGGER IF EXISTS trg_garage_ops01_guard_membership_role ON tenant_users;
 DROP FUNCTION IF EXISTS garage_ops01_guard_membership_role();
