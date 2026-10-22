@@ -336,7 +336,7 @@ BEGIN
     EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, anon, authenticated', t);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO service_role', t);
   END LOOP;
-END $;
+END $$;
 
 -- Placement history is closed by ended_at, never physically deleted.
 REVOKE DELETE ON TABLE public.garage_staff_branch_assignments FROM service_role;
