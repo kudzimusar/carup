@@ -90,6 +90,20 @@ test('branch code is Garage-local, stable, and the existing branch UUID remains 
   ));
   assert.equal(duplicate?.code, '23505', 'same Garage cannot reuse a branch code');
 
+  await db.query(`UPDATE garage_branches SET is_primary=true WHERE id=$1`, [B.a1]);
+  const failedPrimaryHandoff = await refusal(db.query(
+    `INSERT INTO garage_branches
+      (tenant_id, name, branch_code, location_city, address_public, country_code, timezone, is_primary)
+     VALUES ($1, 'Duplicate Primary', 'CENTRAL-01', 'Harare', '9 Example Road', 'ZW', 'Africa/Harare', true)`,
+    [T.a],
+  ));
+  assert.equal(failedPrimaryHandoff?.code, '23505');
+  assert.equal(
+    (await db.query(`SELECT is_primary FROM garage_branches WHERE id=$1`, [B.a1])).rows[0].is_primary,
+    true,
+    'failed new-primary insert rolls back the trigger demotion of the previous primary',
+  );
+
   B.b1 = (await db.query(
     `INSERT INTO garage_branches
       (tenant_id, name, branch_code, location_city, address_public, country_code, timezone)
