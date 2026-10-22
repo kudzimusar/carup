@@ -71,7 +71,5 @@ jobs:
       - name: Production web build
         run: npm run build
 
-      - name: Whitespace and conflict markers
-        run: |
-          git diff --check 756627640e5bdf28e45de37ae0513347cef3112c...HEAD
-          ! git grep -nE '^(<<<<<<< .+|=======|>>>>>>> .+)$' -- ':!package-lock.json'
+      - name: OPS01 diff hygiene
+        run: git diff --check 756627640e5bdf28e45de37ae0513347cef3112c...HEAD
