@@ -6,7 +6,7 @@ import {
 } from '../../utils/errors.js';
 
 export const GARAGE_EMPLOYMENT_CLASSIFICATIONS = Object.freeze(['owner', 'employee', 'contractor', 'other']);
-export const GARAGE_WORKFORCE_STATUSES = Object.freeze(['active', 'inactive', 'ended']);
+export const GARAGE_WORKFORCE_STATUSES = Object.freeze(['pending', 'active', 'inactive', 'ended']);
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9-]{1,23}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -423,11 +423,6 @@ function normalizeProfileInput(body = {}, { create = false } = {}) {
     }
     patch.employment_classification = v;
   }
-  if (body.employment_status !== undefined) {
-    const v = String(body.employment_status || '').trim().toLowerCase();
-    if (!GARAGE_WORKFORCE_STATUSES.includes(v)) throw new ValidationError('employment_status must be active, inactive or ended');
-    patch.employment_status = v;
-  }
   if (body.start_date !== undefined || create) {
     const v = dateValue(body.start_date, 'start_date');
     if (!v) throw new ValidationError('start_date is required');
@@ -448,14 +443,15 @@ export async function upsertGarageWorkforceProfile(client = defaultClient, actor
   if (loadError) throw new DatabaseError(`Could not check workforce profile: ${loadError.message}`);
   const patch = normalizeProfileInput(body, { create: !existing });
   if (patch.department_id) await assertDepartment(client, tenantId, patch.department_id, { active: true });
-  if (patch.employment_status === 'active' || (!existing && patch.employment_status === undefined)) {
-    await assertMember(client, tenantId, target);
-  }
   const now = new Date().toISOString();
   let data; let error;
   if (!existing) {
+    // Mechanics are never operational merely because a profile exists. They begin pending, receive
+    // a primary site through the assignment authority, then move to active. Garage admins may be
+    // active without a workshop assignment because administration itself is tenant-wide.
+    const initialStatus = String(member.role || '').toLowerCase() === 'mechanic' ? 'pending' : 'active';
     ({ data, error } = await client.from('garage_workforce_profiles').insert({
-      tenant_id: tenantId, user_id: target, ...patch, employment_status: patch.employment_status || 'active',
+      tenant_id: tenantId, user_id: target, ...patch, employment_status: initialStatus,
       created_by_user_id: actorId(actor), created_at: now, updated_at: now,
     }).select().single());
   } else {
@@ -473,8 +469,22 @@ export async function setGarageWorkforceStatus(client = defaultClient, actor = {
   const tenantId = tenantIdOf(actor);
   const profile = await loadWorkforceProfile(client, tenantId, userId);
   const next = String(status || '').trim().toLowerCase();
-  if (!GARAGE_WORKFORCE_STATUSES.includes(next)) throw new ValidationError('status must be active, inactive or ended');
-  if (next === 'active') await assertMember(client, tenantId, profile.user_id);
+  if (!GARAGE_WORKFORCE_STATUSES.includes(next)) throw new ValidationError('status must be pending, active, inactive or ended');
+  if (next === 'active') {
+    const member = await assertMember(client, tenantId, profile.user_id);
+    if (String(member.role || '').toLowerCase() === 'mechanic') {
+      const { count, error: assignmentError } = await client.from('garage_workforce_branch_assignments')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('workforce_profile_id', profile.id)
+        .eq('is_primary', true)
+        .is('ended_at', null);
+      if (assignmentError) throw new DatabaseError(`Could not verify the mechanic's primary site: ${assignmentError.message}`);
+      if ((count || 0) !== 1) throw new ConflictError('Assign exactly one active primary site before activating this mechanic.');
+    }
+  } else if (next === 'pending') {
+    await assertMember(client, tenantId, profile.user_id);
+  }
   const now = new Date().toISOString();
   if (next !== 'active') {
     const { error: assignError } = await client.from('garage_workforce_branch_assignments')
@@ -502,7 +512,9 @@ export async function setGarageWorkforceStatus(client = defaultClient, actor = {
 export async function setGarageWorkforceBranches(client = defaultClient, actor = {}, userId, body = {}, options = {}) {
   const tenantId = tenantIdOf(actor);
   const profile = await loadWorkforceProfile(client, tenantId, userId);
-  if (profile.employment_status !== 'active') throw new ConflictError('Only active workforce may receive operational site assignments');
+  if (!['pending', 'active'].includes(profile.employment_status)) {
+    throw new ConflictError('Inactive or ended workforce cannot receive new operational site assignments');
+  }
   await assertMember(client, tenantId, profile.user_id);
   const primaryId = String(body.primary_branch_id || '').trim();
   if (!primaryId) throw new ValidationError('primary_branch_id is required');
