@@ -230,6 +230,20 @@ test('workforce profile can be created only for a current member of the selected
   }
 });
 
+test('staff code is stable after workforce profile creation', async () => {
+  const res = await call('PATCH', '/api/garage/workforce/mech-a', {
+    token: 'tok-admin-a',
+    body: {
+      staff_code: 'RENAMED-001',
+      job_title: 'Technician',
+      employment_classification: 'employee',
+      start_date: '2026-01-01',
+    },
+  });
+  assert.equal(res.status, 409, res.text);
+  assert.equal(world.rows('garage_workforce_profiles')[0].staff_code, 'STAFF-001');
+});
+
 test('staff assignment is same-Garage, requires active staff and an active site', async () => {
   const cross = await call('PUT', '/api/garage/workforce/mech-a/branches', {
     token: 'tok-admin-a',
