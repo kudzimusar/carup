@@ -75,6 +75,20 @@ async function assertMember(client, tenantId, userId) {
   return data;
 }
 
+async function assertActiveWorkforceMember(client, tenantId, userId, label = 'manager') {
+  await assertMember(client, tenantId, userId);
+  const { data, error } = await client.from('garage_workforce_profiles')
+    .select('id, user_id, employment_status')
+    .eq('tenant_id', tenantId)
+    .eq('user_id', String(userId))
+    .maybeSingle();
+  if (error) throw new DatabaseError(`Could not verify ${label} workforce profile: ${error.message}`);
+  if (!data || data.employment_status !== 'active') {
+    throw new ValidationError(`The ${label} must have an active workforce profile in this garage`);
+  }
+  return data;
+}
+
 async function assertDepartment(client, tenantId, departmentId, { active = true } = {}) {
   if (!departmentId) return null;
   let q = client.from('garage_departments').select('*').eq('id', String(departmentId)).eq('tenant_id', tenantId);
@@ -219,7 +233,7 @@ export async function createGarageSite(client = defaultClient, actor = {}, body 
     input.timezone = await tenantTimezone(client, tenantId);
     if (!input.timezone) throw new ValidationError('timezone is required because this garage has no governed default timezone');
   }
-  if (input.manager_user_id) await assertMember(client, tenantId, input.manager_user_id);
+  if (input.manager_user_id) await assertActiveWorkforceMember(client, tenantId, input.manager_user_id, 'branch manager');
   const hours = normalizeHours(body.opening_hours);
   if (input.is_primary === true) {
     const { error } = await client.from('garage_branches').update({ is_primary: false, updated_at: new Date().toISOString() })
@@ -250,7 +264,10 @@ export async function updateGarageSite(client = defaultClient, actor = {}, siteI
   if (input.branch_code && previous.branch_code && input.branch_code !== previous.branch_code) {
     throw new ConflictError('branch_code is stable after it has been set');
   }
-  if (input.manager_user_id) await assertMember(client, tenantId, input.manager_user_id);
+  if (input.manager_user_id) {
+    if (previous.is_active !== true) throw new ConflictError('Activate this site before assigning a branch manager');
+    await assertActiveWorkforceMember(client, tenantId, input.manager_user_id, 'branch manager');
+  }
   if (input.is_primary === true && previous.is_primary !== true) {
     const { error } = await client.from('garage_branches').update({ is_primary: false, updated_at: new Date().toISOString() })
       .eq('tenant_id', tenantId).eq('is_primary', true);
@@ -298,11 +315,8 @@ export async function setGarageSiteManager(client = defaultClient, actor = {}, s
   const previous = await assertSite(client, tenantId, siteId);
   const managerId = userId == null || userId === '' ? null : String(userId).trim();
   if (managerId) {
-    await assertMember(client, tenantId, managerId);
-    const { data: profile, error } = await client.from('garage_workforce_profiles').select('id, employment_status')
-      .eq('tenant_id', tenantId).eq('user_id', managerId).maybeSingle();
-    if (error) throw new DatabaseError(`Could not verify manager workforce profile: ${error.message}`);
-    if (!profile || profile.employment_status !== 'active') throw new ValidationError('A branch manager must have an active workforce profile in this garage');
+    if (previous.is_active !== true) throw new ConflictError('Activate this site before assigning a branch manager');
+    await assertActiveWorkforceMember(client, tenantId, managerId, 'branch manager');
   }
   const { data, error } = await client.from('garage_branches').update({
     manager_user_id: managerId, updated_at: new Date().toISOString(),
