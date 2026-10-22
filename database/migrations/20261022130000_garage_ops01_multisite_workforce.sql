@@ -69,12 +69,24 @@ BEGIN
     RAISE EXCEPTION 'GARAGE_BRANCH_MANAGER_NOT_MEMBER';
   END IF;
 
+  -- Primary-site handoff belongs to the SAME statement as the insert/update that requests it.
+  -- If that statement later fails (for example duplicate branch code), PostgreSQL rolls this
+  -- demotion back too, so an attempted primary-site change cannot leave the Garage with none.
+  IF NEW.is_primary = true THEN
+    UPDATE garage_branches
+       SET is_primary = false,
+           updated_at = NOW()
+     WHERE tenant_id = NEW.tenant_id
+       AND id IS DISTINCT FROM NEW.id
+       AND is_primary = true;
+  END IF;
+
   RETURN NEW;
-END $$;
+END $;
 
 DROP TRIGGER IF EXISTS trg_garage_ops01_branch_identity ON garage_branches;
 CREATE TRIGGER trg_garage_ops01_branch_identity
-  BEFORE INSERT OR UPDATE OF tenant_id, branch_code, manager_user_id
+  BEFORE INSERT OR UPDATE OF tenant_id, branch_code, manager_user_id, is_primary
   ON garage_branches
   FOR EACH ROW
   EXECUTE FUNCTION garage_ops01_guard_branch_identity();
