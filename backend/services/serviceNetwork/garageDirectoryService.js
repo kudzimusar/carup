@@ -229,13 +229,13 @@ export async function getPublicGarageDetail(supabaseClient, slugValue) {
     .select('*')
     .eq('tenant_id', data.tenant_id)
     .eq('is_active', true)
-    .eq('is_public', true)
     .order('name', { ascending: true });
   if (brErr) throw new DatabaseError(`Failed to load branches: ${brErr.message}`);
   const partsentry = await derivePartsentryParticipation(supabaseClient, data.tenant_id);
   return {
     garage: toPublicGarage(data),
-    branches: (branches || []).map(toPublicBranch),
+    // Legacy rows predate OPS01 and were public when active. Explicit false is the only opt-out.
+    branches: (branches || []).filter((branch) => branch.is_public !== false).map(toPublicBranch),
     partsentry_participation: partsentry,
   };
 }
