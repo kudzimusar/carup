@@ -533,4 +533,3 @@ test('OPS01 operator journey: two sites plus governed workforce stay on one Gara
   assert.equal(journeySites.length, 2);
   assert.ok(journeySites.every((site) => site.tenant_id === A));
 });
-
