@@ -7,11 +7,12 @@ const listGarageSites = vi.fn()
 const createGarageSite = vi.fn()
 const updateGarageSite = vi.fn()
 const setGarageSiteStatus = vi.fn()
+const setGarageSiteManager = vi.fn()
 const listGarageWorkforce = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
-    listGarageSites, createGarageSite, updateGarageSite, setGarageSiteStatus, listGarageWorkforce,
+    listGarageSites, createGarageSite, updateGarageSite, setGarageSiteStatus, setGarageSiteManager, listGarageWorkforce,
   }),
 }))
 
@@ -24,6 +25,7 @@ beforeEach(() => {
   createGarageSite.mockResolvedValue({ site: { id: 's1' } })
   updateGarageSite.mockResolvedValue({})
   setGarageSiteStatus.mockResolvedValue({})
+  setGarageSiteManager.mockResolvedValue({})
 })
 
 describe('Garage Sites product truth', () => {
@@ -54,6 +56,30 @@ describe('Garage Sites product truth', () => {
     expect(payload.country_code).toBe('ZW')
     expect(payload.tenant_id).toBeUndefined()
     expect(Array.isArray(payload.opening_hours)).toBe(true)
+  })
+
+  it('routes an edited manager responsibility through the dedicated audited endpoint', async () => {
+    listGarageSites.mockResolvedValue({
+      sites: [{
+        id: 's1', branch_code: 'CENTRAL-01', name: 'Central', address_public: '1 Road',
+        location_city: 'Harare', location_province: null, country_code: 'ZW',
+        phone: null, email: null, whatsapp: null, timezone: 'Africa/Harare',
+        is_active: true, is_primary: true, is_public: false, manager_user_id: null,
+        opening_hours: [],
+      }],
+    })
+    listGarageWorkforce.mockResolvedValue({
+      workforce: [{ user_id: 'u-manager', employment_status: 'active', staff_code: 'STAFF-1', user: { name: 'Manager One' } }],
+    })
+    render(<GarageSites />)
+    await screen.findByText('Central')
+    fireEvent.click(screen.getByRole('button', { name: /Edit/i }))
+    fireEvent.change(screen.getByLabelText('Manager'), { target: { value: 'u-manager' } })
+    fireEvent.click(screen.getByRole('button', { name: /Save site/i }))
+
+    await waitFor(() => expect(updateGarageSite).toHaveBeenCalledTimes(1))
+    expect(updateGarageSite.mock.calls[0][1].manager_user_id).toBeUndefined()
+    await waitFor(() => expect(setGarageSiteManager).toHaveBeenCalledWith('s1', 'u-manager'))
   })
 })
 
