@@ -205,7 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_garage_workforce_assignments_branch
 CREATE OR REPLACE FUNCTION garage_ops01_guard_membership_role()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $
+AS $ops01$
 BEGIN
   IF lower(COALESCE(NEW.role, '')) = 'mechanic'
      AND EXISTS (
@@ -230,7 +230,7 @@ BEGIN
   END IF;
 
   RETURN NEW;
-END $;
+END $ops01$;
 
 DROP TRIGGER IF EXISTS trg_garage_ops01_guard_membership_role ON tenant_users;
 CREATE TRIGGER trg_garage_ops01_guard_membership_role
