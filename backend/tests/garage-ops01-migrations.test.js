@@ -144,30 +144,30 @@ test('workforce profile requires real membership and staff code is unique only i
 
   const pA = (await db.query(
     `INSERT INTO garage_workforce_profiles
-      (tenant_id, user_id, staff_code, job_title, employment_classification, start_date, department_id, created_by_user_id)
-     VALUES ($1, 'mech-a', 'STAFF-001', 'Technician', 'employee', '2026-10-01', $2, 'admin-a')
+      (tenant_id, user_id, staff_code, job_title, employment_classification, employment_status, start_date, department_id, created_by_user_id)
+     VALUES ($1, 'mech-a', 'STAFF-001', 'Technician', 'employee', 'pending', '2026-10-01', $2, 'admin-a')
      RETURNING id`, [T.a, deptA],
   )).rows[0].id;
 
   const duplicate = await refusal(db.query(
     `INSERT INTO garage_workforce_profiles
-      (tenant_id, user_id, staff_code, employment_classification, start_date, created_by_user_id)
-     VALUES ($1, 'member-a', 'STAFF-001', 'employee', '2026-10-01', 'admin-a')`, [T.a],
+      (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, created_by_user_id)
+     VALUES ($1, 'member-a', 'STAFF-001', 'employee', 'pending', '2026-10-01', 'admin-a')`, [T.a],
   ));
   assert.equal(duplicate?.code, '23505');
 
   const pB = (await db.query(
     `INSERT INTO garage_workforce_profiles
-      (tenant_id, user_id, staff_code, employment_classification, start_date, department_id, created_by_user_id)
-     VALUES ($1, 'mech-b', 'STAFF-001', 'employee', '2026-10-01', $2, 'admin-b')
+      (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, department_id, created_by_user_id)
+     VALUES ($1, 'mech-b', 'STAFF-001', 'employee', 'pending', '2026-10-01', $2, 'admin-b')
      RETURNING id`, [T.b, deptB],
   )).rows[0].id;
   assert.ok(pB, 'staff code is local to the Garage');
 
   const nonmember = await refusal(db.query(
     `INSERT INTO garage_workforce_profiles
-      (tenant_id, user_id, staff_code, employment_classification, start_date, created_by_user_id)
-     VALUES ($1, 'stranger', 'STAFF-999', 'contractor', '2026-10-01', 'admin-a')`, [T.a],
+      (tenant_id, user_id, staff_code, employment_classification, employment_status, start_date, created_by_user_id)
+     VALUES ($1, 'stranger', 'STAFF-999', 'contractor', 'pending', '2026-10-01', 'admin-a')`, [T.a],
   ));
   assert.match(nonmember?.message || '', /GARAGE_WORKFORCE_NOT_MEMBER/);
 
@@ -196,6 +196,7 @@ test('staff-to-site assignments are same-tenant, support one primary + additiona
   );
   await assignment(B.a1, true);
   await assignment(B.a2, false);
+  await db.query(`UPDATE garage_workforce_profiles SET employment_status='active' WHERE id=$1`, [T.profileA]);
 
   const { rows } = await db.query(
     `SELECT branch_id, is_primary FROM garage_workforce_branch_assignments
@@ -204,6 +205,11 @@ test('staff-to-site assignments are same-tenant, support one primary + additiona
   );
   assert.equal(rows.length, 2);
   assert.equal(rows.filter((r) => r.is_primary).length, 1);
+
+  await db.query(`UPDATE garage_workforce_profiles SET employment_status='inactive' WHERE id=$1`, [T.profileA]);
+  const inactiveWorker = await refusal(assignment(B.a2, false));
+  assert.match(inactiveWorker?.message || '', /GARAGE_WORKFORCE_ASSIGNMENT_PROFILE_INACTIVE/);
+  await db.query(`UPDATE garage_workforce_profiles SET employment_status='active' WHERE id=$1`, [T.profileA]);
 
   const cross = await refusal(assignment(B.b1, false));
   assert.equal(cross?.code, '23503', 'composite FK blocks another Garage branch');
