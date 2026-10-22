@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, MapPin, Plus, Pencil, Power, PowerOff } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SN_PAGE } from '@/lib/serviceNetworkLayout'
 
 type Hour = { day_of_week: number; is_closed: boolean; opens_at: string | null; closes_at: string | null }
 type Site = {
@@ -114,7 +115,7 @@ export default function GarageSites() {
   )
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+    <div className={`p-4 sm:p-6 ${SN_PAGE}`}>
       <div>
         <h1 className="text-2xl font-bold">Sites</h1>
         <p className="text-sm text-gray-600 mt-1">Manage the real operating locations of this garage. Parts stock remains garage-wide until branch inventory is introduced.</p>
@@ -145,8 +146,8 @@ export default function GarageSites() {
                   <p className="text-xs text-gray-500 mt-2">Timezone: {site.timezone || 'Not recorded'} · Manager: {site.manager_user_id ? (managerName.get(site.manager_user_id) || 'Recorded staff member') : 'Not assigned'}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="min-h-10" onClick={() => edit(site)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
-                  <Button variant="outline" size="sm" className="min-h-10" disabled={busy} onClick={() => void toggle(site)}>
+                  <Button variant="outline" size="sm" className="min-h-11" onClick={() => edit(site)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
+                  <Button variant="outline" size="sm" className="min-h-11" disabled={busy} onClick={() => void toggle(site)}>
                     {site.is_active ? <PowerOff className="w-4 h-4 mr-1" /> : <Power className="w-4 h-4 mr-1" />}
                     {site.is_active ? 'Deactivate' : 'Activate'}
                   </Button>
