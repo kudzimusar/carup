@@ -53,11 +53,48 @@ describe('Garage Workforce product truth', () => {
     expect(screen.queryByTestId('workforce-members-empty')).toBeNull()
   })
 
+  it('keeps new workforce classification and start date unset until the operator supplies them', async () => {
+    render(<GarageWorkforce />)
+    fireEvent.click(await screen.findByTestId('workforce-member'))
+
+    const classification = screen.getByLabelText(/Classification/i)
+    const startDate = screen.getByLabelText(/Start date/i)
+    expect(classification).toHaveValue('')
+    expect(startDate).toHaveValue('')
+
+    fireEvent.change(screen.getByTestId('staff-code'), { target: { value: 'tech-001' } })
+    fireEvent.change(screen.getByTestId('primary-site'), { target: { value: 's1' } })
+
+    fireEvent.submit(screen.getByTestId('workforce-profile-form'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Select an employment classification/i)
+    expect(createGarageWorkforceProfile).not.toHaveBeenCalled()
+
+    fireEvent.change(classification, { target: { value: 'contractor' } })
+    fireEvent.submit(screen.getByTestId('workforce-profile-form'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Enter the workforce start date/i)
+    expect(createGarageWorkforceProfile).not.toHaveBeenCalled()
+
+    fireEvent.change(startDate, { target: { value: '2026-09-01' } })
+    fireEvent.submit(screen.getByTestId('workforce-profile-form'))
+
+    await waitFor(() => expect(createGarageWorkforceProfile).toHaveBeenCalledTimes(1))
+    const payload = createGarageWorkforceProfile.mock.calls[0][0]
+    expect(payload).toMatchObject({
+      user_id: 'mech-1',
+      staff_code: 'TECH-001',
+      employment_classification: 'contractor',
+      start_date: '2026-09-01',
+    })
+    expect(payload.tenant_id).toBeUndefined()
+  })
+
   it('creates operational metadata only for an already-returned Garage member', async () => {
     render(<GarageWorkforce />)
     const member = await screen.findByTestId('workforce-member')
     fireEvent.click(member)
     fireEvent.change(screen.getByTestId('staff-code'), { target: { value: 'tech-001' } })
+    fireEvent.change(screen.getByLabelText(/Classification/i), { target: { value: 'employee' } })
+    fireEvent.change(screen.getByLabelText(/Start date/i), { target: { value: '2026-10-01' } })
     fireEvent.change(screen.getByTestId('primary-site'), { target: { value: 's1' } })
     fireEvent.change(screen.getByLabelText(/Skills \/ specialties/i), { target: { value: 'Brakes, Diagnostics' } })
     fireEvent.click(screen.getByRole('button', { name: /Create workforce profile/i }))
@@ -66,6 +103,8 @@ describe('Garage Workforce product truth', () => {
     const payload = createGarageWorkforceProfile.mock.calls[0][0]
     expect(payload.user_id).toBe('mech-1')
     expect(payload.staff_code).toBe('TECH-001')
+    expect(payload.employment_classification).toBe('employee')
+    expect(payload.start_date).toBe('2026-10-01')
     expect(payload.tenant_id).toBeUndefined()
 
     await waitFor(() => expect(setGarageWorkforceBranches).toHaveBeenCalledWith('mech-1', {
@@ -90,6 +129,8 @@ describe('Garage Workforce product truth', () => {
     const staffCode = screen.getByTestId('staff-code')
     expect(staffCode).toHaveValue('TECH-001')
     expect(staffCode).toBeDisabled()
+    expect(screen.getByLabelText(/Classification/i)).toHaveValue('employee')
+    expect(screen.getByLabelText(/Start date/i)).toHaveValue('2026-10-01')
   })
 
   it('prepares an inactive mechanic for reactivation before allowing a new site assignment', async () => {
