@@ -75,6 +75,23 @@ describe('Garage Workforce product truth', () => {
     expect(setGarageWorkforceStatus).toHaveBeenCalledWith('mech-1', 'active')
   })
 
+  it('keeps an existing staff code visible but immutable in the operator UI', async () => {
+    listGarageWorkforce.mockResolvedValue({
+      workforce: [{
+        id: 'p1', tenant_id: 't1', user_id: 'mech-1', staff_code: 'TECH-001',
+        job_title: 'Technician', employment_classification: 'employee', employment_status: 'active',
+        start_date: '2026-10-01', end_date: null, department_id: null, internal_notes: null,
+        user: { id: 'mech-1', name: 'Tariro', email: 't@example.invalid' },
+        department: null, branch_assignments: [{ branch_id: 's1', is_primary: true }], skills: [], certifications: [],
+      }],
+    })
+    render(<GarageWorkforce />)
+    fireEvent.click(await screen.findByTestId('workforce-member'))
+    const staffCode = screen.getByTestId('staff-code')
+    expect(staffCode).toHaveValue('TECH-001')
+    expect(staffCode).toBeDisabled()
+  })
+
   it('prepares an inactive mechanic for reactivation before allowing a new site assignment', async () => {
     listGarageWorkforce.mockResolvedValue({
       workforce: [{
