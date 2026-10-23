@@ -302,6 +302,19 @@ test('concurrent final-slot confirmations produce one winner and capacity releas
   C.capacityWinner = confirmed;
   C.capacityWaiting = requested;
 
+  const loserState = (await db.query(
+    'SELECT status FROM garage_appointments WHERE id=$1', [requested],
+  )).rows[0].status;
+  assert.equal(loserState, 'requested', 'failed confirmation is atomic');
+  assert.equal(
+    (await db.query(
+      "SELECT count(*)::int n FROM garage_appointment_events WHERE appointment_id=$1 AND event_type='confirmed'",
+      [requested],
+    )).rows[0].n,
+    0,
+    'failed confirmation writes no false confirmation history',
+  );
+
   await db.query(
     "SELECT garage_ops03_transition_appointment($1,'cancelled','admin-a','garage',$2)",
     [confirmed,T.a],
@@ -377,11 +390,59 @@ test('terminal appointments remain historical and a new request can be created f
     "UPDATE garage_appointments SET status='requested' WHERE id=$1", [C.mechanicWinner],
   ));
   assert.match(reopen?.message || '', /TERMINAL_APPOINTMENT_IMMUTABLE/);
+  assert.match(
+    (await rejected(db.query(
+      "UPDATE garage_appointments SET starts_at=starts_at + interval '30 minutes' WHERE id=$1",
+      [C.mechanicWinner],
+    )))?.message || '',
+    /TERMINAL_APPOINTMENT_IMMUTABLE/,
+    'terminal schedule history cannot be rewritten in place',
+  );
 
   const old = (await db.query('SELECT service_case_id FROM garage_appointments WHERE id=$1',[C.mechanicWinner])).rows[0];
   const owner = (await db.query('SELECT requester_user_id FROM service_cases WHERE id=$1',[old.service_case_id])).rows[0].requester_user_id;
   const next = await requestAppointment(old.service_case_id, owner, '2026-10-26T12:00:00Z','2026-10-26T13:00:00Z');
   assert.equal(next.rows[0].status, 'requested');
+});
+
+test('appointment timezone is a historical snapshot across a DST-aware branch timezone change', async () => {
+  await db.query("UPDATE garage_branches SET timezone='America/New_York' WHERE id=$1", [B.a2]);
+  await db.query(
+    "INSERT INTO garage_branch_opening_hours (tenant_id,branch_id,day_of_week,is_closed,opens_at,closes_at) VALUES ($1,$2,0,false,'08:00','17:00')",
+    [T.a,B.a2],
+  );
+  await db.query(
+    "INSERT INTO garage_workforce_schedules (tenant_id,workforce_profile_id,branch_id,day_of_week,starts_at,ends_at,effective_from,created_by_user_id) VALUES ($1,$2,$3,0,'08:00','17:00','2026-10-01','admin-a')",
+    [T.a,P.a1,B.a2],
+  );
+  const caseId = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.a,B.a2],
+  )).rows[0].id;
+
+  const availability = await db.query(
+    'SELECT * FROM garage_ops03_list_availability($1,$2,$3,$4,$5)',
+    [T.a,caseId,B.a2,'2026-11-01',60],
+  );
+  assert.ok(availability.rows.length > 0);
+  assert.equal(availability.rows[0].appointment_timezone, 'America/New_York');
+  assert.equal(new Date(availability.rows[0].starts_at).toISOString(), '2026-11-01T13:00:00.000Z');
+
+  const requested = await requestAppointment(
+    caseId,'customer-a','2026-11-01T15:00:00Z','2026-11-01T16:00:00Z',B.a2,
+  );
+  const appointment = await appointmentId(requested);
+  const confirmed = await confirmAppointment(
+    appointment,P.a1,'2026-11-01T15:00:00Z','2026-11-01T16:00:00Z',B.a2,
+  );
+  assert.equal(confirmed.rows[0].appointment_timezone, 'America/New_York');
+
+  await db.query("UPDATE garage_branches SET timezone='America/Chicago' WHERE id=$1", [B.a2]);
+  const snapshot = (await db.query(
+    'SELECT appointment_timezone,starts_at,ends_at FROM garage_appointments WHERE id=$1', [appointment],
+  )).rows[0];
+  assert.equal(snapshot.appointment_timezone, 'America/New_York');
+  assert.equal(new Date(snapshot.starts_at).toISOString(), '2026-11-01T15:00:00.000Z');
 });
 
 test('appointment history is append-only and governance audit excludes Service Case free text', async () => {
@@ -426,6 +487,14 @@ test('future confirmed appointments block silent OPS01 site/workforce deactivati
   assert.match(
     (await rejected(db.query("UPDATE garage_workforce_profiles SET employment_status='inactive' WHERE id=$1",[P.a2])))?.message || '',
     /BLOCK_WORKFORCE_DEACTIVATION/,
+  );
+  assert.match(
+    (await rejected(db.query(
+      "INSERT INTO garage_workforce_unavailability (tenant_id,workforce_profile_id,starts_at,ends_at,reason_code,created_by_user_id) VALUES ($1,$2,$3,$4,'leave','admin-a')",
+      [T.a,P.a2,'2026-10-26T14:15:00Z','2026-10-26T14:45:00Z'],
+    )))?.message || '',
+    /UNAVAILABILITY_CONFLICTS_CONFIRMED_APPOINTMENT/,
+    'one-off unavailability cannot silently orphan a confirmed planned mechanic',
   );
 });
 
