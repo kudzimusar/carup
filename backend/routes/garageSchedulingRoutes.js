@@ -10,6 +10,7 @@ import {
   addWorkforceUnavailability,
   cancelRequesterAppointment,
   confirmGarageAppointment,
+  getGarageAppointmentAvailability,
   getGarageSchedule,
   getGarageSchedulingConfiguration,
   getRequesterAppointmentAvailability,
@@ -62,6 +63,10 @@ router.post('/api/service-cases/:caseId/appointments/:appointmentId/cancel',
 // Garage workspace reads are admin/mechanic. Mutation/configuration is initially admin-only.
 router.get('/api/garage/schedule', GARAGE_WORKSPACE, asyncHandler(async (req, res) => {
   res.json(await getGarageSchedule(supabase, req.userContext, req.query));
+}));
+
+router.get('/api/garage/schedule/availability', GARAGE_ADMIN, asyncHandler(async (req, res) => {
+  res.json(await getGarageAppointmentAvailability(supabase, req.userContext, req.query));
 }));
 
 router.get('/api/garage/schedule/configuration', GARAGE_ADMIN, asyncHandler(async (req, res) => {
