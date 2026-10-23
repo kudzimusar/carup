@@ -64,11 +64,18 @@ export default function GarageWorkspace() {
           <h1 className="text-2xl font-bold">Workshop</h1>
           <p className="text-gray-500">Service requests and jobs for your garage</p>
         </div>
-        <Link to="/garage/customers">
-          <Button variant="outline" className="min-h-11" data-testid="open-customers">
-            <Users className="w-4 h-4 mr-2" aria-hidden="true" /> Customers
-          </Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/garage/schedule">
+            <Button variant="outline" className="min-h-11" data-testid="open-schedule">
+              <CalendarDays className="w-4 h-4 mr-2" aria-hidden="true" /> Schedule
+            </Button>
+          </Link>
+          <Link to="/garage/customers">
+            <Button variant="outline" className="min-h-11" data-testid="open-customers">
+              <Users className="w-4 h-4 mr-2" aria-hidden="true" /> Customers
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {state === 'loading' && (
