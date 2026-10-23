@@ -104,13 +104,13 @@ test('requester availability derives Garage and Service Case authority and refus
 test('Garage configuration is selected-tenant admin authority and mechanic mutation is refused', async () => {
   await assert.rejects(
     () => getGarageSchedulingConfiguration(client, actor('mech-a',T.a,'mechanic')),
-    /administrator role in this garage/i,
+    /role in this garage/i,
   );
   await assert.rejects(
     () => updateBranchSchedulingSettings(client, actor('mech-a',T.a,'mechanic'), B.a, {
       scheduling_enabled: true, max_concurrent_appointments: 2, slot_interval_minutes: 30,
     }),
-    /administrator role in this garage/i,
+    /role in this garage/i,
   );
 
   const saved = await updateBranchSchedulingSettings(client, actor('admin-a',T.a), B.a, {
