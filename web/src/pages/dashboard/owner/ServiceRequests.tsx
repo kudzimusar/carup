@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wrench, Building2, Calendar, Car, Loader2 } from 'lucide-react'
-import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { Wrench, Building2, Calendar, CalendarClock, Car, Loader2 } from 'lucide-react'
+import { useCarUpApi, type AppointmentAvailabilityResponse, type GarageAppointment } from '@/hooks/useCarUpApi'
 import {
   canCancel,
   requestDate,
@@ -34,6 +34,7 @@ type ServiceRequest = {
   request_summary: string | null
   garage_display_name?: string | null
   garage_slug?: string | null
+  branch_id?: string | null
   requested_at: string | null
   accepted_at: string | null
   declined_at: string | null
@@ -56,20 +57,56 @@ function lastChange(r: ServiceRequest): string {
   return stamps.length ? requestDate(stamps[0]) : 'Not recorded'
 }
 
+function appointmentWhen(a: GarageAppointment): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: a.appointment_timezone,
+    }).format(new Date(a.starts_at)) + ' (' + a.appointment_timezone + ')'
+  } catch {
+    return a.starts_at
+  }
+}
+
+const APPOINTMENT_LABEL: Record<GarageAppointment['status'], string> = {
+  requested: 'Requested appointment',
+  confirmed: 'Confirmed appointment',
+  declined: 'Appointment declined',
+  cancelled: 'Appointment cancelled',
+  fulfilled: 'Visit fulfilled',
+  no_show: 'No-show recorded',
+}
+
 export default function ServiceRequests() {
-  const { fetchMyServiceRequests, cancelServiceRequest } = useCarUpApi()
+  const {
+    fetchMyServiceRequests,
+    cancelServiceRequest,
+    fetchMyServiceAppointments,
+    fetchServiceAppointmentAvailability,
+    requestServiceAppointment,
+    cancelMyServiceAppointment,
+  } = useCarUpApi()
   const [requests, setRequests] = useState<ServiceRequest[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [appointments, setAppointments] = useState<GarageAppointment[]>([])
+  const [bookingCaseId, setBookingCaseId] = useState<string | null>(null)
+  const [bookingDate, setBookingDate] = useState('')
+  const [bookingDuration, setBookingDuration] = useState('')
+  const [availability, setAvailability] = useState<AppointmentAvailabilityResponse | null>(null)
+  const [appointmentError, setAppointmentError] = useState<string | null>(null)
+  const [appointmentBusy, setAppointmentBusy] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    fetchMyServiceRequests()
-      .then((rows) => {
+    Promise.all([fetchMyServiceRequests(), fetchMyServiceAppointments()])
+      .then(([rows, appointmentRows]) => {
         setRequests((rows || []) as ServiceRequest[])
+        setAppointments(appointmentRows || [])
         setState('ready')
       })
       .catch(() => setState('error'))
-  }, [fetchMyServiceRequests])
+  }, [fetchMyServiceAppointments, fetchMyServiceRequests])
 
   useEffect(() => { load() }, [load])
 
@@ -84,6 +121,63 @@ export default function ServiceRequests() {
       load()
     } finally {
       setBusyId(null)
+    }
+  }
+
+  function appointmentFor(caseId: string) {
+    return appointments.find((a) => a.service_case_id === caseId) || null
+  }
+
+  async function findTimes(r: ServiceRequest) {
+    if (!r.branch_id || !bookingDate || !bookingDuration) return
+    setAppointmentBusy(r.id)
+    setAppointmentError(null)
+    setAvailability(null)
+    try {
+      setAvailability(await fetchServiceAppointmentAvailability(r.id, {
+        branch_id: r.branch_id,
+        date: bookingDate,
+        duration_minutes: Number(bookingDuration),
+      }))
+    } catch (e) {
+      setAppointmentError(e instanceof Error ? e.message : 'Appointment availability could not be loaded')
+    } finally {
+      setAppointmentBusy(null)
+    }
+  }
+
+  async function requestSlot(r: ServiceRequest, startsAt: string, endsAt: string) {
+    if (!r.branch_id) return
+    setAppointmentBusy(r.id)
+    setAppointmentError(null)
+    try {
+      await requestServiceAppointment(r.id, {
+        branch_id: r.branch_id,
+        starts_at: startsAt,
+        ends_at: endsAt,
+      })
+      setBookingCaseId(null)
+      setAvailability(null)
+      setBookingDate('')
+      setBookingDuration('')
+      load()
+    } catch (e) {
+      setAppointmentError(e instanceof Error ? e.message : 'Appointment could not be requested')
+    } finally {
+      setAppointmentBusy(null)
+    }
+  }
+
+  async function cancelAppointment(r: ServiceRequest, appointment: GarageAppointment) {
+    setAppointmentBusy(r.id)
+    setAppointmentError(null)
+    try {
+      await cancelMyServiceAppointment(r.id, appointment.id)
+      load()
+    } catch (e) {
+      setAppointmentError(e instanceof Error ? e.message : 'Appointment could not be cancelled')
+    } finally {
+      setAppointmentBusy(null)
     }
   }
 
@@ -131,6 +225,9 @@ export default function ServiceRequests() {
       <div className="space-y-4">
         {requests.map((r) => {
           const presentation = statusPresentation(r.status)
+          const appointment = appointmentFor(r.id)
+          const liveAppointment = appointment && ['requested', 'confirmed'].includes(appointment.status) ? appointment : null
+          const canSchedule = ['requested', 'accepted'].includes(String(r.status).toLowerCase())
           return (
             <Card key={r.id} className="border-0 card-shadow" data-testid="service-request-card">
               <CardContent className="p-5">
@@ -167,6 +264,133 @@ export default function ServiceRequests() {
                 {r.request_summary && (
                   <p className="text-sm text-gray-600 mt-3 border-l-2 border-gray-200 pl-3">{r.request_summary}</p>
                 )}
+
+                <div className="mt-4 rounded-lg border bg-gray-50 p-4" data-testid="service-appointment">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium flex items-center gap-2"><CalendarClock className="w-4 h-4" aria-hidden="true" />Appointment</p>
+                      {appointment ? (
+                        <>
+                          <p className="text-sm mt-1" data-testid="appointment-status">{APPOINTMENT_LABEL[appointment.status]}</p>
+                          <p className="text-xs text-gray-500">{appointmentWhen(appointment)}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-500 mt-1">No appointment recorded</p>
+                      )}
+                    </div>
+                    {liveAppointment && (
+                      <Badge className={liveAppointment.status === 'confirmed' ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white'}>
+                        {liveAppointment.status === 'confirmed' ? 'Confirmed' : 'Requested'}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {liveAppointment && (
+                    <div className="mt-3">
+                      <p className="text-sm">
+                        {liveAppointment.status === 'requested'
+                          ? 'The Garage has not confirmed this requested time yet.'
+                          : 'The Garage has confirmed this appointment.'}
+                      </p>
+                      <Button
+                        variant="outline"
+                        className="mt-3 min-h-11"
+                        disabled={appointmentBusy === r.id}
+                        onClick={() => void cancelAppointment(r, liveAppointment)}
+                      >
+                        Cancel appointment
+                      </Button>
+                    </div>
+                  )}
+
+                  {!liveAppointment && canSchedule && (
+                    <div className="mt-3">
+                      {!r.branch_id ? (
+                        <p className="text-sm text-amber-700">A Garage branch is not recorded on this Service Case, so appointment availability cannot be calculated yet.</p>
+                      ) : bookingCaseId !== r.id ? (
+                        <Button
+                          variant="outline"
+                          className="min-h-11"
+                          onClick={() => {
+                            setBookingCaseId(r.id)
+                            setBookingDate('')
+                            setBookingDuration('')
+                            setAvailability(null)
+                            setAppointmentError(null)
+                          }}
+                        >
+                          Find appointment times
+                        </Button>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-sm text-gray-600">Choose a local date and an explicit duration. A requested time is not confirmed until the Garage accepts it.</p>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="text-sm">Date
+                              <input
+                                aria-label={'Appointment date ' + r.id}
+                                type="date"
+                                className="mt-1 w-full min-h-11 rounded-md border bg-white px-3"
+                                value={bookingDate}
+                                onChange={(e) => setBookingDate(e.target.value)}
+                              />
+                            </label>
+                            <label className="text-sm">Duration (minutes)
+                              <input
+                                aria-label={'Appointment duration ' + r.id}
+                                type="number"
+                                min="5"
+                                max="720"
+                                placeholder="Required"
+                                className="mt-1 w-full min-h-11 rounded-md border bg-white px-3"
+                                value={bookingDuration}
+                                onChange={(e) => setBookingDuration(e.target.value)}
+                              />
+                            </label>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              disabled={!bookingDate || !bookingDuration || appointmentBusy === r.id}
+                              onClick={() => void findTimes(r)}
+                            >
+                              Check available times
+                            </Button>
+                            <Button variant="outline" onClick={() => { setBookingCaseId(null); setAvailability(null); setAppointmentError(null) }}>Close</Button>
+                          </div>
+                          {appointmentError && <p role="alert" className="text-sm text-red-700">{appointmentError}</p>}
+                          {availability && !availability.configured && (
+                            <p role="status" className="text-sm text-amber-700">{availability.reason || 'Scheduling not configured'}</p>
+                          )}
+                          {availability?.configured && availability.enabled === false && (
+                            <p role="status" className="text-sm text-amber-700">{availability.reason}</p>
+                          )}
+                          {availability?.configured && availability.enabled !== false && (
+                            <div className="space-y-2" data-testid="appointment-slots">
+                              <p className="text-xs text-gray-500">Times shown in {availability.branch.timezone || 'the recorded appointment timezone'}.</p>
+                              {availability.slots.filter((slot) => slot.bookable).length === 0 ? (
+                                <p className="text-sm text-gray-500">No bookable capacity is available for this date and duration.</p>
+                              ) : availability.slots.filter((slot) => slot.bookable).map((slot) => (
+                                <div key={slot.starts_at} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white p-3">
+                                  <span className="text-sm">
+                                    {new Intl.DateTimeFormat(undefined, { timeStyle: 'short', timeZone: slot.appointment_timezone }).format(new Date(slot.starts_at))}
+                                    {' – '}
+                                    {new Intl.DateTimeFormat(undefined, { timeStyle: 'short', timeZone: slot.appointment_timezone }).format(new Date(slot.ends_at))}
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    disabled={appointmentBusy === r.id}
+                                    onClick={() => void requestSlot(r, slot.starts_at, slot.ends_at)}
+                                  >
+                                    Request this time
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {canCancel(r.status) && (
                   <Button
