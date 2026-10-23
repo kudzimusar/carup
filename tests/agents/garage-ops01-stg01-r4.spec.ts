@@ -477,6 +477,7 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
       recovered: staleWorkforceRecovery,
       post_recovery_fixture: recoveredFixture.state,
     }
+    await openSites(page)
 
     // Desktop Sites: retained operating truth.
     for (const code of ['UAT-HRE-01','UAT-BYO-01','UAT-MSR-01']) {
