@@ -66,14 +66,8 @@ jobs:
             backend/tests/service-network-route-mounting.test.js \
             backend/tests/service-network-s9-garage-surfaces.test.js
 
-      - name: OPS02 and inherited Garage web product tests
-        run: |
-          npm --workspace web run test:unit -- \
-            src/pages/dashboard/garage/garageCustomers.test.tsx \
-            src/pages/dashboard/garage/garageOperatorJourney.test.tsx \
-            src/pages/dashboard/garage/garageSites.test.tsx \
-            src/pages/dashboard/garage/garageWorkforce.test.tsx \
-            src/pages/dashboard/mechanic/CustomerRecords.test.tsx
+      - name: Full web product and governance tests
+        run: npm --workspace web run test:unit
 
       - name: Web TypeScript
         run: npx tsc --noEmit --project web/tsconfig.app.json

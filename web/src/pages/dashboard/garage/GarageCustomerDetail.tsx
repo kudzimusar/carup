@@ -34,7 +34,7 @@ function recordLabel(value: string | null | undefined) { return value || 'Not re
 export default function GarageCustomerDetail() {
   const { customerId } = useParams<{ customerId: string }>()
   const { user } = useAuth()
-  const api = useCarUpApi()
+  const { fetchGarageCustomerDetail, listGarageSites, listGarageWorkforce, updateGarageCustomerRelationship } = useCarUpApi()
   const [detail, setDetail] = useState<GarageCustomerDetailResponse | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [editor, setEditor] = useState<Editor>(EMPTY)
@@ -51,25 +51,25 @@ export default function GarageCustomerDetail() {
     if (!customerId) { setState('error'); return }
     setState('loading')
     try {
-      const result = await api.fetchGarageCustomerDetail(customerId)
+      const result = await fetchGarageCustomerDetail(customerId)
       setDetail(result)
       setEditor(fromRelationship(result.customer.relationship))
       setState('ready')
     } catch { setState('error') }
-  }, [api.fetchGarageCustomerDetail, customerId])
+  }, [fetchGarageCustomerDetail, customerId])
   useEffect(() => { void load() }, [load])
 
   useEffect(() => {
     if (!isAdmin) return
     let active = true
-    Promise.all([api.listGarageSites(), api.listGarageWorkforce()]).then(([s, w]) => {
+    Promise.all([listGarageSites(), listGarageWorkforce()]).then(([s, w]) => {
       if (!active) return
       setSites(((s?.sites as Site[]) || []).filter((site) => site.is_active))
       setStaff(((w?.workforce as Staff[]) || []).filter((person) => person.employment_status === 'active'))
       setOptionsReady(true)
     }).catch(() => { if (active) setOptionsReady(false) })
     return () => { active = false }
-  }, [api.listGarageSites, api.listGarageWorkforce, isAdmin])
+  }, [listGarageSites, listGarageWorkforce, isAdmin])
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -95,7 +95,7 @@ export default function GarageCustomerDetail() {
     if (!Object.keys(body).length) { setMessage('No relationship changes to save.'); return }
     setBusy(true)
     try {
-      await api.updateGarageCustomerRelationship(customerId, body)
+      await updateGarageCustomerRelationship(customerId, body)
       await load()
       setMessage('Garage relationship updated.')
     } catch (error) {
@@ -104,12 +104,12 @@ export default function GarageCustomerDetail() {
   }
 
   return <div className={SN_PAGE}>
-    <Link to="/garage/customers" className="text-sm text-gray-600 hover:text-gray-900">← Customers</Link>
+    <Link to="/garage/customers" className="text-sm text-gray-600 hover:text-gray-900">← Back to customers</Link>
     {state === 'loading' && <p role="status">Loading customer relationship…</p>}
     {state === 'error' && <Card data-testid="customer-detail-error"><CardContent className="p-6">
       <p className="font-semibold">Customer relationship could not be loaded</p>
       <p className="text-sm text-gray-500">This is a loading problem, not an empty customer record.</p>
-      <Button variant="outline" className="mt-3" onClick={() => void load()}>Try again</Button>
+      <Button variant="outline" className="mt-3 min-h-11" onClick={() => void load()}>Try again</Button>
     </CardContent></Card>}
     {state === 'ready' && detail && <>
       <header>

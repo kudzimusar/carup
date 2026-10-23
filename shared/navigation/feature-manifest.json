@@ -1006,6 +1006,23 @@
     "betaCapable": true
   },
   {
+    "id": "garage.customer-detail",
+    "domain": "service",
+    "route": "/garage/customers/:customerId",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin",
+      "mechanic"
+    ]
+  },
+  {
     "id": "garage.customers",
     "domain": "service",
     "route": "/garage/customers",

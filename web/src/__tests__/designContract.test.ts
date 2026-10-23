@@ -42,6 +42,7 @@ const SERVICE_NETWORK_SURFACES = [
   '/src/pages/dashboard/garage/GarageWorkspace.tsx',
   '/src/pages/dashboard/garage/GarageCaseDetail.tsx',
   '/src/pages/dashboard/garage/GarageCustomers.tsx',
+  '/src/pages/dashboard/garage/GarageCustomerDetail.tsx',
   '/src/pages/dashboard/garage/GarageProfileEditor.tsx',
   // GMO-6/7 (OC-5E): the garage's own people.
   '/src/pages/dashboard/garage/GarageTeam.tsx',
@@ -77,6 +78,7 @@ const GARAGE_WORKFLOW = [
   '/src/pages/dashboard/garage/GarageWorkspace.tsx',
   '/src/pages/dashboard/garage/GarageCaseDetail.tsx',
   '/src/pages/dashboard/garage/GarageCustomers.tsx',
+  '/src/pages/dashboard/garage/GarageCustomerDetail.tsx',
   '/src/pages/dashboard/garage/GarageProfileEditor.tsx',
   '/src/pages/dashboard/garage/GarageTeam.tsx',
   '/src/pages/dashboard/garage/GarageSites.tsx',
@@ -116,6 +118,7 @@ describe('DESIGN.md §6.2 — an object/workflow page says how to go back', () =
     const detailSurfaces = [
       '/src/pages/dashboard/garage/GarageCaseDetail.tsx',
       '/src/pages/dashboard/garage/GarageCustomers.tsx',
+      '/src/pages/dashboard/garage/GarageCustomerDetail.tsx',
       '/src/pages/dashboard/garage/GarageProfileEditor.tsx',
     ]
     const offenders = detailSurfaces.filter((p) => {
@@ -189,7 +192,7 @@ describe('DESIGN.md §20 — the legacy-pattern budget does not grow', () => {
     '/src/pages/dashboard/owner/ServiceHistory.tsx': 5,
     '/src/pages/dashboard/garage/GarageWorkspace.tsx': 3,
     '/src/pages/dashboard/garage/GarageCaseDetail.tsx': 8,
-    '/src/pages/dashboard/garage/GarageCustomers.tsx': 3,
+    '/src/pages/dashboard/garage/GarageCustomers.tsx': 0,
     '/src/pages/dashboard/garage/GarageProfileEditor.tsx': 3,
   }
 
