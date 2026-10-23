@@ -584,6 +584,22 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
     expect(tempSite.is_public).toBe(false)
     const siteCreateAudit = await requireAudit(client, 'GARAGE_SITE_CREATED', RUN_STARTED_AT,
       (row) => row.new_value?.id === tempSite.id || row.new_value?.branch_code === TEMP_SITE_CODE)
+    const returnedHoursResult = await client.query(`
+      select day_of_week, opens_at::text, closes_at::text, is_closed
+        from public.garage_branch_opening_hours
+       where tenant_id=$1::uuid and branch_id=$2
+       order by day_of_week
+    `, [GARAGE_ID, tempSite.id])
+    const returnedHours = returnedHoursResult.rows
+    expect(returnedHours).toHaveLength(7)
+    for (const row of returnedHours) {
+      if (row.is_closed) continue
+      expect(row.opens_at).toMatch(/^08:00(?::00(?:\\.0+)?)?$/)
+      expect(row.closes_at).toMatch(/^17:00(?::00(?:\\.0+)?)?$/)
+    }
+    evidence.database_returned_hours_before_edit = returnedHours
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(page.getByTestId('site-card').filter({ hasText: TEMP_SITE_CODE })).toHaveCount(1)
 
     // Site update.
     let tempCard = page.getByTestId('site-card').filter({ hasText: TEMP_SITE_CODE })
