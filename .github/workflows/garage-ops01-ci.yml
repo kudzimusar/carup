@@ -1,0 +1,75 @@
+name: GARAGE-1.0 OPS01 CI
+
+on:
+  push:
+    branches:
+      - feat/garage-1.0-ops01-multisite-workforce
+  pull_request:
+    branches:
+      - integration/garage-1.0-cv01-current-authority
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garage-ops01-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    name: OPS01 exact-head certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove frozen CV01 ancestry
+        run: |
+          set -euo pipefail
+          parent=756627640e5bdf28e45de37ae0513347cef3112c
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PARENT=$parent"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: OPS01 backend + migration + inherited Garage authority
+        run: |
+          node --test \
+            backend/tests/garage-ops01-migrations.test.js \
+            backend/tests/garage-ops01-authority.test.js \
+            backend/tests/service-network-s1-garage-identity.test.js \
+            backend/tests/oc5d-service-network-authority.test.js \
+            backend/tests/oc5e-gmo7-garage-membership.test.js \
+            backend/tests/garage-cv01-parts-authority.test.js
+
+      - name: OPS01 web product tests
+        run: |
+          npm --workspace web run test:unit -- \
+            src/pages/dashboard/garage/garageSites.test.tsx \
+            src/pages/dashboard/garage/garageWorkforce.test.tsx
+
+      - name: Web TypeScript
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+
+      - name: Production web build
+        run: npm run build
+
+      - name: OPS01 diff hygiene
+        run: git diff --check 756627640e5bdf28e45de37ae0513347cef3112c...HEAD

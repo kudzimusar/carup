@@ -133,8 +133,12 @@ export default function GarageTeam() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Your team</h1>
         <p className="text-sm text-gray-600 mt-1">
-          Invite the people who work with you. Mechanics take jobs and record the work they do.
+          Invite the people who work with you. Membership controls access; workforce records control operational assignment.
         </p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <a href="/garage/workforce" className="inline-flex min-h-11 items-center rounded-md border border-gray-300 px-4 text-sm font-medium hover:bg-gray-50">Manage workforce details</a>
+          <a href="/garage/sites" className="inline-flex min-h-11 items-center rounded-md border border-gray-300 px-4 text-sm font-medium hover:bg-gray-50">Manage sites</a>
+        </div>
       </div>
 
       <form onSubmit={invite} className="rounded-xl border border-gray-200 bg-white p-5 space-y-3" data-testid="invite-form">

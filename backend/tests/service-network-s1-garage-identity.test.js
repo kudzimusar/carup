@@ -39,6 +39,17 @@ const NON_GARAGE = '33333333-3333-3333-3333-333333333333';
 const garageAdminA = garageCtx({ id: 'u-a', tenantId: TENANT_A });
 const garageAdminB = garageCtx({ id: 'u-b', tenantId: TENANT_B });
 
+function opsBranch(name, branchCode, city = 'Harare') {
+  return {
+    name,
+    branch_code: branchCode,
+    address_line: `${branchCode} Service Road`,
+    location_city: city,
+    country_code: 'ZW',
+    timezone: 'Africa/Harare',
+  };
+}
+
 function seedClient(extra = {}) {
   return createMockSupabase({
     tenants: [
@@ -194,7 +205,7 @@ test('garage identity is limited to garage-type tenants and requires a verified 
 
 test('branches are tenant-scoped: another tenant cannot deactivate them', async () => {
   const client = seedClient();
-  const { branch } = await createMyGarageBranch(client, garageAdminA, { name: 'Main Workshop', location_city: 'Harare' });
+  const { branch } = await createMyGarageBranch(client, garageAdminA, opsBranch('Main Workshop', 'MAIN-01', 'Harare'));
   await assert.rejects(() => deactivateMyGarageBranch(client, garageAdminB, branch.id), /not found/i);
 
   const still = await getMyGarageProfile(client, garageAdminA);
@@ -207,21 +218,21 @@ test('branches are tenant-scoped: another tenant cannot deactivate them', async 
 
 test('duplicate branch names within one garage lose the database race', async () => {
   const client = seedClient();
-  await createMyGarageBranch(client, garageAdminA, { name: 'Main Workshop' });
+  await createMyGarageBranch(client, garageAdminA, opsBranch('Main Workshop', 'MAIN-01'));
   await assert.rejects(
-    () => createMyGarageBranch(client, garageAdminA, { name: 'Main Workshop' }),
+    () => createMyGarageBranch(client, garageAdminA, opsBranch('Main Workshop', 'MAIN-02')),
     /already exists/,
   );
   // the same branch name under a DIFFERENT garage is legitimate
-  const other = await createMyGarageBranch(client, garageAdminB, { name: 'Main Workshop' });
+  const other = await createMyGarageBranch(client, garageAdminB, opsBranch('Main Workshop', 'MAIN-01', 'Bulawayo'));
   assert.ok(other.branch.id);
 });
 
 test('public detail lists only active branches, in a public-safe shape', async () => {
   const client = seedClient();
   await createPublishedProfileA(client);
-  const { branch } = await createMyGarageBranch(client, garageAdminA, { name: 'North Branch', location_city: 'Harare' });
-  await createMyGarageBranch(client, garageAdminA, { name: 'South Branch', location_city: 'Chitungwiza' });
+  const { branch } = await createMyGarageBranch(client, garageAdminA, opsBranch('North Branch', 'NORTH-01', 'Harare'));
+  await createMyGarageBranch(client, garageAdminA, opsBranch('South Branch', 'SOUTH-01', 'Chitungwiza'));
   await deactivateMyGarageBranch(client, garageAdminA, branch.id);
 
   const detail = await getPublicGarageDetail(client, 'harare-motors');

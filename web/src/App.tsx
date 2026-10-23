@@ -188,6 +188,8 @@ const FraudQueue = lazy(() => import('./pages/dashboard/admin/FraudQueue'))
 const DealerCompliance = lazy(() => import('./pages/dashboard/admin/DealerCompliance'))
 const GarageApplications = lazy(() => import('./pages/dashboard/admin/GarageApplications'))
 const GarageTeam = lazy(() => import('./pages/dashboard/garage/GarageTeam'))
+const GarageSites = lazy(() => import('./pages/dashboard/garage/GarageSites'))
+const GarageWorkforce = lazy(() => import('./pages/dashboard/garage/GarageWorkforce'))
 const JoinGarage = lazy(() => import('./pages/JoinGarage'))
 const IdentityVerificationCaseManagement = lazy(() => import('./pages/dashboard/admin/IdentityVerificationCaseManagement'))
 const TrustReviewQueue = lazy(() => import('./pages/dashboard/shared/TrustReviewQueue'))
@@ -514,6 +516,8 @@ export default function App() {
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
           {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
           <Route path="/garage/team" element={<GarageTeam />} />
+          <Route path="/garage/sites" element={<GarageSites />} />
+          <Route path="/garage/workforce" element={<GarageWorkforce />} />
         </Route>
 
         {/* Insurance Dashboard */}

@@ -156,6 +156,8 @@ import garageReviewRouter from './routes/garageReviewRoutes.js';
 import garageInvitationRouter from './routes/garageInvitationRoutes.js';
 // GMO-7 (OC-5E): a garage's team — its admin removes and re-roles, never leaving it without one.
 import garageMembershipRouter from './routes/garageMembershipRoutes.js';
+// GARAGE-1.0-OPS01 — multi-site + governed workforce, extending existing Garage authority.
+import garageOperationsRouter from './routes/garageOperationsRoutes.js';
 // OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
 // garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
@@ -570,6 +572,7 @@ app.use(garageOnboardingRouter);
 app.use(garageReviewRouter);
 app.use(garageInvitationRouter);
 app.use(garageMembershipRouter);
+app.use(garageOperationsRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);
