@@ -31,32 +31,492 @@ function requiredString(value, label, max = 200) {
 function integer(value, label, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
   const n = Number(value);
   if (!Number.isInteger(n) || n < min || n > max) {
-    throw new ValidationError(label + ' must be an integer between ' +¶»§q«^t€€€€€É•…Í½¸è€M¡•‘Õ±¥¹œ¹½Ð½¹™¥ÕÉ•œ°(€€€€€‰É…¹ èì¥è‰É…¹ ¹¥°¹…µ”è‰É…¹ ¹¹…µ”°Ñ¥µ•é½¹”è‰É…¹ ¹Ñ¥µ•é½¹”ô°(€€€€€‘…Ñ”è±½…±…Ñ”°(€€€€€‘ÕÉ…Ñ¥½¹}µ¥¹ÕÑ•Ìè‘ÕÉ…Ñ¥½¹5¥¹ÕÑ•Ì°(€€€€€Í±½ÑÌèmt°(€€€ôì(€ô(€¥˜€ …Í•ÑÑ¥¹Ì¹Í¡•‘Õ±¥¹}•¹…‰±•¤ì(€€€É•ÑÕÉ¸ì(€€€€€½¹™¥ÕÉ•èÑÉÕ”°(€€€€€•¹…‰±•è™…±Í”°(€€€€€É•…Í½¸è€M¡•‘Õ±¥¹œ¥Ì‘¥Í…‰±•™½ÈÑ¡¥ÌÍ¥Ñ”œ°(€€€€€‰É…¹ èì¥è‰É…¹ ¹¥°¹…µ”è‰É…¹ ¹¹…µ”°Ñ¥µ•é½¹”è‰É…¹ ¹Ñ¥µ•é½¹”ô°(€€€€€‘…Ñ”è±½…±…Ñ”°(€€€€€‘ÕÉ…Ñ¥½¹}µ¥¹ÕÑ•Ìè‘ÕÉ…Ñ¥½¹5¥¹ÕÑ•Ì°(€€€€€Í±½Ñ}¥¹Ñ•ÉÙ…±}µ¥¹ÕÑ•ÌèÍ•ÑÑ¥¹Ì¹Í±½Ñ}¥¹Ñ•ÉÙ…±}µ¥¹ÕÑ•Ì°(€€€€€…Á…¥ÑäèÍ•ÑÑ¥¹Ì¹µ…á}½¹ÕÉÉ•¹Ñ}…ÁÁ½¥¹Ñµ•¹ÑÌ°(€€€€€Í±½ÑÌèmt°(€€€ôì(€ô((€½¹ÍÐì‘…Ñ„°•ÉÉ½Èô€ô…Ý…¥Ð±¥•¹Ð¹ÉÁŒ …É…•}½ÁÌÀÍ}±¥ÍÑ}…Ù…¥±…‰¥±¥Ñäœ°ì(€€€Á}Ñ•¹…¹Ñ}¥èÍ•ÉÙ¥•…Í”¹…É…•}Ñ•¹…¹Ñ}¥°(€€€Á}Í•ÉÙ¥•}…Í•}¥èÍ•ÉÙ¥•…Í”¹¥°(€€€Á}‰É…¹¡}¥è‰É…¹ ¹¥°(€€€Á}±½…±}‘…Ñ”è±½…±…Ñ”°(€€€Á}‘ÕÉ…Ñ¥½¹}µ¥¹ÕÑ•Ìè‘ÕÉ…Ñ¥½¹5¥¹ÕÑ•Ì°(€ô¤ì(€¥˜€¡•ÉÉ½È¤Ñ¡É½ÜÉÁ…¥±ÕÉ”¡•ÉÉ½È°€½Õ±¹½Ð…±Õ±…Ñ”…ÁÁ½¥¹Ñµ•¹Ð…Ù…¥±…‰¥±¥Ñäœ¤ì((€½¹ÍÐÍ±½ÑÌ€ô€¡‘…Ñ„ñðmt¤¹µ…À ¡É½Ü¤€ôø€¡ì(€€€ÍÑ…ÉÑÍ}…ÐèÉ½Ü¹ÍÑ…ÉÑÍ}…Ð°(€€€•¹‘Í}…ÐèÉ½Ü¹•¹‘Í}…Ð°(€€€…ÁÁ½¥¹Ñµ•¹Ñ}Ñ¥µ•é½¹”èÉ½Ü¹…ÁÁ½¥¹Ñµ•¹Ñ}Ñ¥µ•é½¹”°(€€€‰É…¹¡}…Á…¥Ñäè9Õµ‰•È¡É½Ü¹‰É…¹¡}…Á…¥Ñä¤°(€€€‰½½­•‘}½Õ¹Ðè9Õµ‰•È¡É½Ü¹‰½½­•‘}½Õ¹Ð¤°(€€€…Ù…¥±…‰±•}½Õ¹Ðè9Õµ‰•È¡É½Ü¹…Ù…¥±…‰±•}½Õ¹Ð¤°(€€€‰½½­…‰±”è9Õµ‰•È¡É½Ü¹…Ù…¥±…‰±•}½Õ¹Ð¤€ø€À°(€ô¤¤ì((€É•ÑÕÉ¸ì(€€€½¹™¥ÕÉ•èÑÉÕ”°(€€€•¹…‰±•èÑÉÕ”°(€€€‰É…¹ èì¥è‰É…¹ ¹¥°¹…µ”è‰É…¹ ¹¹…µ”°Ñ¥µ•é½¹”è‰É…¹ ¹Ñ¥µ•é½¹”ô°(€€€‘…Ñ”è²ÚîÆ­yÓ“°¢–b†W'&÷"’F‡&÷ræWrFF&6TW'&÷"‚t6÷VÆBæ÷BÆöBö–çFÖVçG3¢r²W'&÷"æÖW76vR“°¢&WGW&â²ö–çFÖVçG3¢†FFÇÂµÒ’æÖ†ö–çFÖVçEf–Wr’ÂF÷FÃ¢†FFÇÂµÒ’æÆVæwF‚Ó°§Ð ¦W‡÷'B7–æ2gVæ7F–öâ6æ6VÅ&WVW7FW$ö–çFÖVçB€¢6Æ–VçBÒFVfVÇD6Æ–VçBÂ7F÷"Ò·ÒÂ66T–BÂö–çFÖVçD–BÀ¢’°¢6öç7B6W'f–6T66RÒv—B&WVW7FW$66R†6Æ–VçBÂ7F÷"Â66T–B“°¢6öç7B²FF¢ö–çFÖVçBÂW'&÷#¢&VDW'&÷"ÒÒv—B6Æ–VçBæg&öÒ‚vv&vUöö–çFÖVçG2r¢ç6VÆV7B‚v–BÂ6W'f–6Uö66Uö–Br’æW‚v–BrÂ7G&–ær†ö–çFÖVçD–B’’æW‚w6W'f–6Uö66Uö–BrÂ6W'f–6T66Ræ–B’æÖ–&U6–ævÆR‚“°¢–b‡&VDW'&÷"’F‡&÷ræWrFF&6TW'&÷"‚t6÷VÆBæ÷BÆöBö–çFÖVçC¢r²&VDW'&÷"æÖW76vR“°¢–b‚ö–çFÖVçB’F‡&÷ræWræ÷Df÷VæDW'&÷"‚tö–çFÖVçBæ÷Bf÷VæBr“° ¢6öç7B²FFÂW'&÷"ÒÒv—B6Æ–VçBç'2‚vv&vUö÷35÷G&ç6—F–öåöö–çFÖVçBrÂ°¢öö–çFÖVçEö–C¢ö–çFÖVçBæ–BÀ¢÷F&vWE÷7FGW3¢v6æ6VÆÆVBrÀ¢ö7F÷%÷W6W%ö–C¢7F÷$–B†7F÷"’À¢ö7F÷%÷66÷S¢w&WVW7FW"rÀ¢÷FVæçEö–C¢çVÆÂÀ¢Ò“°¢–b†W'&÷"’F‡&÷r'4f–ÇW&R†W'&÷"Ât6÷VÆBæ÷B6æ6VÂö–çFÖVçBr“°¢&WGW&â²ö–çFÖVçC¢ö–çFÖVçEf–Wr„'&’æ—4'&’†FF’òFF³Ò¢FF’Ó°§Ð ¦W‡÷'B7–æ2gVæ7F–öâvWDv&vU66†VGVÆR†6Æ–VçBÒFVfVÇD6Æ–VçBÂ7F÷"Ò·ÒÂVW'’Ò·Ò’°¢6öç7BFVæçD–BÒv÷&·76UFVæçB†7F÷"“°¢ÆWB'V–ÆFW"Ò6Æ–VçBæg&öÒ‚vv&vUöö–çFÖVçG2r’ç6VÆV7B‚r¢r’æW‚wFVæçEö–BrÂFVæçD–B“° ¢6öç7B7FGW2Ò7G&–ær‡VW'’ç7FGW2ÇÂrr’çG&–Ò‚“°¢–b‡7FGW2’'V–ÆFW"Ò'V–ÆFW"æW‚w7FGW2rÂ7FGW2“°¢6öç7B'&æ6„–BÒ7KkºwµçYKšYˆ\Ù\—ÚYˆ›Ùš[K\Ù\—ÚYˆÝY™—ØÛÙNˆ›Ùš[KœÝY™—ØÛÙKˆ\Ü^WÛ˜[YNˆ˜[YPžRY™Ù]
-›Ùš[K\Ù\—ÚY
-H[ˆHˆ[ˆNÂˆJNÂ‚ˆ][œØÚY[YØ\Ù\ÈH×NÂˆYˆ
-›ÛHOOH	ØYZ[‰ÊHÂˆÛÛœÝÛÜ[Ø\ÙT™XY]™P\Ú[Y[™XYHH]ØZ]›ÛZ\ÙK˜[
-ÂˆÛY[™œ›ÛJ	ÜÙ\šXÙWØØ\Ù\ÉÊBˆœÙ[XÝ
-	ÚYš[‹Ý]\ËÙ\šXÙWØØ]YÛÜžKœ˜[˜ÚÚY™\]Y\Ý\—Ý\Ù\—ÚY™\]Y\ÝYØ]	ÊBˆ™\J	ÙØ\˜YÙWÝ[˜[ÚY	Ë[˜[Y
-Kš[Š	ÜÝ]\ÉËÉÜ™\]Y\ÝY	Ë	ØXØÙ\Y	×JK›[Z]
-Œ
-KˆÛY[™œ›ÛJ	ÙØ\˜YÙWØ\Ú[Y[ÉÊBˆœÙ[XÝ
-	ÜÙ\šXÙWØØ\ÙWÚY	ÊK™\J	Ý[˜[ÚY	Ë[˜[Y
-Kš[Š	ÜÝ]\ÉËÉÜ™\]Y\ÝY	Ë	ØÛÛ™š\›YY	×JK›[Z]
-L
-KˆJNÂˆYˆ
-Ü[Ø\ÙT™XY™\œ›ÜŠH›ÝÈ™]È]X˜\ÙQ\œ›ÜŠ	ÐÛÝ[›ÝØY[œØÚY[YÙ\šXÙHØ\Ù\Îˆ	È
-ÈÜ[Ø\ÙT™XY™\œ›Ü‹›Y\ÜØYÙJNÂˆYˆ
-]™P\Ú[Y[™XY™\œ›ÜŠH›ÝÈ™]È]X˜\ÙQ\œ›ÜŠ	ÐÛÝ[›Ý™\šYžH]™H\Ú[Y[ÛÝ™\˜YÙNˆ	È
-È]™P\Ú[Y[™XY™\œ›Ü‹›Y\ÜØYÙJNÂˆÛÛœÝXÝ]™PØ\ÙRYÈH™]ÈÙ]
+    throw new ValidationError(label + ' must be an integer between ' + min + ' and ' + max);
+  }
+  return n;
+}
+function dateValue(value, label = 'date') {
+  const v = requiredString(value, label, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new ValidationError(label + ' must be YYYY-MM-DD');
+  return v;
+}
+function instant(value, label) {
+  const v = requiredString(value, label, 80);
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) throw new ValidationError(label + ' must be an ISO timestamp');
+  return d.toISOString();
+}
+function clock(value, label) {
+  const v = requiredString(value, label, 8);
+  const m = /^(\d{2}):(\d{2})(?::00)?$/.exec(v);
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) {
+    throw new ValidationError(label + ' must be HH:MM');
+  }
+  return m[1] + ':' + m[2];
+}
+function rpcFailure(error, fallback) {
+  const message = String(error?.message || error || '');
+  if (/NOT_FOUND|NOT_OWNED/i.test(message)) return new NotFoundError(fallback);
+  if (/CAPACITY|LIVE_APPOINTMENT|TERMINAL|REQUIRES_|MUST_BE_ACCEPTED|BLOCK_/i.test(message)) {
+    return new ConflictError(message.replace(/^.*GARAGE_OPS03_/, '').replaceAll('_', ' ').trim() || fallback);
+  }
+  if (/ADMIN_REQUIRED|REQUESTER_CANCELLATION_NOT_ALLOWED/i.test(message)) return new ForbiddenError(fallback);
+  if (/GARAGE_OPS03_/i.test(message)) {
+    return new ValidationError(message.replace(/^.*GARAGE_OPS03_/, '').replaceAll('_', ' ').trim() || fallback);
+  }
+  return new DatabaseError(fallback + ': ' + (message || 'database error'));
+}
+async function requesterCase(client, actor, caseId) {
+  const userId = actorId(actor);
+  const id = requiredString(caseId, 'service case id', 80);
+  const { data, error } = await client.from('service_cases')
+    .select('id, garage_tenant_id, branch_id, requester_user_id, status, vin, service_category')
+    .eq('id', id).eq('requester_user_id', userId).maybeSingle();
+  if (error) throw new DatabaseError('Could not load service case: ' + error.message);
+  if (!data) throw new NotFoundError('Service case not found');
+  return data;
+}
 
-]™P\Ú[Y[™XY™]H×JK›X\
+async function activeBranch(client, tenantId, branchId) {
+  const id = requiredString(branchId, 'branch_id', 80);
+  const { data, error } = await client.from('garage_branches')
+    .select('id, tenant_id, name, branch_code, timezone, is_active')
+    .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+  if (error) throw new DatabaseError('Could not load Garage site: ' + error.message);
+  if (!data || data.is_active !== true) throw new ValidationError('That Garage site is not active');
+  return data;
+}
 
-JHOˆKœÙ\šXÙWØØ\ÙWÚY
-JNÂˆ[œØÚY[YØ\Ù\ÈH
-Ü[Ø\ÙT™XY™]H×JK™š[\Š
-Ù\šXÙPØ\ÙJHOˆXXÝ]™PØ\ÙRYËš\ÊÙ\šXÙPØ\ÙKšY
-JNÂˆB‚ˆ™]\›ˆÂˆ\Ú[Y[ÎˆØÚY[Kˆ[œØÚY[YØØ\Ù\Îˆ[œØÚY[YØ\Ù\ËˆÝ[ˆØÚY[K›[™ÝˆØÛÜNˆ›ÛHOOH	ÛYXÚ[šXÉÈÈ	Ü[›™YÙ›Ü—ÛYIÈˆ	ÙØ\˜YÙIËˆNÂŸB‚™^Ü\Þ[˜È[˜Ý[ÛˆÙ]Ø\˜YÙTØÚY[[™ÐÛÛ™šYÝ\˜][ÛŠÛY[HY˜][ÛY[XÝÜˆHßJHÂˆÛÛœÝ[˜[YHYZ[•[˜[
-XÝÜŠNÂˆÛÛœÝÜÚ]\Ô™XYÙ][™í®éÜj×profile = await workforceForUser(client, tenantId, userId);
+async function schedulingSettings(client, tenantId, branchId) {
+  const { data, error } = await client.from('garage_branch_scheduling_settings')
+    .select('*').eq('tenant_id', tenantId).eq('branch_id', branchId).maybeSingle();
+  if (error) throw new DatabaseError('Could not load scheduling settings: ' + error.message);
+  return data || null;
+}
+
+function appointmentView(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    service_case_id: row.service_case_id,
+    branch_id: row.branch_id,
+    status: row.status,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    appointment_timezone: row.appointment_timezone,
+    planned_workforce_profile_id: row.planned_workforce_profile_id || null,
+    requested_by_user_id: row.requested_by_user_id,
+    confirmed_at: row.confirmed_at || null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+export async function getRequesterAppointmentAvailability(
+  client = defaultClient, actor = {}, caseId, query = {},
+) {
+  const serviceCase = await requesterCase(client, actor, caseId);
+  const branchId = requiredString(query.branch_id || serviceCase.branch_id, 'branch_id', 80);
+  const branch = await activeBranch(client, serviceCase.garage_tenant_id, branchId);
+  if (serviceCase.branch_id && serviceCase.branch_id !== branch.id) {
+    throw new ValidationError('The appointment branch must match this Service Case');
+  }
+
+  const localDate = dateValue(query.date);
+  const durationMinutes = integer(query.duration_minutes, 'duration_minutes', { min: 5, max: 720 });
+  if (!branch.timezone) {
+    return {
+      configured: false,
+      reason: 'Schedule timezone not configured',
+      branch: { id: branch.id, name: branch.name, timezone: null },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slots: [],
+    };
+  }
+
+  const settings = await schedulingSettings(client, serviceCase.garage_tenant_id, branch.id);
+  if (!settings) {
+    return {
+      configured: false,
+      reason: 'Scheduling not configured',
+      branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slots: [],
+    };
+  }
+  if (!settings.scheduling_enabled) {
+    return {
+      configured: true,
+      enabled: false,
+      reason: 'Scheduling is disabled for this site',
+      branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slot_interval_minutes: settings.slot_interval_minutes,
+      capacity: settings.max_concurrent_appointments,
+      slots: [],
+    };
+  }
+
+  const { data, error } = await client.rpc('garage_ops03_list_availability', {
+    p_tenant_id: serviceCase.garage_tenant_id,
+    p_service_case_id: serviceCase.id,
+    p_branch_id: branch.id,
+    p_local_date: localDate,
+    p_duration_minutes: durationMinutes,
+  });
+  if (error) throw rpcFailure(error, 'Could not calculate appointment availability');
+
+  const slots = (data || []).map((row) => ({
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    appointment_timezone: row.appointment_timezone,
+    branch_capacity: Number(row.branch_capacity),
+    booked_count: Number(row.booked_count),
+    available_count: Number(row.available_count),
+    bookable: Number(row.available_count) > 0,
+  }));
+
+  return {
+    configured: true,
+    enabled: true,
+    branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+    date: localDate,
+    duration_minutes: durationMinutes,
+    slot_interval_minutes: settings.slot_interval_minutes,
+    capacity: settings.max_concurrent_appointments,
+    slots,
+  };
+}
+
+
+export async function getGarageAppointmentAvailability(client = defaultClient, actor = {}, query = {}) {
+  const tenantId = adminTenant(actor);
+  const caseId = requiredString(query.service_case_id, 'service_case_id', 80);
+  const { data: serviceCase, error: caseError } = await client.from('service_cases')
+    .select('id,garage_tenant_id,branch_id').eq('id', caseId).eq('garage_tenant_id', tenantId).maybeSingle();
+  if (caseError) throw new DatabaseError('Could not load Service Case: ' + caseError.message);
+  if (!serviceCase) throw new NotFoundError('Service case not found');
+
+  const branchId = requiredString(query.branch_id || serviceCase.branch_id, 'branch_id', 80);
+  const branch = await activeBranch(client, tenantId, branchId);
+  if (serviceCase.branch_id && serviceCase.branch_id !== branch.id) {
+    throw new ValidationError('The appointment branch must match this Service Case');
+  }
+
+  const localDate = dateValue(query.date);
+  const durationMinutes = integer(query.duration_minutes, 'duration_minutes', { min: 5, max: 720 });
+  if (!branch.timezone) {
+    return {
+      configured: false,
+      reason: 'Schedule timezone not configured',
+      branch: { id: branch.id, name: branch.name, timezone: null },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slots: [],
+    };
+  }
+  const settings = await schedulingSettings(client, tenantId, branch.id);
+  if (!settings) {
+    return {
+      configured: false,
+      reason: 'Capacity not configured',
+      branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slots: [],
+    };
+  }
+  if (!settings.scheduling_enabled) {
+    return {
+      configured: true,
+      enabled: false,
+      reason: 'Scheduling is disabled for this site',
+      branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slot_interval_minutes: settings.slot_interval_minutes,
+      capacity: settings.max_concurrent_appointments,
+      slots: [],
+    };
+  }
+  const { data, error } = await client.rpc('garage_ops03_list_availability', {
+    p_tenant_id: tenantId,
+    p_service_case_id: serviceCase.id,
+    p_branch_id: branch.id,
+    p_local_date: localDate,
+    p_duration_minutes: durationMinutes,
+  });
+  if (error) throw rpcFailure(error, 'Could not calculate workshop capacity');
+  return {
+    configured: true,
+    enabled: true,
+    branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+    date: localDate,
+    duration_minutes: durationMinutes,
+    slot_interval_minutes: settings.slot_interval_minutes,
+    capacity: settings.max_concurrent_appointments,
+    slots: (data || []).map((row) => ({
+      starts_at: row.starts_at,
+      ends_at: row.ends_at,
+      appointment_timezone: row.appointment_timezone,
+      branch_capacity: Number(row.branch_capacity),
+      booked_count: Number(row.booked_count),
+      available_count: Number(row.available_count),
+      available_workforce_profile_ids: row.available_workforce_profile_ids || [],
+      bookable: Number(row.available_count) > 0,
+    })),
+  };
+}
+
+export async function requestAppointment(client = defaultClient, actor = {}, caseId, body = {}) {
+  const serviceCase = await requesterCase(client, actor, caseId);
+  const branchId = requiredString(body.branch_id || serviceCase.branch_id, 'branch_id', 80);
+  const startsAt = instant(body.starts_at, 'starts_at');
+  const endsAt = instant(body.ends_at, 'ends_at');
+  if (startsAt >= endsAt) throw new ValidationError('ends_at must be after starts_at');
+
+  const { data, error } = await client.rpc('garage_ops03_request_appointment', {
+    p_service_case_id: serviceCase.id,
+    p_branch_id: branchId,
+    p_starts_at: startsAt,
+    p_ends_at: endsAt,
+    p_actor_user_id: actorId(actor),
+  });
+  if (error) throw rpcFailure(error, 'Could not request appointment');
+  return { appointment: appointmentView(Array.isArray(data) ? data[0] : data) };
+}
+
+export async function listRequesterAppointments(client = defaultClient, actor = {}) {
+  const userId = actorId(actor);
+  const { data, error } = await client.from('garage_appointments')
+    .select('*').eq('requested_by_user_id', userId).order('created_at', { ascending: false }).limit(200);
+  if (error) throw new DatabaseError('Could not load appointments: ' + error.message);
+  return { appointments: (data || []).map(appointmentView), total: (data || []).length };
+}
+
+export async function cancelRequesterAppointment(
+  client = defaultClient, actor = {}, caseId, appointmentId,
+) {
+  const serviceCase = await requesterCase(client, actor, caseId);
+  const { data: appointment, error: readError } = await client.from('garage_appointments')
+    .select('id, service_case_id').eq('id', String(appointmentId)).eq('service_case_id', serviceCase.id).maybeSingle();
+  if (readError) throw new DatabaseError('Could not load appointment: ' + readError.message);
+  if (!appointment) throw new NotFoundError('Appointment not found');
+
+  const { data, error } = await client.rpc('garage_ops03_transition_appointment', {
+    p_appointment_id: appointment.id,
+    p_target_status: 'cancelled',
+    p_actor_user_id: actorId(actor),
+    p_actor_scope: 'requester',
+    p_tenant_id: null,
+  });
+  if (error) throw rpcFailure(error, 'Could not cancel appointment');
+  return { appointment: appointmentView(Array.isArray(data) ? data[0] : data) };
+}
+
+export async function getGarageSchedule(client = defaultClient, actor = {}, query = {}) {
+  const tenantId = workspaceTenant(actor);
+  let builder = client.from('garage_appointments').select('*').eq('tenant_id', tenantId);
+
+  const status = String(query.status || '').trim();
+  if (status) builder = builder.eq('status', status);
+  const branchId = String(query.branch_id || '').trim();
+  if (branchId) builder = builder.eq('branch_id', branchId);
+  const from = String(query.from || '').trim();
+  const to = String(query.to || '').trim();
+  if (from) builder = builder.gte('starts_at', instant(from, 'from'));
+  if (to) builder = builder.lt('starts_at', instant(to, 'to'));
+
+  const role = tenantRole(actor);
+  if (role === 'mechanic') {
+    const { data: profile, error: profileError } = await client.from('garage_workforce_profiles')
+      .select('id').eq('tenant_id', tenantId).eq('user_id', actorId(actor))
+      .eq('employment_status', 'active').maybeSingle();
+    if (profileError) throw new DatabaseError('Could not load mechanic schedule identity: ' + profileError.message);
+    if (!profile) return { appointments: [], unscheduled_cases: [], total: 0, scope: 'planned_for_me' };
+    builder = builder.eq('planned_workforce_profile_id', profile.id);
+  }
+
+  const { data: appointments, error } = await builder.order('starts_at', { ascending: true }).limit(300);
+  if (error) throw new DatabaseError('Could not load Garage schedule: ' + error.message);
+
+  const rows = appointments || [];
+  const caseIds = [...new Set(rows.map((a) => a.service_case_id))];
+  const branchIds = [...new Set(rows.map((a) => a.branch_id))];
+  const profileIds = [...new Set(rows.map((a) => a.planned_workforce_profile_id).filter(Boolean))];
+
+  const [caseRead, branchRead, profileRead] = await Promise.all([
+    caseIds.length
+      ? client.from('service_cases').select('id,vin,requester_user_id,service_category,status').in('id', caseIds)
+      : Promise.resolve({ data: [], error: null }),
+    branchIds.length
+      ? client.from('garage_branches').select('id,name,branch_code,timezone').eq('tenant_id', tenantId).in('id', branchIds)
+      : Promise.resolve({ data: [], error: null }),
+    profileIds.length
+      ? client.from('garage_workforce_profiles').select('id,user_id,staff_code').eq('tenant_id', tenantId).in('id', profileIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (caseRead.error) throw new DatabaseError('Could not load scheduled Service Cases: ' + caseRead.error.message);
+  if (branchRead.error) throw new DatabaseError('Could not load scheduled Garage sites: ' + branchRead.error.message);
+  if (profileRead.error) throw new DatabaseError('Could not load planned workforce: ' + profileRead.error.message);
+
+  const cases = caseRead.data || [];
+  const requesterIds = [...new Set(cases.map((c) => c.requester_user_id).filter(Boolean))];
+  const vins = [...new Set(cases.map((c) => c.vin).filter(Boolean))];
+  const workerUserIds = [...new Set((profileRead.data || []).map((p) => p.user_id).filter(Boolean))];
+  const allUserIds = [...new Set([...requesterIds, ...workerUserIds])];
+
+  const [userRead, vehicleRead] = await Promise.all([
+    allUserIds.length
+      ? client.from('users').select('id,name').in('id', allUserIds)
+      : Promise.resolve({ data: [], error: null }),
+    vins.length
+      ? client.from('vehicles').select('vin,make,model,year').in('vin', vins)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (userRead.error) throw new DatabaseError('Could not load schedule identities: ' + userRead.error.message);
+  if (vehicleRead.error) throw new DatabaseError('Could not load schedule vehicles: ' + vehicleRead.error.message);
+
+  const caseById = new Map(cases.map((x) => [x.id, x]));
+  const branchById = new Map((branchRead.data || []).map((x) => [x.id, x]));
+  const profileById = new Map((profileRead.data || []).map((x) => [x.id, x]));
+  const nameById = new Map((userRead.data || []).map((x) => [x.id, x.name || null]));
+  const vehicleByVin = new Map((vehicleRead.data || []).map((x) => [x.vin, x]));
+
+  const schedule = rows.map((a) => {
+    const serviceCase = caseById.get(a.service_case_id) || null;
+    const profile = a.planned_workforce_profile_id ? profileById.get(a.planned_workforce_profile_id) || null : null;
+    return {
+      ...appointmentView(a),
+      service_case: serviceCase ? {
+        id: serviceCase.id,
+        status: serviceCase.status,
+        vin: serviceCase.vin,
+        service_category: serviceCase.service_category || null,
+        requester_name: serviceCase.requester_user_id ? nameById.get(serviceCase.requester_user_id) || null : null,
+      } : null,
+      vehicle: serviceCase ? vehicleByVin.get(serviceCase.vin) || null : null,
+      branch: branchById.get(a.branch_id) || null,
+      planned_workforce: profile ? {
+        profile_id: profile.id,
+        user_id: profile.user_id,
+        staff_code: profile.staff_code,
+        display_name: nameById.get(profile.user_id) || null,
+      } : null,
+    };
+  });
+
+  let unscheduledCases = [];
+  if (role === 'admin') {
+    const [openCaseRead, liveAppointmentRead] = await Promise.all([
+      client.from('service_cases')
+        .select('id,vin,status,service_category,branch_id,requester_user_id,requested_at')
+        .eq('garage_tenant_id', tenantId).in('status', ['requested', 'accepted']).limit(200),
+      client.from('garage_appointments')
+        .select('service_case_id').eq('tenant_id', tenantId).in('status', ['requested', 'confirmed']).limit(500),
+    ]);
+    if (openCaseRead.error) throw new DatabaseError('Could not load unscheduled Service Cases: ' + openCaseRead.error.message);
+    if (liveAppointmentRead.error) throw new DatabaseError('Could not verify live appointment coverage: ' + liveAppointmentRead.error.message);
+    const activeCaseIds = new Set((liveAppointmentRead.data || []).map((a) => a.service_case_id));
+    unscheduledCases = (openCaseRead.data || []).filter((serviceCase) => !activeCaseIds.has(serviceCase.id));
+  }
+
+  return {
+    appointments: schedule,
+    unscheduled_cases: unscheduledCases,
+    total: schedule.length,
+    scope: role === 'mechanic' ? 'planned_for_me' : 'garage',
+  };
+}
+
+export async function getGarageSchedulingConfiguration(client = defaultClient, actor = {}) {
+  const tenantId = adminTenant(actor);
+  const [sitesRead, settingsRead, profilesRead, assignmentsRead, schedulesRead, unavailableRead, membershipsRead] = await Promise.all([
+    client.from('garage_branches').select('id,name,branch_code,timezone,is_active').eq('tenant_id', tenantId).order('name'),
+    client.from('garage_branch_scheduling_settings').select('*').eq('tenant_id', tenantId),
+    client.from('garage_workforce_profiles').select('id,user_id,staff_code,employment_status').eq('tenant_id', tenantId),
+    client.from('garage_workforce_branch_assignments').select('workforce_profile_id,branch_id,ended_at,is_primary').eq('tenant_id', tenantId).is('ended_at', null),
+    client.from('garage_workforce_schedules').select('*').eq('tenant_id', tenantId).order('day_of_week'),
+    client.from('garage_workforce_unavailability').select('*').eq('tenant_id', tenantId).order('starts_at'),
+    client.from('tenant_users').select('user_id,role').eq('tenant_id', tenantId),
+  ]);
+  for (const [label, read] of [
+    ['sites', sitesRead], ['settings', settingsRead], ['workforce', profilesRead],
+    ['assignments', assignmentsRead], ['work schedules', schedulesRead],
+    ['unavailability', unavailableRead], ['memberships', membershipsRead],
+  ]) {
+    if (read.error) throw new DatabaseError('Could not load scheduling ' + label + ': ' + read.error.message);
+  }
+
+  const profileRows = profilesRead.data || [];
+  const memberById = new Map((membershipsRead.data || []).map((m) => [m.user_id, m.role]));
+  const activeUserIds = profileRows.filter((p) => p.employment_status === 'active').map((p) => p.user_id);
+  const { data: names, error: namesError } = activeUserIds.length
+    ? await client.from('users').select('id,name').in('id', activeUserIds)
+    : { data: [], error: null };
+  if (namesError) throw new DatabaseError('Could not load workforce names: ' + namesError.message);
+  const nameById = new Map((names || []).map((u) => [u.id, u.name || null]));
+
+  return {
+    sites: (sitesRead.data || []).map((s) => ({
+      ...s,
+      settings: (settingsRead.data || []).find((x) => x.branch_id === s.id) || null,
+    })),
+    workforce: profileRows.map((p) => ({
+      ...p,
+      display_name: nameById.get(p.user_id) || null,
+      tenant_role: memberById.get(p.user_id) || null,
+      live_branch_ids: (assignmentsRead.data || []).filter((a) => a.workforce_profile_id === p.id).map((a) => a.branch_id),
+      schedules: (schedulesRead.data || []).filter((x) => x.workforce_profile_id === p.id),
+      unavailability: (unavailableRead.data || []).filter((x) => x.workforce_profile_id === p.id),
+    })),
+  };
+}
+
+export async function updateBranchSchedulingSettings(
+  client = defaultClient, actor = {}, siteId, body = {},
+) {
+  const tenantId = adminTenant(actor);
+  const site = await activeBranch(client, tenantId, siteId);
+  if (!site.timezone) throw new ValidationError('Schedule timezone not configured');
+
+  if (typeof body.scheduling_enabled !== 'boolean') {
+    throw new ValidationError('scheduling_enabled must be explicitly true or false');
+  }
+  const capacity = integer(body.max_concurrent_appointments, 'max_concurrent_appointments', { min: 1, max: 100 });
+  const interval = integer(body.slot_interval_minutes, 'slot_interval_minutes', { min: 5, max: 240 });
+  if (1440 % interval !== 0) throw new ValidationError('slot_interval_minutes must divide a 24-hour day');
+
+  const { data, error } = await client.rpc('garage_ops03_upsert_branch_scheduling_settings', {
+    p_tenant_id: tenantId,
+    p_branch_id: site.id,
+    p_scheduling_enabled: body.scheduling_enabled,
+    p_max_concurrent_appointments: capacity,
+    p_slot_interval_minutes: interval,
+    p_actor_user_id: actorId(actor),
+  });
+  if (error) throw rpcFailure(error, 'Could not save scheduling settings');
+  return { settings: Array.isArray(data) ? data[0] : data };
+}
+
+async function workforceForUser(client, tenantId, userId) {
+  const target = requiredString(userId, 'user id', 120);
+  const { data, error } = await client.from('garage_workforce_profiles')
+    .select('id,user_id,staff_code,employment_status')
+    .eq('tenant_id', tenantId).eq('user_id', target).maybeSingle();
+  if (error) throw new DatabaseError('Could not load workforce profile: ' + error.message);
+  if (!data || data.employment_status !== 'active') throw new ValidationError('An active workforce profile is required');
+  return data;
+}
+
+export async function addWorkforceRecurringSchedule(
+  client = defaultClient, actor = {}, userId, body = {},
+) {
+  const tenantId = adminTenant(actor);
+  const profile = await workforceForUser(client, tenantId, userId);
   const branch = await activeBranch(client, tenantId, body.branch_id);
   const day = integer(body.day_of_week, 'day_of_week', { min: 0, max: 6 });
   const startsAt = clock(body.starts_at, 'starts_at');
@@ -80,4 +540,74 @@ JNÂˆB‚ˆ™]\›ˆÂˆ\Ú[Y[ÎˆØÚY[Kˆ[œØÚY[YØØ\Ù\Îˆ[œØÚY[
     p_starts_at: startsAt,
     p_ends_at: endsAt,
     p_effective_from: effectiveFrom,
-    p_effective_until: ef¶»§q«^
+    p_effective_until: effectiveUntil,
+    p_actor_user_id: actorId(actor),
+  });
+  if (error) throw rpcFailure(error, 'Could not add workforce schedule');
+  return { schedule: Array.isArray(data) ? data[0] : data };
+}
+
+export async function addWorkforceUnavailability(
+  client = defaultClient, actor = {}, userId, body = {},
+) {
+  const tenantId = adminTenant(actor);
+  const profile = await workforceForUser(client, tenantId, userId);
+  const startsAt = instant(body.starts_at, 'starts_at');
+  const endsAt = instant(body.ends_at, 'ends_at');
+  if (startsAt >= endsAt) throw new ValidationError('ends_at must be after starts_at');
+  const reason = body.reason_code == null || body.reason_code === '' ? null : String(body.reason_code);
+  if (reason && !REASON_CODES.has(reason)) throw new ValidationError('Unknown unavailability reason_code');
+
+  const { data, error } = await client.rpc('garage_ops03_add_workforce_unavailability', {
+    p_tenant_id: tenantId,
+    p_workforce_profile_id: profile.id,
+    p_starts_at: startsAt,
+    p_ends_at: endsAt,
+    p_reason_code: reason,
+    p_actor_user_id: actorId(actor),
+  });
+  if (error) throw rpcFailure(error, 'Could not add workforce unavailability');
+  return { unavailability: Array.isArray(data) ? data[0] : data };
+}
+
+async function adminAppointmentRpc(client, actor, functionName, appointmentId, body = {}) {
+  const tenantId = adminTenant(actor);
+  const params = {
+    p_tenant_id: tenantId,
+    p_appointment_id: requiredString(appointmentId, 'appointment id', 80),
+    p_branch_id: requiredString(body.branch_id, 'branch_id', 80),
+    p_starts_at: instant(body.starts_at, 'starts_at'),
+    p_ends_at: instant(body.ends_at, 'ends_at'),
+    p_planned_workforce_profile_id: requiredString(body.planned_workforce_profile_id, 'planned_workforce_profile_id', 80),
+    p_actor_user_id: actorId(actor),
+  };
+  if (params.p_starts_at >= params.p_ends_at) throw new ValidationError('ends_at must be after starts_at');
+  const { data, error } = await client.rpc(functionName, params);
+  if (error) throw rpcFailure(error, 'Could not update appointment schedule');
+  return { appointment: appointmentView(Array.isArray(data) ? data[0] : data) };
+}
+
+export async function confirmGarageAppointment(client = defaultClient, actor = {}, appointmentId, body = {}) {
+  return adminAppointmentRpc(client, actor, 'garage_ops03_confirm_appointment', appointmentId, body);
+}
+
+export async function rescheduleGarageAppointment(client = defaultClient, actor = {}, appointmentId, body = {}) {
+  return adminAppointmentRpc(client, actor, 'garage_ops03_reschedule_appointment', appointmentId, body);
+}
+
+export async function transitionGarageAppointment(
+  client = defaultClient, actor = {}, appointmentId, targetStatus,
+) {
+  const tenantId = adminTenant(actor);
+  const status = requiredString(targetStatus, 'status', 30);
+  if (!GARAGE_STATUS_TARGETS.has(status)) throw new ValidationError('Unsupported appointment status transition');
+  const { data, error } = await client.rpc('garage_ops03_transition_appointment', {
+    p_appointment_id: requiredString(appointmentId, 'appointment id', 80),
+    p_target_status: status,
+    p_actor_user_id: actorId(actor),
+    p_actor_scope: 'garage',
+    p_tenant_id: tenantId,
+  });
+  if (error) throw rpcFailure(error, 'Could not change appointment status');
+  return { appointment: appointmentView(Array.isArray(data) ? data[0] : data) };
+}

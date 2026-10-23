@@ -30,37 +30,465 @@ async function forceAuditFailure(eventType) {
   await db.exec('DROP TRIGGER IF EXISTS trg_ops03_test_fail_audit ON trust_audit_events');
   await db.exec('DROP FUNCTION IF EXISTS garage_ops03_test_fail_audit()');
   await db.exec(
-    "CREATE FUNCTION garage_ops03_test_fail_audit() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN " +
+    "CREATE FUNCTION garage_ops03_test_fail_audit() RETURNS TRIGGER LANGUAGE plpgsql AS $ BEGIN " +
     "IF NEW.event_type = '" + eventType + "' THEN RAISE EXCEPTION 'OPS03_TEST_AUDIT_FAILURE'; END IF; " +
-    "RETURN NEW; END $$; " +
-    "CREATE TRIGGER trg_ops03_test¶»§q«^u…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€‰%9MIP%9Q<…É…•}İ½É­™½É•}ÁÉ½™¥±•Ì€¡Ñ•¹…¹Ñ}¥±ÕÍ•É}¥±ÍÑ…™™}½‘”±•µÁ±½åµ•¹Ñ}±…ÍÍ¥™¥…Ñ¥½¸±•µÁ±½åµ•¹Ñ}ÍÑ…ÑÕÌ±ÍÑ…ÉÑ}‘…Ñ”±É•…Ñ•‘}‰å}ÕÍ•É}¥¤Y1UL€ Ä°µ• µˆœ°5 µœ°•µÁ±½å•”œ°…Ñ¥Ù”œ°œÈÀÈØ´ÄÀ´ÀÄœ°…‘µ¥¸µ„œ¤IQUI9%9¥ˆ°(€€€mP¹…t°(€€¤¤¹É½İÍlÁt¹¥ì(€@¹ˆÄ€ô€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€‰%9MIP%9Q<…É…•}İ½É­™½É•}ÁÉ½™¥±•Ì€¡Ñ•¹…¹Ñ}¥±ÕÍ•É}¥±ÍÑ…™™}½‘”±•µÁ±½åµ•¹Ñ}±…ÍÍ¥™¥…Ñ¥½¸±•µÁ±½åµ•¹Ñ}ÍÑ…ÑÕÌ±ÍÑ…ÉÑ}‘…Ñ”±É•…Ñ•‘}‰å}ÕÍ•É}¥¤Y1UL€ Ä°µ• µŒœ°5 µœ°•µÁ±½å•”œ°…Ñ¥Ù”œ°œÈÀÈØ´ÄÀ´ÀÄœ°…‘µ¥¸µˆœ¤IQUI9%9¥ˆ°(€€€mP¹‰t°(€€¤¤¹É½İÍlÁt¹¥ì(€™½È€¡½¹ÍĞmÑ•¹…¹Ğ°ÁÉ½™¥±”°‰É…¹ °…Ñ½Ét½˜l(€€€mP¹„±@¹„Ä±¹„Ä°…‘µ¥¸µ„t°mP¹„±@¹„Ä±¹„È°…‘µ¥¸µ„t°mP¹„±@¹„È±¹„Ä°…‘µ¥¸µ„t°(€€€mP¹ˆ±@¹ˆÄ±¹ˆÄ°…‘µ¥¸µˆt°(€t¤ì(€€€…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€€€%9MIP%9Q<…É…•}İ½É­™½É•}‰É…¹¡}…ÍÍ¥¹µ•¹ÑÌ€¡Ñ•¹…¹Ñ}¥±İ½É­™½É•}ÁÉ½™¥±•}¥±‰É…¹¡}¥±¥Í}ÁÉ¥µ…Éä±…ÍÍ¥¹•‘}‰å}ÕÍ•É}¥¤Y1UL€ Ä°È°Ì°Ğ°Ô¤œ°(€€€€€mÑ•¹…¹Ğ°ÁÉ½™¥±”°‰É…¹ °‰É…¹ €ôôô¹„Äñğ‰É…¹ €ôôô¹ˆÄ°…Ñ½Ét°(€€€€¤ì(€ô((€€¼¼=ALÀÄÉ•ÅÕ¥É•Ì„µ•¡…¹¥ŒÌ…Ñ¥Ù”İ½É­™½É”ÁÉ½™¥±”Ñ¼¡…Ù”„±¥Ù”ÁÉ¥µ…ÉäÍ¥Ñ”¸	Õ¥±Ñ¡”(€€¼¼ÁÉ½™¥±”½…ÍÍ¥¹µ•¹Ğİ¡¥±”Ñ¡”µ•µ‰•È¥ÌÍÑ¥±°…‘µ¥¸°Ñ¡•¸…‘½ÁĞÑ¡”µ•¡…¹¥ŒÉ½±”¸(€…İ…¥Ğ‘ˆ¹ÅÕ•Éä ‰UAQÑ•¹…¹Ñ}ÕÍ•ÉÌMPÉ½±”ôµ•¡…¹¥Œœ]!IÑ•¹…¹Ñ}¥ôÄ9ÕÍ•É}¥%8€ µ• µ„œ°µ• µˆœ¤ˆ°mP¹…t¤ì(€…İ…¥Ğ‘ˆ¹ÅÕ•Éä ‰UAQÑ•¹…¹Ñ}ÕÍ•ÉÌMPÉ½±”ôµ•¡…¹¥Œœ]!IÑ•¹…¹Ñ}¥ôÄ9ÕÍ•É}¥ôµ• µŒœˆ°mP¹‰t¤ì((€¹„Ä€ô€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€‰%9MIP%9Q<Í•ÉÙ¥•}…Í•Ì€¡Ù¥¸±…É…•}Ñ•¹…¹Ñ}¥’ÚîÆ­yÓBÄåTÄÂ’rÀ¢µBæÄ"æÅ4ÄõEõ5D%BÅ4ÄõEôTäEÒÀ¢“°¢76W'BæWVÂ†6öæf–wW&VBç&÷w5³ÒæÖ…ö6öæ7W'&VçEöö–çFÖVçG2Â“°¢76W'BæWVÂ†6öæf–wW&VBç&÷w5³Òæf–Æ&ÆUö6÷VçBÂÂvW‡Æ–6—B'&æ6‚66—G’Æ–Ö—G2÷F†W'v—6RÖVÆ–v–&ÆR7Ffbr“°§Ò“° §FW7B‚wv÷&²66†VGVÆW2&WV—&R6ÖRÔv&vR7F—fRv÷&¶f÷&6RÂ7F—fR6—FRæBÆ—fR'&æ6‚&VÆF–öç6†—rÂ7–æ2‚’Óâ°¢6öç7Bf÷&V–vâÒv—B&V¦V7FVB†F"çVW'’€¢$”å4U%B”åDòv&vU÷v÷&¶f÷&6U÷66†VGVÆW2‡FVæçEö–BÇv÷&¶f÷&6U÷&öf–ÆUö–BÆ'&æ6…ö–BÆF•ööe÷vVV²Ç7F'G5öBÆVæG5öBÆVffV7F—fUög&öÒÆ7&VFVEö'•÷W6W%ö–B’dÅTU2‚CÂC"ÂC2ÃÂsƒ£rÂss£rÂs##bÓÓrÂvFÖ–âÖr’"À¢µBæÅæ#Ä"æÒÀ¢’“°¢76W'BæÖF6‚†f÷&V–vãòæÖW76vRÇÂrrÂõtõ$´dõ$4Uõ44„TETÄUôUD„õ$•E•ô”ådÄ”Bò“° ¢6öç7Bw&öæu6—FRÒv—B&V¦V7FVB†F"çVW'’€¢$”å4U%B”åDòv&vU÷v÷&¶f÷&6U÷66†VGVÆW2‡FVæçEö–BÇv÷&¶f÷&6U÷&öf–ÆUö–BÆ'&æ6…ö–BÆF•ööe÷vVV²Ç7F'G5öBÆVæG5öBÆVffV7F—fUög&öÒÆ7&VFVEö'•÷W6W%ö–B’dÅTU2‚CÂC"ÂC2ÃÂsƒ£rÂss£rÂs##bÓÓrÂvFÖ–âÖr’"À¢µBæÅæ"Ä"æ%ÒÀ¢’“°¢76W'BæÖF6‚‡w&öæu6—FSòæÖW76vRÇÂrrÂõtõ$´dõ$4Uõ44„TETÄUôUD„õ$•E•ô”ådÄ”Bò“°§Ò“°  §FW7B‚v6öæf–wW&F–öâ%27V66W72F‡2w&—FRW†7FÇ’öæR&÷VæFVBGG&–'WF&ÆRVF—BV6‚rÂ7–æ2‚’Óâ°¢76W'BæWVÂ‚†v—BVF—E&÷w2‚tt$tUô%$ä4…õ44„TETÄ”äuõUDDTBr’’æÆVæwF‚Â“°¢6öç7B'&æ6…&W7VÇBÒv—BF"çVW'’€¢u4TÄT5B¢e$ôÒv&vUö÷35÷W6W'Eö'&æ6…÷66†VGVÆ–æu÷6WGF–æw2‚CÂC"ÂC2ÂCBÂCRÂCb’rÀ¢µBæÄ"æÇG'VRÃÃ3ÂvFÖ–âÖuÒÀ¢“°¢76W'BæWVÂ†'&æ6…&W7VÇBç&÷w5³ÒæÖ…ö6öæ7W'&VçEöö–çFÛkºwµçH”“ÓHØ\˜YÙWİÛÜšÙ›Ü˜ÙWİ[˜]˜Z[Xš[]HÒT‘H[˜[ÚYIHS‘ÛÜšÙ›Ü˜ÙWÜ›Ùš[WÚYIˆS‘İ\×Ø]IÈS‘[™×Ø]I	ËˆÕ˜K˜LK\™Ù]İ\\™Ù][™Kˆ
-JKœ›İÜÖÌK›ÂˆÛÛœİ]Y]Ûİ[™Y›Ü™HH
-]ØZ]]Y]›İÜÊ	ÑĞTQÑWÕÓÔ’Ñ“ÔÑWÕSURSP’SUWĞÒS‘ÑQ	ÊJK›[™İÂ‚ˆ]ØZ]›Ü˜ÙP]Y]˜Z[\™J	ÑĞTQÑWÕÓÔ’Ñ“ÔÑWÕSURSP’SUWĞÒS‘ÑQ	ÊNÂˆÛÛœİ\œ›ÜˆH]ØZ]™Z™XİY
-‹œ]Y\Jˆ	ÔÑSPÕ
-ˆ”“ÓHØ\˜YÙWÛÜÌ×ØYİÛÜšÙ›Ü˜ÙWİ[˜]˜Z[Xš[]J	K	‹	Ë		K	ŠIËˆÕ˜K˜LK\™Ù]İ\\™Ù][™	ÛX]™IË	ØYZ[‹XI×Kˆ
-JNÂˆ]ØZ]ÛX\]Y]˜Z[\™J
-NÂˆ\ÜÙ\›X]Ú
-\œ›ÜË›Y\ÜØYÙH	ÉËÓÔÌ×ÕTÕĞUQUÑRST‘KÊNÂ‚ˆÛÛœİY\ˆH
-]ØZ]‹œ]Y\Jˆ	ÔÑSPÕÛİ[
+    "RETURN NEW; END $; " +
+    "CREATE TRIGGER trg_ops03_test_fail_audit BEFORE INSERT ON trust_audit_events " +
+    "FOR EACH ROW EXECUTE FUNCTION garage_ops03_test_fail_audit();"
+  );
+}
 
-ŠNš[ˆ”“ÓHØ\˜YÙWİÛÜšÙ›Ü˜ÙWİ[˜]˜Z[Xš[]HÒT‘H[˜[ÚYIHS‘ÛÜšÙ›Ü˜ÙWÜ›Ùš[WÚYIˆS‘İ\×Ø]IÈS‘[™×Ø]I	ËˆÕ˜K˜LK\™Ù]İ\\™Ù][™Kˆ
-JKœ›İÜÖÌK›Âˆ\ÜÙ\™\]X[
-Y\‹™Y›Ü™JNÂˆ\ÜÙ\™\]X[
+async function clearAuditFailure() {
+  await db.exec('DROP TRIGGER IF EXISTS trg_ops03_test_fail_audit ON trust_audit_events');
+  await db.exec('DROP FUNCTION IF EXISTS garage_ops03_test_fail_audit()');
+}
 
-]ØZ]]Y]›İÜÊ	ÑĞTQÑWÕÓÔ’Ñ“ÔÑWÕSURSP’SUWĞÒS‘ÑQ	ÊJK›[™İ]Y]Ûİ[™Y›Ü™JNÂŸJNÂ‚\İ
-	İ[Y^›Û™KÜ[š[™Èİ\œÈ[™Ûİ™XÚ\Ú[Ûˆ\™H[™›Ü˜ÙYœ›ÛH™XÛÜ™YÚ]H]	Ë\Ş[˜È
+async function auditRows(eventType) {
+  return (await db.query(
+    'SELECT event_type,previous_value,new_value,actor_user_id,actor_role,actor_tenant_id,actor_type,source_route FROM trust_audit_events WHERE event_type=$1 ORDER BY created_at,id',
+    [eventType],
+  )).rows;
+}
+async function requestAppointment(caseId, actor, start = SLOT_START, end = SLOT_END, branch = B.a1) {
+  return db.query(
+    'SELECT * FROM garage_ops03_request_appointment($1,$2,$3,$4,$5)',
+    [caseId, branch, start, end, actor],
+  );
+}
+async function confirmAppointment(appointmentId, workforceProfileId, start = SLOT_START, end = SLOT_END, branch = B.a1) {
+  return db.query(
+    'SELECT * FROM garage_ops03_confirm_appointment($1,$2,$3,$4,$5,$6,$7)',
+    [T.a, appointmentId, branch, start, end, workforceProfileId, 'admin-a'],
+  );
+}
+async function appointmentId(result) { return result.rows[0].id; }
 
-HOˆÂˆÛÛœİİ]ÚYHH]ØZ]™Z™XİY
-‹œ]Y\Jˆ	ÔÑSPÕ
-ˆ”“ÓHØ\˜YÙWÛÜÌ×Ù]˜[X]WÚ[\˜[
-	K	‹	Ë	•S
-IËˆÕ˜K‹˜LK	ÌŒ‹LLL•NŒŒ‰Ë	ÌŒ‹LLL•ŒŒ‰×Kˆ
-JNÂˆ\ÜÙ\›X]Ú
-İ]ÚYOË›Y\ÜØYÙH	ÉËÓÕUÒQWÓÔS’S‘×ÒÕT”ËÊNÂˆÛÛœİZ\Ø[YÛ™YH]ØZ]™Z™XİY
-‹œ]Y\Jˆ	ÔÑSPÕ
-ˆ”“ÓHØ\˜YÙWÛÜÌ×Ù]˜[X]WÚ[\˜[
-	K	‹	Ë	•S
-IËˆÕ˜K‹˜LK	ÌŒ‹LLL•ŒLŒ‰Ë	ÌŒ­®éÜj×],
+before(async () => {
+  db = await createGmoDatabase();
+  for (const file of [
+    '20261004180000_service_network_s1_garage_identity.sql',
+    '20261004180100_service_network_s2_service_cases.sql',
+    '009_phase4_schema.sql',
+    '20261004180300_service_network_s4_work_order_assignment.sql',
+    '20261004180400_service_network_s5_service_records.sql',
+    '20261022130000_garage_ops01_multisite_workforce.sql',
+  ]) await db.exec(migrationUpSql(file));
+
+  const communications = readFileSync(
+    path.join(MIGRATIONS_DIR, '20260623143000_omnichannel_communication_engine.sql'), 'utf8',
+  );
+  const channelStart = communications.indexOf('CREATE TABLE IF NOT EXISTS channel_identities (');
+  const channelEnd = communications.indexOf(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_identities_unique', channelStart,
+  );
+  assert.ok(channelStart >= 0 && channelEnd > channelStart);
+  await db.exec(communications.slice(channelStart, channelEnd));
+
+  for (const id of ['admin-a','admin-b','customer-a','customer-b','mech-a','mech-b','mech-c']) {
+    await db.query(
+      "INSERT INTO users (id,name,email,role,join_date) VALUES ($1,$1,$2,'owner','2026-01-01')",
+      [id, id + '@example.invalid'],
+    );
+  }
+  T.a = (await db.query(
+    "INSERT INTO tenants (name,type,status) VALUES ('Garage A','garage','active') RETURNING id",
+  )).rows[0].id;
+  T.b = (await db.query(
+    "INSERT INTO tenants (name,type,status) VALUES ('Garage B','garage','active') RETURNING id",
+  )).rows[0].id;
+  for (const row of [
+    [T.a,'admin-a','admin'], [T.a,'mech-a','admin'], [T.a,'mech-b','admin'],
+    [T.b,'admin-b','admin'], [T.b,'mech-c','admin'],
+  ]) await db.query('INSERT INTO tenant_users (tenant_id,user_id,role) VALUES ($1,$2,$3)', row);
+
+  await db.query(
+    "INSERT INTO vehicles (vin,make,model,year,mileage,price,owner_id) VALUES ('OPS03VIN000000001','Toyota','Corolla',2020,50000,1000,'customer-a')",
+  );
+  await db.query(
+    "INSERT INTO vehicles (vin,make,model,year,mileage,price,owner_id) VALUES ('OPS03VIN000000002','Honda','Fit',2021,30000,1100,'customer-b')",
+  );
+
+  B.a1 = (await db.query(
+    "INSERT INTO garage_branches (tenant_id,name,branch_code,timezone,is_active) VALUES ($1,'A Central','A-CENTRAL','Africa/Harare',true) RETURNING id",
+    [T.a],
+  )).rows[0].id;
+  B.a2 = (await db.query(
+    "INSERT INTO garage_branches (tenant_id,name,branch_code,timezone,is_active) VALUES ($1,'A North','A-NORTH','Africa/Harare',true) RETURNING id",
+    [T.a],
+  )).rows[0].id;
+  B.b1 = (await db.query(
+    "INSERT INTO garage_branches (tenant_id,name,branch_code,timezone,is_active) VALUES ($1,'B Central','B-CENTRAL','Africa/Harare',true) RETURNING id",
+    [T.b],
+  )).rows[0].id;
+  for (const [tenant, branch] of [[T.a,B.a1],[T.a,B.a2],[T.b,B.b1]]) {
+    await db.query(
+      "INSERT INTO garage_branch_opening_hours (tenant_id,branch_id,day_of_week,is_closed,opens_at,closes_at) VALUES ($1,$2,1,false,'08:00','17:00')",
+      [tenant, branch],
+    );
+  }
+
+  P.a1 = (await db.query(
+    "INSERT INTO garage_workforce_profiles (tenant_id,user_id,staff_code,employment_classification,employment_status,start_date,created_by_user_id) VALUES ($1,'mech-a','MECH-A','employee','active','2026-10-01','admin-a') RETURNING id",
+    [T.a],
+  )).rows[0].id;
+  P.a2 = (await db.query(
+    "INSERT INTO garage_workforce_profiles (tenant_id,user_id,staff_code,employment_classification,employment_status,start_date,created_by_user_id) VALUES ($1,'mech-b','MECH-B','employee','active','2026-10-01','admin-a') RETURNING id",
+    [T.a],
+  )).rows[0].id;
+  P.b1 = (await db.query(
+    "INSERT INTO garage_workforce_profiles (tenant_id,user_id,staff_code,employment_classification,employment_status,start_date,created_by_user_id) VALUES ($1,'mech-c','MECH-C','employee','active','2026-10-01','admin-b') RETURNING id",
+    [T.b],
+  )).rows[0].id;
+  for (const [tenant, profile, branch, actor] of [
+    [T.a,P.a1,B.a1,'admin-a'], [T.a,P.a1,B.a2,'admin-a'], [T.a,P.a2,B.a1,'admin-a'],
+    [T.b,P.b1,B.b1,'admin-b'],
+  ]) {
+    await db.query(
+      'INSERT INTO garage_workforce_branch_assignments (tenant_id,workforce_profile_id,branch_id,is_primary,assigned_by_user_id) VALUES ($1,$2,$3,$4,$5)',
+      [tenant, profile, branch, branch === B.a1 || branch === B.b1, actor],
+    );
+  }
+
+  // OPS01 requires a mechanic's active workforce profile to have a live primary site. Build the
+  // profile/assignment while the member is still admin, then adopt the mechanic role.
+  await db.query("UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id IN ('mech-a','mech-b')", [T.a]);
+  await db.query("UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id='mech-c'", [T.b]);
+
+  C.a1 = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.a,B.a1],
+  )).rows[0].id;
+  C.a2 = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000002',$1,$2,'customer-b','accepted') RETURNING id",
+    [T.a,B.a1],
+  )).rows[0].id;
+  C.a3 = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.a,B.a1],
+  )).rows[0].id;
+  C.a4 = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000002',$1,$2,'customer-b','accepted') RETURNING id",
+    [T.a,B.a1],
+  )).rows[0].id;
+  C.b1 = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.b,B.b1],
+  )).rows[0].id;
+
+  await db.exec(migrationUpSql(OPS02));
+  await db.exec(migrationUpSql(OPS03));
+  await db.exec(migrationUpSql(OPS03));
+});
+after(async () => { await db?.close(); });
+
+test('OPS03 migration is replay-safe, private and least-privilege', async () => {
+  for (const table of [
+    'garage_branch_scheduling_settings','garage_workforce_schedules',
+    'garage_workforce_unavailability','garage_appointments','garage_appointment_events',
+  ]) {
+    const { rows: [rls] } = await db.query(
+      "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname=$1", [table],
+    );
+    assert.deepEqual(rls, { relrowsecurity: true, relforcerowsecurity: true });
+    const { rows: [p] } = await db.query(
+      "SELECT has_table_privilege('anon',$1,'SELECT') anon_read, has_table_privilege('authenticated',$1,'SELECT') auth_read, has_table_privilege('service_role',$1,'SELECT') service_read, has_table_privilege('service_role',$1,'DELETE') service_delete",
+      [table],
+    );
+    assert.equal(p.anon_read, false);
+    assert.equal(p.auth_read, false);
+    assert.equal(p.service_read, true);
+    assert.equal(p.service_delete, false);
+  }
+  for (const signature of [
+    'garage_ops03_confirm_appointment(uuid,uuid,uuid,timestamptz,timestamptz,uuid,text)',
+    'garage_ops03_upsert_branch_scheduling_settings(uuid,uuid,boolean,integer,integer,text)',
+    'garage_ops03_add_workforce_schedule(uuid,uuid,uuid,integer,time without time zone,time without time zone,date,date,text)',
+    'garage_ops03_add_workforce_unavailability(uuid,uuid,timestamptz,timestamptz,text,text)',
+  ]) {
+    const { rows: [rpc] } = await db.query(
+      "SELECT has_function_privilege('anon',$1,'EXECUTE') anon, " +
+      "has_function_privilege('authenticated',$1,'EXECUTE') auth, " +
+      "has_function_privilege('service_role',$1,'EXECUTE') service, " +
+      "EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL " +
+      "aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) acl " +
+      "WHERE p.oid = $1::regprocedure AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') public_execute",
+      [signature],
+    );
+    assert.deepEqual(rpc, { anon: false, auth: false, service: true, public_execute: false }, signature);
+  }
+});
+
+test('unconfigured capacity and unscheduled workforce remain unavailable rather than fabricated', async () => {
+  let error = await rejected(db.query(
+    'SELECT * FROM garage_ops03_list_availability($1,$2,$3,$4,$5)',
+    [T.a,C.a1,B.a1,'2026-10-26',60],
+  ));
+  assert.match(error?.message || '', /SCHEDULING_NOT_CONFIGURED/);
+
+  await db.query(
+    'INSERT INTO garage_branch_scheduling_settings (branch_id,tenant_id,scheduling_enabled,max_concurrent_appointments,slot_interval_minutes,updated_by_user_id) VALUES ($1,$2,true,1,30,$3)',
+    [B.a1,T.a,'admin-a'],
+  );
+  const noSchedule = await db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a1,SLOT_START,SLOT_END],
+  );
+  assert.equal(noSchedule.rows[0].available_count, 0, 'a branch assignment alone contributes zero known capacity');
+
+  for (const profile of [P.a1,P.a2]) {
+    await db.query(
+      "INSERT INTO garage_workforce_schedules (tenant_id,workforce_profile_id,branch_id,day_of_week,starts_at,ends_at,effective_from,created_by_user_id) VALUES ($1,$2,$3,1,'08:00','17:00','2026-10-01','admin-a')",
+      [T.a,profile,B.a1],
+    );
+  }
+  const configured = await db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a1,SLOT_START,SLOT_END],
+  );
+  assert.equal(configured.rows[0].max_concurrent_appointments, 1);
+  assert.equal(configured.rows[0].available_count, 1, 'explicit branch capacity limits otherwise-eligible staff');
+});
+
+test('work schedules require same-Garage active workforce, active site and live branch relationship', async () => {
+  const foreign = await rejected(db.query(
+    "INSERT INTO garage_workforce_schedules (tenant_id,workforce_profile_id,branch_id,day_of_week,starts_at,ends_at,effective_from,created_by_user_id) VALUES ($1,$2,$3,1,'08:00','17:00','2026-10-01','admin-a')",
+    [T.a,P.b1,B.a1],
+  ));
+  assert.match(foreign?.message || '', /WORKFORCE_SCHEDULE_AUTHORITY_INVALID/);
+
+  const wrongSite = await rejected(db.query(
+    "INSERT INTO garage_workforce_schedules (tenant_id,workforce_profile_id,branch_id,day_of_week,starts_at,ends_at,effective_from,created_by_user_id) VALUES ($1,$2,$3,1,'08:00','17:00','2026-10-01','admin-a')",
+    [T.a,P.a2,B.a2],
+  ));
+  assert.match(wrongSite?.message || '', /WORKFORCE_SCHEDULE_AUTHORITY_INVALID/);
+});
+
+
+test('configuration RPC success paths write exactly one bounded attributable audit each', async () => {
+  assert.equal((await auditRows('GARAGE_BRANCH_SCHEDULING_UPDATED')).length, 0);
+  const branchResult = await db.query(
+    'SELECT * FROM garage_ops03_upsert_branch_scheduling_settings($1,$2,$3,$4,$5,$6)',
+    [T.a,B.a1,true,1,30,'admin-a'],
+  );
+  assert.equal(branchResult.rows[0].max_concurrent_appointments, 1);
+  const branchAudit = await auditRows('GARAGE_BRANCH_SCHEDULING_UPDATED');
+  assert.equal(branchAudit.length, 1);
+  assert.equal(branchAudit[0].actor_user_id, 'admin-a');
+  assert.equal(branchAudit[0].actor_role, 'owner');
+  assert.equal(branchAudit[0].actor_tenant_id, T.a);
+  assert.equal(branchAudit[0].actor_type, 'user');
+  assert.equal(branchAudit[0].source_route, '/api/garage/schedule/sites/:siteId/settings');
+  assert.equal(branchAudit[0].new_value.max_concurrent_appointments, 1);
+
+  const scheduleResult = await db.query(
+    'SELECT * FROM garage_ops03_add_workforce_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [T.a,P.a1,B.a1,2,'08:00','17:00','2026-10-01',null,'admin-a'],
+  );
+  assert.equal(scheduleResult.rows[0].workforce_profile_id, P.a1);
+  const scheduleAudit = await auditRows('GARAGE_WORKFORCE_SCHEDULE_UPDATED');
+  assert.equal(scheduleAudit.length, 1);
+  assert.equal(scheduleAudit[0].actor_user_id, 'admin-a');
+  assert.equal(scheduleAudit[0].actor_role, 'owner');
+  assert.equal(scheduleAudit[0].actor_tenant_id, T.a);
+  assert.equal(scheduleAudit[0].actor_type, 'user');
+  assert.equal(scheduleAudit[0].source_route, '/api/garage/schedule/workforce/:userId/recurring');
+  assert.equal(scheduleAudit[0].new_value.workforce_profile_id, P.a1);
+
+  const unavailableResult = await db.query(
+    'SELECT * FROM garage_ops03_add_workforce_unavailability($1,$2,$3,$4,$5,$6)',
+    [T.a,P.a1,'2026-10-28T08:00:00Z','2026-10-28T09:00:00Z','training','admin-a'],
+  );
+  assert.equal(unavailableResult.rows[0].workforce_profile_id, P.a1);
+  const unavailableAudit = await auditRows('GARAGE_WORKFORCE_UNAVAILABILITY_CHANGED');
+  assert.equal(unavailableAudit.length, 1);
+  assert.equal(unavailableAudit[0].actor_user_id, 'admin-a');
+  assert.equal(unavailableAudit[0].actor_role, 'owner');
+  assert.equal(unavailableAudit[0].actor_tenant_id, T.a);
+  assert.equal(unavailableAudit[0].actor_type, 'user');
+  assert.equal(unavailableAudit[0].source_route, '/api/garage/schedule/workforce/:userId/unavailability');
+  assert.equal(unavailableAudit[0].new_value.reason_code, 'training');
+});
+
+test('branch settings rollback when authoritative audit persistence fails', async () => {
+  const before = (await db.query(
+    'SELECT * FROM garage_branch_scheduling_settings WHERE tenant_id=$1 AND branch_id=$2',
+    [T.a,B.a1],
+  )).rows[0];
+  const auditCountBefore = (await auditRows('GARAGE_BRANCH_SCHEDULING_UPDATED')).length;
+
+  await forceAuditFailure('GARAGE_BRANCH_SCHEDULING_UPDATED');
+  const error = await rejected(db.query(
+    'SELECT * FROM garage_ops03_upsert_branch_scheduling_settings($1,$2,$3,$4,$5,$6)',
+    [T.a,B.a1,true,9,30,'admin-a'],
+  ));
+  await clearAuditFailure();
+  assert.match(error?.message || '', /OPS03_TEST_AUDIT_FAILURE/);
+
+  const after = (await db.query(
+    'SELECT * FROM garage_branch_scheduling_settings WHERE tenant_id=$1 AND branch_id=$2',
+    [T.a,B.a1],
+  )).rows[0];
+  assert.deepEqual(after, before, 'audit failure rolls the settings update back completely');
+  assert.equal((await auditRows('GARAGE_BRANCH_SCHEDULING_UPDATED')).length, auditCountBefore);
+});
+
+test('workforce schedule creation rolls back when authoritative audit persistence fails', async () => {
+  const before = (await db.query(
+    'SELECT count(*)::int n FROM garage_workforce_schedules WHERE tenant_id=$1 AND workforce_profile_id=$2 AND branch_id=$3 AND day_of_week=3',
+    [T.a,P.a1,B.a1],
+  )).rows[0].n;
+  const auditCountBefore = (await auditRows('GARAGE_WORKFORCE_SCHEDULE_UPDATED')).length;
+
+  await forceAuditFailure('GARAGE_WORKFORCE_SCHEDULE_UPDATED');
+  const error = await rejected(db.query(
+    'SELECT * FROM garage_ops03_add_workforce_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [T.a,P.a1,B.a1,3,'08:00','17:00','2026-10-01',null,'admin-a'],
+  ));
+  await clearAuditFailure();
+  assert.match(error?.message || '', /OPS03_TEST_AUDIT_FAILURE/);
+
+  const after = (await db.query(
+    'SELECT count(*)::int n FROM garage_workforce_schedules WHERE tenant_id=$1 AND workforce_profile_id=$2 AND branch_id=$3 AND day_of_week=3',
+    [T.a,P.a1,B.a1],
+  )).rows[0].n;
+  assert.equal(after, before);
+  assert.equal((await auditRows('GARAGE_WORKFORCE_SCHEDULE_UPDATED')).length, auditCountBefore);
+});
+
+test('workforce unavailability creation rolls back when authoritative audit persistence fails', async () => {
+  const targetStart = '2026-10-29T08:00:00Z';
+  const targetEnd = '2026-10-29T09:00:00Z';
+  const before = (await db.query(
+    'SELECT count(*)::int n FROM garage_workforce_unavailability WHERE tenant_id=$1 AND workforce_profile_id=$2 AND starts_at=$3 AND ends_at=$4',
+    [T.a,P.a1,targetStart,targetEnd],
+  )).rows[0].n;
+  const auditCountBefore = (await auditRows('GARAGE_WORKFORCE_UNAVAILABILITY_CHANGED')).length;
+
+  await forceAuditFailure('GARAGE_WORKFORCE_UNAVAILABILITY_CHANGED');
+  const error = await rejected(db.query(
+    'SELECT * FROM garage_ops03_add_workforce_unavailability($1,$2,$3,$4,$5,$6)',
+    [T.a,P.a1,targetStart,targetEnd,'leave','admin-a'],
+  ));
+  await clearAuditFailure();
+  assert.match(error?.message || '', /OPS03_TEST_AUDIT_FAILURE/);
+
+  const after = (await db.query(
+    'SELECT count(*)::int n FROM garage_workforce_unavailability WHERE tenant_id=$1 AND workforce_profile_id=$2 AND starts_at=$3 AND ends_at=$4',
+    [T.a,P.a1,targetStart,targetEnd],
+  )).rows[0].n;
+  assert.equal(after, before);
+  assert.equal((await auditRows('GARAGE_WORKFORCE_UNAVAILABILITY_CHANGED')).length, auditCountBefore);
+});
+
+test('timezone, opening hours and slot precision are enforced from recorded site truth', async () => {
+  const outside = await rejected(db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a1,'2026-10-26T05:00:00Z','2026-10-26T06:00:00Z'],
+  ));
+  assert.match(outside?.message || '', /OUTSIDE_OPENING_HOURS/);
+  const misaligned = await rejected(db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a1,'2026-10-26T08:10:00Z','2026-10-26T09:10:00Z'],
+  ));
+  assert.match(misaligned?.message || '', /SLOT_INTERVAL_MISMATCH/);
+
+  await db.query('UPDATE garage_branches SET timezone=NULL WHERE id=$1', [B.a2]);
+  await db.query(
+    'INSERT INTO garage_branch_scheduling_settings (branch_id,tenant_id,scheduling_enabled,max_concurrent_appointments,slot_interval_minutes,updated_by_user_id) VALUES ($1,$2,true,1,30,$3)',
+    [B.a2,T.a,'admin-a'],
+  );
+  const missingTz = await rejected(db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a2,SLOT_START,SLOT_END],
+  ));
+  assert.match(missingTz?.message || '', /SCHEDULE_TIMEZONE_NOT_CONFIGURED/);
+});
+
+test('unavailability removes only explicitly affected workforce from capacity', async () => {
+  await db.query(
+    "INSERT INTO garage_workforce_unavailability (tenant_id,workforce_profile_id,starts_at,ends_at,reason_code,created_by_user_id) VALUES ($1,$2,$3,$4,'training','admin-a')",
+    [T.a,P.a1,SLOT_START,SLOT_END],
+  );
+  const withOneUnavailable = await db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a1,SLOT_START,SLOT_END],
+  );
+  assert.equal(withOneUnavailable.rows[0].available_count, 1);
+  assert.deepEqual(withOneUnavailable.rows[0].available_workforce_profile_ids, [P.a2]);
+  await db.query(
+    "UPDATE garage_workforce_unavailability SET starts_at='2026-10-27T08:00:00Z', ends_at='2026-10-27T09:00:00Z' WHERE workforce_profile_id=$1",
+    [P.a1],
+  );
+});
+
+test('a requester can request only their Service Case and requests do not reserve confirmed capacity', async () => {
+  const wrongRequester = await rejected(requestAppointment(C.a1, 'customer-b'));
+  assert.match(wrongRequester?.message || '', /SERVICE_CASE_NOT_OWNED/);
+
+  const first = await requestAppointment(C.a1, 'customer-a');
+  const second = await requestAppointment(C.a2, 'customer-b');
+  assert.equal(first.rows[0].status, 'requested');
+  assert.equal(second.rows[0].status, 'requested');
+
+  const stillAvailable = await db.query(
+    'SELECT * FROM garage_ops03_evaluate_interval($1,$2,$3,$4,NULL)',
+    [T.a,B.a1,SLOT_START,SLOT_END],
+  );
+  assert.equal(stillAvailable.rows[0].booked_count, 0);
+  assert.equal(stillAvailable.rows[0].available_count, 1);
+
+  C.appt1 = await appointmentId(first);
+  C.appt2 = await appointmentId(second);
+  const duplicate = await rejected(requestAppointment(C.a1, 'customer-a'));
+  assert.match(duplicate?.message || '', /LIVE_APPOINTMENT_EXISTS/);
+});
+
+test('concurrent final-slot confirmations produce one winner and capacity release enables the waiting request', async () => {
+  const attempts = await Promise.allSettled([
+    confirmAppointment(C.appt1, P.a1),
+    confirmAppointment(C.appt2, P.a2),
+  ]);
+  const won = attempts.filter((x) => x.status === 'fulfilled');
+  const lost = attempts.filter((x) => x.status === 'rejected');
+  assert.equal(won.length, 1, 'exactly one confirmation claims the final branch slot');
+  assert.equal(lost.length, 1);
+  assert.match(String(lost[0].reason?.message || ''), /CAPACITY_EXHAUSTED|CAPACITY/);
+
+  const confirmed = (await db.query(
+    "SELECT id FROM garage_appointments WHERE id IN ($1,$2) AND status='confirmed'",
+    [C.appt1,C.appt2],
+  )).rows[0].id;
+  const requested = confirmed === C.appt1 ? C.appt2 : C.appt1;
+  C.capacityWinner = confirmed;
+  C.capacityWaiting = requested;
+
+  const loserState = (await db.query(
+    'SELECT status FROM garage_appointments WHERE id=$1', [requested],
+  )).rows[0].status;
+  assert.equal(loserState, 'requested', 'failed confirmation is atomic');
+  assert.equal(
+    (await db.query(
+      "SELECT count(*)::int n FROM garage_appointment_events WHERE appointment_id=$1 AND event_type='confirmed'",
+      [requested],
+    )).rows[0].n,
+    0,
+    'failed confirmation writes no false confirmation history',
+  );
+
+  await db.query(
+    "SELECT garage_ops03_transition_appointment($1,'cancelled','admin-a','garage',$2)",
+    [confirmed,T.a],
+  );
+  const waitingWorker = requested === C.appt1 ? P.a1 : P.a2;
+  const afterRelease = await confirmAppointment(requested, waitingWorker);
+  assert.equal(afterRelease.rows[0].status, 'confirmed', 'cancelled confirmed appointment releases capacity');
+  C.confirmedAfterRelease = requested;
+});
+
+test('same mechanic cannot be confirmed twice at overlapping times even when branch capacity allows two', async () => {
+  await db.query(
+    'UPDATE garage_branch_scheduling_settings SET max_concurrent_appointments=2 WHERE branch_id=$1',
+    [B.a1],
   );
   await db.query(
     "SELECT garage_ops03_transition_appointment($1,'cancelled','admin-a','garage',$2)",
@@ -93,4 +521,155 @@ test('failed reschedule is atomic and writes no false rescheduled event', async 
     [C.mechanicWinner],
   )).rows[0];
   const eventsBefore = (await db.query(
-    "SELECT count(*)::int n FROM garage_appointment_events WHERE appointment_id=$1 AND¶»§q«^u…•}…ÁÁ½¥¹Ñµ•¹Ñ}•Ù•¹ÑÌ]!I¥ôÄœ±m•Ù•¹Ğ¹¥‘t¤¤¤ü¹µ•ÍÍ…”ñğ€œœ°€½AA9}=91d¼¤ì((€½¹ÍĞ…Õ‘¥ÑI½İÌ€ô€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€‰M1P•Ù•¹Ñ}ÑåÁ”±ÁÉ•Ù¥½ÕÍ}Ù…±Õ”±¹•İ}Ù…±Õ”I=4ÑÉÕÍÑ}…Õ‘¥Ñ}•Ù•¹ÑÌ]!I•Ù•¹Ñ}ÑåÁ”1%-€I}AA=%9Q59Q|”œˆ°(€€¤¤¹É½İÌì(€…ÍÍ•ÉĞ¹½¬¡…Õ‘¥ÑI½İÌ¹±•¹Ñ €ø€À¤ì(€…ÍÍ•ÉĞ¹•ÅÕ…°¡)M=8¹ÍÑÉ¥¹¥™ä¡…Õ‘¥ÑI½İÌ¤¹¥¹±Õ‘•Ì É•ÅÕ•ÍÑ}ÍÕµµ…Éäœ¤°™…±Í”¤ì)ô¤ì()Ñ•ÍĞ ½¹™¥Éµ•Í¡•‘Õ±¥¹œÁÉ•Í•ÉÙ•ÌM•ÉÙ¥”…Í”°İ½É¬µ½É‘•È…ÍÍ¥¹µ•¹Ğ…¹Ù•¡¥±”…ÕÑ¡½É¥Ñäœ°…Íå¹Œ€ ¤€ôøì(€½¹ÍĞÍ•ÉÙ¥•…Í•Ì€ô€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€M1P¥±ÍÑ…ÑÕÌ±Ù¥¸±É•ÅÕ•ÍÑ•É}ÕÍ•É}¥I=4Í•ÉÙ¥•}…Í•Ì]!I¥%8€ Ä°È¤=IH	d¥œ°(€€€m¹„Ä±¹„Ét°(€€¤¤¹É½İÌì(€…ÍÍ•ÉĞ¹½¬¡Í•ÉÙ¥•…Í•Ì¹•Ù•Éä ¡à¤€ôøà¹ÍÑ…ÑÕÌ€ôôô€…•ÁÑ•œ¤¤ì(€…ÍÍ•ÉĞ¹•ÅÕ…° (€€€€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä ‰M1P½İ¹•É}¥I=4Ù•¡¥±•Ì]!IÙ¥¸ô=ALÀÍY%8ÀÀÀÀÀÀÀÀÄœˆ¤¤¹É½İÍlÁt¹½İ¹•É}¥°(€€€€ÕÍÑ½µ•Èµ„œ°(€€¤ì(€½¹ÍĞİ½É­ÍÍ¥¹µ•¹ÑÌ€ô€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä M1P½Õ¹Ğ ¨¤èé¥¹Ğ¸I=4İ½É­}½É‘•É}…ÍÍ¥¹µ•¹ÑÌœ¤¤¹É½İÍlÁt¹¸ì(€…ÍÍ•ÉĞ¹•ÅÕ…°¡İ½É­ÍÍ¥¹µ•¹ÑÌ°€À°€…ÁÁ½¥¹Ñµ•¹ĞÁ±…¹¹¥¹œ¹•Ù•Èµ…¹Õ™…ÑÕÉ•Ì•á•ÕÑ¥½¸…ÍÍ¥¹µ•¹Ğœ¤ì)ô¤ì()Ñ•ÍĞ ™ÕÑÕÉ”½¹™¥Éµ•…ÁÁ½¥¹Ñµ•¹ÑÌ‰±½¬Í¥±•¹Ğ=ALÀÄÍ¥Ñ”½İ½É­™½É”‘•…Ñ¥Ù…Ñ¥½¸œ°…Íå¹Œ€ ¤€ôøì(€½¹ÍĞ½Á•¹…Í”€ô€¡…İ…¥Ğ‘ˆ¹ÅÕ•Éä (€€€€‰%9MIP%9Q<Í•ÉÙ¥•}…Í•Ì€¡Ù¥¸±…É…•}Ñ•¹…¹Ñ}¥±‰É…¹¡}¥±É•ÅÕ•ÍÑ•É}ÕÍ•É}¥±ÍÑ…ÑÕÌ¤Y1UL€ =ALÀÍY%8ÀÀÀÀÀÀÀÀÄœ°Ä°È°ÕÍÑ½µ•Èµ„œ°…•ÁÑ•œ¤IQUI9%9¥ˆ°(€€€mP¹„±¹„Åt°(€€¤¤¹É½İÍlÁt¹¥ì(€½¹ÍĞÉ•ÅÕ•ÍĞ€ô…İ…¥ĞÉ•ÅÕ•ÍÑÁÁ½¥¹Ñµ•¹Ğ¡½Á•¹…Í”°ÕÍÑ½µ•Èµ„œ°œÈÀÈØ´ÄÀ´ÈÙPÄĞèÀÀèÀÁhœ°œÈÀÈØ´ÄÀ´ÈÙPÄÔèÀÀêÚîÆ­y
+    "SELECT count(*)::int n FROM garage_appointment_events WHERE appointment_id=$1 AND event_type='rescheduled'",
+    [C.mechanicWinner],
+  )).rows[0].n;
+  const failure = await rejected(db.query(
+    'SELECT garage_ops03_reschedule_appointment($1,$2,$3,$4,$5,$6,$7)',
+    [T.a,C.mechanicWinner,B.a1,'2026-10-26T18:00:00Z','2026-10-26T19:00:00Z',P.a1,'admin-a'],
+  ));
+  assert.match(failure?.message || '', /OUTSIDE_OPENING_HOURS/);
+  const afterRow = (await db.query(
+    'SELECT status,branch_id,starts_at,ends_at,planned_workforce_profile_id FROM garage_appointments WHERE id=$1',
+    [C.mechanicWinner],
+  )).rows[0];
+  assert.deepEqual(afterRow, before);
+  const eventsAfter = (await db.query(
+    "SELECT count(*)::int n FROM garage_appointment_events WHERE appointment_id=$1 AND event_type='rescheduled'",
+    [C.mechanicWinner],
+  )).rows[0].n;
+  assert.equal(eventsAfter, eventsBefore);
+});
+
+test('terminal appointments remain historical and a new request can be created for the Service Case', async () => {
+  await db.query(
+    "SELECT garage_ops03_transition_appointment($1,'cancelled','admin-a','garage',$2)",
+    [C.mechanicWinner,T.a],
+  );
+  const reopen = await rejected(db.query(
+    "UPDATE garage_appointments SET status='requested' WHERE id=$1", [C.mechanicWinner],
+  ));
+  assert.match(reopen?.message || '', /TERMINAL_APPOINTMENT_IMMUTABLE/);
+  assert.match(
+    (await rejected(db.query(
+      "UPDATE garage_appointments SET starts_at=starts_at + interval '30 minutes' WHERE id=$1",
+      [C.mechanicWinner],
+    )))?.message || '',
+    /TERMINAL_APPOINTMENT_IMMUTABLE/,
+    'terminal schedule history cannot be rewritten in place',
+  );
+
+  const old = (await db.query('SELECT service_case_id FROM garage_appointments WHERE id=$1',[C.mechanicWinner])).rows[0];
+  const owner = (await db.query('SELECT requester_user_id FROM service_cases WHERE id=$1',[old.service_case_id])).rows[0].requester_user_id;
+  const next = await requestAppointment(old.service_case_id, owner, '2026-10-26T12:00:00Z','2026-10-26T13:00:00Z');
+  assert.equal(next.rows[0].status, 'requested');
+});
+
+test('appointment timezone is a historical snapshot across a DST-aware branch timezone change', async () => {
+  await db.query("UPDATE garage_branches SET timezone='America/New_York' WHERE id=$1", [B.a2]);
+  await db.query(
+    "INSERT INTO garage_branch_opening_hours (tenant_id,branch_id,day_of_week,is_closed,opens_at,closes_at) VALUES ($1,$2,0,false,'08:00','17:00')",
+    [T.a,B.a2],
+  );
+  await db.query(
+    "INSERT INTO garage_workforce_schedules (tenant_id,workforce_profile_id,branch_id,day_of_week,starts_at,ends_at,effective_from,created_by_user_id) VALUES ($1,$2,$3,0,'08:00','17:00','2026-10-01','admin-a')",
+    [T.a,P.a1,B.a2],
+  );
+  const caseId = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.a,B.a2],
+  )).rows[0].id;
+
+  const availability = await db.query(
+    'SELECT * FROM garage_ops03_list_availability($1,$2,$3,$4,$5)',
+    [T.a,caseId,B.a2,'2026-11-01',60],
+  );
+  assert.ok(availability.rows.length > 0);
+  assert.equal(availability.rows[0].appointment_timezone, 'America/New_York');
+  assert.equal(new Date(availability.rows[0].starts_at).toISOString(), '2026-11-01T13:00:00.000Z');
+
+  const requested = await requestAppointment(
+    caseId,'customer-a','2026-11-01T15:00:00Z','2026-11-01T16:00:00Z',B.a2,
+  );
+  const appointment = await appointmentId(requested);
+  const confirmed = await confirmAppointment(
+    appointment,P.a1,'2026-11-01T15:00:00Z','2026-11-01T16:00:00Z',B.a2,
+  );
+  assert.equal(confirmed.rows[0].appointment_timezone, 'America/New_York');
+
+  await db.query("UPDATE garage_branches SET timezone='America/Chicago' WHERE id=$1", [B.a2]);
+  const snapshot = (await db.query(
+    'SELECT appointment_timezone,starts_at,ends_at FROM garage_appointments WHERE id=$1', [appointment],
+  )).rows[0];
+  assert.equal(snapshot.appointment_timezone, 'America/New_York');
+  assert.equal(new Date(snapshot.starts_at).toISOString(), '2026-11-01T15:00:00.000Z');
+});
+
+test('appointment history is append-only and governance audit excludes Service Case free text', async () => {
+  const event = (await db.query('SELECT id FROM garage_appointment_events ORDER BY created_at LIMIT 1')).rows[0];
+  assert.match((await rejected(db.query("UPDATE garage_appointment_events SET event_type='cancelled' WHERE id=$1",[event.id])))?.message || '', /APPEND_ONLY/);
+  assert.match((await rejected(db.query('DELETE FROM garage_appointment_events WHERE id=$1',[event.id])))?.message || '', /APPEND_ONLY/);
+
+  const auditRows = (await db.query(
+    "SELECT event_type,previous_value,new_value FROM trust_audit_events WHERE event_type LIKE 'GARAGE_APPOINTMENT_%'",
+  )).rows;
+  assert.ok(auditRows.length > 0);
+  assert.equal(JSON.stringify(auditRows).includes('request_summary'), false);
+});
+
+test('confirmed scheduling preserves Service Case, work-order assignment and vehicle authority', async () => {
+  const serviceCases = (await db.query(
+    'SELECT id,status,vin,requester_user_id FROM service_cases WHERE id IN ($1,$2) ORDER BY id',
+    [C.a1,C.a2],
+  )).rows;
+  assert.ok(serviceCases.every((x) => x.status === 'accepted'));
+  assert.equal(
+    (await db.query("SELECT owner_id FROM vehicles WHERE vin='OPS03VIN000000001'")).rows[0].owner_id,
+    'customer-a',
+  );
+  const workAssignments = (await db.query('SELECT count(*)::int n FROM work_order_assignments')).rows[0].n;
+  assert.equal(workAssignments, 0, 'appointment planning never manufactures execution assignment');
+});
+
+test('future confirmed appointments block silent OPS01 site/workforce deactivation', async () => {
+  const openCase = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.a,B.a1],
+  )).rows[0].id;
+  const request = await requestAppointment(openCase,'customer-a','2026-10-26T14:00:00Z','2026-10-26T15:00:00Z');
+  const appointment = await appointmentId(request);
+  await confirmAppointment(appointment,P.a2,'2026-10-26T14:00:00Z','2026-10-26T15:00:00Z');
+
+  assert.match(
+    (await rejected(db.query('UPDATE garage_branches SET is_active=false WHERE id=$1',[B.a1])))?.message || '',
+    /BLOCK_SITE_DEACTIVATION/,
+  );
+  assert.match(
+    (await rejected(db.query("UPDATE garage_workforce_profiles SET employment_status='inactive' WHERE id=$1",[P.a2])))?.message || '',
+    /BLOCK_WORKFORCE_DEACTIVATION/,
+  );
+  assert.match(
+    (await rejected(db.query(
+      "INSERT INTO garage_workforce_unavailability (tenant_id,workforce_profile_id,starts_at,ends_at,reason_code,created_by_user_id) VALUES ($1,$2,$3,$4,'leave','admin-a')",
+      [T.a,P.a2,'2026-10-26T14:15:00Z','2026-10-26T14:45:00Z'],
+    )))?.message || '',
+    /UNAVAILABILITY_CONFLICTS_CONFIRMED_APPOINTMENT/,
+    'one-off unavailability cannot silently orphan a confirmed planned mechanic',
+  );
+});
+
+test('cross-Garage branch/workforce/service-case spoofing is database-enforced', async () => {
+  assert.match(
+    (await rejected(db.query(
+      'SELECT garage_ops03_request_appointment($1,$2,$3,$4,$5)',
+      [C.a1,B.b1,SLOT_START,SLOT_END,'customer-a'],
+    )))?.message || '',
+    /SERVICE_CASE_BRANCH_MISMATCH|ACTIVE_BRANCH_REQUIRED/,
+  );
+
+  const cross = await rejected(db.query(
+    "INSERT INTO garage_workforce_schedules (tenant_id,workforce_profile_id,branch_id,day_of_week,starts_at,ends_at,effective_from,created_by_user_id) VALUES ($1,$2,$3,1,'08:00','17:00','2026-10-01','admin-a')",
+    [T.a,P.b1,B.a1],
+  ));
+  assert.match(cross?.message || '', /AUTHORITY_INVALID/);
+});
