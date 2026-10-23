@@ -52,4 +52,4 @@ jobs:
         run: |
           set -euo pipefail
           parent=7cbad41cac7776f13e6a0d766bfb995eb2f35d1e
-          expected="${{ steps.exact_head.ouÂ¶Â»Â§qÂ«^
+          expected="${{ steps.exact_head.ou¶»§q«^
