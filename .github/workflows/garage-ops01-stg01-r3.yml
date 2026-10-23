@@ -30,7 +30,7 @@ jobs:
       STAGING_WEB_URL: https://staging.carup.dev
       STAGING_API_URL: https://api-staging.carup.dev/api
       EXPECTED_FRONTEND_DEPLOYMENT_ID: dpl_HdrQYbGmNYTAthKpdNk8UPULrDHT
-      EXPECTED_BACKEND_DEPLOYMENT_ID: dpl_4UDr3kyqUYNEJc5Qurtf3Qgv8WQB
+      EXPECTED_BACKEND_DEPLOYMENT_ID: dpl_Bt7a2fiP5REsnXmbc8xwFReB1RoF
       GARAGE_R3_RUN_ID: garage-r3-${{ github.run_id }}-${{ github.run_attempt }}
       GARAGE_R3_RESULTS_DIR: test-results/garage-r3
       GH_TOKEN: ${{ github.token }}
@@ -139,8 +139,20 @@ jobs:
           if (provenance.commit_sha !== expected || provenance.unpaired !== false) {
             throw new Error(`frontend custody mismatch: ${provenance.commit_sha || 'missing'}`)
           }
+          if (health?.status !== 'UP') {
+            throw new Error(`backend health status mismatch: ${health?.status || 'missing'}`)
+          }
           if (health?.build?.commit_sha !== expected) {
             throw new Error(`backend custody mismatch: ${health?.build?.commit_sha || 'missing'}`)
+          }
+          if (health?.build?.provenance_available !== true) {
+            throw new Error('backend provenance unavailable')
+          }
+          if (health?.build?.source === 'conflict') {
+            throw new Error('backend provenance source conflict')
+          }
+          if (health?.build?.deployment_id !== process.env.EXPECTED_BACKEND_DEPLOYMENT_ID) {
+            throw new Error(`backend deployment mismatch: ${health?.build?.deployment_id || 'missing'}`)
           }
           const receipt = {
             product_sha: expected,
