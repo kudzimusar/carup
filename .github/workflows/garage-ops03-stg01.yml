@@ -97,11 +97,11 @@ jobs:
       - name: Validate credential helper syntax
         run: node --check backend/scripts/garage-ops03-stg01-credential.mjs
 
-       - name: Owner preflight and session snapshot
-        run: node backend/scripts/garage-ops03-stg01-crdential.mjs --mode=preflight
+      - name: Owner preflight and session snapshot
+        run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=preflight
 
       - name: Grant isolated temporary Owner credential
-        run: node backend/scripts/garage-ops03-stg01-crdential.mjs --mode=grant
+        run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=grant
 
       - name: Run OPS03 controlled staging activation and physical certification
         env:
