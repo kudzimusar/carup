@@ -472,6 +472,7 @@ export type ServiceCaseView = {
   request_summary: string | null
   garage_display_name?: string | null
   garage_slug?: string | null
+  branch_id?: string | null
   requested_at: string | null
   accepted_at: string | null
   declined_at: string | null
@@ -2713,6 +2714,19 @@ export function useCarUpApi() {
   const fetchGarageSchedulingConfiguration = useCallback(async (): Promise<GarageSchedulingConfiguration> =>
     request<GarageSchedulingConfiguration>('/garage/schedule/configuration', { method: 'GET' }), [request])
 
+  const fetchGarageAppointmentAvailability = useCallback(async (
+    input: { service_case_id: string; branch_id: string; date: string; duration_minutes: number },
+  ): Promise<AppointmentAvailabilityResponse & { slots: Array<AppointmentAvailabilityResponse['slots'][number] & { available_workforce_profile_ids?: string[] }> }> => {
+    const query = new URLSearchParams({
+      service_case_id: input.service_case_id,
+      branch_id: input.branch_id,
+      date: input.date,
+      duration_minutes: String(input.duration_minutes),
+    })
+    return request(`/garage/schedule/availability?${query.toString()}`, { method: 'GET' })
+  }, [request])
+
+
   const saveGarageSchedulingSettings = useCallback(async (
     siteId: string,
     body: { scheduling_enabled: boolean; max_concurrent_appointments: number; slot_interval_minutes: number },
@@ -3725,6 +3739,7 @@ export function useCarUpApi() {
     fetchGarageCustomerDetail,
     fetchGarageSchedule,
     fetchGarageSchedulingConfiguration,
+    fetchGarageAppointmentAvailability,
     saveGarageSchedulingSettings,
     addGarageWorkforceSchedule,
     addGarageWorkforceUnavailability,
