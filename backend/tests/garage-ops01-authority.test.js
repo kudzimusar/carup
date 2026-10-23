@@ -645,3 +645,76 @@ test('OPS01 operator journey: two sites plus governed workforce stay on one Gara
   assert.equal(journeySites.length, 2);
   assert.ok(journeySites.every((site) => site.tenant_id === A));
 });
+
+test('site edit accepts database-style time values after a read round-trip', async () => {
+  const created = await call('POST', '/api/garage/sites', {
+    token: 'tok-admin-a',
+    body: siteBody({ branch_code: 'ROUNDTRIP-01', name: 'Round Trip Site' }),
+  });
+  assert.equal(created.status, 201, created.text);
+  const siteId = created.body.site.id;
+  const returnedHour = world.rows('garage_branch_opening_hours')
+    .find((row) => row.branch_id === siteId && row.day_of_week === 1);
+  assert.ok(returnedHour);
+  // Supabase/Postgres returns time columns with seconds even though OPS01 records minutes.
+  returnedHour.opens_at = '08:00:00';
+  returnedHour.closes_at = '17:00:00';
+
+  const edited = await call('PATCH', `/api/garage/sites/${siteId}`, {
+    token: 'tok-admin-a',
+    body: {
+      name: 'Round Trip Site Updated',
+      opening_hours: [{
+        day_of_week: 1, is_closed: false,
+        opens_at: returnedHour.opens_at, closes_at: returnedHour.closes_at,
+      }],
+    },
+  });
+  assert.equal(edited.status, 200, edited.text);
+  assert.equal(world.rows('garage_branches').find((row) => row.id === siteId).name, 'Round Trip Site Updated');
+  const normalizedHour = world.rows('garage_branch_opening_hours')
+    .find((row) => row.branch_id === siteId && row.day_of_week === 1);
+  assert.deepEqual(
+    { opens_at: normalizedHour.opens_at, closes_at: normalizedHour.closes_at },
+    { opens_at: '08:00', closes_at: '17:00' },
+  );
+  assert.equal(
+    world.rows('trust_audit_events').filter((row) => row.event_type === 'GARAGE_SITE_UPDATED').length,
+    1,
+  );
+});
+
+test('invalid minute-level opening hours fail before site mutation or update audit', async () => {
+  const created = await call('POST', '/api/garage/sites', {
+    token: 'tok-admin-a',
+    body: siteBody({ branch_code: 'ATOMIC-01', name: 'Atomic Site' }),
+  });
+  assert.equal(created.status, 201, created.text);
+  const siteId = created.body.site.id;
+  const beforeAuditCount = world.rows('trust_audit_events')
+    .filter((row) => row.event_type === 'GARAGE_SITE_UPDATED').length;
+  const beforeHour = world.rows('garage_branch_opening_hours')
+    .find((row) => row.branch_id === siteId && row.day_of_week === 1);
+  const rejected = await call('PATCH', `/api/garage/sites/${siteId}`, {
+    token: 'tok-admin-a',
+    body: {
+      name: 'Must Not Persist',
+      opening_hours: [{
+        day_of_week: 1, is_closed: false,
+        opens_at: '08:00:30', closes_at: '17:00:00',
+      }],
+    },
+  });
+  assert.equal(rejected.status, 400, rejected.text);
+  assert.equal(world.rows('garage_branches').find((row) => row.id === siteId).name, 'Atomic Site');
+  const afterHour = world.rows('garage_branch_opening_hours')
+    .find((row) => row.branch_id === siteId && row.day_of_week === 1);
+  assert.deepEqual(
+    { opens_at: afterHour.opens_at, closes_at: afterHour.closes_at },
+    { opens_at: beforeHour.opens_at, closes_at: beforeHour.closes_at },
+  );
+  assert.equal(
+    world.rows('trust_audit_events').filter((row) => row.event_type === 'GARAGE_SITE_UPDATED').length,
+    beforeAuditCount,
+  );
+});

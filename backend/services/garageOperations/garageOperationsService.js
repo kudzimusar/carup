@@ -121,6 +121,20 @@ async function assertSite(client, tenantId, siteId, { active = false } = {}) {
   return data;
 }
 
+function normalizeClockTime(value, label) {
+  const raw = String(value || '').trim();
+  const match = /^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/.exec(raw);
+  if (!match) throw new ValidationError(`${label} must be HH:MM at minute precision`);
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const seconds = match[3] === undefined ? 0 : Number(match[3]);
+  const fraction = match[4] || '';
+  if (hour > 23 || minute > 59 || seconds !== 0 || (fraction && /[^0]/.test(fraction))) {
+    throw new ValidationError(`${label} must be a valid minute-precision clock time`);
+  }
+  return `${match[1]}:${match[2]}`;
+}
+
 function normalizeHours(hours) {
   if (hours === undefined) return undefined;
   if (!Array.isArray(hours)) throw new ValidationError('opening_hours must be an array');
@@ -131,9 +145,9 @@ function normalizeHours(hours) {
     if (seen.has(day)) throw new ValidationError('opening_hours may contain each day only once');
     seen.add(day);
     const closed = row?.is_closed === true;
-    const opens = closed ? null : String(row?.opens_at || '').trim();
-    const closes = closed ? null : String(row?.closes_at || '').trim();
-    if (!closed && (!/^\d{2}:\d{2}$/.test(opens) || !/^\d{2}:\d{2}$/.test(closes) || opens >= closes)) {
+    const opens = closed ? null : normalizeClockTime(row?.opens_at, 'opens_at');
+    const closes = closed ? null : normalizeClockTime(row?.closes_at, 'closes_at');
+    if (!closed && opens >= closes) {
       throw new ValidationError('open days require opens_at and closes_at as HH:MM with opening before closing');
     }
     return { day_of_week: day, is_closed: closed, opens_at: opens, closes_at: closes };
@@ -270,6 +284,8 @@ export async function updateGarageSite(client = defaultClient, actor = {}, siteI
     throw new ValidationError('Use the branch-manager endpoint to change manager responsibility');
   }
   const input = normalizeSiteInput(body);
+  // Validate and canonicalize opening hours before any branch-row mutation.
+  const hours = normalizeHours(body.opening_hours);
   if (input.branch_code && previous.branch_code && input.branch_code !== previous.branch_code) {
     throw new ConflictError('branch_code is stable after it has been set');
   }
@@ -281,7 +297,6 @@ export async function updateGarageSite(client = defaultClient, actor = {}, siteI
   const { data, error } = await client.from('garage_branches').update(patch)
     .eq('id', previous.id).eq('tenant_id', tenantId).select().single();
   if (error) throw dbError('That site change conflicts with an existing branch code or name', error);
-  const hours = normalizeHours(body.opening_hours);
   await replaceHours(client, tenantId, previous.id, hours);
   const site = await siteEnvelope(client, data);
   await requiredAudit(client, actor, 'GARAGE_SITE_UPDATED', 'garage_branch', previous.id, previous, site, '/api/garage/sites/:siteId', options.req);
