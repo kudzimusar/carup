@@ -506,18 +506,48 @@ export type GarageMechanicsResponse = {
   mechanics: Array<{ user_id: string; display_name: string | null; role: string | null }>
   total: number
 }
+export type GarageCustomerRelationship = {
+  id: string
+  customer_reference_code: string
+  relationship_status: 'active' | 'inactive' | 'prospect'
+  customer_category: 'individual' | 'business' | 'fleet' | 'other' | null
+  preferred_branch_id: string | null
+  assigned_staff_user_id: string | null
+  preferred_site_name?: string | null
+  assigned_staff_name?: string | null
+  internal_notes: string | null
+  notes_available?: boolean
+  tags: string[]
+  first_relationship_at: string
+  follow_up_at: string | null
+  follow_up_status: 'pending' | 'completed' | 'cancelled' | null
+}
+export type GarageCustomerEntry = {
+  customer_id: string
+  party_kind: 'registered' | 'external' | 'walk_in'
+  user_id?: string
+  display_name: string | null
+  identity_status?: string
+  relationship: GarageCustomerRelationship | null
+  vehicle_count: number
+  case_count: number
+  completed_count: number
+  last_service_at: string | null
+  spend_by_currency: Record<string, number>
+  conversation_thread_id: string | null
+}
 export type GarageCustomersResponse = {
-  customers: Array<{
-    user_id: string
-    display_name: string | null
-    vehicle_count: number
-    case_count: number
-    completed_count: number
-    last_service_at: string | null
-    spend_by_currency: Record<string, number>
-    conversation_thread_id: string | null
-  }>
+  customers: GarageCustomerEntry[]
+  prospects: GarageCustomerEntry[]
   total: number
+  prospect_total: number
+}
+export type GarageCustomerDetailResponse = {
+  customer: Pick<GarageCustomerEntry, 'customer_id' | 'party_kind' | 'display_name' | 'identity_status' | 'relationship' | 'spend_by_currency' | 'conversation_thread_id'>
+  vehicles: Array<{ vin: string; make: string | null; model: string | null; year: number | null; relationship_basis: 'service_requester'; canonical_owner_recorded: boolean; canonical_owner_is_customer: boolean; case_count: number; last_service_at: string | null; open_case_count: number }>
+  cases: Array<{ id: string; vin: string; status: string; service_category: string | null; requested_at: string; completed_at: string | null; branch_id: string | null }>
+  work_orders: Array<{ id: string; service_case_id: string; status: string; created_at: string; completed_at: string | null; cancelled_at: string | null }>
+  service_records: Array<{ id: string; service_case_id: string; work_order_id: string; vin: string; service_category: string | null; total_cost: number | null; currency: string | null; performed_at: string | null; created_at: string }>
 }
 export type GarageProfileResponse = {
   tenant?: { id: string; name: string; type: string }
@@ -2593,6 +2623,15 @@ export function useCarUpApi() {
     return request<GarageCustomersResponse>('/garage/customers', { method: 'GET' })
   }, [request])
 
+  const fetchGarageCustomerDetail = useCallback(async (customerId: string): Promise<GarageCustomerDetailResponse> =>
+    request<GarageCustomerDetailResponse>(`/garage/customers/${encodeURIComponent(customerId)}`, { method: 'GET' }), [request])
+
+  const updateGarageCustomerRelationship = useCallback(async (customerId: string, body: Record<string, unknown>): Promise<{ relationship: GarageCustomerRelationship }> =>
+    request<{ relationship: GarageCustomerRelationship }>(`/garage/customers/${encodeURIComponent(customerId)}/relationship`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+
+  const createGarageProspect = useCallback(async (body: { origin: 'walk_in'; display_name: string; walk_in_confirmed: true }): Promise<{ customer_id: string }> =>
+    request<{ customer_id: string }>('/garage/customer-prospects', { method: 'POST', body: JSON.stringify(body) }), [request])
+
   /* The garage's own public page. Certified since S1 and never reachable from the product, which
      left the directory with no way to gain a garage — and so the owner journey with no supply. */
   const fetchMyGarageProfile = useCallback(async (): Promise<GarageProfileResponse> => {
@@ -3524,6 +3563,9 @@ export function useCarUpApi() {
     fetchGarageQueue,
     fetchGarageMechanics,
     fetchGarageCustomers,
+    fetchGarageCustomerDetail,
+    updateGarageCustomerRelationship,
+    createGarageProspect,
     fetchMyGarageProfile,
     saveMyGarageProfile,
     publishMyGarageProfile,

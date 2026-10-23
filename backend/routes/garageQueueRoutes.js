@@ -2,7 +2,11 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole, requireActiveTenant } from '../middleware/authMiddleware.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_TENANT_TYPE, GARAGE_WORKSPACE_ROLES } from '../services/serviceNetwork/serviceAuthority.js';
-import { getGarageCustomers, getGarageMechanics, getGarageQueue } from '../services/serviceNetwork/garageQueueService.js';
+import { getGarageMechanics, getGarageQueue } from '../services/serviceNetwork/garageQueueService.js';
+import {
+  listGarageCustomerRelationships, getGarageCustomerDetail,
+  updateGarageCustomerRelationship, createGarageProspect,
+} from '../services/garageOperations/garageCustomerRelationshipService.js';
 
 /**
  * Service Network S9 routes — garage queue and customer records.
@@ -32,7 +36,19 @@ router.get('/api/garage/queue', GARAGE_WORKSPACE, asyncHandler(async (req, res) 
 }));
 
 router.get('/api/garage/customers', GARAGE_WORKSPACE, asyncHandler(async (req, res) => {
-  res.json(await getGarageCustomers(supabase, req.userContext));
+  res.json(await listGarageCustomerRelationships(supabase, req.userContext));
+}));
+
+router.get('/api/garage/customers/:customerId', GARAGE_WORKSPACE, asyncHandler(async (req, res) => {
+  res.json(await getGarageCustomerDetail(supabase, req.userContext, req.params.customerId));
+}));
+
+router.patch('/api/garage/customers/:customerId/relationship', GARAGE_ADMIN, asyncHandler(async (req, res) => {
+  res.json(await updateGarageCustomerRelationship(supabase, req.userContext, req.params.customerId, req.body));
+}));
+
+router.post('/api/garage/customer-prospects', GARAGE_ADMIN, asyncHandler(async (req, res) => {
+  res.status(201).json(await createGarageProspect(supabase, req.userContext, req.body));
 }));
 
 // The garage's own members, so a mechanic can be picked rather than a UUID typed (R5). Same tenant
