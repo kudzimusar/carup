@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, Inbox, Car, ArrowRight, Users } from 'lucide-react'
+import { Loader2, Inbox, Car, ArrowRight, Users, ClipboardList } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
@@ -67,7 +67,7 @@ export default function GarageWorkspace() {
         <div className="flex flex-wrap gap-2">
           <Link to="/garage/schedule">
             <Button variant="outline" className="min-h-11" data-testid="open-schedule">
-              <CalendarDays className="w-4 h-4 mr-2" aria-hidden="true" /> Schedule
+              <ClipboardList className="w-4 h-4 mr-2" aria-hidden="true" /> Schedule
             </Button>
           </Link>
           <Link to="/garage/customers">
