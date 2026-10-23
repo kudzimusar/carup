@@ -237,6 +237,17 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'GARAGE_OPS03_UNAVAILABILITY_WORKFORCE_INVALID';
   END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM garage_appointments a
+    WHERE a.tenant_id = NEW.tenant_id
+      AND a.planned_workforce_profile_id = NEW.workforce_profile_id
+      AND a.status = 'confirmed'
+      AND a.starts_at < NEW.ends_at
+      AND a.ends_at > NEW.starts_at
+  ) THEN
+    RAISE EXCEPTION 'GARAGE_OPS03_UNAVAILABILITY_CONFLICTS_CONFIRMED_APPOINTMENT';
+  END IF;
   RETURN NEW;
 END $$;
 
@@ -263,7 +274,14 @@ BEGIN
 
   IF TG_OP = 'UPDATE' THEN
     IF OLD.status IN ('declined','cancelled','fulfilled','no_show')
-       AND NEW.status IS DISTINCT FROM OLD.status THEN
+       AND (
+         NEW.status IS DISTINCT FROM OLD.status
+         OR NEW.branch_id IS DISTINCT FROM OLD.branch_id
+         OR NEW.starts_at IS DISTINCT FROM OLD.starts_at
+         OR NEW.ends_at IS DISTINCT FROM OLD.ends_at
+         OR NEW.appointment_timezone IS DISTINCT FROM OLD.appointment_timezone
+         OR NEW.planned_workforce_profile_id IS DISTINCT FROM OLD.planned_workforce_profile_id
+       ) THEN
       RAISE EXCEPTION 'GARAGE_OPS03_TERMINAL_APPOINTMENT_IMMUTABLE';
     END IF;
     IF OLD.status = 'requested'
