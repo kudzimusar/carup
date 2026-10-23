@@ -242,8 +242,8 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
     expect([3, 4]).toContain(Number(starting.state.active_sites))
     expect(Number(starting.state.primary_sites)).toBe(1)
     expect(Number(starting.state.mechanic_memberships)).toBe(10)
-    expect(Number(starting.state.active_workforce)).toBe(10)
-    expect(Number(starting.state.live_primary)).toBe(10)
+    expect([9, 10]).toContain(Number(starting.state.active_workforce))
+    expect([9, 10]).toContain(Number(starting.state.live_primary))
     expect(Number(starting.state.active_departments)).toBe(4)
     expect(Number(starting.state.owner_workforce)).toBe(0)
     evidence.starting_fixture = starting.state
@@ -413,8 +413,8 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
     expect(Number(postResidueCleanup.state.active_sites)).toBe(3)
     expect(Number(postResidueCleanup.state.primary_sites)).toBe(1)
     expect(Number(postResidueCleanup.state.mechanic_memberships)).toBe(10)
-    expect(Number(postResidueCleanup.state.active_workforce)).toBe(10)
-    expect(Number(postResidueCleanup.state.live_primary)).toBe(10)
+    expect([9, 10]).toContain(Number(postResidueCleanup.state.active_workforce))
+    expect([9, 10]).toContain(Number(postResidueCleanup.state.live_primary))
     expect(Number(postResidueCleanup.state.active_departments)).toBe(4)
     expect(Number(postResidueCleanup.state.owner_workforce)).toBe(0)
     evidence.residue_cleanup = {
@@ -425,6 +425,57 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
       deactivation_audit_event_id: residueDeactivateAudit?.id || null,
       prior_r4_cleanup: priorR4Cleanup,
       post_cleanup_fixture: postResidueCleanup.state,
+    }
+
+    // Recover any pending/inactive synthetic mechanic left by an interrupted prior run through the UI.
+    const staleWorkforce = await client.query(`
+      select p.user_id, u.email, p.employment_status
+        from public.garage_workforce_profiles p
+        join public.users u on u.id=p.user_id
+        join public.tenant_users tu on tu.tenant_id=p.tenant_id and tu.user_id=p.user_id
+       where p.tenant_id=$1::uuid and tu.role='mechanic' and p.employment_status <> 'active'
+       order by p.user_id
+    `, [GARAGE_ID])
+    const staleWorkforceRecovery: Array<Record<string, unknown>> = []
+    if (staleWorkforce.rows.length) {
+      await openWorkforce(page)
+      for (const stale of staleWorkforce.rows) {
+        await selectMember(page, stale.email)
+        if (stale.employment_status === 'inactive') {
+          const prepareResponse = page.waitForResponse((r) =>
+            r.url().includes(`/api/garage/workforce/${stale.user_id}/status`) && r.request().method() === 'PATCH',
+          )
+          await page.getByRole('button', { name: 'Prepare reactivation' }).click()
+          await assertMutation(prepareResponse, `recover ${stale.email} to pending`)
+        }
+        await selectMember(page, stale.email)
+        const recoveryPrimary = page.getByTestId('primary-site')
+        await recoveryPrimary.selectOption(retainedSites[0].id)
+        await expect(recoveryPrimary).toHaveValue(retainedSites[0].id)
+        await saveWorkforceProfile(page)
+        await expect(page.getByTestId('workforce-profile-form')).toContainText('active')
+        const recoveryAudit = await requireAudit(client, 'GARAGE_WORKFORCE_STATUS_CHANGED', RUN_STARTED_AT,
+          (row) => row.new_value?.employment_status === 'active')
+        staleWorkforceRecovery.push({
+          user_id: stale.user_id,
+          email: stale.email,
+          prior_status: stale.employment_status,
+          recovery_audit_event_id: recoveryAudit.id,
+        })
+      }
+    }
+    const recoveredFixture = await queryOne<any>(client, `
+      select jsonb_build_object(
+        'active_workforce',(select count(*) from public.garage_workforce_profiles where tenant_id=$1::uuid and employment_status='active'),
+        'live_primary',(select count(*) from public.garage_workforce_branch_assignments a join public.garage_workforce_profiles p on p.id=a.workforce_profile_id where p.tenant_id=$1::uuid and a.ended_at is null and a.is_primary=true)
+      ) as state
+    `, [GARAGE_ID])
+    expect(Number(recoveredFixture.state.active_workforce)).toBe(10)
+    expect(Number(recoveredFixture.state.live_primary)).toBe(10)
+    evidence.stale_workforce_recovery = {
+      candidates: staleWorkforce.rows.map((row) => ({ user_id: row.user_id, email: row.email, prior_status: row.employment_status })),
+      recovered: staleWorkforceRecovery,
+      post_recovery_fixture: recoveredFixture.state,
     }
 
     // Desktop Sites: retained operating truth.
