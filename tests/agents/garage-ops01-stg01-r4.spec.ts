@@ -538,7 +538,15 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
 
     // Department rename and exact restoration.
     await openWorkforce(page)
-    const adminBadge = page.getByText('Administration', { exact: true })
+    const originalDepartment = await queryOne<any>(client, `
+      select id::text, name
+        from public.garage_departments
+       where tenant_id=$1::uuid and is_active=true
+       order by case when name ilike '%administration%' then 0 else 1 end, name
+       limit 1
+    `, [GARAGE_ID])
+    const originalDepartmentName = String(originalDepartment.name)
+    const adminBadge = page.getByText(originalDepartmentName, { exact: true })
     await expect(adminBadge).toHaveCount(1)
     const adminRow = adminBadge.locator('..')
     await adminRow.getByRole('button', { name: 'Rename' }).click()
@@ -552,12 +560,12 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
     const tempDeptBadge = page.getByText(TEMP_DEPT_NAME, { exact: true })
     const tempDeptRow = tempDeptBadge.locator('..')
     await tempDeptRow.getByRole('button', { name: 'Rename' }).click()
-    await page.getByLabel('Rename department').fill('Administration')
+    await page.getByLabel('Rename department').fill(originalDepartmentName)
     const deptRestoreResponse = page.waitForResponse((r) => r.url().includes('/api/garage/departments/') && r.request().method() === 'PATCH')
     await page.getByRole('button', { name: 'Save' }).click()
     await assertMutation(deptRestoreResponse, 'dept restore')
     const deptRestored = await requireAudit(client, 'GARAGE_DEPARTMENT_UPDATED', RUN_STARTED_AT,
-      (row) => row.new_value?.name === 'Administration')
+      (row) => row.new_value?.name === originalDepartmentName)
 
     // Safe mechanic profile marker and restoration.
     await selectMember(page, safeMechanic.email)

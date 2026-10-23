@@ -319,6 +319,9 @@ jobs:
             test-results/garage-r4/garage-r4-owner-preflight.json
             test-results/garage-r4/garage-r4-cleanup.json
             test-results/garage-r4/garage-r4-browser-summary.json
+            test-results/garage-r4/garage-r4-state-at-exit.json
+            test-results/garage-r4/garage-r4-audit-events-so-far.json
+            test-results/garage-r4/garage-r4-browser-failure.json
             test-results/garage-r4/garage-r4-preexisting-rls.json
           if-no-files-found: warn
           retention-days: 14
