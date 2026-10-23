@@ -1,0 +1,326 @@
+name: GARAGE-1.0 OPS02 STG01
+
+on:
+  push:
+    branches:
+      - cert/garage-1.0-ops02-stg01-r1
+
+concurrency:
+  group: garage-ops02-stg01-r1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  physical-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PRODUCT_SHA: 7cbad41cac7776f13e6a0d766bfb995eb2f35d1e
+      PRODUCT_PR: '240'
+      PRODUCT_BASE_SHA: a8a89fc1fb12551513916dea6bb45c841dbc7a59
+      CERT_BRANCH: cert/garage-1.0-ops02-stg01-r1
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      STAGING_WEB_URL: https://staging.carup.dev
+      STAGING_API_URL: https://api-staging.carup.dev/api
+      EXPECTED_FRONTEND_DEPLOYMENT_ID: dpl_35wBDndce6x3g2X9hs8NWxdB52zq
+      EXPECTED_BACKEND_DEPLOYMENT_ID: dpl_8TQ4WP1YnqWpEfX8WuhkP8khdGRd
+      GARAGE_OPS02_RUN_ID: garage-ops02-${{ github.run_id }}-${{ github.run_attempt }}
+      GARAGE_OPS02_RESULTS_DIR: test-results/garage-ops02-stg01
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Recustody frozen OPS02 product and evidence branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = "push"
+          test "${GITHUB_REF_NAME}" = "$CERT_BRANCH"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PRODUCT_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.base.sha' <<<"$pr_json")" = "$PRODUCT_BASE_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          allowed=(
+            ".github/workflows/garage-ops02-stg01.yml"
+            "backend/scripts/garage-ops02-stg01-credential.mjs"
+            "tests/agents/garage-ops02-stg01.spec.ts"
+          )
+          test "${#changed[@]}" -eq 3
+          for file in "${changed[@]}"; do
+            printf '%s\n' "${allowed[@]}" | grep -Fxq "$file" || {
+              echo "::error::Forbidden OPS02 STG01 diff file: $file"
+              exit 1
+            }
+          done
+          for file in "${allowed[@]}"; do
+            printf '%s\n' "${changed[@]}" | grep -Fxq "$file"
+          done
+          git diff --check "$PRODUCT_SHA"...HEAD
+
+      - name: Require approved staging operator secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*)
+              echo '::error::PRODUCTION REF PRESENT — refusing OPS02 STG01'
+              exit 1
+              ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::Database URL is not the approved CarUp staging project'
+              exit 1
+              ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify canonical OPS02 runtime and staging schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GARAGE_OPS02_RESULTS_DIR"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+
+          const expected = process.env.PRODUCT_SHA
+          const web = process.env.STAGING_WEB_URL.replace(/\/$/, '')
+          const api = process.env.STAGING_API_URL.replace(/\/$/, '')
+          const [provResponse, healthResponse] = await Promise.all([
+            fetch(web + '/carup-provenance.json?ops02_stg01=' + process.env.GITHUB_RUN_ID, { cache: 'no-store' }),
+            fetch(api + '/health?ops02_stg01=' + process.env.GITHUB_RUN_ID, { cache: 'no-store' }),
+          ])
+          if (!provResponse.ok) throw new Error('frontend provenance HTTP ' + provResponse.status)
+          if (!healthResponse.ok) throw new Error('backend health HTTP ' + healthResponse.status)
+          const provenance = await provResponse.json()
+          const health = await healthResponse.json()
+          if (provenance.commit_sha !== expected || provenance.unpaired !== false || provenance.provenance_source !== 'vercel_git') {
+            throw new Error('frontend exact-head custody mismatch')
+          }
+          if (health?.status !== 'UP' || health?.build?.commit_sha !== expected
+            || health?.build?.source !== 'vercel_git' || health?.build?.provenance_available !== true
+            || health?.build?.deployment_id !== process.env.EXPECTED_BACKEND_DEPLOYMENT_ID) {
+            throw new Error('backend exact-head custody mismatch')
+          }
+          if (health?.database?.supabase_project_ref !== process.env.EXPECTED_STAGING_PROJECT_REF
+            || health?.database?.consistent !== true) throw new Error('backend database target mismatch')
+          if (health?.communications?.outbound?.kill_switch !== 'active'
+            || health?.communications?.outbound?.external_sends !== 'disabled') throw new Error('staging communications kill switch is not active')
+
+          const raw = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          const cleaned = raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          try {
+            const { rows } = await client.query(`
+              select jsonb_build_object(
+                'rls_enabled',c.relrowsecurity,
+                'rls_forced',c.relforcerowsecurity,
+                'anon_select',has_table_privilege('anon','public.garage_customer_relationships','SELECT'),
+                'anon_insert',has_table_privilege('anon','public.garage_customer_relationships','INSERT'),
+                'anon_update',has_table_privilege('anon','public.garage_customer_relationships','UPDATE'),
+                'anon_delete',has_table_privilege('anon','public.garage_customer_relationships','DELETE'),
+                'authenticated_select',has_table_privilege('authenticated','public.garage_customer_relationships','SELECT'),
+                'authenticated_insert',has_table_privilege('authenticated','public.garage_customer_relationships','INSERT'),
+                'authenticated_update',has_table_privilege('authenticated','public.garage_customer_relationships','UPDATE'),
+                'authenticated_delete',has_table_privilege('authenticated','public.garage_customer_relationships','DELETE'),
+                'service_role_select',has_table_privilege('service_role','public.garage_customer_relationships','SELECT'),
+                'service_role_insert',has_table_privilege('service_role','public.garage_customer_relationships','INSERT'),
+                'service_role_update',has_table_privilege('service_role','public.garage_customer_relationships','UPDATE'),
+                'service_role_delete',has_table_privilege('service_role','public.garage_customer_relationships','DELETE'),
+                'registered_relationships',(select count(*) from public.garage_customer_relationships where tenant_id='442c82c1-fc69-46ff-a138-712a6504ac98'::uuid and party_kind='registered')
+              ) state
+              from pg_class c join pg_namespace n on n.oid=c.relnamespace
+              where n.nspname='public' and c.relname='garage_customer_relationships'
+            `)
+            if (rows.length !== 1) throw new Error('OPS02 relationship table missing')
+            const s = rows[0].state
+            if (!s.rls_enabled || !s.rls_forced || s.anon_select || s.anon_insert || s.anon_update || s.anon_delete
+              || s.authenticated_select || s.authenticated_insert || s.authenticated_update || s.authenticated_delete
+              || !s.service_role_select || !s.service_role_insert || !s.service_role_update || s.service_role_delete) {
+              throw new Error('OPS02 relationship privilege/RLS drift')
+            }
+            fs.writeFileSync(process.env.GARAGE_OPS02_RESULTS_DIR + '/garage-ops02-schema.json', JSON.stringify(s, null, 2) + '\n')
+          } finally {
+            await client.end().catch(() => {})
+          }
+
+          fs.writeFileSync(process.env.GARAGE_OPS02_RESULTS_DIR + '/garage-ops02-custody.json', JSON.stringify({
+            product_sha: expected,
+            certification_head: process.env.GITHUB_SHA,
+            workflow_event: process.env.GITHUB_EVENT_NAME,
+            product_pr: Number(process.env.PRODUCT_PR),
+            frontend: {
+              expected_deployment_id: process.env.EXPECTED_FRONTEND_DEPLOYMENT_ID,
+              commit_sha: provenance.commit_sha,
+              provenance_source: provenance.provenance_source,
+              unpaired: provenance.unpaired,
+            },
+            backend: {
+              expected_deployment_id: process.env.EXPECTED_BACKEND_DEPLOYMENT_ID,
+              commit_sha: health.build.commit_sha,
+              deployment_id: health.build.deployment_id,
+              source: health.build.source,
+              provenance_available: health.build.provenance_available,
+            },
+            database_project_ref: health.database.supabase_project_ref,
+            communications_kill_switch: health.communications.outbound.kill_switch,
+            production_accessed: false,
+          }, null, 2) + '\n')
+          NODE
+
+      - name: Validate credential helper syntax
+        run: node --check backend/scripts/garage-ops02-stg01-credential.mjs
+
+      - name: Preflight pinned Owner and snapshot valid sessions
+        run: node backend/scripts/garage-ops02-stg01-credential.mjs --mode=preflight
+
+      - name: Grant isolated temporary Owner credential
+        run: node backend/scripts/garage-ops02-stg01-credential.mjs --mode=grant
+
+      - name: Run real OPS02 desktop and compact CRM certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .garage-ops02.playwright.config.ts <<'TS'
+          import { defineConfig } from '@playwright/test'
+          export default defineConfig({
+            testDir: './tests/agents',
+            testMatch: /garage-ops02-stg01\.spec\.ts/,
+            timeout: 11 * 60_000,
+            expect: { timeout: 20_000 },
+            fullyParallel: false,
+            workers: 1,
+            retries: 0,
+            reporter: [['list']],
+            use: {
+              baseURL: process.env.STAGING_WEB_URL || 'https://staging.carup.dev',
+              trace: 'off',
+              screenshot: 'off',
+              video: 'off',
+              actionTimeout: 25_000,
+              navigationTimeout: 45_000,
+              viewport: { width: 1440, height: 1000 },
+            },
+          })
+          TS
+          trap 'rm -f .garage-ops02.playwright.config.ts' EXIT
+          npx playwright test tests/agents/garage-ops02-stg01.spec.ts --config=.garage-ops02.playwright.config.ts
+
+      - name: Remove temporary Owner credential and certification sessions
+        if: always()
+        run: node backend/scripts/garage-ops02-stg01-credential.mjs --mode=cleanup
+
+      - name: Verify credential/session cleanup
+        if: always()
+        run: node backend/scripts/garage-ops02-stg01-credential.mjs --mode=verify-clean
+
+      - name: Record pre-existing RLS finding
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GARAGE_OPS02_RESULTS_DIR"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+          const raw = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          if (!raw.includes(process.env.EXPECTED_STAGING_PROJECT_REF) || raw.includes(process.env.FORBIDDEN_PRODUCTION_PROJECT_REF)) throw new Error('refusing non-staging RLS read')
+          const client = new pg.Client({ connectionString: raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, ''), ssl: { rejectUnauthorized: false } })
+          await client.connect()
+          try {
+            const { rows } = await client.query(`
+              select c.relname,c.relrowsecurity as rls_enabled,c.relforcerowsecurity as rls_forced
+              from pg_class c join pg_namespace n on n.oid=c.relnamespace
+              where n.nspname='public' and c.relname in ('blockchain_custody_rollout','blockchain_signing_watermarks')
+              order by c.relname
+            `)
+            fs.writeFileSync(process.env.GARAGE_OPS02_RESULTS_DIR + '/garage-ops02-preexisting-rls.json', JSON.stringify({
+              classification: 'PRE-EXISTING STAGING SECURITY ISSUE — OUTSIDE OPS02',
+              tables: rows,
+            }, null, 2) + '\n')
+          } finally { await client.end().catch(() => {}) }
+          NODE
+
+      - name: Evidence branch diff hygiene
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .garage-ops02.playwright.config.ts
+          git diff --check "$PRODUCT_SHA"...HEAD
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 3
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/garage-ops02-stg01.yml|backend/scripts/garage-ops02-stg01-credential.mjs|tests/agents/garage-ops02-stg01.spec.ts) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          test -z "$(git status --porcelain --untracked-files=all | grep -v '^?? test-results/' || true)"
+
+      - name: Re-prove PR #240 custody
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PRODUCT_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.base.sha' <<<"$pr_json")" = "$PRODUCT_BASE_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+
+      - name: Upload sanitized OPS02 STG01 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garage-ops02-stg01-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/garage-ops02-stg01/desktop-customer-list.png
+            test-results/garage-ops02-stg01/desktop-registered-detail.png
+            test-results/garage-ops02-stg01/desktop-blank-metadata.png
+            test-results/garage-ops02-stg01/desktop-edited-metadata.png
+            test-results/garage-ops02-stg01/desktop-search-filters.png
+            test-results/garage-ops02-stg01/desktop-walk-in-list.png
+            test-results/garage-ops02-stg01/desktop-walk-in-detail.png
+            test-results/garage-ops02-stg01/mobile-customers.png
+            test-results/garage-ops02-stg01/mobile-customer-detail.png
+            test-results/garage-ops02-stg01/garage-ops02-browser-summary.json
+            test-results/garage-ops02-stg01/garage-ops02-audit-events.json
+            test-results/garage-ops02-stg01/garage-ops02-final-state.json
+            test-results/garage-ops02-stg01/garage-ops02-custody.json
+            test-results/garage-ops02-stg01/garage-ops02-schema.json
+            test-results/garage-ops02-stg01/garage-ops02-stg01-owner-preflight.json
+            test-results/garage-ops02-stg01/garage-ops02-stg01-cleanup.json
+            test-results/garage-ops02-stg01/garage-ops02-preexisting-rls.json
+          if-no-files-found: warn
+          retention-days: 14
