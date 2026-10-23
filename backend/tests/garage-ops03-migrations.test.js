@@ -21,13 +21,13 @@ async function rejected(promise) {
 }
 async function requestAppointment(caseId, actor, start = SLOT_START, end = SLOT_END, branch = B.a1) {
   return db.query(
-    'SELECT (garage_ops03_request_appointment($1,$2,$3,$4,$5)).*',
+    'SELECT * FROM garage_ops03_request_appointment($1,$2,$3,$4,$5)',
     [caseId, branch, start, end, actor],
   );
 }
 async function confirmAppointment(appointmentId, workforceProfileId, start = SLOT_START, end = SLOT_END, branch = B.a1) {
   return db.query(
-    'SELECT (garage_ops03_confirm_appointment($1,$2,$3,$4,$5,$6,$7)).*',
+    'SELECT * FROM garage_ops03_confirm_appointment($1,$2,$3,$4,$5,$6,$7)',
     [T.a, appointmentId, branch, start, end, workforceProfileId, 'admin-a'],
   );
 }
