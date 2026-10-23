@@ -28,7 +28,7 @@ jobs:
       JWT_SECRET: test-jwt-secret
     steps:
       - name: Resolve literal product head
-        id: exact-head
+        id: exact_head
         shell: bash
         run: |
           set -euo pipefail
@@ -44,12 +44,12 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.exact-head.outputs.sha }}
+          ref: ${{ steps.exact_head.outputs.sha }}
           fetch-depth: 0
 
-      - name: Prove literal exact-head and OPS02 parent custody
+      - name: Prove literal exact_head and OPS02 parent custody
         shell: bash
         run: |
           set -euo pipefail
           parent=7cbad41cac7776f13e6a0d766bfb995eb2f35d1e
-          expected="${{ steps.exact-head.ou¶»§q«^
+          expected="${{ steps.exact_head.ouÂ¶Â»Â§qÂ«^
