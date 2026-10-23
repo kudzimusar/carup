@@ -812,7 +812,7 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
         'historical_assignments',(select count(*) from public.garage_workforce_branch_assignments a join public.garage_workforce_profiles p on p.id=a.workforce_profile_id where p.tenant_id=$1::uuid and a.ended_at is not null),
         'active_departments',(select count(*) from public.garage_departments where tenant_id=$1::uuid and is_active=true),
         'owner_workforce',(select count(*) from public.garage_workforce_profiles where tenant_id=$1::uuid and user_id=$2),
-        'garage_audit_events',(select count(*) from public.trust_audit_events where actor_tenant_id=$1 and actor_user_id=$2 and created_at >= $3::timestamptz)
+        'garage_audit_events',(select count(*) from public.trust_audit_events where actor_tenant_id=$1::text and actor_user_id=$2 and created_at >= $3::timestamptz)
       ) as state
     `, [GARAGE_ID, OWNER_ID, RUN_STARTED_AT.toISOString()])
     expect(Number(finalState.state.active_sites)).toBe(3)
