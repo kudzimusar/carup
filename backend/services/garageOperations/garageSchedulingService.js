@@ -207,6 +207,86 @@ export async function getRequesterAppointmentAvailability(
   };
 }
 
+
+export async function getGarageAppointmentAvailability(client = defaultClient, actor = {}, query = {}) {
+  const tenantId = adminTenant(actor);
+  const caseId = requiredString(query.service_case_id, 'service_case_id', 80);
+  const { data: serviceCase, error: caseError } = await client.from('service_cases')
+    .select('id,garage_tenant_id,branch_id').eq('id', caseId).eq('garage_tenant_id', tenantId).maybeSingle();
+  if (caseError) throw new DatabaseError('Could not load Service Case: ' + caseError.message);
+  if (!serviceCase) throw new NotFoundError('Service case not found');
+
+  const branchId = requiredString(query.branch_id || serviceCase.branch_id, 'branch_id', 80);
+  const branch = await activeBranch(client, tenantId, branchId);
+  if (serviceCase.branch_id && serviceCase.branch_id !== branch.id) {
+    throw new ValidationError('The appointment branch must match this Service Case');
+  }
+
+  const localDate = dateValue(query.date);
+  const durationMinutes = integer(query.duration_minutes, 'duration_minutes', { min: 5, max: 720 });
+  if (!branch.timezone) {
+    return {
+      configured: false,
+      reason: 'Schedule timezone not configured',
+      branch: { id: branch.id, name: branch.name, timezone: null },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slots: [],
+    };
+  }
+  const settings = await schedulingSettings(client, tenantId, branch.id);
+  if (!settings) {
+    return {
+      configured: false,
+      reason: 'Capacity not configured',
+      branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slots: [],
+    };
+  }
+  if (!settings.scheduling_enabled) {
+    return {
+      configured: true,
+      enabled: false,
+      reason: 'Scheduling is disabled for this site',
+      branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+      date: localDate,
+      duration_minutes: durationMinutes,
+      slot_interval_minutes: settings.slot_interval_minutes,
+      capacity: settings.max_concurrent_appointments,
+      slots: [],
+    };
+  }
+  const { data, error } = await client.rpc('garage_ops03_list_availability', {
+    p_tenant_id: tenantId,
+    p_service_case_id: serviceCase.id,
+    p_branch_id: branch.id,
+    p_local_date: localDate,
+    p_duration_minutes: durationMinutes,
+  });
+  if (error) throw rpcFailure(error, 'Could not calculate workshop capacity');
+  return {
+    configured: true,
+    enabled: true,
+    branch: { id: branch.id, name: branch.name, timezone: branch.timezone },
+    date: localDate,
+    duration_minutes: durationMinutes,
+    slot_interval_minutes: settings.slot_interval_minutes,
+    capacity: settings.max_concurrent_appointments,
+    slots: (data || []).map((row) => ({
+      starts_at: row.starts_at,
+      ends_at: row.ends_at,
+      appointment_timezone: row.appointment_timezone,
+      branch_capacity: Number(row.branch_capacity),
+      booked_count: Number(row.booked_count),
+      available_count: Number(row.available_count),
+      available_workforce_profile_ids: row.available_workforce_profile_ids || [],
+      bookable: Number(row.available_count) > 0,
+    })),
+  };
+}
+
 export async function requestAppointment(client = defaultClient, actor = {}, caseId, body = {}) {
   const serviceCase = await requesterCase(client, actor, caseId);
   const branchId = requiredString(body.branch_id || serviceCase.branch_id, 'branch_id', 80);
