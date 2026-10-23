@@ -113,8 +113,14 @@ async function requireAudit(
   since: Date,
   predicate?: (row: any) => boolean,
 ) {
-  const rows = await auditRows(client, since)
-  const row = [...rows].reverse().find((candidate) => candidate.event_type === eventType && (!predicate || predicate(candidate)))
+  const deadline = Date.now() + 15_000
+  let row: any
+  while (Date.now() < deadline) {
+    const rows = await auditRows(client, since)
+    row = [...rows].reverse().find((candidate) => candidate.event_type === eventType && (!predicate || predicate(candidate)))
+    if (row) break
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
   expect(row, `missing ${eventType}`).toBeTruthy()
   expect(row.actor_user_id).toBe(OWNER_ID)
   expect(row.actor_role).toBe('owner')
