@@ -27,54 +27,29 @@ jobs:
       SUPABASE_ANON_KEY: test-anon-key
       JWT_SECRET: test-jwt-secret
     steps:
+      - name: Resolve literal product head
+        id: exact-head
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            expected="${{ github.event.pull_request.head.sha }}"
+          else
+            expected="${{ github.sha }}"
+          fi
+          test -n "$expected"
+          echo "sha=$expected" >> "$GITHUB_OUTPUT"
+          echo "EXPECTED_PRODUCT_HEAD=$expected"
+
       - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.exact-head.outputs.sha }}
           fetch-depth: 0
 
-      - name: Prove OPS02 parent custody
+      - name: Prove literal exact-head and OPS02 parent custody
         shell: bash
         run: |
           set -euo pipefail
           parent=7cbad41cac7776f13e6a0d766bfb995eb2f35d1e
-          remote_parent="$(git ls-remote origin refs/heads/feat/garage-1.0-ops02-customer-vehicle-relationship | cut -f1)"
-          test "$remote_parent" = "$parent"
-          test "$(git merge-base "$parent" HEAD)" = "$parent"
-          echo "HEAD=$(git rev-parse HEAD)"
-          echo "PARENT=$parent"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: OPS03 scheduling authority and migration
-        run: |
-          node --test --test-concurrency=1             backend/tests/garage-ops03-migrations.test.js             backend/tests/garage-ops03-authority.test.js
-
-      - name: Inherited Garage and Service Network authority
-        run: |
-          node --test --test-concurrency=1             backend/tests/garage-cv01-parts-authority.test.js             backend/tests/garage-ops01-migrations.test.js             backend/tests/garage-ops01-authority.test.js             backend/tests/garage-ops02-migrations.test.js             backend/tests/garage-ops02-authority.test.js             backend/tests/oc5d-active-tenant-context.test.js             backend/tests/service-network-authority-boundaries.test.js             backend/tests/service-network-route-mounting.test.js             backend/tests/service-network-s4-work-order-migration.test.js \
-            backend/tests/service-network-s4-work-order.test.js
-
-      - name: OPS03 and inherited web truth
-        run: |
-          npm run test:unit --workspace=web --             garageSchedule.test.tsx             serviceRequestsScheduling.test.tsx             requestServiceJourney.test.tsx             garageCustomers.test.tsx             garageSites.test.tsx             garageWorkforce.test.tsx             garageWorkspaceReady.test.tsx             serviceTruthParity.test.tsx             useCarUpApi.garageHeaders.test.tsx             useGarageOperator.test.tsx
-
-      - name: Navigation manifest custody
-        run: node scripts/generate-feature-manifest.mjs --check
-
-      - name: TypeScript and production web build
-        run: npm run build --workspace=web
-
-      - name: Frozen-parent diff hygiene
-        shell: bash
-        run: |
-          set -euo pipefail
-          parent=7cbad41cac7776f13e6a0d766bfb995eb2f35d1e
-          git diff --check "$parent"...HEAD
-          test "$(git merge-base "$parent" HEAD)" = "$parent"
-          git diff --name-status "$parent"...HEAD
+          expected="${{ steps.exact-head.ou¶»§q«^
