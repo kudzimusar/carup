@@ -1011,6 +1011,8 @@ REVOKE ALL ON FUNCTION
 FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION
+  garage_ops03_assert_admin(UUID,TEXT),
+  garage_ops03_append_event_and_audit(UUID,TEXT,TEXT,TEXT,JSONB,JSONB),
   garage_ops03_evaluate_interval(UUID,UUID,TIMESTAMPTZ,TIMESTAMPTZ,UUID),
   garage_ops03_list_availability(UUID,UUID,UUID,DATE,INTEGER),
   garage_ops03_request_appointment(UUID,UUID,TIMESTAMPTZ,TIMESTAMPTZ,TEXT),
