@@ -99,13 +99,28 @@ export default function ServiceRequests() {
   const [appointmentBusy, setAppointmentBusy] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    Promise.all([fetchMyServiceRequests(), fetchMyServiceAppointments()])
-      .then(([rows, appointmentRows]) => {
+    setState('loading')
+    fetchMyServiceRequests()
+      .then((rows) => {
         setRequests((rows || []) as ServiceRequest[])
-        setAppointments(appointmentRows || [])
         setState('ready')
       })
       .catch(() => setState('error'))
+
+    if (typeof fetchMyServiceAppointments !== 'function') {
+      setAppointments([])
+      return
+    }
+
+    fetchMyServiceAppointments()
+      .then((appointmentRows) => {
+        setAppointments(appointmentRows || [])
+        setAppointmentError(null)
+      })
+      .catch(() => {
+        setAppointments([])
+        setAppointmentError('Appointment scheduling could not be loaded. Your service requests are still shown.')
+      })
   }, [fetchMyServiceAppointments, fetchMyServiceRequests])
 
   useEffect(() => { load() }, [load])
