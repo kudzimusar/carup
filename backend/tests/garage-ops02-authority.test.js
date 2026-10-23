@@ -132,3 +132,32 @@ test('an existing Communications external identity can be linked only inside its
   assert.equal(listed.prospects.some((p) => p.customer_id === created.customer_id), true);
   assert.doesNotMatch(JSON.stringify(listed), /private@example.invalid/);
 });
+
+test('another Garage cannot read or mutate a prospect, its notes or follow-up by guessing its ID', async () => {
+  const b = actor(T.b, 'admin', 'admin-b');
+  const created = await createGarageProspect(client, b, {
+    origin: 'walk_in', display_name: 'Garage B walk-in', walk_in_confirmed: true,
+  });
+  await updateGarageCustomerRelationship(client, b, created.customer_id, {
+    internal_notes: 'Garage B private context',
+    follow_up_at: '2026-11-05T00:00:00Z', follow_up_status: 'pending',
+  });
+  await assert.rejects(() => getGarageCustomerDetail(client, actor(T.a), created.customer_id), /Customer not found/);
+  await assert.rejects(() => updateGarageCustomerRelationship(client, actor(T.a), created.customer_id, {
+    internal_notes: 'unauthorized edit',
+  }), /Customer not found/);
+  const aList = await listGarageCustomerRelationships(client, actor(T.a));
+  assert.doesNotMatch(JSON.stringify(aList), /Garage B walk-in|Garage B private context/);
+});
+
+test('CRM mutation cannot accept canonical vehicle, seller, publication, Trust or evidence authority fields', async () => {
+  const forbidden = [
+    { vin: 'OPS02VIN000000002' }, { owner_id: 'customer-a' }, { seller_id: 'admin-a' },
+    { publication_status: 'published' }, { trust_score: 100 }, { evidence_status: 'verified' },
+  ];
+  for (const body of forbidden) {
+    await assert.rejects(() => updateGarageCustomerRelationship(client, actor(T.a), 'registered:customer-a', body), /cannot be changed here/);
+  }
+  const { rows: [vehicle] } = await db.query("SELECT owner_id FROM vehicles WHERE vin='OPS02VIN000000001'");
+  assert.equal(vehicle.owner_id, 'customer-b');
+});
