@@ -602,7 +602,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     tenantRoles: ['admin', 'mechanic'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
-    icon: 'CalendarDays',
+    icon: 'ClipboardList',
     description: 'Appointments, workshop capacity and planned workforce availability',
   },
   {
