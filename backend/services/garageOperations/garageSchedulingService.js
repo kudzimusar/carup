@@ -427,12 +427,17 @@ export async function getGarageSchedule(client = defaultClient, actor = {}, quer
 
   let unscheduledCases = [];
   if (role === 'admin') {
-    const { data: openCases, error: casesError } = await client.from('service_cases')
-      .select('id,vin,status,service_category,branch_id,requester_user_id,requested_at')
-      .eq('garage_tenant_id', tenantId).in('status', ['requested', 'accepted']).limit(200);
-    if (casesError) throw new DatabaseError('Could not load unscheduled Service Cases: ' + casesError.message);
-    const activeCaseIds = new Set(rows.filter((a) => !TERMINAL.has(a.status)).map((a) => a.service_case_id));
-    unscheduledCases = (openCases || []).filter((c) => !activeCaseIds.has(c.id));
+    const [openCaseRead, liveAppointmentRead] = await Promise.all([
+      client.from('service_cases')
+        .select('id,vin,status,service_category,branch_id,requester_user_id,requested_at')
+        .eq('garage_tenant_id', tenantId).in('status', ['requested', 'accepted']).limit(200),
+      client.from('garage_appointments')
+        .select('service_case_id').eq('tenant_id', tenantId).in('status', ['requested', 'confirmed']).limit(500),
+    ]);
+    if (openCaseRead.error) throw new DatabaseError('Could not load unscheduled Service Cases: ' + openCaseRead.error.message);
+    if (liveAppointmentRead.error) throw new DatabaseError('Could not verify live appointment coverage: ' + liveAppointmentRead.error.message);
+    const activeCaseIds = new Set((liveAppointmentRead.data || []).map((a) => a.service_case_id));
+    unscheduledCases = (openCaseRead.data || []).filter((serviceCase) => !activeCaseIds.has(serviceCase.id));
   }
 
   return {
