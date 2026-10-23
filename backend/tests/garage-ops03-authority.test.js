@@ -178,7 +178,7 @@ test('mechanic schedule read is narrowed to planned-for-me and cannot expose Gar
   assert.equal(bView.appointments.length, 0);
   await assert.rejects(
     () => transitionGarageAppointment(client, actor('admin-b',T.b,'admin'), C.appointment, 'cancelled'),
-    /Appointment not found/,
+    /Could not change appointment status/,
     'Garage B cannot mutate Garage A appointment by guessing its id',
   );
 });
