@@ -57,7 +57,8 @@ jobs:
 
       - name: Inherited Garage and Service Network authority
         run: |
-          node --test --test-concurrency=1             backend/tests/garage-cv01-parts-authority.test.js             backend/tests/garage-ops01-migrations.test.js             backend/tests/garage-ops01-authority.test.js             backend/tests/garage-ops02-migrations.test.js             backend/tests/garage-ops02-authority.test.js             backend/tests/oc5d-active-tenant-context.test.js             backend/tests/service-network-authority-boundaries.test.js             backend/tests/service-network-route-mounting.test.js             backend/tests/service-network-s4-work-order-assignment.test.js
+          node --test --test-concurrency=1             backend/tests/garage-cv01-parts-authority.test.js             backend/tests/garage-ops01-migrations.test.js             backend/tests/garage-ops01-authority.test.js             backend/tests/garage-ops02-migrations.test.js             backend/tests/garage-ops02-authority.test.js             backend/tests/oc5d-active-tenant-context.test.js             backend/tests/service-network-authority-boundaries.test.js             backend/tests/service-network-route-mounting.test.js             backend/tests/service-network-s4-work-order-migration.test.js \
+            backend/tests/service-network-s4-work-order.test.js
 
       - name: OPS03 and inherited web truth
         run: |
