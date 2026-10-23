@@ -631,6 +631,7 @@ DECLARE
   v_eval RECORD;
   v_row garage_appointments%ROWTYPE;
   v_new JSONB;
+  v_constraint_name TEXT;
 BEGIN
   SELECT * INTO v_case
   FROM service_cases
@@ -677,8 +678,12 @@ BEGIN
   RETURN v_row;
 EXCEPTION
   WHEN unique_violation THEN
-    RAISE EXCEPTION 'GARAGE_OPS03_LIVE_APPOINTMENT_EXISTS';
-END $$;
+    GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
+    IF v_constraint_name = 'uq_garage_ops03_live_appointment_per_case' THEN
+      RAISE EXCEPTION 'GARAGE_OPS03_LIVE_APPOINTMENT_EXISTS';
+    END IF;
+    RAISE;
+END $;
 
 CREATE OR REPLACE FUNCTION garage_ops03_confirm_appointment(
   p_tenant_id UUID,
