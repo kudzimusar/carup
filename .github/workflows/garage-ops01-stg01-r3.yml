@@ -211,6 +211,7 @@ jobs:
             retries: 0,
             reporter: [['list']],
             use: {
+              baseURL: process.env.STAGING_WEB_URL || 'https://staging.carup.dev',
               trace: 'off',
               screenshot: 'off',
               video: 'off',

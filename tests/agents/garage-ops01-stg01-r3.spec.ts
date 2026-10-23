@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import pg from 'pg'
+import { ensureActingForOrganisation } from './staging-helpers'
 
 const PRODUCT_SHA = 'f6dd56b52d40e00776b47681e66e4eab54be8636'
 const OWNER_ID = 'uat_ops01_owner_20261022a'
@@ -284,6 +285,35 @@ test('GARAGE-1.0 OPS01 STG01 R3 physical application certification', async ({ pa
 
     // Real UI login and authenticated Garage context.
     await login(page)
+    const selection = await ensureActingForOrganisation(
+      page,
+      /SYNTHETIC \/ UAT OPS01 GARAGE 20261022A/,
+    )
+    expect(selection.outcome, 'the fresh Owner session must select the Garage through the real UI').toBe('selected')
+    expect(selection.tenantId).toBe(GARAGE_ID)
+    expect(selection.badge).toBe('Acting for SYNTHETIC / UAT OPS01 GARAGE 20261022A. Change organisation')
+    const selectedSession = await queryOne<{
+      active_role: string
+      active_organization_id: string
+    }>(client, `
+      select active_role, active_organization_id
+        from public.user_sessions
+       where user_id=$1
+         and created_at::timestamptz >= $2::timestamptz
+         and is_valid=true
+       order by created_at desc
+       limit 1
+    `, [OWNER_ID, RUN_STARTED_AT.toISOString()])
+    expect(selectedSession.active_role).toBe('owner')
+    expect(selectedSession.active_organization_id).toBe(GARAGE_ID)
+    evidence.acting_for_garage = {
+      organisation_name: 'SYNTHETIC / UAT OPS01 GARAGE 20261022A',
+      badge: selection.badge,
+      selected_tenant_id: selection.tenantId,
+      active_role: selectedSession.active_role,
+      active_organization_id: selectedSession.active_organization_id,
+      active_tenant_put_observed: selection.outcome === 'selected',
+    }
     await openSites(page)
     evidence.authenticated_sites_url = page.url()
 
