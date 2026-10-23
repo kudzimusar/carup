@@ -67,8 +67,8 @@ before(async () => {
     "INSERT INTO tenants (name,type,status) VALUES ('Garage B','garage','active') RETURNING id",
   )).rows[0].id;
   for (const row of [
-    [T.a,'admin-a','admin'], [T.a,'mech-a','mechanic'], [T.a,'mech-b','mechanic'],
-    [T.b,'admin-b','admin'], [T.b,'mech-c','mechanic'],
+    [T.a,'admin-a','admin'], [T.a,'mech-a','admin'], [T.a,'mech-b','admin'],
+    [T.b,'admin-b','admin'], [T.b,'mech-c','admin'],
   ]) await db.query('INSERT INTO tenant_users (tenant_id,user_id,role) VALUES ($1,$2,$3)', row);
 
   await db.query(
@@ -118,6 +118,11 @@ before(async () => {
       [tenant, profile, branch, branch === B.a1 || branch === B.b1, actor],
     );
   }
+
+  // OPS01 requires a mechanic's active workforce profile to have a live primary site. Build the
+  // profile/assignment while the member is still admin, then adopt the mechanic role.
+  await db.query("UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id IN ('mech-a','mech-b')", [T.a]);
+  await db.query("UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id='mech-c'", [T.b]);
 
   C.a1 = (await db.query(
     "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03VIN000000001',$1,$2,'customer-a','accepted') RETURNING id",
