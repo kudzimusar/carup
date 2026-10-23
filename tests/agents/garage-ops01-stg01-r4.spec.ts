@@ -623,7 +623,17 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
     // If the alternate is currently an additional site, remove it before promoting it to primary.
     await selectAdditionalSite(page, alternateCode, false)
     await primarySelect.selectOption(alternate.id)
+    await expect(primarySelect).toHaveValue(alternate.id)
     await saveWorkforceProfile(page)
+    await expect.poll(async () => {
+      const row = await queryOne<any>(client, `
+        select a.branch_id::text as branch_id
+          from public.garage_workforce_branch_assignments a
+          join public.garage_workforce_profiles p on p.id=a.workforce_profile_id
+         where p.tenant_id=$1::uuid and p.user_id=$2 and a.ended_at is null and a.is_primary=true
+      `, [GARAGE_ID, safeMechanic.user_id])
+      return row.branch_id
+    }, { timeout: 15_000 }).toBe(alternate.id)
     const assignmentChanged = await requireAudit(client, 'GARAGE_WORKFORCE_BRANCH_ASSIGNMENT_CHANGED', RUN_STARTED_AT)
     const tempAssignments = await client.query(`
       select branch_id::text,is_primary,ended_at
@@ -642,6 +652,15 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
       await selectAdditionalSite(page, site.branch_code, originalAdditional.includes(site.id))
     }
     await saveWorkforceProfile(page)
+    await expect.poll(async () => {
+      const row = await queryOne<any>(client, `
+        select a.branch_id::text as branch_id
+          from public.garage_workforce_branch_assignments a
+          join public.garage_workforce_profiles p on p.id=a.workforce_profile_id
+         where p.tenant_id=$1::uuid and p.user_id=$2 and a.ended_at is null and a.is_primary=true
+      `, [GARAGE_ID, safeMechanic.user_id])
+      return row.branch_id
+    }, { timeout: 15_000 }).toBe(originalPrimary)
     const assignmentRestored = await requireAudit(client, 'GARAGE_WORKFORCE_BRANCH_ASSIGNMENT_CHANGED', RUN_STARTED_AT)
 
     // Lifecycle: active -> inactive -> pending -> exact primary/additional -> active via accepted save flow.
