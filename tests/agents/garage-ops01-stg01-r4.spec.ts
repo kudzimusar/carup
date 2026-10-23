@@ -661,7 +661,7 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
     await expect(page.getByTestId('workforce-profile-form')).toContainText('active', { timeout: 20_000 })
     const activeAudit = await requireAudit(client, 'GARAGE_WORKFORCE_STATUS_CHANGED', RUN_STARTED_AT,
       (row) => row.new_value?.employment_status === 'active')
-    const activationAssignmentAudit = await requireAudit(client, 'GARAGE_WORKFORCE_BRANCH_ASSIGNMENT_CHANGED', RUN_STARTED_AT)
+    const activationAssignmentAudit = assignmentRestored
 
     // Exact mechanic truth restoration.
     const finalMechanic = await queryOne<any>(client, `
