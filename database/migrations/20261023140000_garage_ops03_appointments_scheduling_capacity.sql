@@ -683,7 +683,7 @@ EXCEPTION
       RAISE EXCEPTION 'GARAGE_OPS03_LIVE_APPOINTMENT_EXISTS';
     END IF;
     RAISE;
-END $;
+END $$;
 
 CREATE OR REPLACE FUNCTION garage_ops03_confirm_appointment(
   p_tenant_id UUID,
