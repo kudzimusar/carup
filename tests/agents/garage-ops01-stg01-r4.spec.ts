@@ -176,10 +176,17 @@ async function saveWorkforceProfile(page: Page) {
       r.request().method() === 'PUT' && r.url().includes('/branches'),
     { timeout: 5_000 },
   ).catch(() => null)
+  const statusResponse = page.waitForResponse(
+    (r) => r.url().includes('/api/garage/workforce/') &&
+      r.request().method() === 'PATCH' && r.url().includes('/status'),
+    { timeout: 5_000 },
+  ).catch(() => null)
   await page.getByRole('button', { name: /save workforce profile/i }).click()
   await assertMutation(response, 'save workforce profile')
   const assignmentResponse = await branchResponse
   if (assignmentResponse) await assertMutation(Promise.resolve(assignmentResponse), 'save workforce assignments')
+  const workforceStatusResponse = await statusResponse
+  if (workforceStatusResponse) await assertMutation(Promise.resolve(workforceStatusResponse), 'save workforce status')
   await expect(page.getByTestId('workforce-loading')).toHaveCount(0, { timeout: 20_000 })
 }
 
