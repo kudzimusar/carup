@@ -188,7 +188,8 @@ export async function getGarageCustomers(supabaseClient, userContext) {
   if (!rows.length) return { customers: [], total: 0 };
 
   const userIds = [...new Set(rows.map((c) => c.requester_user_id))];
-  const { data: users } = await supabaseClient.from('users').select('id, name').in('id', userIds);
+  const { data: users, error: userError } = await supabaseClient.from('users').select('id, name').in('id', userIds);
+  if (userError) throw new DatabaseError(`Failed to load customer identities: ${userError.message}`);
   const nameById = new Map((users || []).map((u) => [u.id, u.name || null]));
 
   const caseIds = rows.map((c) => c.id);
