@@ -481,6 +481,71 @@ export type ServiceCaseView = {
   conversation_thread_id?: string | null
 }
 export type ServiceCaseResult = { case: ServiceCaseView; created?: boolean }
+export type GarageAppointment = {
+  id: string
+  service_case_id: string
+  branch_id: string
+  status: 'requested' | 'confirmed' | 'declined' | 'cancelled' | 'fulfilled' | 'no_show'
+  starts_at: string
+  ends_at: string
+  appointment_timezone: string
+  planned_workforce_profile_id: string | null
+  requested_by_user_id: string
+  confirmed_at: string | null
+  created_at: string
+  updated_at: string
+}
+export type AppointmentAvailabilityResponse = {
+  configured: boolean
+  enabled?: boolean
+  reason?: string
+  branch: { id: string; name: string | null; timezone: string | null }
+  date: string
+  duration_minutes: number
+  slot_interval_minutes?: number
+  capacity?: number
+  slots: Array<{
+    starts_at: string
+    ends_at: string
+    appointment_timezone: string
+    branch_capacity: number
+    booked_count: number
+    available_count: number
+    bookable: boolean
+  }>
+}
+export type GarageScheduleResponse = {
+  appointments: Array<GarageAppointment & {
+    service_case: { id: string; status: string; vin: string; service_category: string | null; requester_name: string | null } | null
+    vehicle: { vin: string; make: string | null; model: string | null; year: number | null } | null
+    branch: { id: string; name: string | null; branch_code: string | null; timezone: string | null } | null
+    planned_workforce: { profile_id: string; user_id: string; staff_code: string; display_name: string | null } | null
+  }>
+  unscheduled_cases: Array<{ id: string; vin: string; status: string; service_category: string | null; branch_id: string | null; requester_user_id: string | null; requested_at: string | null }>
+  total: number
+  scope: 'garage' | 'planned_for_me'
+}
+export type GarageSchedulingConfiguration = {
+  sites: Array<{
+    id: string
+    name: string
+    branch_code: string | null
+    timezone: string | null
+    is_active: boolean
+    settings: null | { scheduling_enabled: boolean; max_concurrent_appointments: number; slot_interval_minutes: number }
+  }>
+  workforce: Array<{
+    id: string
+    user_id: string
+    staff_code: string
+    employment_status: string
+    display_name: string | null
+    tenant_role: string | null
+    live_branch_ids: string[]
+    schedules: Array<{ id: string; branch_id: string; day_of_week: number; starts_at: string; ends_at: string; effective_from: string; effective_until: string | null }>
+    unavailability: Array<{ id: string; starts_at: string; ends_at: string; reason_code: string | null }>
+  }>
+}
 export type ServiceCaseDetail = {
   case: ServiceCaseView
   access_basis?: string
@@ -2605,6 +2670,96 @@ export function useCarUpApi() {
     return request<ServiceCaseDetail>(`/service-cases/${encodeURIComponent(caseId)}`, { method: 'GET' })
   }, [request])
 
+  const fetchServiceAppointmentAvailability = useCallback(async (
+    caseId: string,
+    input: { branch_id: string; date: string; duration_minutes: number },
+  ): Promise<AppointmentAvailabilityResponse> => {
+    const query = new URLSearchParams({
+      branch_id: input.branch_id,
+      date: input.date,
+      duration_minutes: String(input.duration_minutes),
+    })
+    return request<AppointmentAvailabilityResponse>(
+      `/service-cases/${encodeURIComponent(caseId)}/appointment-availability?${query.toString()}`,
+      { method: 'GET' },
+    )
+  }, [request])
+
+  const requestServiceAppointment = useCallback(async (
+    caseId: string,
+    body: { branch_id: string; starts_at: string; ends_at: string },
+  ): Promise<{ appointment: GarageAppointment }> =>
+    request<{ appointment: GarageAppointment }>(
+      `/service-cases/${encodeURIComponent(caseId)}/appointments`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ), [request])
+
+  const fetchMyServiceAppointments = useCallback(async (): Promise<GarageAppointment[]> => {
+    const response = await request<{ appointments: GarageAppointment[] }>('/service-appointments/mine', { method: 'GET' })
+    return response?.appointments ?? []
+  }, [request])
+
+  const cancelMyServiceAppointment = useCallback(async (
+    caseId: string, appointmentId: string,
+  ): Promise<{ appointment: GarageAppointment }> =>
+    request<{ appointment: GarageAppointment }>(
+      `/service-cases/${encodeURIComponent(caseId)}/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+      { method: 'POST', body: '{}' },
+    ), [request])
+
+  const fetchGarageSchedule = useCallback(async (): Promise<GarageScheduleResponse> =>
+    request<GarageScheduleResponse>('/garage/schedule', { method: 'GET' }), [request])
+
+  const fetchGarageSchedulingConfiguration = useCallback(async (): Promise<GarageSchedulingConfiguration> =>
+    request<GarageSchedulingConfiguration>('/garage/schedule/configuration', { method: 'GET' }), [request])
+
+  const saveGarageSchedulingSettings = useCallback(async (
+    siteId: string,
+    body: { scheduling_enabled: boolean; max_concurrent_appointments: number; slot_interval_minutes: number },
+  ) => request(
+    `/garage/schedule/sites/${encodeURIComponent(siteId)}/settings`,
+    { method: 'PUT', body: JSON.stringify(body) },
+  ), [request])
+
+  const addGarageWorkforceSchedule = useCallback(async (
+    userId: string,
+    body: { branch_id: string; day_of_week: number; starts_at: string; ends_at: string; effective_from: string; effective_until?: string | null },
+  ) => request(
+    `/garage/schedule/workforce/${encodeURIComponent(userId)}/recurring`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const addGarageWorkforceUnavailability = useCallback(async (
+    userId: string,
+    body: { starts_at: string; ends_at: string; reason_code?: string | null },
+  ) => request(
+    `/garage/schedule/workforce/${encodeURIComponent(userId)}/unavailability`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const confirmGarageAppointment = useCallback(async (
+    appointmentId: string,
+    body: { branch_id: string; starts_at: string; ends_at: string; planned_workforce_profile_id: string },
+  ) => request<{ appointment: GarageAppointment }>(
+    `/garage/schedule/appointments/${encodeURIComponent(appointmentId)}/confirm`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const rescheduleGarageAppointment = useCallback(async (
+    appointmentId: string,
+    body: { branch_id: string; starts_at: string; ends_at: string; planned_workforce_profile_id: string },
+  ) => request<{ appointment: GarageAppointment }>(
+    `/garage/schedule/appointments/${encodeURIComponent(appointmentId)}/reschedule`,
+    { method: 'POST', body: JSON.stringify(body) },
+  ), [request])
+
+  const changeGarageAppointmentStatus = useCallback(async (
+    appointmentId: string, status: 'declined' | 'cancelled' | 'fulfilled' | 'no_show',
+  ) => request<{ appointment: GarageAppointment }>(
+    `/garage/schedule/appointments/${encodeURIComponent(appointmentId)}/status`,
+    { method: 'POST', body: JSON.stringify({ status }) },
+  ), [request])
+
   /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
      Every one of these endpoints was already certified and had no product surface: the garage's
      queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
@@ -3558,12 +3713,24 @@ export function useCarUpApi() {
     createServiceRequest,
     fetchMyServiceRequests,
     fetchServiceRequest,
+    fetchServiceAppointmentAvailability,
+    requestServiceAppointment,
+    fetchMyServiceAppointments,
+    cancelMyServiceAppointment,
     cancelServiceRequest,
     resolveServiceLink,
     fetchGarageQueue,
     fetchGarageMechanics,
     fetchGarageCustomers,
     fetchGarageCustomerDetail,
+    fetchGarageSchedule,
+    fetchGarageSchedulingConfiguration,
+    saveGarageSchedulingSettings,
+    addGarageWorkforceSchedule,
+    addGarageWorkforceUnavailability,
+    confirmGarageAppointment,
+    rescheduleGarageAppointment,
+    changeGarageAppointmentStatus,
     updateGarageCustomerRelationship,
     createGarageProspect,
     fetchMyGarageProfile,
