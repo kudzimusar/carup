@@ -1,0 +1,324 @@
+name: GARAGE-1.0 OPS01 STG01 R4
+
+# Evidence-only physical certification for the frozen OPS01 product.
+# This workflow never deploys, promotes, migrates or edits Garage product authority.
+on:
+  push:
+    branches:
+      - cert/garage-1.0-ops01-stg01-r4
+
+concurrency:
+  group: garage-ops01-stg01-r4
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  physical-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PRODUCT_SHA: a8a89fc1fb12551513916dea6bb45c841dbc7a59
+      PRODUCT_PR: '239'
+      PRODUCT_BASE_SHA: 756627640e5bdf28e45de37ae0513347cef3112c
+      CERT_BRANCH: cert/garage-1.0-ops01-stg01-r4
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      STAGING_WEB_URL: https://staging.carup.dev
+      STAGING_API_URL: https://api-staging.carup.dev/api
+      EXPECTED_FRONTEND_DEPLOYMENT_ID: dpl_HmH7LeikXiGbda2zRi9NNT6Ft8pC
+      EXPECTED_BACKEND_DEPLOYMENT_ID: dpl_5ReuVT4VHw5M2YX1rWaCdJGrjqva
+      GARAGE_R4_RUN_ID: garage-r4-${{ github.run_id }}-${{ github.run_attempt }}
+      GARAGE_R4_RESULTS_DIR: test-results/garage-r4
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Recustody frozen product and certification branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_EVENT_NAME}" = "push"
+          test "${GITHUB_REF_NAME}" = "$CERT_BRANCH"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PRODUCT_PR}")"
+          head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+          base_sha="$(jq -r '.base.sha' <<<"$pr_json")"
+          state="$(jq -r '.state' <<<"$pr_json")"
+          draft="$(jq -r '.draft' <<<"$pr_json")"
+          merged="$(jq -r '.merged' <<<"$pr_json")"
+
+          test "$head_sha" = "$PRODUCT_SHA"
+          test "$base_sha" = "$PRODUCT_BASE_SHA"
+          test "$state" = "open"
+          test "$draft" = "true"
+          test "$merged" = "false"
+
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          allowed=(
+            ".github/workflows/garage-ops01-stg01-r4.yml"
+            "tests/agents/garage-ops01-stg01-r4.spec.ts"
+            "backend/scripts/garage-ops01-stg01-r4-credential.mjs"
+          )
+          for file in "${changed[@]}"; do
+            ok=false
+            for candidate in "${allowed[@]}"; do
+              [ "$file" = "$candidate" ] && ok=true
+            done
+            if [ "$ok" != true ]; then
+              echo "::error::Forbidden R4 diff file: $file"
+              exit 1
+            fi
+          done
+          test "${#changed[@]}" -eq 3
+          for candidate in "${allowed[@]}"; do
+            printf '%s\n' "${changed[@]}" | grep -Fxq "$candidate"
+          done
+          printf 'R4 certification branch custody PASS; push-triggered evidence-only diff is exact; product PR remains frozen at %s\n' "$PRODUCT_SHA"
+
+      - name: Require approved staging operator secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured.'
+            exit 1
+          fi
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*)
+              echo '::error::REFUSING GARAGE R4 CREDENTIAL OPERATION OUTSIDE APPROVED STAGING'
+              exit 1
+              ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *)
+              echo '::error::REFUSING GARAGE R4 CREDENTIAL OPERATION OUTSIDE APPROVED STAGING'
+              exit 1
+              ;;
+          esac
+          echo 'Approved staging project guard PASS.'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify frozen canonical runtime custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GARAGE_R4_RESULTS_DIR"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+
+          const expected = process.env.PRODUCT_SHA
+          const web = process.env.STAGING_WEB_URL.replace(/\/$/, '')
+          const api = process.env.STAGING_API_URL.replace(/\/$/, '')
+          const [provResponse, healthResponse] = await Promise.all([
+            fetch(`${web}/carup-provenance.json?garage_r4=${process.env.GITHUB_RUN_ID}`, { cache: 'no-store' }),
+            fetch(`${api}/health?garage_r4=${process.env.GITHUB_RUN_ID}`, { cache: 'no-store' }),
+          ])
+          if (!provResponse.ok) throw new Error(`frontend provenance returned ${provResponse.status}`)
+          if (!healthResponse.ok) throw new Error(`backend health returned ${healthResponse.status}`)
+          const provenance = await provResponse.json()
+          const health = await healthResponse.json()
+          if (provenance.commit_sha !== expected || provenance.unpaired !== false) {
+            throw new Error(`frontend custody mismatch: ${provenance.commit_sha || 'missing'}`)
+          }
+          if (health?.status !== 'UP') {
+            throw new Error(`backend health status mismatch: ${health?.status || 'missing'}`)
+          }
+          if (health?.build?.commit_sha !== expected) {
+            throw new Error(`backend custody mismatch: ${health?.build?.commit_sha || 'missing'}`)
+          }
+          if (health?.build?.provenance_available !== true) {
+            throw new Error('backend provenance unavailable')
+          }
+          if (health?.build?.source === 'conflict') {
+            throw new Error('backend provenance source conflict')
+          }
+          if (health?.build?.deployment_id !== process.env.EXPECTED_BACKEND_DEPLOYMENT_ID) {
+            throw new Error(`backend deployment mismatch: ${health?.build?.deployment_id || 'missing'}`)
+          }
+          const receipt = {
+            product_sha: expected,
+            certification_branch: process.env.CERT_BRANCH,
+            certification_head: process.env.GITHUB_SHA,
+            workflow_event: process.env.GITHUB_EVENT_NAME,
+            product_pr: Number(process.env.PRODUCT_PR),
+            product_pr_unchanged: true,
+            frontend: {
+              canonical_url: web,
+              expected_deployment_id: process.env.EXPECTED_FRONTEND_DEPLOYMENT_ID,
+              reported_commit_sha: provenance.commit_sha,
+              unpaired: provenance.unpaired,
+            },
+            backend: {
+              canonical_url: api,
+              expected_deployment_id: process.env.EXPECTED_BACKEND_DEPLOYMENT_ID,
+              reported_commit_sha: health.build.commit_sha,
+              reported_deployment_id: health.build.deployment_id || null,
+              status: health.status || null,
+            },
+            staging_project_ref: process.env.EXPECTED_STAGING_PROJECT_REF,
+            production_accessed: false,
+          }
+          fs.writeFileSync(`${process.env.GARAGE_R4_RESULTS_DIR}/garage-r4-custody.json`, JSON.stringify(receipt, null, 2) + '\n')
+          console.log(JSON.stringify({
+            frontend_sha: provenance.commit_sha,
+            backend_sha: health.build.commit_sha,
+            backend_deployment_id: health.build.deployment_id || null,
+            product_pr_unchanged: true,
+          }))
+          NODE
+
+      - name: Validate credential helper syntax
+        run: node --check backend/scripts/garage-ops01-stg01-r4-credential.mjs
+
+      - name: Preflight pinned Owner and snapshot valid session IDs
+        run: node backend/scripts/garage-ops01-stg01-r4-credential.mjs --mode=preflight
+
+      - name: Grant isolated temporary Owner credential
+        run: node backend/scripts/garage-ops01-stg01-r4-credential.mjs --mode=grant
+
+      - name: Run real desktop + compact Garage physical certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .garage-r4.playwright.config.ts <<'TS'
+          import { defineConfig } from '@playwright/test'
+          export default defineConfig({
+            testDir: './tests/agents',
+            testMatch: /garage-ops01-stg01-r4\.spec\.ts/,
+            timeout: 9 * 60_000,
+            expect: { timeout: 20_000 },
+            fullyParallel: false,
+            workers: 1,
+            retries: 0,
+            reporter: [['list']],
+            use: {
+              baseURL: process.env.STAGING_WEB_URL || 'https://staging.carup.dev',
+              trace: 'off',
+              screenshot: 'off',
+              video: 'off',
+              actionTimeout: 25_000,
+              navigationTimeout: 45_000,
+            },
+          })
+          TS
+          trap 'rm -f .garage-r4.playwright.config.ts' EXIT
+          npx playwright test tests/agents/garage-ops01-stg01-r4.spec.ts --config=.garage-r4.playwright.config.ts
+
+      - name: Remove temporary Owner credential and R4 sessions
+        if: always()
+        run: node backend/scripts/garage-ops01-stg01-r4-credential.mjs --mode=cleanup
+
+      - name: Verify credential/session cleanup
+        if: always()
+        run: node backend/scripts/garage-ops01-stg01-r4-credential.mjs --mode=verify-clean
+
+      - name: Record pre-existing RLS issue status
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GARAGE_R4_RESULTS_DIR"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import pg from 'pg'
+          const raw = process.env.DIASPORA_STAGING_DATABASE_URL || ''
+          if (!raw.includes(process.env.EXPECTED_STAGING_PROJECT_REF) || raw.includes(process.env.FORBIDDEN_PRODUCTION_PROJECT_REF)) {
+            throw new Error('Refusing RLS read outside approved staging')
+          }
+          const cleaned = raw.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '')
+          const client = new pg.Client({ connectionString: cleaned, ssl: { rejectUnauthorized: false } })
+          try {
+            await client.connect()
+            const { rows } = await client.query(`
+              select c.relname, c.relrowsecurity as rls_enabled, c.relforcerowsecurity as rls_forced
+                from pg_class c
+                join pg_namespace n on n.oid=c.relnamespace
+               where n.nspname='public'
+                 and c.relname in ('blockchain_custody_rollout','blockchain_signing_watermarks')
+               order by c.relname
+            `)
+            fs.writeFileSync(`${process.env.GARAGE_R4_RESULTS_DIR}/garage-r4-preexisting-rls.json`, JSON.stringify({
+              classification: 'PRE-EXISTING STAGING SECURITY ISSUE — OUTSIDE OPS01',
+              tables: rows,
+            }, null, 2) + '\n')
+            console.log(JSON.stringify(rows))
+          } finally {
+            await client.end().catch(() => {})
+          }
+          NODE
+
+      - name: Evidence-branch diff hygiene
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .garage-r4.playwright.config.ts
+          git diff --check "$PRODUCT_SHA"...HEAD
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 3
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/garage-ops01-stg01-r4.yml|tests/agents/garage-ops01-stg01-r4.spec.ts|backend/scripts/garage-ops01-stg01-r4-credential.mjs) ;;
+              *) echo "::error::Forbidden R4 diff file: $file"; exit 1 ;;
+            esac
+          done
+          for expected in .github/workflows/garage-ops01-stg01-r4.yml backend/scripts/garage-ops01-stg01-r4-credential.mjs tests/agents/garage-ops01-stg01-r4.spec.ts; do
+            printf '%s\n' "${changed[@]}" | grep -Fxq "$expected"
+          done
+          test -z "$(git status --porcelain --untracked-files=all | grep -v '^?? test-results/' || true)"
+
+      - name: Re-prove product PR #239 custody
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PRODUCT_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.base.sha' <<<"$pr_json")" = "$PRODUCT_BASE_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+          echo "PR #239 remains frozen at $PRODUCT_SHA"
+
+      - name: Upload sanitized Garage R4 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garage-ops01-stg01-r4-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/garage-r4/desktop-sites.png
+            test-results/garage-r4/desktop-workforce.png
+            test-results/garage-r4/desktop-owner-empty-profile.png
+            test-results/garage-r4/desktop-classification-validation.png
+            test-results/garage-r4/desktop-start-date-validation.png
+            test-results/garage-r4/mobile-sites.png
+            test-results/garage-r4/mobile-workforce.png
+            test-results/garage-r4/garage-r4-audit-events.json
+            test-results/garage-r4/garage-r4-final-state.json
+            test-results/garage-r4/garage-r4-custody.json
+            test-results/garage-r4/garage-r4-owner-preflight.json
+            test-results/garage-r4/garage-r4-cleanup.json
+            test-results/garage-r4/garage-r4-browser-summary.json
+            test-results/garage-r4/garage-r4-preexisting-rls.json
+          if-no-files-found: warn
+          retention-days: 14
