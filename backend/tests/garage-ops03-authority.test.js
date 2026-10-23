@@ -9,6 +9,8 @@ import {
   getGarageSchedulingConfiguration,
   getRequesterAppointmentAvailability,
   requestAppointment,
+  transitionGarageAppointment,
+  cancelRequesterAppointment,
   updateBranchSchedulingSettings,
 } from '../services/garageOperations/garageSchedulingService.js';
 
@@ -154,6 +156,11 @@ test('request body tenant spoofing cannot redirect appointment authority', async
   assert.equal(stored.service_case_id, C.a);
   assert.equal(stored.status, 'requested');
   assert.equal(stored.planned_workforce_profile_id, null);
+  C.appointment = result.appointment.id;
+  await assert.rejects(
+    () => cancelRequesterAppointment(client, requester('customer-b'), C.a, result.appointment.id),
+    /Service case not found/,
+  );
 });
 
 test('mechanic schedule read is narrowed to planned-for-me and cannot expose Garage-wide appointments', async () => {
@@ -167,12 +174,28 @@ test('mechanic schedule read is narrowed to planned-for-me and cannot expose Gar
   assert.equal(mechanic.appointments[0].planned_workforce.profile_id, P.a);
   assert.deepEqual(mechanic.unscheduled_cases, []);
 
-  await assert.rejects(
-    () => getGarageSchedule(client, actor('admin-b',T.b,'admin'), { branch_id: B.a }),
-    /Could not load|Select the garage|not active|Garage/i,
-  ).catch(() => {});
   const bView = await getGarageSchedule(client, actor('admin-b',T.b,'admin'));
   assert.equal(bView.appointments.length, 0);
+  await assert.rejects(
+    () => transitionGarageAppointment(client, actor('admin-b',T.b,'admin'), C.appointment, 'cancelled'),
+    /Appointment not found/,
+    'Garage B cannot mutate Garage A appointment by guessing its id',
+  );
+});
+
+test('requester can cancel only their own live appointment without changing the Service Case', async () => {
+  const caseId = (await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,branch_id,requester_user_id,status) VALUES ('OPS03AUTHVIN00001',$1,$2,'customer-a','accepted') RETURNING id",
+    [T.a,B.a],
+  )).rows[0].id;
+  const requested = await requestAppointment(client, requester('customer-a'), caseId, {
+    branch_id: B.a,
+    starts_at: '2026-10-26T10:00:00Z',
+    ends_at: '2026-10-26T11:00:00Z',
+  });
+  const cancelled = await cancelRequesterAppointment(client, requester('customer-a'), caseId, requested.appointment.id);
+  assert.equal(cancelled.appointment.status, 'cancelled');
+  assert.equal((await db.query('SELECT status FROM service_cases WHERE id=$1',[caseId])).rows[0].status, 'accepted');
 });
 
 test('planning writes no work order or work-order assignment side effects', async () => {
