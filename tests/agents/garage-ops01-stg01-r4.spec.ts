@@ -19,8 +19,8 @@ const RUN_SUFFIX = String(process.env.GARAGE_R4_RUN_ID || process.env.GITHUB_RUN
   .slice(-10)
   .toUpperCase()
 const TEMP_SITE_CODE = `UAT-R4-${RUN_SUFFIX}`
-const TEMP_SITE_NAME = 'SYNTHETIC / UAT R4 AUDIT SITE'
-const TEMP_SITE_UPDATED_NAME = 'SYNTHETIC / UAT R4 AUDIT SITE / UPDATED'
+const TEMP_SITE_NAME = `SYNTHETIC / UAT R4 AUDIT SITE ${RUN_SUFFIX}`
+const TEMP_SITE_UPDATED_NAME = `SYNTHETIC / UAT R4 AUDIT SITE / UPDATED ${RUN_SUFFIX}`
 const TEMP_DEPT_NAME = `SYNTHETIC / UAT R4 ${RUN_SUFFIX}`
 const NOTE_MARKER = 'SYNTHETIC / UAT R4 AUDIT PROOF'
 const R3_RESIDUE_ID = '071ef0e9-e1ff-4de9-8da4-50eaecf945e5'
@@ -359,6 +359,32 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
           row.previous_value?.branch_code === R3_RESIDUE_CODE ||
           row.new_value?.branch_code === R3_RESIDUE_CODE)
     }
+
+    // Remove any active R4 residue left by an earlier interrupted certification attempt.
+    const priorR4Residues = await client.query(`
+      select id::text, branch_code
+        from public.garage_branches
+       where tenant_id=$1::uuid and branch_code like 'UAT-R4-%' and is_active=true
+       order by branch_code
+    `, [GARAGE_ID])
+    const priorR4Cleanup: Array<Record<string, unknown>> = []
+    for (const residue of priorR4Residues.rows) {
+      const priorCard = page.getByTestId('site-card').filter({ hasText: residue.branch_code })
+      await expect(priorCard).toHaveCount(1)
+      const priorDeactivateResponse = page.waitForResponse((r) =>
+        r.url().includes(`/api/garage/sites/${residue.id}/status`) && r.request().method() === 'PATCH',
+      )
+      await priorCard.getByRole('button', { name: 'Deactivate' }).click()
+      await assertMutation(priorDeactivateResponse, `prior R4 residue ${residue.branch_code} deactivation`)
+      await expect(priorCard).toContainText('Inactive')
+      const priorAudit = await requireAudit(client, 'GARAGE_SITE_DEACTIVATED', RUN_STARTED_AT,
+        (row) => row.previous_value?.id === residue.id ||
+          row.new_value?.id === residue.id ||
+          row.previous_value?.branch_code === residue.branch_code ||
+          row.new_value?.branch_code === residue.branch_code)
+      priorR4Cleanup.push({ id: residue.id, branch_code: residue.branch_code, audit_event_id: priorAudit.id })
+    }
+
     const postResidueCleanup = await queryOne<any>(client, `
       select jsonb_build_object(
         'active_sites',(select count(*) from public.garage_branches where tenant_id=$1::uuid and is_active=true),
@@ -383,6 +409,7 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
       was_active: residueWasActive,
       deactivated_via_ui: residueWasActive,
       deactivation_audit_event_id: residueDeactivateAudit?.id || null,
+      prior_r4_cleanup: priorR4Cleanup,
       post_cleanup_fixture: postResidueCleanup.state,
     }
 
