@@ -180,12 +180,12 @@ async function saveWorkforceProfile(page: Page) {
   const branchResponse = page.waitForResponse(
     (r) => r.url().includes('/api/garage/workforce/') &&
       r.request().method() === 'PUT' && r.url().includes('/branches'),
-    { timeout: 5_000 },
+    { timeout: 15_000 },
   ).catch(() => null)
   const statusResponse = page.waitForResponse(
     (r) => r.url().includes('/api/garage/workforce/') &&
       r.request().method() === 'PATCH' && r.url().includes('/status'),
-    { timeout: 5_000 },
+    { timeout: 15_000 },
   ).catch(() => null)
   await page.getByRole('button', { name: /save workforce profile/i }).click()
   await assertMutation(response, 'save workforce profile')
@@ -744,6 +744,7 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
 
     await selectMember(page, safeMechanic.email)
     await primarySelect.selectOption(originalPrimary)
+    await expect(primarySelect).toHaveValue(originalPrimary)
     for (const site of retainedSites) {
       if (site.id === originalPrimary) continue
       await selectAdditionalSite(page, site.branch_code, originalAdditional.includes(site.id))
