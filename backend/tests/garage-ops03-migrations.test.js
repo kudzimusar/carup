@@ -30,9 +30,9 @@ async function forceAuditFailure(eventType) {
   await db.exec('DROP TRIGGER IF EXISTS trg_ops03_test_fail_audit ON trust_audit_events');
   await db.exec('DROP FUNCTION IF EXISTS garage_ops03_test_fail_audit()');
   await db.exec(
-    "CREATE FUNCTION garage_ops03_test_fail_audit() RETURNS TRIGGER LANGUAGE plpgsql AS $ BEGIN " +
+    "CREATE FUNCTION garage_ops03_test_fail_audit() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN " +
     "IF NEW.event_type = '" + eventType + "' THEN RAISE EXCEPTION 'OPS03_TEST_AUDIT_FAILURE'; END IF; " +
-    "RETURN NEW; END $; " +
+    "RETURN NEW; END $$; " +
     "CREATE TRIGGER trg_ops03_test_fail_audit BEFORE INSERT ON trust_audit_events " +
     "FOR EACH ROW EXECUTE FUNCTION garage_ops03_test_fail_audit();"
   );

@@ -349,7 +349,7 @@ CREATE OR REPLACE FUNCTION garage_ops03_upsert_branch_scheduling_settings(
 RETURNS SETOF garage_branch_scheduling_settings
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
-AS $
+AS $$
 DECLARE
   v_previous garage_branch_scheduling_settings%ROWTYPE;
   v_result garage_branch_scheduling_settings%ROWTYPE;
@@ -436,7 +436,7 @@ BEGIN
   );
 
   RETURN NEXT v_result;
-END $;
+END $$;
 
 CREATE OR REPLACE FUNCTION garage_ops03_add_workforce_schedule(
   p_tenant_id UUID,
@@ -452,7 +452,7 @@ CREATE OR REPLACE FUNCTION garage_ops03_add_workforce_schedule(
 RETURNS SETOF garage_workforce_schedules
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
-AS $
+AS $$
 DECLARE
   v_result garage_workforce_schedules%ROWTYPE;
   v_actor_role TEXT;
@@ -530,7 +530,7 @@ BEGIN
   );
 
   RETURN NEXT v_result;
-END $;
+END $$;
 
 CREATE OR REPLACE FUNCTION garage_ops03_add_workforce_unavailability(
   p_tenant_id UUID,
@@ -543,7 +543,7 @@ CREATE OR REPLACE FUNCTION garage_ops03_add_workforce_unavailability(
 RETURNS SETOF garage_workforce_unavailability
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
-AS $
+AS $$
 DECLARE
   v_result garage_workforce_unavailability%ROWTYPE;
   v_actor_role TEXT;
@@ -604,7 +604,7 @@ BEGIN
   );
 
   RETURN NEXT v_result;
-END $;
+END $$;
 
 CREATE OR REPLACE FUNCTION garage_ops03_append_event_and_audit(
   p_appointment_id UUID,
