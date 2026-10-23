@@ -640,7 +640,7 @@ test('GARAGE-1.0 OPS01 STG01 R4 physical application certification', async ({ pa
         from public.garage_workforce_branch_assignments a
         join public.garage_workforce_profiles p on p.id=a.workforce_profile_id
        where p.tenant_id=$1::uuid and p.user_id=$2
-       order by a.created_at asc
+       order by a.assigned_at asc
     `, [GARAGE_ID, safeMechanic.user_id])
     expect(tempAssignments.rows.filter((a) => a.ended_at == null && a.is_primary).length).toBe(1)
     expect(tempAssignments.rows.some((a) => a.branch_id === originalPrimary && a.ended_at != null)).toBe(true)
