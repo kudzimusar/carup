@@ -1040,6 +1040,22 @@
     ]
   },
   {
+    "id": "garage.operations",
+    "domain": "service",
+    "route": "/garage/operations",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin"
+    ]
+  },
+  {
     "id": "garage.profile",
     "domain": "service",
     "route": "/garage/profile",
@@ -1086,6 +1102,23 @@
     ],
     "tenantRoles": [
       "admin"
+    ]
+  },
+  {
+    "id": "garage.stock",
+    "domain": "service",
+    "route": "/garage/stock",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": true,
+    "betaCapable": true,
+    "tenantTypes": [
+      "garage"
+    ],
+    "tenantRoles": [
+      "admin",
+      "mechanic"
     ]
   },
   {

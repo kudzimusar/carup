@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, Inbox, Car, ArrowRight, Users, ClipboardList } from 'lucide-react'
+import { Loader2, Inbox, Car, ArrowRight, Users, ClipboardList, Package, BarChart3 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
@@ -75,6 +75,18 @@ export default function GarageWorkspace() {
               <Users className="w-4 h-4 mr-2" aria-hidden="true" /> Customers
             </Button>
           </Link>
+          <Link to="/garage/stock">
+            <Button variant="outline" className="min-h-11" data-testid="open-stock">
+              <Package className="w-4 h-4 mr-2" aria-hidden="true" /> Stock
+            </Button>
+          </Link>
+          {user?.active_tenant?.role === 'admin' && (
+            <Link to="/garage/operations">
+              <Button variant="outline" className="min-h-11" data-testid="open-operations">
+                <BarChart3 className="w-4 h-4 mr-2" aria-hidden="true" /> Operations
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
