@@ -212,7 +212,15 @@ export function garageEstimateView(row, lines, totals, events) {
 
 /** What the customer may see: never a draft, never the garage's internal note or authorship. */
 export function customerEstimateView(row, lines, extra = {}) {
-  return { ...baseView(row, lines, null), vin: extra.vin ?? null, can_decide: Boolean(extra.canDecide), awaiting_owner: Boolean(extra.awaitingOwner) };
+  return {
+    ...baseView(row, lines, null),
+    vin: extra.vin ?? null,
+    can_decide: Boolean(extra.canDecide),
+    awaiting_owner: Boolean(extra.awaitingOwner),
+    // The CANONICAL authorization (OC-5A), so a screen never has to infer it from an estimate: an accepted
+    // estimate whose authorization was later revoked must not keep reading "authorized".
+    work_order_authorization: extra.workOrderAuthorization ?? null,
+  };
 }
 
 async function loadLines(client, estimateIds) {
@@ -429,6 +437,13 @@ export async function listMyEstimates(client = defaultClient, actor = {}) {
   // a cancelled DRAFT was never sent, so it was never the customer's to see
   const sent = rows(data).filter((r) => r.sent_at);
   const lines = await loadLines(client, sent.map((r) => r.id));
+  const woIds = [...new Set(sent.map((r) => r.work_order_id))];
+  const authorizationByWorkOrder = new Map();
+  if (woIds.length) {
+    const { data: orders, error: orderError } = await client.from('mechanic_work_orders').select('id, owner_authorization').in('id', woIds);
+    if (orderError) throw new DatabaseError('Could not load authorization state: ' + orderError.message);
+    for (const o of rows(orders)) authorizationByWorkOrder.set(o.id, o.owner_authorization);
+  }
   return {
     estimates: sent.map((row) => {
       const c = caseById.get(row.service_case_id);
@@ -437,6 +452,7 @@ export async function listMyEstimates(client = defaultClient, actor = {}) {
         vin: c.vin,
         canDecide: row.status === 'sent' && !isExpired(row) && isOwner,
         awaitingOwner: row.status === 'sent' && !isOwner,
+        workOrderAuthorization: authorizationByWorkOrder.get(row.work_order_id) ?? null,
       });
     }),
   };

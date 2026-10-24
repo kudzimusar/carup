@@ -104,8 +104,12 @@ test('garage admin prepares, sends and the custodian accepts; the service never 
   }
   assert.equal(view.customer_note, 'Pads and labour');
 
+  assert.equal(view.work_order_authorization, 'pending', 'the customer\'s view carries the canonical authorization');
   const decided = await decideMyEstimate(client, person('customer-a'), draft.id, { decision: 'accept' });
   assert.equal(decided.work_order_authorization, 'authorized');
+  const after = (await listMyEstimates(client, person('customer-a'))).estimates.find((e) => e.id === draft.id);
+  assert.equal(after.work_order_authorization, 'authorized');
+
   const { rows: [wo] } = await db.query('SELECT owner_authorization FROM mechanic_work_orders WHERE service_case_id=$1', [c.caseId]);
   assert.equal(wo.owner_authorization, 'authorized');
 
@@ -250,4 +254,16 @@ test('the customer cannot decide an estimate that was only ever a draft or was c
   await cancelEstimate(client, admin, draft.id, { reason: 'wrong vehicle' });
   assert.deepEqual((await listMyEstimates(client, person('customer-a'))).estimates.filter((e) => e.id === draft.id), []);
   await rejects(decideMyEstimate(client, person('customer-a'), draft.id, { decision: 'accept' }), { name: 'NotFoundError' });
+});
+
+test('a later revocation stops reading as "authorized" on the customer view even though the estimate stays accepted', async () => {
+  const c = await newCase();
+  const admin = garageActor('admin-a', c.tenant);
+  const est = await createEstimateForCase(client, admin, c.caseId, { currency: 'USD', lines: LINES });
+  await sendEstimate(client, admin, est.id);
+  await decideMyEstimate(client, person('customer-a'), est.id, { decision: 'accept' });
+  await db.query("SELECT mechanic_work_order_decide_authorization($1,$2,'customer-a','owner',NULL,'owner','revoked','changed my mind')", [est.work_order_id, c.vin]);
+  const view = (await listMyEstimates(client, person('customer-a'))).estimates.find((e) => e.id === est.id);
+  assert.equal(view.status, 'accepted', 'the historical decision is not rewritten');
+  assert.equal(view.work_order_authorization, 'revoked', 'but the canonical authorization is');
 });

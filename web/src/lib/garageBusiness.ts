@@ -92,6 +92,8 @@ export type CustomerEstimate = Omit<GarageEstimate, 'internal_note' | 'history' 
   can_decide: boolean
   /** the person asked for the work but is not the registered owner: they can follow it, not decide it */
   awaiting_owner: boolean
+  /** the CANONICAL authorization state — an accepted estimate whose authorization was revoked is no longer "authorized" */
+  work_order_authorization: OwnerAuthorization | null
 }
 
 export type EstimateDecisionResult = { success: true; decision: 'accepted' | 'declined'; estimate_id: string; work_order_authorization: OwnerAuthorization }
