@@ -27,8 +27,8 @@ const create = (c, { currency = 'USD', lines = LINES, actor = 'admin-a', tenant 
     [tenant, c.workOrderId, currency, 'Customer note', 'Internal note', validUntil, JSON.stringify(lines), actor]);
 const send = (c, id, { actor = 'admin-a', tenant = c.tenant } = {}) =>
   db.query('SELECT * FROM garage_ops04_send_estimate($1,$2,$3)', [tenant, id, actor]);
-const decide = (id, decision, { actor = 'customer-a', basis = 'owner', role = 'owner', reason = null } = {}) =>
-  db.query('SELECT garage_ops04_decide_estimate($1,$2,$3,$4,$5,$6) r', [id, decision, basis, actor, role, reason]);
+const decide = (id, decision, { actor = 'customer-a', basis = 'owner', role = 'owner', reason = null, tenant = null } = {}) =>
+  db.query('SELECT garage_ops04_decide_estimate($1,$2,$3,$4,$5,$6,$7) r', [id, decision, basis, actor, role, tenant, reason]);
 const revise = (c, id, actor = 'admin-a') =>
   db.query('SELECT * FROM garage_ops04_revise_estimate($1,$2,$3)', [c.tenant, id, actor]);
 const workOrder = async (c) => (await db.query(

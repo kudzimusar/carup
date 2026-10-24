@@ -160,6 +160,8 @@ import garageMembershipRouter from './routes/garageMembershipRoutes.js';
 import garageOperationsRouter from './routes/garageOperationsRoutes.js';
 // GARAGE-1.0-OPS03 — appointments, explicit availability and workshop capacity.
 import garageSchedulingRouter from './routes/garageSchedulingRoutes.js';
+// GARAGE-1.0-OPS04 — governed estimates and the customer's decision (converges on OC-5A work-order authorization).
+import garageEstimateRouter from './routes/garageEstimateRoutes.js';
 // OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
 // garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
@@ -576,6 +578,7 @@ app.use(garageInvitationRouter);
 app.use(garageMembershipRouter);
 app.use(garageOperationsRouter);
 app.use(garageSchedulingRouter);
+app.use(garageEstimateRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);

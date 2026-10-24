@@ -644,6 +644,7 @@ CREATE OR REPLACE FUNCTION garage_ops04_decide_estimate(
   p_basis TEXT,
   p_actor_user_id TEXT,
   p_actor_role TEXT,
+  p_actor_tenant_id TEXT,
   p_reason TEXT
 )
 RETURNS JSONB
@@ -687,10 +688,10 @@ BEGIN
 
   IF p_decision = 'accepted' THEN
     v_result := mechanic_work_order_decide_authorization(
-      v_wo.id, v_vin, p_actor_user_id, p_actor_role, NULL, p_basis, 'authorized', p_reason);
+      v_wo.id, v_vin, p_actor_user_id, p_actor_role, p_actor_tenant_id, p_basis, 'authorized', p_reason);
   ELSIF v_before = 'pending' THEN
     v_result := mechanic_work_order_decide_authorization(
-      v_wo.id, v_vin, p_actor_user_id, p_actor_role, NULL, p_basis, 'declined', p_reason);
+      v_wo.id, v_vin, p_actor_user_id, p_actor_role, p_actor_tenant_id, p_basis, 'declined', p_reason);
   ELSIF v_before = 'declined' THEN
     -- an earlier version was already declined: the canonical state is already what this decision means
     v_result := jsonb_build_object('id', v_wo.id, 'owner_authorization', v_before, 'unchanged', true);
@@ -841,7 +842,7 @@ REVOKE ALL ON FUNCTION
   garage_ops04_send_estimate(UUID,UUID,TEXT),
   garage_ops04_revise_estimate(UUID,UUID,TEXT),
   garage_ops04_cancel_estimate(UUID,UUID,TEXT,TEXT),
-  garage_ops04_decide_estimate(UUID,TEXT,TEXT,TEXT,TEXT,TEXT)
+  garage_ops04_decide_estimate(UUID,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT)
 FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION
@@ -853,7 +854,7 @@ GRANT EXECUTE ON FUNCTION
   garage_ops04_send_estimate(UUID,UUID,TEXT),
   garage_ops04_revise_estimate(UUID,UUID,TEXT),
   garage_ops04_cancel_estimate(UUID,UUID,TEXT,TEXT),
-  garage_ops04_decide_estimate(UUID,TEXT,TEXT,TEXT,TEXT,TEXT)
+  garage_ops04_decide_estimate(UUID,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT)
 TO service_role;
 
 -- +migrate Down
@@ -863,7 +864,7 @@ DROP TRIGGER IF EXISTS trg_garage_ops04_after_work_order_change ON mechanic_work
 DROP FUNCTION IF EXISTS garage_ops04_after_work_order_change();
 DROP TRIGGER IF EXISTS trg_garage_ops04_guard_work_order_decision ON mechanic_work_orders;
 DROP FUNCTION IF EXISTS garage_ops04_guard_work_order_decision();
-DROP FUNCTION IF EXISTS garage_ops04_decide_estimate(UUID,TEXT,TEXT,TEXT,TEXT,TEXT);
+DROP FUNCTION IF EXISTS garage_ops04_decide_estimate(UUID,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT);
 DROP FUNCTION IF EXISTS garage_ops04_cancel_estimate(UUID,UUID,TEXT,TEXT);
 DROP FUNCTION IF EXISTS garage_ops04_revise_estimate(UUID,UUID,TEXT);
 DROP FUNCTION IF EXISTS garage_ops04_send_estimate(UUID,UUID,TEXT);
