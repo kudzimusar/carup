@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { GARAGE_ADMIN_ROLES, requireGarageTenant } from '../serviceNetwork/serviceAuthority.js';
 import { followedCases } from './garageEstimateService.js';
+import { GARAGE_NOTIFICATION_EVENTS, notifyCaseAudience } from './garageNotificationService.js';
 import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
@@ -326,7 +327,7 @@ export async function getCloseout(client = defaultClient, actor = {}, caseId) {
   return out;
 }
 
-export async function issueInvoice(client = defaultClient, actor = {}, caseId, body = {}) {
+export async function issueInvoice(client = defaultClient, actor = {}, caseId, body = {}, deps = {}) {
   const tenantId = adminTenant(actor);
   const actorUserId = actorId(actor);
   const { workOrder } = await garageCaseJob(client, tenantId, caseId);
@@ -345,7 +346,22 @@ export async function issueInvoice(client = defaultClient, actor = {}, caseId, b
     p_due_date: due, p_actor_user_id: actorUserId,
   });
   if (error) throw invoiceFailure(error, 'Could not issue the invoice');
-  return getInvoice(client, actor, one(data).id);
+  const invoice = await getInvoice(client, actor, one(data).id);
+  const notification = await notifyForCase(client, invoice.service_case_id, GARAGE_NOTIFICATION_EVENTS.invoiceIssued,
+    { field: 'invoiceId', id: invoice.id }, deps);
+  return { ...invoice, notification };
+}
+
+/** Best-effort customer notification; the outcome is returned, never assumed. */
+async function notifyForCase(client, serviceCaseId, eventType, entity, deps) {
+  try {
+    const { data: serviceCase } = await client.from('service_cases')
+      .select('id, vin, garage_tenant_id, requester_user_id').eq('id', serviceCaseId).maybeSingle();
+    if (!serviceCase) return { attempted: 0, emitted: 0, failures: ['case unavailable'] };
+    return await notifyCaseAudience(client, { eventType, serviceCase, entity }, deps);
+  } catch (error) {
+    return { attempted: 0, emitted: 0, failures: [error?.message || 'notification failed'] };
+  }
 }
 
 export async function getInvoice(client = defaultClient, actor = {}, invoiceId) {
@@ -398,7 +414,7 @@ export async function voidInvoice(client = defaultClient, actor = {}, invoiceId,
   return getInvoice(client, actor, invoiceId);
 }
 
-export async function recordPayment(client = defaultClient, actor = {}, invoiceId, body = {}) {
+export async function recordPayment(client = defaultClient, actor = {}, invoiceId, body = {}, deps = {}) {
   const tenantId = adminTenant(actor);
   const id = String(invoiceId ?? '').trim();
   const { data: inv, error: invError } = await client.from('garage_invoices').select('id, currency, status').eq('id', id).eq('tenant_id', tenantId).maybeSingle();
@@ -421,7 +437,13 @@ export async function recordPayment(client = defaultClient, actor = {}, invoiceI
   });
   if (error) throw invoiceFailure(error, 'Could not record the payment');
   const result = typeof data === 'string' ? JSON.parse(data) : one(data);
-  return { ...result, payment_source_label: PAYMENT_SOURCE_LABEL, invoice: await getInvoice(client, actor, inv.id) };
+  const invoice = await getInvoice(client, actor, inv.id);
+  // a replayed request recorded nothing new, so it announces nothing new
+  const notification = result.replayed
+    ? { attempted: 0, emitted: 0, failures: [], replayed: true }
+    : await notifyForCase(client, invoice.service_case_id, GARAGE_NOTIFICATION_EVENTS.paymentRecorded,
+      { field: 'paymentId', id: result.payment_id }, deps);
+  return { ...result, payment_source_label: PAYMENT_SOURCE_LABEL, invoice, notification };
 }
 
 export async function reversePayment(client = defaultClient, actor = {}, paymentId, body = {}) {

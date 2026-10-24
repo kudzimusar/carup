@@ -39,6 +39,15 @@ const DETERMINISTIC_EVENT_IDENTITY_FIELDS = Object.freeze({
   'service.case.cancelled': ['serviceCaseId', 'service_case_id'],
   'service.case.completed': ['serviceCaseId', 'service_case_id'],
   'service.work.started': ['serviceCaseId', 'service_case_id'],
+  // Garage 1.0: once per (entity, recipient). The producer builds `notificationKey` as
+  // `<entity id>:<recipient>` because one estimate may notify two people (the registered owner and the
+  // person who asked) and those must remain two notifications.
+  'garage.estimate.sent': ['notificationKey'],
+  'garage.invoice.issued': ['notificationKey'],
+  'garage.payment.recorded': ['notificationKey'],
+  'garage.appointment.confirmed': ['notificationKey'],
+  'garage.appointment.declined': ['notificationKey'],
+  'garage.appointment.cancelled': ['notificationKey'],
 });
 
 /** The Service Network event types registered above, for the migration-agreement test. */
@@ -49,6 +58,16 @@ export const SERVICE_NETWORK_DEDUPED_EVENTS = Object.freeze([
   'service.case.cancelled',
   'service.case.completed',
   'service.work.started',
+]);
+
+/** The Garage 1.0 customer-notification event types deduped above, for the migration-agreement test. */
+export const GARAGE_DEDUPED_EVENTS = Object.freeze([
+  'garage.estimate.sent',
+  'garage.invoice.issued',
+  'garage.payment.recorded',
+  'garage.appointment.confirmed',
+  'garage.appointment.declined',
+  'garage.appointment.cancelled',
 ]);
 
 /**

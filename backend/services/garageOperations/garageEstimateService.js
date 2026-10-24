@@ -10,6 +10,7 @@ import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
 import { moneyAmount, quantityValue, requireCurrency } from '../../utils/garageMoney.js';
+import { GARAGE_NOTIFICATION_EVENTS, notifyCaseAudience } from './garageNotificationService.js';
 
 /**
  * GARAGE-1.0 OPS04 — estimates and the customer's decision.
@@ -366,8 +367,26 @@ async function simpleAction(client, actor, estimateId, rpcName, extra = {}) {
   return detailView(client, one(data), { withHistory: true });
 }
 
-export const sendEstimate = (client = defaultClient, actor = {}, estimateId) =>
-  simpleAction(client, actor, estimateId, 'garage_ops04_send_estimate');
+/**
+ * Send the estimate to the customer. The notification is best-effort and reported, never assumed: a
+ * Communications failure must not undo an authoritative estimate (Service Network plan §15.5).
+ */
+export async function sendEstimate(client = defaultClient, actor = {}, estimateId, deps = {}) {
+  const view = await simpleAction(client, actor, estimateId, 'garage_ops04_send_estimate');
+  let notification = { attempted: 0, emitted: 0, failures: ['case unavailable'] };
+  try {
+    const { data: serviceCase } = await client.from('service_cases')
+      .select('id, vin, garage_tenant_id, requester_user_id').eq('id', view.service_case_id).maybeSingle();
+    if (serviceCase) {
+      notification = await notifyCaseAudience(client, {
+        eventType: GARAGE_NOTIFICATION_EVENTS.estimateSent, serviceCase, entity: { field: 'estimateId', id: view.id },
+      }, deps);
+    }
+  } catch (error) {
+    notification = { attempted: 0, emitted: 0, failures: [error?.message || 'notification failed'] };
+  }
+  return { ...view, notification };
+}
 export const reviseEstimate = (client = defaultClient, actor = {}, estimateId) =>
   simpleAction(client, actor, estimateId, 'garage_ops04_revise_estimate');
 export const cancelEstimate = (client = defaultClient, actor = {}, estimateId, body = {}) =>
