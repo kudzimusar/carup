@@ -1,5 +1,6 @@
 import { DatabaseError } from '../../utils/errors.js';
 import { GARAGE_PRACTITIONER_ROLES, requireGarageTenant } from './serviceAuthority.js';
+import { deriveNextAction } from './nextAction.js';
 
 /**
  * Service Network S9 — garage-side projections: the service queue, and the garage's
@@ -54,7 +55,7 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
   const caseIds = cases.map((c) => c.id);
   // OC-5D: a failed read is not "no work order" — that would tell the garage to open a second one.
   const { data: workOrders, error: workOrderError } = await supabaseClient
-    .from('mechanic_work_orders').select('id, service_case_id, status').in('service_case_id', caseIds);
+    .from('mechanic_work_orders').select('id, service_case_id, status, owner_authorization').in('service_case_id', caseIds);
   if (workOrderError) throw new DatabaseError(`Failed to load work orders: ${workOrderError.message}`);
   const workOrderByCase = new Map((workOrders || []).map((w) => [w.service_case_id, w]));
 
@@ -81,6 +82,58 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
     for (const a of assignments || []) assigneeByWorkOrder.set(a.work_order_id, a.mechanic_user_id);
   }
 
+  // GARAGE-1.0: the facts a job is actually waiting on — the latest estimate, whether any work has
+  // been recorded, and (for finished jobs) the live invoice and what has been recorded against it.
+  // A failed read fails the queue: it must not present "no estimate" / "no invoice" on a guess.
+  const estimateByWorkOrder = new Map();
+  const recordCountByWorkOrder = new Map();
+  const invoiceByWorkOrder = new Map();
+  if (workOrderIds.length) {
+    const { data: estimates, error: estimateError } = await supabaseClient
+      .from('garage_estimates').select('id, work_order_id, version, status')
+      .eq('tenant_id', tenantId).in('work_order_id', workOrderIds);
+    if (estimateError) throw new DatabaseError(`Failed to load estimates: ${estimateError.message}`);
+    for (const e of estimates || []) {
+      const current = estimateByWorkOrder.get(e.work_order_id);
+      if (!current || e.version > current.version) estimateByWorkOrder.set(e.work_order_id, e);
+    }
+    const { data: records, error: recordError } = await supabaseClient
+      .from('service_records').select('work_order_id').eq('tenant_id', tenantId).in('work_order_id', workOrderIds);
+    if (recordError) throw new DatabaseError(`Failed to load service records: ${recordError.message}`);
+    for (const r of records || []) recordCountByWorkOrder.set(r.work_order_id, (recordCountByWorkOrder.get(r.work_order_id) || 0) + 1);
+
+    const finished = (workOrders || []).filter((w) => {
+      const c = cases.find((x) => x.id === w.service_case_id);
+      return c?.status === 'completed';
+    }).map((w) => w.id);
+    if (finished.length) {
+      const { data: invoices, error: invoiceError } = await supabaseClient
+        .from('garage_invoices').select('id, work_order_id, invoice_number, status, total_amount, currency')
+        .eq('tenant_id', tenantId).in('work_order_id', finished);
+      if (invoiceError) throw new DatabaseError(`Failed to load invoices: ${invoiceError.message}`);
+      const liveIds = (invoices || []).filter((i) => i.status === 'issued').map((i) => i.id);
+      const net = new Map();
+      if (liveIds.length) {
+        const { data: payments, error: paymentError } = await supabaseClient
+          .from('garage_payment_records').select('invoice_id, kind, amount').eq('tenant_id', tenantId).in('invoice_id', liveIds);
+        if (paymentError) throw new DatabaseError(`Failed to load payment records: ${paymentError.message}`);
+        for (const p of payments || []) {
+          const cents = Math.round(Number(p.amount) * 100) * (p.kind === 'payment' ? 1 : -1);
+          net.set(p.invoice_id, (net.get(p.invoice_id) || 0) + cents);
+        }
+      }
+      for (const i of invoices || []) {
+        if (i.status !== 'issued') continue;
+        const paid = net.get(i.id) || 0;
+        const total = Math.round(Number(i.total_amount) * 100);
+        invoiceByWorkOrder.set(i.work_order_id, {
+          id: i.id, invoice_number: i.invoice_number, status: i.status,
+          payment_status: paid <= 0 ? 'unpaid' : (paid < total ? 'partially_paid' : 'paid'),
+        });
+      }
+    }
+  }
+
   const queue = cases
     .map((c) => {
       const vehicle = vehicleByVin.get(c.vin) || null;
@@ -102,17 +155,29 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
           ? {
             id: workOrder.id,
             status: workOrder.status,
+            // The customer's decision on this work — the one authorization (OC-5A). Absent in an old
+            // read is "pending", never "authorized".
+            owner_authorization: workOrder.owner_authorization || 'pending',
             // null = nobody is assigned, or the assignment could not be read. Either way the UI
             // must not claim a name it does not have.
             assigned_mechanic_user_id: assigneeByWorkOrder.get(workOrder.id) || null,
           }
           : null,
-        // What this case is actually waiting for — derived from state, never guessed.
-        next_action: c.status === 'requested'
-          ? 'accept_or_decline'
-          : c.status === 'accepted'
-            ? (workOrder ? 'start_work' : 'open_work_order')
-            : 'record_service',
+        estimate: workOrder && estimateByWorkOrder.get(workOrder.id)
+          ? { id: estimateByWorkOrder.get(workOrder.id).id, version: estimateByWorkOrder.get(workOrder.id).version, status: estimateByWorkOrder.get(workOrder.id).status }
+          : null,
+        service_record_count: workOrder ? (recordCountByWorkOrder.get(workOrder.id) || 0) : 0,
+        invoice: workOrder ? (invoiceByWorkOrder.get(workOrder.id) || null) : null,
+        // What this case is actually waiting for — derived from recorded facts, never guessed.
+        next_action: deriveNextAction({
+          caseStatus: c.status,
+          workOrder: workOrder
+            ? { ...workOrder, assigned_mechanic_user_id: assigneeByWorkOrder.get(workOrder.id) || null }
+            : null,
+          estimate: workOrder ? estimateByWorkOrder.get(workOrder.id) || null : null,
+          serviceRecordCount: workOrder ? (recordCountByWorkOrder.get(workOrder.id) || 0) : 0,
+          invoice: workOrder ? invoiceByWorkOrder.get(workOrder.id) || null : null,
+        }),
       };
     })
     .sort((a, b) => {

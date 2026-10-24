@@ -166,6 +166,8 @@ import garageEstimateRouter from './routes/garageEstimateRoutes.js';
 import garageStockRouter from './routes/garageStockRoutes.js';
 // GARAGE-1.0-OPS07 — commercial closeout: invoice, payment record (garage-recorded, external), receipt.
 import garageInvoiceRouter from './routes/garageInvoiceRoutes.js';
+// GARAGE-1.0 — the operating hub's single read model (case + estimate + work + parts + closeout + allowed actions).
+import garageHubRouter from './routes/garageHubRoutes.js';
 // OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
 // garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
@@ -585,6 +587,7 @@ app.use(garageSchedulingRouter);
 app.use(garageEstimateRouter);
 app.use(garageStockRouter);
 app.use(garageInvoiceRouter);
+app.use(garageHubRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);

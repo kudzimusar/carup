@@ -65,22 +65,46 @@ test('closed cases are not in the open queue', async () => {
 });
 
 test('the queue states the next action from real state, never a guess', async () => {
+  // GARAGE-1.0 authority evolution: "accepted with a work order => start work" was true only while
+  // nothing governed the customer's authorization. A job card exists BEFORE the customer has decided,
+  // and the database now refuses the start, so the queue must say what the job is really waiting for.
+  // The principle in this test's name is unchanged; the ladder is now complete and truthful.
   const client = seedClient({
     service_cases: [
       aCase({ id: 'c1', status: 'requested' }),
       aCase({ id: 'c2', status: 'accepted' }),
       aCase({ id: 'c3', status: 'accepted' }),
       aCase({ id: 'c4', status: 'active' }),
+      aCase({ id: 'c5', status: 'accepted' }),
+      aCase({ id: 'c6', status: 'accepted' }),
+      aCase({ id: 'c7', status: 'accepted' }),
+      aCase({ id: 'c8', status: 'active' }),
     ],
-    mechanic_work_orders: [{ id: 'wo-3', service_case_id: 'c3', status: 'In Progress' }],
+    mechanic_work_orders: [
+      { id: 'wo-3', service_case_id: 'c3', status: 'In Progress' },
+      { id: 'wo-5', service_case_id: 'c5', status: 'In Progress', owner_authorization: 'authorized' },
+      { id: 'wo-6', service_case_id: 'c6', status: 'In Progress', owner_authorization: 'authorized' },
+      { id: 'wo-7', service_case_id: 'c7', status: 'In Progress', owner_authorization: 'pending' },
+      { id: 'wo-8', service_case_id: 'c8', status: 'In Progress', owner_authorization: 'authorized' },
+    ],
+    work_order_assignments: [
+      { work_order_id: 'wo-6', mechanic_user_id: 'u-mech', unassigned_at: null },
+    ],
+    garage_estimates: [{ id: 'est-7', work_order_id: 'wo-7', tenant_id: garageA.activeTenant.id, version: 1, status: 'sent' }],
+    service_records: [{ id: 'sr-8', work_order_id: 'wo-8', tenant_id: garageA.activeTenant.id }],
   });
   const { queue } = await getGarageQueue(client, garageA, {});
   const byId = Object.fromEntries(queue.map(q => [q.id, q]));
   assert.equal(byId.c1.next_action, 'accept_or_decline');
-  assert.equal(byId.c2.next_action, 'open_work_order', 'accepted with no work order');
-  assert.equal(byId.c3.next_action, 'start_work', 'accepted with a work order');
+  assert.equal(byId.c2.next_action, 'prepare_estimate', 'accepted with no job yet');
+  assert.equal(byId.c3.next_action, 'prepare_estimate', 'a job card exists but the customer has authorized nothing');
   assert.equal(byId.c4.next_action, 'record_service');
+  assert.equal(byId.c5.next_action, 'assign_mechanic', 'authorized, nobody assigned');
+  assert.equal(byId.c6.next_action, 'start_work', 'authorized and assigned');
+  assert.equal(byId.c7.next_action, 'await_customer', 'an estimate is with the customer');
+  assert.equal(byId.c8.next_action, 'complete_job', 'work has been recorded');
   assert.equal(byId.c3.work_order.id, 'wo-3');
+  assert.equal(byId.c3.work_order.owner_authorization, 'pending', 'an unrecorded decision reads as pending, never authorized');
   assert.equal(byId.c2.work_order, null);
 });
 
