@@ -277,7 +277,8 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
 
   await page.setViewportSize({width:1440,height:1000})
   await page.goto(WEB+'/garage/schedule',{waitUntil:'networkidle'})
-  await expect(page.getByText('Harare').first()).toBeVisible()
+  await expect(page.getByLabel('Scheduling settings site')).toBeVisible()
+  await expect(page.getByLabel('Scheduling settings site').locator('option').filter({hasText:'Harare'})).toHaveCount(1)
   await expect(page.getByLabel('Maximum concurrent appointments')).toHaveValue('1')
   await shot(page,'desktop-01-retained-configuration.png')
 
