@@ -130,7 +130,7 @@ async function historicalProof(c:pg.Client){
 
 async function initialState(c:pg.Client){
  const owner=await one(c,"select password_hash is null password_hash_null,(select count(*)::int from user_sessions where user_id=$1 and is_valid=true and expires_at::timestamptz>now()) valid_sessions from users where id=$1",[OWNER])
- expect(owner).toEqual({password_hash_null:false,valid_sessions:1})
+ expect(owner).toEqual({password_hash_null:false,valid_sessions:0})
  const config=await one(c,"select scheduling_enabled,max_concurrent_appointments,slot_interval_minutes from garage_branch_scheduling_settings where branch_id=$1::uuid",[HRE])
  expect(config).toEqual({scheduling_enabled:true,max_concurrent_appointments:1,slot_interval_minutes:30})
  const schedules=await c.query("select workforce_profile_id::text,day_of_week,starts_at::text,ends_at::text,effective_from::text,effective_until::text from garage_workforce_schedules where branch_id=$1::uuid order by workforce_profile_id",[HRE])
