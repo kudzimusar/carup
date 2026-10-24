@@ -400,6 +400,30 @@ AS $$
   SELECT lower(regexp_replace(btrim(COALESCE(p_status, '')), '[\s_-]+', ' ', 'g')) IN ('completed','cancelled')
 $$;
 
+-- LOCK PROTOCOL (system-wide for the Garage lifecycle): case -> work order -> estimate -> stock part.
+-- Every function that touches more than one of these takes them in that order, so no two transactions
+-- can wait on each other in a cycle. Proven under real concurrency by garage-final-concurrency.test.js.
+-- An estimate RPC knows only the estimate, so it reads the work-order id (no lock), locks the work order
+-- FIRST, and only then locks (and re-reads) the estimate.
+CREATE OR REPLACE FUNCTION garage_ops04_lock_estimate(p_estimate_id UUID, p_tenant_id UUID)
+RETURNS garage_estimates
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_wo UUID;
+  v_row garage_estimates%ROWTYPE;
+BEGIN
+  SELECT work_order_id INTO v_wo FROM garage_estimates
+   WHERE id = p_estimate_id AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id);
+  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  PERFORM 1 FROM mechanic_work_orders WHERE id = v_wo FOR UPDATE;
+  SELECT * INTO v_row FROM garage_estimates
+   WHERE id = p_estimate_id AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id) FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  RETURN v_row;
+END $$;
+
 -- ─────────────────────────── garage-side RPCs ───────────────────────────
 
 CREATE OR REPLACE FUNCTION garage_ops04_create_estimate(
@@ -478,9 +502,7 @@ DECLARE
   v_row garage_estimates%ROWTYPE;
 BEGIN
   PERFORM garage_ops03_assert_admin(p_tenant_id, p_actor_user_id);
-  SELECT * INTO v_row FROM garage_estimates
-   WHERE id = p_estimate_id AND tenant_id = p_tenant_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  v_row := garage_ops04_lock_estimate(p_estimate_id, p_tenant_id);
   IF v_row.status <> 'draft' THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_DRAFT'; END IF;
   IF p_expected_updated_at IS NOT NULL AND v_row.updated_at IS DISTINCT FROM p_expected_updated_at THEN
     RAISE EXCEPTION 'GARAGE_OPS04_STALE_DRAFT';
@@ -519,9 +541,7 @@ DECLARE
   v_total NUMERIC;
 BEGIN
   PERFORM garage_ops03_assert_admin(p_tenant_id, p_actor_user_id);
-  SELECT * INTO v_row FROM garage_estimates
-   WHERE id = p_estimate_id AND tenant_id = p_tenant_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  v_row := garage_ops04_lock_estimate(p_estimate_id, p_tenant_id);
   IF v_row.status <> 'draft' THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_DRAFT'; END IF;
 
   SELECT * INTO v_wo FROM mechanic_work_orders WHERE id = v_row.work_order_id FOR UPDATE;
@@ -564,9 +584,7 @@ DECLARE
   v_latest INTEGER;
 BEGIN
   PERFORM garage_ops03_assert_admin(p_tenant_id, p_actor_user_id);
-  SELECT * INTO v_src FROM garage_estimates
-   WHERE id = p_estimate_id AND tenant_id = p_tenant_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  v_src := garage_ops04_lock_estimate(p_estimate_id, p_tenant_id);
   IF v_src.status NOT IN ('sent','declined') THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_REVISABLE'; END IF;
 
   SELECT * INTO v_wo FROM mechanic_work_orders WHERE id = v_src.work_order_id FOR UPDATE;
@@ -614,9 +632,7 @@ DECLARE
   v_prev TEXT;
 BEGIN
   PERFORM garage_ops03_assert_admin(p_tenant_id, p_actor_user_id);
-  SELECT * INTO v_row FROM garage_estimates
-   WHERE id = p_estimate_id AND tenant_id = p_tenant_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  v_row := garage_ops04_lock_estimate(p_estimate_id, p_tenant_id);
   IF v_row.status NOT IN ('draft','sent') THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_CANCELLABLE'; END IF;
   v_prev := v_row.status;
   UPDATE garage_estimates
@@ -671,8 +687,7 @@ BEGIN
     RAISE EXCEPTION 'GARAGE_OPS04_ACTOR_REQUIRED';
   END IF;
 
-  SELECT * INTO v_est FROM garage_estimates WHERE id = p_estimate_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_FOUND'; END IF;
+  v_est := garage_ops04_lock_estimate(p_estimate_id, NULL);
   IF v_est.status <> 'sent' THEN RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_NOT_PENDING'; END IF;
   IF p_decision = 'accepted' AND v_est.valid_until IS NOT NULL AND v_est.valid_until <= NOW() THEN
     RAISE EXCEPTION 'GARAGE_OPS04_ESTIMATE_EXPIRED';
@@ -836,6 +851,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE garage_estimate_lines TO service_r
 GRANT SELECT, INSERT ON TABLE garage_estimate_events TO service_role;
 
 REVOKE ALL ON FUNCTION
+  garage_ops04_lock_estimate(UUID,UUID),
   garage_ops04_estimate_totals(UUID),
   garage_ops04_log(UUID,TEXT,TEXT,TEXT,TEXT,JSONB),
   garage_ops04_write_lines(UUID,JSONB),
@@ -848,6 +864,7 @@ REVOKE ALL ON FUNCTION
 FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION
+  garage_ops04_lock_estimate(UUID,UUID),
   garage_ops04_estimate_totals(UUID),
   garage_ops04_log(UUID,TEXT,TEXT,TEXT,TEXT,JSONB),
   garage_ops04_write_lines(UUID,JSONB),
@@ -860,6 +877,7 @@ GRANT EXECUTE ON FUNCTION
 TO service_role;
 
 -- +migrate Down
+DROP FUNCTION IF EXISTS garage_ops04_lock_estimate(UUID,UUID);
 DROP TRIGGER IF EXISTS trg_garage_ops04_after_case_terminal ON service_cases;
 DROP FUNCTION IF EXISTS garage_ops04_after_case_terminal();
 DROP TRIGGER IF EXISTS trg_garage_ops04_after_work_order_change ON mechanic_work_orders;

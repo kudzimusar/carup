@@ -56,6 +56,12 @@ DECLARE
   v_wo RECORD;
   v_case_status TEXT;
 BEGIN
+  -- LOCK PROTOCOL: case -> work order. This insert's own foreign keys will later take KEY SHARE on the case
+  -- row, and complete_job holds the case FOR UPDATE before it asks for the work order; locking the work
+  -- order first here and the case second (via the FK) was a real deadlock against complete_job, found by
+  -- the real-PostgreSQL race suite. So the case is locked first, exactly like start and completion do.
+  PERFORM 1 FROM service_cases
+   WHERE id = (SELECT service_case_id FROM mechanic_work_orders WHERE id = NEW.work_order_id) FOR SHARE;
   SELECT id, status, owner_authorization, service_case_id, tenant_id INTO v_wo
     FROM mechanic_work_orders WHERE id = NEW.work_order_id FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS05_WORK_ORDER_REQUIRED'; END IF;
