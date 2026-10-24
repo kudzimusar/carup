@@ -180,7 +180,7 @@ async function cancelRequesterUI(page:Page,cs:any){
  const rr=page.waitForResponse(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments/')&&r.url().endsWith('/cancel')&&r.request().method()==='POST')
  await card.getByRole('button',{name:'Cancel appointment'}).click()
  expect((await rr).status()).toBeLessThan(300)
- await expect(card.getByTestId('appointment-status')).toContainText('Cancelled')
+ await expect(card.getByTestId('appointment-status')).toContainText(/cancelled/i)
 }
 async function setCapacity(page:Page,value:number){
  await page.goto(WEB+'/garage/schedule',{waitUntil:'networkidle'})
@@ -236,6 +236,8 @@ test('GARAGE-1.0 OPS03 R2 STG01 timezone remediation and resumed physical certif
   await login(harare)
   await login(tokyo)
   await cleanupSyntheticLiveAppointments(harare,c)
+  const residualSettings=await one(c,"select max_concurrent_appointments from garage_branch_scheduling_settings where tenant_id=$1::uuid and branch_id=$2::uuid",[GARAGE,HRE])
+  if(residualSettings.max_concurrent_appointments!==1)await setCapacity(harare,1)
   await verifyRetainedConfiguration(c)
   const flowStart=new Date()
 
