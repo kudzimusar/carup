@@ -1,6 +1,6 @@
 import { History } from 'lucide-react'
 import type { CaseHub } from '@/lib/garageBusiness'
-import { caseStatusLabel, categoryLabel, dateTimeLabel } from '@/lib/garageWorkspace'
+import { caseEventLabel, caseStatusLabel, dateTimeLabel } from '@/lib/garageWorkspace'
 import { HubSection } from './hubUi'
 
 /** What has happened to this case, newest first, exactly as the case log recorded it. */
@@ -16,7 +16,7 @@ export function CaseHistory({ hub }: { hub: CaseHub }) {
             <li key={`${e.at}-${i}`} className="flex items-start gap-2 text-sm" data-testid="case-history-event">
               <History className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" aria-hidden="true" />
               <span className="min-w-0">
-                <span className="font-medium">{categoryLabel(e.event_type)}</span>
+                <span className="font-medium">{caseEventLabel(e.event_type)}</span>
                 {e.from_status && e.to_status && (
                   <span className="text-gray-600"> — {caseStatusLabel(e.from_status)} to {caseStatusLabel(e.to_status)}</span>
                 )}

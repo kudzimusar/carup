@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { UserCog } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { isAllowed, mechanicLabel } from '@/lib/garageWorkspace'
 import { HubSection, ScopedError, type HubPanelProps } from './hubUi'
@@ -13,6 +14,7 @@ type Mechanic = { user_id: string; display_name: string | null; role: string | n
  */
 export function AssignmentPanel({ hub, busy, run, error }: HubPanelProps) {
   const { fetchGarageMechanics, assignMechanicToWorkOrder, unassignMechanicFromWorkOrder } = useCarUpApi()
+  const { user } = useAuth()
   const workOrder = hub.work_order
   const canAssign = isAllowed(hub, 'assign_mechanic')
   const canUnassign = isAllowed(hub, 'unassign_mechanic')
@@ -38,7 +40,10 @@ export function AssignmentPanel({ hub, busy, run, error }: HubPanelProps) {
   // The assigned person's name: the team list when we have it, else the hub's own list; never an invented one.
   const known = mechanics.find((m) => m.user_id === assignedId)
     ?? (hub.mechanics as Array<Partial<Mechanic>>).find((m) => m.user_id === assignedId)
-  const assignedName = assignedId
+  // A mechanic cannot load the team list; if the assignee is the person looking, say so instead of "a team member".
+  const assignedName = assignedId && user?.id && user.id === assignedId
+    ? 'You'
+    : assignedId
     ? (known && known.user_id ? mechanicLabel({ user_id: known.user_id, display_name: known.display_name ?? null }) : 'A team member')
     : null
 

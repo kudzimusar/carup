@@ -179,6 +179,25 @@ export function categoryLabel(category: string | null | undefined): string {
   return category.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
+/** What the case log calls each event, in words a person would use. The log's own codes are never shown to a user. */
+export const CASE_EVENT_LABEL: Record<string, string> = {
+  'service.case.requested': 'Request received',
+  'service.case.accepted': 'The garage accepted the job',
+  'service.case.declined': 'The garage declined the job',
+  'service.case.cancelled': 'Request cancelled',
+  'service.case.completed': 'Job completed',
+  'service.work.started': 'Work started',
+}
+
+/** A known event gets its plain-language label; an unknown one is made readable, never shown as a raw code. */
+export function caseEventLabel(eventType: string | null | undefined): string {
+  const key = String(eventType ?? '').trim().toLowerCase()
+  if (!key) return 'Case update'
+  if (CASE_EVENT_LABEL[key]) return CASE_EVENT_LABEL[key]
+  const words = key.replace(/^service\./, '').replace(/[._]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Case update'
+}
+
 /** A member with no name on file is unnamed, not invented. */
 export function mechanicLabel(m: { display_name?: string | null; user_id: string }): string {
   return m.display_name || 'Unnamed team member'

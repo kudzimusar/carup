@@ -60,6 +60,12 @@ vi.mock('@/hooks/useCarUpApi', () => ({
   }),
 }))
 
+// The signed-in person (only the assignment panel asks who is looking). Hoisted so the mock factory can read it.
+const authState = vi.hoisted(() => ({ userId: null as string | null }))
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: () => ({ user: authState.userId ? { id: authState.userId } : null }),
+}))
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return { ...actual, useParams: () => ({ caseId: CASE_ID }) }
@@ -153,6 +159,7 @@ function expectOffered(offered: string[]) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  authState.userId = null
   fetchGarageMechanics.mockResolvedValue({ mechanics: [{ user_id: 'm-1', display_name: 'Tendai', role: 'mechanic' }], total: 1 })
   fetchGarageStock.mockResolvedValue({ parts: [], summary: { total: 0, out: 0, low: 0, uncounted: 0, unknown: 0 } })
   for (const fn of [acceptServiceCase, declineServiceCase, startServiceCase, completeGarageJob, createCaseEstimate, saveEstimateDraft,
@@ -1098,5 +1105,69 @@ describe('the progress list', () => {
     await screen.findByTestId('hub-steps')
     expect(screen.getByTestId('step-appointment')).toHaveAttribute('data-state', 'optional')
     expect(screen.getByTestId('step-appointment')).toHaveTextContent('None booked')
+  })
+})
+
+
+describe('the case history speaks in words, never in the log’s own codes', () => {
+  // The REAL names the case log writes (SERVICE_CASE_EVENTS) — not the short fixtures used elsewhere in this file.
+  const WIRE = [
+    { event_type: 'service.case.requested', from_status: null, to_status: null, at: '2026-10-19T09:00:00.000Z' },
+    { event_type: 'service.case.accepted', from_status: 'requested', to_status: 'accepted', at: '2026-10-19T10:00:00.000Z' },
+    { event_type: 'service.work.started', from_status: 'accepted', to_status: 'active', at: '2026-10-19T11:00:00.000Z' },
+    { event_type: 'service.case.completed', from_status: 'active', to_status: 'completed', at: '2026-10-19T12:00:00.000Z' },
+  ]
+
+  it('shows a plain sentence for each real event and never a dotted code', async () => {
+    hubReturns(hub('completed', [], 'issue_invoice', { history: WIRE }))
+    const { container } = open()
+    const list = await screen.findByTestId('case-history-list')
+    const text = list.textContent ?? ''
+    expect(text).toContain('Request received')
+    expect(text).toContain('The garage accepted the job')
+    expect(text).toContain('Work started')
+    expect(text).toContain('Job completed')
+    expect(container.textContent ?? '').not.toMatch(/service\.(case|work)\./i)
+  })
+
+  it('makes an event it has never heard of readable instead of printing the code', async () => {
+    hubReturns(hub('accepted', [], 'prepare_estimate', {
+      history: [{ event_type: 'service.case.something_new', from_status: null, to_status: null, at: '2026-10-19T09:00:00.000Z' }],
+    }))
+    open()
+    const list = await screen.findByTestId('case-history-list')
+    expect(list.textContent).toContain('Case something new')
+    expect(list.textContent).not.toContain('service.case')
+  })
+})
+
+describe('who is doing the work, from the point of view of the person looking', () => {
+  const mechanicLooking = (assignee: string) => hub('active', ['record_service'], 'record_service', {
+    money_visible: false, closeout: null, mechanics: [],
+    viewer: { role: 'mechanic', is_admin: false },
+    work_order: workOrder('authorized', assignee, 'In Progress'),
+  })
+
+  it('tells the assigned mechanic “You” — they cannot load the team list, so no name is available to show', async () => {
+    authState.userId = 'm-1'
+    hubReturns(mechanicLooking('m-1'))
+    open()
+    expect((await screen.findByTestId('assigned-mechanic')).textContent).toContain('You')
+  })
+
+  it('does not tell a different mechanic “You” — the person is simply a team member', async () => {
+    authState.userId = 'someone-else'
+    hubReturns(mechanicLooking('m-1'))
+    open()
+    const text = (await screen.findByTestId('assigned-mechanic')).textContent ?? ''
+    expect(text).toContain('A team member')
+    expect(text).not.toContain('You')
+  })
+
+  it('never claims “You” when nobody is signed in', async () => {
+    authState.userId = null
+    hubReturns(mechanicLooking('m-1'))
+    open()
+    expect((await screen.findByTestId('assigned-mechanic')).textContent).not.toContain('You')
   })
 })
