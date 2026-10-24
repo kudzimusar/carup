@@ -1,0 +1,129 @@
+name: GARAGE-1.0 CUTOVER-01 REPLAY R1
+
+# After the Owner moved the canonical staging backend to the final Garage build, replay THIS campaign's 27 synthetic
+# dead-lettered garage.* events through the product's own recovery function (EventWorker.reprocessDeadLetters) and
+# prove the canonical worker now processes them instead of dead-lettering them again.
+#
+#   * staging only: the harness refuses any database URL that is not project eoyenigwevnxwwhyhaer and refuses the
+#     production ref by name;
+#   * it refuses unless the canonical backend (api-staging.carup.dev) is serving the final build, external sends are
+#     disabled and the scope is EXACTLY the expected 27 rows (so a re-trigger after success is a safe no-op);
+#   * the events are in-app only (policy channels: ['in_app']); nothing can leave CarUp.
+
+on:
+  push:
+    branches:
+      - cert/garage-1.0-cutover-01-replay-r1
+
+concurrency:
+  group: garage-cutover-01-replay-r1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PRODUCT_SHA: 8353dbdd7eb9382d210d8f9eff48a7300ec36224
+      PRODUCT_BRANCH: feat/garage-1.0-final-business-os-completion
+      PRODUCT_CI_RUN: '40093141506'
+      OPS03_SHA: 07b60e5d158d7dad7232d33f11f06a478c92da3f
+      OPS03_PR: '241'
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      GARAGE_REPLAY_RESULTS_DIR: cert-results/garage-cutover-01-replay
+      # the worker module imports the shared event bus, which builds a client at import; these are inert placeholders
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      NODE_ENV: test
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit with green CI, accepted OPS03 parent, evidence-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "cert/garage-1.0-cutover-01-replay-r1"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$OPS03_SHA" "$PRODUCT_SHA"
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PRODUCT_CI_RUN}")"
+          test "$(jq -r '.head_sha' <<<"$run_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.conclusion' <<<"$run_json")" = "success"
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${OPS03_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$OPS03_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 2
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/garage-cutover-01-replay.yml|backend/scripts/garage-cutover-01-replay.mjs) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          echo "HEAD=$(git rev-parse HEAD)"; echo "PRODUCT_SHA=$PRODUCT_SHA"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Validate harness syntax
+        run: node --check backend/scripts/garage-cutover-01-replay.mjs
+
+      - name: Preflight (read-only) - canonical build, staging database, exact scope
+        run: node backend/scripts/garage-cutover-01-replay.mjs --mode=preflight
+
+      - name: Replay through the product's own recovery function and wait for the canonical worker
+        run: node backend/scripts/garage-cutover-01-replay.mjs --mode=replay
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### GARAGE-1.0 CUTOVER-01 REPLAY R1"
+            echo "product sha: \`$PRODUCT_SHA\`   target project: \`$EXPECTED_STAGING_PROJECT_REF\`   production: **not accessed**"
+            for f in replay-preflight replay-call replay-verify; do
+              if [ -f "$GARAGE_REPLAY_RESULTS_DIR/$f.json" ]; then echo; echo "#### $f"; echo '```json'; head -c 5000 "$GARAGE_REPLAY_RESULTS_DIR/$f.json"; echo; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garage-cutover-01-replay-r1
+          path: cert-results/garage-cutover-01-replay
+          retention-days: 30
+          if-no-files-found: warn
