@@ -342,9 +342,9 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
   const confirmB=await confirm(tokyoPage,B.id,P1,'Tokyo capacity reuse confirmation',200)
   const confirmedB=await one(c,"select status,starts_at,ends_at,appointment_timezone,planned_workforce_profile_id::text from garage_appointments where id=$1::uuid",[confirmB.id]);expect(confirmedB.status).toBe('confirmed');expect(confirmedB.planned_workforce_profile_id).toBe(P1)
 
-  let bcard=await appointmentCard(tokyoPage,B.id)
-  await bcard.getByRole('button',{name:'Reschedule'}).click()
-  const bid=(await bcard.getByLabel(/Appointment start/).getAttribute('aria-label'))!.replace('Appointment start ','')
+  let bEditor=await openEditor(tokyoPage,B.id,'Reschedule')
+  let bcard=bEditor.card
+  const bid=bEditor.id
   expect(await bcard.getByLabel('Appointment start '+bid).inputValue()).toBe(DATE+'T08:00')
   await bcard.getByLabel('Appointment start '+bid).fill(DATE+'T09:00')
   await bcard.getByLabel('Appointment end '+bid).fill(DATE+'T10:00')
@@ -359,7 +359,7 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
 
   const eventBefore=await one(c,"select count(*)::int n from garage_appointment_events where appointment_id=$1::uuid and event_type='rescheduled'",[bid])
   const auditBefore=await one(c,"select count(*)::int n from trust_audit_events where event_type='GARAGE_APPOINTMENT_RESCHEDULED' and (new_value->>'appointment_id'=$1 or previous_value->>'appointment_id'=$1)",[bid])
-  bcard=await appointmentCard(tokyoPage,B.id);await bcard.getByRole('button',{name:'Reschedule'}).click()
+  bEditor=await openEditor(tokyoPage,B.id,'Reschedule');bcard=bEditor.card;expect(bEditor.id).toBe(bid)
   await bcard.getByLabel('Appointment start '+bid).fill(DATE+'T06:00');await bcard.getByLabel('Appointment end '+bid).fill(DATE+'T07:00')
   const irq=tokyoPage.waitForRequest(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.method()==='POST')
   const irs=tokyoPage.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.request().method()==='POST')
