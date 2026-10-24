@@ -71,7 +71,7 @@ async function healthGate() {
   return facts
 }
 
-const SCOPE = `status = 'dead_letter' AND tenant_id = $1::uuid AND event_type = ANY($2::text[]) AND created_at >= $3::timestamptz AND created_at < $4::timestamptz AND dedupe_key LIKE $5`
+const SCOPE = `status = 'dead_letter' AND tenant_id = $1::text AND event_type = ANY($2::text[]) AND created_at >= $3::timestamptz AND created_at < $4::timestamptz AND dedupe_key LIKE $5`
 const scopeParams = [GARAGE_ID, EVENT_TYPES, CREATED_FROM, CREATED_BEFORE, `%${RECIPIENT_SUFFIX}`]
 
 async function candidates(client) {
