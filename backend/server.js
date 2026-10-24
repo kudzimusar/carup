@@ -164,6 +164,8 @@ import garageSchedulingRouter from './routes/garageSchedulingRoutes.js';
 import garageEstimateRouter from './routes/garageEstimateRoutes.js';
 // GARAGE-1.0-OPS06 — governed stock over mechanic_parts (the one parts master).
 import garageStockRouter from './routes/garageStockRoutes.js';
+// GARAGE-1.0-OPS07 — commercial closeout: invoice, payment record (garage-recorded, external), receipt.
+import garageInvoiceRouter from './routes/garageInvoiceRoutes.js';
 // OC-5D — Service Network (PR #197, ported): every garage-side route is gated on the VERIFIED active
 // garage (requireActiveTenant); the public directory and the service-link resolver are deliberately open.
 import garageDirectoryRouter from './routes/garageDirectoryRoutes.js';
@@ -582,6 +584,7 @@ app.use(garageOperationsRouter);
 app.use(garageSchedulingRouter);
 app.use(garageEstimateRouter);
 app.use(garageStockRouter);
+app.use(garageInvoiceRouter);
 app.use(garageDirectoryRouter);
 app.use(serviceCaseRouter);
 app.use(serviceWorkOrderRouter);

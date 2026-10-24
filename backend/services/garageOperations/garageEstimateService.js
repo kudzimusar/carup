@@ -378,7 +378,7 @@ export const cancelEstimate = (client = defaultClient, actor = {}, estimateId, b
 // ───────────────────────────── customer side ─────────────────────────────
 
 /** Cases the person may follow: ones they requested, and ones on vehicles they own. */
-async function followedCases(client, userId) {
+export async function followedCases(client, userId) {
   const byId = new Map();
   const { data: requested, error } = await client.from('service_cases')
     .select('id, vin, garage_tenant_id, requester_user_id, status').eq('requester_user_id', userId);
