@@ -1,0 +1,174 @@
+name: GARAGE-1.0 OPS03 STG01 R2 CLOSE
+
+on:
+  push:
+    branches:
+      - cert/garage-1.0-ops03-stg01-r2
+
+concurrency:
+  group: garage-ops03-stg01-r2-close
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  closure-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      PRODUCT_SHA: 07b60e5d158d7dad7232d33f11f06a478c92da3f
+      PRODUCT_PR: '241'
+      PRODUCT_BASE_SHA: 7cbad41cac7776f13e6a0d766bfb995eb2f35d1e
+      PRODUCT_BRANCH: feat/garage-1.0-ops03-appointments-scheduling-capacity
+      CERT_BRANCH: cert/garage-1.0-ops03-stg01-r2
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      STAGING_WEB_URL: https://staging.carup.dev
+      STAGING_API_URL: https://api-staging.carup.dev/api
+      GARAGE_R3_RESULTS_DIR: cert-results/garage-ops03-stg01-r2
+      GARAGE_OPS03_RUN_ID: ops03-r2-${{ github.run_id }}-${{ github.run_attempt }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Recustody exact R2 product and evidence-only branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "$CERT_BRANCH"
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          test "$(git hash-object database/migrations/20261023140000_garage_ops03_appointments_scheduling_capacity.sql)" = "dd04724804e0110bafe1baa1a33f9b8c39af2ab7"
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PRODUCT_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.base.sha' <<<"$pr_json")" = "$PRODUCT_BASE_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | cut -f1)" = "$PRODUCT_SHA"
+
+          for run_id in 40052737660 40052742576; do
+            run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id")"
+            test "$(jq -r '.head_sha' <<<"$run_json")" = "$PRODUCT_SHA"
+            test "$(jq -r '.status' <<<"$run_json")" = "completed"
+            test "$(jq -r '.conclusion' <<<"$run_json")" = "success"
+          done
+
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 3
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/garage-ops03-stg01.yml|backend/scripts/garage-ops03-stg01-credential.mjs|tests/agents/garage-ops03-stg01.spec.ts) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+
+          mkdir -p "$GARAGE_R3_RESULTS_DIR"
+          jq -n             --arg product_sha "$PRODUCT_SHA"             --arg certification_head "$GITHUB_SHA"             --arg push_ci "40052737660"             --arg pr_ci "40052742576"             '{product_sha:$product_sha,certification_head:$certification_head,product_pr:241,product_branch:"feat/garage-1.0-ops03-appointments-scheduling-capacity",source_push_ci:$push_ci,source_pr_ci:$pr_ci,pr_frozen:true,migration_blob:"dd04724804e0110bafe1baa1a33f9b8c39af2ab7"}'             > "$GARAGE_R3_RESULTS_DIR/live-recustody.json"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate evidence harness syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check backend/scripts/garage-ops03-stg01-credential.mjs
+          npx tsc --noEmit --pretty false --target es2022 --module esnext --moduleResolution bundler --allowImportingTsExtensions --skipLibCheck tests/agents/garage-ops03-stg01.spec.ts || true
+
+      - name: Owner preflight and session snapshot
+        run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=preflight
+
+      - name: Grant isolated temporary Owner credential
+        run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=grant
+
+      - name: Run R2 closure physical certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .garage-ops03-r2.playwright.config.ts <<'TS'
+          import { defineConfig } from '@playwright/test'
+          export default defineConfig({
+            testDir: './tests/agents',
+            testMatch: /garage-ops03-stg01\.spec\.ts/,
+            timeout: 24 * 60_000,
+            expect: { timeout: 30_000 },
+            fullyParallel: false,
+            workers: 1,
+            retries: 0,
+            reporter: [['list']],
+            use: {
+              baseURL: process.env.STAGING_WEB_URL || 'https://staging.carup.dev',
+              timezoneId: 'Africa/Harare',
+              trace: 'off',
+              screenshot: 'off',
+              video: 'off',
+              actionTimeout: 35_000,
+              navigationTimeout: 60_000,
+            },
+          })
+          TS
+          trap 'rm -f .garage-ops03-r2.playwright.config.ts' EXIT
+          npx playwright test tests/agents/garage-ops03-stg01.spec.ts --config=.garage-ops03-r2.playwright.config.ts
+
+      - name: Remove temporary Owner credential and certification sessions
+        if: always()
+        run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=cleanup
+
+      - name: Verify credential and session cleanup
+        if: always()
+        run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=verify-clean
+
+      - name: Evidence-branch hygiene and final PR recustody
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .garage-ops03-r2.playwright.config.ts
+          git diff --check "$PRODUCT_SHA"...HEAD
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 3
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PRODUCT_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.base.sha' <<<"$pr_json")" = "$PRODUCT_BASE_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+          printf '%s\n' "${changed[@]}"
+
+      - name: Upload sanitized OPS03 R2 closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garage-ops03-r2-close-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cert-results/garage-ops03-stg01-r2/
+          if-no-files-found: warn
+          retention-days: 14
