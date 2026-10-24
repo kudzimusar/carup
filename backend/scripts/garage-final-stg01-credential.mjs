@@ -247,6 +247,11 @@ async function witness(client) {
   await section('garage_estimate_lines', `select to_jsonb(l) j from public.garage_estimate_lines l where l.estimate_id in (select id from public.garage_estimates where service_case_id in (${CASES})) order by l.estimate_id, l.line_no`, [T, since])
   await section('garage_estimate_events', `select to_jsonb(v) j from public.garage_estimate_events v where v.estimate_id in (select id from public.garage_estimates where service_case_id in (${CASES})) order by v.seq`, [T, since])
   await section('service_records', `select to_jsonb(r) j from public.service_records r where r.service_case_id in (${CASES}) order by r.performed_at`, [T, since])
+  await section('garage_appointments', `select to_jsonb(a) j from public.garage_appointments a where a.service_case_id in (${CASES}) order by a.created_at`, [T, since])
+  await section('garage_appointment_events', `select to_jsonb(v) j from public.garage_appointment_events v where v.appointment_id in (select id from public.garage_appointments where service_case_id in (${CASES})) order by v.created_at`, [T, since])
+  await section('service_mileage_observations', `select to_jsonb(m) j from public.service_mileage_observations m where m.service_record_id in (select id from public.service_records where service_case_id in (${CASES})) order by m.id`, [T, since])
+  // CarUp must not rewrite a vehicle's odometer from a garage's observation
+  await section('fixture_vehicle', `select jsonb_build_object('vin', v.vin, 'mileage', v.mileage, 'owner_id', v.owner_id) j from public.vehicles v where v.vin = 'UATFINAL202610241'`)
   await section('mechanic_parts_created', `select to_jsonb(p) j from public.mechanic_parts p where p.tenant_id = $1::uuid and p.created_at >= $2::timestamptz order by p.created_at`, [T, since])
   await section('garage_stock_movements', `select to_jsonb(m) j from public.garage_stock_movements m where m.tenant_id = $1::uuid and m.created_at >= $2::timestamptz order by m.seq`, [T, since])
   await section('garage_service_part_usage', `select to_jsonb(u) j from public.garage_service_part_usage u where u.tenant_id = $1::uuid and u.created_at >= $2::timestamptz order by u.created_at`, [T, since])
