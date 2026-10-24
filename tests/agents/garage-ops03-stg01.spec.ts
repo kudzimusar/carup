@@ -60,6 +60,32 @@ async function api(page:Page,method:string,route:string,payload?:any){
  },{api:API,method,route,payload})
 }
 
+async function cleanupSyntheticLiveAppointments(page:Page,c:pg.Client){
+ const live=await c.query(
+  "select a.id::text appointment_id,sc.id::text case_id,a.status,sc.request_summary "+
+  "from garage_appointments a join service_cases sc on sc.id=a.service_case_id "+
+  "where sc.requester_user_id=$1 and sc.request_summary like 'SYNTHETIC / UAT OPS03 %' "+
+  "and a.status in ('requested','confirmed') order by a.created_at",
+  [OWNER],
+ )
+ const cancelled=[]
+ for(const row of live.rows){
+  const r=await api(page,'POST','/service-cases/'+row.case_id+'/appointments/'+row.appointment_id+'/cancel')
+  if(r.status>=300)throw Error('cleanup cancellation failed '+row.appointment_id+' HTTP '+r.status+' '+r.text.slice(0,200))
+  cancelled.push({appointment_id:row.appointment_id,case_id:row.case_id,previous_status:row.status})
+ }
+ const residual=await c.query(
+  "select a.id::text appointment_id,sc.id::text case_id,a.status "+
+  "from garage_appointments a join service_cases sc on sc.id=a.service_case_id "+
+  "where sc.requester_user_id=$1 and sc.request_summary like 'SYNTHETIC / UAT OPS03 %' "+
+  "and a.status in ('requested','confirmed') order by a.created_at",
+  [OWNER],
+ )
+ if(residual.rowCount!==0)throw Error('live synthetic OPS03 appointment residue remains')
+ out('product-defect-cleanup.json',{cancelled,residual_live_count:0,completed_at:new Date().toISOString()})
+ return cancelled
+}
+
 async function migrate(c:pg.Client){
  const tables=['garage_branch_scheduling_settings','garage_workforce_schedules','garage_workforce_unavailability','garage_appointments','garage_appointment_events']
  const preL=await c.query("select version,name from supabase_migrations.schema_migrations where version='20261023140000' or name='garage_ops03_appointments_scheduling_capacity'")
@@ -164,6 +190,19 @@ test('GARAGE-1.0 OPS03 STG01 controlled physical certification',async({page})=>{
  const c=await db()
  try{
   await migrate(c);await deploy();await login(page)
+  const cleanup=await cleanupSyntheticLiveAppointments(page,c)
+  out('product-defect-block.json',{
+    classification:'BLOCK — OPS03 PRODUCT DEFECT',
+    defect:'Garage appointment editor double-converts UTC ISO values through datetime-local, shifting the intended branch-local time before confirmation.',
+    observed_backend_error:'OUTSIDE OPENING HOURS',
+    requested_slot_utc:'2026-10-26T06:00:00.000Z–2026-10-26T07:00:00.000Z',
+    appointment_timezone:'Africa/Harare',
+    expected_branch_local_slot:'08:00–09:00',
+    branch_opening_hours:'08:00–17:00',
+    cleanup,
+    product_sha:SHA,
+  })
+  throw Error('BLOCK — OPS03 PRODUCT DEFECT: Garage appointment datetime-local timezone conversion shifts the requested slot before confirmation')
   const session=await one(c,"select active_role,active_organization_id::text from user_sessions where user_id=$1 and is_valid=true order by created_at desc limit 1",[OWNER]);expect(session.active_role).toBe('owner');expect(session.active_organization_id).toBe(GARAGE)
   const crmBefore=await c.query("select id::text,customer_reference_code,relationship_status,customer_category,preferred_branch_id::text,assigned_staff_user_id,internal_notes from garage_customer_relationships where tenant_id=$1::uuid and registered_user_id=$2 order by id",[GARAGE,OWNER])
   const walkBefore=await c.query("select id::text,relationship_status,party_kind from garage_customer_relationships where tenant_id=$1::uuid and party_kind='walk_in' order by id",[GARAGE])
