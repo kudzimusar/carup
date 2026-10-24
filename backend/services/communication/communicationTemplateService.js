@@ -106,6 +106,13 @@ const TEMPLATES = Object.freeze({
     subject: 'Your service request was updated',
     body: 'Your service request for vehicle {{listing_id}} is now: {{status}}.',
   },
+  // GARAGE-1.0 — in-code mirror of the governed registry row (20261024140000). The vehicle and a bounded
+  // factual headline only: never an amount, a price, private notes or a promise about the work.
+  garage_commercial_update_v1: {
+    transactional: true,
+    subject: 'An update on your service request',
+    body: '{{headline}} (vehicle {{listing_id}}). Open CarUp to see the details.',
+  },
   // Trade OS D7 — in-code mirror of the governed `container_booking_update` template
   // (registered + approved in 20260811131700_communications_2_workflow_template_foundations.sql).
   // Used only pre-registry (dev/tests); the governed registry wins wherever it is deployed.

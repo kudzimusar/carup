@@ -1,4 +1,5 @@
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { executionGateFailure } from './executionGate.js';
 import { GARAGE_SERVICE_CATEGORIES } from './garageDirectoryService.js';
 import { assertEvidenceUsable, requireGarageTenant } from './serviceAuthority.js';
 
@@ -182,7 +183,7 @@ export async function recordService(supabaseClient, userContext, workOrderId, bo
   };
 
   const { data, error } = await supabaseClient.from('service_records').insert(row).select().single();
-  if (error) throw new DatabaseError(`Failed to record service: ${error.message}`);
+  if (error) throw executionGateFailure(error) || new DatabaseError(`Failed to record service: ${error.message}`);
   return { record: data };
 }
 

@@ -105,6 +105,17 @@ export const COMMUNICATION_EVENT_TYPES = [
   'service.case.declined',
   'service.work.started',
   'service.case.completed',
+  // GARAGE-1.0 — the customer-facing steps of the garage's commercial lifecycle, through the same
+  // canonical pipeline. Audience: the person the work is for. The garage-side counterparts (a customer
+  // accepting an estimate, a payment received) are deliberately NOT subscribed: their audience is the
+  // garage tenant, and Communications addresses a user, not a tenant.
+  'garage.estimate.sent',
+  'garage.invoice.issued',
+  'garage.payment.recorded',
+  'garage.appointment.confirmed',
+  'garage.appointment.rescheduled',
+  'garage.appointment.declined',
+  'garage.appointment.cancelled',
 ];
 
 let registered = false;

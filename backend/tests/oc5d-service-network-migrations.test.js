@@ -244,7 +244,13 @@ test('O4: the LAST definition of the dedupe function contains every earlier bran
   const defs = dedupeDefinitions();
   assert.ok(defs.length >= 3, `expected the function's history, found ${defs.map((d) => d.file)}`);
   const last = defs[defs.length - 1];
-  assert.equal(last.file, SN.o4, 'the Service Network definition must be the last one');
+  // Authority evolution (GARAGE-1.0): O4 was the last writer until the Garage customer-notification
+  // events were added. The invariant is unchanged — the LAST definition must carry every earlier branch
+  // verbatim (checked below) — but the set of migrations allowed to be last is now an explicit, ordered
+  // list, so an unknown migration quietly becoming the last writer is still caught.
+  const KNOWN_LAST_WRITERS = [SN.o4, '20261024140000_garage_communications_events_and_template.sql'];
+  assert.ok(defs.some((d) => d.file === SN.o4), 'the Service Network definition must still be in the history');
+  assert.ok(KNOWN_LAST_WRITERS.includes(last.file), `unexpected last writer of the dedupe function: ${last.file}`);
   const normalize = (s) => s.replace(/^\s*ELSIF\b/, 'IF').replace(/\s+/g, ' ').trim();
   const lastBranches = branches(last.body).map(normalize);
   for (const def of defs.slice(0, -1)) {

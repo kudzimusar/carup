@@ -60,10 +60,13 @@ const GARAGE_ONBOARDING_SURFACES = [
   '/src/pages/dashboard/garage/GarageWorkspaceReady.tsx',
 ]
 
-/** GARAGE-1.0-OPS01 internal operating surfaces. */
+/** GARAGE-1.0-OPS01 internal operating surfaces (and OPS03 scheduling, declared here so it cannot escape the gate). */
 const GARAGE_OPERATIONS_SURFACES = [
   '/src/pages/dashboard/garage/GarageSites.tsx',
   '/src/pages/dashboard/garage/GarageWorkforce.tsx',
+  '/src/pages/dashboard/garage/GarageSchedule.tsx',
+  '/src/pages/dashboard/garage/GarageStock.tsx',
+  '/src/pages/dashboard/garage/GarageOperations.tsx',
 ]
 
 /** Every surface this gate governs. */
@@ -83,6 +86,9 @@ const GARAGE_WORKFLOW = [
   '/src/pages/dashboard/garage/GarageTeam.tsx',
   '/src/pages/dashboard/garage/GarageSites.tsx',
   '/src/pages/dashboard/garage/GarageWorkforce.tsx',
+  '/src/pages/dashboard/garage/GarageSchedule.tsx',
+  '/src/pages/dashboard/garage/GarageStock.tsx',
+  '/src/pages/dashboard/garage/GarageOperations.tsx',
   '/src/pages/dashboard/owner/ServiceRequests.tsx',
 ]
 
@@ -191,7 +197,7 @@ describe('DESIGN.md §20 — the legacy-pattern budget does not grow', () => {
     '/src/pages/dashboard/owner/ServiceRequests.tsx': 3,
     '/src/pages/dashboard/owner/ServiceHistory.tsx': 5,
     '/src/pages/dashboard/garage/GarageWorkspace.tsx': 3,
-    '/src/pages/dashboard/garage/GarageCaseDetail.tsx': 8,
+    '/src/pages/dashboard/garage/GarageCaseDetail.tsx': 0,
     '/src/pages/dashboard/garage/GarageCustomers.tsx': 0,
     '/src/pages/dashboard/garage/GarageProfileEditor.tsx': 3,
   }

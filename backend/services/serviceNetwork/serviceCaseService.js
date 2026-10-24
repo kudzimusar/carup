@@ -1,5 +1,6 @@
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
+import { executionGateFailure } from './executionGate.js';
 import { GARAGE_SERVICE_CATEGORIES } from './garageDirectoryService.js';
 import {
   assertBranchBelongsToTenant,
@@ -477,7 +478,9 @@ async function transition(supabaseClient, userContext, caseId, toStatus, { patch
     .eq('status', caseRow.status)
     .select()
     .maybeSingle();
-  if (error) throw new DatabaseError(`Failed to update service case: ${error.message}`);
+  // GARAGE-1.0 OPS05: the database refuses to start work the customer has not authorized (and to
+  // complete a case whose job is not complete); say so plainly instead of reporting a fault.
+  if (error) throw executionGateFailure(error) || new DatabaseError(`Failed to update service case: ${error.message}`);
   if (!data) throw new ConflictError('This case changed while you were acting on it; reload and try again');
 
   // ATOMICITY (hardening, plan §8).
@@ -578,6 +581,34 @@ export async function completeServiceCase(supabaseClient, userContext, caseId, d
     patch: { completed_at: new Date().toISOString() },
     eventType: SERVICE_CASE_EVENTS.completed,
   }, deps);
+}
+
+/**
+ * GARAGE-1.0 OPS05 — complete the JOB: the work order and the Service Case reach their terminal
+ * states together (one database transaction, with the case's own history). It requires recorded
+ * work on an authorized, started job; the legacy completeServiceCase() above now refuses unless the
+ * job was completed first.
+ */
+export async function completeJob(supabaseClient, userContext, caseId, deps = {}) {
+  const tenantId = requireTenantContext(userContext);
+  const actor = actorId(userContext);
+  const caseRow = await loadCase(supabaseClient, caseId);
+  assertGarageMayAct(caseRow, userContext);
+  const { data, error } = await supabaseClient.rpc('garage_ops05_complete_job', {
+    p_tenant_id: tenantId,
+    p_case_id: caseRow.id,
+    p_actor_user_id: actor,
+  });
+  if (error) throw executionGateFailure(error) || new DatabaseError(`Failed to complete the job: ${error.message}`);
+  const result = typeof data === 'string' ? JSON.parse(data) : (Array.isArray(data) ? data[0] : data);
+  const fresh = await loadCase(supabaseClient, caseRow.id);
+  const emit = await emitCaseEvent(SERVICE_CASE_EVENTS.completed, fresh, {}, deps);
+  return {
+    case: toCaseView(fresh),
+    completed_at: result?.completed_at ?? fresh.completed_at ?? null,
+    service_record_count: result?.service_record_count ?? null,
+    notification: emit,
+  };
 }
 
 /** Cancellation is a real state, never a deletion (plan §7.7). */

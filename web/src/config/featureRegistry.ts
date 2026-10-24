@@ -659,6 +659,36 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'Staff profiles, departments, sites, skills and qualifications',
   },
   {
+    // GARAGE-1.0: the garage's parts and stock. Reading is the workspace's (admin + mechanic); managing
+    // stock is the admin's, enforced by the server and by the page.
+    id: 'garage.stock',
+    label: 'Parts and Stock',
+    shortLabel: 'Stock',
+    route: '/garage/stock',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin', 'mechanic'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Package',
+    description: 'Parts on the shelf, counted quantities and the stock history',
+  },
+  {
+    // GARAGE-1.0: the operating view — requireActiveTenant({ types: ['garage'], roles: ['admin'] }).
+    id: 'garage.operations',
+    label: 'Operations',
+    route: '/garage/operations',
+    domain: 'service',
+    roles: [],
+    tenantTypes: ['garage'],
+    tenantRoles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'BarChart3',
+    description: 'How the workshop is running, counted from your own records',
+  },
+  {
     // GMO-6/7 (OC-5E): who works in the garage — invitations, roles, removal. The server's gate is
     // requireActiveTenant({ types: ['garage'], roles: ['admin'] }); this scope says the same.
     id: 'garage.team',

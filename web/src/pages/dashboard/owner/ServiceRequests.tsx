@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,9 @@ import {
   statusPresentation,
 } from '@/lib/serviceRequests'
 import { SN_PAGE } from '@/lib/serviceNetworkLayout'
+import type { CustomerEstimate, CustomerInvoice } from '@/lib/garageBusiness'
+import JourneyProgress, { type Loadable } from '@/components/owner/serviceJourney/JourneyProgress'
+import CaseCommercial from '@/components/owner/serviceJourney/CaseCommercial'
 
 /**
  * My Service Requests (R3).
@@ -69,6 +72,16 @@ function appointmentWhen(a: GarageAppointment): string {
   }
 }
 
+function groupByCase<T extends { service_case_id: string }>(rows: T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>()
+  for (const row of rows) {
+    const bucket = grouped.get(row.service_case_id)
+    if (bucket) bucket.push(row)
+    else grouped.set(row.service_case_id, [row])
+  }
+  return grouped
+}
+
 const APPOINTMENT_LABEL: Record<GarageAppointment['status'], string> = {
   requested: 'Requested appointment',
   confirmed: 'Confirmed appointment',
@@ -86,6 +99,9 @@ export default function ServiceRequests() {
     fetchServiceAppointmentAvailability,
     requestServiceAppointment,
     cancelMyServiceAppointment,
+    fetchMyEstimates,
+    decideMyEstimate,
+    fetchMyInvoices,
   } = useCarUpApi()
   const [requests, setRequests] = useState<ServiceRequest[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -97,6 +113,40 @@ export default function ServiceRequests() {
   const [availability, setAvailability] = useState<AppointmentAvailabilityResponse | null>(null)
   const [appointmentError, setAppointmentError] = useState<string | null>(null)
   const [appointmentBusy, setAppointmentBusy] = useState<string | null>(null)
+  // Estimates and invoices load on their own: if either fails, the requests and appointments still work
+  // and the failure is stated rather than shown as "no estimates".
+  const [estimates, setEstimates] = useState<CustomerEstimate[]>([])
+  const [estimatesState, setEstimatesState] = useState<Loadable<CustomerEstimate>['status']>('idle')
+  const [invoices, setInvoices] = useState<CustomerInvoice[]>([])
+  const [invoicesState, setInvoicesState] = useState<Loadable<CustomerInvoice>['status']>('idle')
+
+  const loadCommercial = useCallback(async () => {
+    const loadEstimates = async () => {
+      if (typeof fetchMyEstimates !== 'function') return
+      setEstimatesState((current) => (current === 'ready' ? current : 'loading'))
+      try {
+        const rows = (await fetchMyEstimates())?.estimates
+        if (!Array.isArray(rows)) throw new Error('Unexpected estimates response')
+        setEstimates(rows)
+        setEstimatesState('ready')
+      } catch {
+        setEstimatesState('error')
+      }
+    }
+    const loadInvoices = async () => {
+      if (typeof fetchMyInvoices !== 'function') return
+      setInvoicesState((current) => (current === 'ready' ? current : 'loading'))
+      try {
+        const rows = (await fetchMyInvoices())?.invoices
+        if (!Array.isArray(rows)) throw new Error('Unexpected invoices response')
+        setInvoices(rows)
+        setInvoicesState('ready')
+      } catch {
+        setInvoicesState('error')
+      }
+    }
+    await Promise.all([loadEstimates(), loadInvoices()])
+  }, [fetchMyEstimates, fetchMyInvoices])
 
   const load = useCallback(() => {
     setState('loading')
@@ -121,7 +171,9 @@ export default function ServiceRequests() {
         setAppointments([])
         setAppointmentError('Appointment scheduling could not be loaded. Your service requests are still shown.')
       })
-  }, [fetchMyServiceAppointments, fetchMyServiceRequests])
+
+    void loadCommercial()
+  }, [fetchMyServiceAppointments, fetchMyServiceRequests, loadCommercial])
 
   useEffect(() => { load() }, [load])
 
@@ -138,6 +190,38 @@ export default function ServiceRequests() {
       setBusyId(null)
     }
   }
+
+  /**
+   * The customer's decision. The server's refusal (already decided, expired, not the registered owner)
+   * propagates to the estimate card as the server's own text. Either way the estimates and the request
+   * list are read again, so the screen shows what the server now holds rather than what we hoped for.
+   */
+  async function decideEstimate(estimateId: string, decision: 'accept' | 'decline', reason?: string) {
+    let refusal: unknown = null
+    try {
+      if (reason) await decideMyEstimate(estimateId, decision, reason)
+      else await decideMyEstimate(estimateId, decision)
+    } catch (error) {
+      refusal = error
+    }
+    const refreshed = Promise.allSettled([
+      fetchMyServiceRequests().then((rows) => setRequests((rows || []) as ServiceRequest[])),
+      loadCommercial(),
+    ])
+    // A refusal is shown at once; the refresh that follows only corrects what is on screen.
+    if (refusal !== null) throw refusal
+    await refreshed
+  }
+
+  const estimatesByCase = useMemo(() => groupByCase(estimates), [estimates])
+  const invoicesByCase = useMemo(() => groupByCase(invoices), [invoices])
+  const requestIds = useMemo(() => new Set(requests.map((r) => r.id)), [requests])
+  // Records the server returned for service on the person's vehicles that is not among their own
+  // requests (e.g. a family member booked the job). They must not vanish just because no request card exists.
+  const unlistedCaseIds = useMemo(() => {
+    const ids = new Set<string>([...estimatesByCase.keys(), ...invoicesByCase.keys()])
+    return [...ids].filter((id) => !requestIds.has(id))
+  }, [estimatesByCase, invoicesByCase, requestIds])
 
   function appointmentFor(caseId: string) {
     return appointments.find((a) => a.service_case_id === caseId) || null
@@ -202,6 +286,19 @@ export default function ServiceRequests() {
         <h1 className="text-2xl font-bold">My Service Requests</h1>
         <p className="text-gray-500">Requests you have sent to garages on CarUp</p>
       </div>
+
+      {(estimatesState === 'error' || invoicesState === 'error') && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4" data-testid="commercial-error">
+          {estimatesState === 'error' && <p className="font-semibold text-gray-800">Estimates could not be loaded.</p>}
+          {invoicesState === 'error' && <p className="font-semibold text-gray-800">Invoices could not be loaded.</p>}
+          <p className="mt-1 text-sm text-gray-700">
+            This is a loading problem, not a statement that nothing was sent to you. Your requests and appointments are still shown.
+          </p>
+          <Button variant="outline" className="mt-3 min-h-11" onClick={() => void loadCommercial()}>
+            Try again
+          </Button>
+        </div>
+      )}
 
       {state === 'loading' && (
         <div className="flex items-center gap-3 p-8" role="status" aria-live="polite">
@@ -279,6 +376,13 @@ export default function ServiceRequests() {
                 {r.request_summary && (
                   <p className="text-sm text-gray-600 mt-3 border-l-2 border-gray-200 pl-3">{r.request_summary}</p>
                 )}
+
+                <JourneyProgress
+                  request={r}
+                  appointments={appointments.filter((a) => a.service_case_id === r.id)}
+                  estimates={{ status: estimatesState, items: estimatesState === 'ready' ? (estimatesByCase.get(r.id) ?? []) : [] }}
+                  invoices={{ status: invoicesState, items: invoicesState === 'ready' ? (invoicesByCase.get(r.id) ?? []) : [] }}
+                />
 
                 <div className="mt-4 rounded-lg border bg-gray-50 p-4" data-testid="service-appointment">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -363,13 +467,13 @@ export default function ServiceRequests() {
                             </label>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <Button
+                            <Button className="min-h-11"
                               disabled={!bookingDate || !bookingDuration || appointmentBusy === r.id}
                               onClick={() => void findTimes(r)}
                             >
                               Check available times
                             </Button>
-                            <Button variant="outline" onClick={() => { setBookingCaseId(null); setAvailability(null); setAppointmentError(null) }}>Close</Button>
+                            <Button className="min-h-11" variant="outline" onClick={() => { setBookingCaseId(null); setAvailability(null); setAppointmentError(null) }}>Close</Button>
                           </div>
                           {appointmentError && <p role="alert" className="text-sm text-red-700">{appointmentError}</p>}
                           {availability && !availability.configured && (
@@ -390,7 +494,7 @@ export default function ServiceRequests() {
                                     {' – '}
                                     {new Intl.DateTimeFormat(undefined, { timeStyle: 'short', timeZone: slot.appointment_timezone }).format(new Date(slot.ends_at))}
                                   </span>
-                                  <Button
+                                  <Button className="min-h-11"
                                     size="sm"
                                     disabled={appointmentBusy === r.id}
                                     onClick={() => void requestSlot(r, slot.starts_at, slot.ends_at)}
@@ -406,6 +510,13 @@ export default function ServiceRequests() {
                     </div>
                   )}
                 </div>
+
+                <CaseCommercial
+                  requestStatus={r.status}
+                  estimates={{ status: estimatesState, items: estimatesState === 'ready' ? (estimatesByCase.get(r.id) ?? []) : [] }}
+                  invoices={{ status: invoicesState, items: invoicesState === 'ready' ? (invoicesByCase.get(r.id) ?? []) : [] }}
+                  onDecide={decideEstimate}
+                />
 
                 {canCancel(r.status) && (
                   <Button
@@ -430,6 +541,32 @@ export default function ServiceRequests() {
           )
         })}
       </div>
+
+      {state === 'ready' && unlistedCaseIds.length > 0 && (
+        <section aria-labelledby="unlisted-service-title" className="space-y-3" data-testid="unlisted-service-records">
+          <div>
+            <h2 id="unlisted-service-title" className="text-lg font-semibold">Estimates and invoices on your vehicles</h2>
+            <p className="text-sm text-gray-500">These are for service on your vehicles that is not listed among your requests above.</p>
+          </div>
+          {unlistedCaseIds.map((caseId) => {
+            const caseEstimates = estimatesByCase.get(caseId) ?? []
+            const caseInvoices = invoicesByCase.get(caseId) ?? []
+            const vin = caseEstimates[0]?.vin ?? caseInvoices[0]?.vin ?? null
+            return (
+              <div key={caseId} className="rounded-lg border bg-white p-4" data-testid="unlisted-service-record">
+                <p className="font-semibold">{requestReference(caseId)}</p>
+                <p className="text-xs text-gray-600">{vin ? `Vehicle ${vin}` : 'Vehicle not recorded'}</p>
+                <CaseCommercial
+                  requestStatus={null}
+                  estimates={{ status: 'ready', items: caseEstimates }}
+                  invoices={{ status: 'ready', items: caseInvoices }}
+                  onDecide={decideEstimate}
+                />
+              </div>
+            )
+          })}
+        </section>
+      )}
     </div>
   )
 }

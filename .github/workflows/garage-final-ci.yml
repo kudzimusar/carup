@@ -1,0 +1,169 @@
+name: GARAGE-1.0 FINAL CI
+
+# Source certification for the Garage Business Operating System completion campaign.
+# Layered on the accepted OPS03 head; it proves custody, the frozen foundation, every new domain on a
+# hermetic PostgreSQL, the concurrency rules on a REAL PostgreSQL, and the full web product + governance suite.
+
+on:
+  push:
+    branches:
+      - feat/garage-1.0-final-business-os-completion
+      - integration/garage-1.0-final
+  pull_request:
+    branches:
+      - feat/garage-1.0-ops03-appointments-scheduling-capacity
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garage-final-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPS03_ACCEPTED_SHA: 07b60e5d158d7dad7232d33f11f06a478c92da3f
+
+jobs:
+  custody:
+    name: Custody + frozen foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The accepted OPS03 head is an ancestor of this candidate
+        run: |
+          set -euo pipefail
+          git cat-file -e "${OPS03_ACCEPTED_SHA}^{commit}"
+          git merge-base --is-ancestor "${OPS03_ACCEPTED_SHA}" HEAD
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "ACCEPTED_PARENT=${OPS03_ACCEPTED_SHA}"
+
+      - name: No migration the staging ledger already consumed was rewritten
+        run: |
+          set -euo pipefail
+          # Only ADDITIONS under database/migrations are allowed relative to the accepted head.
+          changed="$(git diff --name-status "${OPS03_ACCEPTED_SHA}"...HEAD -- database/migrations | awk '$1 != "A"' || true)"
+          if [ -n "$changed" ]; then
+            echo "A frozen migration was modified, renamed or deleted:"; echo "$changed"; exit 1
+          fi
+          git diff --name-only --diff-filter=A "${OPS03_ACCEPTED_SHA}"...HEAD -- database/migrations
+
+      - name: New migrations sort after the accepted tip and carry the Up/Down markers
+        run: |
+          set -euo pipefail
+          tip="$(git ls-tree -r --name-only "${OPS03_ACCEPTED_SHA}" -- database/migrations | sed 's#.*/##' | grep -E '^[0-9]{14}_' | sort | tail -1)"
+          for f in $(git diff --name-only --diff-filter=A "${OPS03_ACCEPTED_SHA}"...HEAD -- database/migrations); do
+            b="$(basename "$f")"
+            [[ "$b" > "$tip" ]] || { echo "$b does not sort after the accepted tip $tip"; exit 1; }
+            grep -q '^-- +migrate Up' "$f" && grep -q '^-- +migrate Down' "$f" || { echo "$b lacks migrate markers"; exit 1; }
+          done
+
+      - name: Diff hygiene
+        run: git diff --check "${OPS03_ACCEPTED_SHA}"...HEAD
+
+  backend:
+    name: Backend (hermetic PostgreSQL) — new domains + inherited Garage / Service Network / Communications
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: GARAGE-1.0 new domains
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-ops04-migrations.test.js backend/tests/garage-ops04-authority.test.js \
+            backend/tests/garage-ops05-migrations.test.js backend/tests/garage-ops05-authority.test.js \
+            backend/tests/garage-ops06-migrations.test.js backend/tests/garage-ops06-authority.test.js \
+            backend/tests/garage-ops07-migrations.test.js backend/tests/garage-ops07-authority.test.js \
+            backend/tests/garage-hub.test.js backend/tests/garage-communications.test.js \
+            backend/tests/garage-operations-summary.test.js backend/tests/garage-history-convergence.test.js
+
+      - name: Inherited Garage, Service Network, OC-5, PartSentry and Communications gates
+        run: |
+          node --test --test-concurrency=1 \
+            backend/tests/garage-cv01-parts-authority.test.js \
+            backend/tests/garage-ops01-*.test.js backend/tests/garage-ops02-*.test.js backend/tests/garage-ops03-*.test.js \
+            backend/tests/service-network-*.test.js \
+            backend/tests/oc5a-*.test.js backend/tests/oc5d-*.test.js backend/tests/oc5e-*.test.js backend/tests/oc5h-*.test.js \
+            backend/tests/gmo-*.test.js backend/tests/partsentry-*.test.js \
+            backend/tests/communication-event-coverage.test.js backend/tests/oc5g-policy-*.test.js \
+            backend/tests/intelligence-service-mechanic-garage.test.js
+
+  real-postgres-races:
+    name: Concurrency on a REAL PostgreSQL 16
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      GARAGE_REALPG_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: psql is available
+        run: psql --version
+      - name: Race suite (a skip is a failure here)
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 backend/tests/garage-final-concurrency.test.js | tee race.log
+          grep -E '^# skipped 0$' race.log
+          grep -E '^# fail 0$' race.log
+
+  web:
+    name: Web — full product and governance tests, TypeScript, build
+    needs: custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Feature manifest has not drifted
+        run: node scripts/generate-feature-manifest.mjs --check
+      # The FULL suite on purpose: OPS03's focused file list let a design-gate failure through.
+      - name: Full web product and governance tests
+        run: npm --workspace web run test:unit
+      - name: Web TypeScript
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+      - name: Production web build
+        run: npm run build

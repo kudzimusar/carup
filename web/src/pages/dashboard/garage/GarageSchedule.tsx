@@ -371,10 +371,10 @@ export default function GarageSchedule() {
                             Times use {appointmentTimezone || 'the selected site timezone once configured'}
                           </p>
                           <div className="sm:col-span-2 flex flex-wrap gap-2">
-                            <Button disabled={busy === a.id || !appointmentSite || !appointmentWorker || !appointmentStart || !appointmentEnd} onClick={() => void saveAppointment(a)}>
+                            <Button className="min-h-11" disabled={busy === a.id || !appointmentSite || !appointmentWorker || !appointmentStart || !appointmentEnd} onClick={() => void saveAppointment(a)}>
                               {a.status === 'requested' ? 'Confirm appointment' : 'Save reschedule'}
                             </Button>
-                            <Button variant="outline" onClick={() => setEditingAppointment(null)}>Close</Button>
+                            <Button className="min-h-11" variant="outline" onClick={() => setEditingAppointment(null)}>Close</Button>
                           </div>
                         </div>
                       ) : (
@@ -428,7 +428,7 @@ export default function GarageSchedule() {
               {settingsSite && !config?.sites.find((s) => s.id === settingsSite)?.timezone && (
                 <p className="text-sm text-amber-700" role="status">Schedule timezone not configured for this site.</p>
               )}
-              <Button disabled={busy === 'settings' || !settingsSite || settingsEnabled === '' || !settingsCapacity || !settingsInterval} onClick={() => void saveSettings()}>Save scheduling settings</Button>
+              <Button className="min-h-11" disabled={busy === 'settings' || !settingsSite || settingsEnabled === '' || !settingsCapacity || !settingsInterval} onClick={() => void saveSettings()}>Save scheduling settings</Button>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {activeSites.map((s) => <div key={s.id} className="rounded-lg border p-3 text-sm">
                   <p className="font-medium">{s.name}</p>
@@ -468,7 +468,7 @@ export default function GarageSchedule() {
                   <input aria-label="Capacity duration minutes" type="number" min="5" max="720" className="mt-1 w-full min-h-11 rounded-md border px-3" value={capacityDuration} onChange={(e) => setCapacityDuration(e.target.value)} placeholder="Required" />
                 </label>
               </div>
-              <Button disabled={capacityState === 'loading' || !capacityCase || !capacitySite || !capacityDate || !capacityDuration} onClick={() => void inspectCapacity()}>Calculate capacity</Button>
+              <Button className="min-h-11" disabled={capacityState === 'loading' || !capacityCase || !capacitySite || !capacityDate || !capacityDuration} onClick={() => void inspectCapacity()}>Calculate capacity</Button>
               {capacityResult && !capacityResult.configured && <p role="status" className="text-sm text-amber-700">{capacityResult.reason || 'Capacity not configured'}</p>}
               {capacityResult?.configured && capacityResult.enabled === false && <p role="status" className="text-sm text-amber-700">{capacityResult.reason}</p>}
               {capacityResult?.configured && capacityResult.enabled !== false && (
@@ -523,7 +523,7 @@ export default function GarageSchedule() {
                     <input aria-label="Recurring schedule effective until" type="date" className="mt-1 w-full min-h-11 rounded-md border px-3" value={effectiveUntil} onChange={(e) => setEffectiveUntil(e.target.value)} />
                   </label>
                 </div>
-                <Button className="mt-3" disabled={busy === 'work-schedule' || !scheduleUser || !scheduleSite || scheduleDay === '' || !scheduleStart || !scheduleEnd || !effectiveFrom} onClick={() => void saveRecurringSchedule()}>Add recurring schedule</Button>
+                <Button className="mt-3 min-h-11" disabled={busy === 'work-schedule' || !scheduleUser || !scheduleSite || scheduleDay === '' || !scheduleStart || !scheduleEnd || !effectiveFrom} onClick={() => void saveRecurringSchedule()}>Add recurring schedule</Button>
               </section>
 
               <section aria-labelledby="unavailable-heading" className="border-t pt-5">
@@ -552,7 +552,7 @@ export default function GarageSchedule() {
                     </select>
                   </label>
                 </div>
-                <Button className="mt-3" disabled={busy === 'unavailability' || !unavailableUser || !unavailableStart || !unavailableEnd} onClick={() => void saveUnavailability()}>Record unavailability</Button>
+                <Button className="mt-3 min-h-11" disabled={busy === 'unavailability' || !unavailableUser || !unavailableStart || !unavailableEnd} onClick={() => void saveUnavailability()}>Record unavailability</Button>
               </section>
             </CardContent>
           </Card>
