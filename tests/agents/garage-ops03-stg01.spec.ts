@@ -201,10 +201,10 @@ async function openEditor(page:Page,caseId:string,button:string){
  return {card,id}
 }
 
-async function confirm(page:Page,caseId:string,profile:string,label:string,expectedStatus:number|number[]){
+async function confirm(page:Page,caseId:string,profile:string,label:string,expectedStatus:number|number[],expectedTime={localStart:'08:00',localEnd:'09:00',absoluteStart:'2026-10-26T06:00:00.000Z',absoluteEnd:'2026-10-26T07:00:00.000Z'}){
  const {card,id}=await openEditor(page,caseId,'Review and confirm')
- expect(await card.getByLabel('Appointment start '+id).inputValue()).toBe(DATE+'T08:00')
- expect(await card.getByLabel('Appointment end '+id).inputValue()).toBe(DATE+'T09:00')
+ expect(await card.getByLabel('Appointment start '+id).inputValue()).toBe(DATE+'T'+expectedTime.localStart)
+ expect(await card.getByLabel('Appointment end '+id).inputValue()).toBe(DATE+'T'+expectedTime.localEnd)
  await expect(card.getByTestId('appointment-timezone-'+id)).toContainText('Africa/Harare')
  await card.getByLabel('Appointment site '+id).selectOption(HRE)
  await card.getByLabel('Appointment planned mechanic '+id).selectOption(profile)
@@ -215,8 +215,8 @@ async function confirm(page:Page,caseId:string,profile:string,label:string,expec
  const req=await reqP,res=await resP
  timings.push({gate:label,duration_ms:Date.now()-started,status:res.status()})
  const body:any=req.postDataJSON()
- expect(new Date(body.starts_at).toISOString()).toBe('2026-10-26T06:00:00.000Z')
- expect(new Date(body.ends_at).toISOString()).toBe('2026-10-26T07:00:00.000Z')
+ expect(new Date(body.starts_at).toISOString()).toBe(expectedTime.absoluteStart)
+ expect(new Date(body.ends_at).toISOString()).toBe(expectedTime.absoluteEnd)
  if(Array.isArray(expectedStatus))expect(expectedStatus).toContain(res.status());else expect(res.status()).toBe(expectedStatus)
  return {id,request:safeRequest(req),response:safeResponse(res)}
 }
@@ -375,7 +375,7 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
   await setCapacity(page,'2');capacityRaised=true
   const createC=await api(page,'POST','/service-cases/'+C.id+'/appointments',{branch_id:HRE,starts_at:'2026-10-26T07:00:00.000Z',ends_at:'2026-10-26T08:00:00.000Z'})
   expect([200,201]).toContain(createC.status)
-  const overlapC=await confirm(page,C.id,P1,'planned mechanic overlap',400)
+  const overlapC=await confirm(page,C.id,P1,'planned mechanic overlap',400,{localStart:'09:00',localEnd:'10:00',absoluteStart:'2026-10-26T07:00:00.000Z',absoluteEnd:'2026-10-26T08:00:00.000Z'})
   const cState=await one(c,"select status from garage_appointments where id=$1::uuid",[overlapC.id]);expect(cState.status).toBe('requested')
   const cFalse=await one(c,"select count(*)::int n from garage_appointment_events where appointment_id=$1::uuid and event_type='confirmed'",[overlapC.id]);expect(cFalse.n).toBe(0)
   await requesterCancel(page,C,'Requester cancellation C')
