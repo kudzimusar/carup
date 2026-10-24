@@ -1,0 +1,130 @@
+name: GARAGE-1.0 FINAL STG01 ACTIVATE R1
+
+# Applies the five GARAGE-1.0 FINAL migrations (OPS04-OPS07 + Communications) to the approved STAGING
+# database and diffs the live catalog against the manifest generated from the tested PGlite world.
+#
+#   * staging only: the harness refuses any URL that is not project eoyenigwevnxwwhyhaer and refuses the
+#     production ref by name;
+#   * idempotent: a migration already in the ledger is never re-run, so a re-trigger of this workflow is a
+#     read-only verify once the migrations are in;
+#   * each migration is applied in ONE transaction together with its ledger row.
+
+on:
+  push:
+    branches:
+      - cert/garage-1.0-final-stg01-activate-r1
+
+concurrency:
+  group: garage-final-stg01-activate-r1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PRODUCT_SHA: 368d572772ed7d1de674d8568fff171b1eb9930d
+      PRODUCT_BRANCH: feat/garage-1.0-final-business-os-completion
+      PRODUCT_CI_RUN: '40086637789'
+      OPS03_SHA: 07b60e5d158d7dad7232d33f11f06a478c92da3f
+      OPS03_PR: '241'
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      GARAGE_FINAL_RESULTS_DIR: cert-results/garage-final-stg01-activate
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit, accepted OPS03 parent, evidence-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "cert/garage-1.0-final-stg01-activate-r1"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$OPS03_SHA" "$PRODUCT_SHA"
+
+          # the product commit is on the product branch, and its own CI passed on exactly that commit
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PRODUCT_CI_RUN}")"
+          test "$(jq -r '.head_sha' <<<"$run_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.status' <<<"$run_json")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run_json")" = "success"
+
+          # the accepted OPS03 PR is still exactly as accepted: open, draft, unmerged, same head
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${OPS03_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$OPS03_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+
+          # this branch adds ONLY the activation harness
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 3
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/garage-final-stg01-activate.yml|backend/scripts/garage-final-stg01-activate.mjs|backend/scripts/garage-final-stg01-expected-manifest.json) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PRODUCT_SHA=$PRODUCT_SHA"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Validate harness syntax
+        run: node --check backend/scripts/garage-final-stg01-activate.mjs
+
+      - name: Preflight (read-only)
+        run: node backend/scripts/garage-final-stg01-activate.mjs --mode=preflight
+
+      - name: Apply (idempotent) and verify the live catalog against the expected manifest
+        run: node backend/scripts/garage-final-stg01-activate.mjs --mode=apply
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### GARAGE-1.0 FINAL STG01 ACTIVATE R1"
+            echo "product sha: \`$PRODUCT_SHA\`   target project: \`$EXPECTED_STAGING_PROJECT_REF\`   production: **not accessed**"
+            for f in preflight apply verify; do
+              if [ -f "$GARAGE_FINAL_RESULTS_DIR/$f.json" ]; then echo; echo "#### $f"; echo '```json'; head -c 6000 "$GARAGE_FINAL_RESULTS_DIR/$f.json"; echo; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garage-final-stg01-activate-r1
+          path: cert-results/garage-final-stg01-activate
+          retention-days: 30
+          if-no-files-found: warn

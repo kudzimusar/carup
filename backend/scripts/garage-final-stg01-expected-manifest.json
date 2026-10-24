@@ -1,0 +1,1052 @@
+{
+ "generated_from": "PGlite world, migrations 20261024100000..130000",
+ "functions": [
+  {
+   "name": "garage_ops04_after_case_terminal",
+   "args": "",
+   "body_md5": "a384dd053f7c618d7504afffe9e925e5",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_after_work_order_change",
+   "args": "",
+   "body_md5": "f82ad227f68fdcacc09630ef915807b7",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_cancel_estimate",
+   "args": "p_tenant_id uuid, p_estimate_id uuid, p_reason text, p_actor_user_id text",
+   "body_md5": "af5a7c0bf44aa26439494a08de0ae02e",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_create_estimate",
+   "args": "p_tenant_id uuid, p_work_order_id uuid, p_currency text, p_customer_note text, p_internal_note text, p_valid_until timestamp with time zone, p_lines jsonb, p_actor_user_id text",
+   "body_md5": "0f81448b6ba4d4aea84d80f450ab1885",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_currency_scale",
+   "args": "p_currency text",
+   "body_md5": "31160373775ba949908684da3dd5993c",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_decide_estimate",
+   "args": "p_estimate_id uuid, p_decision text, p_basis text, p_actor_user_id text, p_actor_role text, p_actor_tenant_id text, p_reason text",
+   "body_md5": "ff844ecaecbdc9b5246c044950aece27",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_estimate_totals",
+   "args": "p_estimate_id uuid",
+   "body_md5": "8d5c0454e0cebcbfa3c1242958b78055",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_events_append_only",
+   "args": "",
+   "body_md5": "c9e6039b7381516370971624f38efd51",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_guard_estimate_delete",
+   "args": "",
+   "body_md5": "633e0578f325affa3aa70a15ebf76a26",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_guard_estimate_update",
+   "args": "",
+   "body_md5": "2259b3c6d9ba9443c01044ee4723cad0",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_guard_line",
+   "args": "",
+   "body_md5": "ef78f430b77913e1b12298932ee0384f",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_guard_work_order_decision",
+   "args": "",
+   "body_md5": "0f9f64ccd0413a550424db46a4264b9d",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_is_terminal_work_order_status",
+   "args": "p_status text",
+   "body_md5": "27b15d304c4ad8b6991867665fa82ecb",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_lock_estimate",
+   "args": "p_estimate_id uuid, p_tenant_id uuid",
+   "body_md5": "a877629ef99129e90f11513ce5eaf9b1",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_log",
+   "args": "p_estimate_id uuid, p_event_type text, p_actor_user_id text, p_scope text, p_previous_status text, p_detail jsonb",
+   "body_md5": "8c5123995dffd93ff7d03f4df5892526",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_replace_draft",
+   "args": "p_tenant_id uuid, p_estimate_id uuid, p_currency text, p_customer_note text, p_internal_note text, p_valid_until timestamp with time zone, p_lines jsonb, p_expected_updated_at timestamp with time zone, p_actor_user_id text",
+   "body_md5": "a586b7718f64c1538e9aa97b44747666",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_revise_estimate",
+   "args": "p_tenant_id uuid, p_estimate_id uuid, p_actor_user_id text",
+   "body_md5": "dddd0bf986279a3547b644d71f48fabd",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_send_estimate",
+   "args": "p_tenant_id uuid, p_estimate_id uuid, p_actor_user_id text",
+   "body_md5": "a5c8ff8eaa69deb0c958d5f2180b6fed",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops04_write_lines",
+   "args": "p_estimate_id uuid, p_lines jsonb",
+   "body_md5": "e0136b13264cb7c48c5874a19e8ca484",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops05_assert_workspace",
+   "args": "p_tenant_id uuid, p_actor_user_id text",
+   "body_md5": "86f97d44c234c7fe8faa3e91355eb080",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops05_complete_job",
+   "args": "p_tenant_id uuid, p_case_id uuid, p_actor_user_id text",
+   "body_md5": "ac49eec43b60986c29a7665b4b2f636c",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops05_guard_case_completion",
+   "args": "",
+   "body_md5": "3494a615c580650c731b816af3ab3a0f",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops05_guard_case_start",
+   "args": "",
+   "body_md5": "98e5e654307ba9f10deabf8f58ed0772",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops05_guard_service_record",
+   "args": "",
+   "body_md5": "0d78cc14782e1c7545d4181716090911",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops05_guard_work_order_completion",
+   "args": "",
+   "body_md5": "c02e3db00d778fbbe75c4a1cdd4e32bf",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_apply_movement",
+   "args": "p_tenant_id uuid, p_part_id uuid, p_type text, p_delta integer, p_reason text, p_note text, p_key text, p_actor_user_id text, p_work_order_id uuid, p_service_record_id uuid, p_reverses uuid",
+   "body_md5": "b588edac41e03f48c1b75ed4864d29cb",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_consume_for_service",
+   "args": "p_tenant_id uuid, p_service_record_id uuid, p_part_id uuid, p_quantity integer, p_partsentry_log_id bigint, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "2a323f5ecf8b3ecb07542ede7661a710",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_count_stock",
+   "args": "p_tenant_id uuid, p_part_id uuid, p_counted_quantity integer, p_reason text, p_note text, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "648099049e629ab44b8ac0727b8d0fe5",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_create_part",
+   "args": "p_tenant_id uuid, p_name text, p_sku text, p_opening_quantity integer, p_min_stock integer, p_supplier text, p_unit_cost numeric, p_sell_price numeric, p_price_currency text, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "d8f27fb36e54bca35b6d7d8cd92f36b7",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_guard_stock_write",
+   "args": "",
+   "body_md5": "80d02ae74001db44a79e41a8c5db0b98",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_guard_usage",
+   "args": "",
+   "body_md5": "4fa0a30235941fa5fb37ab16d1b37ced",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_list_parts",
+   "args": "p_tenant_id uuid, p_include_inactive boolean",
+   "body_md5": "ac23c046930b949cc6b2cf030bbee878",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_log",
+   "args": "p_tenant_id uuid, p_event text, p_actor_user_id text, p_new jsonb, p_vin text",
+   "body_md5": "aadd236d0c6516013a15c43ed432157c",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_movements_append_only",
+   "args": "",
+   "body_md5": "a014916bf2d7bf76b29e099bdf82f423",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_receive_stock",
+   "args": "p_tenant_id uuid, p_part_id uuid, p_quantity integer, p_reason text, p_note text, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "6ff414a8a4bb4d43e19738afa14689c9",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_reverse_usage",
+   "args": "p_tenant_id uuid, p_usage_id uuid, p_reason text, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "84c1d1beaa5d5e336da438e5e8adc164",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops06_update_part",
+   "args": "p_tenant_id uuid, p_part_id uuid, p_patch jsonb, p_actor_user_id text",
+   "body_md5": "fb50f7662a1f975aa48f15dcd31c0591",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_append_only",
+   "args": "",
+   "body_md5": "84e1654ec4052450a4b8e9aaecf96f40",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_guard_invoice_update",
+   "args": "",
+   "body_md5": "c1cb3fd4ace0421436fb4b2fc804d071",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_guard_line_insert",
+   "args": "",
+   "body_md5": "ebdb4907638d995abbfc9d36baff5bcb",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_guard_payment_insert",
+   "args": "",
+   "body_md5": "53a0c84bd535f572b7dae3cced802969",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_guard_receipt",
+   "args": "",
+   "body_md5": "d35b165ff2992111e5e3caa8a60df431",
+   "secdef": false,
+   "is_trigger": true,
+   "anon_exec": true,
+   "authenticated_exec": true,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_invoice_balance",
+   "args": "p_invoice_id uuid",
+   "body_md5": "9198e1f63b8e2894c99bef65da37fdb0",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_issue_invoice",
+   "args": "p_tenant_id uuid, p_work_order_id uuid, p_currency text, p_lines jsonb, p_customer_note text, p_internal_note text, p_due_date date, p_actor_user_id text",
+   "body_md5": "ecc12432288a6328566c3a11a90d56db",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_log",
+   "args": "p_tenant_id uuid, p_invoice_id uuid, p_event text, p_actor_user_id text, p_detail jsonb",
+   "body_md5": "acc0d117b2200712a91ce4779e68e294",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_next_number",
+   "args": "p_tenant_id uuid, p_doc_type text",
+   "body_md5": "d36381c4f771c43445a3b5fe287e7435",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_parse_lines",
+   "args": "p_lines jsonb, p_currency text",
+   "body_md5": "e5123bfdadaf3d7a041c4ac40e63ec74",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_record_payment",
+   "args": "p_tenant_id uuid, p_invoice_id uuid, p_amount numeric, p_currency text, p_method text, p_reference text, p_paid_at timestamp with time zone, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "88fc947f5fdf125b73cff511bf7ff00d",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_reverse_payment",
+   "args": "p_tenant_id uuid, p_payment_id uuid, p_reason text, p_actor_user_id text, p_idempotency_key text",
+   "body_md5": "1a097798a9744761d6d8df61ef61e5c2",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  },
+  {
+   "name": "garage_ops07_void_invoice",
+   "args": "p_tenant_id uuid, p_invoice_id uuid, p_reason text, p_actor_user_id text",
+   "body_md5": "4f570367e3af85dbfa2867962e6caedf",
+   "secdef": false,
+   "is_trigger": false,
+   "anon_exec": false,
+   "authenticated_exec": false,
+   "service_role_exec": true
+  }
+ ],
+ "tables": [
+  {
+   "name": "garage_document_counters",
+   "rls": true,
+   "force_rls": true,
+   "columns": 3,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": true,
+   "service_delete": false
+  },
+  {
+   "name": "garage_estimate_events",
+   "rls": true,
+   "force_rls": true,
+   "columns": 13,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": false,
+   "service_delete": false
+  },
+  {
+   "name": "garage_estimate_lines",
+   "rls": true,
+   "force_rls": true,
+   "columns": 10,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": true,
+   "service_delete": true
+  },
+  {
+   "name": "garage_estimates",
+   "rls": true,
+   "force_rls": true,
+   "columns": 25,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": true,
+   "service_delete": false
+  },
+  {
+   "name": "garage_invoice_events",
+   "rls": true,
+   "force_rls": true,
+   "columns": 8,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": false,
+   "service_delete": false
+  },
+  {
+   "name": "garage_invoice_lines",
+   "rls": true,
+   "force_rls": true,
+   "columns": 11,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": false,
+   "service_delete": false
+  },
+  {
+   "name": "garage_invoices",
+   "rls": true,
+   "force_rls": true,
+   "columns": 22,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": true,
+   "service_delete": false
+  },
+  {
+   "name": "garage_payment_records",
+   "rls": true,
+   "force_rls": true,
+   "columns": 16,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": false,
+   "service_delete": false
+  },
+  {
+   "name": "garage_receipts",
+   "rls": true,
+   "force_rls": true,
+   "columns": 12,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": true,
+   "service_delete": false
+  },
+  {
+   "name": "garage_service_part_usage",
+   "rls": true,
+   "force_rls": true,
+   "columns": 18,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": true,
+   "service_delete": false
+  },
+  {
+   "name": "garage_stock_movements",
+   "rls": true,
+   "force_rls": true,
+   "columns": 16,
+   "anon_select": false,
+   "authenticated_select": false,
+   "service_select": true,
+   "service_insert": true,
+   "service_update": false,
+   "service_delete": false
+  }
+ ],
+ "triggers": [
+  {
+   "table_name": "garage_estimate_events",
+   "name": "trg_garage_ops04_events_append_only"
+  },
+  {
+   "table_name": "garage_estimate_lines",
+   "name": "trg_garage_ops04_guard_line"
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "trg_garage_ops04_guard_estimate_delete"
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "trg_garage_ops04_guard_estimate_update"
+  },
+  {
+   "table_name": "garage_invoice_events",
+   "name": "trg_garage_ops07_events_append_only"
+  },
+  {
+   "table_name": "garage_invoice_lines",
+   "name": "trg_garage_ops07_guard_line_insert"
+  },
+  {
+   "table_name": "garage_invoice_lines",
+   "name": "trg_garage_ops07_lines_immutable"
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "trg_garage_ops07_guard_invoice_update"
+  },
+  {
+   "table_name": "garage_payment_records",
+   "name": "trg_garage_ops07_guard_payment_insert"
+  },
+  {
+   "table_name": "garage_payment_records",
+   "name": "trg_garage_ops07_payments_append_only"
+  },
+  {
+   "table_name": "garage_receipts",
+   "name": "trg_garage_ops07_guard_receipt"
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "trg_garage_ops06_guard_usage"
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "trg_garage_ops06_movements_append_only"
+  },
+  {
+   "table_name": "mechanic_parts",
+   "name": "trg_garage_ops06_guard_stock_write"
+  },
+  {
+   "table_name": "mechanic_work_orders",
+   "name": "trg_garage_ops04_after_work_order_change"
+  },
+  {
+   "table_name": "mechanic_work_orders",
+   "name": "trg_garage_ops04_guard_work_order_decision"
+  },
+  {
+   "table_name": "mechanic_work_orders",
+   "name": "trg_garage_ops05_guard_work_order_completion"
+  },
+  {
+   "table_name": "service_cases",
+   "name": "trg_garage_ops04_after_case_terminal"
+  },
+  {
+   "table_name": "service_cases",
+   "name": "trg_garage_ops05_guard_case_completion"
+  },
+  {
+   "table_name": "service_cases",
+   "name": "trg_garage_ops05_guard_case_start"
+  },
+  {
+   "table_name": "service_records",
+   "name": "trg_garage_ops05_guard_service_record"
+  }
+ ],
+ "partsColumns": [
+  {
+   "name": "created_by_user_id",
+   "is_nullable": "YES"
+  },
+  {
+   "name": "is_active",
+   "is_nullable": "NO"
+  },
+  {
+   "name": "price_currency",
+   "is_nullable": "YES"
+  },
+  {
+   "name": "sell_price",
+   "is_nullable": "YES"
+  },
+  {
+   "name": "unit_cost",
+   "is_nullable": "YES"
+  },
+  {
+   "name": "updated_at",
+   "is_nullable": "YES"
+  }
+ ],
+ "constraints": [
+  {
+   "table_name": "garage_estimate_events",
+   "name": "garage_ops04_event_actor_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimate_events",
+   "name": "garage_ops04_event_estimate_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimate_lines",
+   "name": "garage_ops04_line_estimate_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimate_lines",
+   "name": "garage_ops04_line_number_unique",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_cancel_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_case_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_decision_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_sent_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_supersede_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_version_unique",
+   "validated": true
+  },
+  {
+   "table_name": "garage_estimates",
+   "name": "garage_ops04_estimate_work_order_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoice_events",
+   "name": "garage_ops07_event_invoice_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoice_lines",
+   "name": "garage_ops07_line_invoice_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoice_lines",
+   "name": "garage_ops07_line_number_unique",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoice_lines",
+   "name": "garage_ops07_line_source_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "garage_ops07_invoice_case_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "garage_ops07_invoice_estimate_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "garage_ops07_invoice_estimate_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "garage_ops07_invoice_number_unique",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "garage_ops07_invoice_void_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_invoices",
+   "name": "garage_ops07_invoice_work_order_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_payment_records",
+   "name": "garage_ops07_payment_invoice_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_payment_records",
+   "name": "garage_ops07_payment_reversal_reason",
+   "validated": true
+  },
+  {
+   "table_name": "garage_payment_records",
+   "name": "garage_ops07_payment_reversal_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_receipts",
+   "name": "garage_ops07_receipt_invoice_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_receipts",
+   "name": "garage_ops07_receipt_number_unique",
+   "validated": true
+  },
+  {
+   "table_name": "garage_receipts",
+   "name": "garage_ops07_receipt_one_per_payment",
+   "validated": true
+  },
+  {
+   "table_name": "garage_receipts",
+   "name": "garage_ops07_receipt_payment_tenant_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_receipts",
+   "name": "garage_ops07_receipt_void_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "garage_ops06_usage_money_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "garage_ops06_usage_movement_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "garage_ops06_usage_one_movement",
+   "validated": true
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "garage_ops06_usage_part_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "garage_ops06_usage_reversal_truth",
+   "validated": true
+  },
+  {
+   "table_name": "garage_service_part_usage",
+   "name": "garage_ops06_usage_work_order_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_adjustment_reason",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_arithmetic",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_consumption_context",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_part_fk",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_reversal_context",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_sign",
+   "validated": true
+  },
+  {
+   "table_name": "garage_stock_movements",
+   "name": "garage_ops06_movement_work_order_fk",
+   "validated": true
+  },
+  {
+   "table_name": "mechanic_parts",
+   "name": "garage_ops06_part_min_nonneg",
+   "validated": true
+  },
+  {
+   "table_name": "mechanic_parts",
+   "name": "garage_ops06_part_money_truth",
+   "validated": true
+  },
+  {
+   "table_name": "mechanic_parts",
+   "name": "garage_ops06_part_stock_nonneg",
+   "validated": true
+  }
+ ],
+ "indexes": [
+  {
+   "name": "idx_garage_ops04_estimate_events"
+  },
+  {
+   "name": "idx_garage_ops04_estimates_case"
+  },
+  {
+   "name": "idx_garage_ops04_estimates_tenant_status"
+  },
+  {
+   "name": "idx_garage_ops06_movements_part"
+  },
+  {
+   "name": "idx_garage_ops06_movements_work_order"
+  },
+  {
+   "name": "idx_garage_ops06_usage_part"
+  },
+  {
+   "name": "idx_garage_ops06_usage_record"
+  },
+  {
+   "name": "idx_garage_ops06_usage_work_order"
+  },
+  {
+   "name": "idx_garage_ops07_invoice_events"
+  },
+  {
+   "name": "idx_garage_ops07_invoices_case"
+  },
+  {
+   "name": "idx_garage_ops07_invoices_tenant"
+  },
+  {
+   "name": "idx_garage_ops07_payments_invoice"
+  },
+  {
+   "name": "uq_garage_ops04_accepted_estimate_per_work_order"
+  },
+  {
+   "name": "uq_garage_ops04_estimate_id_tenant"
+  },
+  {
+   "name": "uq_garage_ops04_live_estimate_per_work_order"
+  },
+  {
+   "name": "uq_garage_ops06_movement_id_tenant"
+  },
+  {
+   "name": "uq_garage_ops06_movement_idempotency"
+  },
+  {
+   "name": "uq_garage_ops06_one_reversal_per_movement"
+  },
+  {
+   "name": "uq_garage_ops07_invoice_id_tenant"
+  },
+  {
+   "name": "uq_garage_ops07_live_invoice_per_work_order"
+  },
+  {
+   "name": "uq_garage_ops07_one_reversal_per_payment"
+  },
+  {
+   "name": "uq_garage_ops07_payment_id_tenant"
+  },
+  {
+   "name": "uq_garage_ops07_payment_idempotency"
+  },
+  {
+   "name": "uq_mechanic_work_orders_id_tenant"
+  }
+ ]
+}
