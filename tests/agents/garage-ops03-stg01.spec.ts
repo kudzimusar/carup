@@ -188,9 +188,13 @@ async function appointmentCard(page:Page,caseId:string){
 }
 
 async function openEditor(page:Page,caseId:string,button:string){
- const card=await appointmentCard(page,caseId)
- await card.getByRole('button',{name:button}).click()
+ const live=await appointmentCard(page,caseId)
+ await live.getByRole('button',{name:button}).click()
  const label=button==='Review and confirm'?'Appointment planned mechanic':'Appointment start'
+ const card=page.getByTestId('appointment-card')
+   .filter({hasText:'Service Case '+caseId})
+   .filter({has:page.getByLabel(new RegExp(label))})
+ await expect(card).toHaveCount(1)
  const aria=await card.getByLabel(new RegExp(label)).first().getAttribute('aria-label')
  if(!aria)throw Error('appointment editor id missing')
  const id=aria.replace(label+' ','')
