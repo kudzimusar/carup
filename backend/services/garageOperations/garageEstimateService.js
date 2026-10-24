@@ -257,7 +257,7 @@ async function detailView(client, row, { withHistory = false } = {}) {
   if (withHistory) {
     const { data, error } = await client.from('garage_estimate_events')
       .select('event_type, actor_scope, previous_status, new_status, estimate_version, work_order_authorization, created_at')
-      .eq('estimate_id', row.id).order('created_at', { ascending: true });
+      .eq('estimate_id', row.id).order('seq', { ascending: true });
     if (error) throw new DatabaseError('Could not load estimate history: ' + error.message);
     events = rows(data);
   }

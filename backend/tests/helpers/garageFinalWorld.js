@@ -11,17 +11,23 @@ import { migrationUpSql, MIGRATIONS_DIR } from './pgliteLedgerHarness.js';
  * per Garage. Nothing is mocked: the canonical OC-5A decide function, the service-record tables and
  * the OPS01-03 foundations are the real ones.
  */
-export const FOUNDATION_MIGRATIONS = Object.freeze([
+/** Applied before the two-garage world is seeded (OPS01 needs staff to exist as admins first). */
+export const PRE_SEED_MIGRATIONS = Object.freeze([
   '20261004180000_service_network_s1_garage_identity.sql',
   '20261004180100_service_network_s2_service_cases.sql',
   '009_phase4_schema.sql',
   '20261004160100_oc5a_work_order_owner_authorization.sql',
   '20261004180300_service_network_s4_work_order_assignment.sql',
   '20261004180400_service_network_s5_service_records.sql',
+  '20261004160200_oc5a_partsentry_attested_record_and_ledger_intents.sql',
   '20261022130000_garage_ops01_multisite_workforce.sql',
+]);
+/** Applied after seeding. */
+export const POST_SEED_MIGRATIONS = Object.freeze([
   '20261023111516_garage_ops02_customer_vehicle_relationship.sql',
   '20261023140000_garage_ops03_appointments_scheduling_capacity.sql',
 ]);
+export const FOUNDATION_MIGRATIONS = Object.freeze([...PRE_SEED_MIGRATIONS, ...POST_SEED_MIGRATIONS]);
 
 export async function applyFoundation(db) {
   for (const file of FOUNDATION_MIGRATIONS) await db.exec(migrationUpSql(file));
@@ -51,7 +57,7 @@ export async function createGarageFinalWorld({ after = [], seed = true } = {}) {
   const db = await createGmoDatabase();
   const world = { db, T: {}, B: {}, C: {}, W: {}, V: {} };
 
-  for (const file of FOUNDATION_MIGRATIONS.slice(0, 7)) await db.exec(migrationUpSql(file));
+  for (const file of PRE_SEED_MIGRATIONS) await db.exec(migrationUpSql(file));
   await installCommunicationIdentities(db);
 
   if (seed) {
@@ -98,7 +104,7 @@ export async function createGarageFinalWorld({ after = [], seed = true } = {}) {
     await db.query("UPDATE tenant_users SET role='mechanic' WHERE tenant_id=$1 AND user_id='mech-c'", [world.T.b]);
   }
 
-  for (const file of FOUNDATION_MIGRATIONS.slice(7)) await db.exec(migrationUpSql(file));
+  for (const file of POST_SEED_MIGRATIONS) await db.exec(migrationUpSql(file));
   await applyMigrations(db, after);
   return world;
 }

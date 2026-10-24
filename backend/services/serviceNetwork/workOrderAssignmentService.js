@@ -1,5 +1,6 @@
 import { ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { GARAGE_SERVICE_CATEGORIES } from './garageDirectoryService.js';
+import { executionGateFailure } from './executionGate.js';
 import {
   GARAGE_ADMIN_ROLES,
   GARAGE_PRACTITIONER_ROLES,
@@ -213,10 +214,22 @@ export async function assignMechanic(supabaseClient, userContext, workOrderId, b
 
   // Keep the legacy column in step for existing consumers, WITHOUT making it the
   // authority: work_order_assignments is the record of who is assigned.
-  await supabaseClient.from('mechanic_work_orders')
+  const { error: mirrorError } = await supabaseClient.from('mechanic_work_orders')
     .update({ mechanic_id: mechanicUserId })
     .eq('id', workOrder.id)
     .eq('tenant_id', tenantId);
+  if (mirrorError) {
+    // GARAGE-1.0: this used to be ignored, leaving an assignment the legacy column disagreed with. The
+    // database refuses a mechanic who is also the person who authorized the work (OC-5A
+    // no_self_authorization); undo the assignment instead of keeping a half-applied one.
+    await supabaseClient.from('work_order_assignments')
+      .update({ unassigned_at: new Date().toISOString(), unassigned_by_user_id: assigner, unassign_reason_code: 'other' })
+      .eq('id', data.id);
+    if (/no_self_authorization/i.test(String(mirrorError.message || mirrorError.constraint || ''))) {
+      throw new ConflictError('That person authorized this work as the vehicle owner, so they cannot also be the mechanic assigned to it');
+    }
+    throw new DatabaseError(`Failed to assign mechanic: ${mirrorError.message}`);
+  }
 
   return { assignment: data, created: true };
 }
@@ -290,7 +303,7 @@ export async function updateWorkOrderStatus(supabaseClient, userContext, workOrd
     .eq('status', workOrder.status)
     .select()
     .maybeSingle();
-  if (error) throw new DatabaseError(`Failed to update work order: ${error.message}`);
+  if (error) throw executionGateFailure(error) || new DatabaseError(`Failed to update work order: ${error.message}`);
   if (!data) throw new ConflictError('This work order changed while you were acting on it; reload and try again');
   return { workOrder: data };
 }

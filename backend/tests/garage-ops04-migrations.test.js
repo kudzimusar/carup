@@ -35,7 +35,7 @@ const workOrder = async (c) => (await db.query(
   'SELECT owner_authorization, owner_authorized_by FROM mechanic_work_orders WHERE id=$1', [c.workOrderId])).rows[0];
 const estimate = async (id) => (await db.query('SELECT * FROM garage_estimates WHERE id=$1', [id])).rows[0];
 const events = async (id) => (await db.query(
-  'SELECT event_type, actor_scope, previous_status, new_status FROM garage_estimate_events WHERE estimate_id=$1 ORDER BY created_at,id', [id])).rows;
+  'SELECT event_type, actor_scope, previous_status, new_status FROM garage_estimate_events WHERE estimate_id=$1 ORDER BY seq', [id])).rows;
 async function freshCase(opts) { return seedAcceptedCase(world, opts); }
 
 before(async () => {

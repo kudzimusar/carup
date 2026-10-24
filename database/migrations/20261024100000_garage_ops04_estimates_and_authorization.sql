@@ -122,6 +122,8 @@ CREATE TABLE IF NOT EXISTS garage_estimate_lines (
 
 CREATE TABLE IF NOT EXISTS garage_estimate_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- a total order for the history: created_at can tie within one clock tick, a UUID has no order
+  seq BIGINT GENERATED ALWAYS AS IDENTITY,
   tenant_id UUID NOT NULL,
   estimate_id UUID NOT NULL,
   event_type TEXT NOT NULL CHECK (event_type IN (
@@ -144,7 +146,7 @@ CREATE TABLE IF NOT EXISTS garage_estimate_events (
   )
 );
 CREATE INDEX IF NOT EXISTS idx_garage_ops04_estimate_events
-  ON garage_estimate_events(tenant_id, estimate_id, created_at);
+  ON garage_estimate_events(tenant_id, estimate_id, seq);
 
 -- ─────────────────────────── guards ───────────────────────────
 
