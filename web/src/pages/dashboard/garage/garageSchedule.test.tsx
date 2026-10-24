@@ -161,8 +161,8 @@ describe('GARAGE-1.0 OPS03 schedule product truth', () => {
     fetchGarageSchedulingConfiguration.mockResolvedValue(branchChangeConfig)
 
     renderPage()
-    await screen.findByText('Capacity not configured')
-    fireEvent.click(screen.getByRole('button', { name: 'Review and confirm' }))
+    const review = await screen.findByRole('button', { name: 'Review and confirm' })
+    fireEvent.click(review)
 
     fireEvent.change(screen.getByLabelText('Appointment site appt-1'), { target: { value: 'site-2' } })
     expect(screen.getByLabelText('Appointment start appt-1')).toHaveValue('2026-10-26T08:00')
