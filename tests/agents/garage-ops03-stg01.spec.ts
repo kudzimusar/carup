@@ -232,7 +232,7 @@ async function requesterCancel(page:Page,cs:{id:string,summary:string},label:str
  const req=await reqP,res=await resP
  timings.push({gate:label,duration_ms:Date.now()-started,status:res.status()})
  expect(res.status()).toBeLessThan(300)
- await expect(card.getByTestId('appointment-status')).toContainText('Cancelled')
+ await expect(card.getByTestId('appointment-status')).toContainText('Appointment cancelled')
  return {request:safeRequest(req),response:safeResponse(res)}
 }
 
