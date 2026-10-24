@@ -61,13 +61,10 @@ const schedule = {
   scope: 'garage',
 }
 const configuration = {
-  sites: [
-    { id: 'site-1', name: 'Central', branch_code: 'CENTRAL', timezone: 'Africa/Harare', is_active: true, settings: null },
-    { id: 'site-2', name: 'Tokyo', branch_code: 'TOKYO', timezone: 'Asia/Tokyo', is_active: true, settings: null },
-  ],
+  sites: [{ id: 'site-1', name: 'Central', branch_code: 'CENTRAL', timezone: 'Africa/Harare', is_active: true, settings: null }],
   workforce: [{
     id: 'profile-1', user_id: 'mech-1', staff_code: 'M-1', employment_status: 'active',
-    display_name: 'Mechanic One', tenant_role: 'mechanic', live_branch_ids: ['site-1','site-2'],
+    display_name: 'Mechanic One', tenant_role: 'mechanic', live_branch_ids: ['site-1'],
     schedules: [], unavailability: [],
   }],
 }
@@ -158,6 +155,11 @@ describe('GARAGE-1.0 OPS03 schedule product truth', () => {
   })
 
   it('preserves the visible wall clock on branch change and serializes with the selected branch timezone', async () => {
+    const branchChangeConfig = structuredClone(configuration)
+    branchChangeConfig.sites.push({ id: 'site-2', name: 'Tokyo', branch_code: 'TOKYO', timezone: 'Asia/Tokyo', is_active: true, settings: null })
+    branchChangeConfig.workforce[0].live_branch_ids.push('site-2')
+    fetchGarageSchedulingConfiguration.mockResolvedValue(branchChangeConfig)
+
     renderPage()
     await screen.findByText('Capacity not configured')
     fireEvent.click(screen.getByRole('button', { name: 'Review and confirm' }))
