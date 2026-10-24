@@ -263,6 +263,9 @@ async function witness(client) {
   await section('garage_document_counters', `select to_jsonb(c) j from public.garage_document_counters c where c.tenant_id = $1::uuid`, [T])
   await section('trust_audit_events', `select to_jsonb(a) j from public.trust_audit_events a where a.created_at >= $1::timestamptz and (a.actor_tenant_id = $2 or a.event_type like 'GARAGE_%') order by a.created_at`, [since, T])
   await section('domain_events', `select jsonb_build_object('id', d.id, 'event_type', d.event_type, 'status', d.status, 'attempts', d.attempts, 'dedupe_key', d.dedupe_key, 'tenant_id', d.tenant_id, 'created_at', d.created_at, 'processed_at', d.processed_at, 'error_log', d.error_log) j from public.domain_events d where d.created_at >= $1::timestamptz and d.event_type like 'garage.%' order by d.created_at`, [since])
+  // delivery, as opposed to emission: what the communications worker did with the events
+  await section('notification_queue', `select to_jsonb(n) j from public.notification_queue n where n.created_at >= $1::timestamptz order by n.created_at limit 300`, [since])
+  await section('messages_in_window', `select to_jsonb(m) j from public.messages m where m.created_at >= $1::timestamptz order by m.created_at limit 300`, [since])
   await section('message_threads', `select to_jsonb(t) j from public.message_threads t where t.created_at >= $1::timestamptz order by t.created_at`, [since])
   await section('messages_since', `select jsonb_build_object('count', count(*)) j from public.messages m where m.created_at >= $1::timestamptz`, [since])
   await section('sessions_created', `select jsonb_build_object('user_id', s.user_id, 'is_valid', s.is_valid, 'created_at', s.created_at, 'auth_method', s.auth_method) j from public.user_sessions s where s.user_id = any($1::text[]) and s.created_at::timestamptz >= $2::timestamptz order by s.created_at::timestamptz`, [Object.values(IDENTITIES).map((i) => i.id), since])
