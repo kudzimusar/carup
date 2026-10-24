@@ -17,6 +17,7 @@ export function allowedActions({
   assignedMechanicUserId = null,
   serviceRecordCount = 0,
   invoice = null,
+  activePartUsageCount = 0,
   isAdmin = false,
 } = {}) {
   const actions = new Set();
@@ -43,7 +44,10 @@ export function allowedActions({
     }
   }
 
-  if (isAdmin && workOrder && woOpen && ['accepted', 'active'].includes(status)) actions.add('assign_mechanic');
+  if (isAdmin && workOrder && woOpen && ['accepted', 'active'].includes(status)) {
+    actions.add('assign_mechanic');
+    if (assignedMechanicUserId) actions.add('unassign_mechanic');
+  }
 
   if (status === 'accepted' && workOrder && woOpen && auth === 'authorized' && assignedMechanicUserId) actions.add('start_work');
 
@@ -53,6 +57,8 @@ export function allowedActions({
       actions.add('use_part');
       actions.add('complete_job');
     }
+    // a mistaken usage can be undone only while the job is open
+    if (activePartUsageCount > 0) actions.add('reverse_usage');
   }
 
   if (isAdmin && status === 'completed') {

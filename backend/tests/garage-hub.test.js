@@ -36,6 +36,19 @@ async function newCase() {
   return c.id;
 }
 const hub = (caseId, actor = adminA()) => getCaseHub(client, actor, caseId);
+/** Money is admin-only: the SERVER must not send a mechanic any price, cost or total. */
+function assertNoMoney(view) {
+  assert.equal(view.money_visible, false);
+  for (const e of view.estimates.versions) {
+    assert.equal(e.money_visible, false);
+    assert.equal(e.total_amount, null);
+    assert.equal(e.total_state, 'hidden');
+    assert.ok(e.lines.every((l) => l.unit_price === null && l.line_total === null), 'estimate prices redacted');
+  }
+  assert.ok(view.service_records.every((r) => r.cost === null), 'recorded cost redacted');
+  assert.ok(view.parts_used.every((u) => u.sell_price_snapshot === null && u.unit_cost_snapshot === null), 'part price snapshots redacted');
+  assert.equal(view.closeout, null);
+}
 
 before(async () => {
   world = await createGarageFinalWorld({ after: OPS });
@@ -117,6 +130,10 @@ test('HUB = BACKEND: at every stage, an action the hub withholds is refused by t
   assert.equal(h.next_action, 'start_work');
   assert.ok(h.allowed_actions.includes('start_work'));
   assert.ok(h.mechanics.some((m) => m.user_id === 'mech-a' || m.id === 'mech-a' || JSON.stringify(m).includes('mech-a')), 'the assignment picker is part of the hub');
+  assert.ok(h.allowed_actions.includes('unassign_mechanic'), 'an assigned job can be unassigned by an admin');
+  assert.equal(h.money_visible, true);
+  assert.equal(h.estimates.latest.total_amount, '100.00', 'the admin sees the estimate total');
+  assert.equal(h.estimates.latest.lines[0].unit_price, '100.00');
   await startServiceCase(client, mechA(), caseId, noEmit);
 
   // 6. active, nothing recorded: record is offered, complete is NOT (and is refused)
@@ -136,12 +153,19 @@ test('HUB = BACKEND: at every stage, an action the hub withholds is refused by t
   h = await hub(caseId, mechA());
   assert.equal(h.parts_used.length, 1);
   assert.equal(h.service_records.length, 1);
+  assert.ok(h.allowed_actions.includes('reverse_usage'), 'a mistaken usage can be undone while the job is open');
+  assertNoMoney(h);
+  const adminSees = await hub(caseId);
+  assert.equal(adminSees.service_records[0].cost.amount, '100.00');
+  assert.equal(adminSees.parts_used[0].sell_price_snapshot, '20.00');
   assert.equal(h.service_records[0].work_performed, 'Done', 'the workshop sees what was done');
   await completeJob(client, mechA(), caseId, noEmit);
 
   // 8. completed: a mechanic sees no money at all
   const mechView = await hub(caseId, mechA());
   assert.equal(mechView.closeout, null);
+  assertNoMoney(mechView);
+  assert.ok(!mechView.allowed_actions.includes('reverse_usage') && !mechView.allowed_actions.includes('unassign_mechanic'), 'a finished job offers neither');
   assert.deepEqual(mechView.allowed_actions, []);
   assert.deepEqual(mechView.mechanics, []);
   assert.equal(mechView.viewer.is_admin, false);

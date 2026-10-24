@@ -163,6 +163,15 @@ test('authority: a mechanic cannot mutate; another garage cannot see or touch th
   const mech = garageActor('mech-a', c.tenant, 'mechanic');
   const readable = await getGarageEstimate(client, mech, draft.id);
   assert.equal('internal_note' in readable, false, 'a mechanic reads the estimate but not the admin-only note');
+  assert.equal(readable.money_visible, false);
+  assert.equal(readable.total_amount, null, 'nor what the work costs: the server redacts money for a mechanic');
+  assert.ok(readable.lines.length > 0 && readable.lines.every((l) => l.unit_price === null && l.line_total === null && l.description));
+  const adminRead = await getGarageEstimate(client, admin, draft.id);
+  assert.equal(adminRead.money_visible, true);
+  assert.equal(adminRead.total_amount, '170.50');
+  const mechList = await listCaseEstimates(client, mech, c.caseId);
+  assert.equal(mechList.latest.money_visible, false);
+  assert.equal(mechList.latest.total_amount, null);
   await rejects(sendEstimate(client, mech, draft.id), { name: 'ForbiddenError' });
   await rejects(cancelEstimate(client, mech, draft.id), { name: 'ForbiddenError' });
   await rejects(updateEstimateDraft(client, mech, draft.id, { currency: 'USD' }), { name: 'ForbiddenError' });

@@ -120,8 +120,8 @@ export function stockState(row) {
   return 'in_stock';
 }
 
-export function partView(row) {
-  return {
+export function partView(row, { moneyVisible = true } = {}) {
+  const view = {
     id: row.id,
     name: row.name,
     sku: row.sku,
@@ -140,7 +140,16 @@ export function partView(row) {
     last_movement_at: row.last_movement_at ?? null,
     updated_at: row.updated_at ?? null,
   };
+  // Cost and price are margin: a mechanic needs the quantity and the SKU, not what the garage paid.
+  if (!moneyVisible) {
+    return {
+      ...view, unit_cost: null, sell_price: null, legacy_unit_price: null, legacy_price_currency_unknown: false, money_visible: false,
+    };
+  }
+  return { ...view, money_visible: true };
 }
+
+const isGarageAdmin = (actor) => actor?.activeTenant?.role === 'admin';
 
 function moneyInputs(body, { requireNone = false } = {}) {
   const hasMoney = ['unit_cost', 'sell_price'].some((k) => body[k] !== undefined && body[k] !== null && body[k] !== '');
@@ -162,8 +171,10 @@ export async function listParts(client = defaultClient, actor = {}, { includeIna
     p_tenant_id: tenantId, p_include_inactive: Boolean(includeInactive),
   });
   if (error) throw stockFailure(error, 'Could not load stock');
-  const parts = list(data).map(partView);
+  const moneyVisible = isGarageAdmin(actor);
+  const parts = list(data).map((p) => partView(p, { moneyVisible }));
   return {
+    money_visible: moneyVisible,
     parts,
     summary: {
       total: parts.length,
@@ -186,7 +197,7 @@ export async function getPart(client = defaultClient, actor = {}, partId) {
     .select('id, seq, movement_type, quantity_delta, balance_before, balance_after, reason_code, note, work_order_id, service_record_id, actor_user_id, created_at')
     .eq('tenant_id', tenantId).eq('part_id', row.id).order('seq', { ascending: false }).limit(100);
   if (moveError) throw new DatabaseError('Could not load stock history: ' + moveError.message);
-  return { part: partView(row), movements: list(moves) };
+  return { money_visible: isGarageAdmin(actor), part: partView(row, { moneyVisible: isGarageAdmin(actor) }), movements: list(moves) };
 }
 
 /** What was actually used on a job, with the snapshot costs — never the estimate. */
@@ -196,11 +207,14 @@ export async function listWorkOrderParts(client = defaultClient, actor = {}, wor
     .select('id, service_record_id, part_id, quantity, part_name_snapshot, part_sku_snapshot, unit_cost_snapshot, sell_price_snapshot, price_currency_snapshot, partsentry_log_id, reversed_at, created_by_user_id, created_at')
     .eq('tenant_id', tenantId).eq('work_order_id', String(workOrderId)).order('created_at', { ascending: true });
   if (error) throw new DatabaseError('Could not load parts used: ' + error.message);
+  const moneyVisible = isGarageAdmin(actor);
   return {
+    money_visible: moneyVisible,
     usage: list(data).map((u) => ({
       ...u,
-      unit_cost_snapshot: moneyString(u.unit_cost_snapshot, u.price_currency_snapshot),
-      sell_price_snapshot: moneyString(u.sell_price_snapshot, u.price_currency_snapshot),
+      unit_cost_snapshot: moneyVisible ? moneyString(u.unit_cost_snapshot, u.price_currency_snapshot) : null,
+      sell_price_snapshot: moneyVisible ? moneyString(u.sell_price_snapshot, u.price_currency_snapshot) : null,
+      price_currency_snapshot: moneyVisible ? (u.price_currency_snapshot ?? null) : null,
       active: !u.reversed_at,
     })),
   };

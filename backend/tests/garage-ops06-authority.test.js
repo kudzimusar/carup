@@ -108,7 +108,12 @@ test('duplicate SKU is a conflict; a retried create (same key) is not a duplicat
 
 test('authority: a mechanic reads stock but cannot manage it; another garage sees and changes nothing', async () => {
   const { part } = await createPart(client, admin(), { name: 'Private part', sku: sku(), opening_quantity: 3 });
-  assert.ok((await listParts(client, mech())).parts.some((p) => p.id === part.id));
+  const mechList = await listParts(client, mech());
+  assert.ok(mechList.parts.some((p) => p.id === part.id));
+  assert.equal(mechList.money_visible, false);
+  assert.ok(mechList.parts.every((p) => p.unit_cost === null && p.sell_price === null && p.legacy_unit_price === null && p.money_visible === false),
+    'a mechanic reads quantities and SKUs, not what the garage paid or charges');
+  assert.equal((await listParts(client, admin())).money_visible, true);
   await rejects(createPart(client, mech(), { name: 'x', sku: sku(), opening_quantity: 1 }), { name: 'ForbiddenError' });
   await rejects(receiveStock(client, mech(), part.id, { quantity: 1 }), { name: 'ForbiddenError' });
   await rejects(countStock(client, mech(), part.id, { counted_quantity: 1, reason: 'x' }), { name: 'ForbiddenError' });
@@ -169,9 +174,15 @@ test('USING A PART ON A JOB: only actual work, never beyond stock, exactly once 
   const parts = await listWorkOrderParts(client, mech(), job.workOrderId);
   assert.equal(parts.usage.length, 1);
   assert.equal(parts.usage[0].quantity, 3);
-  assert.equal(parts.usage[0].sell_price_snapshot, '11.00');
-  assert.equal(parts.usage[0].price_currency_snapshot, 'USD');
   assert.equal(parts.usage[0].active, true);
+  // a mechanic sees what was used, not what the garage charges (the server redacts)
+  assert.equal(parts.money_visible, false);
+  assert.equal(parts.usage[0].sell_price_snapshot, null);
+  assert.equal(parts.usage[0].unit_cost_snapshot, null);
+  const adminParts = await listWorkOrderParts(client, admin(), job.workOrderId);
+  assert.equal(adminParts.money_visible, true);
+  assert.equal(adminParts.usage[0].sell_price_snapshot, '11.00');
+  assert.equal(adminParts.usage[0].price_currency_snapshot, 'USD');
 
   const undone = await reverseUsage(client, mech(), parts.usage[0].id, { reason: 'Wrong part' });
   assert.equal(undone.balance_after, 4);

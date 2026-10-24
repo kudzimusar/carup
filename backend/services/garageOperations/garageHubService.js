@@ -80,9 +80,11 @@ export async function getCaseHub(client = defaultClient, actor = {}, caseId) {
       : null,
     appointment: liveAppointment,
     estimates: { latest: estimates.latest, versions: estimates.estimates },
+    // Money is admin-only: a mechanic reads what was done, not what it cost (the server redacts, see redactEstimateMoney).
+    money_visible: isAdmin,
     service_records: records.map((r) => ({
       id: r.id, service_category: r.service_category, service_authority: r.service_authority, work_performed: r.work_performed || null,
-      cost: r.total_cost === null || r.total_cost === undefined ? null : { amount: moneyString(r.total_cost, r.currency), currency: r.currency },
+      cost: !isAdmin || r.total_cost === null || r.total_cost === undefined ? null : { amount: moneyString(r.total_cost, r.currency), currency: r.currency },
       performed_at: r.performed_at, recorded_by_user_id: r.recorded_by_user_id,
     })),
     parts_used: parts.usage,
@@ -93,6 +95,7 @@ export async function getCaseHub(client = defaultClient, actor = {}, caseId) {
     allowed_actions: allowedActions({
       caseStatus: serviceCase.status, workOrder: facts.workOrder, estimate: facts.estimate,
       assignedMechanicUserId, serviceRecordCount: records.length, invoice: facts.invoice, isAdmin,
+      activePartUsageCount: (parts.usage || []).filter((u) => u.active).length,
     }),
     viewer: { role: actor.activeTenant?.role || null, is_admin: isAdmin },
   };

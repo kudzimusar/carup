@@ -34,7 +34,8 @@ export type EstimateLineInput = {
   unit_price?: Decimal | number | null
 }
 
-export type EstimateTotalState = 'not_recorded' | 'draft_total' | 'frozen_at_send'
+/** 'hidden' = the viewer may not see money (a mechanic); distinct from 'not_recorded' */
+export type EstimateTotalState = 'not_recorded' | 'draft_total' | 'frozen_at_send' | 'hidden'
 
 export type GarageEstimate = {
   id: string
@@ -54,6 +55,8 @@ export type GarageEstimate = {
   decision_reason: string | null
   total_amount: Decimal | null
   total_state: EstimateTotalState
+  /** false for a mechanic: prices and totals were redacted by the server, which is not the same as "not recorded" */
+  money_visible?: boolean
   line_count: number
   lines: EstimateLine[]
   created_at?: string
@@ -107,7 +110,7 @@ export type NextAction =
 
 export type AllowedAction =
   | 'accept_case' | 'decline_case' | 'prepare_estimate' | 'edit_estimate' | 'send_estimate' | 'cancel_estimate'
-  | 'revise_estimate' | 'assign_mechanic' | 'start_work' | 'record_service' | 'use_part' | 'complete_job'
+  | 'revise_estimate' | 'assign_mechanic' | 'unassign_mechanic' | 'start_work' | 'record_service' | 'use_part' | 'reverse_usage' | 'complete_job'
   | 'issue_invoice' | 'record_payment' | 'void_invoice' | 'reverse_payment'
 
 export type HubServiceRecord = {
@@ -254,6 +257,8 @@ export type CaseHub = {
   estimates: { latest: GarageEstimate | null; versions: GarageEstimate[] }
   service_records: HubServiceRecord[]
   parts_used: PartUsage[]
+  /** false for a mechanic: the server redacts estimate prices, record cost and part price snapshots */
+  money_visible: boolean
   /** null for a mechanic: money is a garage-admin matter */
   closeout: Closeout | null
   mechanics: Array<Record<string, unknown>>
@@ -287,6 +292,8 @@ export type GaragePart = {
   legacy_unit_price: Decimal | null
   legacy_price_currency_unknown: boolean
   is_active: boolean
+  /** false when the viewer may not see cost/price */
+  money_visible?: boolean
   last_movement_at: string | null
   updated_at: string | null
 }
@@ -307,10 +314,12 @@ export type StockMovement = {
 }
 
 export type StockListResponse = {
+  /** false for a mechanic: cost and price are redacted (quantities stay visible) */
+  money_visible: boolean
   parts: GaragePart[]
   summary: { total: number; out: number; low: number; uncounted: number; unknown: number }
 }
-export type StockPartResponse = { part: GaragePart; movements: StockMovement[] }
+export type StockPartResponse = { money_visible: boolean; part: GaragePart; movements: StockMovement[] }
 
 export type CreatePartInput = {
   name: string

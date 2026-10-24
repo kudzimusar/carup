@@ -2841,8 +2841,8 @@ export function useCarUpApi() {
   ): Promise<StockPartResponse> =>
     request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}/count`, { method: 'POST', body: JSON.stringify(body) }), [request])
 
-  const fetchWorkOrderParts = useCallback(async (workOrderId: string): Promise<{ usage: PartUsage[] }> =>
-    request<{ usage: PartUsage[] }>(`/garage/work-orders/${encodeURIComponent(workOrderId)}/parts`, { method: 'GET' }), [request])
+  const fetchWorkOrderParts = useCallback(async (workOrderId: string): Promise<{ money_visible: boolean; usage: PartUsage[] }> =>
+    request<{ money_visible: boolean; usage: PartUsage[] }>(`/garage/work-orders/${encodeURIComponent(workOrderId)}/parts`, { method: 'GET' }), [request])
 
   const useGaragePartOnJob = useCallback(async (
     serviceRecordId: string,

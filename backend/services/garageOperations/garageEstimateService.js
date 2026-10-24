@@ -194,6 +194,21 @@ function baseView(row, lines, totals) {
   };
 }
 
+/**
+ * Money is a garage-ADMIN matter. A mechanic reads the approved SCOPE (what is to be done) but not what it
+ * costs. The server redacts; a screen that merely hides a price it was sent has not kept it private.
+ * `money_visible: false` lets a screen tell "hidden from you" apart from "not recorded".
+ */
+export function redactEstimateMoney(view) {
+  return {
+    ...view,
+    money_visible: false,
+    total_amount: null,
+    total_state: 'hidden',
+    lines: view.lines.map((l) => ({ ...l, unit_price: null, line_total: null })),
+  };
+}
+
 export function garageEstimateView(row, lines, totals, events) {
   return {
     ...baseView(row, lines, totals),
@@ -291,7 +306,7 @@ export async function listCaseEstimates(client = defaultClient, actor = {}, case
   for (const row of list) {
     const view = await detailView(client, row);
     if (!isAdmin) delete view.internal_note;
-    views.push(view);
+    views.push(isAdmin ? { ...view, money_visible: true } : redactEstimateMoney(view));
   }
   return {
     service_case_id: serviceCase.id,
@@ -311,8 +326,11 @@ export async function getGarageEstimate(client = defaultClient, actor = {}, esti
   const tenantId = workspaceTenant(actor);
   const row = await loadEstimate(client, tenantId, estimateId);
   const view = await detailView(client, row, { withHistory: true });
-  if (actor?.activeTenant?.role !== 'admin') delete view.internal_note;
-  return view;
+  if (actor?.activeTenant?.role !== 'admin') {
+    delete view.internal_note;
+    return redactEstimateMoney(view);
+  }
+  return { ...view, money_visible: true };
 }
 
 /** Prepare a draft for an accepted case. Opens the job (work order) if the case does not have one yet. */
