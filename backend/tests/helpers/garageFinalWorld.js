@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createGmoDatabase } from './gmoGarageWorld.js';
-import { migrationUpSql, MIGRATIONS_DIR } from './pgliteLedgerHarness.js';
+import { migrationUpSql, MIGRATIONS_DIR, supabaseOver } from './pgliteLedgerHarness.js';
 
 /**
  * GARAGE-1.0 FINAL — the hermetic PostgreSQL world every Garage business-OS migration test shares.
@@ -128,3 +128,19 @@ export async function seedAcceptedCase(world, { garage = 'a', vin, requester } =
 }
 
 export const oneLine = (category, description, quantity, unit_price) => ({ category, description, quantity, unit_price });
+
+/**
+ * A supabase-js stand-in over PGlite that returns data the way PostgREST does in production.
+ *
+ * The plain pg/PGlite driver returns NUMERIC as a STRING ('170.50'); PostgREST serialises it as a JSON
+ * NUMBER (170.5), dropping trailing zeros. Tests that only ever saw strings passed while production would
+ * have returned numbers, so every service test for Garage money runs through this client instead.
+ */
+const NUMERIC_OID = 1700;
+export function postgrestOver(db) {
+  const asNumber = (value) => (value === null || value === undefined ? null : Number(value));
+  return supabaseOver({
+    query: (sql, params, options = {}) => db.query(sql, params, { ...options, parsers: { ...(options.parsers || {}), [NUMERIC_OID]: asNumber } }),
+    exec: (...args) => db.exec(...args),
+  });
+}

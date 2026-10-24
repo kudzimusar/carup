@@ -7,6 +7,7 @@ import { listCaseEstimates } from './garageEstimateService.js';
 import { listWorkOrderParts } from './garageStockService.js';
 import { getCloseout } from './garageInvoiceService.js';
 import { DatabaseError, NotFoundError } from '../../utils/errors.js';
+import { moneyString } from '../../utils/garageMoney.js';
 
 /**
  * GARAGE-1.0 — the operating hub's read model for /garage/cases/:caseId.
@@ -81,7 +82,7 @@ export async function getCaseHub(client = defaultClient, actor = {}, caseId) {
     estimates: { latest: estimates.latest, versions: estimates.estimates },
     service_records: records.map((r) => ({
       id: r.id, service_category: r.service_category, service_authority: r.service_authority, work_performed: r.work_performed || null,
-      cost: r.total_cost === null || r.total_cost === undefined ? null : { amount: String(r.total_cost), currency: r.currency },
+      cost: r.total_cost === null || r.total_cost === undefined ? null : { amount: moneyString(r.total_cost, r.currency), currency: r.currency },
       performed_at: r.performed_at, recorded_by_user_id: r.recorded_by_user_id,
     })),
     parts_used: parts.usage,

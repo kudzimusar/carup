@@ -9,7 +9,7 @@ import { resolveWorkOrderCustodian } from '../partsentry/partsentryServiceAuthor
 import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
-import { moneyAmount, quantityValue, requireCurrency } from '../../utils/garageMoney.js';
+import { moneyAmount, moneyString, quantityString, quantityValue, requireCurrency } from '../../utils/garageMoney.js';
 import { GARAGE_NOTIFICATION_EVENTS, notifyCaseAudience } from './garageNotificationService.js';
 
 /**
@@ -141,14 +141,15 @@ function parseValidUntil(value) {
 
 // ───────────────────────────── views ─────────────────────────────
 
-function lineView(l) {
+function lineView(l, currency) {
   return {
     line_no: l.line_no,
     category: l.category,
     description: l.description,
-    quantity: l.quantity,
-    unit_price: l.unit_price ?? null,
-    line_total: l.line_total ?? null,
+    quantity: quantityString(l.quantity),
+    // fixed-scale decimal strings whatever the driver returned; null stays "not recorded", never "0.00"
+    unit_price: moneyString(l.unit_price, currency),
+    line_total: moneyString(l.line_total, currency),
     price_recorded: l.unit_price !== null && l.unit_price !== undefined,
   };
 }
@@ -169,8 +170,8 @@ async function totalsFor(client, estimateId) {
 }
 
 function baseView(row, lines, totals) {
-  const frozen = row.sent_total_amount ?? null;
-  const total = frozen !== null ? frozen : (totals ? totals.total_amount : null);
+  const frozen = moneyString(row.sent_total_amount, row.currency);
+  const total = frozen !== null ? frozen : (totals ? moneyString(totals.total_amount, row.currency) : null);
   return {
     id: row.id,
     service_case_id: row.service_case_id,
@@ -189,7 +190,7 @@ function baseView(row, lines, totals) {
     // "not recorded" is a state, not a zero
     total_state: total === null ? 'not_recorded' : (frozen !== null ? 'frozen_at_send' : 'draft_total'),
     line_count: totals ? totals.line_count : (row.sent_line_count ?? lines.length),
-    lines: lines.map(lineView),
+    lines: lines.map((l) => lineView(l, row.currency)),
   };
 }
 

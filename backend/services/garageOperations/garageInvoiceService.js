@@ -6,7 +6,7 @@ import { GARAGE_NOTIFICATION_EVENTS, notifyCaseAudience } from './garageNotifica
 import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
-import { moneyAmount, quantityValue, requireCurrency, sumMoney } from '../../utils/garageMoney.js';
+import { moneyAmount, moneyString, quantityString, quantityValue, requireCurrency, sumMoney } from '../../utils/garageMoney.js';
 
 /**
  * GARAGE-1.0 OPS07 — commercial closeout: invoice, payment record, receipt.
@@ -128,7 +128,7 @@ function normalizeInvoiceLines(raw, currency) {
 
 function paymentView(p) {
   return {
-    id: p.id, kind: p.kind, amount: p.amount, currency: p.currency, method: p.method,
+    id: p.id, kind: p.kind, amount: moneyString(p.amount, p.currency), currency: p.currency, method: p.method,
     reference: p.reference ?? null, paid_at: p.paid_at, recorded_at: p.recorded_at,
     source: p.source, source_label: PAYMENT_SOURCE_LABEL, reverses_payment_id: p.reverses_payment_id ?? null,
     reason: p.reason ?? null,
@@ -136,13 +136,16 @@ function paymentView(p) {
 }
 function receiptView(r) {
   return {
-    id: r.id, receipt_number: r.receipt_number, payment_id: r.payment_id, amount: r.amount, currency: r.currency,
+    id: r.id, receipt_number: r.receipt_number, payment_id: r.payment_id, amount: moneyString(r.amount, r.currency), currency: r.currency,
     status: r.status, issued_at: r.issued_at, voided_at: r.voided_at ?? null,
     payment_source: r.payment_source, payment_source_label: PAYMENT_SOURCE_LABEL,
   };
 }
-function lineView(l) {
-  return { line_no: l.line_no, category: l.category, description: l.description, quantity: l.quantity, unit_price: l.unit_price, line_total: l.line_total };
+function lineView(l, currency) {
+  return {
+    line_no: l.line_no, category: l.category, description: l.description, quantity: quantityString(l.quantity),
+    unit_price: moneyString(l.unit_price, currency), line_total: moneyString(l.line_total, currency),
+  };
 }
 
 /** Variance between the ACCEPTED estimate and the invoiced total. Only ever same-currency. */
@@ -157,19 +160,19 @@ export function varianceOf(invoice) {
   return {
     state: 'comparable',
     currency: invoice.currency,
-    estimate_total: invoice.estimate_total_amount,
-    invoice_total: invoice.total_amount,
+    estimate_total: moneyString(invoice.estimate_total_amount, invoice.currency),
+    invoice_total: moneyString(invoice.total_amount, invoice.currency),
     difference: diff === 0 ? '0.00' : `${diff > 0 ? '+' : '-'}${abs}`,
     direction: diff === 0 ? 'same' : (diff > 0 ? 'over_estimate' : 'under_estimate'),
   };
 }
 
-async function balanceOf(client, invoiceId) {
+async function balanceOf(client, invoiceId, currency) {
   const { data, error } = await client.rpc('garage_ops07_invoice_balance', { p_invoice_id: invoiceId });
   if (error) throw invoiceFailure(error, 'Could not compute the invoice balance');
   const b = one(data);
   if (!b) throw new NotFoundError('Invoice not found');
-  return { payment_status: b.payment_status, paid_amount: b.paid_amount, balance_amount: b.balance_amount };
+  return { payment_status: b.payment_status, paid_amount: moneyString(b.paid_amount, currency), balance_amount: moneyString(b.balance_amount, currency) };
 }
 
 async function loadInvoiceParts(client, invoiceIds) {
@@ -184,7 +187,7 @@ async function loadInvoiceParts(client, invoiceIds) {
 }
 
 async function invoiceView(client, inv, parts, { forCustomer = false } = {}) {
-  const bal = await balanceOf(client, inv.id);
+  const bal = await balanceOf(client, inv.id, inv.currency);
   const base = {
     id: inv.id,
     invoice_number: inv.invoice_number,
@@ -192,20 +195,20 @@ async function invoiceView(client, inv, parts, { forCustomer = false } = {}) {
     work_order_id: inv.work_order_id,
     status: inv.status,
     currency: inv.currency,
-    total_amount: inv.total_amount,
+    total_amount: moneyString(inv.total_amount, inv.currency),
     line_count: inv.line_count,
     customer_note: inv.customer_note ?? null,
     due_date: inv.due_date ?? null,
     issued_at: inv.issued_at,
     voided_at: inv.voided_at ?? null,
     void_reason: forCustomer ? undefined : (inv.void_reason ?? null),
-    estimate: inv.estimate_id ? { version: inv.estimate_version, total_amount: inv.estimate_total_amount, currency: inv.estimate_currency } : null,
+    estimate: inv.estimate_id ? { version: inv.estimate_version, total_amount: moneyString(inv.estimate_total_amount, inv.estimate_currency), currency: inv.estimate_currency } : null,
     variance: varianceOf(inv),
     payment_status: bal.payment_status,
     paid_amount: bal.paid_amount,
     balance_amount: bal.balance_amount,
     payment_source_label: PAYMENT_SOURCE_LABEL,
-    lines: (parts.lines.get(inv.id) || []).map(lineView),
+    lines: (parts.lines.get(inv.id) || []).map((l) => lineView(l, inv.currency)),
     payments: (parts.payments.get(inv.id) || []).map(paymentView),
     receipts: (parts.receipts.get(inv.id) || []).map(receiptView),
   };
@@ -240,7 +243,7 @@ export function suggestLines({ records, usage }) {
       lines.push({
         category: 'labour',
         description: `Service${r.service_category ? ` — ${r.service_category}` : ''}`,
-        quantity: '1', unit_price: String(r.total_cost), currency: r.currency, source_kind: 'service_record', source_id: r.id,
+        quantity: '1', unit_price: moneyString(r.total_cost, r.currency), currency: r.currency, source_kind: 'service_record', source_id: r.id,
       });
     } else {
       notes.push('A service record has no recorded cost; price it yourself — a missing cost is not zero.');
@@ -254,7 +257,7 @@ export function suggestLines({ records, usage }) {
     if (u.sell_price_snapshot !== null && u.sell_price_snapshot !== undefined) currencies.add(u.price_currency_snapshot);
     lines.push({
       category: 'part', description: u.part_name_snapshot, quantity: String(u.quantity),
-      unit_price: u.sell_price_snapshot ?? null, currency: u.price_currency_snapshot ?? null,
+      unit_price: moneyString(u.sell_price_snapshot, u.price_currency_snapshot), currency: u.price_currency_snapshot ?? null,
       source_kind: 'part_usage', source_id: u.id,
     });
     if (u.sell_price_snapshot === null || u.sell_price_snapshot === undefined) {
@@ -305,13 +308,18 @@ export async function getCloseout(client = defaultClient, actor = {}, caseId) {
   const jobDone = serviceCase.status === 'completed' && String(workOrder.status).toLowerCase() === 'completed';
   const out = {
     ...empty,
-    estimate: accepted ? { id: accepted.id, version: accepted.version, currency: accepted.currency, total_amount: accepted.sent_total_amount } : null,
+    estimate: accepted ? { id: accepted.id, version: accepted.version, currency: accepted.currency, total_amount: moneyString(accepted.sent_total_amount, accepted.currency) } : null,
     // what was ACTUALLY done (the private work narrative stays private: not exposed here)
     actual_work: records.map((r) => ({
       service_record_id: r.id, service_category: r.service_category, service_authority: r.service_authority,
-      performed_at: r.performed_at, cost: r.total_cost === null || r.total_cost === undefined ? null : { amount: String(r.total_cost), currency: r.currency },
+      performed_at: r.performed_at, cost: r.total_cost === null || r.total_cost === undefined ? null : { amount: moneyString(r.total_cost, r.currency), currency: r.currency },
     })),
-    parts_used: usages.map((u) => ({ ...u, active: !u.reversed_at })),
+    parts_used: usages.map((u) => ({
+      ...u,
+      unit_cost_snapshot: moneyString(u.unit_cost_snapshot, u.price_currency_snapshot),
+      sell_price_snapshot: moneyString(u.sell_price_snapshot, u.price_currency_snapshot),
+      active: !u.reversed_at,
+    })),
     recorded_cost_by_currency: [...byCurrency.entries()].map(([currency, vals]) => ({ currency, total: sumMoney(vals, currency) })),
     suggested_invoice: jobDone && !live ? suggestLines({ records, usage: usages }) : null,
     can_issue_invoice: jobDone && !live,

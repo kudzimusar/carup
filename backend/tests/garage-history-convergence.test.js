@@ -1,7 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { supabaseOver } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld } from './helpers/garageFinalWorld.js';
+import { createGarageFinalWorld, postgrestOver } from './helpers/garageFinalWorld.js';
 import { garageActor, runGarageJob } from './helpers/garageJourney.js';
 import { listOwnerServiceHistory } from '../services/serviceNetwork/ownerServiceHistoryService.js';
 import { buildCanonicalVehicleLifecycle } from '../services/report/canonicalVehicleLifecycleService.js';
@@ -21,7 +20,7 @@ const run = (o) => runGarageJob({ world, client, ...o });
 
 before(async () => {
   world = await createGarageFinalWorld({ after: OPS });
-  db = world.db; client = supabaseOver(db);
+  db = world.db; client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 
@@ -72,7 +71,7 @@ test('a completed job is discoverable as history from the owner, the vehicle lif
 test('customer spend is summed as exact decimals, per currency (0.10 + 0.20 is 0.30)', async () => {
   const fresh = await createGarageFinalWorld({ after: OPS });
   try {
-    const c2 = supabaseOver(fresh.db);
+    const c2 = postgrestOver(fresh.db);
     await runGarageJob({ world: fresh, client: c2, estimateTotal: null, actualCost: 0.1, until: 'complete' });
     await runGarageJob({ world: fresh, client: c2, estimateTotal: null, actualCost: 0.2, until: 'complete' });
     await runGarageJob({ world: fresh, client: c2, estimateTotal: null, actualCost: 500, currency: 'ZAR', until: 'complete' });

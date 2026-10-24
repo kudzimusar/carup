@@ -1,7 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { supabaseOver } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld, seedAcceptedCase } from './helpers/garageFinalWorld.js';
+import { createGarageFinalWorld, postgrestOver, seedAcceptedCase } from './helpers/garageFinalWorld.js';
 import {
   consumeForService,
   countStock,
@@ -50,7 +49,7 @@ async function activeJob() {
 before(async () => {
   world = await createGarageFinalWorld({ after: [OPS04, OPS05, OPS06] });
   db = world.db;
-  client = supabaseOver(db);
+  client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 
@@ -128,7 +127,7 @@ test('legacy quantities are shown as UNCOUNTED (with the legacy price flagged), 
   assert.equal(legacy.stock_state, 'uncounted');
   assert.equal(legacy.counted, false);
   assert.equal(legacy.stock_level, 8);
-  assert.equal(legacy.legacy_unit_price, '25');
+  assert.equal(legacy.legacy_unit_price, '25.00', 'a fixed-scale decimal string whichever way the driver returned it');
   assert.equal(legacy.legacy_price_currency_unknown, true);
   assert.equal(legacy.unit_cost, null, 'a legacy price with no currency is not money');
   const counted = await countStock(client, admin(), legacy.id, { counted_quantity: 7 });

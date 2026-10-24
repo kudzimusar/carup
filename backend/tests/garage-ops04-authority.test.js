@@ -1,7 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { supabaseOver } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld } from './helpers/garageFinalWorld.js';
+import { createGarageFinalWorld, postgrestOver } from './helpers/garageFinalWorld.js';
 import {
   cancelEstimate,
   createEstimateForCase,
@@ -49,7 +48,7 @@ async function newCase({ garage = 'a', vin, requester } = {}) {
 before(async () => {
   world = await createGarageFinalWorld({ after: [OPS04] });
   db = world.db;
-  client = supabaseOver(db);
+  client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 

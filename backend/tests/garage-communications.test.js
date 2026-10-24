@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { supabaseOver, MIGRATIONS_DIR, migrationUpSql } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld } from './helpers/garageFinalWorld.js';
+import { MIGRATIONS_DIR, migrationUpSql } from './helpers/pgliteLedgerHarness.js';
+import { createGarageFinalWorld, postgrestOver } from './helpers/garageFinalWorld.js';
 import { deterministicEventIdentity, GARAGE_DEDUPED_EVENTS } from '../services/eventBus/eventBusService.js';
 import { COMMUNICATION_EVENT_TYPES } from '../services/communication/communicationEventListeners.js';
 import { NOTIFICATION_POLICIES, templateVariablesForEvent } from '../services/communication/communicationNotificationService.js';
@@ -44,7 +44,7 @@ function recorder({ failWith = null } = {}) {
 before(async () => {
   world = await createGarageFinalWorld({ after: OPS });
   db = world.db;
-  client = supabaseOver(db);
+  client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 

@@ -1,7 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { supabaseOver } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld } from './helpers/garageFinalWorld.js';
+import { createGarageFinalWorld, postgrestOver } from './helpers/garageFinalWorld.js';
 import { completeJob, startServiceCase } from '../services/serviceNetwork/serviceCaseService.js';
 import { recordService } from '../services/serviceNetwork/serviceRecordService.js';
 import { assignMechanic, createWorkOrderForCase } from '../services/serviceNetwork/workOrderAssignmentService.js';
@@ -77,7 +76,7 @@ async function runJobToCompletion({ withEstimate = true, withPart = true } = {})
 before(async () => {
   world = await createGarageFinalWorld({ after: OPS });
   db = world.db;
-  client = supabaseOver(db);
+  client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 
@@ -114,7 +113,7 @@ test('THE GOLDEN JOURNEY (garage side): estimate -> authorize -> work -> parts -
   assert.equal(closeout.estimate.total_amount, '170.50');
   assert.equal(closeout.estimate.version, 1);
   assert.equal(closeout.actual_work.length, 1);
-  assert.deepEqual(closeout.actual_work[0].cost, { amount: '100', currency: 'USD' });
+  assert.deepEqual(closeout.actual_work[0].cost, { amount: '100.00', currency: 'USD' });
   assert.equal('work_performed' in closeout.actual_work[0], false, 'the private work narrative is not part of the commercial statement');
   assert.equal(closeout.parts_used.length, 1);
   assert.deepEqual(closeout.recorded_cost_by_currency, [{ currency: 'USD', total: '100.00' }]);

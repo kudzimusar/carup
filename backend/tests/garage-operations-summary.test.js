@@ -1,7 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { supabaseOver } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld } from './helpers/garageFinalWorld.js';
+import { createGarageFinalWorld, postgrestOver } from './helpers/garageFinalWorld.js';
 import { garageActor, runGarageJob } from './helpers/garageJourney.js';
 import { getOperationsSummary } from '../services/garageOperations/garageOperationsSummaryService.js';
 
@@ -17,7 +16,7 @@ const run = (o) => runGarageJob({ world, client, ...o });
 
 before(async () => {
   world = await createGarageFinalWorld({ after: OPS });
-  db = world.db; client = supabaseOver(db);
+  db = world.db; client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 
@@ -100,7 +99,7 @@ test('REAL FIRST-PARTY NUMBERS from real jobs; money per currency, never mixed; 
 test('a small sample is "not measured", never a misleading percentage', async () => {
   const fresh = await createGarageFinalWorld({ after: OPS });
   try {
-    const c2 = supabaseOver(fresh.db);
+    const c2 = postgrestOver(fresh.db);
     await runGarageJob({ world: fresh, client: c2, estimateTotal: 50, until: 'decline' });
     await runGarageJob({ world: fresh, client: c2, estimateTotal: 50, until: 'stop-after-authorize' });
     const s = await getOperationsSummary(c2, garageActor('admin-a', fresh.T.a), { windowDays: 7 });

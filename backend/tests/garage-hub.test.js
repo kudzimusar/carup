@@ -1,7 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { supabaseOver } from './helpers/pgliteLedgerHarness.js';
-import { createGarageFinalWorld } from './helpers/garageFinalWorld.js';
+import { createGarageFinalWorld, postgrestOver } from './helpers/garageFinalWorld.js';
 import { deriveNextAction } from '../services/serviceNetwork/nextAction.js';
 import { allowedActions } from '../services/serviceNetwork/allowedActions.js';
 import { getCaseHub } from '../services/garageOperations/garageHubService.js';
@@ -40,7 +39,7 @@ const hub = (caseId, actor = adminA()) => getCaseHub(client, actor, caseId);
 
 before(async () => {
   world = await createGarageFinalWorld({ after: OPS });
-  db = world.db; client = supabaseOver(db);
+  db = world.db; client = postgrestOver(db);
 });
 after(async () => { await db?.close(); });
 

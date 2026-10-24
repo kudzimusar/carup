@@ -1,5 +1,5 @@
 import { getGarageCustomers } from '../serviceNetwork/garageQueueService.js';
-import { sumMoney } from '../../utils/garageMoney.js';
+import { moneyString, sumMoney } from '../../utils/garageMoney.js';
 import { isAbsentRelation } from '../../utils/schemaPresence.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_WORKSPACE_ROLES, requireGarageTenant } from '../serviceNetwork/serviceAuthority.js';
 import { ConflictError, DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
@@ -223,14 +223,14 @@ async function commercialHistory(client, tenantId, caseIds) {
     if (i.status === 'issued' && total - paid > 0) outstanding.set(i.currency, [...(outstanding.get(i.currency) || []), ((total - paid) / 100).toFixed(2)]);
     return {
       id: i.id, service_case_id: i.service_case_id, invoice_number: i.invoice_number, status: i.status,
-      currency: i.currency, total_amount: i.total_amount, issued_at: i.issued_at, payment_status: status,
+      currency: i.currency, total_amount: moneyString(i.total_amount, i.currency), issued_at: i.issued_at, payment_status: status,
       paid_amount: (Math.max(paid, 0) / 100).toFixed(2),
     };
   });
   return {
     estimates: estimates.filter((e) => e.sent_at).map((e) => ({
       id: e.id, service_case_id: e.service_case_id, version: e.version, status: e.status, currency: e.currency,
-      total_amount: e.sent_total_amount, decided_at: e.decided_at,
+      total_amount: moneyString(e.sent_total_amount, e.currency), decided_at: e.decided_at,
     })),
     invoices: invoiceViews,
     outstanding_by_currency: [...outstanding.entries()].map(([currency, vals]) => ({ currency, balance: sumMoney(vals, currency) })),

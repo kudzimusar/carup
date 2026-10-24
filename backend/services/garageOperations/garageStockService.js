@@ -9,7 +9,7 @@ import { executionGateFailure } from '../serviceNetwork/executionGate.js';
 import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
-import { moneyAmount, requireCurrency } from '../../utils/garageMoney.js';
+import { moneyAmount, moneyString, requireCurrency } from '../../utils/garageMoney.js';
 
 /**
  * GARAGE-1.0 OPS06 — parts and stock over the ONE parts master (mechanic_parts).
@@ -130,11 +130,11 @@ export function partView(row) {
     counted: row.counted ?? null,
     min_stock: row.min_stock ?? null,
     supplier: row.supplier ?? null,
-    unit_cost: row.unit_cost ?? null,
-    sell_price: row.sell_price ?? null,
+    unit_cost: moneyString(row.unit_cost, row.price_currency),
+    sell_price: moneyString(row.sell_price, row.price_currency),
     price_currency: row.price_currency ?? null,
     // the pre-GARAGE-1.0 price carries no currency, so it is shown as a legacy value, never as money
-    legacy_unit_price: row.legacy_unit_price ?? row.unit_price ?? null,
+    legacy_unit_price: moneyString(row.legacy_unit_price ?? row.unit_price, null),
     legacy_price_currency_unknown: (row.legacy_unit_price ?? row.unit_price ?? null) !== null,
     is_active: row.is_active !== false,
     last_movement_at: row.last_movement_at ?? null,
@@ -199,6 +199,8 @@ export async function listWorkOrderParts(client = defaultClient, actor = {}, wor
   return {
     usage: list(data).map((u) => ({
       ...u,
+      unit_cost_snapshot: moneyString(u.unit_cost_snapshot, u.price_currency_snapshot),
+      sell_price_snapshot: moneyString(u.sell_price_snapshot, u.price_currency_snapshot),
       active: !u.reversed_at,
     })),
   };

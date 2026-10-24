@@ -109,6 +109,37 @@ function formatMinor(minor, scale) {
   return `${s.slice(0, -scale)}.${s.slice(-scale)}`;
 }
 
+/**
+ * Money as a fixed-scale DECIMAL STRING, whatever the driver handed us.
+ *
+ * PostgREST serialises NUMERIC as a JSON number (170.5); a plain pg driver returns a string ('170.50').
+ * A Garage API must not depend on which one produced the value: an amount always leaves the server as
+ * "170.50" (two places; "12000" for a zero-decimal currency), and null stays null — "not recorded" is
+ * never coerced into "0.00". Strings are padded textually, not through a float.
+ */
+export function moneyString(value, currency, { fallbackScale = 2 } = {}) {
+  if (value === null || value === undefined || value === '') return null;
+  const scale = currencyScale(currency) ?? fallbackScale;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return value.toFixed(scale);
+  }
+  const text = String(value).trim();
+  if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
+  const negative = text.startsWith('-');
+  const [whole, frac = ''] = text.replace(/^-/, '').split('.');
+  const padded = scale === 0 ? '' : '.' + (frac + '0'.repeat(scale)).slice(0, scale);
+  return `${negative ? '-' : ''}${whole}${padded}`;
+}
+
+/** A quantity (up to 3 decimals) with trailing zeros trimmed: 2 -> "2", "1.500" -> "1.5". */
+export function quantityString(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  return String(Number(n.toFixed(3)));
+}
+
 /** Display only. `null` stays "not recorded" — it is never rendered as 0. */
 export function describeMoney(amount, currency) {
   if (amount === null || amount === undefined) return 'Not recorded';
@@ -120,4 +151,4 @@ export function assertSameCurrency(a, b, what = 'amounts') {
   if (a !== b) throw new ValidationError(`${what} are in different currencies (${a} vs ${b}) and are never converted or added`);
 }
 
-export default { currencyScale, requireCurrency, moneyAmount, quantityValue, sumMoney, describeMoney, assertSameCurrency };
+export default { currencyScale, requireCurrency, moneyAmount, quantityValue, sumMoney, moneyString, quantityString, describeMoney, assertSameCurrency };
