@@ -40,7 +40,7 @@ async function login(page:Page){
  await page.goto(WEB+'/login',{waitUntil:'networkidle'})
  await page.getByLabel('Email or Phone').fill(EMAIL)
  await page.getByTestId('password-input').fill(password())
- const rr=page.waitForResponse(r=>r.url().includes('/api/auth/login')&&r.method()==='POST')
+ const rr=page.waitForResponse(r=>r.url().includes('/api/auth/login')&&r.request().method()==='POST')
  await page.getByRole('button',{name:/sign in/i}).click()
  expect((await rr).status()).toBe(200)
  const selection=await ensureActingForOrganisation(page,/SYNTHETIC \/ UAT OPS01 GARAGE 20261022A/i)
@@ -165,7 +165,7 @@ async function requestUI(page:Page,cs:{id:string,summary:string},label:string){
  await card.getByRole('button',{name:'Check available times'}).click()
  await expect(card.getByTestId('appointment-slots')).toBeVisible()
  const reqP=page.waitForRequest(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments')&&r.method()==='POST')
- const resP=page.waitForResponse(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments')&&r.method()==='POST')
+ const resP=page.waitForResponse(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments')&&r.request().method()==='POST')
  const started=Date.now()
  await card.getByRole('button',{name:'Request this time'}).first().click()
  const req=await reqP,res=await resP
@@ -204,7 +204,7 @@ async function confirm(page:Page,caseId:string,profile:string,label:string,expec
  await card.getByLabel('Appointment site '+id).selectOption(HRE)
  await card.getByLabel('Appointment planned mechanic '+id).selectOption(profile)
  const reqP=page.waitForRequest(r=>r.url().includes('/api/garage/schedule/appointments/'+id+'/confirm')&&r.method()==='POST')
- const resP=page.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+id+'/confirm')&&r.method()==='POST')
+ const resP=page.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+id+'/confirm')&&r.request().method()==='POST')
  const started=Date.now()
  await card.getByRole('button',{name:'Confirm appointment'}).click()
  const req=await reqP,res=await resP
@@ -221,7 +221,7 @@ async function requesterCancel(page:Page,cs:{id:string,summary:string},label:str
  const card=page.getByTestId('service-request-card').filter({hasText:cs.summary})
  await expect(card).toHaveCount(1)
  const reqP=page.waitForRequest(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments/')&&r.url().endsWith('/cancel')&&r.method()==='POST')
- const resP=page.waitForResponse(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments/')&&r.url().endsWith('/cancel')&&r.method()==='POST')
+ const resP=page.waitForResponse(r=>r.url().includes('/api/service-cases/'+cs.id+'/appointments/')&&r.url().endsWith('/cancel')&&r.request().method()==='POST')
  const started=Date.now()
  await card.getByRole('button',{name:'Cancel appointment'}).click()
  const req=await reqP,res=await resP
@@ -344,7 +344,7 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
   await bcard.getByLabel('Appointment start '+bid).fill(DATE+'T09:00')
   await bcard.getByLabel('Appointment end '+bid).fill(DATE+'T10:00')
   const vrq=tokyoPage.waitForRequest(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.method()==='POST')
-  const vrs=tokyoPage.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.method()==='POST')
+  const vrs=tokyoPage.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.request().method()==='POST')
   const vstart=Date.now();await bcard.getByRole('button',{name:'Save reschedule'}).click();const vreq=await vrq,vres=await vrs
   timings.push({gate:'valid reschedule',duration_ms:Date.now()-vstart,status:vres.status()});expect(vres.status()).toBe(200)
   const vbody:any=vreq.postDataJSON();expect(new Date(vbody.starts_at).toISOString()).toBe('2026-10-26T07:00:00.000Z');expect(new Date(vbody.ends_at).toISOString()).toBe('2026-10-26T08:00:00.000Z')
@@ -357,7 +357,7 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
   bcard=await appointmentCard(tokyoPage,B.id);await bcard.getByRole('button',{name:'Reschedule'}).click()
   await bcard.getByLabel('Appointment start '+bid).fill(DATE+'T06:00');await bcard.getByLabel('Appointment end '+bid).fill(DATE+'T07:00')
   const irq=tokyoPage.waitForRequest(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.method()==='POST')
-  const irs=tokyoPage.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.method()==='POST')
+  const irs=tokyoPage.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+bid+'/reschedule')&&r.request().method()==='POST')
   const istart=Date.now();await bcard.getByRole('button',{name:'Save reschedule'}).click();const ireq=await irq,ires=await irs
   timings.push({gate:'invalid reschedule',duration_ms:Date.now()-istart,status:ires.status()});expect(ires.status()).toBeGreaterThanOrEqual(400)
   const ibody:any=ireq.postDataJSON();expect(new Date(ibody.starts_at).toISOString()).toBe('2026-10-26T04:00:00.000Z');expect(new Date(ibody.ends_at).toISOString()).toBe('2026-10-26T05:00:00.000Z')
