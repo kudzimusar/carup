@@ -2864,7 +2864,7 @@ export function useCarUpApi() {
     request<{ invoice: GarageInvoice }>(`/garage/cases/${encodeURIComponent(caseId)}/invoice`, { method: 'POST', body: JSON.stringify(body) }), [request])
 
   const fetchGarageInvoices = useCallback(async (status?: 'issued' | 'voided') =>
-    request<{ invoices: GarageInvoice[]; summary: { issued: number; unpaid: number; partially_paid: number; paid: number; outstanding_by_currency: Array<{ currency: string; balance: Decimal | null }> } }>(
+    request<{ invoices: GarageInvoice[]; truncated: boolean; summary: { issued: number; unpaid: number; partially_paid: number; paid: number; outstanding_by_currency: Array<{ currency: string; balance: Decimal | null }> } }>(
       `/garage/invoices${status ? `?status=${status}` : ''}`, { method: 'GET' }), [request])
 
   const fetchGarageInvoice = useCallback(async (invoiceId: string): Promise<{ invoice: GarageInvoice }> =>

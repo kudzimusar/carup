@@ -254,3 +254,9 @@ test('duplicate payment callback: the same key records the money once; reversal 
   assert.equal(customerView.void_reason, undefined, 'the garage\'s void reason stays internal');
   assert.ok(customerView.payments.every((p) => !('reason' in p)));
 });
+
+test('the invoice list says when it may be partial', async () => {
+  const listing = await listInvoices(client, adminA());
+  assert.equal(listing.truncated, false, 'a short list is complete');
+  assert.equal(typeof listing.truncated, 'boolean');
+});

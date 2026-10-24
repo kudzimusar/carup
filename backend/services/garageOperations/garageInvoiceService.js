@@ -388,7 +388,8 @@ export async function getInvoice(client = defaultClient, actor = {}, invoiceId) 
 
 export async function listInvoices(client = defaultClient, actor = {}, { status } = {}) {
   const tenantId = adminTenant(actor);
-  let q = client.from('garage_invoices').select('*').eq('tenant_id', tenantId).order('issued_at', { ascending: false }).limit(200);
+  const LIMIT = 200;
+  let q = client.from('garage_invoices').select('*').eq('tenant_id', tenantId).order('issued_at', { ascending: false }).limit(LIMIT);
   if (status) q = q.eq('status', String(status));
   const { data, error } = await q;
   if (error) throw new DatabaseError('Could not load invoices: ' + error.message);
@@ -403,6 +404,8 @@ export async function listInvoices(client = defaultClient, actor = {}, { status 
   }
   return {
     invoices: views,
+    // the list is the most recent LIMIT invoices; when it is full the screen must say it may be partial
+    truncated: invoices.length >= LIMIT,
     summary: {
       issued: views.filter((v) => v.status === 'issued').length,
       unpaid: views.filter((v) => v.payment_status === 'unpaid').length,
