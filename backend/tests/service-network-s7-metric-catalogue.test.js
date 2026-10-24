@@ -63,10 +63,25 @@ test('a metric whose source is missing is UNAVAILABLE, not zero', async () => {
   assert.equal(Object.hasOwn(result, 'value'), false, 'an unavailable metric reports no value at all');
 });
 
+test('GARAGE-1.0: what Garage OPS03/04/07 genuinely made measurable is declared measurable, with named sources', () => {
+  // Authority evolution. "no estimate model" and "no appointment model" were true when they were
+  // pinned; understating what CarUp now records is the same class of error as overstating it, so the
+  // pins are FLIPPED rather than deleted. Each still has to clear the §19.3 bar (numerator, timestamp, scope).
+  for (const key of ['appointment_no_show_rate', 'estimate_approval_rate', 'estimate_to_invoice_variance',
+    'invoiced_by_currency', 'recorded_payments_by_currency']) {
+    const metric = getMetric(key);
+    assert.ok(metric, `${key} must be in the registry`);
+    assert.equal(metric.measurable, true, key);
+    assert.equal(violatesMeasurabilityBar(metric), null, `${key} must clear the §19.3 bar`);
+  }
+  assert.match(getMetric('recorded_payments_by_currency').label, /not verified by CarUp/);
+  assert.match(getMetric('estimate_to_invoice_variance').sources.numerator, /same currency only/);
+});
+
 test('everything plan §19.2 forbids inferring stays not measurable, with the missing fact named', () => {
   const forbidden = [
-    'bay_capacity_utilisation', 'appointment_no_show_rate', 'staffing_utilisation',
-    'technician_productivity', 'estimate_approval_rate', 'estimate_to_invoice_variance',
+    'bay_capacity_utilisation', 'staffing_utilisation',
+    'technician_productivity',
     'comeback_warranty_rate', 'customer_rating', 'first_time_fix_rate',
   ];
   for (const key of forbidden) {
@@ -144,7 +159,13 @@ test('the catalogue declares no metric CarUp cannot source, and no duplicate key
   const keys = SERVICE_METRIC_CATALOGUE.map((m) => m.key);
   assert.equal(new Set(keys).size, keys.length, 'duplicate metric keys would fork the registry');
   assert.ok(listMeasurableMetrics().length >= 15, 'Foundation should unlock a real catalogue');
-  assert.ok(listNotMeasurableMetrics().length >= 9, 'the not-measurable registry must stay explicit');
+  // GARAGE-1.0: three metrics (no-show rate, estimate approval, estimate variance) moved to measurable
+  // because OPS03/OPS04/OPS07 record their sources; seven remain unsourced and stay explicitly named.
+  assert.ok(listNotMeasurableMetrics().length >= 7, 'the not-measurable registry must stay explicit');
+  assert.deepEqual(
+    listNotMeasurableMetrics().map((m) => m.key).sort(),
+    ['bay_capacity_utilisation', 'comeback_warranty_rate', 'customer_rating', 'first_time_fix_rate', 'response_time', 'staffing_utilisation', 'technician_productivity'],
+    'exactly the metrics with no recorded source remain unmeasurable');
 });
 
 test('the catalogue computes nothing — it only declares answerability (Invariant 7)', async () => {

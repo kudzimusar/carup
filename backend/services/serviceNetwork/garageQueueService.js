@@ -1,6 +1,7 @@
 import { DatabaseError } from '../../utils/errors.js';
 import { GARAGE_PRACTITIONER_ROLES, requireGarageTenant } from './serviceAuthority.js';
 import { deriveNextAction } from './nextAction.js';
+import { sumMoney } from '../../utils/garageMoney.js';
 
 /**
  * Service Network S9 — garage-side projections: the service queue, and the garage's
@@ -281,6 +282,7 @@ export async function getGarageCustomers(supabaseClient, userContext) {
         completed_count: 0,
         last_service_at: null,
         spend_by_currency: {},
+        spend_terms: {},
         // Contact runs through Communications, so a bound thread is the way to reach them.
         conversation_thread_id: null,
       });
@@ -297,8 +299,7 @@ export async function getGarageCustomers(supabaseClient, userContext) {
     for (const record of recordsByCase.get(c.id) || []) {
       if (record.total_cost === null || record.total_cost === undefined || !record.currency) continue;
       // Spend is tracked PER CURRENCY. Amounts in different currencies are never added.
-      entry.spend_by_currency[record.currency] =
-        (entry.spend_by_currency[record.currency] || 0) + Number(record.total_cost);
+      (entry.spend_terms[record.currency] ||= []).push(String(record.total_cost));
     }
   }
 
@@ -310,8 +311,13 @@ export async function getGarageCustomers(supabaseClient, userContext) {
       case_count: c.case_count,
       completed_count: c.completed_count,
       last_service_at: c.last_service_at,
-      // An empty object means no cost has been recorded — not that they spent zero.
-      spend_by_currency: c.spend_by_currency,
+      // An empty object means no cost has been recorded — not that they spent zero. Summed as exact decimals
+      // (0.10 + 0.20 is 0.30, not 0.30000000000000004); a currency the money helper cannot hold exactly falls
+      // back to the plain sum rather than losing the figure.
+      spend_by_currency: Object.fromEntries(Object.entries(c.spend_terms).map(([currency, terms]) => {
+        const exact = sumMoney(terms, currency);
+        return [currency, exact === null ? terms.reduce((a, b) => a + Number(b), 0) : Number(exact)];
+      })),
       conversation_thread_id: c.conversation_thread_id,
     }))
     .sort((a, b) => String(b.last_service_at || '').localeCompare(String(a.last_service_at || '')));

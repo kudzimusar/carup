@@ -26,11 +26,11 @@ export const METRIC_SCOPES = Object.freeze(['garage_tenant', 'mechanic_person', 
  * so the registry says what would have to exist, not merely "no".
  */
 export const NOT_MEASURABLE_REASONS = Object.freeze({
-  NO_CAPACITY_MODEL: 'no bay/capacity model exists; nothing records how much work a garage can hold',
-  NO_APPOINTMENT_MODEL: 'no appointment or scheduled-time model exists, so attendance cannot be judged',
-  NO_STAFFING_MODEL: 'no shift, roster or availability model exists',
+  // GARAGE-1.0: sites, opening hours, workforce schedules, appointment capacity, estimates and invoices
+  // now exist and are measured below. What still does not exist is a record of time actually WORKED:
+  // schedules and bookings state what was planned, so utilisation of that plan cannot be judged.
+  NO_WORKED_TIME_MODEL: 'appointments and schedules record what was PLANNED; nothing records time actually worked on a job, so how much of the available capacity was used cannot be measured',
   NO_TASK_MODEL: 'work orders are not decomposed into timed tasks',
-  NO_ESTIMATE_MODEL: 'no estimate or quotation record exists to compare against an invoice',
   NO_WARRANTY_MODEL: 'no warranty or comeback linkage between service records exists',
   NO_RATING_MODEL: 'Foundation deliberately publishes no ratings, so none can be measured',
   NO_FIX_OUTCOME_MODEL: 'no record states whether a repair resolved the reported fault',
@@ -108,13 +108,32 @@ export const SERVICE_METRIC_CATALOGUE = Object.freeze([
     sources: { numerator: 'service_record_parts (rows)', denominator: null, timestamp: 'service_records.performed_at', scope: 'service_records.tenant_id' },
   },
 
+  // ── measurable since GARAGE-1.0 (OPS03 appointments, OPS04 estimates, OPS07 invoices) ──
+  {
+    key: 'appointment_no_show_rate', label: 'Appointment no-show rate', measurable: true, scopes: ['garage_tenant'],
+    sources: { numerator: "garage_appointments WHERE status='no_show'", denominator: "garage_appointments WHERE status IN ('fulfilled','no_show')", timestamp: 'garage_appointments.starts_at', scope: 'garage_appointments.tenant_id' },
+  },
+  {
+    key: 'estimate_approval_rate', label: 'Estimate approval rate', measurable: true, scopes: ['garage_tenant'],
+    sources: { numerator: "garage_estimates WHERE status='accepted'", denominator: "garage_estimates WHERE status IN ('accepted','declined')", timestamp: 'garage_estimates.decided_at', scope: 'garage_estimates.tenant_id' },
+  },
+  {
+    key: 'estimate_to_invoice_variance', label: 'Estimate-to-invoice variance', measurable: true, scopes: ['garage_tenant'],
+    sources: { numerator: 'garage_invoices.total_amount - garage_invoices.estimate_total_amount (same currency only)', denominator: 'garage_invoices with an estimate snapshot', timestamp: 'garage_invoices.issued_at', scope: 'garage_invoices.tenant_id' },
+  },
+  {
+    key: 'invoiced_by_currency', label: 'Invoiced (per currency)', measurable: true, scopes: ['garage_tenant'],
+    sources: { numerator: "garage_invoices.total_amount WHERE status='issued'", denominator: null, timestamp: 'garage_invoices.issued_at', scope: 'garage_invoices.tenant_id' },
+  },
+  {
+    key: 'recorded_payments_by_currency', label: 'Payments recorded by the garage (per currency; not verified by CarUp)', measurable: true, scopes: ['garage_tenant'],
+    sources: { numerator: 'garage_payment_records (payments minus reversals)', denominator: null, timestamp: 'garage_payment_records.recorded_at', scope: 'garage_payment_records.tenant_id' },
+  },
+
   // ── NOT measurable (plan §19.2) — each names the missing fact ──
-  { key: 'bay_capacity_utilisation', label: 'Bay capacity utilisation', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_CAPACITY_MODEL },
-  { key: 'appointment_no_show_rate', label: 'Appointment no-show rate', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_APPOINTMENT_MODEL },
-  { key: 'staffing_utilisation', label: 'Staffing utilisation', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_STAFFING_MODEL },
+  { key: 'bay_capacity_utilisation', label: 'Bay capacity utilisation', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_WORKED_TIME_MODEL },
+  { key: 'staffing_utilisation', label: 'Staffing utilisation', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_WORKED_TIME_MODEL },
   { key: 'technician_productivity', label: 'Task-level technician productivity', measurable: false, scopes: ['mechanic_person'], reason: NOT_MEASURABLE_REASONS.NO_TASK_MODEL },
-  { key: 'estimate_approval_rate', label: 'Estimate approval rate', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_ESTIMATE_MODEL },
-  { key: 'estimate_to_invoice_variance', label: 'Estimate-to-invoice variance', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_ESTIMATE_MODEL },
   { key: 'comeback_warranty_rate', label: 'Comeback / warranty rate', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_WARRANTY_MODEL },
   { key: 'customer_rating', label: 'Customer rating', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_RATING_MODEL },
   { key: 'first_time_fix_rate', label: 'First-time-fix rate', measurable: false, scopes: ['garage_tenant'], reason: NOT_MEASURABLE_REASONS.NO_FIX_OUTCOME_MODEL },
