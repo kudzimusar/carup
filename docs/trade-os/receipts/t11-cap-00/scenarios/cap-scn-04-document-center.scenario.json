@@ -1,0 +1,7 @@
+{
+  "browser": { "mode": "launch", "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "headless": true },
+  "start_url": { "url": "https://www.beforward.jp/document_processing_centers", "query": [] },
+  "environment": { "viewport": { "width": 1280, "height": 1600, "device_scale_factor": 1 }, "service_workers": "allow" },
+  "actions": [ { "step_id": "settle", "action": "wait_for_timeout", "duration_ms": 4500 } ],
+  "capture": { "at_end": ["url", "dom", "accessibility", "screenshot"], "events": ["network", "page-errors"], "network": { "request_body": false, "response_body": false, "header_values": false } }
+}
