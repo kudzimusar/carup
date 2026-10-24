@@ -1,5 +1,6 @@
 import { getGarageCustomers } from '../serviceNetwork/garageQueueService.js';
 import { sumMoney } from '../../utils/garageMoney.js';
+import { isAbsentRelation } from '../../utils/schemaPresence.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_WORKSPACE_ROLES, requireGarageTenant } from '../serviceNetwork/serviceAuthority.js';
 import { ConflictError, DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
@@ -185,8 +186,18 @@ export async function getGarageCustomerDetail(client, actor, customerId) {
     service_records: serviceRecords,
     // GARAGE-1.0: the commercial history, from the estimate / invoice / payment-record authorities.
     // Money is a garage-admin matter, so a mechanic's view of the customer carries none of it.
-    commercial: actor.activeTenant?.role === 'admin' ? await commercialHistory(client, tenantId, caseIds) : null,
+    commercial: actor.activeTenant?.role === 'admin' ? await commercialHistorySafe(client, tenantId, caseIds) : null,
   };
+}
+
+/** The commercial tables are newer than this surface: where they are not deployed yet it contributes nothing. */
+async function commercialHistorySafe(client, tenantId, caseIds) {
+  try {
+    return await commercialHistory(client, tenantId, caseIds);
+  } catch (error) {
+    if (isAbsentRelation(error)) return null;
+    throw error;
+  }
 }
 
 /** Estimates, invoices and what the garage recorded as received — per case, per currency, never mixed. */

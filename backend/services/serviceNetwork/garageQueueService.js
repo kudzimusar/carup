@@ -2,6 +2,7 @@ import { DatabaseError } from '../../utils/errors.js';
 import { GARAGE_PRACTITIONER_ROLES, requireGarageTenant } from './serviceAuthority.js';
 import { deriveNextAction } from './nextAction.js';
 import { sumMoney } from '../../utils/garageMoney.js';
+import { isAbsentRelation } from '../../utils/schemaPresence.js';
 
 /**
  * Service Network S9 — garage-side projections: the service queue, and the garage's
@@ -93,7 +94,7 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
     const { data: estimates, error: estimateError } = await supabaseClient
       .from('garage_estimates').select('id, work_order_id, version, status')
       .eq('tenant_id', tenantId).in('work_order_id', workOrderIds);
-    if (estimateError) throw new DatabaseError(`Failed to load estimates: ${estimateError.message}`);
+    if (estimateError && !isAbsentRelation(estimateError)) throw new DatabaseError(`Failed to load estimates: ${estimateError.message}`);
     for (const e of estimates || []) {
       const current = estimateByWorkOrder.get(e.work_order_id);
       if (!current || e.version > current.version) estimateByWorkOrder.set(e.work_order_id, e);
@@ -111,13 +112,13 @@ export async function getGarageQueue(supabaseClient, userContext, query = {}) {
       const { data: invoices, error: invoiceError } = await supabaseClient
         .from('garage_invoices').select('id, work_order_id, invoice_number, status, total_amount, currency')
         .eq('tenant_id', tenantId).in('work_order_id', finished);
-      if (invoiceError) throw new DatabaseError(`Failed to load invoices: ${invoiceError.message}`);
+      if (invoiceError && !isAbsentRelation(invoiceError)) throw new DatabaseError(`Failed to load invoices: ${invoiceError.message}`);
       const liveIds = (invoices || []).filter((i) => i.status === 'issued').map((i) => i.id);
       const net = new Map();
       if (liveIds.length) {
         const { data: payments, error: paymentError } = await supabaseClient
           .from('garage_payment_records').select('invoice_id, kind, amount').eq('tenant_id', tenantId).in('invoice_id', liveIds);
-        if (paymentError) throw new DatabaseError(`Failed to load payment records: ${paymentError.message}`);
+        if (paymentError && !isAbsentRelation(paymentError)) throw new DatabaseError(`Failed to load payment records: ${paymentError.message}`);
         for (const p of payments || []) {
           const cents = Math.round(Number(p.amount) * 100) * (p.kind === 'payment' ? 1 : -1);
           net.set(p.invoice_id, (net.get(p.invoice_id) || 0) + cents);

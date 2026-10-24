@@ -1,4 +1,9 @@
 import { useState, useCallback, useMemo } from 'react'
+import type {
+  CaseEstimatesResponse, CaseHub, Closeout, CreatePartInput, CustomerEstimate, CustomerInvoice, Decimal,
+  EstimateDecisionResult, EstimateDraftInput, GarageEstimate, GarageInvoice, InvoiceLineInput, NotificationOutcome,
+  OperationsSummary, PartUsage, PaymentRecord, PaymentStatus, StockListResponse, StockPartResponse,
+} from '@/lib/garageBusiness'
 import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { SharedChargeSet } from '@/pages/diaspora/SharedChargeAllocation'
@@ -2774,6 +2779,116 @@ export function useCarUpApi() {
     { method: 'POST', body: JSON.stringify({ status }) },
   ), [request])
 
+  /* ── GARAGE-1.0 business operating system ───────────────────────────────────────────────────
+     Estimates and the customer's decision, the case hub, stock, invoices / payment records / receipts,
+     and the operating view. Each is a thin call to a governed route; the SERVER decides what is allowed
+     (the hub returns `allowed_actions`) and what every total is — nothing here computes money. */
+
+  const fetchCaseEstimates = useCallback(async (caseId: string): Promise<CaseEstimatesResponse> =>
+    request<CaseEstimatesResponse>(`/garage/cases/${encodeURIComponent(caseId)}/estimates`, { method: 'GET' }), [request])
+
+  const createCaseEstimate = useCallback(async (caseId: string, body: EstimateDraftInput): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/cases/${encodeURIComponent(caseId)}/estimates`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const saveEstimateDraft = useCallback(async (estimateId: string, body: EstimateDraftInput): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}`, { method: 'PUT', body: JSON.stringify(body) }), [request])
+
+  const sendGarageEstimate = useCallback(async (estimateId: string): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}/send`, { method: 'POST', body: '{}' }), [request])
+
+  const reviseGarageEstimate = useCallback(async (estimateId: string): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}/revise`, { method: 'POST', body: '{}' }), [request])
+
+  const cancelGarageEstimate = useCallback(async (estimateId: string, reason?: string): Promise<{ estimate: GarageEstimate }> =>
+    request<{ estimate: GarageEstimate }>(`/garage/estimates/${encodeURIComponent(estimateId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason || null }) }), [request])
+
+  const fetchMyEstimates = useCallback(async (): Promise<{ estimates: CustomerEstimate[] }> =>
+    request<{ estimates: CustomerEstimate[] }>('/service-estimates/mine', { method: 'GET' }), [request])
+
+  const decideMyEstimate = useCallback(async (
+    estimateId: string, decision: 'accept' | 'decline', reason?: string,
+  ): Promise<EstimateDecisionResult> =>
+    request<EstimateDecisionResult>(`/service-estimates/${encodeURIComponent(estimateId)}/decision`, {
+      method: 'POST', body: JSON.stringify({ decision, reason: reason || null }),
+    }), [request])
+
+  const fetchGarageCaseHub = useCallback(async (caseId: string): Promise<CaseHub> =>
+    request<CaseHub>(`/garage/cases/${encodeURIComponent(caseId)}/hub`, { method: 'GET' }), [request])
+
+  const completeGarageJob = useCallback(async (caseId: string) =>
+    request<{ success: boolean; case: { status: string }; service_record_count: number | null }>(
+      `/service-cases/${encodeURIComponent(caseId)}/complete-job`, { method: 'POST', body: '{}' }), [request])
+
+  const fetchGarageStock = useCallback(async (includeInactive = false): Promise<StockListResponse> =>
+    request<StockListResponse>(`/garage/stock${includeInactive ? '?include_inactive=true' : ''}`, { method: 'GET' }), [request])
+
+  const fetchGaragePart = useCallback(async (partId: string): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}`, { method: 'GET' }), [request])
+
+  const createGaragePart = useCallback(async (body: CreatePartInput): Promise<StockPartResponse> =>
+    request<StockPartResponse>('/garage/stock', { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const updateGaragePart = useCallback(async (partId: string, patch: Record<string, unknown>): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}`, { method: 'PATCH', body: JSON.stringify(patch) }), [request])
+
+  const receiveGarageStock = useCallback(async (
+    partId: string, body: { quantity: number; reason?: string; note?: string; idempotency_key?: string },
+  ): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}/receive`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const countGarageStock = useCallback(async (
+    partId: string, body: { counted_quantity: number; reason?: string; note?: string; idempotency_key?: string },
+  ): Promise<StockPartResponse> =>
+    request<StockPartResponse>(`/garage/stock/${encodeURIComponent(partId)}/count`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchWorkOrderParts = useCallback(async (workOrderId: string): Promise<{ usage: PartUsage[] }> =>
+    request<{ usage: PartUsage[] }>(`/garage/work-orders/${encodeURIComponent(workOrderId)}/parts`, { method: 'GET' }), [request])
+
+  const useGaragePartOnJob = useCallback(async (
+    serviceRecordId: string,
+    body: { part_id: string; quantity: number; partsentry_log_id?: number | null; idempotency_key?: string },
+  ) => request<{ usage_id: string; movement_id: string; part_id: string; quantity: number; balance_after: number; replayed: boolean }>(
+    `/garage/service-records/${encodeURIComponent(serviceRecordId)}/parts`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const reverseGaragePartUsage = useCallback(async (usageId: string, body: { reason: string; idempotency_key?: string }) =>
+    request<{ usage_id: string; reversal_movement_id: string; balance_after: number }>(
+      `/garage/part-usage/${encodeURIComponent(usageId)}/reverse`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchGarageCloseout = useCallback(async (caseId: string): Promise<Closeout> =>
+    request<Closeout>(`/garage/cases/${encodeURIComponent(caseId)}/closeout`, { method: 'GET' }), [request])
+
+  const issueGarageInvoice = useCallback(async (
+    caseId: string,
+    body: { currency: string; lines: InvoiceLineInput[]; customer_note?: string | null; internal_note?: string | null; due_date?: string | null },
+  ): Promise<{ invoice: GarageInvoice }> =>
+    request<{ invoice: GarageInvoice }>(`/garage/cases/${encodeURIComponent(caseId)}/invoice`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchGarageInvoices = useCallback(async (status?: 'issued' | 'voided') =>
+    request<{ invoices: GarageInvoice[]; summary: { issued: number; unpaid: number; partially_paid: number; paid: number; outstanding_by_currency: Array<{ currency: string; balance: Decimal | null }> } }>(
+      `/garage/invoices${status ? `?status=${status}` : ''}`, { method: 'GET' }), [request])
+
+  const fetchGarageInvoice = useCallback(async (invoiceId: string): Promise<{ invoice: GarageInvoice }> =>
+    request<{ invoice: GarageInvoice }>(`/garage/invoices/${encodeURIComponent(invoiceId)}`, { method: 'GET' }), [request])
+
+  const voidGarageInvoice = useCallback(async (invoiceId: string, reason: string): Promise<{ invoice: GarageInvoice }> =>
+    request<{ invoice: GarageInvoice }>(`/garage/invoices/${encodeURIComponent(invoiceId)}/void`, { method: 'POST', body: JSON.stringify({ reason }) }), [request])
+
+  const recordGaragePayment = useCallback(async (
+    invoiceId: string,
+    body: { amount: Decimal | number; method: PaymentRecord['method']; reference?: string | null; paid_at?: string | null; idempotency_key: string },
+  ) => request<{ payment_id: string; receipt_id: string; receipt_number: string; payment_status: PaymentStatus; paid_amount: Decimal; balance_amount: Decimal; replayed: boolean; payment_source_label: string; invoice: GarageInvoice; notification?: NotificationOutcome }>(
+    `/garage/invoices/${encodeURIComponent(invoiceId)}/payments`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const reverseGaragePayment = useCallback(async (paymentId: string, body: { reason: string; idempotency_key: string }) =>
+    request<{ reversal_id: string; payment_status: PaymentStatus; paid_amount: Decimal; replayed: boolean; invoice: GarageInvoice }>(
+      `/garage/payments/${encodeURIComponent(paymentId)}/reverse`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  const fetchMyInvoices = useCallback(async (): Promise<{ invoices: CustomerInvoice[] }> =>
+    request<{ invoices: CustomerInvoice[] }>('/service-invoices/mine', { method: 'GET' }), [request])
+
+  const fetchGarageOperationsSummary = useCallback(async (windowDays: 7 | 30 | 90 = 30): Promise<OperationsSummary> =>
+    request<OperationsSummary>(`/garage/operations/summary?window_days=${windowDays}`, { method: 'GET' }), [request])
+
   /* ── Garage operator workspace (R5) ──────────────────────────────────────────────────────────
      Every one of these endpoints was already certified and had no product surface: the garage's
      queue, its own members, and the case/work-order/record lifecycle. Nothing new is invented
@@ -3733,6 +3848,34 @@ export function useCarUpApi() {
     cancelMyServiceAppointment,
     cancelServiceRequest,
     resolveServiceLink,
+    fetchCaseEstimates,
+    createCaseEstimate,
+    saveEstimateDraft,
+    sendGarageEstimate,
+    reviseGarageEstimate,
+    cancelGarageEstimate,
+    fetchMyEstimates,
+    decideMyEstimate,
+    fetchGarageCaseHub,
+    completeGarageJob,
+    fetchGarageStock,
+    fetchGaragePart,
+    createGaragePart,
+    updateGaragePart,
+    receiveGarageStock,
+    countGarageStock,
+    fetchWorkOrderParts,
+    useGaragePartOnJob,
+    reverseGaragePartUsage,
+    fetchGarageCloseout,
+    issueGarageInvoice,
+    fetchGarageInvoices,
+    fetchGarageInvoice,
+    voidGarageInvoice,
+    recordGaragePayment,
+    reverseGaragePayment,
+    fetchMyInvoices,
+    fetchGarageOperationsSummary,
     fetchGarageQueue,
     fetchGarageMechanics,
     fetchGarageCustomers,

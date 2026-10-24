@@ -173,12 +173,16 @@ DECLARE
 BEGIN
   PERFORM garage_ops05_assert_workspace(p_tenant_id, p_actor_user_id);
 
-  SELECT * INTO v_wo FROM mechanic_work_orders
-   WHERE service_case_id = p_case_id AND tenant_id = p_tenant_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS05_WORK_ORDER_REQUIRED'; END IF;
+  -- LOCK ORDER: case first, then work order. The start trigger (an UPDATE on the case, then a shared lock
+  -- on the work order) and the case-completion trigger take them in this order too; taking them the other
+  -- way round here could deadlock against a concurrent start or completion. Proven under real concurrency
+  -- by garage-final-concurrency.test.js.
   SELECT * INTO v_case FROM service_cases
    WHERE id = p_case_id AND garage_tenant_id = p_tenant_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS05_CASE_NOT_FOUND'; END IF;
+  SELECT * INTO v_wo FROM mechanic_work_orders
+   WHERE service_case_id = p_case_id AND tenant_id = p_tenant_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'GARAGE_OPS05_WORK_ORDER_REQUIRED'; END IF;
   IF v_case.status <> 'active' THEN RAISE EXCEPTION 'GARAGE_OPS05_WORK_NOT_STARTED'; END IF;
   IF garage_ops04_is_terminal_work_order_status(v_wo.status) THEN RAISE EXCEPTION 'GARAGE_OPS05_WORK_ORDER_TERMINAL'; END IF;
   IF v_wo.owner_authorization <> 'authorized' THEN
