@@ -1,0 +1,27 @@
+{
+  "mode": "preflight",
+  "at": "2026-10-24T11:03:55.142Z",
+  "product_sha": "368d572772ed7d1de674d8568fff171b1eb9930d",
+  "target_project_ref": "eoyenigwevnxwwhyhaer",
+  "production_project_ref_refused": "vhmnajoeicasaigiophh",
+  "connection": {
+    "db": "postgres",
+    "usr": "postgres",
+    "ro": "off",
+    "pg": "PostgreSQL 17.6 on aarch64-unknown-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit"
+  },
+  "ledger_tip": "20261023140000",
+  "ledger_since_ops03": [
+    {
+      "version": "20261023140000",
+      "name": "garage_ops03_appointments_scheduling_capacity",
+      "created_by": null
+    }
+  ],
+  "our_ledger_rows": [],
+  "new_tables_present": [],
+  "missing_prerequisite_tables": [],
+  "missing_prerequisite_functions": [],
+  "integrity_problems": [],
+  "verdict": "READY_TO_APPLY"
+}
