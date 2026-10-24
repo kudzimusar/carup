@@ -28,6 +28,7 @@ const SOURCE_LABEL = 'Recorded by the garage. CarUp has not processed or verifie
 
 const fetchGarageCaseHub = vi.fn()
 const fetchGarageMechanics = vi.fn()
+const listGarageSites = vi.fn()
 const fetchGarageStock = vi.fn()
 const acceptServiceCase = vi.fn()
 const declineServiceCase = vi.fn()
@@ -51,7 +52,7 @@ const voidGarageInvoice = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
-    fetchGarageCaseHub, fetchGarageMechanics, fetchGarageStock,
+    fetchGarageCaseHub, fetchGarageMechanics, fetchGarageStock, listGarageSites,
     acceptServiceCase, declineServiceCase, startServiceCase, completeGarageJob,
     createCaseEstimate, saveEstimateDraft, sendGarageEstimate, reviseGarageEstimate, cancelGarageEstimate,
     assignMechanicToWorkOrder, unassignMechanicFromWorkOrder, recordServiceOnWorkOrder, recordMileageObservation,
@@ -109,6 +110,7 @@ function hub(status: string, allowed: AllowedAction[], next: NextAction, o: Part
       requested_at: '2026-10-19T09:00:00.000Z', accepted_at: null, started_at: null, completed_at: null, branch_id: null,
     },
     vehicle: { vin: VIN, make: 'Toyota', model: 'Hilux', year: 2019 },
+    site: null,
     work_order: null,
     appointment: null,
     estimates: { latest: null, versions: [] },
@@ -160,6 +162,7 @@ function expectOffered(offered: string[]) {
 beforeEach(() => {
   vi.resetAllMocks()
   authState.userId = null
+  listGarageSites.mockResolvedValue({ sites: [] })
   fetchGarageMechanics.mockResolvedValue({ mechanics: [{ user_id: 'm-1', display_name: 'Tendai', role: 'mechanic' }], total: 1 })
   fetchGarageStock.mockResolvedValue({ parts: [], summary: { total: 0, out: 0, low: 0, uncounted: 0, unknown: 0 } })
   for (const fn of [acceptServiceCase, declineServiceCase, startServiceCase, completeGarageJob, createCaseEstimate, saveEstimateDraft,
@@ -1047,6 +1050,7 @@ describe('the request decision', () => {
   it('offers accept and decline only when the backend allows them, and sends the right calls', async () => {
     hubReturns(hub('requested', ['accept_case', 'decline_case'], 'accept_or_decline'))
     open()
+    await screen.findByTestId('no-sites')
     fireEvent.click(await screen.findByTestId('decline-case'))
     await waitFor(() => expect(declineServiceCase).toHaveBeenCalledWith(CASE_ID, 'garage_declined'))
   })
@@ -1055,6 +1059,7 @@ describe('the request decision', () => {
     acceptServiceCase.mockRejectedValue(new Error('This request was withdrawn by the customer.'))
     hubReturns(hub('requested', ['accept_case', 'decline_case'], 'accept_or_decline'))
     open()
+    await screen.findByTestId('no-sites')
     fireEvent.click(await screen.findByTestId('accept-case'))
     expect(await within(screen.getByTestId('request-decision')).findByTestId('case-action-error'))
       .toHaveTextContent('This request was withdrawn by the customer.')
@@ -1066,6 +1071,7 @@ describe('the request decision', () => {
       .mockResolvedValueOnce(hub('requested', ['accept_case', 'decline_case'], 'accept_or_decline'))
       .mockRejectedValue(new Error('network'))
     open()
+    await screen.findByTestId('no-sites')
     fireEvent.click(await screen.findByTestId('accept-case'))
     expect(await screen.findByTestId('case-action-error')).toHaveTextContent(/went through, but this page could not be refreshed/i)
     expect(screen.getByTestId('case-vehicle')).toBeTruthy()
@@ -1169,5 +1175,99 @@ describe('who is doing the work, from the point of view of the person looking', 
     hubReturns(mechanicLooking('m-1'))
     open()
     expect((await screen.findByTestId('assigned-mechanic')).textContent).not.toContain('You')
+  })
+})
+
+
+describe('accepting a request records WHICH SITE does the job', () => {
+  const site = (id: string, name: string, is_active = true) => ({ id, name, is_active })
+  const requested = () => hub('requested', ['accept_case', 'decline_case'], 'accept_or_decline')
+
+  it('with two or more active sites the garage must choose — accept is held back until they do, and the choice is what is sent', async () => {
+    listGarageSites.mockResolvedValue({ sites: [site('s-hre', 'Harare Site'), site('s-bul', 'Bulawayo Site'), site('s-old', 'Closed Site', false)] })
+    hubReturns(requested())
+    open()
+    const select = await screen.findByTestId('accept-site')
+    expect(screen.getByTestId('accept-case')).toBeDisabled()
+    expect(screen.getByTestId('site-required')).toBeTruthy()
+    // only active sites are offered, and nothing is pre-chosen
+    expect(within(select).queryByText('Closed Site')).toBeNull()
+    expect((select as HTMLSelectElement).value).toBe('')
+
+    fireEvent.change(select, { target: { value: 's-bul' } })
+    await waitFor(() => expect(screen.getByTestId('accept-case')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('accept-case'))
+    await waitFor(() => expect(acceptServiceCase).toHaveBeenCalledWith(CASE_ID, { branch_id: 's-bul' }))
+  })
+
+  it('with exactly one active site it is shown already selected and is what is sent', async () => {
+    listGarageSites.mockResolvedValue({ sites: [site('s-only', 'Only Site')] })
+    hubReturns(requested())
+    open()
+    const select = await screen.findByTestId('accept-site') as HTMLSelectElement
+    expect(select.value).toBe('s-only')
+    expect(screen.queryByTestId('site-required')).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('accept-case')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('accept-case'))
+    await waitFor(() => expect(acceptServiceCase).toHaveBeenCalledWith(CASE_ID, { branch_id: 's-only' }))
+  })
+
+  it('with no sites set up it says so and accepts without a site', async () => {
+    listGarageSites.mockResolvedValue({ sites: [site('s-old', 'Closed Site', false)] })
+    hubReturns(requested())
+    open()
+    expect(await screen.findByTestId('no-sites')).toHaveTextContent(/accepted without one/i)
+    expect(screen.queryByTestId('accept-site')).toBeNull()
+    fireEvent.click(screen.getByTestId('accept-case'))
+    await waitFor(() => expect(acceptServiceCase).toHaveBeenCalledWith(CASE_ID, undefined))
+  })
+
+  it('if the site list cannot be loaded, accepting is held back — and it is not described as "no sites"', async () => {
+    listGarageSites.mockRejectedValueOnce(new Error('network')).mockResolvedValue({ sites: [site('s-only', 'Only Site')] })
+    hubReturns(requested())
+    open()
+    const alert = await screen.findByTestId('sites-error')
+    expect(alert).toHaveTextContent(/could not be loaded/i)
+    expect(alert).toHaveTextContent(/not a statement that you have no sites/i)
+    expect(screen.queryByTestId('no-sites')).toBeNull()
+    expect(screen.getByTestId('accept-case')).toBeDisabled()
+    expect(screen.getByTestId('decline-case')).not.toBeDisabled()   // declining needs no site
+
+    fireEvent.click(screen.getByTestId('retry-sites'))
+    expect(await screen.findByTestId('accept-site')).toBeTruthy()
+    await waitFor(() => expect(screen.getByTestId('accept-case')).not.toBeDisabled())
+    expect(acceptServiceCase).not.toHaveBeenCalled()
+  })
+
+  it('a mechanic who may accept never asks for the admin-only site list and accepts as before', async () => {
+    hubReturns(hub('requested', ['accept_case', 'decline_case'], 'accept_or_decline', { viewer: { role: 'mechanic', is_admin: false }, money_visible: false, closeout: null }))
+    open()
+    fireEvent.click(await screen.findByTestId('accept-case'))
+    await waitFor(() => expect(acceptServiceCase).toHaveBeenCalledWith(CASE_ID, undefined))
+    expect(listGarageSites).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('accept-site')).toBeNull()
+  })
+
+  it('the header says where the job is done once it is accepted — and says so plainly when no site is recorded', async () => {
+    hubReturns(hub('accepted', ['prepare_estimate'], 'prepare_estimate', { site: { id: 's-hre', name: 'Harare Site', is_active: true } }))
+    const first = open()
+    expect(await screen.findByTestId('case-site')).toHaveTextContent('Site: Harare Site')
+    first.unmount()
+
+    hubReturns(hub('accepted', ['prepare_estimate'], 'prepare_estimate', { site: null }))
+    const second = open()
+    expect(await screen.findByTestId('case-site')).toHaveTextContent('No site is recorded on this job.')
+    second.unmount()
+
+    hubReturns(hub('accepted', ['prepare_estimate'], 'prepare_estimate', { site: { id: 's-old', name: 'Old Site', is_active: false } }))
+    open()
+    expect(await screen.findByTestId('case-site')).toHaveTextContent(/Old Site.*no longer active/i)
+  })
+
+  it('a not-yet-accepted request shows no site line (the decision panel asks for it instead)', async () => {
+    hubReturns(requested())
+    open()
+    await screen.findByTestId('request-decision')
+    expect(screen.queryByTestId('case-site')).toBeNull()
   })
 })

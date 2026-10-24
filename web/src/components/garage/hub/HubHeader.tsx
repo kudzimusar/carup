@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge'
-import { CalendarDays, Car } from 'lucide-react'
+import { CalendarDays, Car, MapPin } from 'lucide-react'
 import type { CaseHub } from '@/lib/garageBusiness'
 import {
   appointmentStatusLabel, caseStatusLabel, categoryLabel, dateTimeLabel, STATUS_TONE, vehicleLabel, whenLabel,
@@ -7,7 +7,7 @@ import {
 
 /** Vehicle, case status, appointment and the customer's own words about what they need. */
 export function HubHeader({ hub }: { hub: CaseHub }) {
-  const { case: c, vehicle, appointment } = hub
+  const { case: c, vehicle, appointment, site } = hub
   return (
     <header className="space-y-4" data-testid="case-header">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -33,6 +33,17 @@ export function HubHeader({ hub }: { hub: CaseHub }) {
           <dd>{whenLabel(c.requested_at)}</dd>
         </div>
       </dl>
+
+      {c.status !== 'requested' && (
+        <p className="flex items-start gap-2 text-sm text-gray-700" data-testid="case-site">
+          <MapPin className="w-4 h-4 mt-0.5 text-gray-400 shrink-0" aria-hidden="true" />
+          <span>
+            {site
+              ? <>Site: {site.name || 'Unnamed site'}{site.is_active ? '' : <span className="text-amber-700"> (no longer active)</span>}</>
+              : 'No site is recorded on this job.'}
+          </span>
+        </p>
+      )}
 
       {appointment && (
         <p className="flex items-start gap-2 text-sm text-gray-700" data-testid="case-appointment">

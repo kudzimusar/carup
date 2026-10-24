@@ -37,6 +37,15 @@ export async function getCaseHub(client = defaultClient, actor = {}, caseId) {
   if (eventsError) throw new DatabaseError('Could not load the case history: ' + eventsError.message);
   if (apptError) throw new DatabaseError('Could not load the appointment: ' + apptError.message);
 
+  // Where the job is done. Recorded when the garage accepts the request; absent is stated, never guessed.
+  let site = null;
+  if (serviceCase.branch_id) {
+    const { data: branch, error: branchError } = await client.from('garage_branches').select('id, name, is_active')
+      .eq('id', serviceCase.branch_id).eq('tenant_id', tenantId).maybeSingle();
+    if (branchError) throw new DatabaseError('Could not load the site: ' + branchError.message);
+    if (branch) site = { id: branch.id, name: branch.name || null, is_active: branch.is_active !== false };
+  }
+
   let assignedMechanicUserId = null;
   let records = [];
   let parts = { usage: [] };
@@ -75,6 +84,7 @@ export async function getCaseHub(client = defaultClient, actor = {}, caseId) {
       request_summary: serviceCase.request_summary || null,
     },
     vehicle: vehicle ? { vin: vehicle.vin, make: vehicle.make || null, model: vehicle.model || null, year: vehicle.year || null } : null,
+    site,
     work_order: workOrder
       ? { id: workOrder.id, status: workOrder.status, owner_authorization: workOrder.owner_authorization, owner_authorized_at: workOrder.owner_authorized_at || null, assigned_mechanic_user_id: assignedMechanicUserId }
       : null,

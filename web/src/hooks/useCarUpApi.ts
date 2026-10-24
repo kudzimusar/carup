@@ -2934,8 +2934,10 @@ export function useCarUpApi() {
     return request<GarageProfileResponse>('/garage/profile/unpublish', { method: 'POST', body: '{}' })
   }, [request])
 
-  const acceptServiceCase = useCallback(async (caseId: string): Promise<ServiceCaseResult> => {
-    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: '{}' })
+  const acceptServiceCase = useCallback(async (caseId: string, options?: { branch_id?: string }): Promise<ServiceCaseResult> => {
+    // the site is optional on the wire (a garage with no sites accepts without one); when given, the server proves it is this garage's
+    const body = options?.branch_id ? { branch_id: options.branch_id } : {}
+    return request<ServiceCaseResult>(`/service-cases/${encodeURIComponent(caseId)}/accept`, { method: 'POST', body: JSON.stringify(body) })
   }, [request])
 
   const declineServiceCase = useCallback(async (caseId: string, reasonCode?: string): Promise<ServiceCaseResult> => {

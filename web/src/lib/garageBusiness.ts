@@ -252,6 +252,8 @@ export type HubServiceCase = {
 export type CaseHub = {
   case: HubServiceCase
   vehicle: { vin: string; make: string | null; model: string | null; year: number | null } | null
+  /** where the job is done — recorded when the garage accepts; null = no site recorded (never guessed) */
+  site: { id: string; name: string | null; is_active: boolean } | null
   work_order: { id: string; status: string; owner_authorization: OwnerAuthorization; owner_authorized_at: string | null; assigned_mechanic_user_id: string | null } | null
   appointment: { id: string; status: string; starts_at: string; ends_at: string; appointment_timezone: string; branch_id: string; planned_workforce_profile_id: string | null } | null
   estimates: { latest: GarageEstimate | null; versions: GarageEstimate[] }

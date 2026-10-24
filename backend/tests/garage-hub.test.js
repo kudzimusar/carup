@@ -204,3 +204,24 @@ test('the hub never leaks across garages and states unknowns honestly', async ()
   assert.deepEqual(h.parts_used, []);
   assert.equal(h.estimates.latest, null);
 });
+
+test('the hub says where the job is done: the recorded site, an inactive site as such, and an absent site as absent', async () => {
+  const withSite = await hub(await newCase());
+  assert.deepEqual(withSite.site, { id: world.B.a1, name: 'A Central', is_active: true });
+
+  const { rows: [bare] } = await db.query(
+    "INSERT INTO service_cases (vin,garage_tenant_id,requester_user_id,status) VALUES ($1,$2,'customer-a','accepted') RETURNING id",
+    [world.V.a, world.T.a]);
+  assert.equal((await hub(bare.id)).site, null, 'no site recorded is stated as null, never guessed');
+
+  // a mechanic reads the same fact (it is not money)
+  assert.equal((await hub(await newCase(), mechA())).site.name, 'A Central');
+
+  await db.query('UPDATE garage_branches SET is_active = false WHERE id = $1', [world.B.a1]);
+  try {
+    const caseId = await newCase();
+    assert.equal((await hub(caseId)).site.is_active, false, 'a deactivated site is reported as inactive, not hidden');
+  } finally {
+    await db.query('UPDATE garage_branches SET is_active = true WHERE id = $1', [world.B.a1]);
+  }
+});

@@ -34,6 +34,7 @@ const VIN = 'SNCLOSE020359VIN1'
 const fetchGarageQueue = vi.fn()
 const fetchGarageCaseHub = vi.fn()
 const fetchGarageMechanics = vi.fn()
+const listGarageSites = vi.fn()
 const acceptServiceCase = vi.fn()
 const declineServiceCase = vi.fn()
 const startServiceCase = vi.fn()
@@ -53,7 +54,7 @@ const createCaseEstimate = vi.fn()
  */
 vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({
-    fetchGarageQueue, fetchGarageCaseHub, fetchGarageMechanics,
+    fetchGarageQueue, fetchGarageCaseHub, fetchGarageMechanics, listGarageSites,
     acceptServiceCase, declineServiceCase, startServiceCase, completeGarageJob,
     openWorkOrderForCase, assignMechanicToWorkOrder, unassignMechanicFromWorkOrder,
     recordServiceOnWorkOrder, recordMileageObservation, fetchGarageCustomers, createCaseEstimate,
@@ -75,6 +76,7 @@ function hubAt(status: string, allowed: AllowedAction[], next: NextAction, extra
       accepted_at: null, started_at: null, completed_at: null, branch_id: null,
     },
     vehicle: { vin: VIN, make: 'Isuzu', model: 'D-Max', year: 2021 },
+    site: null,
     work_order: null,
     appointment: null,
     estimates: { latest: null, versions: [] },
@@ -123,6 +125,7 @@ function queueWith(status: string, workOrder: { id: string; status: string } | n
 beforeEach(() => {
   vi.resetAllMocks()
   fetchGarageMechanics.mockResolvedValue({ mechanics: [{ user_id: 'm-1', display_name: 'Tendai', role: 'mechanic' }], total: 1 })
+  listGarageSites.mockResolvedValue({ sites: [] })
   acceptServiceCase.mockResolvedValue({ case: { status: 'accepted' } })
   declineServiceCase.mockResolvedValue({ case: { status: 'declined' } })
   startServiceCase.mockResolvedValue({ case: { status: 'active' } })
@@ -171,7 +174,7 @@ describe('R5 — one job, request to service record', () => {
     fetchGarageCaseHub.mockResolvedValue(hubAt('requested', ['accept_case', 'decline_case'], 'accept_or_decline'))
     openCase()
 
-    await screen.findByTestId('accept-case')
+    await screen.findByTestId('no-sites')
     expect(screen.getByTestId('decline-case')).toBeTruthy()
     // Nothing further is possible yet, so nothing further is offered.
     expect(screen.queryByTestId('prepare-estimate')).toBeNull()
@@ -180,7 +183,7 @@ describe('R5 — one job, request to service record', () => {
     expect(screen.queryByTestId('complete-case')).toBeNull()
 
     fireEvent.click(screen.getByTestId('accept-case'))
-    await waitFor(() => expect(acceptServiceCase).toHaveBeenCalledWith(CASE_ID))
+    await waitFor(() => expect(acceptServiceCase).toHaveBeenCalledWith(CASE_ID, undefined))
   })
 
   it('an accepted case with no job card offers only the estimate (a job card is no longer opened by hand)', async () => {
