@@ -153,7 +153,8 @@ test('COMPLETION: only a member of THIS garage workspace can complete; other gar
   await rejects(complete(c, 'customer-a'), /GARAGE_OPS05_WORKSPACE_REQUIRED/);
   await rejects(complete(c, 'stranger'), /GARAGE_OPS05_WORKSPACE_REQUIRED/);
   await rejects(complete(c, 'admin-b'), /GARAGE_OPS05_WORKSPACE_REQUIRED/);
-  await rejects(complete(c, 'admin-b', world.T.b), /GARAGE_OPS05_WORK_ORDER_REQUIRED/);
+  // another garage addressing this garage's case: the case is looked up first (lock order), and it is not theirs
+  await rejects(complete(c, 'admin-b', world.T.b), /GARAGE_OPS05_CASE_NOT_FOUND|GARAGE_OPS05_WORK_ORDER_REQUIRED/);
   await rejects(complete(c, 'admin-a', world.T.b), /GARAGE_OPS05_WORKSPACE_REQUIRED/);
   assert.equal(await caseStatus(c), 'active');
   // an assigned mechanic of this garage may complete
