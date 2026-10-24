@@ -102,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check backend/scripts/garage-ops03-stg01-credential.mjs
-          npx tsc --noEmit --pretty false --target es2022 --module esnext --moduleResolution bundler --allowImportingTsExtensions --skipLibCheck tests/agents/garage-ops03-stg01.spec.ts || true
+          npx playwright test tests/agents/garage-ops03-stg01.spec.ts --list
 
       - name: Owner preflight and session snapshot
         run: node backend/scripts/garage-ops03-stg01-credential.mjs --mode=preflight
