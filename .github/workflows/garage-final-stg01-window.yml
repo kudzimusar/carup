@@ -1,0 +1,166 @@
+name: GARAGE-1.0 FINAL STG01 WINDOW R1
+
+# A bounded, self-restoring UAT window on the approved STAGING database.
+#
+#   * the runner never sees a plaintext credential: the operator generates the passwords locally and commits
+#     only scrypt hashes (backend/scripts/garage-final-stg01-window-hashes.json);
+#   * three pinned synthetic identities get a temporary hash; the window ends on a stop ref or a hard timeout;
+#   * cleanup ALWAYS runs: every pinned password_hash is restored to NULL and every session created in the
+#     window is invalidated; verify-clean then proves it;
+#   * an independent, read-only DB witness records every business row the window created.
+#
+# Stop early by creating the branch ref  cert/garage-1.0-final-stg01-window-r1-stop  (then delete it).
+
+on:
+  push:
+    branches:
+      - cert/garage-1.0-final-stg01-window-r1
+
+concurrency:
+  group: garage-final-stg01-window-r1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  window:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PRODUCT_SHA: 368d572772ed7d1de674d8568fff171b1eb9930d
+      PRODUCT_BRANCH: feat/garage-1.0-final-business-os-completion
+      PRODUCT_CI_RUN: '40086637789'
+      OPS03_SHA: 07b60e5d158d7dad7232d33f11f06a478c92da3f
+      OPS03_PR: '241'
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      GARAGE_FINAL_RESULTS_DIR: cert-results/garage-final-stg01-window
+      GARAGE_FINAL_WINDOW_HASHES_FILE: backend/scripts/garage-final-stg01-window-hashes.json
+      WINDOW_MINUTES: '90'
+      STOP_REF: cert/garage-1.0-final-stg01-window-r1-stop
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit, accepted OPS03 parent, evidence-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "cert/garage-1.0-final-stg01-window-r1"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$OPS03_SHA" "$PRODUCT_SHA"
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PRODUCT_CI_RUN}")"
+          test "$(jq -r '.head_sha' <<<"$run_json")" = "$PRODUCT_SHA"
+          test "$(jq -r '.conclusion' <<<"$run_json")" = "success"
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${OPS03_PR}")"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$OPS03_SHA"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.draft' <<<"$pr_json")" = "true"
+          test "$(jq -r '.merged' <<<"$pr_json")" = "false"
+
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 3
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/garage-final-stg01-window.yml|backend/scripts/garage-final-stg01-credential.mjs|backend/scripts/garage-final-stg01-window-hashes.json) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          # hashes only: a plaintext-looking secret in the hashes file is a hard stop
+          test "$(grep -c '"scrypt:' "$GARAGE_FINAL_WINDOW_HASHES_FILE")" -eq 3
+          ! grep -qiE 'password|GF1-' "$GARAGE_FINAL_WINDOW_HASHES_FILE"
+          echo "HEAD=$(git rev-parse HEAD)"; echo "PRODUCT_SHA=$PRODUCT_SHA"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Validate harness syntax
+        run: node --check backend/scripts/garage-final-stg01-credential.mjs
+
+      - name: Preflight (read-only; snapshots pre-existing sessions)
+        run: node backend/scripts/garage-final-stg01-credential.mjs --mode=preflight
+
+      - name: Provision the synthetic customer and vehicle (idempotent)
+        run: node backend/scripts/garage-final-stg01-credential.mjs --mode=provision
+
+      - name: Open the UAT window (operator-supplied hashes only)
+        id: grant
+        run: node backend/scripts/garage-final-stg01-credential.mjs --mode=grant
+
+      - name: Hold the window open until the stop ref appears or the hard timeout
+        shell: bash
+        run: |
+          set -uo pipefail
+          start=$(date +%s); end=$(( start + WINDOW_MINUTES * 60 )); beat=0
+          echo "WINDOW OPEN at $(date -u +%FT%TZ); hard stop in ${WINDOW_MINUTES} min; stop ref: ${STOP_REF}"
+          while [ "$(date +%s)" -lt "$end" ]; do
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STOP_REF}" >/dev/null 2>&1; then
+              echo "STOP REF FOUND at $(date -u +%FT%TZ)"; break
+            fi
+            beat=$(( beat + 1 ))
+            if [ $(( beat % 20 )) -eq 0 ]; then echo "window still open: $(( (end - $(date +%s)) / 60 )) min left"; fi
+            sleep 15
+          done
+          echo "WINDOW CLOSING at $(date -u +%FT%TZ)"
+
+      - name: Close the window - restore every pinned credential and invalidate window sessions
+        if: always()
+        run: node backend/scripts/garage-final-stg01-credential.mjs --mode=cleanup
+
+      - name: Verify clean
+        if: always()
+        run: node backend/scripts/garage-final-stg01-credential.mjs --mode=verify-clean
+
+      - name: Independent DB witness of everything the window changed (read-only)
+        if: always()
+        continue-on-error: true
+        run: node backend/scripts/garage-final-stg01-credential.mjs --mode=witness
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### GARAGE-1.0 FINAL STG01 WINDOW R1"
+            echo "product sha: \`$PRODUCT_SHA\`   target project: \`$EXPECTED_STAGING_PROJECT_REF\`   production: **not accessed**"
+            for f in credential-preflight window-opened credential-cleanup; do
+              if [ -f "$GARAGE_FINAL_RESULTS_DIR/$f.json" ]; then echo; echo "#### $f"; echo '```json'; head -c 3000 "$GARAGE_FINAL_RESULTS_DIR/$f.json"; echo; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garage-final-stg01-window-r1
+          path: cert-results/garage-final-stg01-window
+          retention-days: 30
+          if-no-files-found: warn
