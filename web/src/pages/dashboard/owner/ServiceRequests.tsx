@@ -363,13 +363,13 @@ export default function ServiceRequests() {
                             </label>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <Button
+                            <Button className="min-h-11"
                               disabled={!bookingDate || !bookingDuration || appointmentBusy === r.id}
                               onClick={() => void findTimes(r)}
                             >
                               Check available times
                             </Button>
-                            <Button variant="outline" onClick={() => { setBookingCaseId(null); setAvailability(null); setAppointmentError(null) }}>Close</Button>
+                            <Button className="min-h-11" variant="outline" onClick={() => { setBookingCaseId(null); setAvailability(null); setAppointmentError(null) }}>Close</Button>
                           </div>
                           {appointmentError && <p role="alert" className="text-sm text-red-700">{appointmentError}</p>}
                           {availability && !availability.configured && (
@@ -390,7 +390,7 @@ export default function ServiceRequests() {
                                     {' – '}
                                     {new Intl.DateTimeFormat(undefined, { timeStyle: 'short', timeZone: slot.appointment_timezone }).format(new Date(slot.ends_at))}
                                   </span>
-                                  <Button
+                                  <Button className="min-h-11"
                                     size="sm"
                                     disabled={appointmentBusy === r.id}
                                     onClick={() => void requestSlot(r, slot.starts_at, slot.ends_at)}

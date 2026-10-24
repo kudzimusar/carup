@@ -60,10 +60,11 @@ const GARAGE_ONBOARDING_SURFACES = [
   '/src/pages/dashboard/garage/GarageWorkspaceReady.tsx',
 ]
 
-/** GARAGE-1.0-OPS01 internal operating surfaces. */
+/** GARAGE-1.0-OPS01 internal operating surfaces (and OPS03 scheduling, declared here so it cannot escape the gate). */
 const GARAGE_OPERATIONS_SURFACES = [
   '/src/pages/dashboard/garage/GarageSites.tsx',
   '/src/pages/dashboard/garage/GarageWorkforce.tsx',
+  '/src/pages/dashboard/garage/GarageSchedule.tsx',
 ]
 
 /** Every surface this gate governs. */
@@ -83,6 +84,7 @@ const GARAGE_WORKFLOW = [
   '/src/pages/dashboard/garage/GarageTeam.tsx',
   '/src/pages/dashboard/garage/GarageSites.tsx',
   '/src/pages/dashboard/garage/GarageWorkforce.tsx',
+  '/src/pages/dashboard/garage/GarageSchedule.tsx',
   '/src/pages/dashboard/owner/ServiceRequests.tsx',
 ]
 
