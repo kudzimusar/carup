@@ -279,7 +279,10 @@ test('GARAGE-1.0 OPS03 R2 full staging closure',async({page,browser})=>{
   await page.goto(WEB+'/garage/schedule',{waitUntil:'networkidle'})
   await expect(page.getByLabel('Scheduling settings site')).toBeVisible()
   await expect(page.getByLabel('Scheduling settings site').locator('option').filter({hasText:'Harare'})).toHaveCount(1)
+  await page.getByLabel('Scheduling settings site').selectOption(HRE)
+  await expect(page.getByLabel('Scheduling enabled')).toHaveValue('true')
   await expect(page.getByLabel('Maximum concurrent appointments')).toHaveValue('1')
+  await expect(page.getByLabel('Slot interval minutes')).toHaveValue('30')
   await shot(page,'desktop-01-retained-configuration.png')
 
   const av:any=parse((await api(page,'GET','/garage/schedule/availability?service_case_id='+A.id+'&branch_id='+HRE+'&date='+DATE+'&duration_minutes=60')).text)
