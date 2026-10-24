@@ -145,12 +145,14 @@ async function confirmWithProof(page:Page,caseId:string,profile:string,expectedS
  await expect(x.getByTestId('appointment-timezone-'+id)).toContainText('Africa/Harare')
  await x.getByLabel('Appointment site '+id).selectOption(HRE)
  await x.getByLabel('Appointment planned mechanic '+id).selectOption(profile)
+ const displayed={starts_at:await startInput.inputValue(),ends_at:await endInput.inputValue()}
+ const browser_timezone=await page.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone)
  const requestPromise=page.waitForRequest(r=>r.url().includes('/api/garage/schedule/appointments/'+id+'/confirm')&&r.method()==='POST')
  const responsePromise=page.waitForResponse(r=>r.url().includes('/api/garage/schedule/appointments/'+id+'/confirm')&&r.request().method()==='POST')
  await x.getByRole('button',{name:'Confirm appointment'}).click()
  const request=await requestPromise
  const response=await responsePromise
- return {id,response,payload:request.postDataJSON(),displayed:{starts_at:await startInput.inputValue(),ends_at:await endInput.inputValue()},browser_timezone:await page.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone)}
+ return {id,response,payload:request.postDataJSON(),displayed,browser_timezone}
 }
 async function rescheduleWithProof(page:Page,caseId:string,startLocal:string,endLocal:string){
  const x=await appointmentCard(page,caseId,'confirmed')
@@ -195,6 +197,19 @@ async function retainedCase(c:pg.Client,label:'A'|'B'|'C'){
  expect(r.status).toBe('accepted');expect(r.garage_tenant_id).toBe(GARAGE);expect(r.branch_id).toBe(HRE);expect(r.vin).toBe(VIN)
  return {id:r.id,summary:r.request_summary}
 }
+async function cleanupSyntheticLiveAppointments(page:Page,c:pg.Client){
+ const live=await c.query("select a.id::text appointment_id,sc.id::text case_id,a.status from garage_appointments a join service_cases sc on sc.id=a.service_case_id where sc.requester_user_id=$1 and sc.request_summary like 'SYNTHETIC / UAT OPS03 CASE-%' and a.status in ('requested','confirmed') order by a.created_at",[OWNER])
+ const cancelled=[]
+ for(const row of live.rows){
+  const r=await api(page,'POST','/service-cases/'+row.case_id+'/appointments/'+row.appointment_id+'/cancel')
+  expect(r.status).toBeLessThan(300)
+  cancelled.push({appointment_id:row.appointment_id,case_id:row.case_id,previous_status:row.status})
+ }
+ const residual=await c.query("select a.id::text from garage_appointments a join service_cases sc on sc.id=a.service_case_id where sc.requester_user_id=$1 and sc.request_summary like 'SYNTHETIC / UAT OPS03 CASE-%' and a.status in ('requested','confirmed')",[OWNER])
+ expect(residual.rowCount).toBe(0)
+ out('continuation-cleanup.json',{cancelled,residual_live_count:0,completed_at:new Date().toISOString()})
+}
+
 async function verifyRetainedConfiguration(c:pg.Client){
  const settings=await one(c,"select scheduling_enabled,max_concurrent_appointments,slot_interval_minutes from garage_branch_scheduling_settings where tenant_id=$1::uuid and branch_id=$2::uuid",[GARAGE,HRE])
  expect(settings).toEqual({scheduling_enabled:true,max_concurrent_appointments:1,slot_interval_minutes:30})
@@ -217,10 +232,12 @@ test('GARAGE-1.0 OPS03 R2 STG01 timezone remediation and resumed physical certif
  const tokyo=await tokyoContext.newPage()
  try{
   await verifyMigration(c)
-  await verifyRetainedConfiguration(c)
   await deploy()
   await login(harare)
   await login(tokyo)
+  await cleanupSyntheticLiveAppointments(harare,c)
+  await verifyRetainedConfiguration(c)
+  const flowStart=new Date()
 
   const A=await retainedCase(c,'A'),B=await retainedCase(c,'B'),C=await retainedCase(c,'C')
   const crmBefore=await c.query("select id::text,customer_reference_code,relationship_status,customer_category,preferred_branch_id::text,assigned_staff_user_id,internal_notes from garage_customer_relationships where tenant_id=$1::uuid and registered_user_id=$2 order by id",[GARAGE,OWNER])
@@ -299,7 +316,7 @@ test('GARAGE-1.0 OPS03 R2 STG01 timezone remediation and resumed physical certif
   const live=await c.query("select a.id::text,a.service_case_id::text,a.status from garage_appointments a where a.service_case_id=any($1::uuid[]) and a.status in ('requested','confirmed')",[[A.id,B.id,C.id]])
   expect(live.rowCount).toBe(0)
   const terminal=await c.query("select a.id::text,a.service_case_id::text,a.status,a.starts_at,a.ends_at,a.appointment_timezone from garage_appointments a where a.service_case_id=any($1::uuid[]) order by a.created_at",[[A.id,B.id,C.id]])
-  const events=await c.query("select appointment_id::text,event_type,actor_user_id,actor_scope,created_at from garage_appointment_events where tenant_id=$1::uuid and created_at>=$2 order by created_at,id",[GARAGE,START.toISOString()])
+  const events=await c.query("select appointment_id::text,event_type,actor_user_id,actor_scope,created_at from garage_appointment_events where tenant_id=$1::uuid and created_at>=$2 order by created_at,id",[GARAGE,flowStart.toISOString()])
   const audits=await c.query("select id::text,event_type,actor_user_id,actor_role,actor_tenant_id,actor_type,source_route,created_at from trust_audit_events where actor_tenant_id=$1 and created_at>=$2 and (event_type like 'GARAGE_APPOINTMENT_%' or event_type='GARAGE_BRANCH_SCHEDULING_UPDATED') order by created_at,id",[GARAGE,START.toISOString()])
   for(const t of ['GARAGE_APPOINTMENT_REQUESTED','GARAGE_APPOINTMENT_CONFIRMED','GARAGE_APPOINTMENT_RESCHEDULED','GARAGE_APPOINTMENT_CANCELLED','GARAGE_BRANCH_SCHEDULING_UPDATED'])expect(audits.rows.some((x:any)=>x.event_type===t),'missing '+t).toBe(true)
   expect(JSON.stringify(audits.rows)).not.toMatch(/password|token|cookie|postgres(?:ql)?:\/\//i)
@@ -321,7 +338,7 @@ test('GARAGE-1.0 OPS03 R2 STG01 timezone remediation and resumed physical certif
   out('ops02-boundary.json',{registered_before:crmBefore.rows,registered_after:crmAfter.rows,walkin_before:walkBefore.rows,walkin_after:walkAfter.rows})
   out('final-staging-state.json',{live_uat:live.rows,ops01_fixture:fixture,vehicle_owner:ownerAfter.owner_id,settings:finalSettings,retained_schedules:2,retained_unavailability:1})
   out('preexisting-rls.json',{classification:'PRE-EXISTING STAGING SECURITY ISSUE — OUTSIDE OPS03',tables:rls.rows})
-  out('browser-summary.json',{product_sha:SHA,started_at:START.toISOString(),completed_at:new Date().toISOString(),complete:true})
+  out('browser-summary.json',{product_sha:SHA,started_at:flowStart.toISOString(),completed_at:new Date().toISOString(),complete:true})
  }catch(e){
   out('failure-receipt.json',{at:new Date().toISOString(),error:e instanceof Error?e.message:String(e)})
   throw e
