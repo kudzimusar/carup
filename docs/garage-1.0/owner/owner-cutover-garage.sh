@@ -133,7 +133,7 @@ if [ "$WEB_OK" = 1 ]; then
   echo
   echo "Still to do (see docs/garage-1.0/GARAGE_1_0_OWNER_CUTOVER_RUNBOOK.md):"
   echo "  1. re-run the physical UAT against the canonical hosts (a bounded credential window; the spec already supports it)"
-  echo "  2. replay the 21 garage.* events the old worker dead-lettered (EventWorker.reprocessDeadLetters, eventType filter) — Moderator's call"
+  echo "  2. replay the 27 garage.* events (this campaign's synthetic ones) the old worker dead-lettered (EventWorker.reprocessDeadLetters, eventType filter) — Moderator's call"
 else
   echo "WEB CUTOVER NOT VERIFIED:$POST_WEB (alias exits:$WRCS). The backend is already moved and verified."
   echo "Rollback of the web ONLY, if asked:"; for h in $WEB_HOSTS; do echo "  $NODE $VC alias set $OLD_WEB_HOST $h --scope 11-11 --non-interactive"; done

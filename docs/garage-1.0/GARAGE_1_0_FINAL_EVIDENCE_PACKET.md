@@ -6,7 +6,7 @@ Written for: the Moderator reviewing the campaign for acceptance. Nothing here i
 harness refuses the production project ref by name (`vhmnajoeicasaigiophh`) and the refusal was exercised (see §12).
 
 The packet lives at `~/carup-launch-evidence/garage-1-0-final/` (≈ 119 MB, mostly screenshots). `evidence/MANIFEST.sha256` lists the
-SHA-256 of **all 257 files**, so the external packet is verifiable; the small receipts are copied into `docs/garage-1.0/evidence/`.
+SHA-256 of **all files (including CUTOVER-01)**, so the external packet is verifiable; the small receipts are copied into `docs/garage-1.0/evidence/`.
 
 ## 1. Authority reconstruction
 
@@ -79,8 +79,9 @@ Each pair was proven before use: `/api/health` build = the exact SHA, `database.
 `consistent: true`, external sends `disabled`; web `/carup-provenance.json` = the exact SHA with `api_base_url` = the immutable backend
 host and `unpaired: false`. During the run, **every `/api/` request from every actor went only to that backend host** (test 18).
 
-**Canonical staging is unchanged**: `api-staging.carup.dev` and `carup-backend-staging.vercel.app` → `dpl_GTRNcuTikKL6u2MV7meiKdK9BwJK`
-(`07b60e5d`); `staging.carup.dev` and `carup-staging.vercel.app` → `07b60e5d`, paired to `api-staging`; kill switch active, sends disabled.
+**Canonical staging at the time this packet was first written was unchanged at `07b60e5d`.** It was moved by the Owner cutover (CUTOVER-01):
+`api-staging.carup.dev` and `carup-backend-staging.vercel.app` → `dpl_76Zt2nhwLD7HDs94QfDBEuJxNxxH` (`8353dbdd`); `staging.carup.dev` and
+`carup-staging.vercel.app` → `8353dbdd`, paired to `api-staging`; kill switch active, sends disabled. See `GARAGE_1_0_CUTOVER_01_RECEIPT.md`.
 
 ## 7. The journeys (final run, `uat-final2-202610241217`)
 
@@ -118,9 +119,11 @@ a dedupe key). **All 19 hold in both windows.**
 | Writes in any other tenant | **0** | **0** |
 | Fixture vehicle odometer | – | **15,000** (garage observed 15,420; not rewritten) |
 
-## 9. Communications (the one real gate)
+## 9. Communications (the one real gate — closed by CUTOVER-01)
 
-The canonical worker (`07b60e5d`) has no handler for the new events and dead-letters them: `NO_CURRENT_SUBSCRIBER: no handler is
+*Resolved on the canonical runtime: 6 of 6 new events `processed`, 6 notifications `delivered`, and the 27 dead letters replayed and delivered — see the cutover receipt. The finding below is the state before the cutover.*
+
+The canonical worker (`07b60e5d`) had no handler for the new events and dead-lettered them: `NO_CURRENT_SUBSCRIBER: no handler is
 registered for garage.estimate.sent` after 5 attempts. Attribution by event type (current staging): **this campaign: 27 dead-lettered**
 (1 appointment, 12 estimate, 5 invoice, 9 payment — all synthetic, attributable by dedupe key); **not this campaign:** 4 older
 `garage.application.reject`/`request_more_info` dead letters from 2026-10-21 and 37 processed earlier events. Existing case-status
@@ -159,8 +162,13 @@ drift (cleanup refuses rather than overwrite someone else's change). `receipts: 
 
 ## 13. Remaining external gates
 
-1. **Move the canonical staging hosts** to the final build — Owner action (the harness refuses `vercel deploy --prod` / `alias set` for
-   Claude). Scripts and order: runbook. Without it, Garage events keep dead-lettering on the canonical worker.
+1. ~~Move the canonical staging hosts~~ — **done** (CUTOVER-01); canonical now serves `8353dbdd`.
 2. **Supplier / procurement** — no governed authority exists; supplier stays free text, labelled "not verified".
 3. **CarUp-processed or verified garage payments** — no canonical payment authority for garage services; payments are recorded by the
    garage and labelled so.
+
+## 14. CUTOVER-01 (canonical activation and final canonical UAT)
+
+`GARAGE_1_0_CUTOVER_01_RECEIPT.md` and `evidence/cutover-01/`: the Owner scripts' records, the canonical 20/20 UAT, the third credential window and its
+reconciliation (19/19 invariants), the replay of the 27 dead letters (27 processed, 27 delivered), and the independent confirmation that all three
+pinned identities are back to NULL with 0 sessions.
