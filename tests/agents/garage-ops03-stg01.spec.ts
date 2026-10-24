@@ -40,8 +40,8 @@ async function login(page:Page){
  const rr=page.waitForResponse(r=>r.url().includes('/api/auth/login')&&r.request().method()==='POST')
  await page.getByRole('button',{name:/sign in/i}).click()
  expect((await rr).status()).toBe(200)
- const selection=await ensureActingForOrganisation(page,new RegExp(GNAME.replace(/[.*+?^$(){}|[\]\\]/g,'\\ expect(await ensureActingForOrganisation(page,new RegExp(GNAME.replace(/[.*+?^$(){}|[\]\\]/g,'\\$&'),'i'))).toBe(GARAGE)'),'i'))
- expect(selection.badge).toMatch(new RegExp(GNAME.replace(/[.*+?^$(){}|[\]\\]/g,'\\ expect(await ensureActingForOrganisation(page,new RegExp(GNAME.replace(/[.*+?^$(){}|[\]\\]/g,'\\$&'),'i'))).toBe(GARAGE)'),'i'))
+ const selection=await ensureActingForOrganisation(page,/SYNTHETIC \/ UAT OPS01 GARAGE 20261022A/i)
+ expect(selection.badge).toContain(GNAME)
  if(selection.outcome==='selected')expect(selection.tenantId).toBe(GARAGE)
 }
 async function api(page:Page,method:string,route:string,payload?:any){
