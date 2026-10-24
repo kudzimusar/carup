@@ -141,6 +141,8 @@ const GarageCaseDetail = lazy(() => import('./pages/dashboard/garage/GarageCaseD
 const GarageCustomers = lazy(() => import('./pages/dashboard/garage/GarageCustomers'))
 const GarageCustomerDetail = lazy(() => import('./pages/dashboard/garage/GarageCustomerDetail'))
 const GarageSchedule = lazy(() => import('./pages/dashboard/garage/GarageSchedule'))
+const GarageStock = lazy(() => import('./pages/dashboard/garage/GarageStock'))
+const GarageOperations = lazy(() => import('./pages/dashboard/garage/GarageOperations'))
 const GarageProfileEditor = lazy(() => import('./pages/dashboard/garage/GarageProfileEditor'))
 const WorkOrders = lazy(() => import('./pages/dashboard/mechanic/WorkOrders'))
 const ServiceLogs = lazy(() => import('./pages/dashboard/mechanic/ServiceLogs'))
@@ -517,6 +519,9 @@ export default function App() {
           <Route path="/garage/customers" element={<GarageCustomers />} />
           <Route path="/garage/customers/:customerId" element={<GarageCustomerDetail />} />
           <Route path="/garage/schedule" element={<GarageSchedule />} />
+          {/* GARAGE-1.0: parts and stock (garage admin + mechanic read; admin manages) and the operations view (garage admin). */}
+          <Route path="/garage/stock" element={<GarageStock />} />
+          <Route path="/garage/operations" element={<GarageOperations />} />
           <Route path="/garage/profile" element={<GarageProfileEditor />} />
           {/* GMO-6/7 (OC-5E): the garage's own people — its admin's surface (tenant-scoped). */}
           <Route path="/garage/team" element={<GarageTeam />} />

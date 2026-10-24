@@ -1,0 +1,43 @@
+{
+  "at": "2026-10-24T20:24:08Z",
+  "sha": "8353dbdd7eb9382d210d8f9eff48a7300ec36224",
+  "backend_candidate": "carup-backend-staging-3wrssvns0-11-11.vercel.app",
+  "web_candidate": "carup-staging-4xj9p054l-11-11.vercel.app",
+  "before": {
+    "backend": [
+      "api-staging.carup.dev=07b60e5d@dpl_GTRNcuTikKL6u2MV7meiKdK9BwJK",
+      "carup-backend-staging.vercel.app=07b60e5d@dpl_GTRNcuTikKL6u2MV7meiKdK9BwJK"
+    ],
+    "web": [
+      "staging.carup.dev=07b60e5d",
+      "carup-staging.vercel.app=07b60e5d"
+    ]
+  },
+  "after": {
+    "backend": [
+      "api-staging.carup.dev=8353dbdd@dpl_76Zt2nhwLD7HDs94QfDBEuJxNxxH@kill_switch:active@external_sends:disabled",
+      "carup-backend-staging.vercel.app=8353dbdd@dpl_76Zt2nhwLD7HDs94QfDBEuJxNxxH@kill_switch:active@external_sends:disabled"
+    ],
+    "web": [
+      "staging.carup.dev=8353dbdd@https://api-staging.carup.dev/api",
+      "carup-staging.vercel.app=8353dbdd@https://api-staging.carup.dev/api"
+    ]
+  },
+  "alias_cli_exit_codes": {
+    "backend": [
+      "api-staging.carup.dev=0",
+      "carup-backend-staging.vercel.app=0"
+    ],
+    "web": [
+      "staging.carup.dev=0",
+      "carup-staging.vercel.app=0"
+    ]
+  },
+  "backend_verified_through_canonical_hosts": true,
+  "web_verified_through_canonical_hosts": true,
+  "rollback_targets": {
+    "backend": "carup-backend-staging-ix1pa2wni-11-11.vercel.app",
+    "web": "carup-staging-hpqpt2iah-11-11.vercel.app"
+  },
+  "log": "owner-cutover-20261024T202346Z.log"
+}

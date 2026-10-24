@@ -1,4 +1,6 @@
 import { getGarageCustomers } from '../serviceNetwork/garageQueueService.js';
+import { moneyString, sumMoney } from '../../utils/garageMoney.js';
+import { isAbsentRelation } from '../../utils/schemaPresence.js';
 import { GARAGE_ADMIN_ROLES, GARAGE_WORKSPACE_ROLES, requireGarageTenant } from '../serviceNetwork/serviceAuthority.js';
 import { ConflictError, DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
@@ -182,8 +184,60 @@ export async function getGarageCustomerDetail(client, actor, customerId) {
     })),
     work_orders: workOrders,
     service_records: serviceRecords,
+    // GARAGE-1.0: the commercial history, from the estimate / invoice / payment-record authorities.
+    // Money is a garage-admin matter, so a mechanic's view of the customer carries none of it.
+    commercial: actor.activeTenant?.role === 'admin' ? await commercialHistorySafe(client, tenantId, caseIds) : null,
   };
 }
+
+/** The commercial tables are newer than this surface: where they are not deployed yet it contributes nothing. */
+async function commercialHistorySafe(client, tenantId, caseIds) {
+  try {
+    return await commercialHistory(client, tenantId, caseIds);
+  } catch (error) {
+    if (isAbsentRelation(error)) return null;
+    throw error;
+  }
+}
+
+/** Estimates, invoices and what the garage recorded as received — per case, per currency, never mixed. */
+async function commercialHistory(client, tenantId, caseIds) {
+  if (!caseIds.length) return { estimates: [], invoices: [], outstanding_by_currency: [], note: COMMERCIAL_NOTE };
+  const estimates = await rows(client.from('garage_estimates')
+    .select('id, service_case_id, version, status, currency, sent_total_amount, sent_at, decided_at')
+    .eq('tenant_id', tenantId).in('service_case_id', caseIds).order('version', { ascending: false }), 'Failed to load estimates');
+  const invoices = await rows(client.from('garage_invoices')
+    .select('id, service_case_id, invoice_number, status, currency, total_amount, issued_at')
+    .eq('tenant_id', tenantId).in('service_case_id', caseIds).order('issued_at', { ascending: false }), 'Failed to load invoices');
+  const payments = invoices.length ? await rows(client.from('garage_payment_records')
+    .select('invoice_id, kind, amount').eq('tenant_id', tenantId).in('invoice_id', invoices.map((i) => i.id)), 'Failed to load payment records') : [];
+  const net = new Map();
+  for (const p of payments) {
+    net.set(p.invoice_id, (net.get(p.invoice_id) || 0) + Math.round(Number(p.amount) * 100) * (p.kind === 'payment' ? 1 : -1));
+  }
+  const outstanding = new Map();
+  const invoiceViews = invoices.map((i) => {
+    const total = Math.round(Number(i.total_amount) * 100);
+    const paid = net.get(i.id) || 0;
+    const status = i.status === 'voided' ? 'voided' : (paid <= 0 ? 'unpaid' : (paid < total ? 'partially_paid' : 'paid'));
+    if (i.status === 'issued' && total - paid > 0) outstanding.set(i.currency, [...(outstanding.get(i.currency) || []), ((total - paid) / 100).toFixed(2)]);
+    return {
+      id: i.id, service_case_id: i.service_case_id, invoice_number: i.invoice_number, status: i.status,
+      currency: i.currency, total_amount: moneyString(i.total_amount, i.currency), issued_at: i.issued_at, payment_status: status,
+      paid_amount: (Math.max(paid, 0) / 100).toFixed(2),
+    };
+  });
+  return {
+    estimates: estimates.filter((e) => e.sent_at).map((e) => ({
+      id: e.id, service_case_id: e.service_case_id, version: e.version, status: e.status, currency: e.currency,
+      total_amount: moneyString(e.sent_total_amount, e.currency), decided_at: e.decided_at,
+    })),
+    invoices: invoiceViews,
+    outstanding_by_currency: [...outstanding.entries()].map(([currency, vals]) => ({ currency, balance: sumMoney(vals, currency) })),
+    note: COMMERCIAL_NOTE,
+  };
+}
+const COMMERCIAL_NOTE = 'Invoices are documents and the payments shown are ones this garage recorded off-platform that CarUp has not verified: they are not proof of paid revenue.';
 
 async function validateSiteAndAdvisor(client, tenantId, changes) {
   if (changes.preferred_branch_id) {

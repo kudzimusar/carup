@@ -164,6 +164,14 @@ router.post('/api/vehicles/:vin/work-orders/:id/authorization', authorizeSession
     if (error.code === '42501') return res.status(403).json({ error: error.message });
     if (error.code === '55000') return res.status(409).json({ error: error.message });
     if (error.code === '22023') throw new ValidationError(error.message);
+    // GARAGE-1.0 OPS04: while a garage estimate is waiting for the custodian, the decision is made
+    // THROUGH that estimate so the two can never disagree.
+    if (/GARAGE_OPS04_DECISION_VIA_ESTIMATE/.test(String(error.message))) {
+      return res.status(409).json({
+        error: 'The garage has sent an estimate for this job. Review it and accept or decline it there.',
+        reason: 'decision_via_estimate',
+      });
+    }
     throw new DatabaseError(error.message);
   }
   const workOrder = typeof data === 'string' ? JSON.parse(data) : data;

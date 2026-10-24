@@ -65,14 +65,14 @@ export const NOT_MEASURABLE = Object.freeze([
   {
     key: 'capacity_utilisation',
     label: 'Capacity utilisation',
-    reason: 'no_capacity_model',
-    detail: 'CarUp records no service bays, slots, shifts or opening hours, so there is no capacity to measure against. Service Network added a case lifecycle, not a scheduling model.',
+    reason: 'no_worked_time_model',
+    detail: 'Garage sites, opening hours, workforce schedules and appointment capacity now exist and describe what is PLANNED. Nothing records time actually worked on a job, so how much of that capacity was used cannot be measured.',
   },
   {
     key: 'team_performance',
     label: 'Team performance',
-    reason: 'no_staffing_data',
-    detail: 'Service Network records WHO a work order was assigned to (work_order_assignments), but a garage still has no roster, headcount, role or working-hours record, so assignment counts are not performance. Publishing per-person output as a performance measure is a staffing judgement CarUp has no mandate or source for.',
+    reason: 'no_worked_time_model',
+    detail: 'Service Network records WHO a work order was assigned to (work_order_assignments) and the garage now has rosters, schedules and working hours, but assignment and schedule counts are not performance. Nothing records time worked or task outcomes, and publishing per-person output as a performance measure is a staffing judgement CarUp has no measured source for.',
   },
 ]);
 

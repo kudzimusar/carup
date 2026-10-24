@@ -8,6 +8,7 @@ import {
 import {
   ConflictError, DatabaseError, ForbiddenError, NotFoundError, ValidationError,
 } from '../../utils/errors.js';
+import { GARAGE_NOTIFICATION_EVENTS, notifyCaseAudience } from './garageNotificationService.js';
 
 const TERMINAL = new Set(['declined', 'cancelled', 'fulfilled', 'no_show']);
 const GARAGE_STATUS_TARGETS = new Set(['declined', 'cancelled', 'fulfilled', 'no_show']);
@@ -570,7 +571,21 @@ export async function addWorkforceUnavailability(
   return { unavailability: Array.isArray(data) ? data[0] : data };
 }
 
-async function adminAppointmentRpc(client, actor, functionName, appointmentId, body = {}) {
+/** Tell the requester (and only them) what the garage decided about their appointment. Best-effort. */
+async function notifyRequester(client, appointment, eventType, deps) {
+  try {
+    const { data: serviceCase } = await client.from('service_cases')
+      .select('id, vin, garage_tenant_id, requester_user_id').eq('id', appointment.service_case_id).maybeSingle();
+    if (!serviceCase?.requester_user_id) return { attempted: 0, emitted: 0, failures: ['no requester'] };
+    return await notifyCaseAudience(client, {
+      eventType, serviceCase, entity: { field: 'appointmentId', id: appointment.id }, recipients: [serviceCase.requester_user_id],
+    }, deps);
+  } catch (error) {
+    return { attempted: 0, emitted: 0, failures: [error?.message || 'notification failed'] };
+  }
+}
+
+async function adminAppointmentRpc(client, actor, functionName, appointmentId, body = {}, eventType = null, deps = {}) {
   const tenantId = adminTenant(actor);
   const params = {
     p_tenant_id: tenantId,
@@ -584,19 +599,23 @@ async function adminAppointmentRpc(client, actor, functionName, appointmentId, b
   if (params.p_starts_at >= params.p_ends_at) throw new ValidationError('ends_at must be after starts_at');
   const { data, error } = await client.rpc(functionName, params);
   if (error) throw rpcFailure(error, 'Could not update appointment schedule');
-  return { appointment: appointmentView(Array.isArray(data) ? data[0] : data) };
+  const appointment = appointmentView(Array.isArray(data) ? data[0] : data);
+  const notification = eventType ? await notifyRequester(client, appointment, eventType, deps) : undefined;
+  return { appointment, ...(notification ? { notification } : {}) };
 }
 
-export async function confirmGarageAppointment(client = defaultClient, actor = {}, appointmentId, body = {}) {
-  return adminAppointmentRpc(client, actor, 'garage_ops03_confirm_appointment', appointmentId, body);
+export async function confirmGarageAppointment(client = defaultClient, actor = {}, appointmentId, body = {}, deps = {}) {
+  return adminAppointmentRpc(client, actor, 'garage_ops03_confirm_appointment', appointmentId, body,
+    GARAGE_NOTIFICATION_EVENTS.appointmentConfirmed, deps);
 }
 
-export async function rescheduleGarageAppointment(client = defaultClient, actor = {}, appointmentId, body = {}) {
-  return adminAppointmentRpc(client, actor, 'garage_ops03_reschedule_appointment', appointmentId, body);
+export async function rescheduleGarageAppointment(client = defaultClient, actor = {}, appointmentId, body = {}, deps = {}) {
+  return adminAppointmentRpc(client, actor, 'garage_ops03_reschedule_appointment', appointmentId, body,
+    GARAGE_NOTIFICATION_EVENTS.appointmentRescheduled, deps);
 }
 
 export async function transitionGarageAppointment(
-  client = defaultClient, actor = {}, appointmentId, targetStatus,
+  client = defaultClient, actor = {}, appointmentId, targetStatus, deps = {},
 ) {
   const tenantId = adminTenant(actor);
   const status = requiredString(targetStatus, 'status', 30);
@@ -609,5 +628,9 @@ export async function transitionGarageAppointment(
     p_tenant_id: tenantId,
   });
   if (error) throw rpcFailure(error, 'Could not change appointment status');
-  return { appointment: appointmentView(Array.isArray(data) ? data[0] : data) };
+  const appointment = appointmentView(Array.isArray(data) ? data[0] : data);
+  // only the decisions a customer is waiting on are announced; a visit being marked fulfilled / no-show is the garage's own bookkeeping
+  const eventType = { declined: GARAGE_NOTIFICATION_EVENTS.appointmentDeclined, cancelled: GARAGE_NOTIFICATION_EVENTS.appointmentCancelled }[status];
+  const notification = eventType ? await notifyRequester(client, appointment, eventType, deps) : undefined;
+  return { appointment, ...(notification ? { notification } : {}) };
 }

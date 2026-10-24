@@ -5,6 +5,7 @@ import { GARAGE_ADMIN_ROLES, GARAGE_TENANT_TYPE, GARAGE_WORKSPACE_ROLES } from '
 import {
   acceptServiceCase,
   cancelServiceCase,
+  completeJob,
   completeServiceCase,
   declineServiceCase,
   getServiceCase,
@@ -69,6 +70,11 @@ router.post('/api/service-cases/:caseId/decline', GARAGE_WORKSPACE, asyncHandler
 
 router.post('/api/service-cases/:caseId/start', GARAGE_WORKSPACE, asyncHandler(async (req, res) => {
   res.json({ success: true, ...(await startServiceCase(supabase, req.userContext, req.params.caseId)) });
+}));
+
+// GARAGE-1.0 OPS05: completes the JOB (work order + case, one transaction). Requires recorded work.
+router.post('/api/service-cases/:caseId/complete-job', GARAGE_WORKSPACE, asyncHandler(async (req, res) => {
+  res.json({ success: true, ...(await completeJob(supabase, req.userContext, req.params.caseId)) });
 }));
 
 router.post('/api/service-cases/:caseId/complete', GARAGE_WORKSPACE, asyncHandler(async (req, res) => {

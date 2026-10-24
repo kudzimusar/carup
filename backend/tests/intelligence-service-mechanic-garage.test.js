@@ -202,10 +202,14 @@ test('every unmeasurable garage capability is declared with a reason', async () 
 });
 
 test('capacity and team performance are still absent, for the right reasons', () => {
+  // GARAGE-1.0 authority evolution: a capacity model and rosters now exist (OPS01/OPS03), so the old reasons
+  // ('no_capacity_model', 'no_staffing_data') would be false statements about CarUp's own schema. These two
+  // remain unsupported for the TRUE reason: nothing records time actually worked, only what was planned.
   const capacity = NOT_MEASURABLE.find((n) => n.key === 'capacity_utilisation');
-  assert.equal(capacity.reason, 'no_capacity_model');
+  assert.equal(capacity.reason, 'no_worked_time_model');
+  assert.match(capacity.detail, /PLANNED/);
   const team = NOT_MEASURABLE.find((n) => n.key === 'team_performance');
-  assert.equal(team.reason, 'no_staffing_data');
+  assert.equal(team.reason, 'no_worked_time_model');
   // Assignment now exists; the reason must say why that still is not performance.
   assert.match(team.detail, /work_order_assignments/);
   assert.match(team.detail, /not performance/i);

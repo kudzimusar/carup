@@ -1,0 +1,82 @@
+{
+  "mode": "verify",
+  "at": "2026-10-24T11:04:03.075Z",
+  "product_sha": "368d572772ed7d1de674d8568fff171b1eb9930d",
+  "target_project_ref": "eoyenigwevnxwwhyhaer",
+  "migration_tip": "20261024140000",
+  "ledger_since_ops03": [
+    {
+      "version": "20261023140000",
+      "name": "garage_ops03_appointments_scheduling_capacity",
+      "created_by": null
+    },
+    {
+      "version": "20261024100000",
+      "name": "garage_ops04_estimates_and_authorization",
+      "created_by": "garage-1.0-final-campaign"
+    },
+    {
+      "version": "20261024110000",
+      "name": "garage_ops05_workshop_execution_gates",
+      "created_by": "garage-1.0-final-campaign"
+    },
+    {
+      "version": "20261024120000",
+      "name": "garage_ops06_parts_stock",
+      "created_by": "garage-1.0-final-campaign"
+    },
+    {
+      "version": "20261024130000",
+      "name": "garage_ops07_invoice_payment_receipt",
+      "created_by": "garage-1.0-final-campaign"
+    },
+    {
+      "version": "20261024140000",
+      "name": "garage_communications_events_and_template",
+      "created_by": "garage-1.0-final-campaign"
+    }
+  ],
+  "counts": {
+    "functions": 50,
+    "tables": 11,
+    "triggers": 21,
+    "constraints": 45,
+    "indexes": 24
+  },
+  "expected_counts": {
+    "functions": 50,
+    "tables": 11,
+    "triggers": 21,
+    "constraints": 45,
+    "indexes": 24
+  },
+  "anon_executable_functions": [
+    "garage_ops04_after_case_terminal (trigger)",
+    "garage_ops04_after_work_order_change (trigger)",
+    "garage_ops04_currency_scale",
+    "garage_ops04_events_append_only (trigger)",
+    "garage_ops04_guard_estimate_delete (trigger)",
+    "garage_ops04_guard_estimate_update (trigger)",
+    "garage_ops04_guard_line (trigger)",
+    "garage_ops04_guard_work_order_decision (trigger)",
+    "garage_ops04_is_terminal_work_order_status",
+    "garage_ops05_guard_case_completion (trigger)",
+    "garage_ops05_guard_case_start (trigger)",
+    "garage_ops05_guard_service_record (trigger)",
+    "garage_ops05_guard_work_order_completion (trigger)",
+    "garage_ops06_guard_stock_write (trigger)",
+    "garage_ops06_guard_usage (trigger)",
+    "garage_ops06_movements_append_only (trigger)",
+    "garage_ops07_append_only (trigger)",
+    "garage_ops07_guard_invoice_update (trigger)",
+    "garage_ops07_guard_line_insert (trigger)",
+    "garage_ops07_guard_payment_insert (trigger)",
+    "garage_ops07_guard_receipt (trigger)"
+  ],
+  "anon_or_authenticated_table_select": [],
+  "all_new_tables_rls_forced": true,
+  "garage_template_rows": 1,
+  "dedupe_function_matches_migration": true,
+  "problems": [],
+  "verdict": "CATALOG_MATCHES_EXPECTED"
+}
