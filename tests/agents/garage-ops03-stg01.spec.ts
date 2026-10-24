@@ -111,7 +111,7 @@ async function historicalProof(c:pg.Client){
  const rows=await c.query("select a.id::text appointment_id,a.service_case_id::text,a.status,a.starts_at,a.ends_at,a.appointment_timezone,a.planned_workforce_profile_id::text,a.created_at,array(select e.event_type from garage_appointment_events e where e.appointment_id=a.id order by e.created_at,e.id) events,(select count(*)::int from mechanic_work_orders w where w.service_case_id=a.service_case_id) work_orders,(select count(*)::int from service_records s where s.service_case_id=a.service_case_id) service_records from garage_appointments a join service_cases sc on sc.id=a.service_case_id where sc.request_summary like 'SYNTHETIC / UAT OPS03 %' order by a.created_at")
  const hasConfirmed=rows.rows.some(r=>r.events.includes('requested')&&r.events.includes('confirmed'))
  const hasRescheduled=rows.rows.some(r=>r.events.includes('confirmed')&&r.events.includes('rescheduled'))
- const harareTruth=rows.rows.some(r=>String(r.starts_at).includes('2026-10-26')&&r.appointment_timezone==='Africa/Harare'&&r.planned_workforce_profile_id)
+ const harareTruth=rows.rows.some(r=>new Date(r.starts_at).toISOString().startsWith('2026-10-26')&&r.appointment_timezone==='Africa/Harare'&&r.planned_workforce_profile_id)
  expect(hasConfirmed).toBe(true);expect(hasRescheduled).toBe(true);expect(harareTruth).toBe(true)
  out('historical-r2-reconstruction.json',{
   appointment_count:rows.rowCount,
