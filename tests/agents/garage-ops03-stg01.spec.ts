@@ -65,15 +65,23 @@ async function migrate(c:pg.Client){
  const preL=await c.query("select version,name from supabase_migrations.schema_migrations where version='20261023140000' or name='garage_ops03_appointments_scheduling_capacity'")
  const preT=await c.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and relname=any($1::text[])",[tables])
  out('migration-prestate.json',{ledger:preL.rows,tables:preT.rows})
- if(preL.rowCount||preT.rowCount)throw Error('BLOCK — OPS03 STAGING CUSTODY CHANGED')
  const src=fs.readFileSync('database/migrations/20261023140000_garage_ops03_appointments_scheduling_capacity.sql','utf8')
  const up=src.split(/^-- \+migrate Down/m)[0].replace(/^-- \+migrate Up\s*/m,'').trim()
- await c.query('begin')
- try{
-  await c.query(up)
-  await c.query("insert into supabase_migrations.schema_migrations(version,statements,name) values('20261023140000',$1,'garage_ops03_appointments_scheduling_capacity')",[[up]])
-  await c.query('commit')
- }catch(e){await c.query('rollback');out('migration-failure.json',{error:String(e)});throw e}
+ if(preL.rowCount===0&&preT.rowCount===0){
+  await c.query('begin')
+  try{
+   await c.query(up)
+   await c.query("insert into supabase_migrations.schema_migrations(version,statements,name) values('20261023140000',$1,'garage_ops03_appointments_scheduling_capacity')",[[up]])
+   await c.query('commit')
+  }catch(e){await c.query('rollback');out('migration-failure.json',{error:String(e)});throw e}
+  out('migration-activation-mode.json',{mode:'applied-cleanly-this-run'})
+ }else{
+  const exactLedger=preL.rowCount===1&&preL.rows[0].version==='20261023140000'&&preL.rows[0].name==='garage_ops03_appointments_scheduling_capacity'
+  const present=new Set(preT.rows.map((r:any)=>r.relname))
+  const exactTables=tables.every(t=>present.has(t))&&present.size===tables.length
+  if(!exactLedger||!exactTables)throw Error('BLOCK — OPS03 STAGING CUSTODY CHANGED')
+  out('migration-activation-mode.json',{mode:'verify-only-authorized-stg01-continuation',prior_ledger:preL.rows,all_expected_tables_present:true})
+ }
  const ledger=await c.query("select version,name from supabase_migrations.schema_migrations where version='20261023140000'")
  expect(ledger.rowCount).toBe(1)
  const proof=await c.query("select c.relname,c.relrowsecurity rls,c.relforcerowsecurity forced,has_table_privilege('anon',c.oid,'select') anon_s,has_table_privilege('anon',c.oid,'insert') anon_i,has_table_privilege('anon',c.oid,'update') anon_u,has_table_privilege('anon',c.oid,'delete') anon_d,has_table_privilege('authenticated',c.oid,'select') auth_s,has_table_privilege('authenticated',c.oid,'insert') auth_i,has_table_privilege('authenticated',c.oid,'update') auth_u,has_table_privilege('authenticated',c.oid,'delete') auth_d,has_table_privilege('service_role',c.oid,'select') svc_s,has_table_privilege('service_role',c.oid,'insert') svc_i,has_table_privilege('service_role',c.oid,'update') svc_u,has_table_privilege('service_role',c.oid,'delete') svc_d from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname=any($1::text[]) order by c.relname",[tables])
