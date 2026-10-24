@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi, type AppointmentAvailabilityResponse, type GarageScheduleResponse, type GarageSchedulingConfiguration } from '@/hooks/useCarUpApi'
 import { SN_PAGE } from '@/lib/serviceNetworkLayout'
+import { garageDateTimeLocalToInstant, instantToGarageDateTimeLocal } from '@/lib/garageSchedulingTime'
 
 const STATUS_TONE: Record<string, string> = {
   requested: 'bg-amber-500 text-white',
@@ -121,6 +122,7 @@ export default function GarageSchedule() {
 
   const activeSites = (config?.sites || []).filter((s) => s.is_active)
   const activeWorkers = (config?.workforce || []).filter((w) => w.employment_status === 'active')
+  const appointmentTimezone = config?.sites.find((s) => s.id === appointmentSite)?.timezone || null
 
   function chooseSettingsSite(siteId: string) {
     setSettingsSite(siteId)
@@ -205,23 +207,35 @@ export default function GarageSchedule() {
   }
 
   function openAppointmentEditor(a: GarageScheduleResponse['appointments'][number]) {
-    setEditingAppointment(a.id)
-    setAppointmentSite(a.branch_id)
-    setAppointmentStart(a.starts_at ? new Date(a.starts_at).toISOString().slice(0,16) : '')
-    setAppointmentEnd(a.ends_at ? new Date(a.ends_at).toISOString().slice(0,16) : '')
-    setAppointmentWorker(a.planned_workforce_profile_id || '')
+    const timezone = a.appointment_timezone || a.branch?.timezone
+    if (!timezone) {
+      setError('Appointment timezone is not configured')
+      return
+    }
+    try {
+      setEditingAppointment(a.id)
+      setAppointmentSite(a.branch_id)
+      setAppointmentStart(a.starts_at ? instantToGarageDateTimeLocal(a.starts_at, timezone) : '')
+      setAppointmentEnd(a.ends_at ? instantToGarageDateTimeLocal(a.ends_at, timezone) : '')
+      setAppointmentWorker(a.planned_workforce_profile_id || '')
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Appointment time could not be prepared for editing')
+    }
   }
 
   async function saveAppointment(a: GarageScheduleResponse['appointments'][number]) {
     if (!appointmentSite || !appointmentStart || !appointmentEnd || !appointmentWorker) return
     setBusy(a.id); setError(null)
-    const body = {
-      branch_id: appointmentSite,
-      starts_at: new Date(appointmentStart).toISOString(),
-      ends_at: new Date(appointmentEnd).toISOString(),
-      planned_workforce_profile_id: appointmentWorker,
-    }
     try {
+      const timezone = config?.sites.find((site) => site.id === appointmentSite)?.timezone
+      if (!timezone) throw new Error('Selected site timezone is not configured')
+      const body = {
+        branch_id: appointmentSite,
+        starts_at: garageDateTimeLocalToInstant(appointmentStart, timezone),
+        ends_at: garageDateTimeLocalToInstant(appointmentEnd, timezone),
+        planned_workforce_profile_id: appointmentWorker,
+      }
       if (a.status === 'requested') await confirmGarageAppointment(a.id, body)
       else await rescheduleGarageAppointment(a.id, body)
       setEditingAppointment(null)
@@ -353,6 +367,9 @@ export default function GarageSchedule() {
                           <label className="text-sm">Ends
                             <input aria-label={'Appointment end ' + a.id} type="datetime-local" className="mt-1 w-full min-h-11 rounded-md border px-3" value={appointmentEnd} onChange={(e) => setAppointmentEnd(e.target.value)} />
                           </label>
+                          <p className="sm:col-span-2 text-xs text-gray-500" data-testid={'appointment-timezone-' + a.id}>
+                            Times use {appointmentTimezone || 'the selected site timezone once configured'}
+                          </p>
                           <div className="sm:col-span-2 flex flex-wrap gap-2">
                             <Button disabled={busy === a.id || !appointmentSite || !appointmentWorker || !appointmentStart || !appointmentEnd} onClick={() => void saveAppointment(a)}>
                               {a.status === 'requested' ? 'Confirm appointment' : 'Save reschedule'}
