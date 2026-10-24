@@ -181,7 +181,8 @@ async function requestUI(page:Page,cs:{id:string,summary:string},label:string){
 
 async function appointmentCard(page:Page,caseId:string){
  await page.goto(WEB+'/garage/schedule',{waitUntil:'networkidle'})
- const card=page.getByTestId('appointment-card').filter({hasText:'Service Case '+caseId})
+ const matching=page.getByTestId('appointment-card').filter({hasText:'Service Case '+caseId})
+ const card=matching.filter({has:page.getByRole('button',{name:/Review and confirm|Reschedule/})})
  await expect(card).toHaveCount(1)
  return card
 }
