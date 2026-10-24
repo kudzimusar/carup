@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: garage-ops03-stg01-r2-close
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
