@@ -336,3 +336,94 @@ describe('CAP-04: declared vessel legs', () => {
     expect(screen.getByTestId('journey-exception-LEG_PORT_MISMATCH')).toHaveTextContent(/disagree/i)
   })
 })
+
+describe('CAP-05: the estimate and its history', () => {
+  const etaComposed = (over = {}) => ({
+    availability: 'composed', basis: 'revision', original: '2026-10-01T00:00:00Z', current: '2026-10-08T00:00:00Z',
+    change_days: 7, revision_count: 2, last_revised_at: '2026-09-10T00:00:00Z',
+    revisions: [
+      { estimated_arrival: '2026-10-05T00:00:00Z', observed_at: '2026-09-01T00:00:00Z', reason: 'First notice', source: 'OPERATOR_DECLARED', superseded: true },
+      { estimated_arrival: '2026-10-08T00:00:00Z', observed_at: '2026-09-10T00:00:00Z', reason: null, source: 'OPERATOR_DECLARED', superseded: false },
+    ],
+    note: 'An estimate can move. A revised estimate is still an estimate, never a record that anything arrived.', ...over,
+  })
+  const withEta = (eta: unknown) => journey({ shipping: { ...journey().shipping, eta } })
+
+  it('shows the CURRENT estimate in the Arriving card — and still does not say arrived', async () => {
+    state.view = withEta(etaComposed())
+    await open()
+    expect(screen.getByTestId('journey-arrival-headline')).toHaveTextContent('Not recorded as arrived')
+    expect(screen.getByTestId('journey-arrival-detail')).toHaveTextContent(/Estimated Oct 8, 2026/)
+    expect(screen.getByTestId('journey-eta-basis')).toHaveTextContent(/revised estimate/i)
+  })
+
+  it('lists the revisions oldest first, with reasons, a superseded marker, and the original beside the current', async () => {
+    state.view = withEta(etaComposed())
+    await open()
+    const card = screen.getByTestId('journey-eta')
+    expect(card).toHaveTextContent(/Current estimate/i)
+    expect(card).toHaveTextContent(/Original \(shipment record\)/i)
+    expect(card).toHaveTextContent('The estimate has moved 7 days later since it was first recorded.')
+    const items = within(card).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('Estimated arrival Oct 5, 2026')
+    expect(items[0]).toHaveTextContent('Reason given: First notice')
+    expect(items[0]).toHaveTextContent(/superseded/i)
+    expect(items[1]).toHaveTextContent('Estimated arrival Oct 8, 2026')
+    expect(items[1]).not.toHaveTextContent(/superseded/i)
+  })
+
+  it('puts the current estimate and the original each beside the right date', async () => {
+    state.view = withEta(etaComposed())
+    await open()
+    const card = screen.getByTestId('journey-eta')
+    expect(within(card).getByText('Current estimate').parentElement).toHaveTextContent('Oct 8, 2026')
+    expect(within(card).getByText('Current estimate').parentElement).not.toHaveTextContent('Oct 1, 2026')
+    expect(within(card).getByText('Original (shipment record)').parentElement).toHaveTextContent('Oct 1, 2026')
+    expect(within(card).getByText('Original (shipment record)').parentElement).not.toHaveTextContent('Oct 8, 2026')
+  })
+
+  it('says "No reason was recorded" — and never invents one', async () => {
+    state.view = withEta(etaComposed())
+    await open()
+    const items = within(screen.getByTestId('journey-eta')).getAllByRole('listitem')
+    expect(items[1]).toHaveTextContent('No reason was recorded.')
+  })
+
+  it('never words a revision as an arrival', async () => {
+    state.view = withEta(etaComposed())
+    await open()
+    for (const entry of within(screen.getByTestId('journey-eta')).getAllByRole('listitem')) {
+      expect(entry).not.toHaveTextContent(/\bdeparted\b|\barrived\b|\bsailed\b/i)
+    }
+  })
+
+  it('shows no history card when nothing was revised, and says the estimate is the shipment record’s own', async () => {
+    state.view = withEta(etaComposed({ basis: 'shipment_record', current: '2026-10-01T00:00:00Z', change_days: null, revision_count: 0, last_revised_at: null, revisions: [] }))
+    await open()
+    expect(screen.queryByTestId('journey-eta')).toBeNull()
+    expect(screen.getByTestId('journey-eta-basis')).toHaveTextContent(/shipment record/i)
+  })
+
+  it('shows no estimate machinery where it does not apply, or where an older API sent none', async () => {
+    state.view = withEta({ availability: 'not_applicable' })
+    await open()
+    expect(screen.queryByTestId('journey-eta')).toBeNull()
+    expect(screen.queryByTestId('journey-eta-basis')).toBeNull()
+  })
+
+  it('still works when the service predates estimate history', async () => {
+    state.view = journey({ shipping: { ...journey().shipping } })
+    await open()
+    expect(screen.getByTestId('journey-arrival-headline')).toHaveTextContent('Not recorded as arrived')
+    expect(screen.queryByTestId('journey-eta')).toBeNull()
+  })
+
+  it('names the estimate history in the provenance block, in words', async () => {
+    state.view = withEta(etaComposed())
+    state.view = { ...(state.view as object), provenance: { ...journey().provenance, eta: { authority: 'estimate revisions' } } }
+    await open()
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/estimate history/i)
+    expect(screen.getByTestId('journey-provenance')).not.toHaveTextContent(/estimate revisions/)
+  })
+})

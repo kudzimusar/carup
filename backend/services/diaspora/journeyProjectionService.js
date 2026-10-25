@@ -44,6 +44,7 @@ import {
 } from './diasporaAuthorization.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
+import { listEtaRevisionsForShipment, projectEta } from './shipmentObservationRead.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -347,7 +348,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   if (goodsNotOnShipment) {
     // Cargo that did not travel has no journey to follow, and a container-level shipment is not theirs to read.
     state = loadState;
-    shipping = { association: 'not_applicable', dates: null, references: null, legs: NOT_APPLICABLE };
+    shipping = { association: 'not_applicable', dates: null, references: null, legs: NOT_APPLICABLE, eta: NOT_APPLICABLE };
   } else {
     const { data: byOrder } = await client.from(SHIPMENTS).select('*')
       .eq('import_order_id', order.id).is('deleted_at', null);
@@ -372,6 +373,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
         dates: null,
         references: null,
         legs: NOT_APPLICABLE,
+        eta: NOT_APPLICABLE,
       };
     } else {
       const shipment = picked.shipment;
@@ -418,12 +420,16 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
           note: 'The vessel details name different ports than the shipment record. The records disagree.',
         });
       }
+      // The estimate, current BESIDE original. An accepted revision is an observation shown next to the
+      // shipment record's own estimate, never written over it — and an estimate is never an arrival.
+      const eta = projectEta(shipment, await listEtaRevisionsForShipment(shipment.id, client));
       shipping = {
         association: picked.association,
         reference: `SHPM-${String(shipment.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`,
         dates,
         references: projectReferences(shipment),
         legs,
+        eta,
       };
     }
   }
@@ -463,6 +469,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       shipping: { authority: 'T11', association: shipping.association },
       timeline: { authority: 'T11 + T10' },
       legs: { authority: 'declared legs', note: 'Declared by the organiser, not observed.' },
+      eta: { authority: 'estimate revisions', note: 'Recorded by the organiser; shown beside the shipment record, not over it.' },
       contacts: { authority: 'intake (T3)', note: 'Private: shown only to the order owner and platform admins.' },
     },
     generated_at: new Date().toISOString(),

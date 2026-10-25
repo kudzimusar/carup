@@ -22,7 +22,7 @@
  */
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { requireUserContext } from './diasporaAuthorization.js';
-import { assertMayMoveShipment } from './diasporaShipmentService.js';
+import { loadShipmentWriteContext as loadShipmentContext } from './shipmentWriteContext.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
@@ -31,8 +31,6 @@ import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
 export { listLegsForShipment, projectLeg };
 
 const LEGS = 'diaspora_shipment_legs';
-const SHIPMENTS = 'diaspora_shipments';
-const ORDERS = 'diaspora_import_orders';
 const DOCUMENTS = 'diaspora_trade_documents';
 
 /** The sources the database allows. Only the first two can be declared by a caller today. */
@@ -139,15 +137,6 @@ function assertCoherent(merged) {
     && new Date(merged.estimated_arrival_date) < new Date(merged.planned_departure_date)) {
     throw new ValidationError('The estimated arrival cannot be before the planned departure');
   }
-}
-
-async function loadShipmentContext(client, shipmentId, context) {
-  const { data: shipment } = await client.from(SHIPMENTS).select('*').eq('id', shipmentId).is('deleted_at', null).maybeSingle();
-  if (!shipment) throw new NotFoundError('Shipment not found');
-  const { data: order } = await client.from(ORDERS).select('*').eq('id', shipment.import_order_id).is('deleted_at', null).maybeSingle();
-  if (!order) throw new NotFoundError('Import order not found');
-  await assertMayMoveShipment(order, shipment.container_id || null, context, client);
-  return { shipment, order };
 }
 
 /** "From the bill of lading" may only be said of a live document that belongs to THIS order. */

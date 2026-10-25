@@ -61,6 +61,7 @@ function world(over = {}) {
     diaspora_shipments: over.shipments === undefined ? [shipment('ship-1')] : over.shipments.map((s) => shipment(s.id, s)),
     diaspora_shipment_stage_events: over.events || [],
     diaspora_shipment_legs: over.legs || [],
+    diaspora_shipment_observations: over.observations || [],
   });
 }
 
@@ -511,6 +512,142 @@ test('CAP-04: reads stay bounded however many legs there are', async () => {
 
 test('CAP-04: composing legs still writes nothing', async () => {
   const client = world({ legs: [leg()] });
+  const writes = [];
+  const trapped = { ...client, from(table) {
+    const chain = client.from(table);
+    return new Proxy(chain, { get(target, prop) {
+      if (['insert', 'update', 'delete', 'upsert'].includes(prop)) writes.push(`${prop} ${table}`);
+      const v = target[prop]; return typeof v === 'function' ? v.bind(target) : v;
+    } });
+  } };
+  await getJourney('import_order', 'ord-a', BUYER, opts(trapped));
+  assert.deepEqual(writes, []);
+});
+
+// ══ CAP-05: estimate history, composed ══════════════════════════════════════
+//
+// The estimate is shown as TWO values and never merged: the shipment record's own (`original`, T11's)
+// and the latest accepted revision (`current`). A revision is an observation — an input — shown beside
+// the record, not written over it, and an estimate is never an arrival.
+
+const rev = (over = {}) => ({
+  id: 'obs-1', shipment_id: 'ship-1', provider_id: 'OPERATOR_DECLARED', provider_event_id: 'evt-secret', kind: 'ETA_REVISION',
+  observed_at: '2026-09-10T00:00:00Z', received_at: '2026-09-10T01:00:00Z', payload: { estimated_arrival: '2026-10-08T00:00:00Z', reason: 'Port congestion' },
+  source_reference: 'doc-secret-ref', status: 'ACCEPTED', decided_by: 'u-secret-decider', decided_at: '2026-09-10T01:00:00Z', created_by: 'u-secret-author', ...over,
+});
+
+test('CAP-05: with no revision, the estimate is the shipment record\'s own, and says so', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
+  assert.equal(j.shipping.eta.availability, 'composed');
+  assert.equal(j.shipping.eta.basis, 'shipment_record');
+  assert.equal(j.shipping.eta.current, j.shipping.eta.original);
+  assert.equal(j.shipping.eta.revision_count, 0);
+  assert.deepEqual(j.shipping.eta.revisions, []);
+});
+
+test('CAP-05: with no estimate anywhere, none is invented', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world({ shipments: [{ id: 'ship-1', estimated_arrival_date: null }] })));
+  assert.equal(j.shipping.eta.basis, 'none');
+  assert.equal(j.shipping.eta.current, null);
+});
+
+test('CAP-05: the latest accepted revision is the current estimate, shown beside the original, with why', async () => {
+  const w = world({ observations: [
+    rev({ id: 'o1', observed_at: '2026-09-01T00:00:00Z', payload: { estimated_arrival: '2026-10-05T00:00:00Z', reason: 'First notice' }, status: 'SUPERSEDED' }),
+    rev({ id: 'o2' }),
+  ] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.shipping.eta.basis, 'revision');
+  assert.equal(j.shipping.eta.original, '2026-10-01T00:00:00Z');
+  assert.equal(j.shipping.eta.current, '2026-10-08T00:00:00Z');
+  assert.equal(j.shipping.eta.change_days, 7);
+  assert.equal(j.shipping.eta.revision_count, 2);
+  assert.deepEqual(j.shipping.eta.revisions.map((r) => r.reason), ['First notice', 'Port congestion']);
+  assert.equal(j.shipping.eta.revisions[0].superseded, true);
+  assert.match(j.shipping.eta.note, /still an estimate/i);
+});
+
+test('CAP-05: the shipment record\'s own dates are untouched — a revision sits beside them, not over them', async () => {
+  const w = world({ observations: [rev()] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.shipping.dates.estimated_arrival, '2026-10-01T00:00:00Z', 'a revision overwrote the T11 estimate');
+  const t11 = await getMyShipmentTracking('cargo_reservation', 'res-a', BUYER, opts(w));
+  assert.deepEqual(j.shipping.dates, t11.dates, 'the Journey\'s dates drifted from T11\'s own projection');
+});
+
+test('CAP-05: a revised estimate never becomes an arrival or moves the state', async () => {
+  const w = world({ observations: [rev({ payload: { estimated_arrival: '2026-09-01T00:00:00Z', reason: null } })] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
+  assert.equal(j.shipping.dates.observed_arrival, null);
+});
+
+test('CAP-05: observations that are only RECEIVED or REJECTED, or of another kind, count for nothing', async () => {
+  const w = world({ observations: [
+    rev({ id: 'r1', status: 'RECEIVED', decided_by: null, decided_at: null, payload: { estimated_arrival: '2027-01-01T00:00:00Z', reason: 'Unverified' } }),
+    rev({ id: 'r2', status: 'REJECTED', payload: { estimated_arrival: '2027-02-01T00:00:00Z', reason: 'Rejected' } }),
+    rev({ id: 'r3', kind: 'PORT_EVENT', payload: { port: 'Somewhere' } }),
+  ] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.shipping.eta.basis, 'shipment_record');
+  assert.equal(j.shipping.eta.revision_count, 0);
+  const text = JSON.stringify(j);
+  assert.ok(!text.includes('Unverified') && !text.includes('2027-01-01') && !text.includes('Somewhere'), 'an untrusted observation reached the customer');
+});
+
+test('CAP-05: another shipment\'s revisions never leak into this one', async () => {
+  const w = world({ observations: [rev({ shipment_id: 'ship-OTHER', payload: { estimated_arrival: '2030-01-01T00:00:00Z', reason: 'Not yours' } })] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.shipping.eta.revision_count, 0);
+  assert.ok(!JSON.stringify(j).includes('Not yours'));
+});
+
+test('CAP-05: who decided, who recorded, event ids and references never leave the service', async () => {
+  const w = world({ observations: [rev()] });
+  for (const who of [BUYER, ADMIN, PARTICIPANT]) {
+    const text = JSON.stringify(await getJourney('import_order', 'ord-a', who, opts(w)));
+    for (const leak of ['u-secret-decider', 'u-secret-author', 'evt-secret', 'doc-secret-ref', 'decided_by', 'provider_event_id']) {
+      assert.ok(!text.includes(leak), `${leak} leaked to ${who.id}`);
+    }
+  }
+});
+
+test('CAP-05: an ambiguous shipment, or cargo not on it, has no estimate to show', async () => {
+  const amb = await getJourney('import_order', 'ord-b', COLOADER, opts(world({
+    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }],
+    observations: [rev(), rev({ id: 'o9', shipment_id: 'ship-2', payload: { estimated_arrival: '2031-01-01T00:00:00Z', reason: 'Other' } })],
+  })));
+  assert.equal(amb.shipping.eta.availability, 'not_applicable');
+  assert.ok(!JSON.stringify(amb).includes('2031-01-01') && !JSON.stringify(amb).includes('Port congestion'));
+  const left = await getJourney('import_order', 'ord-a', BUYER, opts(world({
+    observations: [rev()],
+    items: [{ id: 'li-a', load_id: 'load-1', subject_type: 'cargo_reservation', subject_id: 'res-a', outcome: 'LEFT_BEHIND', deleted_at: null }],
+  })));
+  assert.equal(left.shipping.eta.availability, 'not_applicable');
+});
+
+test('CAP-05: a co-loader sees the container shipment\'s estimate history, with no other order\'s identity', async () => {
+  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(world({ observations: [rev()] })));
+  assert.equal(j.shipping.association, 'container');
+  assert.equal(j.shipping.eta.current, '2026-10-08T00:00:00Z');
+  const text = JSON.stringify(j);
+  assert.ok(!text.includes('ord-a') && !text.includes('u-buyer'));
+});
+
+test('CAP-05: reads stay bounded however many revisions there are', async () => {
+  const count = async (observations) => {
+    const client = world({ observations });
+    let n = 0;
+    const counting = { ...client, from(t) { n += 1; return client.from(t); } };
+    await getJourney('import_order', 'ord-a', BUYER, opts(counting));
+    return n;
+  };
+  const many = Array.from({ length: 15 }, (_, i) => rev({ id: `o${i}`, provider_event_id: `e${i}`, observed_at: `2026-09-${String(10 + (i % 15)).padStart(2, '0')}T00:00:00Z`, status: i === 14 ? 'ACCEPTED' : 'SUPERSEDED' }));
+  assert.equal(await count([rev()]), await count(many), 'query count grew with the number of revisions');
+});
+
+test('CAP-05: composing the estimate history writes nothing', async () => {
+  const client = world({ observations: [rev()] });
   const writes = [];
   const trapped = { ...client, from(table) {
     const chain = client.from(table);

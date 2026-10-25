@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { AlertTriangle, Anchor, FileText, Loader2, MapPin, Ship, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, Anchor, Clock, FileText, Loader2, MapPin, Ship, ShieldCheck } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type Journey } from '@/hooks/useTradeLogisticsApi'
@@ -31,14 +31,18 @@ import {
   authorityLabel,
   describeArrival,
   describeDeparture,
+  estimateChange,
   estimatedArrival,
   exceptionText,
   lastRecordedUpdate,
   legRoute,
   legTitle,
   plannedDeparture,
+  revisionReason,
+  revisionTitle,
   routeLabel,
   sectionKeyForTab,
+  shortDate,
   shortRef,
   sourceLabel,
   timelineLabel,
@@ -107,7 +111,11 @@ export default function JourneyArrival() {
   const shipping = data.shipping
   const dates = shipping?.dates ?? null
   const departure = describeDeparture(dates)
-  const arrival = describeArrival(dates)
+  // The estimate: the latest accepted revision BESIDE the shipment record's own. An older service may
+  // send none, and an ambiguous shipment has none to show.
+  const eta = shipping?.eta && shipping.eta.availability === 'composed' ? shipping.eta : null
+  const arrival = describeArrival(dates && eta?.current ? { ...dates, estimated_arrival: eta.current } : dates)
+  const etaBasis = eta?.current ? (eta.basis === 'revision' ? 'Latest revised estimate' : 'From the shipment record') : null
   // Shown only where it adds something. An ambiguous or mismatched shipment already has its own alert,
   // and repeating the same sentence three times would bury the one that matters.
   const association = shipping?.association === 'container' ? associationNote('container') : null
@@ -186,7 +194,33 @@ export default function JourneyArrival() {
                   <p className={`flex items-center gap-1.5 ${eyebrow}`}><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Arriving</p>
                   <p className={`mt-1 min-w-0 break-words text-base font-semibold ${arrival.observed ? 'text-slate-900' : 'text-slate-700'}`} data-testid="journey-arrival-headline">{arrival.headline}</p>
                   <p className="mt-0.5 min-w-0 break-words text-sm text-slate-600" data-testid="journey-arrival-detail">{arrival.detail}</p>
+                  {etaBasis ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-basis">{etaBasis}</p> : null}
                 </div>
+              </div>
+            ) : null}
+
+            {eta && eta.revision_count > 0 ? (
+              <div className={`mt-5 ${card}`} data-testid="journey-eta">
+                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Estimate history</h2>
+                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <Row label="Current estimate" value={shortDate(eta.current)} />
+                  <Row label="Original (shipment record)" value={shortDate(eta.original)} />
+                </dl>
+                {estimateChange(eta.change_days) ? (
+                  <p className="mt-2 min-w-0 break-words text-sm text-slate-700">{estimateChange(eta.change_days)}</p>
+                ) : null}
+                <ol className="mt-3 space-y-2">
+                  {eta.revisions.map((r, i) => (
+                    <li key={`${r.observed_at}-${i}`} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                      <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
+                        {revisionTitle(r)}{r.superseded ? <span className="font-normal text-slate-500"> · Superseded</span> : null}
+                      </p>
+                      <p className="min-w-0 break-words text-xs text-slate-600">Recorded {when(r.observed_at)} · {sourceLabel(r.source)}</p>
+                      <p className="min-w-0 break-words text-xs text-slate-600">{revisionReason(r.reason)}</p>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-3 min-w-0 break-words text-xs text-slate-500">{eta.note}</p>
               </div>
             ) : null}
 

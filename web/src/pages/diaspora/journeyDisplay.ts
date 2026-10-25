@@ -164,6 +164,11 @@ export function associationNote(association: string | null | undefined): string 
 
 const dateOnly = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
 
+/** A date alone, or the honest absence of one. */
+export function shortDate(iso: string | null | undefined): string | null {
+  return iso ? dateOnly(iso) : null
+}
+
 /** A planned departure is a plan. It is never worded as an event. */
 export function plannedDeparture(iso: string | null | undefined): string {
   return iso ? `Planned departure ${dateOnly(iso)}` : 'Planned departure not recorded'
@@ -191,6 +196,26 @@ export function legRoute(leg: { port_of_loading?: string | null; port_of_dischar
   return `${from ?? 'loading port not recorded'} \u2192 ${to ?? 'discharge port not recorded'}`
 }
 
+/** How far the estimate has moved since it was first recorded. Said as an estimate; never as an event. */
+export function estimateChange(days: number | null | undefined): string | null {
+  if (days === null || days === undefined || !Number.isFinite(days)) return null
+  if (days === 0) return 'The latest estimate matches the shipment record.'
+  const n = Math.abs(days)
+  return `The estimate has moved ${n} ${n === 1 ? 'day' : 'days'} ${days > 0 ? 'later' : 'earlier'} since it was first recorded.`
+}
+
+/** One revision\u2019s heading. An estimate, worded as one. */
+export function revisionTitle(rev: { estimated_arrival: string | null }): string {
+  return estimatedArrival(rev.estimated_arrival)
+}
+
+/** Why an estimate moved — only if somebody recorded why. */
+export function revisionReason(reason: string | null | undefined): string {
+  return isNonBlank(reason) ? `Reason given: ${String(reason).trim()}` : 'No reason was recorded.'
+}
+
+const isNonBlank = (v: string | null | undefined): boolean => v !== null && v !== undefined && String(v).trim() !== ''
+
 /** Exception wording. A hold is where the goods are; it is never a customs verdict. */
 export function exceptionText(code: string, fallback: string): string {
   switch (code) {
@@ -211,7 +236,7 @@ export function exceptionText(code: string, fallback: string): string {
 export function sourceLabel(source: string | null | undefined): string {
   if (!source) return 'Source not stated'
   if (source === 'T10') return 'Recorded at loading'
-  if (source === 'operator_declared') return 'Stated by the organiser'
+  if (source === 'operator_declared' || source === 'OPERATOR_DECLARED') return 'Stated by the organiser'
   return `Source: ${source}`
 }
 
@@ -224,6 +249,7 @@ const AUTHORITY_UI: Record<string, string> = {
   'T11 + T10 (derived, read-only)': 'Shipment and loading records',
   'intake (T3)': 'Details given when ordering',
   'declared legs': 'Vessel details declared by the organiser',
+  'estimate revisions': 'Estimates recorded by the organiser',
 }
 
 /** The owning record, for people. Unknown authorities get a neutral label, never an internal code. */
@@ -238,6 +264,7 @@ export const PROVENANCE_PART_UI: Record<string, string> = {
   shipping: 'Movement',
   timeline: 'Timeline',
   legs: 'Vessel and route',
+  eta: 'Estimate history',
   contacts: 'Contacts',
 }
 

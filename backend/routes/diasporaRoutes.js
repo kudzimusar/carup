@@ -14,6 +14,7 @@ import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import diasporaSchedulerRouter from './diasporaSchedulerRoutes.js';
 import diasporaJourneyRouter from './diasporaJourneyRoutes.js';
 import diasporaShipmentLegRouter from './diasporaShipmentLegRoutes.js';
+import diasporaShipmentObservationRouter from './diasporaShipmentObservationRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -67,6 +68,9 @@ router.use(diasporaJourneyRouter);
 
 // T11-CAP-04: declared vessel/route legs under a shipment (declared, not observed; supersede, never erase).
 router.use(diasporaShipmentLegRouter);
+
+// T11-CAP-05: estimate-revision observations (append-only inputs; no edit or delete route exists).
+router.use(diasporaShipmentObservationRouter);
 
 // Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
 router.use(diasporaDriveRouter);

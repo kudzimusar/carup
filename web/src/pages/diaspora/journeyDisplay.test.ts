@@ -189,3 +189,38 @@ describe('CAP-04: declared vessel legs are worded as declared, never as movement
     expect(authorityLabel('declared legs')).toMatch(/declared/i)
   })
 })
+
+describe('CAP-05: the estimate and its history are worded as an estimate, never as an event', () => {
+  it('says how far the estimate has moved, and which way, in plain words', async () => {
+    const { estimateChange } = await import('./journeyDisplay')
+    expect(estimateChange(7)).toBe('The estimate has moved 7 days later since it was first recorded.')
+    expect(estimateChange(1)).toBe('The estimate has moved 1 day later since it was first recorded.')
+    expect(estimateChange(-3)).toBe('The estimate has moved 3 days earlier since it was first recorded.')
+    expect(estimateChange(0)).toBe('The latest estimate matches the shipment record.')
+    expect(estimateChange(null)).toBeNull()
+  })
+
+  it('never turns a revision into an arrival', async () => {
+    const { estimateChange, revisionTitle } = await import('./journeyDisplay')
+    for (const days of [7, -3, 0]) expect(estimateChange(days) ?? '').not.toMatch(/\barrived\b/i)
+    expect(revisionTitle({ estimated_arrival: '2026-09-25T00:00:00Z' })).toMatch(/^Estimated arrival /)
+    expect(revisionTitle({ estimated_arrival: null })).toBe('Estimated arrival not recorded')
+  })
+
+  it('states a revision’s reason only if one was recorded', async () => {
+    const { revisionReason } = await import('./journeyDisplay')
+    expect(revisionReason('Port congestion')).toBe('Reason given: Port congestion')
+    expect(revisionReason(null)).toBe('No reason was recorded.')
+    expect(revisionReason('   ')).toBe('No reason was recorded.')
+  })
+
+  it('words the source of a revision, and never invents one', () => {
+    expect(sourceLabel('OPERATOR_DECLARED')).toBe('Stated by the organiser')
+    expect(sourceLabel(null)).toMatch(/not stated/i)
+  })
+
+  it('names the estimate history for people, without a code', () => {
+    expect(authorityLabel('estimate revisions')).toMatch(/estimate/i)
+    expect(authorityLabel('estimate revisions')).not.toMatch(/\bT\d+\b/)
+  })
+})

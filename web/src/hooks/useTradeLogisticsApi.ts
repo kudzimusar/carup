@@ -667,6 +667,29 @@ export type JourneyLegs =
   | JourneyNotComposed
   | { availability: 'composed'; items: JourneyLeg[]; note: string }
   | { availability: 'not_applicable' }
+export interface JourneyEtaRevision {
+  estimated_arrival: string | null
+  observed_at: string | null
+  reason: string | null
+  source: string | null
+  superseded: boolean
+}
+// The estimate: the latest accepted revision (`current`) BESIDE the shipment record's own (`original`).
+// A revision is an observation shown next to the record, never over it, and never an arrival.
+export type JourneyEta =
+  | {
+    availability: 'composed'
+    basis: 'revision' | 'shipment_record' | 'none'
+    original: string | null
+    current: string | null
+    change_days: number | null
+    revision_count: number
+    last_revised_at: string | null
+    revisions: JourneyEtaRevision[]
+    note: string
+  }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
 export interface JourneyShipping {
   association: 'order' | 'container' | 'order_container_mismatch' | 'ambiguous' | 'none' | 'not_applicable' | string
   reference?: string
@@ -677,6 +700,8 @@ export interface JourneyShipping {
     origin_port: string | null; destination_port: string | null; note: string
   } | null
   legs: JourneyLegs
+  // Absent from services that predate estimate history.
+  eta?: JourneyEta
 }
 export interface Journey {
   subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
