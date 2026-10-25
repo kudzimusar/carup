@@ -127,7 +127,7 @@ describe('a vehicle with plan-only evidence is not made to look further along th
   })
 
   it('does not call a missing estimate "the estimate on the shipment record"', async () => {
-    const v = planOnly() as Record<string, any>
+    const v = planOnly() as unknown as { shipping: { dates: { estimated_arrival: string | null }; eta: unknown } }
     v.shipping.dates.estimated_arrival = null
     v.shipping.eta = { availability: 'composed', basis: 'none', original: null, current: null, change_days: null, revision_count: 0, last_revised_at: null, revisions: [], note: 'n' }
     state.view = v
