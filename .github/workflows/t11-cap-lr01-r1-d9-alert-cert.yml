@@ -102,7 +102,9 @@ jobs:
           f="$T11_CAP_RESULTS_DIR/run.log"
           if [ ! -f "$f" ]; then echo "::notice title=d9::no run.log was written"; exit 0; fi
           # Each line is a check name with PASS/FAIL, or the harness's own error message. No credentials are ever printed by the harness.
-          tail -n 40 "$f" | cut -c1-300 | while IFS= read -r line; do echo "::notice title=d9::$line"; done
+          # ONE annotation carrying every line (GitHub shows at most ten annotations per step); %0A is the encoded newline.
+          body=$(tail -n 80 "$f" | cut -c1-300 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=d9 result::${body}"
 
       - name: Upload evidence
         if: always()
