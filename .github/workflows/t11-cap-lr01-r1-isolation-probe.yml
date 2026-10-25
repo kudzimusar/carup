@@ -27,7 +27,7 @@ jobs:
     env:
       PRODUCT_SHA: 3d581468041ae33fcc0ee7c3eea42a44f9f9cc80
       PRODUCT_BRANCH: feat/trade-os-t11-cap-lr01-journey-arrival
-      PREVIEW_API_BASE: https://carup-backend-staging-pxsgtzcoy-11-11.vercel.app/api
+      PREVIEW_API_BASE: https://carup-backend-staging-1vzys96ks-11-11.vercel.app/api
       STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
       T11_CAP_RESULTS_DIR: cert-results/t11-cap-r1-isolation
       PROBE_SUBJECTS: >-
