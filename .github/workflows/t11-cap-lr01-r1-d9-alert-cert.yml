@@ -1,0 +1,114 @@
+name: T11-CAP-LR01-R1 D9 ALERT CERTIFICATION
+
+# Does a Journey alert reach the right person on the REAL staging database? One explicitly chosen event at a time, through the
+# exact candidate's own code, inside ONE transaction that is ALWAYS rolled back. No worker, no polling, no outbound send.
+#
+#   * staging only: refused for any other database URL, and refused by name for production;
+#   * the harness has no COMMIT; ROLLBACK is unconditional; a separate connection proves nothing of the run survives;
+#   * the harness and its tests are the only additions to the exact candidate commit, pinned by git blob;
+#   * the people are staging's synthetic outsider identities; the real Vezel and the Serena are never read or written.
+
+on:
+  push:
+    branches:
+      - cert/t11-cap-lr01-r1-d9-alert-cert
+
+concurrency:
+  group: t11-cap-lr01-r1-d9-alert-cert
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CANDIDATE_SHA: b1de03726866d46d9ce1a3c52eb6a6a930b9e016
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      COMMUNICATION_OUTBOUND_DISABLED: 'true'
+      T11_CAP_RESULTS_DIR: cert-results/t11-cap-r1-d9
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact candidate commit, harness-only diff, reviewed bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push" -o "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          git merge-base --is-ancestor "$CANDIDATE_SHA" HEAD
+          mapfile -t changed < <(git diff --name-only "$CANDIDATE_SHA"...HEAD | sort)
+          expected=$'.github/workflows/t11-cap-lr01-r1-d9-alert-cert.yml\nbackend/scripts/lib/pgTxServiceClient.mjs\nbackend/scripts/t11-cap-r1-alert-certification.mjs\nbackend/tests/t11-cap-r1-alert-certification.test.js\nbackend/tests/t11-cap-r1-pg-tx-client.test.js'
+          test "$(printf '%s\n' "${changed[@]}")" = "$expected" || { echo "::error::unexpected certification diff:"; printf '%s\n' "${changed[@]}"; exit 1; }
+          test "$(git hash-object backend/scripts/t11-cap-r1-alert-certification.mjs)" = "7f1717cf2e654bbf5c3e82797e02f1f56c75bbe0"
+          test "$(git hash-object backend/scripts/lib/pgTxServiceClient.mjs)" = "931a21a64b530080de3d587cf71eb327aa1448b2"
+          test "$(git hash-object backend/tests/t11-cap-r1-alert-certification.test.js)" = "b96940e68b7ab1fb62ea5d1e5d503ae1b0be3aa3"
+          test "$(git hash-object backend/tests/t11-cap-r1-pg-tx-client.test.js)" = "e64238c42b5d62cb05c772a3a5beb3281e7ab69b"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Offline safety case (no database access)
+        env:
+          NODE_ENV: test
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+          DIASPORA_STAGING_DATABASE_URL: ''
+        run: node --test backend/tests/t11-cap-r1-pg-tx-client.test.js backend/tests/t11-cap-r1-alert-certification.test.js
+
+      - name: Certify - the real notification path, one chosen event at a time, always rolled back
+        env:
+          NODE_ENV: test
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$T11_CAP_RESULTS_DIR"
+          node backend/scripts/t11-cap-r1-alert-certification.mjs > "$T11_CAP_RESULTS_DIR/run.log" 2>&1
+          code=$?
+          cat "$T11_CAP_RESULTS_DIR/run.log"
+          exit $code
+
+      - name: Result as annotations - check names and verdicts only
+        if: always()
+        shell: bash
+        run: |
+          f="$T11_CAP_RESULTS_DIR/run.log"
+          if [ ! -f "$f" ]; then echo "::notice title=d9::no run.log was written"; exit 0; fi
+          # Each line is a check name with PASS/FAIL, or the harness's own error message. No credentials are ever printed by the harness.
+          tail -n 40 "$f" | cut -c1-300 | while IFS= read -r line; do echo "::notice title=d9::$line"; done
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t11-cap-lr01-r1-d9-alert-cert
+          path: cert-results/t11-cap-r1-d9
+          retention-days: 30
+          if-no-files-found: warn
