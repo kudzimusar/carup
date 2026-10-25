@@ -7,10 +7,9 @@ name: T11-CAP-LR01-R1 ISOLATION PROBE
 # nothing but the sign-in session rows any login writes, touches no database directly, and refuses any backend host
 # that is not an immutable CarUp Preview deployment host (never a canonical alias).
 
+# RETIRED after the run that produced the evidence (run 40167377258): editing this branch can no longer re-run it.
 on:
-  push:
-    branches:
-      - cert/t11-cap-lr01-r1-isolation-probe-3
+  workflow_dispatch:
 
 concurrency:
   group: t11-cap-lr01-r1-isolation-probe-3
