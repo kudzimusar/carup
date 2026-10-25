@@ -602,6 +602,26 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.documents-workspace",
+    "domain": "diaspora",
+    "route": "/diaspora/documents/:subjectType/:subjectId",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.drive-connections",
     "domain": "diaspora",
     "route": "/diaspora/drive",
