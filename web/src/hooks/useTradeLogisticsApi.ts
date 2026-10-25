@@ -812,6 +812,8 @@ export interface Journey {
   viewer: { kind: 'OWNER' | 'ADMIN' | 'PARTICIPANT' }
   state: string
   sentence: string
+  // A vehicle with several import orders: offered, never chosen. Absent otherwise.
+  candidates?: Array<{ order_id: string; status: string | null; created_at: string | null }>
   asset: JourneyAsset | null
   transaction: {
     order_id: string; status: string | null

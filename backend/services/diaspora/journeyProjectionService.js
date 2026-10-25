@@ -58,7 +58,7 @@ const LOADS = 'diaspora_container_loads';
 const LOAD_ITEMS = 'diaspora_container_load_items';
 const VEHICLES = 'vehicles';
 
-export const JOURNEY_SUBJECT_TYPES = Object.freeze(['import_order', 'cargo_reservation', 'shipment']);
+export const JOURNEY_SUBJECT_TYPES = Object.freeze(['import_order', 'cargo_reservation', 'shipment', 'vehicle']);
 
 export const JOURNEY_STATES = Object.freeze({
   NO_TRANSACTION: 'NO_TRANSACTION',
@@ -71,6 +71,7 @@ export const JOURNEY_STATES = Object.freeze({
   ARRIVED: 'ARRIVED',
   EXCEPTION: 'EXCEPTION',
   SHIPMENT_AMBIGUOUS: 'SHIPMENT_AMBIGUOUS',
+  ORDER_AMBIGUOUS: 'ORDER_AMBIGUOUS',
 });
 
 const SENTENCE = Object.freeze({
@@ -84,7 +85,11 @@ const SENTENCE = Object.freeze({
   ARRIVED: 'The shipment has been recorded as arrived.',
   EXCEPTION: 'Something has happened to this shipment that the organiser has recorded.',
   SHIPMENT_AMBIGUOUS: 'More than one shipment could match this order, so no movement is shown until that is resolved.',
+  ORDER_AMBIGUOUS: 'More than one import order is recorded for this vehicle, so no single journey is shown. Choose the one you want to follow.',
 });
+
+/** A vehicle with no journey the viewer can open. Deliberately the same words whether none exists or none is theirs. */
+const NO_VEHICLE_JOURNEY = 'No import order or shipment is recorded for this vehicle that you can view, so there is no journey to show yet.';
 
 const NOT_YET_COMPOSED = (owner) => Object.freeze({ availability: 'not_yet_composed', owner });
 
@@ -238,7 +243,7 @@ function projectAsset(order, vehicle, privateAccess) {
     mileage: vehicle?.mileage ?? null,
     source: vehicle ? 'vehicles' : 'unknown',
   };
-  // A request ("I want a Honda Vezel") is not a vehicle, so requested_make/requested_model are never read.
+  // A request ("I want a family estate") is not a vehicle, so requested_make/requested_model are never read.
   if (!privateAccess) return base;
   return {
     ...base,
@@ -541,6 +546,69 @@ export async function resolveJourneyShipment(client, order, aliasReservation = n
 }
 
 /**
+ * The journey of one VEHICLE — any vehicle CarUp holds, with or without a Trade OS history.
+ *
+ * It answers "what is happening to this vehicle?" by resolving the vehicle to the import order(s) that carry
+ * it (`linked_vehicle_vin`, an exact match) and then reading THAT order's journey through the same
+ * `getJourney`, so there is one journey, not a second one behind another route. Nothing here is about a
+ * particular make, model, chassis, port, carrier or seller.
+ *
+ *   · exactly one order the viewer may read  → that order's journey, naming the vehicle as its subject;
+ *   · several                                → NO GUESS: the readable ones are offered and nothing is shown;
+ *   · none                                   → the vehicle's identity and an honest "no journey to show".
+ *
+ * Who may read. A vehicle's owner or seller may see the vehicle itself; the journey of an ORDER is seen
+ * only by those who may read that order (`canReadImportOrder`) and platform admins/reviewers. Owning the
+ * vehicle never opens an order that belongs to someone else, and the "no journey" answer is worded
+ * identically whether no order exists or none is the viewer's, so it cannot be used to find out which
+ * exist. A caller with no standing at all is refused exactly as for a vehicle that does not exist.
+ */
+async function getVehicleJourney(client, vin, context, options) {
+  const { data: vehicle } = await client.from(VEHICLES).select('*').eq('vin', vin).maybeSingle();
+  if (!vehicle) throw missingOrDenied(context, 'Journey');
+
+  const { data: orders } = await client.from(ORDERS).select('*')
+    .eq('linked_vehicle_vin', vehicle.vin).is('deleted_at', null);
+  const linked = orders || [];
+  const { data: participants } = linked.length
+    ? await client.from(PARTICIPANTS).select('*').in('import_order_id', linked.map((o) => o.id)).is('deleted_at', null)
+    : { data: [] };
+  const readable = privileged(context)
+    ? linked
+    : linked.filter((o) => canReadImportOrder(
+      o, (participants || []).filter((p) => normalizeId(p.import_order_id) === normalizeId(o.id)), context));
+
+  const ownsVehicle = [vehicle.owner_id, vehicle.current_seller_id].map(normalizeId).filter(Boolean).includes(context.id);
+  if (!privileged(context) && !ownsVehicle && readable.length === 0) throw new ForbiddenError(DENIED);
+
+  if (readable.length === 1) {
+    const journey = await getJourney('import_order', readable[0].id, context, options);
+    return { ...journey, subject: { type: 'vehicle', id: vehicle.vin, order_id: readable[0].id } };
+  }
+
+  const viewer = privileged(context) ? { kind: 'ADMIN', privateAccess: true } : { kind: 'OWNER', privateAccess: true };
+  const base = emptyJourney({ type: 'vehicle', id: vehicle.vin, order_id: null }, viewer);
+  const identity = {
+    asset: projectAsset({}, vehicle, viewer.privateAccess),
+    provenance: { asset: { authority: 'vehicles', note: 'Only recorded fields.' } },
+  };
+  if (readable.length === 0) {
+    return { ...base, ...identity, sentence: NO_VEHICLE_JOURNEY };
+  }
+  return {
+    ...base,
+    ...identity,
+    state: JOURNEY_STATES.ORDER_AMBIGUOUS,
+    sentence: SENTENCE.ORDER_AMBIGUOUS,
+    // Offered, never chosen: nothing in the data says which order the viewer means. Newest first is a
+    // presentation order, not a selection.
+    candidates: readable
+      .map((o) => ({ order_id: o.id, status: o.status || null, created_at: o.created_at || null }))
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(a.order_id).localeCompare(String(b.order_id))),
+  };
+}
+
+/**
  * The journey of one import order, however the caller names it (the order, a cargo booking on it, or
  * its shipment). Bounded reads — the number of queries does not grow with the length of the timeline.
  */
@@ -552,6 +620,9 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   }
   const type = String(subjectType);
   const id = requireText(subjectId, 'subjectId');
+
+  // A vehicle is not itself a transaction: it resolves to the order that carries it, or says it has none.
+  if (type === 'vehicle') return getVehicleJourney(client, id, context, options);
 
   const { order, reservation: aliasReservation } = await loadSubject(client, type, id, context);
 

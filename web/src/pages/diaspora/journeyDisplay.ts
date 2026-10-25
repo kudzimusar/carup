@@ -28,7 +28,16 @@ export const JOURNEY_STATE_UI: Record<string, { label: string; tone: string }> =
   ARRIVED: { label: 'Arrived', tone: 'border-emerald-300 bg-emerald-50 text-emerald-900' },
   EXCEPTION: { label: 'Something has happened', tone: 'border-amber-300 bg-amber-50 text-amber-900' },
   SHIPMENT_AMBIGUOUS: { label: 'Shipment cannot be confirmed', tone: 'border-amber-300 bg-amber-50 text-amber-900' },
+  ORDER_AMBIGUOUS: { label: 'More than one order', tone: 'border-amber-300 bg-amber-50 text-amber-900' },
 }
+
+/** A vehicle (or booking) that has no shipping record connected: said as what it is, never as an empty list. */
+export const NOTHING_CONNECTED_YET =
+  'No shipment, vessel, estimate, shipping document or customs record is connected to this yet. That is not a report that nothing has happened — it means nothing has been recorded.'
+
+/** The estimate came from the shipment record alone: no one has recorded a revision, and none is implied. */
+export const NO_ESTIMATE_REVISIONS =
+  'No change to this estimate has been recorded. It is the estimate on the shipment record.'
 
 export const TABS = [
   { id: 'journey', label: 'Journey' },

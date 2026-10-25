@@ -143,7 +143,7 @@ test('CAP-02: a tenant admin of the order\'s tenant may read; another tenant\'s 
 });
 
 test('CAP-02: an unknown subject type is rejected', async () => {
-  await assert.rejects(() => getJourney('vehicle', 'x', BUYER, opts(world())), ValidationError);
+  await assert.rejects(() => getJourney('container', 'x', BUYER, opts(world())), ValidationError);
 });
 
 // ── Shipment selection: deterministic, and closed when it cannot be ──────

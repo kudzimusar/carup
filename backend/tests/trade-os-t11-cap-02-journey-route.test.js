@@ -90,8 +90,11 @@ test('CAP-02 route: a platform admin is told a missing journey is missing (404)'
 
 test('CAP-02 route: an unknown subject type is a 400', async () => {
   await withApp(async (base) => {
-    const res = await get(base, '/journeys/vehicle/x', 'u-buyer');
+    const res = await get(base, '/journeys/container/x', 'u-buyer');
     assert.equal(res.status, 400);
+    // …and "vehicle" is a real subject (R1): an unknown vehicle is refused like any other unreadable subject, not a 400.
+    const vehicle = await get(base, '/journeys/vehicle/x', 'u-buyer');
+    assert.notEqual(vehicle.status, 400);
   });
 });
 

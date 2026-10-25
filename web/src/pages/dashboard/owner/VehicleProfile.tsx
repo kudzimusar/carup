@@ -346,6 +346,9 @@ export default function VehicleProfile() {
         </Button>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" asChild>
+            <Link to={`/diaspora/journey/vehicle/${encodeURIComponent(vehicle.vin)}`} data-testid="vehicle-journey-link">Journey &amp; arrival</Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
             <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
           </Button>
           <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>

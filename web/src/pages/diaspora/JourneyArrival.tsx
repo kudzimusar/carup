@@ -38,7 +38,9 @@ import {
   DOCUMENTS_UNAVAILABLE_FALLBACK,
   DOCUMENTS_WITHHELD_FALLBACK,
   JOURNEY_STATE_UI,
+  NO_ESTIMATE_REVISIONS,
   NO_STEPS_RECORDED,
+  NOTHING_CONNECTED_YET,
   PORT_OF_DISCHARGE_IS_NOT_DESTINATION,
   PROVENANCE_PART_UI,
   REFERENCE_IS_NOT_MOVEMENT,
@@ -144,7 +146,8 @@ export default function JourneyArrival() {
   const eta = shipping?.eta && shipping.eta.availability === 'composed' ? shipping.eta : null
   const arrival = describeArrival(dates && eta?.current ? { ...dates, estimated_arrival: eta.current } : dates)
   const etaBasis = eta?.current ? (eta.basis === 'revision' ? 'Latest revised estimate' : 'From the shipment record') : null
-  const orderRef = shortRef(data.subject.order_id || data.subject.id)
+  // A vehicle with no order has no order reference, and a vehicle identifier is not printed as one.
+  const orderRef = data.subject.order_id || data.subject.type !== 'vehicle' ? shortRef(data.subject.order_id || data.subject.id) : null
   // CAP-06. A section is shown as what it says it is: composed, withheld from this viewer, unavailable
   // right now, or not applicable. Only a service that sends none of those falls back to the placeholder.
   const documents = data.sections?.documents
@@ -163,7 +166,7 @@ export default function JourneyArrival() {
   return (
     <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="journey-page">
       <header className="min-w-0">
-        <p className="text-xs uppercase tracking-wide text-orange-600">Journey &amp; arrival · {orderRef}</p>
+        <p className="text-xs uppercase tracking-wide text-orange-600">Journey &amp; arrival{orderRef ? ` · ${orderRef}` : ''}</p>
         <h1 className="mt-1 min-w-0 break-words text-2xl font-bold text-slate-950 sm:text-3xl" data-testid="journey-title">{vehicleTitle(data.asset)}</h1>
         <p className="mt-1 flex min-w-0 items-center gap-1.5 break-words text-sm text-slate-600" data-testid="journey-route">
           <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -219,6 +222,28 @@ export default function JourneyArrival() {
               </Alert>
             ))}
 
+            {!shipping ? (
+              <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-nothing-connected">
+                {NOTHING_CONNECTED_YET}
+              </p>
+            ) : null}
+
+            {data.candidates?.length ? (
+              <div className={`mt-5 ${card}`} data-testid="journey-candidates">
+                <h2 className={eyebrow}>Orders for this vehicle</h2>
+                <ul className="mt-3 space-y-2">
+                  {data.candidates.map((c) => (
+                    <li key={c.order_id} className="min-w-0">
+                      <Link to={`/diaspora/journey/import_order/${encodeURIComponent(c.order_id)}`} className="text-sm font-semibold text-orange-700 underline" data-testid={`journey-candidate-${c.order_id}`}>
+                        Order {shortRef(c.order_id)}
+                      </Link>
+                      <span className="text-xs text-slate-600">{c.status ? ` · ${c.status.replace(/_/g, ' ').toLowerCase()}` : ''}{c.created_at ? ` · started ${when(c.created_at)}` : ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {dates ? (
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <div className={card} data-testid="journey-departure">
@@ -231,6 +256,9 @@ export default function JourneyArrival() {
                   <p className={`mt-1 min-w-0 break-words text-base font-semibold ${arrival.observed ? 'text-slate-900' : 'text-slate-700'}`} data-testid="journey-arrival-headline">{arrival.headline}</p>
                   <p className="mt-0.5 min-w-0 break-words text-sm text-slate-600" data-testid="journey-arrival-detail">{arrival.detail}</p>
                   {etaBasis ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-basis">{etaBasis}</p> : null}
+                  {eta && eta.current && eta.revision_count === 0 ? (
+                    <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-no-revisions">{NO_ESTIMATE_REVISIONS}</p>
+                  ) : null}
                 </div>
               </div>
             ) : null}
