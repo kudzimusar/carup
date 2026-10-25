@@ -16,8 +16,9 @@
  * the operator (G5 / decision D3) — and these alerts are addressed from the order's own buyers instead.
  *
  * Who is told. The people whose Journey SHOWS this shipment: the same `resolveJourneyShipment` the
- * Journey uses, so a co-loader whose cargo was left behind is not told it sailed, an ambiguous or
- * inconsistent association tells nobody, and the two can never drift apart. Each person is told about
+ * Journey uses, so an order merely co-loaded on the container is not told another order's shipment
+ * moved, cargo that was left behind is not told it sailed, an ambiguous or inconsistent association
+ * tells nobody, and the two can never drift apart. Each person is told about
  * their OWN order and nothing else: no other participant, no operator, no container, no tenant.
  *
  * One observation, one alert. The event bus derives a database-enforced identity from `alertKey`
@@ -36,7 +37,6 @@ import { normalizeId } from './diasporaAuthorization.js';
 import { resolveJourneyShipment, shipmentReference } from './journeyProjectionService.js';
 
 const ORDERS = 'diaspora_import_orders';
-const RESERVATIONS = 'diaspora_cargo_reservations';
 const SHIPMENTS = 'diaspora_shipments';
 
 export const JOURNEY_ALERT_KINDS = Object.freeze({
@@ -111,28 +111,23 @@ function etaWindowKey(recordedAt) {
 }
 
 /**
- * Who is told that this shipment moved: the buyer and creator of every order whose own Journey shows it.
- * Candidates are the shipment's order plus the orders booked on its container; each is then held to the
- * Journey's own rule, and only a plain association (the order's own shipment, or the one its container
- * sails on) counts — an inconsistent one is flagged on the Journey, not announced as a movement.
+ * Who is told that this shipment moved: the buyer and creator of the order this shipment is attached to,
+ * held to the Journey's own rule — it is told only if that order's Journey resolves THIS shipment by a
+ * plain association. A shipment belongs to one order (R1 D2): an order merely co-loaded on its container is
+ * not told, and an inconsistent or ambiguous association is flagged on the Journey, not announced as movement.
  */
 export async function resolveAlertRecipients(shipment, { client = supabase } = {}) {
-  const orderIds = new Set([normalizeId(shipment.import_order_id)].filter(Boolean));
-  if (shipment.container_id) {
-    const { data: onBoard } = await client.from(RESERVATIONS).select('*')
-      .eq('container_id', shipment.container_id).is('deleted_at', null);
-    for (const r of onBoard || []) if (normalizeId(r.import_order_id)) orderIds.add(normalizeId(r.import_order_id));
-  }
-  if (!orderIds.size) return [];
+  const orderId = normalizeId(shipment.import_order_id);
+  if (!orderId) return [];
 
-  const { data: orders } = await client.from(ORDERS).select('*').in('id', [...orderIds]).is('deleted_at', null);
+  const { data: orders } = await client.from(ORDERS).select('*').in('id', [orderId]).is('deleted_at', null);
   const recipients = [];
   for (const order of orders || []) {
     const resolved = await resolveJourneyShipment(client, order);
     if (resolved.goodsNotOnShipment) continue;
     const { picked } = resolved;
     if (!picked?.shipment || normalizeId(picked.shipment.id) !== normalizeId(shipment.id)) continue;
-    if (!['order', 'container'].includes(picked.association)) continue;
+    if (picked.association !== 'order') continue;
     const people = [...new Set([order.buyer_id, order.created_by].map(normalizeId).filter(Boolean))];
     for (const userId of people) recipients.push({ userId, orderId: order.id });
   }

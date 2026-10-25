@@ -15,17 +15,16 @@
  *     a carrier reference ≠ movement
  *     a customs HOLD     ≠  a customs DECISION   (and customs is not composed here at all yet)
  *
- * Choosing the shipment (CAP-01 Part B §4.1). T11's own participant view takes `shipments[0]` for a
- * container, and `createShipment` has no uniqueness rule, so two shipments for one container are
- * possible. This projection never picks one arbitrarily:
+ * Choosing the shipment (CAP-01 Part B §4.1, tightened by T11-CAP-LR01-R1 D2). A shipment belongs to ONE
+ * import order. Sharing a container is not an association: a shipment attached to another order is never
+ * this order's journey, however the two are co-loaded. `createShipment` has no uniqueness rule, so two
+ * shipments for one order are possible, and this projection never picks one arbitrarily:
  *
  *   tier 1  attached to THIS order (and on its container, when it has one)
- *   tier 2  attached to another order but sailing on THIS order's container
- *   tier 3  attached to this order but sailing on a DIFFERENT container (inconsistent — shown, flagged)
+ *   tier 2  attached to this order but sailing on a DIFFERENT container (inconsistent — shown, flagged)
  *
  * The best tier present decides. Exactly one in that tier → selected. More than one → AMBIGUOUS, and
- * no movement is claimed at all. The legacy endpoint is unchanged and remains a recorded defect
- * candidate; this module composes around it, it does not repair it.
+ * no movement is claimed at all. T11's participant view was brought to the same rule in R1 (D2).
  *
  * Who may read. The Journey of an order is readable by exactly those who may read the order
  * (`canReadImportOrder`) plus platform admins and reviewers — one rule for who can read an order, not
@@ -157,23 +156,22 @@ function projectMovement(events = []) {
  * Which shipment, if any, is this order's. See the module header for the tiers. Returns the shipment
  * and how it was associated, or why none is shown.
  */
-export function selectShipment(order, containerIds, byOrder = [], byContainer = []) {
-  const seen = new Map();
-  [...byOrder, ...byContainer].forEach((s) => { if (s && !s.deleted_at) seen.set(s.id, s); });
-  const candidates = [...seen.values()];
+export function selectShipment(order, containerIds, byOrder = []) {
+  const candidates = [...new Map((byOrder || []).filter((s) => s && !s.deleted_at).map((s) => [s.id, s])).values()];
   const sails = (s) => containerIds.length > 0 && containerIds.includes(normalizeId(s.container_id));
+  // The association is the ORDER. A shipment that merely sails on this order's container is some other
+  // order's, and is never selected (D2).
   const mine = (s) => normalizeId(s.import_order_id) === normalizeId(order.id);
 
   const tier1 = candidates.filter((s) => mine(s) && (containerIds.length === 0 || sails(s)));
-  const tier2 = candidates.filter((s) => !tier1.includes(s) && sails(s));
-  const tier3 = candidates.filter((s) => !tier1.includes(s) && !tier2.includes(s) && mine(s));
+  const tier2 = candidates.filter((s) => !tier1.includes(s) && mine(s));
 
   const pick = (tier, association) => {
     if (tier.length === 1) return { shipment: tier[0], association };
     if (tier.length > 1) return { shipment: null, association: 'ambiguous', candidate_count: tier.length };
     return null;
   };
-  return pick(tier1, 'order') || pick(tier2, 'container') || pick(tier3, 'order_container_mismatch')
+  return pick(tier1, 'order') || pick(tier2, 'order_container_mismatch')
     || { shipment: null, association: 'none' };
 }
 
@@ -537,10 +535,7 @@ export async function resolveJourneyShipment(client, order, aliasReservation = n
   if (!goodsNotOnShipment) {
     const { data: byOrder } = await client.from(SHIPMENTS).select('*')
       .eq('import_order_id', order.id).is('deleted_at', null);
-    const { data: byContainer } = containerIds.length
-      ? await client.from(SHIPMENTS).select('*').in('container_id', containerIds).is('deleted_at', null)
-      : { data: [] };
-    picked = selectShipment(order, containerIds, byOrder || [], byContainer || []);
+    picked = selectShipment(order, containerIds, byOrder || []);
   }
   return { liveReservations, containerIds, ladderReservation, loadState, loadRecord, goodsNotOnShipment, picked };
 }
@@ -665,7 +660,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       const eta = projectEta(shipment, await listEtaRevisionsForShipment(shipment.id, client));
       // Derived only from RECORDED observations, and only where the association is plain: an inconsistent
       // one is flagged on the Journey, so statistics about it would be statistics about a disagreement.
-      if (['order', 'container'].includes(picked.association)) {
+      if (picked.association === 'order') {
         intelligence = {
           availability: 'composed',
           own: projectOwnMetrics(dates, now),

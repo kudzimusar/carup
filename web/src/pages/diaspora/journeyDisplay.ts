@@ -151,8 +151,6 @@ export function lastRecordedUpdate(timeline: TimelineLike[] = []): { label: stri
 /** How the shipment was matched to this order, said only when it is not the ordinary case. */
 export function associationNote(association: string | null | undefined): string | null {
   switch (association) {
-    case 'container':
-      return 'This is the shipment for the container your cargo is on. It may carry other people’s cargo too; their details are never shown here.'
     case 'order_container_mismatch':
       return 'The records disagree: a shipment is attached to this order, but it sails on a different container than your booking.'
     case 'ambiguous':

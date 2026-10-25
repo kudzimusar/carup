@@ -154,10 +154,15 @@ describe('exceptions and ambiguity are stated, not hidden', () => {
     expect(screen.getByTestId('journey-exception-SHIPMENT_EXCEPTION')).toHaveTextContent(/not a customs decision/i)
   })
 
-  it('explains a container association without naming another order', async () => {
-    state.view = journey({ shipping: { ...journey().shipping, association: 'container' } })
+  it('shows no association note for a booking whose own order has no shipment — and no one else\'s shipment', async () => {
+    state.view = journey({
+      state: 'LOADED',
+      sentence: 'Your cargo is inside the container. The container has not been recorded as leaving.',
+      shipping: { association: 'none', dates: null, references: null, legs: NOT_COMPOSED('T11') },
+    })
     await open()
-    expect(screen.getByTestId('journey-association')).toHaveTextContent(/container/i)
+    expect(screen.queryByTestId('journey-association')).toBeNull()
+    expect(screen.getByTestId('journey-sentence')).toHaveTextContent(/has not been recorded as leaving/i)
   })
 })
 

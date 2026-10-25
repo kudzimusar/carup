@@ -274,9 +274,32 @@ export async function getMyShipmentTracking(subjectType, subjectId, userContext 
     };
   }
 
-  const { data: shipments } = await client.from(SHIPMENTS).select('*')
+  // Sharing a container is not an association. A shipment belongs to ONE import order (the column is
+  // NOT NULL), and this booking may resolve only the shipment attached to its OWN order on its own
+  // container. A booking with no order is bound to nothing. Array order is never evidence: when more
+  // than one live shipment is bound to this one order and container, nothing in the data says which is
+  // theirs, so no movement is claimed at all.
+  const { data: onContainer } = await client.from(SHIPMENTS).select('*')
     .eq('container_id', reservation.container_id).is('deleted_at', null);
-  const shipment = (shipments || [])[0] || null;
+  const orderId = normalizeId(reservation.import_order_id);
+  const bound = orderId
+    ? (onContainer || []).filter((s) => normalizeId(s.import_order_id) === orderId)
+    : [];
+  const shipment = bound.length === 1 ? bound[0] : null;
+
+  if (bound.length > 1) {
+    return {
+      subject: { type: 'cargo_reservation', id },
+      state: TRACKING_STATES.LOADED,
+      sentence: 'Your cargo is inside the container. More than one shipment record matches your booking, so no movement is shown until the organiser resolves which is yours.',
+      left_behind_reason: null,
+      association: 'ambiguous',
+      dates: null,
+      references: null,
+      timeline: [],
+      note: 'Loaded means the cargo is inside the container. It does not mean the container has sailed.',
+    };
+  }
 
   if (!shipment) {
     return {

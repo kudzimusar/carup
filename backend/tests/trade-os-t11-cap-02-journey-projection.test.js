@@ -155,13 +155,20 @@ test('CAP-02: exactly one shipment for the order and its container is selected, 
   assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
 });
 
-test('CAP-02: a co-loader is shown the container\'s one shipment, labelled as a container association, with no other order\'s identity', async () => {
+test('CAP-02: a co-loader whose own order has no shipment is shown NOTHING of the container\'s shipment — it belongs to another order (R1 D2)', async () => {
   const j = await getJourney('import_order', 'ord-b', COLOADER, opts(world()));
-  assert.equal(j.shipping.association, 'container');
-  assert.equal(j.shipping.references.carrier, 'Carrier X');
+  assert.equal(j.shipping.association, 'none');
+  assert.equal(j.state, JOURNEY_STATES.LOADED);
+  assert.equal(j.shipping.dates, null);
+  assert.equal(j.shipping.references, null);
+  assert.deepEqual(j.timeline.filter((e) => e.kind === 'MOVEMENT'), []);
   const text = JSON.stringify(j);
+  assert.ok(!text.includes('Carrier X') && !text.includes('TRK-1'), 'another order\'s shipment reached a co-loader');
   assert.ok(!text.includes('ord-a'), 'another order\'s id leaked into a co-loader\'s journey');
   assert.ok(!text.includes('u-buyer'), 'another buyer\'s identity leaked into a co-loader\'s journey');
+  // POSITIVE CONTROL: the order the shipment IS attached to still sees it.
+  const own = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
+  assert.equal(own.shipping.references.carrier, 'Carrier X');
 });
 
 test('CAP-02: when each co-loader has their own shipment on the container, each sees their own', async () => {
@@ -177,19 +184,35 @@ test('CAP-02: when each co-loader has their own shipment on the container, each 
   assert.equal(b.shipping.association, 'order');
 });
 
-test('CAP-02: two live shipments on the container, NEITHER attached to my order, FAIL CLOSED — no movement claim, never "the first one"', async () => {
+test('CAP-02: two live shipments attached to MY order FAIL CLOSED — no movement claim, never "the first one", in either row order', async () => {
+  const rows = [
+    { id: 'ship-1', carrier_name: 'First Carrier', departure_date: '2026-09-21T08:00:00Z', status: 'IN_TRANSIT', import_order_id: 'ord-a' },
+    { id: 'ship-2', carrier_name: 'Second Carrier', import_order_id: 'ord-a' },
+  ];
+  for (const shipments of [rows, rows.slice().reverse()]) {
+    const j = await getJourney('import_order', 'ord-a', BUYER, opts(world({ shipments })));
+    assert.equal(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS);
+    assert.equal(j.shipping.association, 'ambiguous');
+    assert.equal(j.shipping.dates, null, 'a date was reported while the shipment was ambiguous');
+    assert.deepEqual(j.timeline.filter((e) => e.kind === 'MOVEMENT'), []);
+    const text = JSON.stringify(j);
+    assert.ok(!text.includes('First Carrier') && !text.includes('Second Carrier'), 'an ambiguous shipment leaked a carrier');
+    assert.ok(j.exceptions.some((e) => e.code === 'SHIPMENT_AMBIGUOUS'));
+  }
+});
+
+test('CAP-02: two live shipments on the container, NEITHER attached to my order, are not mine at all — nothing shown, and not "ambiguous" either (R1 D2)', async () => {
   const w = world({ shipments: [
     { id: 'ship-1', carrier_name: 'First Carrier', departure_date: '2026-09-21T08:00:00Z', status: 'IN_TRANSIT', import_order_id: 'ord-a' },
     { id: 'ship-2', carrier_name: 'Second Carrier', import_order_id: 'ord-c' },
   ] });
   const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
-  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS);
-  assert.equal(j.shipping.association, 'ambiguous');
-  assert.equal(j.shipping.dates, null, 'a date was reported while the shipment was ambiguous');
-  assert.deepEqual(j.timeline.filter((e) => e.kind === 'MOVEMENT'), []);
+  assert.equal(j.shipping.association, 'none');
+  assert.notEqual(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS, 'other orders\' shipments made this order\'s journey ambiguous');
+  assert.equal(j.shipping.dates, null);
+  assert.deepEqual(j.exceptions.filter((e) => e.code === 'SHIPMENT_AMBIGUOUS'), []);
   const text = JSON.stringify(j);
-  assert.ok(!text.includes('First Carrier') && !text.includes('Second Carrier'), 'an ambiguous shipment leaked a carrier');
-  assert.ok(j.exceptions.some((e) => e.code === 'SHIPMENT_AMBIGUOUS'));
+  assert.ok(!text.includes('First Carrier') && !text.includes('Second Carrier'), 'another order\'s shipment reached a co-loader');
 });
 
 test('CAP-02: a vehicle with no container (RoRo) and one shipment is selected', async () => {
@@ -453,10 +476,10 @@ test('CAP-04: leg internals — author, metadata, tenant, source reference — n
 
 test('CAP-04: an ambiguous shipment shows no vessel — there is no shipment to attach it to', async () => {
   const w = world({
-    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }],
+    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-a' }],
     legs: [leg(), leg({ id: 'leg-x', shipment_id: 'ship-2', vessel_name: 'OTHER VESSEL' })],
   });
-  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
   assert.equal(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS);
   assert.equal(j.shipping.legs.availability, 'not_applicable');
   const text = JSON.stringify(j);
@@ -473,11 +496,12 @@ test('CAP-04: cargo that is not on the shipment is not shown its vessel', async 
   assert.ok(!JSON.stringify(j).includes('DECLARED VESSEL'));
 });
 
-test('CAP-04: a co-loader sees the container shipment\'s vessel, with no other order\'s identity', async () => {
+test('CAP-04: a co-loader is not shown the vessel of a shipment attached to another order (R1 D2)', async () => {
   const j = await getJourney('import_order', 'ord-b', COLOADER, opts(world({ legs: [leg()] })));
-  assert.equal(j.shipping.association, 'container');
-  assert.equal(j.shipping.legs.items[0].vessel_name, 'DECLARED VESSEL');
+  assert.equal(j.shipping.association, 'none');
+  assert.equal(j.shipping.legs.availability, 'not_applicable');
   const text = JSON.stringify(j);
+  assert.ok(!text.includes('DECLARED VESSEL'), 'another order\'s vessel reached a co-loader');
   assert.ok(!text.includes('ord-a') && !text.includes('u-buyer'), 'another order leaked through the legs');
 });
 
@@ -628,8 +652,8 @@ test('CAP-05: who decided, who recorded, event ids and references never leave th
 });
 
 test('CAP-05: an ambiguous shipment, or cargo not on it, has no estimate to show', async () => {
-  const amb = await getJourney('import_order', 'ord-b', COLOADER, opts(world({
-    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }],
+  const amb = await getJourney('import_order', 'ord-a', BUYER, opts(world({
+    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-a' }],
     observations: [rev(), rev({ id: 'o9', shipment_id: 'ship-2', payload: { estimated_arrival: '2031-01-01T00:00:00Z', reason: 'Other' } })],
   })));
   assert.equal(amb.shipping.eta.availability, 'not_applicable');
@@ -641,11 +665,12 @@ test('CAP-05: an ambiguous shipment, or cargo not on it, has no estimate to show
   assert.equal(left.shipping.eta.availability, 'not_applicable');
 });
 
-test('CAP-05: a co-loader sees the container shipment\'s estimate history, with no other order\'s identity', async () => {
+test('CAP-05: a co-loader is not shown the estimate history of a shipment attached to another order (R1 D2)', async () => {
   const j = await getJourney('import_order', 'ord-b', COLOADER, opts(world({ observations: [rev()] })));
-  assert.equal(j.shipping.association, 'container');
-  assert.equal(j.shipping.eta.current, '2026-10-08T00:00:00Z');
+  assert.equal(j.shipping.association, 'none');
+  assert.equal(j.shipping.eta.availability, 'not_applicable');
   const text = JSON.stringify(j);
+  assert.ok(!text.includes('2026-10-08') && !text.includes('Port congestion'), 'another order\'s estimate reached a co-loader');
   assert.ok(!text.includes('ord-a') && !text.includes('u-buyer'));
 });
 
@@ -781,8 +806,8 @@ test('CAP-06: if documents cannot be read, the section says UNAVAILABLE — it d
 });
 
 test('CAP-06: documents belong to the ORDER — an ambiguous shipment does not hide them', async () => {
-  const w = world({ documents: [doc('bill_of_lading', { import_order_id: 'ord-b' })], shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }] });
-  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
+  const w = world({ documents: [doc('bill_of_lading', { import_order_id: 'ord-a' })], shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-a' }] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
   assert.equal(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS);
   assert.equal(j.sections.documents.availability, 'composed');
   assert.equal(docItems(j).bill_of_lading.state, 'AWAITING_REVIEW');
@@ -886,7 +911,7 @@ test('CAP-06: a missing document is not an instruction, and a verified or presen
 });
 
 test('CAP-06: an ambiguous shipment, an exception and a port disagreement each wait on the organiser', async () => {
-  const amb = await getJourney('import_order', 'ord-b', COLOADER, opts(world({ shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }] })));
+  const amb = await getJourney('import_order', 'ord-a', BUYER, opts(world({ shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-a' }] })));
   assert.equal(steps(amb).find((a) => a.code === 'SHIPMENT_AMBIGUOUS').waiting_on, 'the organiser');
   const exc = await getJourney('import_order', 'ord-a', BUYER, opts(world({ shipments: [{ id: 'ship-1', departure_date: '2026-09-21T08:00:00Z' }],
     events: [{ id: 'e1', shipment_id: 'ship-1', stage: 'CUSTOMS_HOLD', event_time: '2026-09-25T00:00:00Z', location: 'Gateway', deleted_at: null }] })));
@@ -1142,7 +1167,7 @@ test('CAP-07: when the journey resolved NO shipment, a case that names one canno
   assert.equal(j.sections.customs.availability, 'disagrees');
 });
 
-test('CAP-07: a case on the container-level shipment matches the shipment the journey resolved by container', async () => {
+test('CAP-07: a case that names ANOTHER order\'s shipment on the same container is not shown to a co-loader (R1 D2)', async () => {
   const w = CUSTOMS_WORLD({
     shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }],
     customsCases: [kase({ id: 'case-b', subject_id: 'res-b', import_order_id: 'ord-b', shipment_id: 'ship-1' })],
@@ -1150,8 +1175,10 @@ test('CAP-07: a case on the container-level shipment matches the shipment the jo
     appointments: [],
   });
   const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
-  assert.equal(j.shipping.association, 'container');
-  assert.equal(j.sections.customs.availability, 'composed');
+  assert.equal(j.shipping.association, 'none');
+  // The case names a shipment this order's journey did not resolve, so it cannot be verified and shows nothing.
+  assert.equal(j.sections.customs.availability, 'disagrees');
+  assert.ok(!JSON.stringify(j).includes('GATEWAY_ARRIVAL_OBSERVED'), 'a case on another order\'s shipment was shown');
 });
 
 test('CAP-07: the clearing agent is named only by display name — never an id, a licence, or a claim of verification', async () => {

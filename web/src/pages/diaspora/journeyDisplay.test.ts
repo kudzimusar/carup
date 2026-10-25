@@ -118,9 +118,8 @@ describe('the last recorded update', () => {
 })
 
 describe('association, exceptions and sources are worded, not hinted at', () => {
-  it('explains a container association without naming another order', () => {
-    expect(associationNote('container')).toMatch(/container/i)
-    expect(associationNote('container')).not.toMatch(/order [a-z0-9-]{6,}/i)
+  it('has no wording for a container association — a shipment is attached to ONE order, and sharing a container is not an association (R1 D2)', () => {
+    expect(associationNote('container')).toBeNull()
   })
   it('flags a mismatch and an ambiguity', () => {
     expect(associationNote('order_container_mismatch')).toMatch(/disagree/i)

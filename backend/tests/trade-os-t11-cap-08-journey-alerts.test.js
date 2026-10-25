@@ -4,7 +4,8 @@
  * The sentences this unit has to be able to say, and the ones it must refuse:
  *
  *   1. the people told a shipment moved are EXACTLY the people whose Journey shows that shipment —
- *      a co-loader whose cargo was left behind is not told it sailed;
+ *      an order merely co-loaded on its container is not told another order's shipment moved (R1 D2),
+ *      and a co-loader whose cargo was left behind is not told it sailed;
  *   2. an alert says what the shipment authority recorded and no more: departed is not arrived,
  *      arrived is not delivered or cleared, a hold is not a customs decision, an estimate is not an arrival;
  *   3. one observation is one alert — a redelivered event, a retried handler and a replayed request
@@ -231,9 +232,10 @@ test('CAP-08: an unknown kind has no words — it is refused, never given a gene
 
 // ── Who is told ────────────────────────────────────────────────────────────────────────────────────
 
-test('CAP-08: the order\'s buyer and creator are told once each; a co-loader whose cargo is loaded is told for their own order', async () => {
+test('CAP-08: the order\'s buyer and creator are told once each; a co-loader whose cargo is loaded is NOT told another order\'s shipment moved (R1 D2)', async () => {
   const got = await resolveAlertRecipients(SHIPMENT(), { client: world() });
-  assert.deepEqual(got.map((r) => `${r.userId}@${r.orderId}`).sort(), ['u-buyer@ord-a', 'u-coloader@ord-b', 'u-creator-a@ord-a']);
+  assert.deepEqual(got.map((r) => `${r.userId}@${r.orderId}`).sort(), ['u-buyer@ord-a', 'u-creator-a@ord-a']);
+  assert.ok(!got.some((r) => r.userId === 'u-coloader' || r.orderId === 'ord-b'), 'a co-loaded order was told another order\'s shipment moved');
 });
 
 test('CAP-08: left-behind, not-loaded, unrelated and operator users are told nothing', async () => {
@@ -242,18 +244,34 @@ test('CAP-08: left-behind, not-loaded, unrelated and operator users are told not
 });
 
 test('CAP-08: a buyer who is also the creator is told once, not twice', async () => {
-  const users = (await resolveAlertRecipients(SHIPMENT(), { client: world() })).filter((r) => r.orderId === 'ord-b');
-  assert.equal(users.length, 1);
+  const w = world({
+    orders: [{ id: 'ord-a', tenant_id: 'tenant-1', buyer_id: 'u-buyer', created_by: 'u-buyer', linked_vehicle_vin: null, status: 'SHIPPED', deleted_at: null }],
+  });
+  const users = await resolveAlertRecipients(SHIPMENT(), { client: w });
+  assert.deepEqual(users.map((r) => `${r.userId}@${r.orderId}`), ['u-buyer@ord-a']);
 });
 
 test('CAP-08: an ambiguous shipment tells nobody — the Journey shows no movement either', async () => {
-  // ord-b has two candidate shipments on its container (ship-1 for ord-a, ship-2 for ord-x): which one is
-  // its own cannot be said, so it is not told that ship-1 moved. ord-a has exactly one of its own.
+  // Two live shipments are attached to ord-a. Which is its own cannot be said, so neither is announced to it.
+  const w = world({ shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-a' }] });
+  for (const id of ['ship-1', 'ship-2']) {
+    const told = await resolveAlertRecipients({ id, import_order_id: 'ord-a', container_id: 'cont-1' }, { client: w });
+    assert.deepEqual(told, [], `${id} was announced although it cannot be told apart from its twin`);
+  }
+  const j = await getJourney('import_order', 'ord-a', { id: 'u-buyer', platformRole: 'member' }, { supabaseClient: w });
+  assert.equal(j.state, 'SHIPMENT_AMBIGUOUS', 'the Journey and the alert disagree about whether this is ambiguous');
+});
+
+test('CAP-08: another order\'s shipment on the same container neither makes this order ambiguous nor is announced to it (R1 D2)', async () => {
   const w = world({ shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-x' }] });
   const told = await resolveAlertRecipients({ id: 'ship-1', import_order_id: 'ord-a', container_id: 'cont-1' }, { client: w });
   assert.deepEqual(told.map((r) => `${r.userId}@${r.orderId}`).sort(), ['u-buyer@ord-a', 'u-creator-a@ord-a']);
-  const j = await getJourney('import_order', 'ord-b', { id: 'u-coloader', platformRole: 'member' }, { supabaseClient: w });
-  assert.equal(j.state, 'SHIPMENT_AMBIGUOUS', 'the Journey and the alert disagree about whether this is ambiguous');
+  const mine = await getJourney('import_order', 'ord-a', { id: 'u-buyer', platformRole: 'member' }, { supabaseClient: w });
+  assert.equal(mine.shipping.association, 'order');
+  const theirs = await getJourney('import_order', 'ord-b', { id: 'u-coloader', platformRole: 'member' }, { supabaseClient: w });
+  assert.notEqual(theirs.state, 'SHIPMENT_AMBIGUOUS');
+  assert.equal(theirs.shipping.association, 'none');
+  assert.equal(theirs.shipping.reference, undefined, 'a co-loader was shown another order\'s shipment');
 });
 
 test('CAP-08: a shipment attached to the order but sailing on a DIFFERENT container is not alerted — the records disagree', async () => {
@@ -272,13 +290,21 @@ test('CAP-08: a co-loader with their OWN shipment on the same container is not t
   assert.equal(j.shipping.reference, shipmentReference('ship-b'), 'the Journey and the alert disagree about which shipment is theirs');
 });
 
+test('CAP-08: a second shipment of the order on a DIFFERENT container is not announced as the order\'s journey — only the one the Journey shows is', async () => {
+  const w = world({ shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-m', import_order_id: 'ord-a', container_id: 'cont-OTHER' }] });
+  const mismatched = await resolveAlertRecipients({ id: 'ship-m', import_order_id: 'ord-a', container_id: 'cont-OTHER' }, { client: w });
+  assert.deepEqual(mismatched, [], 'the order was told about a shipment its Journey does not show');
+  const shown = await resolveAlertRecipients({ id: 'ship-1', import_order_id: 'ord-a', container_id: 'cont-1' }, { client: w });
+  assert.deepEqual(shown.map((r) => r.userId).sort(), ['u-buyer', 'u-creator-a']);
+});
+
 test('CAP-08: PARITY — the people told are exactly the people whose Journey shows that very shipment', async () => {
   const w = world();
   const told = new Set((await resolveAlertRecipients(SHIPMENT(), { client: w })).map((r) => `${r.userId}@${r.orderId}`));
   const candidates = [['u-buyer', 'ord-a'], ['u-creator-a', 'ord-a'], ['u-coloader', 'ord-b'], ['u-left', 'ord-c'], ['u-notloaded', 'ord-d']];
   for (const [userId, orderId] of candidates) {
     const j = await getJourney('import_order', orderId, { id: userId, platformRole: 'member' }, { supabaseClient: w });
-    const shows = ['order', 'container'].includes(j.shipping?.association) && j.shipping?.reference === shipmentReference('ship-1');
+    const shows = j.shipping?.association === 'order' && j.shipping?.reference === shipmentReference('ship-1');
     assert.equal(told.has(`${userId}@${orderId}`), shows, `${userId}: alert recipient and Journey disagree (journey shows it: ${shows})`);
   }
 });
@@ -300,7 +326,7 @@ test('CAP-08: the four recorded stages that matter each produce their own alert,
   for (const [stage, type, kind] of cases) {
     const b = bus();
     await run(world(), b, stage);
-    assert.equal(b.events.length, 3, `${stage}: wrong number of alerts`);
+    assert.equal(b.events.length, 2, `${stage}: wrong number of alerts`);
     for (const e of b.events) { assert.equal(e.event_type, type); assert.equal(e.payload.kind, kind); }
   }
   for (const quiet of ['PLANNED', 'BOOKED', 'LOADING', 'RELEASED', 'COMPLETED', 'NOT_A_STAGE']) {
@@ -329,7 +355,8 @@ test('CAP-08: each alert is addressed to its recipient\'s OWN order, with a path
   }
   const byUser = Object.fromEntries(b.events.map((e) => [e.payload.recipientUserId, e.payload.subjectId]));
   assert.equal(byUser['u-buyer'], 'ord-a');
-  assert.equal(byUser['u-coloader'], 'ord-b');
+  assert.equal(byUser['u-creator-a'], 'ord-a');
+  assert.equal(byUser['u-coloader'], undefined, 'a co-loaded order was addressed');
 });
 
 test('CAP-08: an alert carries nothing about anyone else, the operator, the container or the tenant', async () => {
@@ -368,15 +395,15 @@ test('CAP-08: the same outbox event handled twice alerts each person once', asyn
   const w = world(); const b = bus();
   await run(w, b, 'IN_TRANSIT', 'outbox-7');
   await run(w, b, 'IN_TRANSIT', 'outbox-7');
-  assert.equal(b.events.length, 3);
-  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-coloader', 'u-creator-a']);
+  assert.equal(b.events.length, 2);
+  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a']);
 });
 
 test('CAP-08: a different observation of the same stage is a different alert', async () => {
   const w = world(); const b = bus();
   await run(w, b, 'EXCEPTION', 'outbox-1');
   await run(w, b, 'EXCEPTION', 'outbox-2');
-  assert.equal(b.events.length, 6);
+  assert.equal(b.events.length, 4);
 });
 
 test('CAP-08: the alert key names the kind, the order, the person and the observation', () => {
@@ -392,31 +419,31 @@ test('CAP-08: the alert key names the kind, the order, the person and the observ
 });
 
 test('CAP-08: a handler that fails for one person still tells the others, then fails so the worker retries', async () => {
-  const w = world(); const b = bus({ failFor: 'u-coloader' });
+  const w = world(); const b = bus({ failFor: 'u-creator-a' });
   await assert.rejects(() => run(w, b, 'IN_TRANSIT', 'outbox-9'), (err) => {
     assert.ok(err instanceof JourneyAlertDeliveryError);
-    assert.match(err.message, /1 of 3/);
-    assert.ok(!err.message.includes('u-coloader'), 'the failure message named a recipient');
+    assert.match(err.message, /1 of 2/);
+    assert.ok(!err.message.includes('u-creator-a'), 'the failure message named a recipient');
     return true;
   });
-  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a'], 'one failure stopped the others');
+  assert.deepEqual(recipientsOf(b), ['u-buyer'], 'one failure stopped the others');
 });
 
 test('CAP-08: a failure for the FIRST person does not stop the rest — whoever fails, the others are told', async () => {
-  for (const failing of ['u-buyer', 'u-creator-a', 'u-coloader']) {
+  for (const failing of ['u-buyer', 'u-creator-a']) {
     const w = world(); const b = bus({ failFor: failing });
     await assert.rejects(() => run(w, b, 'IN_TRANSIT', 'outbox-f'), JourneyAlertDeliveryError);
-    assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-coloader', 'u-creator-a'].filter((u) => u !== failing), `${failing} failing stopped someone else being told`);
+    assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a'].filter((u) => u !== failing), `${failing} failing stopped someone else being told`);
   }
 });
 
 test('CAP-08: the retry delivers the missing alert and never repeats the delivered ones', async () => {
-  const w = world(); const b = bus({ failFor: 'u-coloader' });
+  const w = world(); const b = bus({ failFor: 'u-creator-a' });
   await assert.rejects(() => run(w, b, 'IN_TRANSIT', 'outbox-9'));
   b.ctl.failFor = null;
   await run(w, b, 'IN_TRANSIT', 'outbox-9');
-  assert.equal(b.events.length, 3, 'a retry duplicated an alert, or lost one');
-  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-coloader', 'u-creator-a']);
+  assert.equal(b.events.length, 2, 'a retry duplicated an alert, or lost one');
+  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a']);
 });
 
 test('CAP-08: an unknown, deleted or unaddressed shipment is skipped quietly — nothing to retry', async () => {
@@ -436,7 +463,7 @@ test('CAP-08: with no event identity at all, the key still comes from the shipme
   const payload = { shipmentId: 'ship-1', stage: 'IN_TRANSIT' };
   await handleShipmentStageEvent(payload, {}, { client: w, emitEvent: b.emit });
   await handleShipmentStageEvent(payload, {}, { client: w, emitEvent: b.emit });
-  assert.equal(b.events.length, 3, 'two deliveries of an unidentified event doubled the alerts');
+  assert.equal(b.events.length, 2, 'two deliveries of an unidentified event doubled the alerts');
 });
 
 test('CAP-08: the notifier writes nothing to any table', async () => {
@@ -455,7 +482,7 @@ test('CAP-08: the notifier writes nothing to any table', async () => {
   assert.deepEqual(writes, []);
 });
 
-test('CAP-08: reads stay bounded however many people share the container', async () => {
+test('CAP-08: reads stay bounded however many other orders share the container — and none of them is told', async () => {
   const count = async (extra) => {
     const orders = [{ id: 'ord-a', tenant_id: 'tenant-1', buyer_id: 'u-buyer', created_by: 'u-buyer', status: 'SHIPPED', deleted_at: null }];
     const reservations = [{ id: 'res-a', tenant_id: 'tenant-1', container_id: 'cont-1', import_order_id: 'ord-a', buyer_id: 'u-buyer', created_by: 'u-buyer', deleted_at: null }];
@@ -472,9 +499,9 @@ test('CAP-08: reads stay bounded however many people share the container', async
     return { n, people: got.length };
   };
   const one = await count(0); const many = await count(5);
-  assert.equal(one.people, 1); assert.equal(many.people, 6);
-  // Each extra order costs a fixed handful of reads (its own selection) — never a read per person or per event.
-  assert.ok(many.n - one.n <= 5 * 6, `reads grew faster than a fixed cost per order: ${one.n} -> ${many.n}`);
+  // Other orders on the container are not recipients (D2), so they cost nothing: not a read per order, person or event.
+  assert.equal(one.people, 1); assert.equal(many.people, 1);
+  assert.equal(many.n, one.n, `reads grew with the number of co-loaded orders: ${one.n} -> ${many.n}`);
 });
 
 // ── Estimate changes: one alert per window, not a storm ────────────────────────────────────────────
@@ -484,21 +511,21 @@ const eta = (b, w, observationId, recordedAt) => notifyJourneyAlert({ kind: 'ETA
 test('CAP-08: an estimate change alerts each person once, with the estimate wording', async () => {
   const w = world(); const b = bus();
   await eta(b, w, 'obs-1', '2026-10-01T10:00:00Z');
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
   for (const e of b.events) { assert.equal(e.payload.kind, 'ETA_CHANGED'); assert.equal(e.payload.status, journeyAlertText('ETA_CHANGED')); assert.equal(e.event_type, JOURNEY_ALERT_EVENTS.ALERT); }
 });
 
 test('CAP-08: a burst of estimate edits inside one window is one alert per person, not a storm', async () => {
   const w = world(); const b = bus();
   for (let i = 0; i < 12; i += 1) await eta(b, w, `obs-${i}`, `2026-10-01T10:${String(i).padStart(2, '0')}:00Z`);
-  assert.equal(b.events.length, 3, `${b.events.length} alerts for one burst`);
+  assert.equal(b.events.length, 2, `${b.events.length} alerts for one burst`);
 });
 
 test('CAP-08: an estimate change in a later window is a new alert', async () => {
   const w = world(); const b = bus();
   await eta(b, w, 'obs-1', '2026-10-01T10:05:00Z');
   await eta(b, w, 'obs-2', '2026-10-01T10:40:00Z');
-  assert.equal(b.events.length, 6);
+  assert.equal(b.events.length, 4);
   assert.equal(ETA_ALERT_WINDOW_MINUTES, 30);
 });
 
@@ -506,7 +533,7 @@ test('CAP-08: the same revision replayed is the same alert, even long after the 
   const w = world(); const b = bus();
   await eta(b, w, 'obs-1', '2026-10-01T10:05:00Z');
   await eta(b, w, 'obs-1', '2026-10-01T10:05:00Z');
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
 });
 
 test('CAP-08: an estimate change with no recorded time cannot be windowed — it is refused, not given a random key', async () => {
@@ -550,7 +577,7 @@ test('CAP-08: a stage event processed by the REAL worker alerts the right people
   const b = bus(); const pg = fakePg();
   registerJourneyAlertListeners(eventWorker, { client: world(), emitEvent: b.emit });
   await eventWorker.processEvent(pg, outboxRow('IN_TRANSIT'));
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
   assert.ok(pg.log.some((q) => /SET status = 'processed'/.test(q.sql)), 'the event was not settled as processed');
   assert.deepEqual(new Set(b.events.map((e) => e.payload.alertKey.split(':')[3])), new Set(['evt-outbox-w1']), 'the key did not come from the outbox event id');
 });
@@ -561,12 +588,12 @@ test('CAP-08: a stage event the worker redelivers never tells anyone twice', asy
   registerJourneyAlertListeners(eventWorker, { client: world(), emitEvent: b.emit });
   await eventWorker.processEvent(pg, outboxRow('ARRIVED'));
   await eventWorker.processEvent(pg, outboxRow('ARRIVED', { attempts: 1 }));
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
 });
 
 test('CAP-08: a delivery failure leaves the event pending for the worker to retry — and the retry completes it', async () => {
   eventWorker.handlers = new Map();
-  const b = bus({ failFor: 'u-coloader' }); const pg = fakePg();
+  const b = bus({ failFor: 'u-creator-a' }); const pg = fakePg();
   registerJourneyAlertListeners(eventWorker, { client: world(), emitEvent: b.emit });
   await eventWorker.processEvent(pg, outboxRow('IN_TRANSIT'));
   const failed = pg.log.find((q) => /SET status = \$1/.test(q.sql));
@@ -575,7 +602,7 @@ test('CAP-08: a delivery failure leaves the event pending for the worker to retr
   assert.equal(failed.params[1], 1);
   b.ctl.failFor = null;
   await eventWorker.processEvent(pg, outboxRow('IN_TRANSIT', { attempts: 1 }));
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
   assert.ok(pg.log.some((q) => /SET status = 'processed'/.test(q.sql)));
 });
 
@@ -610,8 +637,8 @@ const record = (w, b, payload = REVISION()) => recordEtaRevision('ship-1', paylo
 test('CAP-08: a recorded estimate revision, through the real service, alerts the people on that shipment', async () => {
   const w = world(); const b = bus();
   await record(w, b);
-  assert.equal(b.events.length, 3);
-  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-coloader', 'u-creator-a']);
+  assert.equal(b.events.length, 2);
+  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a']);
   for (const e of b.events) assert.equal(e.payload.kind, 'ETA_CHANGED');
 });
 
@@ -619,16 +646,16 @@ test('CAP-08: replaying the same revision request re-attempts the alert and neve
   const w = world(); const b = bus();
   await record(w, b);
   await record(w, b);
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
 });
 
 test('CAP-08: a replay delivers an alert the first attempt could not queue', async () => {
-  const w = world(); const b = bus({ failFor: 'u-coloader' });
+  const w = world(); const b = bus({ failFor: 'u-creator-a' });
   await record(w, b);
-  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a']);
+  assert.deepEqual(recipientsOf(b), ['u-buyer'], 'the person whose alert could not be queued was reported as told');
   b.ctl.failFor = null;
   await record(w, b);
-  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-coloader', 'u-creator-a']);
+  assert.deepEqual(recipientsOf(b), ['u-buyer', 'u-creator-a']);
 });
 
 test('CAP-08: a notification failure never fails the revision that was already recorded', async () => {
@@ -650,10 +677,10 @@ test('CAP-08: a superseded revision announces nothing even when it lands in a LA
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-01T10:00:00Z') });
   const w = world(); const b = bus();
   await record(w, b, REVISION({ provider_event_id: 'rev-new', observed_at: '2026-10-01T10:00:00Z' }));
-  assert.equal(b.events.length, 3);
+  assert.equal(b.events.length, 2);
   t.mock.timers.setTime(Date.parse('2026-10-01T13:00:00Z'));
   await record(w, b, REVISION({ provider_event_id: 'rev-old', estimated_arrival: '2026-10-05T00:00:00Z', observed_at: '2026-09-25T10:00:00Z' }));
-  assert.equal(b.events.length, 3, 'a revision that can never be current was announced in a later window');
+  assert.equal(b.events.length, 2, 'a revision that can never be current was announced in a later window');
 });
 
 test('CAP-08: the alert window comes from when the revision was RECORDED, not from the time it says it was observed', async (t) => {
@@ -686,7 +713,7 @@ test('CAP-08: losing the insert race to an identical request still re-attempts t
   const out = await recordEtaRevision('ship-1', REVISION({ provider_event_id: 'rev-race', observed_at: '2026-10-01T10:00:00Z' }), OPERATOR, { supabaseClient: racing, emitEvent: b.emit });
   assert.ok(missed, 'the race was not actually exercised');
   assert.equal(out.id, 'obs-winner');
-  assert.equal(b.events.length, 3, 'the request that lost the race did not re-attempt the alert');
+  assert.equal(b.events.length, 2, 'the request that lost the race did not re-attempt the alert');
 });
 
 test('CAP-08: a refused revision announces nothing', async () => {
@@ -730,8 +757,8 @@ test('CAP-08: the notifier\'s real alerts become exactly one in-app notice each,
   const { repository, services } = pipeline();
   for (const [i, e] of b.events.entries()) await deliver(services, e, `evt-${i}`);
   const queue = repository.rows('notification_queue');
-  assert.equal(queue.length, 3);
-  assert.deepEqual(queue.map((q) => q.recipient_user_id).sort(), ['u-buyer', 'u-coloader', 'u-creator-a']);
+  assert.equal(queue.length, 2);
+  assert.deepEqual(queue.map((q) => q.recipient_user_id).sort(), ['u-buyer', 'u-creator-a']);
   for (const q of queue) {
     assert.equal(q.channel, 'in_app', 'an alert routed outside the app');
     assert.equal(q.template_key, 'journey_update_v1');

@@ -691,7 +691,7 @@ export type JourneyEta =
   | { availability: 'not_applicable' }
   | JourneyNotComposed
 export interface JourneyShipping {
-  association: 'order' | 'container' | 'order_container_mismatch' | 'ambiguous' | 'none' | 'not_applicable' | string
+  association: 'order' | 'order_container_mismatch' | 'ambiguous' | 'none' | 'not_applicable' | string
   reference?: string
   candidate_count?: number
   dates: ShipmentDates | null

@@ -47,7 +47,6 @@ import {
   TABS,
   actionBadge,
   againstFirstEstimateText,
-  associationNote,
   authorityLabel,
   customsPath,
   describeArrival,
@@ -145,9 +144,6 @@ export default function JourneyArrival() {
   const eta = shipping?.eta && shipping.eta.availability === 'composed' ? shipping.eta : null
   const arrival = describeArrival(dates && eta?.current ? { ...dates, estimated_arrival: eta.current } : dates)
   const etaBasis = eta?.current ? (eta.basis === 'revision' ? 'Latest revised estimate' : 'From the shipment record') : null
-  // Shown only where it adds something. An ambiguous or mismatched shipment already has its own alert,
-  // and repeating the same sentence three times would bury the one that matters.
-  const association = shipping?.association === 'container' ? associationNote('container') : null
   const orderRef = shortRef(data.subject.order_id || data.subject.id)
   // CAP-06. A section is shown as what it says it is: composed, withheld from this viewer, unavailable
   // right now, or not applicable. Only a service that sends none of those falls back to the placeholder.
@@ -186,9 +182,6 @@ export default function JourneyArrival() {
         <p className="mt-2 min-w-0 break-words text-xs text-slate-600" data-testid="journey-last-update">
           Last recorded update: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
         </p>
-        {association ? (
-          <p className="mt-2 min-w-0 break-words text-xs text-slate-600" data-testid="journey-association">{association}</p>
-        ) : null}
       </div>
 
       <div className="mt-5 -mx-1 overflow-x-auto px-1" data-testid="journey-tabs-scroll">
