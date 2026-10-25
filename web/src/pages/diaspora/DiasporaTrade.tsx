@@ -1075,6 +1075,9 @@ export function DiasporaImportDetail() {
               <Button asChild variant="outline" data-testid="diaspora-open-shipment-button">
                 <Link to={`/diaspora/imports/${order.id}/shipment`}>Shipment</Link>
               </Button>
+              <Button asChild variant="outline" data-testid="diaspora-open-journey-button">
+                <Link to={`/diaspora/journey/import_order/${encodeURIComponent(order.id)}`}>Journey &amp; arrival</Link>
+              </Button>
             </div>
             <PaymentMilestonesCard
               orderId={order.id}

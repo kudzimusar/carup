@@ -118,6 +118,26 @@ export const UNIQUE_INDEXES = Object.freeze({
     cols: ['case_id'],
     where: (row) => !row.deleted_at && row.status === 'ACTIVE',
   }],
+  // T11-CAP-04 — diaspora_shipment_legs: uq_shipment_leg_live_sequence.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL. Two live legs in one position of one journey is two answers
+  // to "which vessel", and superseding a leg must free its position for the replacement. The partial
+  // predicate is proven against real Postgres in database/test/trade_os_cap04_legs_check.mjs.
+  diaspora_shipment_legs: [{
+    name: 'uq_shipment_leg_live_sequence',
+    cols: ['shipment_id', 'leg_sequence'],
+    where: (row) => !row.deleted_at,
+  }],
+  // T11-CAP-05 — diaspora_shipment_observations: uq_shipment_observation_provider_event.
+  //
+  // TOTAL: UNIQUE (provider_id, provider_event_id). Recording an observation is idempotent because of
+  // this constraint, not because of a read-then-insert: two concurrent deliveries of one event must
+  // lose the insert race rather than record it twice. The same event id from a different provider is a
+  // different event, which the column pair expresses and a single-column key would not.
+  diaspora_shipment_observations: [{
+    name: 'uq_shipment_observation_provider_event',
+    cols: ['provider_id', 'provider_event_id'],
+  }],
   // T9 — diaspora_warehouse_intakes: uq_warehouse_intake_subject.
   //
   // One live intake per cargo. This IS the idempotency of physical receipt: two operators clicking

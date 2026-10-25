@@ -157,6 +157,13 @@ const TEMPLATES = Object.freeze({
     subject: 'Shipment exception {{reference}}',
     body: 'Shipment {{reference}} stage: {{stage}}.',
   },
+  // T11-CAP-08 — a Journey alert. The body IS the sentence the notifier chose: it names what the shipment
+  // authority recorded and what that is not, and carries no date that a later revision could make stale.
+  journey_update_v1: {
+    transactional: true,
+    subject: 'Your shipment {{reference}}',
+    body: '{{status}}',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',

@@ -86,6 +86,7 @@ const ContainerLoadingWorkspace = lazy(() => import('./pages/diaspora/ContainerL
 const MyCargoLoading = lazy(() => import('./pages/diaspora/MyCargoLoading'))
 const ShipmentTimelineWorkspace = lazy(() => import('./pages/diaspora/ShipmentTimelineWorkspace'))
 const MyShipmentTracking = lazy(() => import('./pages/diaspora/MyShipmentTracking'))
+const JourneyArrival = lazy(() => import('./pages/diaspora/JourneyArrival'))
 const CustomsDestinationWorkspace = lazy(() => import('./pages/diaspora/CustomsDestinationWorkspace'))
 const MyCustomsDestination = lazy(() => import('./pages/diaspora/MyCustomsDestination'))
 const DiasporaDriveConnections = lazy(() => import('./pages/diaspora/DiasporaDriveConnections'))
@@ -439,6 +440,8 @@ export default function App() {
           <Route path="/diaspora/shipments" element={<ShipmentTimelineWorkspace />} />
           {/* T11.3 — a participant's own cargo journey. Authorized from the CARGO. */}
           <Route path="/diaspora/tracking/:subjectType/:subjectId" element={<MyShipmentTracking />} />
+          {/* T11-CAP-03 — Journey & Arrival: a read-only composition, authorized from the order. */}
+          <Route path="/diaspora/journey/:subjectType/:subjectId" element={<JourneyArrival />} />
           <Route path="/diaspora/customs" element={<CustomsDestinationWorkspace />} />
           <Route path="/diaspora/my-customs/:subjectType/:subjectId" element={<MyCustomsDestination />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />

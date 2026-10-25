@@ -425,6 +425,9 @@ export default function VehicleProfile() {
           <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
         </Button>
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" asChild>
+            <Link to={`/diaspora/journey/vehicle/${encodeURIComponent(vehicle.vin)}`} data-testid="vehicle-journey-link">Journey &amp; arrival</Link>
+          </Button>
           {/* Management actions require CONFIRMED ownership. While scope is still unknown they stay
               hidden, so a slow or failed scope read can never present another owner's vehicle as
               editable. */}

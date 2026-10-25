@@ -214,6 +214,33 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     classification: 'transactional',
     transactional: true,
   },
+  // T11-CAP-08 — your shipment's journey moved (departed, arrived, estimate changed). In-app only, by
+  // policy: a person who is waiting for a vehicle needs to be told, and it is not marketing. The governed
+  // template says only what the shipment authority recorded.
+  'diaspora.journey.alert': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'journey_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
+  // T11-CAP-08 — a problem or a hold on your shipment. High priority, as the legacy exception notice is;
+  // it says where the goods are held and is explicitly not a customs decision.
+  'diaspora.journey.exception': {
+    notificationType: 'rfq_update',
+    threadType: 'marketplace_inquiry',
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'journey_update_v1',
+    classification: 'transactional',
+    transactional: true,
+  },
   // T9.4 — the warehouse has your cargo. Transactional and in-app: a person who shipped goods needs
   // to be told they arrived, and it is not marketing.
   'diaspora.warehouse.cargo_received': {

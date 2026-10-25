@@ -417,6 +417,14 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T11-CAP-02 — Journey & Arrival (read-only composition) ─────────────
+
+  const getJourney = useCallback(async (subjectType: string, subjectId: string): Promise<Journey> => {
+    const response = await request<{ data: Journey }>(
+      `/diaspora/journeys/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   // ── T12 — attributed customs coordination & Zimbabwe destination ───────
 
   const getCustomsCase = useCallback(async (caseId: string): Promise<CustomsCaseWorkspace> => {
@@ -507,6 +515,7 @@ export function useTradeLogisticsApi() {
     appointClearingAgent,
     recordCustomsEvent,
     getMyCustoms,
+    getJourney,
   }), [
     listMyRequests,
     getRequest,
@@ -562,6 +571,7 @@ export function useTradeLogisticsApi() {
     appointClearingAgent,
     recordCustomsEvent,
     getMyCustoms,
+    getJourney,
   ])
 }
 
@@ -616,6 +626,210 @@ export interface MyTracking {
   references: ShipmentReferences | null
   timeline: Array<{ stage: string; event_time: string | null; location: string | null }>
   exception?: { stage: string; recorded_at: string | null; note: string } | null
+  note: string
+}
+
+// ── T11-CAP-02 — Journey & Arrival ───────────────────────────────────────────
+// Mirrors journeyProjectionService. A COMPOSITION of records other layers own. A section that is
+// `not_yet_composed` is NOT empty-and-complete: it is not connected to this view yet.
+
+export interface JourneyNotComposed { availability: 'not_yet_composed'; owner: string }
+export interface JourneyTimelineEntry {
+  kind: 'MOVEMENT' | 'LOAD' | string
+  stage: string
+  event_time: string | null
+  location: string | null
+  source: string | null
+}
+export interface JourneyException { code: string; note: string; stage?: string; recorded_at?: string | null }
+export interface JourneyAsset {
+  make: string | null; model: string | null; year: number | null; color: string | null; mileage: number | null
+  source: string
+  // Present only for the order's owner and platform admins; absent (not null) for everyone else.
+  chassis_number?: string | null
+  engine_number?: string | null
+}
+export interface JourneyLeg {
+  sequence: number
+  carrier_name: string | null
+  vessel_name: string | null
+  voyage_ref: string | null
+  imo: string | null
+  mmsi: string | null
+  port_of_loading: string | null
+  port_of_discharge: string | null
+  planned_departure: string | null
+  estimated_arrival: string | null
+  source: string | null
+}
+// Declared, not observed: nothing in a leg can say a vessel sailed or arrived.
+export type JourneyLegs =
+  | JourneyNotComposed
+  | { availability: 'composed'; items: JourneyLeg[]; note: string }
+  | { availability: 'not_applicable' }
+export interface JourneyEtaRevision {
+  estimated_arrival: string | null
+  observed_at: string | null
+  reason: string | null
+  source: string | null
+  superseded: boolean
+}
+// The estimate: the latest accepted revision (`current`) BESIDE the shipment record's own (`original`).
+// A revision is an observation shown next to the record, never over it, and never an arrival.
+export type JourneyEta =
+  | {
+    availability: 'composed'
+    basis: 'revision' | 'shipment_record' | 'none'
+    original: string | null
+    current: string | null
+    change_days: number | null
+    revision_count: number
+    last_revised_at: string | null
+    revisions: JourneyEtaRevision[]
+    note: string
+  }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
+export interface JourneyShipping {
+  association: 'order' | 'order_container_mismatch' | 'ambiguous' | 'none' | 'not_applicable' | string
+  reference?: string
+  candidate_count?: number
+  dates: ShipmentDates | null
+  references: {
+    carrier: string | null; tracking_reference: string | null
+    origin_port: string | null; destination_port: string | null; note: string
+  } | null
+  legs: JourneyLegs
+  // Absent from services that predate estimate history.
+  eta?: JourneyEta
+}
+// ── T11-CAP-06 — documents and next steps, composed ──────────────────────────
+// Documents are T8's: the states are T8's own, and no document id, user id, storage path or extraction id
+// is ever sent. `withheld` (T8 would refuse this viewer) and `unavailable` (T8 could not be read) are
+// different things and neither is "there are none".
+export interface JourneyDocumentItem {
+  document_type: string
+  display_name: string
+  verification_required: boolean
+  state: 'VERIFIED' | 'AWAITING_REVIEW' | 'PRESENT' | 'REJECTED' | 'REQUESTED' | 'MISSING' | 'NOT_APPLICABLE' | string
+  note: string
+  document: {
+    version: number | null
+    supplied_at: string | null
+    reviewed_at: string | null
+    has_extraction: boolean
+    has_earlier_versions: boolean
+  } | null
+}
+export type JourneyDocuments =
+  | {
+    availability: 'composed'
+    items: JourneyDocumentItem[]
+    summary: { total: number; supplied: number; verified: number; awaiting_review: number; rejected: number; requested_outstanding: number }
+    disclaimer: string
+  }
+  | { availability: 'withheld'; note: string }
+  | { availability: 'unavailable'; note: string }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
+export interface JourneyAction {
+  kind: 'YOUR_ACTION' | 'WAITING_ON'
+  code: string
+  text: string
+  waiting_on: string
+  link?: { type: string; subject: { type: string; id: string } }
+}
+export type JourneyActions =
+  | { availability: 'composed'; items: JourneyAction[]; note: string }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
+// ── T11-CAP-07 — customs and the clearing agent, composed from T12 ───────────
+// What is forwarded IS T12's own participant status; the Journey states no customs outcome of its own.
+// `withheld` (T12 does not admit this viewer — the same answer whether or not a case exists), `unavailable`
+// (T12 could not be read), `not_applicable` (no container booking, or the cargo did not travel),
+// `ambiguous` (several bookings) and `disagrees` (the case names a different shipment or order, so none
+// of it is shown) each carry their own note. None of them is "there is no customs".
+export interface JourneyCustomsComposed {
+  availability: 'composed'
+  state: string
+  reference: string | null
+  sentence: string
+  checklist: MyCustomsStatus['checklist']
+  assessment: MyCustomsStatus['assessment']
+  payment: MyCustomsStatus['payment']
+  release: MyCustomsStatus['release']
+  handoffs: MyCustomsStatus['handoffs']
+  timeline: MyCustomsStatus['timeline']
+  next_action: string
+  note: string
+  unknown_note: string
+  link: { type: string; subject: { type: string; id: string } }
+}
+export type JourneyCustoms =
+  | JourneyCustomsComposed
+  | { availability: 'withheld' | 'unavailable' | 'not_applicable' | 'ambiguous' | 'disagrees'; note?: string }
+  | JourneyNotComposed
+// The clearing agent, by display name only — never an id or a licence reference.
+export type JourneyAgents =
+  | { availability: 'composed'; items: Array<{ display_name: string; role: string; note: string | null }>; note: string }
+  | { availability: 'withheld' | 'unavailable' | 'not_applicable' | 'ambiguous' | 'disagrees'; note?: string }
+  | JourneyNotComposed
+// ── T11-CAP-09 — statistics, derived only from recorded observations ────────
+// A number comes from an OBSERVED date or it is absent (`value: null`, with the reason in `note`) — never
+// zero standing in for "unknown". A route statistic is the SAME organiser's completed sailings only, counts
+// sailings rather than shipments, and below the stated minimum says "not enough data" without saying how many.
+// It describes journeys already completed; it is not a prediction.
+export interface JourneyOwnMetric { value: number | null; ongoing?: boolean; note: string }
+export type JourneyLane =
+  | {
+    availability: 'sufficient'
+    minimum_sailings: number
+    sailings: number
+    transit_days: { median: number; min: number; max: number }
+    arrival_vs_estimate_days: { availability: 'sufficient'; median_days: number } | { availability: 'insufficient_data'; note: string }
+    note: string
+  }
+  | { availability: 'insufficient_data'; minimum_sailings: number; note: string }
+  | { availability: 'not_applicable'; note: string }
+export type JourneyIntelligence =
+  | {
+    availability: 'composed'
+    own: { days_in_transit: JourneyOwnMetric; arrival_vs_first_estimate_days: JourneyOwnMetric }
+    lane: JourneyLane
+    note: string
+  }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
+export interface JourneySections {
+  documents?: JourneyDocuments
+  actions?: JourneyActions
+  customs?: JourneyCustoms
+  intelligence?: JourneyIntelligence
+  [section: string]: JourneyDocuments | JourneyActions | JourneyCustoms | JourneyIntelligence | JourneyNotComposed | { availability: string; owner?: string } | undefined
+}
+export interface Journey {
+  subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
+  viewer: { kind: 'OWNER' | 'ADMIN' | 'PARTICIPANT' }
+  state: string
+  sentence: string
+  // A vehicle with several import orders: offered, never chosen. Absent otherwise.
+  candidates?: Array<{ order_id: string; status: string | null; created_at: string | null }>
+  asset: JourneyAsset | null
+  transaction: {
+    order_id: string; status: string | null
+    origin_country: string | null; origin_city: string | null
+    destination_country: string | null; destination_city: string | null
+  } | null
+  shipping: JourneyShipping | null
+  timeline: JourneyTimelineEntry[]
+  exceptions: JourneyException[]
+  contacts: {
+    consignee: { recorded: boolean; kind: string | null; name: string | null; phone: string | null } | null
+    agents: JourneyAgents
+  } | null
+  sections: JourneySections
+  provenance: Record<string, { authority: string; note?: string; association?: string }>
+  generated_at?: string
   note: string
 }
 

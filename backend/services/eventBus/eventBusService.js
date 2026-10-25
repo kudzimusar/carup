@@ -48,6 +48,11 @@ const DETERMINISTIC_EVENT_IDENTITY_FIELDS = Object.freeze({
   'garage.appointment.confirmed': ['notificationKey'],
   'garage.appointment.declined': ['notificationKey'],
   'garage.appointment.cancelled': ['notificationKey'],
+  // T11-CAP-08 — one alert per (kind, order, person, observation). The event worker re-runs every handler
+  // of an event when any one throws, so a handler that told two people before failing must be safe to
+  // run again; the key is built by the notifier and derived by the same rule in the SQL trigger.
+  'diaspora.journey.alert': ['alertKey'],
+  'diaspora.journey.exception': ['alertKey'],
 });
 
 /** The Service Network event types registered above, for the migration-agreement test. */

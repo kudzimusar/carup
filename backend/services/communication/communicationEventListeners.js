@@ -88,6 +88,11 @@ export const COMMUNICATION_EVENT_TYPES = [
   'diaspora.container_booking.reservation_rejected',
   'diaspora.container_booking.reservation_cancelled',
   'diaspora.container_booking.booking_closed',
+  // Trade OS T11-CAP-08 — Journey alerts. Emitted best-effort by services/diaspora/journeyAlertNotifier.js
+  // when T11 records a departure, an arrival, an exception or a hold, and when an estimate changes. One-way and
+  // advisory: the payload carries the recipient's OWN order and a sentence, never another participant.
+  'diaspora.journey.alert',
+  'diaspora.journey.exception',
   // R1 — the durable post-verification work item. The Leadership Welcome used to be produced
   // inline in the verification route and its failure swallowed, which permanently lost the welcome
   // for that account because the verification token is single-use and already consumed.

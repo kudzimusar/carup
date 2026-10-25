@@ -1,0 +1,324 @@
+{
+  "functions": [
+    {
+      "name": "carup_shipment_leg_guard",
+      "args": "",
+      "body_md5": "7df129e2eb33000476190bb091687e50",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "public_exec_explicit": true,
+      "expected_body_md5": "7df129e2eb33000476190bb091687e50"
+    },
+    {
+      "name": "carup_shipment_leg_no_delete",
+      "args": "",
+      "body_md5": "6746a59a84d38508554324ee0ba665de",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "public_exec_explicit": true,
+      "expected_body_md5": "6746a59a84d38508554324ee0ba665de"
+    },
+    {
+      "name": "carup_shipment_observation_guard",
+      "args": "",
+      "body_md5": "26c7a42f345bb022fa033eda6c5c1bc0",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "public_exec_explicit": true,
+      "expected_body_md5": "26c7a42f345bb022fa033eda6c5c1bc0"
+    },
+    {
+      "name": "carup_shipment_observation_no_delete",
+      "args": "",
+      "body_md5": "580591da21d49067b887a60956758f30",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "public_exec_explicit": true,
+      "expected_body_md5": "580591da21d49067b887a60956758f30"
+    },
+    {
+      "name": "communication_journey_alert_dedupe_key",
+      "args": "",
+      "body_md5": "a43b0198efb875bd41eef7d306d7dba9",
+      "secdef": false,
+      "is_trigger": true,
+      "config": "{search_path=public}",
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "public_exec_explicit": false,
+      "expected_body_md5": "a43b0198efb875bd41eef7d306d7dba9"
+    }
+  ],
+  "tables": [
+    {
+      "name": "diaspora_shipment_legs",
+      "rls": true,
+      "force_rls": true,
+      "columns": 21,
+      "anon_any": false,
+      "authenticated_any": false
+    },
+    {
+      "name": "diaspora_shipment_observations",
+      "rls": true,
+      "force_rls": true,
+      "columns": 18,
+      "anon_any": false,
+      "authenticated_any": false
+    }
+  ],
+  "triggers": [
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "trg_shipment_leg_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true,
+      "when_scopes_both_journey_events": false
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "trg_shipment_leg_no_delete",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": true,
+      "on_update": false,
+      "when_scopes_both_journey_events": false
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "trg_shipment_observation_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true,
+      "when_scopes_both_journey_events": false
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "trg_shipment_observation_no_delete",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": true,
+      "on_update": false,
+      "when_scopes_both_journey_events": false
+    },
+    {
+      "table_name": "domain_events",
+      "name": "trg_domain_events_journey_alert_dedupe",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": true,
+      "on_delete": false,
+      "on_update": false,
+      "when_scopes_both_journey_events": true
+    }
+  ],
+  "constraints": [
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_identify_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_imo_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_mmsi_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_sequence_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_shipment_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_source_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_tenant_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_legs",
+      "name": "diaspora_shipment_legs_updated_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_decided_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_decision_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_eta_payload_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_kind_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_leg_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_shipment_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_status_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "diaspora_shipment_observations_tenant_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_shipment_observations",
+      "name": "uq_shipment_observation_provider_event",
+      "type": "u",
+      "validated": true
+    }
+  ],
+  "indexes": [
+    {
+      "name": "diaspora_shipment_legs_pkey"
+    },
+    {
+      "name": "diaspora_shipment_observations_pkey"
+    },
+    {
+      "name": "idx_shipment_legs_shipment"
+    },
+    {
+      "name": "idx_shipment_observations_eta"
+    },
+    {
+      "name": "uq_shipment_leg_live_sequence"
+    },
+    {
+      "name": "uq_shipment_observation_provider_event"
+    }
+  ],
+  "domain_events_triggers": [
+    "trg_domain_events_communication_dedupe",
+    "trg_domain_events_journey_alert_dedupe",
+    "trg_minimize_referral_bridge_outbox_payload"
+  ],
+  "template": [
+    {
+      "template_key": "journey_update_v1",
+      "classification": "transactional",
+      "status": "active",
+      "stakeholder_audience": "customer",
+      "version": 1,
+      "channel": "in_app",
+      "language": "en",
+      "approval_status": "approved",
+      "subject_template": "Your shipment {{reference}}",
+      "body_template": "{{status}}",
+      "required_variables": "[\"reference\", \"status\"]"
+    }
+  ],
+  "domain_events_triggers_must_include": [
+    "trg_domain_events_communication_dedupe",
+    "trg_domain_events_journey_alert_dedupe",
+    "trg_minimize_referral_bridge_outbox_payload"
+  ]
+}
