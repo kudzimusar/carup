@@ -158,6 +158,7 @@ import { buildVehicleListingCandidate, getListingEligibility } from './services/
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
+import { registerJourneyAlertListeners } from './services/diaspora/journeyAlertNotifier.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
 import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
@@ -435,6 +436,7 @@ if (connectionError) {
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
   registerCommunicationListeners(eventWorker);
+  registerJourneyAlertListeners(eventWorker);
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 

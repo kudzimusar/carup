@@ -25,6 +25,7 @@ import { ConflictError, DatabaseError, ValidationError } from '../../utils/error
 import { requireUserContext } from './diasporaAuthorization.js';
 import { loadShipmentWriteContext } from './shipmentWriteContext.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
+import { JOURNEY_ALERT_KINDS, notifyJourneyAlert } from './journeyAlertNotifier.js';
 import { resolveClient } from './diasporaServiceUtils.js';
 import { listEtaRevisionsForShipment } from './shipmentObservationRead.js';
 
@@ -128,6 +129,28 @@ async function reconcileCurrent(client, shipmentId) {
       .eq('id', older.id).eq('status', 'ACCEPTED');
     if (error) throw new DatabaseError(error.message);
   }
+  return accepted.length ? accepted[accepted.length - 1].id : null;
+}
+
+/**
+ * Tell the people on this shipment that its estimate changed — only if this revision is the CURRENT one
+ * (a late-entered older revision is superseded on arrival and can never be current, so it announces
+ * nothing), and only as a best-effort consumer: the revision is already recorded and audited, and a
+ * notification failure must never fail it. The alert is keyed to a window of the revision's own recorded
+ * time, so replaying the request re-attempts a missed alert and never repeats a delivered one.
+ */
+async function announceEtaChange(client, shipment, revision, options) {
+  try {
+    await notifyJourneyAlert({
+      kind: JOURNEY_ALERT_KINDS.ETA_CHANGED,
+      shipment,
+      observationId: revision.id,
+      recordedAt: revision.created_at || revision.received_at || revision.observed_at,
+    }, { client, ...(options.emitEvent ? { emitEvent: options.emitEvent } : {}) });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[eta-revision] the estimate alert could not be queued:', err.message);
+  }
 }
 
 export async function recordEtaRevision(shipmentId, payload, userContext = {}, options = {}) {
@@ -142,7 +165,10 @@ export async function recordEtaRevision(shipmentId, payload, userContext = {}, o
   // Replay: the same event, described the same way, is the same event.
   const replay = await findByEvent(client, fields.provider_event_id);
   if (replay) {
-    if (sameObservation(replay, id, fields)) return projectForOperator(replay);
+    if (sameObservation(replay, id, fields)) {
+      if (replay.status === 'ACCEPTED') await announceEtaChange(client, shipment, replay, options);
+      return projectForOperator(replay);
+    }
     throw new ConflictError(CONFLICT);
   }
 
@@ -173,13 +199,16 @@ export async function recordEtaRevision(shipmentId, payload, userContext = {}, o
     if (error.code === '23505') {
       // Lost the insert race for this event id: it is a replay or a conflict, decided on what won.
       const winner = await findByEvent(client, fields.provider_event_id);
-      if (winner && sameObservation(winner, id, fields)) return projectForOperator(winner);
+      if (winner && sameObservation(winner, id, fields)) {
+        if (winner.status === 'ACCEPTED') await announceEtaChange(client, shipment, winner, options);
+        return projectForOperator(winner);
+      }
       throw new ConflictError(CONFLICT);
     }
     throw new DatabaseError(error.message);
   }
 
-  await reconcileCurrent(client, id);
+  const currentId = await reconcileCurrent(client, id);
 
   await writeDiasporaAudit({
     importOrderId: order.id,
@@ -193,6 +222,7 @@ export async function recordEtaRevision(shipmentId, payload, userContext = {}, o
     req: options.req || null,
     supabaseClient: client,
   });
+  if (currentId && String(currentId) === String(data.id)) await announceEtaChange(client, shipment, data, options);
   return projectForOperator(data);
 }
 

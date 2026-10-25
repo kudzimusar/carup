@@ -490,6 +490,60 @@ function deriveActions({ viewer, documents, customs, exceptions, orderId, reserv
   };
 }
 
+/** The short reference a customer sees for a shipment — shared so an alert and the Journey print the same one. */
+export function shipmentReference(shipmentId) {
+  return `SHPM-${String(shipmentId).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+}
+
+/**
+ * Which shipment, if any, is THIS order's journey.
+ *
+ * One rule, used by the Journey AND by the alerts (journeyAlertNotifier), so the people told that a
+ * shipment moved are exactly the people whose Journey shows that shipment — not a second implementation
+ * of "who is on this ship" that could drift from it. It reads the order's live bookings, the load ladder
+ * for the booking in play, and the candidate shipments, and returns the evidence; it writes nothing.
+ *
+ * The load ladder applies only when exactly one booking is in play (or the caller named a booking);
+ * otherwise no claim is made from it. Cargo that was left behind, or was never loaded, has no journey
+ * to follow, and a container-level shipment is not theirs to read.
+ */
+export async function resolveJourneyShipment(client, order, aliasReservation = null) {
+  const { data: reservations } = await client.from(RESERVATIONS).select('*')
+    .eq('import_order_id', order.id).is('deleted_at', null);
+  const liveReservations = reservations || [];
+  const containerIds = [...new Set(liveReservations.map((r) => normalizeId(r.container_id)).filter(Boolean))];
+
+  const ladderReservation = aliasReservation
+    || (liveReservations.length === 1 ? liveReservations[0] : null);
+
+  let loadState = null;
+  let loadRecord = null;
+  if (ladderReservation?.container_id) {
+    const { data: loads } = await client.from(LOADS).select('*')
+      .eq('container_id', ladderReservation.container_id).is('deleted_at', null);
+    loadRecord = (loads || []).find((l) => ['IN_PROGRESS', 'COMPLETED'].includes(String(l.status))) || null;
+    const { data: mine } = loadRecord
+      ? await client.from(LOAD_ITEMS).select('*').eq('load_id', loadRecord.id)
+        .eq('subject_type', 'cargo_reservation').eq('subject_id', ladderReservation.id).is('deleted_at', null).maybeSingle()
+      : { data: null };
+    if (mine?.outcome === 'LEFT_BEHIND') loadState = JOURNEY_STATES.LEFT_BEHIND;
+    else if (mine?.outcome === 'LOADED') loadState = JOURNEY_STATES.LOADED;
+    else loadState = JOURNEY_STATES.NOT_LOADED;
+  }
+
+  const goodsNotOnShipment = loadState === JOURNEY_STATES.LEFT_BEHIND || loadState === JOURNEY_STATES.NOT_LOADED;
+  let picked = null;
+  if (!goodsNotOnShipment) {
+    const { data: byOrder } = await client.from(SHIPMENTS).select('*')
+      .eq('import_order_id', order.id).is('deleted_at', null);
+    const { data: byContainer } = containerIds.length
+      ? await client.from(SHIPMENTS).select('*').in('container_id', containerIds).is('deleted_at', null)
+      : { data: [] };
+    picked = selectShipment(order, containerIds, byOrder || [], byContainer || []);
+  }
+  return { liveReservations, containerIds, ladderReservation, loadState, loadRecord, goodsNotOnShipment, picked };
+}
+
 /**
  * The journey of one import order, however the caller names it (the order, a cargo booking on it, or
  * its shipment). Bounded reads — the number of queries does not grow with the length of the timeline.
@@ -518,29 +572,10 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   // Owning a booking never opens an order the caller could not otherwise read (checked above).
   const viewer = viewerOf(order, participants || [], context);
 
-  const { data: reservations } = await client.from(RESERVATIONS).select('*')
-    .eq('import_order_id', order.id).is('deleted_at', null);
-  const liveReservations = reservations || [];
-  const containerIds = [...new Set(liveReservations.map((r) => normalizeId(r.container_id)).filter(Boolean))];
-
-  // The load ladder applies only when exactly one booking is in play; otherwise no claim is made from it.
-  const ladderReservation = aliasReservation
-    || (liveReservations.length === 1 ? liveReservations[0] : null);
-
-  let loadState = null;
-  let loadRecord = null;
-  if (ladderReservation?.container_id) {
-    const { data: loads } = await client.from(LOADS).select('*')
-      .eq('container_id', ladderReservation.container_id).is('deleted_at', null);
-    loadRecord = (loads || []).find((l) => ['IN_PROGRESS', 'COMPLETED'].includes(String(l.status))) || null;
-    const { data: mine } = loadRecord
-      ? await client.from(LOAD_ITEMS).select('*').eq('load_id', loadRecord.id)
-        .eq('subject_type', 'cargo_reservation').eq('subject_id', ladderReservation.id).is('deleted_at', null).maybeSingle()
-      : { data: null };
-    if (mine?.outcome === 'LEFT_BEHIND') loadState = JOURNEY_STATES.LEFT_BEHIND;
-    else if (mine?.outcome === 'LOADED') loadState = JOURNEY_STATES.LOADED;
-    else loadState = JOURNEY_STATES.NOT_LOADED;
-  }
+  // Which shipment is this order's journey — the same rule the alerts use (resolveJourneyShipment).
+  const {
+    liveReservations, ladderReservation, loadState, loadRecord, goodsNotOnShipment, picked,
+  } = await resolveJourneyShipment(client, order, aliasReservation);
 
   const timeline = [];
   if (loadState === JOURNEY_STATES.LOADED && loadRecord?.confirmed_at) {
@@ -552,19 +587,11 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   let shipping;
   let resolvedShipmentId = null;
 
-  const goodsNotOnShipment = loadState === JOURNEY_STATES.LEFT_BEHIND || loadState === JOURNEY_STATES.NOT_LOADED;
   if (goodsNotOnShipment) {
     // Cargo that did not travel has no journey to follow, and a container-level shipment is not theirs to read.
     state = loadState;
     shipping = { association: 'not_applicable', dates: null, references: null, legs: NOT_APPLICABLE, eta: NOT_APPLICABLE };
   } else {
-    const { data: byOrder } = await client.from(SHIPMENTS).select('*')
-      .eq('import_order_id', order.id).is('deleted_at', null);
-    const { data: byContainer } = containerIds.length
-      ? await client.from(SHIPMENTS).select('*').in('container_id', containerIds).is('deleted_at', null)
-      : { data: [] };
-    const picked = selectShipment(order, containerIds, byOrder || [], byContainer || []);
-
     if (!picked.shipment) {
       state = picked.association === 'ambiguous'
         ? JOURNEY_STATES.SHIPMENT_AMBIGUOUS
@@ -634,7 +661,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       const eta = projectEta(shipment, await listEtaRevisionsForShipment(shipment.id, client));
       shipping = {
         association: picked.association,
-        reference: `SHPM-${String(shipment.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+        reference: shipmentReference(shipment.id),
         dates,
         references: projectReferences(shipment),
         legs,
