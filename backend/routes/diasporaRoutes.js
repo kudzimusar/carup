@@ -13,6 +13,7 @@ import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
 import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import diasporaSchedulerRouter from './diasporaSchedulerRoutes.js';
 import diasporaJourneyRouter from './diasporaJourneyRoutes.js';
+import diasporaShipmentLegRouter from './diasporaShipmentLegRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -63,6 +64,9 @@ router.use(diasporaContainerMarketplaceRouter);
 
 // T11-CAP-02: Journey & Arrival — one read-only composition over T4/T10/T11 (no write route exists).
 router.use(diasporaJourneyRouter);
+
+// T11-CAP-04: declared vessel/route legs under a shipment (declared, not observed; supersede, never erase).
+router.use(diasporaShipmentLegRouter);
 
 // Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
 router.use(diasporaDriveRouter);

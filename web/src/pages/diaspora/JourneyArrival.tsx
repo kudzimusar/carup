@@ -31,8 +31,12 @@ import {
   authorityLabel,
   describeArrival,
   describeDeparture,
+  estimatedArrival,
   exceptionText,
   lastRecordedUpdate,
+  legRoute,
+  legTitle,
+  plannedDeparture,
   routeLabel,
   sectionKeyForTab,
   shortRef,
@@ -204,7 +208,33 @@ export default function JourneyArrival() {
               )}
             </div>
 
-            {dates && notComposed('legs') ? (
+            {/* Declared vessel legs. Declared, never observed: a leg cannot say a vessel sailed. */}
+            {shipping?.legs?.availability === 'composed' ? (
+              <div className={`mt-5 ${card}`} data-testid="journey-legs">
+                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Ship className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Vessel and route</h2>
+                {shipping.legs.items.length ? (
+                  <ol className="mt-3 space-y-3">
+                    {shipping.legs.items.map((l) => (
+                      <li key={l.sequence} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                        <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{legTitle(l)}</p>
+                        <p className="min-w-0 break-words text-sm text-slate-700">{legRoute(l)}</p>
+                        <p className="min-w-0 break-words text-xs text-slate-600">
+                          {plannedDeparture(l.planned_departure)} · {estimatedArrival(l.estimated_arrival)}
+                        </p>
+                        {l.vessel_name && l.carrier_name ? <p className="min-w-0 break-words text-xs text-slate-600">Carrier: {l.carrier_name}</p> : null}
+                        {l.imo || l.mmsi ? (
+                          <p className="min-w-0 break-words text-xs text-slate-600">
+                            {[l.imo ? `IMO ${l.imo}` : null, l.mmsi ? `MMSI ${l.mmsi}` : null].filter(Boolean).join(' · ')}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+                <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-legs-note">{shipping.legs.note}</p>
+              </div>
+            ) : dates && (!shipping?.legs || shipping.legs.availability === 'not_yet_composed') ? (
+              // The API said legs are not connected, or sent nothing about them: say so rather than imply there are none.
               <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-legs-note">
                 <strong className="font-semibold">{SECTION_UI.legs.title}: </strong>{SECTION_UI.legs.message}
               </p>

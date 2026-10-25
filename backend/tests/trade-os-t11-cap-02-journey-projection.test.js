@@ -60,6 +60,7 @@ function world(over = {}) {
     ],
     diaspora_shipments: over.shipments === undefined ? [shipment('ship-1')] : over.shipments.map((s) => shipment(s.id, s)),
     diaspora_shipment_stage_events: over.events || [],
+    diaspora_shipment_legs: over.legs || [],
   });
 }
 
@@ -329,7 +330,7 @@ test('CAP-02: sections not yet composed say so; they are not empty-and-implied-c
   for (const section of ['documents', 'customs', 'payments', 'notifications', 'actions']) {
     assert.equal(j.sections[section].availability, 'not_yet_composed', `${section} implied it was complete`);
   }
-  assert.equal(j.shipping.legs.availability, 'not_yet_composed');
+  // Legs were a placeholder in CAP-02 and are composed from CAP-04 (see the CAP-04 section below).
 });
 
 test('CAP-02: every date is labelled planned / estimated / observed and every section names its authority', async () => {
@@ -377,4 +378,147 @@ test('CAP-02: reads are bounded — the same number of queries however long the 
     return n;
   };
   assert.equal(await count([]), await count(events), 'query count grew with the timeline');
+});
+
+// ══ CAP-04: vessel legs, composed ═══════════════════════════════════════════
+//
+// A leg is a DECLARED fact about a vessel and a route. The projection shows it, labels it declared,
+// and never lets it become a claim that anything sailed.
+
+const leg = (over = {}) => ({
+  id: 'leg-1', shipment_id: 'ship-1', tenant_id: 'tenant-1', leg_sequence: 1, carrier_name: 'Declared Carrier', vessel_name: 'DECLARED VESSEL',
+  voyage_ref: 'V-9', imo: '9074729', mmsi: null, port_of_loading: 'Origin Port', port_of_discharge: 'Dest Port',
+  planned_departure_date: '2026-08-29T00:00:00Z', estimated_arrival_date: '2026-09-18T00:00:00Z',
+  source: 'OPERATOR_DECLARED', source_reference: 'doc-secret-ref', metadata: { internal: 'LEG-METADATA-SECRET' },
+  created_by: 'u-leg-author', updated_by: 'u-leg-editor', deleted_at: null, ...over,
+});
+
+test('CAP-04: with no vessel declared, the legs section says so — it is not "not yet composed"', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
+  assert.equal(j.shipping.legs.availability, 'composed');
+  assert.deepEqual(j.shipping.legs.items, []);
+  assert.match(j.shipping.legs.note, /no vessel or voyage has been declared/i);
+});
+
+test('CAP-04: declared legs are shown in journey order, labelled declared, superseded ones excluded', async () => {
+  // Inserted as 2, 3, 1 so that neither "no sort" nor "reverse" can produce the right order by accident.
+  const w = world({ legs: [
+    leg({ id: 'l2', leg_sequence: 2, vessel_name: 'SECOND VESSEL', port_of_loading: 'Hub', port_of_discharge: 'Hub 2' }),
+    leg({ id: 'l3', leg_sequence: 3, vessel_name: 'THIRD VESSEL', port_of_loading: 'Hub 2', port_of_discharge: 'Dest Port' }),
+    leg({ id: 'l1', port_of_discharge: 'Hub' }),
+    leg({ id: 'l0', leg_sequence: 4, vessel_name: 'SUPERSEDED', deleted_at: '2026-01-01T00:00:00Z' }),
+  ] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.deepEqual(j.shipping.legs.items.map((l) => l.sequence), [1, 2, 3]);
+  assert.equal(j.shipping.legs.items[0].vessel_name, 'DECLARED VESSEL');
+  assert.equal(j.shipping.legs.items[0].planned_departure, '2026-08-29T00:00:00Z');
+  assert.equal(j.shipping.legs.items[0].estimated_arrival, '2026-09-18T00:00:00Z');
+  assert.match(j.shipping.legs.note, /declared, not observed/i);
+  assert.ok(!JSON.stringify(j).includes('SUPERSEDED'), 'a superseded leg was shown');
+});
+
+test('CAP-04: a declared leg can never make the journey say the vessel sailed', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world({ legs: [leg()] })));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
+  assert.equal(j.shipping.dates.observed_departure, null);
+  assert.equal(j.shipping.dates.observed_arrival, null);
+  for (const item of j.shipping.legs.items) {
+    assert.ok(!Object.keys(item).some((k) => /observed|actual|departed|arrived|status/.test(k)), `a leg item asserts movement through ${Object.keys(item)}`);
+  }
+});
+
+test('CAP-04: leg internals — author, metadata, tenant, source reference — never leave the service', async () => {
+  const w = world({ legs: [leg()] });
+  for (const who of [BUYER, ADMIN, PARTICIPANT]) {
+    const text = JSON.stringify(await getJourney('import_order', 'ord-a', who, opts(w)));
+    for (const leak of ['LEG-METADATA-SECRET', 'u-leg-author', 'u-leg-editor', 'doc-secret-ref']) assert.ok(!text.includes(leak), `${leak} leaked to ${who.id}`);
+  }
+});
+
+test('CAP-04: an ambiguous shipment shows no vessel — there is no shipment to attach it to', async () => {
+  const w = world({
+    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }],
+    legs: [leg(), leg({ id: 'leg-x', shipment_id: 'ship-2', vessel_name: 'OTHER VESSEL' })],
+  });
+  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS);
+  assert.equal(j.shipping.legs.availability, 'not_applicable');
+  const text = JSON.stringify(j);
+  assert.ok(!text.includes('DECLARED VESSEL') && !text.includes('OTHER VESSEL'), 'an ambiguous shipment leaked a vessel');
+});
+
+test('CAP-04: cargo that is not on the shipment is not shown its vessel', async () => {
+  const w = world({
+    legs: [leg()],
+    items: [{ id: 'li-a', load_id: 'load-1', subject_type: 'cargo_reservation', subject_id: 'res-a', outcome: 'LEFT_BEHIND', deleted_at: null }],
+  });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.shipping.legs.availability, 'not_applicable');
+  assert.ok(!JSON.stringify(j).includes('DECLARED VESSEL'));
+});
+
+test('CAP-04: a co-loader sees the container shipment\'s vessel, with no other order\'s identity', async () => {
+  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(world({ legs: [leg()] })));
+  assert.equal(j.shipping.association, 'container');
+  assert.equal(j.shipping.legs.items[0].vessel_name, 'DECLARED VESSEL');
+  const text = JSON.stringify(j);
+  assert.ok(!text.includes('ord-a') && !text.includes('u-buyer'), 'another order leaked through the legs');
+});
+
+test('CAP-04: a leg that names different ports than the shipment is flagged, not hidden', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world({ legs: [leg({ port_of_loading: 'Somewhere Else' })] })));
+  const flag = j.exceptions.find((e) => e.code === 'LEG_PORT_MISMATCH');
+  assert.ok(flag, 'the disagreement between the vessel details and the shipment record was not surfaced');
+  assert.match(flag.note, /disagree/i);
+});
+
+test('CAP-04: ports that agree — in different spelling — raise no flag', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world({
+    shipments: [{ id: 'ship-1', origin_port: 'Origin Port', destination_port: 'Dest Port' }],
+    legs: [leg({ port_of_loading: 'ORIGIN PORT / SAMPLELAND', port_of_discharge: 'dest port' })],
+  })));
+  assert.ok(!j.exceptions.some((e) => e.code === 'LEG_PORT_MISMATCH'), 'agreeing ports were flagged');
+});
+
+test('CAP-04: a leg with no ports, or a shipment with no ports, raises no flag — unknown is not a contradiction', async () => {
+  const noLegPorts = await getJourney('import_order', 'ord-a', BUYER, opts(world({ legs: [leg({ port_of_loading: null, port_of_discharge: null })] })));
+  assert.ok(!noLegPorts.exceptions.some((e) => e.code === 'LEG_PORT_MISMATCH'));
+  const noShipmentPorts = await getJourney('import_order', 'ord-a', BUYER, opts(world({
+    shipments: [{ id: 'ship-1', origin_port: null, destination_port: null }], legs: [leg()],
+  })));
+  assert.ok(!noShipmentPorts.exceptions.some((e) => e.code === 'LEG_PORT_MISMATCH'));
+});
+
+test('CAP-04: a transshipment is only compared at its ends — the middle ports are not the shipment\'s', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world({ legs: [
+    leg({ id: 'a', leg_sequence: 1, port_of_loading: 'Origin Port', port_of_discharge: 'Transshipment Hub' }),
+    leg({ id: 'b', leg_sequence: 2, vessel_name: 'FEEDER', port_of_loading: 'Transshipment Hub', port_of_discharge: 'Dest Port' }),
+  ] })));
+  assert.ok(!j.exceptions.some((e) => e.code === 'LEG_PORT_MISMATCH'), 'a legitimate transshipment was flagged as a contradiction');
+});
+
+test('CAP-04: reads stay bounded however many legs there are', async () => {
+  const count = async (legs) => {
+    const client = world({ legs });
+    let n = 0;
+    const counting = { ...client, from(t) { n += 1; return client.from(t); } };
+    await getJourney('import_order', 'ord-a', BUYER, opts(counting));
+    return n;
+  };
+  const many = Array.from({ length: 12 }, (_, i) => leg({ id: `l${i}`, leg_sequence: i + 1 }));
+  assert.equal(await count([leg()]), await count(many), 'query count grew with the number of legs');
+});
+
+test('CAP-04: composing legs still writes nothing', async () => {
+  const client = world({ legs: [leg()] });
+  const writes = [];
+  const trapped = { ...client, from(table) {
+    const chain = client.from(table);
+    return new Proxy(chain, { get(target, prop) {
+      if (['insert', 'update', 'delete', 'upsert'].includes(prop)) writes.push(`${prop} ${table}`);
+      const v = target[prop]; return typeof v === 'function' ? v.bind(target) : v;
+    } });
+  } };
+  await getJourney('import_order', 'ord-a', BUYER, opts(trapped));
+  assert.deepEqual(writes, []);
 });

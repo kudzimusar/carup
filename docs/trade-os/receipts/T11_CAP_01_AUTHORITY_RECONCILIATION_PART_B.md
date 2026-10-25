@@ -167,3 +167,29 @@ such; none is written to staging.
 
 D1–D3 are recommendations, not blockers. **D4 is the only thing that holds the real-data end of the
 programme**; CAP-02 to CAP-09 do not depend on it.
+
+## 8. Amendments made during implementation
+
+### A1 (CAP-04) — legs carry no observed columns
+
+§3.1 above proposed `observed_departure_at` / `observed_arrival_at` on each leg, written through the T11
+service. **CAP-04 did not build them**, and the table has no observed, actual, status or verified column
+at all (a database check enforces it structurally).
+
+*Why.* Per-leg observed columns have only two possible homes. Either they are written by a path other
+than T11 — a **second place to assert "it sailed"**, which can disagree with the shipment's own observed
+dates and breaks the T11 rule this programme exists to protect — or they are written through
+`diasporaShipmentService`, which means **reopening frozen T11**. Neither is justified by CAP evidence:
+the real journey observed is a single leg (CAP-00), and the evidence supports a *declared* vessel and
+route, not per-leg observed movement.
+
+*What replaces them.* A leg is a **declared** fact (vessel, voyage, IMO/MMSI, ports, planned departure,
+estimated arrival) with a provenance, and the Journey labels it "declared, not observed". Movement stays
+the shipment's. If per-leg observed movement is ever needed, it should enter as an observation that T11
+accepts (CAP-05), not as a column here.
+
+### Decision D5 — for the Moderator
+
+If per-leg **observed** movement (arrived at the transshipment port, departed on the second vessel) is
+required, T11 must be narrowly reopened so such events enter its append-only timeline. **Not required by
+anything observed so far; nothing in this programme is blocked on it.**

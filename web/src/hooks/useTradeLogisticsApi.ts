@@ -649,6 +649,24 @@ export interface JourneyAsset {
   chassis_number?: string | null
   engine_number?: string | null
 }
+export interface JourneyLeg {
+  sequence: number
+  carrier_name: string | null
+  vessel_name: string | null
+  voyage_ref: string | null
+  imo: string | null
+  mmsi: string | null
+  port_of_loading: string | null
+  port_of_discharge: string | null
+  planned_departure: string | null
+  estimated_arrival: string | null
+  source: string | null
+}
+// Declared, not observed: nothing in a leg can say a vessel sailed or arrived.
+export type JourneyLegs =
+  | JourneyNotComposed
+  | { availability: 'composed'; items: JourneyLeg[]; note: string }
+  | { availability: 'not_applicable' }
 export interface JourneyShipping {
   association: 'order' | 'container' | 'order_container_mismatch' | 'ambiguous' | 'none' | 'not_applicable' | string
   reference?: string
@@ -658,7 +676,7 @@ export interface JourneyShipping {
     carrier: string | null; tracking_reference: string | null
     origin_port: string | null; destination_port: string | null; note: string
   } | null
-  legs: JourneyNotComposed
+  legs: JourneyLegs
 }
 export interface Journey {
   subject: { type: string; id: string; order_id: string | null; reservation_id?: string }

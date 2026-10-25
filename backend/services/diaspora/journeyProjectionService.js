@@ -43,6 +43,7 @@ import {
   normalizeId,
 } from './diasporaAuthorization.js';
 import { resolveClient } from './diasporaServiceUtils.js';
+import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -82,6 +83,9 @@ const SENTENCE = Object.freeze({
 });
 
 const NOT_YET_COMPOSED = (owner) => Object.freeze({ availability: 'not_yet_composed', owner });
+
+/** Nothing to compose here: there is no shipment shown, so there is no vessel to attach. */
+const NOT_APPLICABLE = Object.freeze({ availability: 'not_applicable' });
 
 const DENIED = 'You do not have access to this journey';
 
@@ -166,6 +170,28 @@ export function selectShipment(order, containerIds, byOrder = [], byContainer = 
   };
   return pick(tier1, 'order') || pick(tier2, 'container') || pick(tier3, 'order_container_mismatch')
     || { shipment: null, association: 'none' };
+}
+
+const portKey = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Two port names agree if either contains the other once punctuation and case are ignored. Unknown agrees with anything. */
+function portsAgree(a, b) {
+  const x = portKey(a);
+  const y = portKey(b);
+  if (!x || !y) return true;
+  return x.includes(y) || y.includes(x);
+}
+
+/**
+ * Do the declared legs contradict the shipment record? Only the two ENDS of the journey are compared —
+ * the first loading port with the shipment's origin, the last discharge port with its destination —
+ * because the ports in between belong to a transshipment, not to the shipment record.
+ */
+function legsContradictShipmentPorts(legRows, shipment) {
+  const ordered = legRows.slice().sort((a, b) => a.leg_sequence - b.leg_sequence);
+  const first = ordered[0];
+  const last = ordered[ordered.length - 1];
+  return !portsAgree(first.port_of_loading, shipment.origin_port) || !portsAgree(last.port_of_discharge, shipment.destination_port);
 }
 
 async function loadSubject(client, subjectType, subjectId, context) {
@@ -321,7 +347,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   if (goodsNotOnShipment) {
     // Cargo that did not travel has no journey to follow, and a container-level shipment is not theirs to read.
     state = loadState;
-    shipping = { association: 'not_applicable', dates: null, references: null, legs: NOT_YET_COMPOSED('T11') };
+    shipping = { association: 'not_applicable', dates: null, references: null, legs: NOT_APPLICABLE };
   } else {
     const { data: byOrder } = await client.from(SHIPMENTS).select('*')
       .eq('import_order_id', order.id).is('deleted_at', null);
@@ -345,7 +371,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
         ...(picked.candidate_count ? { candidate_count: picked.candidate_count } : {}),
         dates: null,
         references: null,
-        legs: NOT_YET_COMPOSED('T11'),
+        legs: NOT_APPLICABLE,
       };
     } else {
       const shipment = picked.shipment;
@@ -376,12 +402,28 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
           note: 'A shipment is attached to this order but sails on a different container than this booking. The records disagree.',
         });
       }
+      // Vessel legs are DECLARED facts (CAP-04). They are listed and labelled as such, and they cannot
+      // move the state above: nothing in a leg can say a vessel sailed or arrived.
+      const legRows = await listLegsForShipment(shipment.id, client);
+      const legs = {
+        availability: 'composed',
+        items: legRows.map(projectLeg),
+        note: legRows.length
+          ? 'Vessel and voyage details are declared, not observed. They do not record that the vessel sailed or arrived.'
+          : 'No vessel or voyage has been declared for this shipment.',
+      };
+      if (legRows.length && legsContradictShipmentPorts(legRows, shipment)) {
+        exceptions.push({
+          code: 'LEG_PORT_MISMATCH',
+          note: 'The vessel details name different ports than the shipment record. The records disagree.',
+        });
+      }
       shipping = {
         association: picked.association,
         reference: `SHPM-${String(shipment.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`,
         dates,
         references: projectReferences(shipment),
-        legs: NOT_YET_COMPOSED('T11'),
+        legs,
       };
     }
   }
@@ -420,6 +462,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       journey: { authority: 'T11 + T10 (derived, read-only)' },
       shipping: { authority: 'T11', association: shipping.association },
       timeline: { authority: 'T11 + T10' },
+      legs: { authority: 'declared legs', note: 'Declared by the organiser, not observed.' },
       contacts: { authority: 'intake (T3)', note: 'Private: shown only to the order owner and platform admins.' },
     },
     generated_at: new Date().toISOString(),

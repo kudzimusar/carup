@@ -258,3 +258,81 @@ describe('accessibility', () => {
     expect(selected[0]).toHaveTextContent('Journey')
   })
 })
+
+describe('CAP-04: declared vessel legs', () => {
+  const legsComposed = (items: unknown[]) => ({
+    availability: 'composed', items,
+    note: items.length
+      ? 'Vessel and voyage details are declared, not observed. They do not record that the vessel sailed or arrived.'
+      : 'No vessel or voyage has been declared for this shipment.',
+  })
+  const L = (over = {}) => ({
+    sequence: 1, carrier_name: 'Declared Carrier', vessel_name: 'DECLARED VESSEL', voyage_ref: 'V-9', imo: '9074729', mmsi: null,
+    port_of_loading: 'Port A', port_of_discharge: 'Port B', planned_departure: '2026-08-29T00:00:00Z', estimated_arrival: '2026-09-18T00:00:00Z',
+    source: 'OPERATOR_DECLARED', ...over,
+  })
+  const withLegs = (legs: unknown) => journey({ shipping: { ...journey().shipping, legs } })
+
+  it('lists declared legs in order, with plan and estimate worded as such', async () => {
+    state.view = withLegs(legsComposed([L(), L({ sequence: 2, vessel_name: 'FEEDER VESSEL', voyage_ref: null, port_of_loading: 'Port B', port_of_discharge: 'Port C' })]))
+    await open()
+    const items = within(screen.getByTestId('journey-legs')).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('Leg 1 · DECLARED VESSEL · voyage V-9')
+    expect(items[0]).toHaveTextContent('Port A → Port B')
+    expect(items[0]).toHaveTextContent(/Planned departure /)
+    expect(items[0]).toHaveTextContent(/Estimated arrival /)
+    expect(items[1]).toHaveTextContent('Leg 2 · FEEDER VESSEL')
+  })
+
+  it('labels the vessel details as declared, and never words a leg as a departure', async () => {
+    state.view = withLegs(legsComposed([L()]))
+    await open()
+    expect(screen.getByTestId('journey-legs-note')).toHaveTextContent(/declared, not observed/i)
+    // The explanatory note legitimately says a leg does NOT record that a vessel sailed or arrived, so
+    // the guard is on the leg entries themselves.
+    for (const entry of within(screen.getByTestId('journey-legs')).getAllByRole('listitem')) {
+      expect(entry).not.toHaveTextContent(/\bdeparted\b|\barrived\b|\bsailed\b/i)
+    }
+  })
+
+  it('says no vessel has been declared when it looked and found none — not that it is unavailable', async () => {
+    state.view = withLegs(legsComposed([]))
+    await open()
+    expect(screen.getByTestId('journey-legs-note')).toHaveTextContent(/no vessel or voyage has been declared/i)
+    expect(screen.getByTestId('journey-legs-note')).not.toHaveTextContent(/not (yet )?(available|connected)/i)
+  })
+
+  it('shows no legs card at all where legs are not applicable', async () => {
+    state.view = withLegs({ availability: 'not_applicable' })
+    await open()
+    expect(screen.queryByTestId('journey-legs')).toBeNull()
+    expect(screen.queryByTestId('journey-legs-note')).toBeNull()
+  })
+
+  it('shows an MMSI without inventing an IMO beside it', async () => {
+    state.view = withLegs(legsComposed([L({ imo: null, mmsi: '123456789' })]))
+    await open()
+    const legs = screen.getByTestId('journey-legs')
+    expect(legs).toHaveTextContent('MMSI 123456789')
+    expect(legs).not.toHaveTextContent(/IMO/)
+    expect(legs).not.toHaveTextContent(/null|undefined/)
+  })
+
+  it('shows an IMO number only when it was recorded', async () => {
+    state.view = withLegs(legsComposed([L({ imo: null })]))
+    await open()
+    expect(screen.getByTestId('journey-legs')).not.toHaveTextContent(/IMO/)
+    state.view = withLegs(legsComposed([L()]))
+    await open()
+  })
+
+  it('surfaces a port disagreement as an alert in words', async () => {
+    state.view = journey({
+      shipping: { ...journey().shipping, legs: legsComposed([L()]) },
+      exceptions: [{ code: 'LEG_PORT_MISMATCH', note: 'The vessel details name different ports than the shipment record. The records disagree.' }],
+    })
+    await open()
+    expect(screen.getByTestId('journey-exception-LEG_PORT_MISMATCH')).toHaveTextContent(/disagree/i)
+  })
+})

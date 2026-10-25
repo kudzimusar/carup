@@ -162,6 +162,35 @@ export function associationNote(association: string | null | undefined): string 
   }
 }
 
+const dateOnly = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
+
+/** A planned departure is a plan. It is never worded as an event. */
+export function plannedDeparture(iso: string | null | undefined): string {
+  return iso ? `Planned departure ${dateOnly(iso)}` : 'Planned departure not recorded'
+}
+
+/** An estimated arrival is an estimate. It is never worded as an event. */
+export function estimatedArrival(iso: string | null | undefined): string {
+  return iso ? `Estimated arrival ${dateOnly(iso)}` : 'Estimated arrival not recorded'
+}
+
+type LegLike = { sequence: number; vessel_name?: string | null; voyage_ref?: string | null; carrier_name?: string | null }
+
+/** A leg\u2019s heading, from what is recorded. A vessel is never invented. */
+export function legTitle(leg: LegLike): string {
+  const head = `Leg ${leg.sequence}`
+  const who = leg.vessel_name || leg.carrier_name || 'vessel not recorded'
+  return leg.voyage_ref ? `${head} \u00b7 ${who} \u00b7 voyage ${leg.voyage_ref}` : `${head} \u00b7 ${who}`
+}
+
+/** A leg\u2019s route, only from recorded ports. */
+export function legRoute(leg: { port_of_loading?: string | null; port_of_discharge?: string | null }): string {
+  const from = leg.port_of_loading || null
+  const to = leg.port_of_discharge || null
+  if (!from && !to) return 'Ports not recorded'
+  return `${from ?? 'loading port not recorded'} \u2192 ${to ?? 'discharge port not recorded'}`
+}
+
 /** Exception wording. A hold is where the goods are; it is never a customs verdict. */
 export function exceptionText(code: string, fallback: string): string {
   switch (code) {
@@ -169,6 +198,8 @@ export function exceptionText(code: string, fallback: string): string {
       return 'The organiser recorded a problem with this shipment. This says where the goods are held. It is not a customs decision.'
     case 'SHIPMENT_AMBIGUOUS':
       return 'More than one shipment could match this order. No movement is shown until that is resolved.'
+    case 'LEG_PORT_MISMATCH':
+      return 'The vessel details name different ports than the shipment record. The records disagree.'
     case 'ORDER_CONTAINER_MISMATCH':
       return 'A shipment is attached to this order but sails on a different container than this booking. The records disagree.'
     default:
@@ -192,6 +223,7 @@ const AUTHORITY_UI: Record<string, string> = {
   'T11 + T10': 'Shipment timeline and loading record',
   'T11 + T10 (derived, read-only)': 'Shipment and loading records',
   'intake (T3)': 'Details given when ordering',
+  'declared legs': 'Vessel details declared by the organiser',
 }
 
 /** The owning record, for people. Unknown authorities get a neutral label, never an internal code. */
@@ -205,6 +237,7 @@ export const PROVENANCE_PART_UI: Record<string, string> = {
   journey: 'Journey state',
   shipping: 'Movement',
   timeline: 'Timeline',
+  legs: 'Vessel and route',
   contacts: 'Contacts',
 }
 

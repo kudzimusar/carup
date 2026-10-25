@@ -152,3 +152,40 @@ describe('the tabs', () => {
     expect(sectionKeyForTab('journey')).toBeNull()
   })
 })
+
+describe('CAP-04: declared vessel legs are worded as declared, never as movement', () => {
+  it('words a planned departure as a plan and a missing one as missing', async () => {
+    const { plannedDeparture } = await import('./journeyDisplay')
+    expect(plannedDeparture('2026-08-29T00:00:00Z')).toMatch(/^Planned departure /)
+    expect(plannedDeparture('2026-08-29T00:00:00Z')).not.toMatch(/departed/i)
+    expect(plannedDeparture(null)).toBe('Planned departure not recorded')
+  })
+
+  it('words an estimated arrival as an estimate and a missing one as missing', async () => {
+    const { estimatedArrival } = await import('./journeyDisplay')
+    expect(estimatedArrival('2026-09-18T00:00:00Z')).toMatch(/^Estimated arrival /)
+    expect(estimatedArrival(null)).toBe('Estimated arrival not recorded')
+  })
+
+  it('titles a leg from what is recorded, without inventing a vessel', async () => {
+    const { legTitle } = await import('./journeyDisplay')
+    expect(legTitle({ sequence: 1, vessel_name: 'SAMPLE VESSEL', voyage_ref: 'V-1' })).toBe('Leg 1 · SAMPLE VESSEL · voyage V-1')
+    expect(legTitle({ sequence: 2, vessel_name: null, voyage_ref: null, carrier_name: 'Sample Carrier' })).toBe('Leg 2 · Sample Carrier')
+    expect(legTitle({ sequence: 3, vessel_name: null, voyage_ref: null, carrier_name: null })).toBe('Leg 3 · vessel not recorded')
+  })
+
+  it('states a leg’s route only from recorded ports', async () => {
+    const { legRoute } = await import('./journeyDisplay')
+    expect(legRoute({ port_of_loading: 'A', port_of_discharge: 'B' })).toBe('A → B')
+    expect(legRoute({ port_of_loading: 'A', port_of_discharge: null })).toBe('A → discharge port not recorded')
+    expect(legRoute({ port_of_loading: null, port_of_discharge: null })).toBe('Ports not recorded')
+  })
+
+  it('flags a contradiction between the vessel details and the shipment record in plain words', () => {
+    expect(exceptionText('LEG_PORT_MISMATCH', 'x')).toMatch(/disagree/i)
+  })
+
+  it('names the declared legs as declared, without an engineer code', () => {
+    expect(authorityLabel('declared legs')).toMatch(/declared/i)
+  })
+})

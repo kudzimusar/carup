@@ -86,6 +86,16 @@ export const UNIQUE_INDEXES = Object.freeze({
     cols: ['case_id'],
     where: (row) => !row.deleted_at && row.status === 'ACTIVE',
   }],
+  // T11-CAP-04 — diaspora_shipment_legs: uq_shipment_leg_live_sequence.
+  //
+  // PARTIAL: … WHERE deleted_at IS NULL. Two live legs in one position of one journey is two answers
+  // to "which vessel", and superseding a leg must free its position for the replacement. The partial
+  // predicate is proven against real Postgres in database/test/trade_os_cap04_legs_check.mjs.
+  diaspora_shipment_legs: [{
+    name: 'uq_shipment_leg_live_sequence',
+    cols: ['shipment_id', 'leg_sequence'],
+    where: (row) => !row.deleted_at,
+  }],
   // T9 — diaspora_warehouse_intakes: uq_warehouse_intake_subject.
   //
   // One live intake per cargo. This IS the idempotency of physical receipt: two operators clicking
