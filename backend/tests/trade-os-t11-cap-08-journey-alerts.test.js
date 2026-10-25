@@ -156,9 +156,24 @@ test('CAP-08: the migration derives the same key as the JS registry, for exactly
   assert.ok(file, 'the CAP-08 migration is missing');
   const sql = fs.readFileSync(path.join(ROOT, 'database', 'migrations', file), 'utf8');
   const up = sql.split(/^-- \+migrate Down/m)[0];
-  for (const type of Object.values(JOURNEY_ALERT_EVENTS)) assert.ok(up.includes(`'${type}'`), `${type} is not in the dedupe function`);
+  for (const type of Object.values(JOURNEY_ALERT_EVENTS)) assert.ok(up.includes(`'${type}'`), `${type} is not in the trigger's WHEN clause`);
   assert.match(up, /NEW\.payload\s*->>\s*'alertKey'/);
   assert.match(up, /NEW\.event_type\s*\|\|\s*':'\s*\|\|\s*v_alert_key/);
+});
+
+test('CAP-08: the migration NEVER re-states the shared dedupe function — it is a dedicated trigger, scoped by WHEN', () => {
+  // Every programme that added a branch to communication_domain_event_dedupe_key() re-stated the WHOLE function,
+  // so the last writer wins and each must know every earlier branch. Email 1.0 regressed Service Network's O4
+  // branch that way on a live database, and this lineage cannot even see O4. A Journey identity that lives in a
+  // function of its own cannot remove anyone's branch and cannot be removed by theirs.
+  const file = fs.readdirSync(path.join(ROOT, 'database', 'migrations')).find((f) => /trade_os_cap08_journey_alerts\.sql$/.test(f));
+  const sql = fs.readFileSync(path.join(ROOT, 'database', 'migrations', file), 'utf8');
+  assert.ok(!/CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.communication_domain_event_dedupe_key/i.test(sql), 'the migration re-states the shared function');
+  assert.match(sql, /CREATE\s+TRIGGER\s+trg_domain_events_journey_alert_dedupe[\s\S]*?BEFORE\s+INSERT\s+ON\s+public\.domain_events[\s\S]*?WHEN\s*\(\s*NEW\.event_type\s+IN\s*\(\s*'diaspora\.journey\.alert'\s*,\s*'diaspora\.journey\.exception'\s*\)\s*\)/);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION public\.communication_journey_alert_dedupe_key\(\)/);
+  const down = sql.split(/^-- \+migrate Down/m)[1];
+  assert.ok(!/communication_domain_event_dedupe_key\(\)\s*\n?\s*RETURNS/i.test(down), 'Down re-states the shared function');
+  assert.ok(!/DROP\s+TRIGGER[^;]*trg_domain_events_communication_dedupe/i.test(down), 'Down removes the shared trigger');
 });
 
 test('CAP-08: the governed template renders the sentence under the shipment reference — nothing else', () => {

@@ -203,19 +203,23 @@ requirement the same row sets.
 *Why.* "Idempotent on (event kind, subject, observation id)" is only real if the database enforces it. The
 event worker re-runs **every** handler of an event when any one throws, so a handler that told two people
 before failing on the third runs again for all three. The notification layer's own dedupe is keyed to the
-outbox row id, which is new for every emit, so it cannot catch this. The repo's proven mechanism is a key in
-the bus's JS registry plus a matching branch in the `communication_domain_event_dedupe_key()` trigger
-function (used for `user.email.verified` and the Trust presentation events), and that branch is a migration.
-The same migration registers the governed template `journey_update_v1`: the governed registry **fails
-closed** for an unregistered key, and the registered `logistics_update_v1` says "Shipping request … update",
-the wrong noun for a shipment's journey.
+outbox row id, which is new for every emit, so it cannot catch this. The identity therefore has to live in
+`domain_events.dedupe_key`. The same migration registers the governed template `journey_update_v1`: the governed
+registry **fails closed** for an unregistered key, and the registered `logistics_update_v1` says "Shipping
+request … update", the wrong noun for a shipment's journey.
 
-*What it is.* One `CREATE OR REPLACE` of that function — the three existing branches carried over
-byte-for-byte, one branch added — and two `INSERT … ON CONFLICT DO NOTHING` rows. A PGlite check runs the
-same inputs through the old and the new function and requires identical answers. Down restores the old
-function; the template is not deleted (retiring one is its own decision).
+*What it is — and what the first version got wrong.* The first version added a branch to the shared
+`communication_domain_event_dedupe_key()` by re-stating the whole function, as earlier programmes had. That is
+unsafe: every programme re-states the whole function, so the last writer wins, and this lineage cannot see
+Service Network's O4 branch (`service.case.*`), which is live on staging — it would have been deleted. It was
+found before anything was applied and replaced. The migration is now **a dedicated function and trigger**, fired
+by a `WHEN` clause only for `diaspora.journey.alert` and `diaspora.journey.exception`, plus two
+`INSERT … ON CONFLICT DO NOTHING` rows. **It touches no existing function**, so it cannot remove anyone's branch
+and cannot be removed by theirs, whatever order migrations apply in. A PGlite check proves it, including that a
+later programme's wholesale re-statement of the shared function leaves the Journey identity intact. Down drops
+the trigger and function; the template is not deleted (retiring one is its own decision).
 
-*A consequence for staging.* The migration must be applied **before** the code that subscribes to the
+*A consequence for staging.* The governed template must exist **before** the code that subscribes to the
 alerts: with the registry present and the template absent, every alert would dead-letter at render time.
 
 ### Decision D6 — for the Moderator (T8 visibility)
