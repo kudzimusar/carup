@@ -226,6 +226,20 @@ canonical runtime must not be disturbed, so those residuals remain `BLOCKED_ENVI
 | Web, full suite on the deployed candidate | **281 files · 3,034 / 3,034**; `tsc -b` exit 0 (with a negative control); build exit 0; governed manifest in sync; 0 lint errors in the changed files |
 | Mutation | D2 (14 mutants, combined mutants for the doubled guards) · vehicle Journey 13/13 backend and 8/8 web · seed 18/18 · isolation probe 9/9 · bounded client 10/10 · D9 harness 8/8 — a solo survivor was investigated every time; each was a redundant second layer, proven by a combined mutant or closed by a new test |
 
+### 12a. The draft PR's own CI, on head `9a0f3878` (read from the Actions API; nothing re-run to improve it)
+
+| Check | Result | What it is |
+|---|---|---|
+| Passport foundation contracts · communication-postgres · communication-unit · playwright · staging-integration · referral-ci | **pass** (6) | — |
+| `backend-and-build` | **fail — one test of 1,458** | `diaspora-logistics-rfq.test.js:236` (T3 sailing match), `0 !== 1`. Its fixture hard-codes `departure_date 2026-10-15` and `booking_deadline 2026-10-01`; both are now past, so the sailing is correctly filtered out. **Proven rather than assumed:** on the real clock it fails (17/18); with the clock pinned to 2026-09-20 it passes (18/18). This PR changes no T3 file; the same test was already the single failure in the first return. The secret-scan guard and migration-sanity steps in this job **passed**. |
+| `Bootstrap` → `Aggregate` | **fail — a refusal, not a defect** | The deployed-staging gate stops with `UNGOVERNED_BRANCH`: this branch is not in `web/preview-frontend-pairing.json` / `preview-backend-pairing.json`. It failed in 13 s before touching staging; Chromium, Tablet and Mobile were skipped as a result. I did **not** add the branch to those files — that would be a governance change binding my Preview to a staging gate, and it is the Moderator's call. |
+| `communication-staging*` | skipped | — |
+
+**Steps `backend-and-build` never reached** (they follow the failing step), so I ran them locally on a fresh detached worktree at exactly `9a0f3878`
+with the repository's own commands: web type-check (`tsc --noEmit -p web/tsconfig.app.json`) **exit 0**, and with an injected type error **exit 2**
+naming the file (negative control, then removed); route validation (`featureRegistry.route-validation.test.ts`) **7/7** — the test that guards the
+registry entries I added; production build **exit 0**.
+
 ## 13. Follow-ups (none blocks what is delivered)
 
 1. **B1 — model blocker.** The listing flow cannot hold a documented 11-character Japanese chassis number (minimum 12). The Vezel's
@@ -246,6 +260,12 @@ canonical runtime must not be disturbed, so those residuals remain `BLOCKED_ENVI
 8. **Route registry.** I registered the two routes the Journey exposes. I did not audit every other Trade OS route for the same gap.
 9. **Login identity.** The Kingston account's real sign-in email differs from the one written in the brief; the account id is the
    same (`u_66cace85fad949e4`).
+10. **T3 fixture has expired (§12a).** `diaspora-logistics-rfq.test.js:236` hard-codes 2026-10 dates and now fails on any branch that runs
+    it. T3 is frozen and this PR does not touch it; the fix is to derive the dates from the clock. Until then `backend-and-build` is red
+    for a reason unrelated to this work, and it hides the web type-check, route validation and build steps behind it.
+11. **Deployed-staging gate (§12a).** This stacked branch is `UNGOVERNED_BRANCH`. If the Moderator wants Chromium/Tablet/Mobile to run
+    against it, the branch must be registered in the two preview-pairing files by whoever owns that governance — and the pairing must be
+    the integration candidate (§2), since a Trade OS–base backend cannot authenticate against current staging.
 
 ## 14. Evidence custody
 

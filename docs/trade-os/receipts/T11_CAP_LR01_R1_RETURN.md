@@ -19,7 +19,7 @@
 | **Phone / tablet / desktop** | 390 / 768 / 1280 (and 1920): no horizontal scroll, no element past the edge, no critical fact clipped; 24 private screenshots including before-import and after-import (receipt §10, §14). |
 | **Authorization isolation** | Kingston reads both vehicles and his own unrelated order; two unrelated ordinary identities are refused every request, identically for what exists and what does not (run `40167377258`, PASS). |
 | **D9 result** | **Bounded certification PASS** on the real staging database with the exact candidate's code — 26 checks, always rolled back, nothing survived (runs `40174488695`, `40174673754`; receipt §11). Residual, stated as an environment limitation: the worker's claim loop, the PostgREST insert path and the inbox read path were not exercised. |
-| **Remaining follow-ups** | Receipt §13 (nine items; none blocks what is delivered). |
+| **Remaining follow-ups** | Receipt §13 (eleven items; none blocks what is delivered). |
 | **Draft PR custody** | See below. |
 
 ## The Owner's request mid-run (media and forms)
@@ -31,9 +31,16 @@ Done for what CAP supports: the three documents into the order's Documents page 
 1. **Nobody can sign in to current staging through a Trade OS-base backend** (the session table moved behind a dedicated authority on 2026-10-16/17). Any physical UAT of PR #207's lineage needs the current runtime.
 2. **My own CAP-03 route was never registered in the platform's route governance**, so the runtime served it as HTTP 404 — found only by running on the current platform; fixed, and the T8 route it links to registered too.
 3. **The alert path's earlier "unproven" status is closed on the real schema** — but only for the notifier-to-notice stages; the worker loop itself still needs a runtime that processes events with this code.
+4. **The draft PR's CI is red for two reasons that are not this work's** (receipt §12a): an expired-date fixture in frozen T3 (`diaspora-logistics-rfq.test.js:236`), which also masks the steps behind it; and the deployed-staging gate refusing an unregistered branch. I changed neither T3 nor the governance files. Registering the branch for that gate is your decision.
 
 ## Draft PR
 
-PR_PLACEHOLDER
+**Draft PR #243** — <https://github.com/kudzimusar/carup/pull/243> · base `feat/trade-os-client-demo-convergence` (parent head `577428de`, unchanged at the last poll) ·
+head `feat/trade-os-t11-cap-lr01-journey-arrival`, opened at `9a0f3878` (local == origin). **Draft, not merged, not marked ready.** Commits above `9a0f3878` are
+documentation-only (this packet and the receipt) and are recorded in the PR automatically.
+
+CI on `9a0f3878` is **7 pass · 3 fail · 4 skipped**, and neither failure is a defect in this work (receipt §12a): a frozen T3 test whose hard-coded 2026-10 dates have
+expired (proven: fails on the real clock, passes 18/18 with the clock pinned), and the deployed-staging gate refusing the branch as `UNGOVERNED_BRANCH` before touching staging.
+The web type-check, route validation and production build sit behind the first failure and never ran in CI, so I ran them on that exact head: all clean, with a negative control.
 
 `RECOMMEND ACCEPT — T11-CAP-LR01-R1`
