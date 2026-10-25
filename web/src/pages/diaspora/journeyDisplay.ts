@@ -250,6 +250,7 @@ const AUTHORITY_UI: Record<string, string> = {
   'intake (T3)': 'Details given when ordering',
   'declared legs': 'Vessel details declared by the organiser',
   'estimate revisions': 'Estimates recorded by the organiser',
+  T8: 'Document workspace',
 }
 
 /** The owning record, for people. Unknown authorities get a neutral label, never an internal code. */
@@ -265,7 +266,92 @@ export const PROVENANCE_PART_UI: Record<string, string> = {
   timeline: 'Timeline',
   legs: 'Vessel and route',
   eta: 'Estimate history',
+  documents: 'Documents',
   contacts: 'Contacts',
+}
+
+// ── CAP-06: documents and next steps ─────────────────────────────────────────────────────────────────
+
+const NEUTRAL_TONE = 'border-slate-300 bg-slate-50 text-slate-700'
+
+/**
+ * T8's own words for a document's state. T8's page exports no wording, so these are mirrored from it
+ * and a test pins them to T8's source: a document must read the same on the Journey and in the
+ * workspace. A state this page does not know is said to be unknown — it is never defaulted to "Not
+ * supplied", which would claim something the record did not say.
+ */
+export const DOCUMENT_STATE_UI: Record<string, { label: string; tone: string }> = {
+  VERIFIED: { label: 'Verified', tone: 'border-emerald-300 bg-emerald-50 text-emerald-900' },
+  AWAITING_REVIEW: { label: 'Supplied — awaiting review', tone: 'border-amber-300 bg-amber-50 text-amber-900' },
+  PRESENT: { label: 'Supplied', tone: 'border-slate-300 bg-slate-50 text-slate-800' },
+  REJECTED: { label: 'Rejected', tone: 'border-red-300 bg-red-50 text-red-900' },
+  REQUESTED: { label: 'Requested', tone: 'border-orange-300 bg-orange-50 text-orange-900' },
+  MISSING: { label: 'Not supplied', tone: 'border-slate-200 bg-white text-slate-600' },
+  NOT_APPLICABLE: { label: 'Does not apply', tone: 'border-slate-200 bg-white text-slate-500' },
+}
+
+export function documentState(state: string | null | undefined): { label: string; tone: string } {
+  return (state && DOCUMENT_STATE_UI[state]) || { label: 'Status not recognised', tone: NEUTRAL_TONE }
+}
+
+type DocumentProvenanceLike = {
+  version?: number | null
+  supplied_at?: string | null
+  reviewed_at?: string | null
+  has_earlier_versions?: boolean
+} | null | undefined
+
+/** When a document was supplied and whether anyone reviewed it — never who. Nothing recorded, nothing said. */
+export function documentProvenance(doc: DocumentProvenanceLike): string | null {
+  if (!doc) return null
+  const parts = [
+    typeof doc.version === 'number' ? `Version ${doc.version}` : null,
+    doc.has_earlier_versions ? 'earlier versions kept' : null,
+    doc.supplied_at ? `Supplied ${dateOnly(doc.supplied_at)}` : null,
+    doc.reviewed_at ? `Reviewed ${dateOnly(doc.reviewed_at)}` : null,
+  ].filter(Boolean)
+  return parts.length ? parts.join(' \u00b7 ') : null
+}
+
+type DocumentSummaryLike = { total: number; supplied: number; verified: number; awaiting_review: number; rejected: number; requested_outstanding: number }
+
+/** The counts in a line. Only counts that are above zero are said, so a quiet shipment is not a noisy one. */
+export function documentsSummaryLine(summary: DocumentSummaryLike | null | undefined): string | null {
+  if (!summary || !Number.isFinite(summary.total)) return null
+  const parts = [`${summary.supplied} of ${summary.total} supplied`]
+  if (summary.verified > 0) parts.push(`${summary.verified} verified`)
+  if (summary.awaiting_review > 0) parts.push(`${summary.awaiting_review} awaiting review`)
+  if (summary.rejected > 0) parts.push(`${summary.rejected} rejected`)
+  if (summary.requested_outstanding > 0) parts.push(`${summary.requested_outstanding} requested`)
+  return parts.join(' \u00b7 ')
+}
+
+/** Withheld is a refusal; unavailable is a failure to read. Neither is "there are no documents". */
+export const DOCUMENTS_WITHHELD_FALLBACK = 'The documents for this order are not available to you here.'
+export const DOCUMENTS_UNAVAILABLE_FALLBACK = 'The documents could not be read right now. That does not mean there are none.'
+export const DOCUMENTS_NOT_APPLICABLE = 'Documents belong to an import order, and this booking does not have one yet.'
+
+/** Nothing recorded as waiting. The service adds why that is not an all-clear. */
+export const NO_STEPS_RECORDED = 'Nothing is recorded as waiting on anyone right now.'
+
+type ActionLike = { kind?: string; waiting_on?: string | null }
+
+/** Whose move it is. A step for someone else is worded as waiting on them, never as the viewer\u2019s. */
+export function actionBadge(action: ActionLike): string {
+  if (action.kind === 'YOUR_ACTION') return 'Your action'
+  const who = action.waiting_on && action.waiting_on.trim() ? action.waiting_on.trim() : 'someone'
+  return action.kind === 'WAITING_ON' ? `Waiting on ${who}` : 'Next step'
+}
+
+/**
+ * Where a step\u2019s link goes. Only a link the page understands is followed, built from the subject the
+ * service named — never an address the data supplied.
+ */
+export function documentWorkspacePath(link: { type?: string; subject?: { type?: string; id?: string } } | null | undefined): string | null {
+  if (!link || link.type !== 'document_workspace') return null
+  const subject = link.subject
+  if (!subject || subject.type !== 'import_order' || !subject.id || !String(subject.id).trim()) return null
+  return `/diaspora/documents/import_order/${encodeURIComponent(String(subject.id))}`
 }
 
 export const CONSIGNEE_KIND_UI: Record<string, string> = {

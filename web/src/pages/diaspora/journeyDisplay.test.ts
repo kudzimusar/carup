@@ -10,11 +10,19 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+  DOCUMENT_STATE_UI,
   JOURNEY_STATE_UI,
+  NO_STEPS_RECORDED,
+  PROVENANCE_PART_UI,
   TABS,
   SECTION_UI,
+  actionBadge,
   associationNote,
   authorityLabel,
+  documentProvenance,
+  documentState,
+  documentWorkspacePath,
+  documentsSummaryLine,
   exceptionText,
   lastRecordedUpdate,
   routeLabel,
@@ -222,5 +230,116 @@ describe('CAP-05: the estimate and its history are worded as an estimate, never 
   it('names the estimate history for people, without a code', () => {
     expect(authorityLabel('estimate revisions')).toMatch(/estimate/i)
     expect(authorityLabel('estimate revisions')).not.toMatch(/\bT\d+\b/)
+  })
+})
+
+describe('CAP-06: documents are worded exactly as T8 words them', () => {
+  const t8 = () => {
+    // Same lookup as above: vitest's jsdom gives import.meta.url a non-file scheme.
+    const rel = 'web/src/pages/diaspora/TradeDocumentsWorkspace.tsx'
+    const file = [resolve(process.cwd(), '..', rel), resolve(process.cwd(), rel)].find((p) => existsSync(p))
+    expect(file, `could not find ${rel} from ${process.cwd()}`).toBeTruthy()
+    return readFileSync(file as string, 'utf8')
+  }
+
+  it('has the same label for every state as T8\u2019s own page', () => {
+    const source = t8()
+    const block = source.match(/const STATE_UI[^=]*=\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
+    const theirs = [...block.matchAll(/^\s*([A-Z_]+):\s*\{\s*label:\s*'([^']+)'/gm)].map((m) => [m[1], m[2]])
+    expect(theirs.length).toBe(7)
+    for (const [state, label] of theirs) {
+      expect(DOCUMENT_STATE_UI[state]?.label, `${state} reads differently here than in the document workspace`).toBe(label)
+    }
+    expect(Object.keys(DOCUMENT_STATE_UI).sort()).toEqual(theirs.map(([k]) => k).sort())
+  })
+
+  it('says a state it does not know is unknown \u2014 never "Not supplied"', () => {
+    expect(documentState('SOMETHING_NEW').label).toMatch(/not recognised/i)
+    expect(documentState(null).label).not.toBe('Not supplied')
+    expect(documentState(undefined).label).not.toBe('Not supplied')
+  })
+
+  it('only colours a verified document as success \u2014 a rejected or unchecked one is never green', () => {
+    for (const [state, ui] of Object.entries(DOCUMENT_STATE_UI)) {
+      if (state === 'VERIFIED') expect(ui.tone, 'VERIFIED should read as success').toMatch(/emerald/)
+      else expect(ui.tone, `${state} must not look verified`).not.toMatch(/emerald|green/)
+    }
+    expect(DOCUMENT_STATE_UI.REJECTED.tone).toMatch(/red/)
+    expect(documentState('SOMETHING_NEW').tone).not.toMatch(/emerald|green|red/)
+  })
+
+  it('does not call a file that merely arrived verified', () => {
+    expect(documentState('AWAITING_REVIEW').label).toMatch(/awaiting review/i)
+    expect(documentState('PRESENT').label).not.toMatch(/verified/i)
+    expect(documentState('REJECTED').label).not.toMatch(/verified|supplied/i)
+  })
+})
+
+describe('CAP-06: a document\u2019s provenance is when and whether reviewed \u2014 never who', () => {
+  it('words version, supply and review dates', () => {
+    const text = documentProvenance({ version: 2, has_earlier_versions: true, supplied_at: '2026-09-02T00:00:00Z', reviewed_at: '2026-09-03T00:00:00Z' }) as string
+    expect(text).toMatch(/Version 2/)
+    expect(text).toMatch(/earlier versions kept/)
+    expect(text).toMatch(/Supplied/)
+    expect(text).toMatch(/Reviewed/)
+  })
+  it('says nothing about review where none was recorded', () => {
+    expect(documentProvenance({ version: 1, supplied_at: '2026-09-02T00:00:00Z', reviewed_at: null })).not.toMatch(/Reviewed/)
+  })
+  it('says nothing where there is no document, and nothing where nothing is recorded', () => {
+    expect(documentProvenance(null)).toBeNull()
+    expect(documentProvenance({ version: null, supplied_at: null, reviewed_at: null })).toBeNull()
+  })
+})
+
+describe('CAP-06: the summary line only says what the counts say', () => {
+  it('always states how many are supplied, and adds only the counts above zero', () => {
+    expect(documentsSummaryLine({ total: 6, supplied: 4, verified: 1, awaiting_review: 1, rejected: 1, requested_outstanding: 1 }))
+      .toBe('4 of 6 supplied \u00b7 1 verified \u00b7 1 awaiting review \u00b7 1 rejected \u00b7 1 requested')
+    expect(documentsSummaryLine({ total: 6, supplied: 0, verified: 0, awaiting_review: 0, rejected: 0, requested_outstanding: 0 })).toBe('0 of 6 supplied')
+  })
+  it('says nothing without counts', () => {
+    expect(documentsSummaryLine(null)).toBeNull()
+    expect(documentsSummaryLine(undefined)).toBeNull()
+  })
+})
+
+describe('CAP-06: whose move a step is', () => {
+  it('words the viewer\u2019s own step as theirs', () => {
+    expect(actionBadge({ kind: 'YOUR_ACTION', waiting_on: 'you' })).toBe('Your action')
+  })
+  it('words a step on someone else as waiting on them \u2014 never as the viewer\u2019s', () => {
+    expect(actionBadge({ kind: 'WAITING_ON', waiting_on: 'CarUp review' })).toBe('Waiting on CarUp review')
+    expect(actionBadge({ kind: 'WAITING_ON', waiting_on: 'the organiser' })).toBe('Waiting on the organiser')
+    expect(actionBadge({ kind: 'WAITING_ON', waiting_on: 'the buyer' })).not.toMatch(/your/i)
+  })
+  it('does not invent a person when none is named', () => {
+    expect(actionBadge({ kind: 'WAITING_ON', waiting_on: '  ' })).toBe('Waiting on someone')
+    expect(actionBadge({ kind: 'SOMETHING_ELSE', waiting_on: 'x' })).toBe('Next step')
+  })
+  it('does not read an empty list as an all-clear', () => {
+    expect(NO_STEPS_RECORDED).toMatch(/recorded/i)
+    expect(NO_STEPS_RECORDED).not.toMatch(/all clear|nothing to do|nothing is needed|up to date/i)
+  })
+})
+
+describe('CAP-06: only a link the page understands is followed', () => {
+  it('builds the document workspace path from the named subject', () => {
+    expect(documentWorkspacePath({ type: 'document_workspace', subject: { type: 'import_order', id: 'ord 1/2' } }))
+      .toBe('/diaspora/documents/import_order/ord%201%2F2')
+  })
+  it('follows nothing else', () => {
+    expect(documentWorkspacePath(null)).toBeNull()
+    expect(documentWorkspacePath({ type: 'external', subject: { type: 'import_order', id: 'x' } })).toBeNull()
+    expect(documentWorkspacePath({ type: 'document_workspace', subject: { type: 'user', id: 'x' } })).toBeNull()
+    expect(documentWorkspacePath({ type: 'document_workspace', subject: { type: 'import_order', id: '  ' } })).toBeNull()
+    expect(documentWorkspacePath({ type: 'document_workspace' })).toBeNull()
+  })
+})
+
+describe('CAP-06: provenance names documents for people', () => {
+  it('has a part name and a plain authority for documents', () => {
+    expect(PROVENANCE_PART_UI.documents).toBe('Documents')
+    expect(authorityLabel('T8')).toBe('Document workspace')
   })
 })

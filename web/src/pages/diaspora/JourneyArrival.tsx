@@ -15,22 +15,31 @@
  * reference. The page uses CarUp's own design language.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { AlertTriangle, Anchor, Clock, FileText, Loader2, MapPin, Ship, ShieldCheck } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { AlertTriangle, Anchor, Clock, FileText, ListChecks, Loader2, MapPin, Ship, ShieldCheck } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type Journey } from '@/hooks/useTradeLogisticsApi'
 import {
   CONSIGNEE_KIND_UI,
+  DOCUMENTS_NOT_APPLICABLE,
+  DOCUMENTS_UNAVAILABLE_FALLBACK,
+  DOCUMENTS_WITHHELD_FALLBACK,
   JOURNEY_STATE_UI,
+  NO_STEPS_RECORDED,
   PROVENANCE_PART_UI,
   REFERENCE_IS_NOT_MOVEMENT,
   SECTION_UI,
   TABS,
+  actionBadge,
   associationNote,
   authorityLabel,
   describeArrival,
   describeDeparture,
+  documentProvenance,
+  documentState,
+  documentWorkspacePath,
+  documentsSummaryLine,
   estimateChange,
   estimatedArrival,
   exceptionText,
@@ -120,10 +129,12 @@ export default function JourneyArrival() {
   // and repeating the same sentence three times would bury the one that matters.
   const association = shipping?.association === 'container' ? associationNote('container') : null
   const orderRef = shortRef(data.subject.order_id || data.subject.id)
-  const notComposed = (key: string) => {
-    const section = data.sections?.[key]
-    return !section || section.availability === 'not_yet_composed'
-  }
+  // CAP-06. A section is shown as what it says it is: composed, withheld from this viewer, unavailable
+  // right now, or not applicable. Only a service that sends none of those falls back to the placeholder.
+  const documents = data.sections?.documents
+  const documentsShown = Boolean(documents) && documents?.availability !== 'not_yet_composed'
+  const actions = data.sections?.actions && data.sections.actions.availability === 'composed' ? data.sections.actions : null
+  const workspacePath = documentWorkspacePath(data.subject.order_id ? { type: 'document_workspace', subject: { type: 'import_order', id: data.subject.order_id } } : null)
 
   return (
     <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="journey-page">
@@ -287,7 +298,29 @@ export default function JourneyArrival() {
               </div>
             ) : null}
 
-            {notComposed('actions') ? (
+            {actions ? (
+              <div className={`mt-5 ${card}`} data-testid="journey-actions">
+                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><ListChecks className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{SECTION_UI.actions.title}</h2>
+                {actions.items.length ? (
+                  <ul className="mt-3 space-y-3" data-testid="journey-actions-list">
+                    {actions.items.map((a, i) => {
+                      const path = documentWorkspacePath(a.link)
+                      return (
+                        <li key={`${a.code}-${i}`} className="min-w-0 rounded-lg border border-slate-200 p-3" data-testid={`journey-action-${a.code}`}>
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${a.kind === 'YOUR_ACTION' ? 'border-orange-300 bg-orange-50 text-orange-900' : 'border-slate-300 bg-slate-50 text-slate-800'}`}>{actionBadge(a)}</span>
+                          <p className="mt-1.5 min-w-0 break-words text-sm text-slate-800">{a.text}</p>
+                          {path ? <Link to={path} className="mt-1 inline-block text-sm font-semibold text-orange-700 underline">Open the document workspace</Link> : null}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-actions-empty">{NO_STEPS_RECORDED}</p>
+                )}
+                <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-actions-caveat">{actions.note}</p>
+              </div>
+            ) : data.sections?.actions?.availability !== 'not_applicable' ? (
+              // Not composed, not sent, or a state this page does not know: never an empty list.
               <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-actions-note">
                 <strong className="font-semibold">{SECTION_UI.actions.title}: </strong>{SECTION_UI.actions.message}
               </p>
@@ -305,6 +338,58 @@ export default function JourneyArrival() {
               </p>
             </div>
           </>
+        ) : null}
+
+        {tab === 'documents' && documents && documentsShown ? (
+          <div className="mt-5 space-y-5" data-testid="journey-documents">
+            {documents.availability === 'composed' ? (
+              <div className={card}>
+                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Shipping documents</h2>
+                {documentsSummaryLine(documents.summary) ? (
+                  <p className="mt-2 min-w-0 break-words text-sm text-slate-700" data-testid="journey-documents-summary">{documentsSummaryLine(documents.summary)}</p>
+                ) : null}
+                {documents.items.length ? (
+                  <ul className="mt-3 space-y-3" data-testid="journey-documents-list">
+                    {documents.items.map((item) => {
+                      const st = documentState(item.state)
+                      const provenance = documentProvenance(item.document)
+                      return (
+                        <li key={item.document_type} className="min-w-0 rounded-lg border border-slate-200 p-3" data-testid={`journey-document-${item.document_type}`}>
+                          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                            <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{item.display_name}</p>
+                            <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${st.tone}`} data-testid={`journey-document-state-${item.document_type}`}>{st.label}</span>
+                          </div>
+                          <p className="mt-1 min-w-0 break-words text-xs text-slate-600">{item.note}</p>
+                          {provenance ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid={`journey-document-provenance-${item.document_type}`}>{provenance}</p> : null}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-documents-none-listed">No shipping documents are listed in this view.</p>
+                )}
+                <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-documents-disclaimer">{documents.disclaimer}</p>
+                {workspacePath ? <Link to={workspacePath} className="mt-3 inline-block text-sm font-semibold text-orange-700 underline" data-testid="journey-documents-link">Open the document workspace</Link> : null}
+              </div>
+            ) : documents.availability === 'withheld' ? (
+              <Alert className="border-slate-300 bg-slate-50" data-testid="journey-documents-withheld">
+                <AlertDescription className="min-w-0 break-words text-slate-800">{documents.note || DOCUMENTS_WITHHELD_FALLBACK}</AlertDescription>
+              </Alert>
+            ) : documents.availability === 'unavailable' ? (
+              <Alert className="border-amber-200 bg-amber-50" data-testid="journey-documents-unavailable">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="min-w-0 break-words text-amber-900">{documents.note || DOCUMENTS_UNAVAILABLE_FALLBACK}</AlertDescription>
+              </Alert>
+            ) : documents.availability === 'not_applicable' ? (
+              <p className="min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-documents-not-applicable">{DOCUMENTS_NOT_APPLICABLE}</p>
+            ) : (
+              // A state this page does not know is not "no documents": say they could not be shown.
+              <Alert className="border-amber-200 bg-amber-50" data-testid="journey-documents-unavailable">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="min-w-0 break-words text-amber-900">{DOCUMENTS_UNAVAILABLE_FALLBACK}</AlertDescription>
+              </Alert>
+            )}
+          </div>
         ) : null}
 
         {tab === 'vehicle' ? (
@@ -350,6 +435,7 @@ export default function JourneyArrival() {
         {(() => {
           const key = sectionKeyForTab(tab)
           if (!key) return null
+          if (key === 'documents' && documentsShown) return null
           const ui2 = SECTION_UI[key]
           return (
             <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-section-note">

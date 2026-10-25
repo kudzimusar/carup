@@ -703,6 +703,51 @@ export interface JourneyShipping {
   // Absent from services that predate estimate history.
   eta?: JourneyEta
 }
+// ── T11-CAP-06 — documents and next steps, composed ──────────────────────────
+// Documents are T8's: the states are T8's own, and no document id, user id, storage path or extraction id
+// is ever sent. `withheld` (T8 would refuse this viewer) and `unavailable` (T8 could not be read) are
+// different things and neither is "there are none".
+export interface JourneyDocumentItem {
+  document_type: string
+  display_name: string
+  verification_required: boolean
+  state: 'VERIFIED' | 'AWAITING_REVIEW' | 'PRESENT' | 'REJECTED' | 'REQUESTED' | 'MISSING' | 'NOT_APPLICABLE' | string
+  note: string
+  document: {
+    version: number | null
+    supplied_at: string | null
+    reviewed_at: string | null
+    has_extraction: boolean
+    has_earlier_versions: boolean
+  } | null
+}
+export type JourneyDocuments =
+  | {
+    availability: 'composed'
+    items: JourneyDocumentItem[]
+    summary: { total: number; supplied: number; verified: number; awaiting_review: number; rejected: number; requested_outstanding: number }
+    disclaimer: string
+  }
+  | { availability: 'withheld'; note: string }
+  | { availability: 'unavailable'; note: string }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
+export interface JourneyAction {
+  kind: 'YOUR_ACTION' | 'WAITING_ON'
+  code: string
+  text: string
+  waiting_on: string
+  link?: { type: string; subject: { type: string; id: string } }
+}
+export type JourneyActions =
+  | { availability: 'composed'; items: JourneyAction[]; note: string }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
+export interface JourneySections {
+  documents?: JourneyDocuments
+  actions?: JourneyActions
+  [section: string]: JourneyDocuments | JourneyActions | JourneyNotComposed | { availability: string; owner?: string } | undefined
+}
 export interface Journey {
   subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
   viewer: { kind: 'OWNER' | 'ADMIN' | 'PARTICIPANT' }
@@ -721,7 +766,7 @@ export interface Journey {
     consignee: { recorded: boolean; kind: string | null; name: string | null; phone: string | null } | null
     agents: JourneyNotComposed
   } | null
-  sections: Record<string, JourneyNotComposed | { availability: string; owner?: string }>
+  sections: JourneySections
   provenance: Record<string, { authority: string; note?: string; association?: string }>
   generated_at?: string
   note: string

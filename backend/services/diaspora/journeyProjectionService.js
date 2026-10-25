@@ -45,6 +45,7 @@ import {
 import { resolveClient } from './diasporaServiceUtils.js';
 import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
 import { listEtaRevisionsForShipment, projectEta } from './shipmentObservationRead.js';
+import { buildDocumentWorkspace } from './tradeDocumentWorkspaceService.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -265,7 +266,7 @@ function emptyJourney(subject, viewer) {
     timeline: [],
     exceptions: [],
     contacts: null,
-    sections: sectionsPlaceholder(),
+    sections: { ...sectionsPlaceholder(), documents: NOT_APPLICABLE, actions: NOT_APPLICABLE },
     provenance: {},
     note: NOTE,
   };
@@ -275,11 +276,119 @@ const NOTE = 'This is a composition of records owned elsewhere. It records nothi
 
 function sectionsPlaceholder() {
   return {
-    documents: NOT_YET_COMPOSED('T8'),
     customs: NOT_YET_COMPOSED('T12'),
     payments: NOT_YET_COMPOSED('T13'),
     notifications: NOT_YET_COMPOSED('T7'),
-    actions: NOT_YET_COMPOSED('derived from the owning authorities'),
+  };
+}
+
+/**
+ * The documents a journey is about: the shipping evidence, in the order a customer thinks of them.
+ * (Customs documents are CAP-07's, and identity documents are not a journey's business.)
+ */
+export const JOURNEY_DOCUMENT_TYPES = Object.freeze([
+  'bill_of_lading', 'commercial_invoice', 'export_certificate', 'inspection_certificate', 'insurance_certificate', 'packing_list',
+]);
+
+/**
+ * Documents are T8's. This COMPOSES T8's own workspace — it does not re-implement who may see a
+ * document or what state it is in — trims it to the journey's documents, and forwards no document id,
+ * no user id (who supplied or reviewed it), no storage path and no extraction id. T8's authority for an
+ * order's documents is narrower than the Journey's (it does not admit a tenant admin or an assigned
+ * participant), so a viewer can be allowed the Journey and refused its documents: that is reported as
+ * WITHHELD, not as an error. If T8 cannot be read at all the section says UNAVAILABLE — it never fails
+ * the journey, and it never implies there are no documents.
+ */
+async function composeDocuments(client, order, context) {
+  try {
+    const workspace = await buildDocumentWorkspace('import_order', order.id, context, { supabaseClient: client });
+    const byCode = new Map((workspace.items || []).map((i) => [i.document_type, i]));
+    const items = JOURNEY_DOCUMENT_TYPES.map((code) => byCode.get(code)).filter(Boolean).map((i) => ({
+      document_type: i.document_type,
+      display_name: i.display_name,
+      verification_required: Boolean(i.verification_required),
+      state: i.state,
+      note: i.note,
+      document: i.document ? {
+        version: i.document.version,
+        supplied_at: i.document.supplied_at,
+        reviewed_at: i.document.reviewed_at,
+        has_extraction: i.document.has_extraction,
+        has_earlier_versions: i.document.has_earlier_versions,
+      } : null,
+    }));
+    const count = (state) => items.filter((i) => i.state === state).length;
+    return {
+      availability: 'composed',
+      items,
+      summary: {
+        total: items.length,
+        supplied: items.filter((i) => i.document).length,
+        verified: count('VERIFIED'),
+        awaiting_review: count('AWAITING_REVIEW'),
+        rejected: count('REJECTED'),
+        requested_outstanding: count('REQUESTED'),
+      },
+      disclaimer: workspace.disclaimer,
+    };
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      return { availability: 'withheld', note: 'The documents for this order are not available to you here.' };
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[journey] documents could not be read:', err?.message);
+    return { availability: 'unavailable', note: 'The documents could not be read right now. That does not mean there are none.' };
+  }
+}
+
+/**
+ * What is waiting on whom — derived ONLY from recorded authority state (T8's document states and the
+ * exceptions already established above). Nothing here invents an obligation: a document that is merely
+ * missing is not a demand, and one that is verified, present or not applicable asks for nothing. For
+ * anyone but the buyer, "your action" becomes "the buyer's".
+ */
+function deriveActions({ viewer, documents, exceptions, orderId }) {
+  const you = viewer.kind === 'OWNER';
+  const whose = you ? 'you' : 'the buyer';
+  const link = { type: 'document_workspace', subject: { type: 'import_order', id: orderId } };
+  const items = [];
+
+  if (documents.availability === 'composed') {
+    for (const d of documents.items) {
+      if (d.state === 'REQUESTED') {
+        items.push({
+          kind: you ? 'YOUR_ACTION' : 'WAITING_ON', code: 'DOCUMENT_REQUESTED', waiting_on: whose, link,
+          text: you ? `Supply your ${d.display_name}. It has been requested.` : `The ${d.display_name} has been requested and has not been supplied.`,
+        });
+      } else if (d.state === 'REJECTED') {
+        items.push({
+          kind: you ? 'YOUR_ACTION' : 'WAITING_ON', code: 'DOCUMENT_REJECTED', waiting_on: whose, link,
+          text: you ? `Supply a corrected ${d.display_name}. The one on file was reviewed and rejected.` : `A corrected ${d.display_name} is needed. The one on file was reviewed and rejected.`,
+        });
+      } else if (d.state === 'AWAITING_REVIEW') {
+        items.push({ kind: 'WAITING_ON', code: 'DOCUMENT_AWAITING_REVIEW', waiting_on: 'CarUp review', link, text: `The ${d.display_name} is waiting for CarUp to check it.` });
+      }
+    }
+  }
+
+  const ORGANISER = {
+    SHIPMENT_AMBIGUOUS: 'The organiser needs to resolve which shipment belongs to this order.',
+    SHIPMENT_EXCEPTION: 'The organiser recorded a problem with the shipment. Ask the organiser what it means; this is not a customs decision.',
+    LEG_PORT_MISMATCH: 'The vessel details and the shipment record name different ports. The organiser needs to correct one of them.',
+    ORDER_CONTAINER_MISMATCH: 'The records disagree about which container this order is on. The organiser needs to resolve it.',
+  };
+  for (const e of exceptions) {
+    if (ORGANISER[e.code]) items.push({ kind: 'WAITING_ON', code: e.code, waiting_on: 'the organiser', text: ORGANISER[e.code] });
+  }
+
+  // Why document steps are missing differs: a refusal is not a failure to read, and each says its own.
+  let caveat = '';
+  if (documents.availability === 'withheld') caveat = 'Document steps are not shown because the documents are not available to you here. ';
+  else if (documents.availability === 'unavailable') caveat = 'Document steps are not shown because the documents could not be read right now. ';
+  return {
+    availability: 'composed',
+    items,
+    note: `${caveat}Steps are listed only where a record says someone must act. An empty list does not mean nothing is needed.`,
   };
 }
 
@@ -440,6 +549,10 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
     ? await client.from(VEHICLES).select('*').eq('vin', order.linked_vehicle_vin).maybeSingle()
     : { data: null };
 
+  // Documents are T8's and are composed from it; next steps are derived only from recorded state.
+  const documents = await composeDocuments(client, order, context);
+  const actions = deriveActions({ viewer, documents, exceptions, orderId: order.id });
+
   return {
     subject: { type, id, order_id: order.id, ...(aliasReservation ? { reservation_id: aliasReservation.id } : {}) },
     viewer: { kind: viewer.kind },
@@ -461,7 +574,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       consignee: projectConsignee(order, viewer.privateAccess),
       agents: NOT_YET_COMPOSED('T12'),
     },
-    sections: sectionsPlaceholder(),
+    sections: { ...sectionsPlaceholder(), documents, actions },
     provenance: {
       asset: { authority: vehicle ? 'vehicles' : 'unknown', note: 'Only recorded fields. A request is not a vehicle.' },
       transaction: { authority: 'T4' },
@@ -469,6 +582,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       shipping: { authority: 'T11', association: shipping.association },
       timeline: { authority: 'T11 + T10' },
       legs: { authority: 'declared legs', note: 'Declared by the organiser, not observed.' },
+      documents: { authority: 'T8', note: 'Read from the document workspace; nothing is stored here.' },
       eta: { authority: 'estimate revisions', note: 'Recorded by the organiser; shown beside the shipment record, not over it.' },
       contacts: { authority: 'intake (T3)', note: 'Private: shown only to the order owner and platform admins.' },
     },

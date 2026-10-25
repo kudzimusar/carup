@@ -15,7 +15,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMockSupabase } from './helpers/mockSupabase.js';
-import { getJourney, JOURNEY_STATES } from '../services/diaspora/journeyProjectionService.js';
+import { getJourney, JOURNEY_STATES, JOURNEY_DOCUMENT_TYPES } from '../services/diaspora/journeyProjectionService.js';
 import { getMyShipmentTracking } from '../services/diaspora/shipmentTrackingService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../utils/errors.js';
 
@@ -29,6 +29,12 @@ const OTHER_TENANT_ADMIN = { id: 'u-other-admin', platformRole: 'member', tenant
 const ADMIN = { id: 'u-platform-admin', platformRole: 'platform_admin' };
 
 const opts = (client) => ({ supabaseClient: client });
+
+const DOC_TYPES = [
+  ['bill_of_lading', 'Bill of Lading', true], ['commercial_invoice', 'Commercial Invoice', true], ['export_certificate', 'Export Certificate', true],
+  ['inspection_certificate', 'Inspection Certificate', true], ['insurance_certificate', 'Insurance Certificate', true], ['packing_list', 'Packing List', false],
+  ['passport', 'Passport', true], ['customs_declaration', 'Customs Declaration', true],
+].map(([code, display_name, verification_required]) => ({ id: `type-${code}`, code, display_name, verification_required, deleted_at: null }));
 
 function world(over = {}) {
   const shipment = (id, extra = {}) => ({
@@ -62,6 +68,10 @@ function world(over = {}) {
     diaspora_shipment_stage_events: over.events || [],
     diaspora_shipment_legs: over.legs || [],
     diaspora_shipment_observations: over.observations || [],
+    trade_document_types: over.docTypes || DOC_TYPES,
+    diaspora_trade_documents: over.documents || [],
+    diaspora_trade_document_readiness: over.readiness || [],
+    diaspora_import_quotes: [],
   });
 }
 
@@ -328,7 +338,7 @@ test('CAP-02: a vehicle with no recorded row stays unknown — requested make/mo
 
 test('CAP-02: sections not yet composed say so; they are not empty-and-implied-complete', async () => {
   const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
-  for (const section of ['documents', 'customs', 'payments', 'notifications', 'actions']) {
+  for (const section of ['customs', 'payments', 'notifications']) {
     assert.equal(j.sections[section].availability, 'not_yet_composed', `${section} implied it was complete`);
   }
   // Legs were a placeholder in CAP-02 and are composed from CAP-04 (see the CAP-04 section below).
@@ -658,4 +668,260 @@ test('CAP-05: composing the estimate history writes nothing', async () => {
   } };
   await getJourney('import_order', 'ord-a', BUYER, opts(trapped));
   assert.deepEqual(writes, []);
+});
+
+// ══ CAP-06: documents and next steps, composed ══════════════════════════════
+//
+// Documents are T8's. The Journey COMPOSES T8's own workspace — it does not re-implement who may see
+// a document or what state it is in — and forwards no id, no user id, no storage path. Where T8 would
+// refuse a viewer the Journey otherwise admits, the section says so instead of failing the Journey.
+// Next steps are derived ONLY from recorded authority state; nothing here invents an obligation.
+
+const doc = (type, over = {}) => ({
+  id: `doc-${type}`, import_order_id: 'ord-a', subject_type: null, subject_id: null, document_type: type, version: 1,
+  verification_status: 'PENDING_REVIEW', uploaded_by: 'u-secret-uploader', reviewed_by: null, reviewed_at: null, ocr_document_id: null,
+  storage_path: 'secret/path.pdf', created_at: '2026-09-02T00:00:00Z', deleted_at: null, superseded_at: null, ...over,
+});
+const ready = (type, readiness) => ({ id: `r-${type}`, subject_type: 'import_order', subject_id: 'ord-a', document_type: type, readiness, deleted_at: null });
+
+const DOC_WORLD = () => world({
+  documents: [
+    doc('bill_of_lading', { verification_status: 'VERIFIED', reviewed_by: 'u-secret-reviewer', reviewed_at: '2026-09-03T00:00:00Z', ocr_document_id: 'ocr-secret', version: 2 }),
+    doc('commercial_invoice'),
+    doc('export_certificate', { verification_status: 'REJECTED', reviewed_by: 'u-secret-reviewer', reviewed_at: '2026-09-03T00:00:00Z' }),
+    doc('packing_list'),
+    doc('passport'),
+  ],
+  readiness: [ready('inspection_certificate', 'requested'), ready('insurance_certificate', 'not_applicable')],
+});
+
+const docItems = (j) => Object.fromEntries(j.sections.documents.items.map((i) => [i.document_type, i]));
+
+test('CAP-06: the buyer\'s documents are T8\'s own states, in shipping order, shipping documents only', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD()));
+  assert.equal(j.sections.documents.availability, 'composed');
+  assert.deepEqual(j.sections.documents.items.map((i) => i.document_type),
+    ['bill_of_lading', 'commercial_invoice', 'export_certificate', 'inspection_certificate', 'insurance_certificate', 'packing_list']);
+  const by = docItems(j);
+  assert.equal(by.bill_of_lading.state, 'VERIFIED');
+  assert.equal(by.commercial_invoice.state, 'AWAITING_REVIEW');
+  assert.equal(by.export_certificate.state, 'REJECTED');
+  assert.equal(by.inspection_certificate.state, 'REQUESTED');
+  assert.equal(by.insurance_certificate.state, 'NOT_APPLICABLE');
+  assert.equal(by.packing_list.state, 'PRESENT');
+  assert.ok(!('passport' in by) && !('customs_declaration' in by), 'a non-shipping document type was shown on the journey');
+});
+
+test('CAP-06: the states come from T8, not from the file existing — a present file is not a verified one', async () => {
+  const by = docItems(await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD())));
+  assert.notEqual(by.commercial_invoice.state, 'VERIFIED', 'a file arriving was shown as verified');
+  assert.match(by.commercial_invoice.note, /nobody has checked/i);
+  assert.match(by.bill_of_lading.note, /verified/i);
+});
+
+test('CAP-06: no document id, user id, storage path or extraction id is forwarded', async () => {
+  const w = DOC_WORLD();
+  for (const who of [BUYER, ADMIN]) {
+    const text = JSON.stringify(await getJourney('import_order', 'ord-a', who, opts(w)));
+    for (const leak of ['u-secret-uploader', 'u-secret-reviewer', 'ocr-secret', 'secret/path.pdf', 'doc-bill_of_lading', 'supplied_by', 'reviewed_by', 'viewer_role']) {
+      assert.ok(!text.includes(leak), `${leak} leaked to ${who.id}`);
+    }
+  }
+});
+
+test('CAP-06: a document\'s provenance is shown as when, and whether it was checked — never as who', async () => {
+  const bl = docItems(await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD()))).bill_of_lading;
+  assert.equal(bl.document.version, 2);
+  assert.equal(bl.document.has_earlier_versions, true);
+  assert.equal(bl.document.has_extraction, true);
+  assert.equal(bl.document.supplied_at, '2026-09-02T00:00:00Z');
+  assert.equal(bl.document.reviewed_at, '2026-09-03T00:00:00Z');
+  assert.ok(!('supplied_by' in bl.document) && !('reviewed_by' in bl.document) && !('id' in bl.document));
+});
+
+test('CAP-06: the document summary counts the journey\'s documents, not T8\'s whole checklist', async () => {
+  const s = (await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD()))).sections.documents.summary;
+  assert.deepEqual(s, { total: 6, supplied: 4, verified: 1, awaiting_review: 1, rejected: 1, requested_outstanding: 1 });
+});
+
+test('CAP-06: T8\'s own disclaimer travels with the documents', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD()));
+  assert.match(j.sections.documents.disclaimer, /does not mean it has been checked/i);
+});
+
+test('CAP-06: a platform admin sees the documents too', async () => {
+  const j = await getJourney('import_order', 'ord-a', ADMIN, opts(DOC_WORLD()));
+  assert.equal(j.sections.documents.availability, 'composed');
+});
+
+test('CAP-06: where T8 would refuse a viewer the Journey admits, the section says WITHHELD — the Journey still renders', async () => {
+  for (const who of [TENANT_ADMIN, PARTICIPANT]) {
+    const j = await getJourney('import_order', 'ord-a', who, opts(DOC_WORLD()));
+    assert.equal(j.sections.documents.availability, 'withheld', `${who.id} was shown documents T8 refuses them`);
+    assert.ok(!('items' in j.sections.documents));
+    assert.match(j.sections.documents.note, /not available to you/i);
+    assert.ok(j.state, 'the journey itself failed because documents were withheld');
+    assert.ok(!JSON.stringify(j).includes('bill_of_lading'), 'a withheld section still named a document');
+  }
+});
+
+test('CAP-06: if documents cannot be read, the section says UNAVAILABLE — it does not fail the journey or imply there are none', async () => {
+  const client = DOC_WORLD();
+  const broken = { ...client, from(t) { if (t === 'trade_document_types') throw new Error('boom'); return client.from(t); } };
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(broken));
+  assert.equal(j.sections.documents.availability, 'unavailable');
+  assert.ok(!('items' in j.sections.documents));
+  assert.match(j.sections.documents.note, /could not be read/i);
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
+});
+
+test('CAP-06: documents belong to the ORDER — an ambiguous shipment does not hide them', async () => {
+  const w = world({ documents: [doc('bill_of_lading', { import_order_id: 'ord-b' })], shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }] });
+  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_AMBIGUOUS);
+  assert.equal(j.sections.documents.availability, 'composed');
+  assert.equal(docItems(j).bill_of_lading.state, 'AWAITING_REVIEW');
+});
+
+test('CAP-06: another order\'s documents never appear', async () => {
+  const w = world({ documents: [doc('bill_of_lading', { import_order_id: 'ord-OTHER', verification_status: 'VERIFIED' })] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(docItems(j).bill_of_lading.state, 'MISSING', 'another order\'s verified document showed on this journey');
+});
+
+test('CAP-06: a booking with no order has no documents to show', async () => {
+  const w = world({ reservations: [{ id: 'res-n', container_id: 'cont-1', import_order_id: null, buyer_id: 'u-buyer', created_by: 'u-buyer', deleted_at: null }] });
+  const j = await getJourney('cargo_reservation', 'res-n', BUYER, opts(w));
+  assert.equal(j.state, JOURNEY_STATES.NO_TRANSACTION);
+  assert.equal(j.sections.documents.availability, 'not_applicable');
+  assert.equal(j.sections.actions.availability, 'not_applicable');
+});
+
+test('CAP-06: documents never move the journey state', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD()));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
+});
+
+test('CAP-06: reads stay bounded however many documents there are', async () => {
+  const count = async (documents) => {
+    const client = world({ documents });
+    let n = 0;
+    const counting = { ...client, from(t) { n += 1; return client.from(t); } };
+    await getJourney('import_order', 'ord-a', BUYER, opts(counting));
+    return n;
+  };
+  // Two different ways to have "more documents": many VERSIONS of one type (T8 collapses them to one item),
+  // and many distinct TYPES each present (six items). The second is the one a per-document query would feel.
+  const manyVersions = Array.from({ length: 30 }, (_, i) => doc('bill_of_lading', { id: `d${i}`, version: i + 1, superseded_at: i < 29 ? '2026-09-04T00:00:00Z' : null }));
+  const everyType = JOURNEY_DOCUMENT_TYPES.map((type) => doc(type, { verification_status: 'VERIFIED' }));
+  const baseline = await count([doc('bill_of_lading')]);
+  assert.equal(await count(manyVersions), baseline, 'query count grew with the number of versions');
+  assert.equal(await count(everyType), baseline, 'query count grew with the number of documents present');
+});
+
+test('CAP-06: composing documents and steps writes nothing', async () => {
+  const client = DOC_WORLD();
+  const writes = [];
+  const trapped = { ...client, from(table) {
+    const chain = client.from(table);
+    return new Proxy(chain, { get(target, prop) {
+      if (['insert', 'update', 'delete', 'upsert'].includes(prop)) writes.push(`${prop} ${table}`);
+      const v = target[prop]; return typeof v === 'function' ? v.bind(target) : v;
+    } });
+  } };
+  await getJourney('import_order', 'ord-a', BUYER, opts(trapped));
+  assert.deepEqual(writes, []);
+});
+
+// ── Next steps: derived only from recorded authority state ────────────────
+
+const steps = (j) => j.sections.actions.items;
+
+test('CAP-06: a requested document is the buyer\'s action, and links to the document workspace', async () => {
+  const s = steps(await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD())));
+  const ask = s.find((a) => a.code === 'DOCUMENT_REQUESTED');
+  assert.equal(ask.kind, 'YOUR_ACTION');
+  assert.equal(ask.waiting_on, 'you');
+  assert.match(ask.text, /Inspection Certificate/);
+  assert.deepEqual(ask.link, { type: 'document_workspace', subject: { type: 'import_order', id: 'ord-a' } });
+});
+
+test('CAP-06: a rejected document needs a corrected one, and says whose move it is', async () => {
+  const s = steps(await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD())));
+  const fix = s.find((a) => a.code === 'DOCUMENT_REJECTED');
+  assert.equal(fix.kind, 'YOUR_ACTION');
+  assert.match(fix.text, /Export Certificate/);
+});
+
+test('CAP-06: a document waiting for CarUp\'s review is WAITING_ON CarUp for everyone — not an action for the buyer', async () => {
+  for (const who of [BUYER, ADMIN]) {
+    const a = steps(await getJourney('import_order', 'ord-a', who, opts(DOC_WORLD()))).find((x) => x.code === 'DOCUMENT_AWAITING_REVIEW');
+    assert.equal(a.kind, 'WAITING_ON');
+    assert.equal(a.waiting_on, 'CarUp review');
+    assert.match(a.text, /Commercial Invoice/);
+  }
+});
+
+test('CAP-06: for someone other than the buyer, "your action" becomes "the buyer\'s"', async () => {
+  const s = steps(await getJourney('import_order', 'ord-a', ADMIN, opts(DOC_WORLD())));
+  const ask = s.find((a) => a.code === 'DOCUMENT_REQUESTED');
+  assert.equal(ask.kind, 'WAITING_ON');
+  assert.equal(ask.waiting_on, 'the buyer');
+  assert.ok(!s.some((a) => a.kind === 'YOUR_ACTION'), 'an admin was told a step was theirs');
+});
+
+test('CAP-06: a missing document is not an instruction, and a verified or present one needs nothing', async () => {
+  const s = steps(await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD())));
+  const text = JSON.stringify(s);
+  assert.ok(!/Bill of Lading/.test(text), 'a verified document produced a step');
+  assert.ok(!/Packing List/.test(text), 'a present document produced a step');
+  assert.ok(!/Insurance Certificate/.test(text), 'a not-applicable document produced a step');
+  const noAsk = steps(await getJourney('import_order', 'ord-a', BUYER, opts(world())));
+  assert.ok(!noAsk.some((a) => /DOCUMENT_/.test(a.code)), 'a merely missing document was turned into a demand');
+});
+
+test('CAP-06: an ambiguous shipment, an exception and a port disagreement each wait on the organiser', async () => {
+  const amb = await getJourney('import_order', 'ord-b', COLOADER, opts(world({ shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }, { id: 'ship-2', import_order_id: 'ord-c' }] })));
+  assert.equal(steps(amb).find((a) => a.code === 'SHIPMENT_AMBIGUOUS').waiting_on, 'the organiser');
+  const exc = await getJourney('import_order', 'ord-a', BUYER, opts(world({ shipments: [{ id: 'ship-1', departure_date: '2026-09-21T08:00:00Z' }],
+    events: [{ id: 'e1', shipment_id: 'ship-1', stage: 'CUSTOMS_HOLD', event_time: '2026-09-25T00:00:00Z', location: 'Gateway', deleted_at: null }] })));
+  const hold = steps(exc).find((a) => a.code === 'SHIPMENT_EXCEPTION');
+  assert.equal(hold.kind, 'WAITING_ON');
+  assert.ok(!/cleared|released|approved|customs decision/i.test(hold.text.replace(/not a customs decision/i, '')), 'a hold produced a customs claim');
+  const mismatch = await getJourney('import_order', 'ord-a', BUYER, opts(world({ legs: [leg({ port_of_loading: 'Somewhere Else' })] })));
+  assert.equal(steps(mismatch).find((a) => a.code === 'LEG_PORT_MISMATCH').waiting_on, 'the organiser');
+});
+
+test('CAP-06: with nothing grounded, the steps are an honest empty list — not "all clear"', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
+  assert.equal(j.sections.actions.availability, 'composed');
+  assert.deepEqual(steps(j), []);
+  assert.match(j.sections.actions.note, /does not mean nothing is needed/i);
+});
+
+test('CAP-06: when documents are withheld, no document step is invented — and the section says why', async () => {
+  const j = await getJourney('import_order', 'ord-a', TENANT_ADMIN, opts(DOC_WORLD()));
+  assert.ok(!steps(j).some((a) => /DOCUMENT_/.test(a.code)));
+  assert.match(j.sections.actions.note, /document steps are not shown/i);
+  assert.match(j.sections.actions.note, /not available to you/i);
+});
+
+test('CAP-06: when documents could not be READ, the steps say so — not that the viewer is not allowed them', async () => {
+  const client = DOC_WORLD();
+  const broken = { ...client, from(t) { if (t === 'trade_document_types') throw new Error('boom'); return client.from(t); } };
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(broken));
+  assert.ok(!steps(j).some((a) => /DOCUMENT_/.test(a.code)), 'a document step was invented from documents that could not be read');
+  assert.match(j.sections.actions.note, /document steps are not shown/i);
+  assert.match(j.sections.actions.note, /could not be read/i);
+  assert.doesNotMatch(j.sections.actions.note, /not available to you/i, 'a read failure was worded as a permission refusal');
+});
+
+test('CAP-06: every step is plain data — a kind, a code, words, who it waits on — and no internal id', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(DOC_WORLD()));
+  for (const a of steps(j)) {
+    assert.ok(['YOUR_ACTION', 'WAITING_ON'].includes(a.kind));
+    assert.ok(a.code && a.text && a.waiting_on);
+  }
+  const text = JSON.stringify(steps(j));
+  for (const leak of ['u-secret', 'doc-', 'secret/path']) assert.ok(!text.includes(leak), `${leak} leaked into a step`);
 });

@@ -427,3 +427,214 @@ describe('CAP-05: the estimate and its history', () => {
     expect(screen.getByTestId('journey-provenance')).not.toHaveTextContent(/estimate revisions/)
   })
 })
+
+describe('CAP-06: documents and next steps', () => {
+  const item = (document_type: string, display_name: string, stateName: string, over: Record<string, unknown> = {}) => ({
+    document_type, display_name, verification_required: true, state: stateName,
+    note: `note for ${document_type}`, document: null, ...over,
+  })
+  const docs = (over: Record<string, unknown> = {}) => ({
+    availability: 'composed',
+    items: [
+      item('bill_of_lading', 'Bill of lading', 'VERIFIED', { document: { version: 2, supplied_at: '2026-09-02T00:00:00Z', reviewed_at: '2026-09-03T00:00:00Z', has_extraction: true, has_earlier_versions: true } }),
+      item('commercial_invoice', 'Commercial invoice', 'AWAITING_REVIEW', { document: { version: 1, supplied_at: '2026-09-02T00:00:00Z', reviewed_at: null, has_extraction: false, has_earlier_versions: false } }),
+      item('export_certificate', 'Export certificate', 'REJECTED', { document: { version: 1, supplied_at: '2026-09-02T00:00:00Z', reviewed_at: '2026-09-03T00:00:00Z', has_extraction: false, has_earlier_versions: false } }),
+      item('inspection_certificate', 'Inspection certificate', 'REQUESTED'),
+      item('insurance_certificate', 'Insurance certificate', 'NOT_APPLICABLE'),
+      item('packing_list', 'Packing list', 'MISSING'),
+    ],
+    summary: { total: 6, supplied: 3, verified: 1, awaiting_review: 1, rejected: 1, requested_outstanding: 1 },
+    disclaimer: 'A document being on file does not mean it has been checked.',
+    ...over,
+  })
+  const step = (code: string, kind: string, waiting_on: string, text: string, link?: unknown) => ({ kind, code, waiting_on, text, ...(link ? { link } : {}) })
+  const LINK = { type: 'document_workspace', subject: { type: 'import_order', id: ORDER } }
+  const actions = (items: unknown[] = [], note = 'Steps are listed only where a record says someone must act. An empty list does not mean nothing is needed.') => ({ availability: 'composed', items, note })
+  const withSections = (documents: unknown, acts: unknown = actions()) => journey({
+    sections: { documents, customs: NOT_COMPOSED('T12'), payments: NOT_COMPOSED('T13'), notifications: NOT_COMPOSED('T7'), actions: acts },
+  })
+  const openDocuments = async (view: unknown) => {
+    state.view = view
+    await open()
+    fireEvent.click(screen.getByRole('tab', { name: /^documents$/i }))
+  }
+
+  it('lists the journey’s documents in T8’s own words and in order', async () => {
+    await openDocuments(withSections(docs()))
+    const list = screen.getByTestId('journey-documents-list')
+    expect(within(list).getAllByRole('listitem').map((li) => li.querySelector('p')?.textContent)).toEqual([
+      'Bill of lading', 'Commercial invoice', 'Export certificate', 'Inspection certificate', 'Insurance certificate', 'Packing list',
+    ])
+    expect(screen.getByTestId('journey-document-state-bill_of_lading')).toHaveTextContent('Verified')
+    expect(screen.getByTestId('journey-document-state-commercial_invoice')).toHaveTextContent('Supplied — awaiting review')
+    expect(screen.getByTestId('journey-document-state-export_certificate')).toHaveTextContent('Rejected')
+    expect(screen.getByTestId('journey-document-state-inspection_certificate')).toHaveTextContent('Requested')
+    expect(screen.getByTestId('journey-document-state-insurance_certificate')).toHaveTextContent('Does not apply')
+    expect(screen.getByTestId('journey-document-state-packing_list')).toHaveTextContent('Not supplied')
+  })
+
+  it('does not show the not-connected placeholder once documents are composed', async () => {
+    await openDocuments(withSections(docs()))
+    expect(screen.queryByTestId('journey-section-note')).toBeNull()
+  })
+
+  it('shows when a document was supplied and reviewed, and never who', async () => {
+    await openDocuments(withSections(docs()))
+    const bl = screen.getByTestId('journey-document-provenance-bill_of_lading')
+    expect(bl).toHaveTextContent(/Version 2/)
+    expect(bl).toHaveTextContent(/Supplied/)
+    expect(bl).toHaveTextContent(/Reviewed/)
+    expect(screen.getByTestId('journey-document-provenance-commercial_invoice')).not.toHaveTextContent(/Reviewed/)
+    expect(screen.queryByTestId('journey-document-provenance-packing_list')).toBeNull()
+    expect(screen.getByTestId('journey-documents')).not.toHaveTextContent(/uploaded by|reviewed by|supplied by/i)
+  })
+
+  it('states the counts and carries T8’s own disclaimer', async () => {
+    await openDocuments(withSections(docs()))
+    expect(screen.getByTestId('journey-documents-summary')).toHaveTextContent('3 of 6 supplied · 1 verified · 1 awaiting review · 1 rejected · 1 requested')
+    expect(screen.getByTestId('journey-documents-disclaimer')).toHaveTextContent(/does not mean it has been checked/i)
+  })
+
+  it('links to the document workspace for this order, and no longer', async () => {
+    await openDocuments(withSections(docs()))
+    expect(screen.getByTestId('journey-documents-link')).toHaveAttribute('href', `/diaspora/documents/import_order/${ORDER}`)
+  })
+
+  it('links a cargo booking\u2019s documents to its ORDER, not to the booking', async () => {
+    const view = withSections(docs()) as Record<string, unknown>
+    state.view = { ...view, subject: { type: 'cargo_reservation', id: 'res-booking-1', order_id: ORDER, reservation_id: 'res-booking-1' } }
+    await open()
+    fireEvent.click(screen.getByRole('tab', { name: /^documents$/i }))
+    expect(screen.getByTestId('journey-documents-link')).toHaveAttribute('href', `/diaspora/documents/import_order/${ORDER}`)
+  })
+
+  it('offers no workspace link where the booking has no order', async () => {
+    const view = withSections(docs()) as Record<string, unknown>
+    state.view = { ...view, subject: { type: 'cargo_reservation', id: 'res-booking-1', order_id: null, reservation_id: 'res-booking-1' } }
+    await open()
+    fireEvent.click(screen.getByRole('tab', { name: /^documents$/i }))
+    expect(screen.queryByTestId('journey-documents-link')).toBeNull()
+  })
+
+  it('says a withheld section is withheld — not empty, and not an error', async () => {
+    await openDocuments(withSections({ availability: 'withheld', note: 'The documents for this order are not available to you here.' }))
+    const panel = screen.getByTestId('journey-documents-withheld')
+    expect(panel).toHaveTextContent(/not available to you/i)
+    expect(screen.queryByTestId('journey-documents-list')).toBeNull()
+    expect(screen.queryByTestId('journey-documents-link')).toBeNull()
+    expect(screen.getByTestId('journey-page')).toBeInTheDocument()
+  })
+
+  it('says unavailable documents could not be read — and that this does not mean there are none', async () => {
+    await openDocuments(withSections({ availability: 'unavailable', note: 'The documents could not be read right now. That does not mean there are none.' }))
+    const panel = screen.getByTestId('journey-documents-unavailable')
+    expect(panel).toHaveTextContent(/could not be read/i)
+    expect(panel).toHaveTextContent(/does not mean there are none/i)
+    expect(screen.queryByTestId('journey-documents-list')).toBeNull()
+  })
+
+  it('says documents do not apply to a booking with no order', async () => {
+    await openDocuments(withSections({ availability: 'not_applicable' }, { availability: 'not_applicable' }))
+    expect(screen.getByTestId('journey-documents-not-applicable')).toHaveTextContent(/does not have one yet/i)
+    expect(screen.queryByTestId('journey-documents-list')).toBeNull()
+  })
+
+  it('says a section state it does not know is not shown — never that there are no documents', async () => {
+    await openDocuments(withSections({ availability: 'quarantined' }))
+    const panel = screen.getByTestId('journey-documents-unavailable')
+    expect(panel).toHaveTextContent(/could not be read/i)
+    expect(screen.getByTestId('journey-documents')).not.toHaveTextContent(/does not have one yet|no documents/i)
+  })
+
+  it('does not claim a checklist is empty when none was listed', async () => {
+    await openDocuments(withSections(docs({ items: [], summary: { total: 0, supplied: 0, verified: 0, awaiting_review: 0, rejected: 0, requested_outstanding: 0 } })))
+    expect(screen.getByTestId('journey-documents-none-listed')).toHaveTextContent(/listed in this view/i)
+    expect(screen.getByTestId('journey-documents-none-listed')).not.toHaveTextContent(/no documents exist/i)
+  })
+
+  it('does not call a state it does not know "Not supplied"', async () => {
+    await openDocuments(withSections(docs({ items: [item('bill_of_lading', 'Bill of lading', 'SOMETHING_NEW')], summary: { total: 1, supplied: 0, verified: 0, awaiting_review: 0, rejected: 0, requested_outstanding: 0 } })))
+    expect(screen.getByTestId('journey-document-state-bill_of_lading')).not.toHaveTextContent('Not supplied')
+    expect(screen.getByTestId('journey-document-state-bill_of_lading')).toHaveTextContent(/not recognised/i)
+  })
+
+  it('still shows the old placeholder when the service predates documents', async () => {
+    await openDocuments(journey())
+    expect(screen.getByTestId('journey-section-note')).toHaveTextContent(/not shown in this view yet/i)
+    expect(screen.queryByTestId('journey-documents')).toBeNull()
+  })
+
+  it('names the documents in the provenance block, in words', async () => {
+    state.view = { ...(withSections(docs()) as object), provenance: { ...journey().provenance, documents: { authority: 'T8' } } }
+    await open()
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/documents/i)
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/document workspace/i)
+    expect(screen.getByTestId('journey-provenance')).not.toHaveTextContent(/\bT8\b/)
+  })
+
+  describe('what to do next', () => {
+    it('shows the viewer’s own step as theirs, with a link to the workspace', async () => {
+      state.view = withSections(docs(), actions([step('DOCUMENT_REQUESTED', 'YOUR_ACTION', 'you', 'Supply your Inspection certificate. It has been requested.', LINK)]))
+      await open()
+      const row = screen.getByTestId('journey-action-DOCUMENT_REQUESTED')
+      expect(row).toHaveTextContent('Your action')
+      expect(row).toHaveTextContent('Supply your Inspection certificate')
+      expect(within(row).getByRole('link', { name: /document workspace/i })).toHaveAttribute('href', `/diaspora/documents/import_order/${ORDER}`)
+    })
+
+    it('shows a step on someone else as waiting on them, never as the viewer’s', async () => {
+      state.view = withSections(docs(), actions([
+        step('DOCUMENT_AWAITING_REVIEW', 'WAITING_ON', 'CarUp review', 'The Commercial invoice is waiting for CarUp to check it.', LINK),
+        step('SHIPMENT_EXCEPTION', 'WAITING_ON', 'the organiser', 'The organiser recorded a problem with the shipment.'),
+      ]))
+      await open()
+      expect(screen.getByTestId('journey-action-DOCUMENT_AWAITING_REVIEW')).toHaveTextContent('Waiting on CarUp review')
+      expect(screen.getByTestId('journey-action-DOCUMENT_AWAITING_REVIEW')).not.toHaveTextContent('Your action')
+      expect(screen.getByTestId('journey-action-SHIPMENT_EXCEPTION')).toHaveTextContent('Waiting on the organiser')
+      expect(within(screen.getByTestId('journey-action-SHIPMENT_EXCEPTION')).queryByRole('link')).toBeNull()
+    })
+
+    it('does not follow a link it does not understand', async () => {
+      state.view = withSections(docs(), actions([step('DOCUMENT_REQUESTED', 'WAITING_ON', 'the buyer', 'x', { type: 'external', subject: { type: 'import_order', id: ORDER } })]))
+      await open()
+      expect(within(screen.getByTestId('journey-action-DOCUMENT_REQUESTED')).queryByRole('link')).toBeNull()
+    })
+
+    it('says plainly that nothing is recorded as waiting — and keeps the caveat that this is not an all-clear', async () => {
+      state.view = withSections(docs(), actions([]))
+      await open()
+      expect(screen.getByTestId('journey-actions-empty')).toHaveTextContent(/nothing is recorded as waiting/i)
+      expect(screen.getByTestId('journey-actions-caveat')).toHaveTextContent(/does not mean nothing is needed/i)
+      expect(screen.queryByTestId('journey-actions-note')).toBeNull()
+    })
+
+    it('shows several steps of the same kind without dropping any', async () => {
+      state.view = withSections(docs(), actions([
+        step('DOCUMENT_REQUESTED', 'YOUR_ACTION', 'you', 'Supply your Inspection certificate.', LINK),
+        step('DOCUMENT_REQUESTED', 'YOUR_ACTION', 'you', 'Supply your Packing list.', LINK),
+      ]))
+      await open()
+      expect(within(screen.getByTestId('journey-actions-list')).getAllByRole('listitem')).toHaveLength(2)
+    })
+
+    it('still shows the placeholder where the service predates next steps, and nothing where they do not apply', async () => {
+      state.view = journey()
+      await open()
+      expect(screen.getByTestId('journey-actions-note')).toHaveTextContent(/does not mean/i)
+      expect(screen.queryByTestId('journey-actions')).toBeNull()
+    })
+
+    it('shows neither card nor placeholder where next steps do not apply', async () => {
+      state.view = withSections({ availability: 'not_applicable' }, { availability: 'not_applicable' })
+      await open()
+      expect(screen.queryByTestId('journey-actions')).toBeNull()
+      expect(screen.queryByTestId('journey-actions-note')).toBeNull()
+    })
+
+    it('shows the placeholder, not silence, for a next-steps state it does not know', async () => {
+      state.view = withSections(docs(), { availability: 'quarantined' })
+      await open()
+      expect(screen.getByTestId('journey-actions-note')).toHaveTextContent(/does not mean/i)
+    })
+  })
+})
