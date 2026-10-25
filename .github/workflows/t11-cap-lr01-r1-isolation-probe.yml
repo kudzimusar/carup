@@ -1,0 +1,116 @@
+name: T11-CAP-LR01-R1 ISOLATION PROBE
+
+# Can an UNRELATED ordinary user read the real purchase's Journey on the exact-candidate Preview?
+#
+# Signs in as the staging project's own synthetic "outsider" identities (ordinary `owner` role) with the protected
+# staging-only UAT secret and asks the candidate Preview backend for journeys that are not theirs. READ-ONLY: it writes
+# nothing but the sign-in session rows any login writes, touches no database directly, and refuses any backend host
+# that is not an immutable CarUp Preview deployment host (never a canonical alias).
+
+on:
+  push:
+    branches:
+      - cert/t11-cap-lr01-r1-isolation-probe-2
+
+concurrency:
+  group: t11-cap-lr01-r1-isolation-probe-2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PRODUCT_SHA: 3d581468041ae33fcc0ee7c3eea42a44f9f9cc80
+      PRODUCT_BRANCH: feat/trade-os-t11-cap-lr01-journey-arrival
+      PREVIEW_API_BASE: https://carup-backend-staging-pxsgtzcoy-11-11.vercel.app/api
+      STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
+      T11_CAP_RESULTS_DIR: cert-results/t11-cap-r1-isolation
+      PROBE_SUBJECTS: >-
+        [
+          {"label":"vehicle (exists, not theirs)","path":"/diaspora/journeys/vehicle/RU3-1316558"},
+          {"label":"vehicle (does not exist)","path":"/diaspora/journeys/vehicle/RU3-0000000"},
+          {"label":"vehicle Serena (exists, not theirs)","path":"/diaspora/journeys/vehicle/GFC27-027051"},
+          {"label":"order (exists, not theirs)","path":"/diaspora/journeys/import_order/3e2b66a0-1e8b-43c9-bd48-507f88016f71"},
+          {"label":"order (does not exist)","path":"/diaspora/journeys/import_order/00000000-0000-4000-8000-000000000000"},
+          {"label":"shipment (exists, not theirs)","path":"/diaspora/journeys/shipment/f8cb8f50-ba8d-4cff-b515-1fb1fbe9c1fb"}
+        ]
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit, on the product branch, workflow-only diff, reviewed bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push" -o "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/t11-cap-lr01-r1-isolation-probe.yml) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          test "$(git hash-object backend/scripts/t11-cap-r1-isolation-probe.mjs)" = "1a92ec3802f2847d0148ada63768bd8fa160e5c8"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PRODUCT_SHA=$PRODUCT_SHA"
+
+      - name: Require the protected staging-only secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$STAGING_UAT_PASSWORD" || { echo "::error::STAGING_UAT_PASSWORD is not configured"; exit 2; }
+          case "$PREVIEW_API_BASE" in
+            https://carup-backend-staging-*-11-11.vercel.app/api) ;;
+            *) echo "::error::API base is not an immutable CarUp Preview host"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Judgement rehearsal (stubbed transport)
+        run: node --test backend/tests/t11-cap-r1-isolation-probe.test.js
+
+      - name: Probe - an unrelated ordinary user asks for journeys that are not theirs
+        run: node backend/scripts/t11-cap-r1-isolation-probe.mjs
+
+      - name: Evidence as annotations - public, statuses and refusal words only
+        if: always()
+        shell: bash
+        run: |
+          f="$T11_CAP_RESULTS_DIR/isolation.json"
+          if [ ! -f "$f" ]; then echo "::notice title=probe::no isolation.json was written"; exit 0; fi
+          echo "::notice title=signins::$(node -e "const d=require('./$f'); console.log(JSON.stringify(d.signins))")"
+          echo "::notice title=verdict::$(node -e "const d=require('./$f'); console.log(d.verdict+' '+JSON.stringify(d.problems))")"
+          node -e "const d=require('./$f'); for (const o of d.observations) console.log('::notice title=obs::'+[o.who,o.label,o.path,o.status,o.message||''].join(' | '))"
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### T11-CAP-LR01-R1 ISOLATION PROBE"
+            echo "product sha: \`$PRODUCT_SHA\`   preview api: \`$PREVIEW_API_BASE\`   production: **not accessed**"
+            if [ -f "$T11_CAP_RESULTS_DIR/isolation.json" ]; then echo '```json'; head -c 8000 "$T11_CAP_RESULTS_DIR/isolation.json"; echo; echo '```'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t11-cap-lr01-r1-isolation-probe
+          path: cert-results/t11-cap-r1-isolation
+          retention-days: 30
+          if-no-files-found: warn
