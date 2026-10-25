@@ -146,6 +146,9 @@ export interface TimelineLike {
 /** The label for one timeline row. */
 export function timelineLabel(entry: { kind: string; stage: string }): string {
   if (entry.kind === 'LOAD') return 'Loaded into the container'
+  // A PLANNED stage is the shipment record being set up. Printed as just "Planned" beside a date it reads as a planned
+  // DATE, which is exactly the confusion the rest of this page exists to prevent.
+  if (entry.stage === 'PLANNED') return 'Shipment set up (a plan, not a movement)'
   return STAGE_UI[entry.stage] || entry.stage
 }
 
@@ -342,7 +345,7 @@ export function documentsSummaryLine(summary: DocumentSummaryLike | null | undef
 /** Withheld is a refusal; unavailable is a failure to read. Neither is "there are no documents". */
 export const DOCUMENTS_WITHHELD_FALLBACK = 'The documents for this order are not available to you here.'
 export const DOCUMENTS_UNAVAILABLE_FALLBACK = 'The documents could not be read right now. That does not mean there are none.'
-export const DOCUMENTS_NOT_APPLICABLE = 'Documents belong to an import order, and this booking does not have one yet.'
+export const DOCUMENTS_NOT_APPLICABLE = 'Documents belong to an import order, and nothing here has one yet.'
 
 /** Nothing recorded as waiting. The service adds why that is not an all-clear. */
 export const NO_STEPS_RECORDED = 'Nothing is recorded as waiting on anyone right now.'
@@ -413,6 +416,10 @@ export function customsPath(link: { type?: string; subject?: { type?: string; id
 }
 
 /** A customs section state this page does not know is not "no customs" — it is not shown. */
+/** A vehicle (or booking) with no import order: there is no destination or customs status because there is no order — not because one failed to load. */
+export const NO_ORDER_NO_DESTINATION =
+  'There is no import order here yet, so there is no destination or customs status to show. That is not a report that nothing has happened — it means nothing has been recorded.'
+
 export const CUSTOMS_UNSHOWN_FALLBACK = 'Customs status could not be shown here. That does not mean nothing has happened.'
 
 // ── CAP-09: statistics ────────────────────────────────────────────────────────────────────────────────
