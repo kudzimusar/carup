@@ -18,7 +18,9 @@ const json = (status, body) => ({ status, ok: status < 400, json: async () => bo
 /** A transport whose behaviour per path the test chooses. */
 const transport = (journey) => async (url, init = {}) => {
   const u = new URL(url)
-  if (u.pathname.endsWith('/auth/login')) return json(200, { token: 'sk_live_test', user: { id: 'x' } })
+  if (u.pathname.endsWith('/security/csrf-token')) return json(200, { csrfToken: 'csrf-test' })
+  // A state-changing request without CarUp's CSRF token is refused 403 — exactly what the real backend does.
+  if (u.pathname.endsWith('/auth/login')) return init.headers?.['x-csrf-token'] === 'csrf-test' ? json(200, { token: 'sk_live_test', user: { id: 'x' } }) : json(403, { error: 'CSRF token missing in headers.' })
   const token = init.headers?.['x-session-token']
   if (!token) return json(401, { error: 'Unauthorized' })
   return journey(u.pathname)
@@ -91,6 +93,19 @@ test('R1-I: only an immutable Preview deployment host is accepted — never a ca
     'https://carup-backend-staging-abc-11-11.vercel.app.evil.test/api',
   ]) assert.throws(() => assertPreviewApi(bad), ProbeStop, String(bad))
   assert.equal(assertPreviewApi(BASE), BASE)
+})
+
+test('R1-I: it fetches CarUp\'s CSRF token first and presents it — a bare POST would be refused 403, which is not a verdict about isolation', async () => {
+  const calls = []
+  const spy = async (url, init) => { calls.push(`${init?.method || 'GET'} ${new URL(url).pathname}`); return transport(refuse)(url, init) }
+  const out = await probe({ base: BASE, password: 'x', subjects: SUBJECTS.slice(0, 1), outsiders: [OUTSIDERS[0]], fetchFn: spy })
+  assert.deepEqual(calls.slice(0, 2), ['GET /api/security/csrf-token', 'POST /api/auth/login'])
+  assert.equal(out.signins[0].ok, true)
+  // And when the token cannot be had at all, the probe says so instead of pretending it measured anything.
+  const noCsrf = async (url) => (new URL(url).pathname.endsWith('/security/csrf-token') ? json(500, {}) : refuse())
+  const blocked = await probe({ base: BASE, password: 'x', subjects: SUBJECTS, outsiders: [OUTSIDERS[0]], fetchFn: noCsrf })
+  assert.equal(blocked.signins[0].ok, false)
+  assert.equal(blocked.signins[0].stage, 'csrf-token')
 })
 
 test('R1-I: when no outsider can sign in, it cannot claim isolation was measured', async () => {

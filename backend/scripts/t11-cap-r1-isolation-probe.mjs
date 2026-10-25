@@ -78,8 +78,17 @@ async function call(base, pathname, token, fetchFn = fetch) {
 }
 
 async function signIn(base, email, password, fetchFn = fetch) {
-  const res = await fetchFn(`${base}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) })
-  if (!res.ok) return { ok: false, status: res.status }
+  // A state-changing request needs CarUp's signed CSRF token. A guest's token is issued for the 'guest' identity, which is
+  // exactly the identity an unauthenticated sign-in presents — the same two calls the browser makes.
+  const csrf = await fetchFn(`${base}/security/csrf-token`, { headers: { accept: 'application/json' } })
+  const csrfToken = csrf.ok ? (await csrf.json())?.csrfToken : null
+  if (!csrfToken) return { ok: false, status: csrf.status, stage: 'csrf-token' }
+  const res = await fetchFn(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) return { ok: false, status: res.status, stage: 'login' }
   const body = await res.json()
   return { ok: Boolean(body?.token), token: body?.token, status: res.status }
 }
@@ -90,7 +99,7 @@ export async function probe({ base, password, subjects, outsiders = OUTSIDERS, f
   const signins = []
   for (const email of outsiders) {
     const s = await signIn(base, email, password, fetchFn)
-    signins.push({ who: email, ok: s.ok, status: s.status })
+    signins.push({ who: email, ok: s.ok, status: s.status, ...(s.stage ? { stage: s.stage } : {}) })
     if (!s.ok) continue
     for (const sub of subjects) observations.push({ who: email, label: sub.label, path: sub.path, ...(await call(base, sub.path, s.token, fetchFn)) })
   }
