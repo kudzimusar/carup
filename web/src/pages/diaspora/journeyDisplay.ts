@@ -227,6 +227,8 @@ export function exceptionText(code: string, fallback: string): string {
       return 'The vessel details name different ports than the shipment record. The records disagree.'
     case 'ORDER_CONTAINER_MISMATCH':
       return 'A shipment is attached to this order but sails on a different container than this booking. The records disagree.'
+    case 'CUSTOMS_CASE_MISMATCH':
+      return 'The customs case for this booking is linked to a different shipment or order than the one shown here, so none of it is shown. The records disagree.'
     default:
       return fallback
   }
@@ -251,6 +253,7 @@ const AUTHORITY_UI: Record<string, string> = {
   'declared legs': 'Vessel details declared by the organiser',
   'estimate revisions': 'Estimates recorded by the organiser',
   T8: 'Document workspace',
+  T12: 'Customs record',
 }
 
 /** The owning record, for people. Unknown authorities get a neutral label, never an internal code. */
@@ -267,6 +270,7 @@ export const PROVENANCE_PART_UI: Record<string, string> = {
   legs: 'Vessel and route',
   eta: 'Estimate history',
   documents: 'Documents',
+  customs: 'Customs',
   contacts: 'Contacts',
 }
 
@@ -353,6 +357,54 @@ export function documentWorkspacePath(link: { type?: string; subject?: { type?: 
   if (!subject || subject.type !== 'import_order' || !subject.id || !String(subject.id).trim()) return null
   return `/diaspora/documents/import_order/${encodeURIComponent(String(subject.id))}`
 }
+
+// ── CAP-07: destination and customs ───────────────────────────────────────────────────────────────────
+
+/** The port a vessel unloads at is a fact about the shipment. The destination is a fact about the order. */
+export const PORT_OF_DISCHARGE_IS_NOT_DESTINATION =
+  'The port of discharge is where the shipment is unloaded. It is not the final destination: customs, collection and delivery are separate steps.'
+
+type DestinationSource = {
+  shipping?: { references?: { destination_port?: string | null } | null } | null
+  transaction?: { destination_country?: string | null; destination_city?: string | null } | null
+}
+
+/**
+ * The port of discharge and the destination, each from the record that owns it and never merged. The port
+ * line exists only where a shipment record does — cargo that did not travel has no port of discharge to
+ * report, and "not recorded" would imply one is expected.
+ */
+export function destinationFacts(journey: DestinationSource): { showPort: boolean; port: string | null; place: string | null } {
+  const references = journey.shipping?.references
+  return {
+    showPort: Boolean(references),
+    port: references?.destination_port?.trim() || null,
+    place: place(journey.transaction?.destination_city, journey.transaction?.destination_country),
+  }
+}
+
+/**
+ * Where a route\u2019s ends come from, in words. The header shows ports when a shipment names them, and a
+ * port of discharge is not a destination — so the header says what it is showing.
+ */
+export function routeBasis(journey: Parameters<typeof routeLabel>[0]): string | null {
+  const refs = journey.shipping?.references
+  if (refs?.origin_port || refs?.destination_port) return 'ports on the shipment record'
+  const t = journey.transaction
+  if (t && (t.origin_city || t.origin_country || t.destination_city || t.destination_country)) return 'places on the order'
+  return null
+}
+
+/** Where a step\u2019s link goes for customs: the customer\u2019s own customs page for that booking. */
+export function customsPath(link: { type?: string; subject?: { type?: string; id?: string } } | null | undefined): string | null {
+  if (!link || link.type !== 'customs_status') return null
+  const subject = link.subject
+  if (!subject || subject.type !== 'cargo_reservation' || !subject.id || !String(subject.id).trim()) return null
+  return `/diaspora/my-customs/cargo_reservation/${encodeURIComponent(String(subject.id))}`
+}
+
+/** A customs section state this page does not know is not "no customs" — it is not shown. */
+export const CUSTOMS_UNSHOWN_FALLBACK = 'Customs status could not be shown here. That does not mean nothing has happened.'
 
 export const CONSIGNEE_KIND_UI: Record<string, string> = {
   self: 'The buyer',

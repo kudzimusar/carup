@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { createMockSupabase } from './helpers/mockSupabase.js';
 import { getJourney, JOURNEY_STATES, JOURNEY_DOCUMENT_TYPES } from '../services/diaspora/journeyProjectionService.js';
 import { getMyShipmentTracking } from '../services/diaspora/shipmentTrackingService.js';
+import { ASSERTION_NOTE, UNKNOWN_IS_UNKNOWN, getMyCustomsStatus } from '../services/diaspora/customsProjectionService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../utils/errors.js';
 
 const BUYER = { id: 'u-buyer', platformRole: 'member' };
@@ -71,6 +72,9 @@ function world(over = {}) {
     trade_document_types: over.docTypes || DOC_TYPES,
     diaspora_trade_documents: over.documents || [],
     diaspora_trade_document_readiness: over.readiness || [],
+    diaspora_customs_cases: over.customsCases || [],
+    diaspora_customs_events: over.customsEvents || [],
+    diaspora_customs_agent_appointments: over.appointments || [],
     diaspora_import_quotes: [],
   });
 }
@@ -338,10 +342,11 @@ test('CAP-02: a vehicle with no recorded row stays unknown — requested make/mo
 
 test('CAP-02: sections not yet composed say so; they are not empty-and-implied-complete', async () => {
   const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
-  for (const section of ['customs', 'payments', 'notifications']) {
+  for (const section of ['payments', 'notifications']) {
     assert.equal(j.sections[section].availability, 'not_yet_composed', `${section} implied it was complete`);
   }
-  // Legs were a placeholder in CAP-02 and are composed from CAP-04 (see the CAP-04 section below).
+  // Legs were a placeholder in CAP-02 and are composed from CAP-04; documents and next steps from CAP-06;
+  // customs and the clearing agent from CAP-07 (see the sections below).
 });
 
 test('CAP-02: every date is labelled planned / estimated / observed and every section names its authority', async () => {
@@ -924,4 +929,329 @@ test('CAP-06: every step is plain data — a kind, a code, words, who it waits o
   }
   const text = JSON.stringify(steps(j));
   for (const leak of ['u-secret', 'doc-', 'secret/path']) assert.ok(!text.includes(leak), `${leak} leaked into a step`);
+});
+
+// ══ CAP-07: destination and customs, composed from T12 ══════════════════════
+//
+// Customs is T12's. The Journey calls T12's own participant status and forwards it — it does not
+// re-derive a step, an amount or a sentence, and it never states a customs outcome of its own. T12's
+// authority (the cargo booking's buyer) is narrower than the Journey's, so every other viewer is told the
+// section is WITHHELD — identically whether or not a case exists. A customs case carries a shipment id
+// nobody verified when it was opened: the Journey checks it against the shipment it resolved, and where
+// they disagree it shows NOTHING from the case.
+
+const kase = (over = {}) => ({
+  id: 'case-secret-1', tenant_id: 'tenant-1', subject_type: 'cargo_reservation', subject_id: 'res-a',
+  shipment_id: 'ship-1', import_order_id: 'ord-a', reference: 'CUST-ABC12345', cargo_kind: 'VEHICLE', status: 'OPEN',
+  gateway_port: 'Gateway Port', gateway_country: 'Gateway Country', destination_country: 'Zimbabwe', destination_city: 'Harare',
+  final_destination: 'Synthetic Yard', deleted_at: null, ...over,
+});
+const cev = (event_type, over = {}) => ({
+  id: `ev-secret-${event_type}`, case_id: 'case-secret-1', event_type, source_kind: 'CARUP_OBSERVATION', assertion_class: 'CARUP_OBSERVED',
+  asserted_by_user_id: 'u-secret-asserter', asserted_by_relationship: 'CONTAINER_OPERATOR', evidence_document_id: null,
+  event_time: '2026-09-25T00:00:00Z', location: 'Synthetic Location', notes: 'NOTE-SECRET', amount_value: null, amount_currency: null,
+  created_at: '2026-09-25T00:00:00Z', deleted_at: null, ...over,
+});
+const agent = (over = {}) => ({
+  id: 'appt-secret-1', case_id: 'case-secret-1', agent_user_id: 'u-secret-agent', agent_display_name: 'Synthetic Agent',
+  scope: 'FULL', appointed_at: '2026-09-24T00:00:00Z', status: 'ACTIVE', licence_reference_claimed: 'LIC-SECRET-9', deleted_at: null, ...over,
+});
+const CUSTOMS_WORLD = (over = {}) => world({
+  customsCases: [kase()],
+  customsEvents: [cev('GATEWAY_ARRIVAL_OBSERVED'), cev('LODGEMENT_REPORTED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED', event_time: '2026-09-26T00:00:00Z' })],
+  appointments: [agent()],
+  ...over,
+});
+const customsOf = async (who, w, subject = ['import_order', 'ord-a']) => (await getJourney(subject[0], subject[1], who, opts(w))).sections.customs;
+const exceptionCodes = (j) => j.exceptions.map((e) => e.code);
+
+test('CAP-07: the buyer\'s customs section is T12\'s own status, composed', async () => {
+  const c = await customsOf(BUYER, CUSTOMS_WORLD());
+  assert.equal(c.availability, 'composed');
+  assert.equal(c.state, 'IN_PROGRESS');
+  assert.equal(c.reference, 'CUST-ABC12345');
+  assert.match(c.sentence, /going through customs/i);
+  assert.equal(c.note, ASSERTION_NOTE);
+  assert.equal(c.unknown_note, UNKNOWN_IS_UNKNOWN);
+});
+
+test('CAP-07: what is forwarded IS T12\'s projection — not a second derivation of it', async () => {
+  const w = CUSTOMS_WORLD({ customsEvents: [
+    cev('GATEWAY_ARRIVAL_OBSERVED'),
+    cev('ASSESSMENT_EVIDENCE_RECEIVED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED', amount_value: 125.5, amount_currency: 'USD', event_time: '2026-09-27T00:00:00Z' }),
+    cev('RELEASE_EVIDENCE_RECEIVED', { source_kind: 'AUTHORITY_DOCUMENT', assertion_class: 'EVIDENCED', evidence_document_id: 'doc-secret', event_time: '2026-09-28T00:00:00Z' }),
+  ] });
+  const theirs = await getMyCustomsStatus('cargo_reservation', 'res-a', BUYER, opts(w));
+  const c = await customsOf(BUYER, w);
+  for (const key of ['state', 'reference', 'sentence', 'checklist', 'assessment', 'payment', 'release', 'handoffs', 'timeline', 'next_action', 'note', 'unknown_note']) {
+    assert.deepEqual(c[key], theirs[key], `${key} differs from T12's own`);
+  }
+});
+
+test('CAP-07: exactly the agreed fields are forwarded — a new T12 field does not reach the journey by accident', async () => {
+  const keys = (o) => Object.keys(o).sort();
+  const composed = await customsOf(BUYER, CUSTOMS_WORLD());
+  assert.deepEqual(keys(composed), ['assessment', 'availability', 'checklist', 'handoffs', 'link', 'next_action', 'note', 'payment', 'reference', 'release', 'sentence', 'state', 'timeline', 'unknown_note']);
+  assert.deepEqual(keys((await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD()))).contacts.agents.items[0]), ['display_name', 'note', 'role']);
+  for (const who of [ADMIN, PARTICIPANT]) assert.deepEqual(keys(await customsOf(who, CUSTOMS_WORLD())), ['availability', 'note']);
+  assert.deepEqual(keys(await customsOf(BUYER, world({ reservations: [] }))), ['availability', 'note']);
+});
+
+test('CAP-07: no case id, user id, evidence id, internal note or licence reference is forwarded', async () => {
+  const w = CUSTOMS_WORLD({ customsEvents: [cev('RELEASE_EVIDENCE_RECEIVED', { source_kind: 'AUTHORITY_DOCUMENT', assertion_class: 'EVIDENCED', evidence_document_id: 'doc-secret' })] });
+  const text = JSON.stringify(await getJourney('import_order', 'ord-a', BUYER, opts(w)));
+  for (const leak of ['case-secret-1', 'ev-secret', 'u-secret-asserter', 'u-secret-agent', 'appt-secret', 'doc-secret', 'NOTE-SECRET', 'LIC-SECRET', 'asserted_by', 'evidence_document_id', 'agent_user_id']) {
+    assert.ok(!text.includes(leak), `${leak} leaked`);
+  }
+});
+
+test('CAP-07: where no case has been opened, the section says customs has not been started — it does not say cleared or nothing', async () => {
+  const c = await customsOf(BUYER, world());
+  assert.equal(c.availability, 'composed');
+  assert.equal(c.state, 'NO_CASE');
+  assert.match(c.sentence, /has not been started/i);
+  assert.ok(!/cleared|released|complete/i.test(c.sentence));
+  assert.equal(c.checklist, null);
+});
+
+test('CAP-07: a gateway is not a destination — each is its own observation, and T12\'s own note travels', async () => {
+  const c = await customsOf(BUYER, CUSTOMS_WORLD());
+  assert.equal(c.handoffs.gateway.observed, true);
+  assert.equal(c.handoffs.gateway.port, 'Gateway Port');
+  assert.equal(c.handoffs.destination.observed, false, 'arriving at the gateway was shown as arriving at the destination');
+  assert.equal(c.handoffs.destination.arrived_at, null);
+  assert.equal(c.handoffs.destination.city, 'Harare');
+  assert.match(c.handoffs.note, /gateway port is not arriving in the destination country/i);
+});
+
+test('CAP-07: customs observations never move the journey state or the shipment\'s own arrival', async () => {
+  const w = CUSTOMS_WORLD({ customsEvents: [
+    cev('GATEWAY_ARRIVAL_OBSERVED'), cev('DESTINATION_ARRIVAL_OBSERVED', { event_time: '2026-09-29T00:00:00Z' }),
+    cev('RELEASE_EVIDENCE_RECEIVED', { source_kind: 'AUTHORITY_DOCUMENT', assertion_class: 'EVIDENCED', evidence_document_id: 'doc-x', event_time: '2026-09-30T00:00:00Z' }),
+    cev('DELIVERY_OBSERVED', { event_time: '2026-10-01T00:00:00Z' }),
+  ] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
+  assert.equal(j.shipping.dates.observed_arrival, null, 'a customs observation filled the shipment\'s arrival');
+  const without = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
+  assert.deepEqual(j.timeline, without.timeline, 'a customs event entered the movement timeline');
+});
+
+test('CAP-07: release evidence is worded as evidence — the journey states no customs outcome of its own', async () => {
+  const w = CUSTOMS_WORLD({ customsEvents: [cev('RELEASE_EVIDENCE_RECEIVED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED', event_time: '2026-09-28T00:00:00Z' })] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.sections.customs.release.headline, 'Release reported');
+  assert.match(j.sections.customs.release.detail, /has not been evidenced/i);
+  assert.ok(!('cleared' in j) && !('customs_decision' in j) && !('cleared' in j.sections.customs));
+});
+
+test('CAP-07: only a figure with evidence is an amount — none is ever zero', async () => {
+  const c = await customsOf(BUYER, CUSTOMS_WORLD());
+  assert.equal(c.assessment.assessed, false);
+  assert.equal(c.assessment.amount, null);
+  assert.equal(c.payment.amount, null);
+});
+
+test('CAP-07: every viewer T12 does not admit is told the section is WITHHELD — the journey still renders', async () => {
+  for (const who of [ADMIN, TENANT_ADMIN, PARTICIPANT]) {
+    const j = await getJourney('import_order', 'ord-a', who, opts(CUSTOMS_WORLD()));
+    assert.equal(j.sections.customs.availability, 'withheld', `${who.id} was shown customs T12 refuses them`);
+    assert.match(j.sections.customs.note, /not available to you/i);
+    for (const key of ['sentence', 'checklist', 'handoffs', 'timeline', 'reference']) assert.ok(!(key in j.sections.customs), `${key} reached a withheld viewer`);
+    assert.ok(j.state, 'the journey failed because customs was withheld');
+  }
+});
+
+test('CAP-07: a withheld section is identical whether or not a case exists — it is not an oracle', async () => {
+  for (const who of [ADMIN, TENANT_ADMIN, PARTICIPANT]) {
+    const withCase = (await getJourney('import_order', 'ord-a', who, opts(CUSTOMS_WORLD()))).sections.customs;
+    const without = (await getJourney('import_order', 'ord-a', who, opts(world()))).sections.customs;
+    const mismatched = (await getJourney('import_order', 'ord-a', who, opts(CUSTOMS_WORLD({ customsCases: [kase({ shipment_id: 'ship-OTHER' })] })))).sections.customs;
+    assert.deepEqual(withCase, without);
+    assert.deepEqual(withCase, mismatched, 'a mismatch was visible to a viewer who may not read the case');
+  }
+});
+
+test('CAP-07: if customs cannot be read, the section says UNAVAILABLE — it does not fail the journey or imply nothing happened', async () => {
+  const client = CUSTOMS_WORLD();
+  const broken = { ...client, from(t) { if (t === 'diaspora_customs_events') throw new Error('boom'); return client.from(t); } };
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(broken));
+  assert.equal(j.sections.customs.availability, 'unavailable');
+  assert.match(j.sections.customs.note, /could not be read/i);
+  assert.match(j.sections.customs.note, /does not mean nothing has happened/i);
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED);
+});
+
+test('CAP-07: an order with no container booking has nothing to track — and says why', async () => {
+  const w = world({ reservations: [] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.sections.customs.availability, 'not_applicable');
+  assert.match(j.sections.customs.note, /container booking/i);
+});
+
+test('CAP-07: several bookings on one order cannot be matched to one customs case — by order; by booking they can', async () => {
+  const w = CUSTOMS_WORLD({ reservations: [
+    { id: 'res-a', tenant_id: 'tenant-1', container_id: 'cont-1', import_order_id: 'ord-a', buyer_id: 'u-buyer', created_by: 'u-buyer', deleted_at: null },
+    { id: 'res-a2', tenant_id: 'tenant-1', container_id: 'cont-1', import_order_id: 'ord-a', buyer_id: 'u-buyer', created_by: 'u-buyer', deleted_at: null },
+  ], items: [{ id: 'li-a', load_id: 'load-1', subject_type: 'cargo_reservation', subject_id: 'res-a', outcome: 'LOADED', deleted_at: null }] });
+  const byOrder = (await getJourney('import_order', 'ord-a', BUYER, opts(w))).sections.customs;
+  assert.equal(byOrder.availability, 'ambiguous');
+  assert.match(byOrder.note, /more than one/i);
+  assert.ok(!('sentence' in byOrder));
+  const byBooking = (await getJourney('cargo_reservation', 'res-a', BUYER, opts(w))).sections.customs;
+  assert.equal(byBooking.availability, 'composed');
+});
+
+test('CAP-07: cargo that did not travel has no customs journey to follow', async () => {
+  const w = CUSTOMS_WORLD({ items: [{ id: 'li-a', load_id: 'load-1', subject_type: 'cargo_reservation', subject_id: 'res-a', outcome: 'LEFT_BEHIND', deleted_at: null }] });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.state, JOURNEY_STATES.LEFT_BEHIND);
+  assert.equal(j.sections.customs.availability, 'not_applicable');
+  assert.ok(!JSON.stringify(j.sections.customs).includes('Gateway Port'), 'a left-behind journey showed customs data');
+});
+
+test('CAP-07: a case that names a DIFFERENT shipment shows nothing from the case, and says the records disagree', async () => {
+  const w = CUSTOMS_WORLD({
+    customsCases: [kase({ shipment_id: 'ship-OTHER' })],
+    customsEvents: [cev('GATEWAY_ARRIVAL_OBSERVED', { location: 'LEAK-OF-OTHER-CASE' })],
+  });
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(w));
+  assert.equal(j.sections.customs.availability, 'disagrees');
+  assert.match(j.sections.customs.note, /different shipment or order/i);
+  const text = JSON.stringify(j);
+  for (const leak of ['LEAK-OF-OTHER-CASE', 'Gateway Port', 'CUST-ABC12345', 'case-secret-1']) assert.ok(!text.includes(leak), `${leak} was shown from a case that disagrees`);
+  assert.ok(exceptionCodes(j).includes('CUSTOMS_CASE_MISMATCH'));
+  assert.equal(j.state, JOURNEY_STATES.SHIPMENT_CREATED, 'a records disagreement moved the journey state');
+});
+
+test('CAP-07: a case linked to a different ORDER is the same disagreement', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD({ customsCases: [kase({ import_order_id: 'ord-OTHER' })] })));
+  assert.equal(j.sections.customs.availability, 'disagrees');
+  assert.ok(exceptionCodes(j).includes('CUSTOMS_CASE_MISMATCH'));
+});
+
+test('CAP-07: a case linked to no shipment contradicts nothing and is composed', async () => {
+  const c = await customsOf(BUYER, CUSTOMS_WORLD({ customsCases: [kase({ shipment_id: null })] }));
+  assert.equal(c.availability, 'composed');
+});
+
+test('CAP-07: when the journey resolved NO shipment, a case that names one cannot be verified and is not shown', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD({ shipments: [] })));
+  assert.equal(j.shipping.dates, null, 'a shipment was resolved after all');
+  assert.equal(j.state, JOURNEY_STATES.LOADED);
+  assert.equal(j.sections.customs.availability, 'disagrees');
+});
+
+test('CAP-07: a case on the container-level shipment matches the shipment the journey resolved by container', async () => {
+  const w = CUSTOMS_WORLD({
+    shipments: [{ id: 'ship-1', import_order_id: 'ord-a' }],
+    customsCases: [kase({ id: 'case-b', subject_id: 'res-b', import_order_id: 'ord-b', shipment_id: 'ship-1' })],
+    customsEvents: [cev('GATEWAY_ARRIVAL_OBSERVED', { case_id: 'case-b' })],
+    appointments: [],
+  });
+  const j = await getJourney('import_order', 'ord-b', COLOADER, opts(w));
+  assert.equal(j.shipping.association, 'container');
+  assert.equal(j.sections.customs.availability, 'composed');
+});
+
+test('CAP-07: the clearing agent is named only by display name — never an id, a licence, or a claim of verification', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD()));
+  assert.equal(j.contacts.agents.availability, 'composed');
+  assert.equal(j.contacts.agents.items.length, 1);
+  assert.equal(j.contacts.agents.items[0].display_name, 'Synthetic Agent');
+  assert.equal(j.contacts.agents.items[0].role, 'Clearing agent');
+  const text = JSON.stringify(j.contacts.agents);
+  for (const leak of ['u-secret-agent', 'appt-secret', 'LIC-SECRET', 'licence', 'verified']) assert.ok(!text.toLowerCase().includes(leak.toLowerCase()), `${leak} in the agent contact`);
+});
+
+test('CAP-07: with no agent appointed, the contacts say none is recorded — not that none is needed', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD({ appointments: [] })));
+  assert.equal(j.contacts.agents.availability, 'composed');
+  assert.deepEqual(j.contacts.agents.items, []);
+  assert.match(j.contacts.agents.note, /no clearing agent has been appointed|no clearing agent is recorded/i);
+});
+
+test('CAP-07: with no case at all, the contacts say no agent is recorded — T12 supplies no note there, so the journey\'s own must not overclaim', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
+  assert.equal(j.contacts.agents.availability, 'composed');
+  assert.deepEqual(j.contacts.agents.items, []);
+  assert.match(j.contacts.agents.note, /no clearing agent is recorded/i);
+  assert.doesNotMatch(j.contacts.agents.note, /needed|not required|unnecessary/i, 'absence of an agent was worded as no agent being needed');
+});
+
+test('CAP-07: the agent contact follows customs — withheld, unavailable, disagreeing and not-applicable say the same thing', async () => {
+  assert.equal((await getJourney('import_order', 'ord-a', ADMIN, opts(CUSTOMS_WORLD()))).contacts.agents.availability, 'withheld');
+  assert.equal((await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD({ customsCases: [kase({ shipment_id: 'ship-OTHER' })] })))).contacts.agents.availability, 'disagrees');
+  assert.equal((await getJourney('import_order', 'ord-a', BUYER, opts(world({ reservations: [] })))).contacts.agents.availability, 'not_applicable');
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD({ customsCases: [kase({ shipment_id: 'ship-OTHER' })] })));
+  assert.ok(!JSON.stringify(j).includes('Synthetic Agent'), 'an agent was named from a case that disagrees');
+});
+
+test('CAP-07: customs documents the agent asked for and nobody supplied are the buyer\'s action, linked to the customs page', async () => {
+  const w = CUSTOMS_WORLD({ customsEvents: [cev('DOCUMENT_REQUESTED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED' })] });
+  const step = steps(await getJourney('import_order', 'ord-a', BUYER, opts(w))).find((a) => a.code === 'CUSTOMS_DOCUMENTS_REQUESTED');
+  assert.ok(step, 'a recorded request produced no step');
+  assert.equal(step.kind, 'YOUR_ACTION');
+  assert.equal(step.waiting_on, 'you');
+  assert.deepEqual(step.link, { type: 'customs_status', subject: { type: 'cargo_reservation', id: 'res-a' } });
+});
+
+test('CAP-07: a supplied customs document, a closed case, or no request means no customs step — T12\'s "next" is never an obligation', async () => {
+  const provided = CUSTOMS_WORLD({ customsEvents: [cev('DOCUMENT_REQUESTED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED' }), cev('DOCUMENT_PROVIDED', { source_kind: 'IMPORTER_DOCUMENT', assertion_class: 'EVIDENCED', evidence_document_id: 'doc-x', event_time: '2026-09-27T00:00:00Z' })] });
+  const closed = CUSTOMS_WORLD({ customsCases: [kase({ status: 'CLOSED' })], customsEvents: [cev('DOCUMENT_REQUESTED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED' })] });
+  const quiet = CUSTOMS_WORLD(); // steps NOT_RECORDED, yet T12 says "Next: ..." — that is not a request
+  for (const [name, w] of [['provided', provided], ['closed', closed], ['quiet', quiet], ['no case', world()]]) {
+    const found = steps(await getJourney('import_order', 'ord-a', BUYER, opts(w))).filter((a) => /^CUSTOMS_/.test(a.code));
+    assert.deepEqual(found, [], `${name}: a customs step was invented`);
+  }
+});
+
+test('CAP-07: a case that disagrees with the shipment waits on the organiser', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD({ customsCases: [kase({ shipment_id: 'ship-OTHER' })] })));
+  const step = steps(j).find((a) => a.code === 'CUSTOMS_CASE_MISMATCH');
+  assert.ok(step);
+  assert.equal(step.kind, 'WAITING_ON');
+  assert.equal(step.waiting_on, 'the organiser');
+});
+
+test('CAP-07: the steps say when customs steps are missing because customs was not shown to this viewer', async () => {
+  const j = await getJourney('import_order', 'ord-a', ADMIN, opts(CUSTOMS_WORLD()));
+  assert.match(j.sections.actions.note, /customs steps are not shown/i);
+  const buyer = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD()));
+  assert.doesNotMatch(buyer.sections.actions.note, /customs steps are not shown/i);
+});
+
+test('CAP-07: reads stay bounded however many customs events there are', async () => {
+  const count = async (customsEvents) => {
+    const client = CUSTOMS_WORLD({ customsEvents });
+    let n = 0;
+    const counting = { ...client, from(t) { n += 1; return client.from(t); } };
+    await getJourney('import_order', 'ord-a', BUYER, opts(counting));
+    return n;
+  };
+  const many = Array.from({ length: 40 }, (_, i) => cev('LODGEMENT_REPORTED', { id: `e${i}`, event_time: `2026-09-${String(1 + (i % 28)).padStart(2, '0')}T00:00:00Z` }));
+  assert.equal(await count([cev('GATEWAY_ARRIVAL_OBSERVED')]), await count(many), 'query count grew with the number of customs events');
+});
+
+test('CAP-07: composing customs writes nothing', async () => {
+  const client = CUSTOMS_WORLD({ customsEvents: [cev('DOCUMENT_REQUESTED', { source_kind: 'AGENT_REPORT', assertion_class: 'AGENT_REPORTED' })] });
+  const writes = [];
+  const trapped = { ...client, from(table) {
+    const chain = client.from(table);
+    return new Proxy(chain, { get(target, prop) {
+      if (['insert', 'update', 'delete', 'upsert'].includes(prop)) writes.push(`${prop} ${table}`);
+      const v = target[prop]; return typeof v === 'function' ? v.bind(target) : v;
+    } });
+  } };
+  await getJourney('import_order', 'ord-a', BUYER, opts(trapped));
+  assert.deepEqual(writes, []);
+});
+
+test('CAP-07: provenance names the customs authority, and a booking with no order has no customs', async () => {
+  const j = await getJourney('import_order', 'ord-a', BUYER, opts(CUSTOMS_WORLD()));
+  assert.equal(j.provenance.customs.authority, 'T12');
+  const w = world({ reservations: [{ id: 'res-n', container_id: 'cont-1', import_order_id: null, buyer_id: 'u-buyer', created_by: 'u-buyer', deleted_at: null }] });
+  const none = await getJourney('cargo_reservation', 'res-n', BUYER, opts(w));
+  assert.equal(none.sections.customs.availability, 'not_applicable');
+  assert.equal(none.contacts, null);
 });

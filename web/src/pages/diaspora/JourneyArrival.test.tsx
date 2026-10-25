@@ -638,3 +638,296 @@ describe('CAP-06: documents and next steps', () => {
     })
   })
 })
+
+describe('CAP-07: destination and customs', () => {
+  const RES = 'res-booking-1'
+  const handoffs = (over: Record<string, unknown> = {}) => ({
+    gateway: { port: 'Gateway Port', country: 'Gateway Country', arrived_at: '2026-09-25T00:00:00Z', observed: true },
+    transit_started_at: null,
+    destination: { country: 'Zimbabwe', city: 'Harare', final_destination: null, arrived_at: null, observed: false },
+    collected_at: null, delivered_at: null,
+    note: 'Arriving at the gateway port is not arriving in the destination country, and neither is being released, collected or delivered. Each is recorded separately.',
+    ...over,
+  })
+  const customsComposed = (over: Record<string, unknown> = {}) => ({
+    availability: 'composed', state: 'IN_PROGRESS', reference: 'CUST-ABC12345',
+    sentence: 'Your cargo is going through customs. The step being worked on is: assessment.',
+    checklist: [
+      { key: 'DOCUMENTS', label: 'Documents', state: 'EVIDENCED', at: '2026-09-26T00:00:00Z', needed: null },
+      { key: 'LODGEMENT', label: 'Declaration lodged', state: 'REPORTED', at: '2026-09-27T00:00:00Z', needed: null },
+      { key: 'ASSESSMENT', label: 'Assessment', state: 'NOT_RECORDED', at: null, needed: 'An assessment issued by the authority.' },
+    ],
+    assessment: { assessed: false, amount: null, currency: null, headline: 'Not yet assessed', detail: 'No assessment has been received for this consignment. CarUp does not calculate duty or tax.', source: null, source_strength: null, assessment_date: null, customs_rate: null },
+    payment: { evidence_received: false, headline: 'No payment evidence', detail: 'Nobody has supplied proof of payment for this consignment.', amount: null, currency: null, source_strength: null },
+    release: { evidence_received: false, headline: 'No release evidence', detail: 'No release document has been received. The goods have not been recorded as released.', source_strength: null },
+    handoffs: handoffs(),
+    timeline: [{ event_type: 'GATEWAY_ARRIVAL_OBSERVED', sentence: 'The goods arrived at the gateway port.', strength: 'OBSERVED', event_time: '2026-09-25T00:00:00Z', location: 'Synthetic Location' }],
+    next_action: 'Next: An assessment issued by the authority.',
+    note: 'CarUp coordinates customs. It does not assess duty, does not clear goods and is not ZIMRA. Every step below says who told us and what it rests on.',
+    unknown_note: 'Anything not shown has not been recorded. That is not the same as it being nil, refused, or complete.',
+    link: { type: 'customs_status', subject: { type: 'cargo_reservation', id: RES } },
+    ...over,
+  })
+  const agentsOf = (over: Record<string, unknown> = {}) => ({
+    availability: 'composed',
+    items: [{ display_name: 'Synthetic Agent', role: 'Clearing agent', note: 'This is the clearing agent appointed for your consignment. CarUp coordinates; the agent performs the customs work.' }],
+    note: 'A clearing agent is named only where one has been appointed for this cargo.',
+    ...over,
+  })
+  const withCustoms = (customs: unknown, agents: unknown = agentsOf(), more: Record<string, unknown> = {}) => journey({
+    sections: { documents: NOT_COMPOSED('T8'), customs, payments: NOT_COMPOSED('T13'), notifications: NOT_COMPOSED('T7'), actions: NOT_COMPOSED('derived') },
+    contacts: { consignee: { recorded: true, kind: 'another_person', name: 'Consignee Name', phone: '+000' }, agents },
+    ...more,
+  })
+  const openCustoms = async (view: unknown) => {
+    state.view = view
+    await open()
+    fireEvent.click(screen.getByRole('tab', { name: /^customs$/i }))
+  }
+
+  it('shows T12\u2019s own sentence, next step and case reference — not the not-connected placeholder', async () => {
+    await openCustoms(withCustoms(customsComposed()))
+    expect(screen.getByTestId('journey-customs-sentence')).toHaveTextContent('Your cargo is going through customs')
+    expect(screen.getByTestId('journey-customs-next')).toHaveTextContent('Next: An assessment issued by the authority.')
+    expect(screen.getByTestId('journey-customs-reference')).toHaveTextContent('Customs case CUST-ABC12345')
+    expect(screen.queryByTestId('journey-section-note')).toBeNull()
+  })
+
+  it('shows the port of discharge (shipment record) and the destination (order) apart, with the note that they differ', async () => {
+    state.view = withCustoms(customsComposed(), agentsOf(), {
+      transaction: { order_id: ORDER, status: 'SHIPPED', origin_country: 'Japan', origin_city: null, destination_country: 'Zimbabwe', destination_city: 'Harare' },
+    })
+    await open()
+    fireEvent.click(screen.getByRole('tab', { name: /^customs$/i }))
+    const card = screen.getByTestId('journey-destination')
+    expect(card).toHaveTextContent('Port of discharge (shipment record)')
+    expect(card).toHaveTextContent('Dest Port')
+    expect(card).toHaveTextContent('Destination (on the order)')
+    expect(card).toHaveTextContent('Harare, Zimbabwe')
+    expect(screen.getByTestId('journey-destination-note')).toHaveTextContent(/not the final destination/i)
+  })
+
+  it('has no port line for cargo with no shipment record, and says the destination is not recorded when it is not', async () => {
+    state.view = withCustoms({ availability: 'not_applicable', note: 'Your cargo is not on a shipment, so there is no customs journey to follow.' }, { availability: 'not_applicable' }, {
+      shipping: { association: 'not_applicable', dates: null, references: null, legs: { availability: 'not_applicable' }, eta: { availability: 'not_applicable' } },
+      transaction: { order_id: ORDER, status: 'SHIPPED', origin_country: null, origin_city: null, destination_country: null, destination_city: null },
+    })
+    await open()
+    fireEvent.click(screen.getByRole('tab', { name: /^customs$/i }))
+    const card = screen.getByTestId('journey-destination')
+    expect(card).not.toHaveTextContent('Port of discharge')
+    expect(card).toHaveTextContent(/Destination \(on the order\)\s*Not recorded/)
+  })
+
+  it('keeps arriving at the gateway apart from arriving at the destination', async () => {
+    await openCustoms(withCustoms(customsComposed()))
+    expect(screen.getByTestId('journey-customs-handoff-gateway')).toHaveTextContent('Arrived at the gateway port (Gateway Port)')
+    expect(screen.getByTestId('journey-customs-handoff-gateway')).not.toHaveTextContent('Not recorded')
+    expect(screen.getByTestId('journey-customs-handoff-destination')).toHaveTextContent('Arrived at the destination (Harare)')
+    expect(screen.getByTestId('journey-customs-handoff-destination')).toHaveTextContent('Not recorded')
+    expect(screen.getByTestId('journey-customs-handoff-note')).toHaveTextContent(/gateway port is not arriving in the destination country/i)
+  })
+
+  it('reads an unassessed consignment as "Not yet assessed" — never zero, never a dash', async () => {
+    await openCustoms(withCustoms(customsComposed()))
+    expect(screen.getByTestId('journey-customs-amount')).toHaveTextContent('Not yet assessed')
+    expect(screen.getByTestId('journey-customs-amount')).not.toHaveTextContent(/\b0\b|—/)
+    expect(screen.getByTestId('journey-customs-rate')).toHaveTextContent(/not recorded/i)
+  })
+
+  it('shows an agent\u2019s figure as the agent\u2019s, in T12\u2019s words', async () => {
+    const assessment = { assessed: true, amount: 125.5, currency: 'USD', headline: 'Agent-reported amount', detail: 'Reported by the appointed clearing agent. No assessment document has been attached, so this is their figure, not the authority\'s.', source: null, source_strength: 'REPORTED', assessment_date: '2026-09-27T00:00:00Z', customs_rate: null }
+    await openCustoms(withCustoms(customsComposed({ assessment })))
+    expect(screen.getByTestId('journey-customs-amount')).toHaveTextContent('USD 125.50')
+    expect(screen.getByTestId('journey-customs-assessment')).toHaveTextContent(/their figure, not the authority/i)
+  })
+
+  it('words release and payment as evidence — the page states no customs outcome', async () => {
+    const view = withCustoms(customsComposed({
+      release: { evidence_received: true, headline: 'Release reported', detail: 'A release has been reported without a document attached. It has not been evidenced.', source_strength: 'REPORTED' },
+      payment: { evidence_received: true, headline: 'Payment evidence received', detail: 'A payment document has been supplied. That is evidence of a payment; it is not the authority confirming the account is settled.', amount: null, currency: null, source_strength: 'SUPPLIED' },
+    }))
+    await openCustoms(view)
+    expect(screen.getByTestId('journey-customs-release')).toHaveTextContent('Release reported')
+    expect(screen.getByTestId('journey-customs-release')).toHaveTextContent(/has not been evidenced/i)
+    expect(screen.getByTestId('journey-customs-payment')).toHaveTextContent(/not the authority confirming/i)
+    expect(screen.getByTestId('journey-customs')).not.toHaveTextContent(/\bcleared\b|duty paid|customs approved/i)
+  })
+
+  it('words each step in T12\u2019s own states, and says an unknown state is unknown', async () => {
+    const checklist = [
+      { key: 'DOCUMENTS', label: 'Documents', state: 'EVIDENCED', at: null, needed: null },
+      { key: 'LODGEMENT', label: 'Declaration lodged', state: 'REPORTED', at: null, needed: null },
+      { key: 'ASSESSMENT', label: 'Assessment', state: 'NOT_RECORDED', at: null, needed: 'An assessment issued by the authority.' },
+      { key: 'PAYMENT', label: 'Payment', state: 'SOMETHING_NEW', at: null, needed: null },
+    ]
+    await openCustoms(withCustoms(customsComposed({ checklist })))
+    expect(screen.getByTestId('journey-customs-step-DOCUMENTS')).toHaveTextContent('Evidenced')
+    expect(screen.getByTestId('journey-customs-step-LODGEMENT')).toHaveTextContent('Reported, no document')
+    expect(screen.getByTestId('journey-customs-step-ASSESSMENT')).toHaveTextContent('Not recorded yet')
+    expect(screen.getByTestId('journey-customs-step-ASSESSMENT')).toHaveTextContent('An assessment issued by the authority.')
+    expect(screen.getByTestId('journey-customs-step-PAYMENT')).toHaveTextContent(/not recognised/i)
+  })
+
+  it('words each event\u2019s source in T12\u2019s words, and says an unknown source is not stated', async () => {
+    const timeline = [
+      { event_type: 'GATEWAY_ARRIVAL_OBSERVED', sentence: 'The goods arrived at the gateway port.', strength: 'OBSERVED', event_time: '2026-09-25T00:00:00Z', location: null },
+      { event_type: 'LODGEMENT_REPORTED', sentence: 'Clearing agent reported: the declaration was lodged.', strength: 'REPORTED', event_time: '2026-09-26T00:00:00Z', location: 'Synthetic Location' },
+      { event_type: 'QUERY_RAISED', sentence: 'x', strength: 'SOMETHING_NEW', event_time: '2026-09-27T00:00:00Z', location: null },
+    ]
+    await openCustoms(withCustoms(customsComposed({ timeline })))
+    const list = within(screen.getByTestId('journey-customs-timeline')).getAllByRole('listitem')
+    expect(list[0]).toHaveTextContent('Seen by the handler')
+    expect(list[1]).toHaveTextContent('Reported — no document')
+    expect(list[1]).toHaveTextContent('Synthetic Location')
+    expect(list[2]).toHaveTextContent('Source not stated')
+  })
+
+  it('renders a journey with NO customs case — T12 returns null for every part, and nothing is invented', async () => {
+    const noCase = {
+      availability: 'composed', state: 'NO_CASE', reference: null,
+      sentence: 'Customs has not been started for your cargo yet.',
+      checklist: null, assessment: null, payment: null, release: null, handoffs: null, timeline: [],
+      next_action: 'Nothing is needed from you yet. The organiser opens the customs case when the cargo reaches the gateway.',
+      note: 'CarUp coordinates customs. It does not assess duty, does not clear goods and is not ZIMRA.',
+      unknown_note: 'Anything not shown has not been recorded.',
+      link: { type: 'customs_status', subject: { type: 'cargo_reservation', id: RES } },
+    }
+    await openCustoms(withCustoms(noCase, agentsOf({ items: [], note: 'No clearing agent is recorded for this cargo yet.' })))
+    expect(screen.getByTestId('journey-customs-sentence')).toHaveTextContent('Customs has not been started')
+    expect(screen.getByTestId('journey-customs-next')).toHaveTextContent('Nothing is needed from you yet')
+    expect(screen.queryByTestId('journey-customs-reference')).toBeNull()
+    for (const absent of ['journey-customs-checklist', 'journey-customs-payment', 'journey-customs-release', 'journey-customs-handoffs', 'journey-customs-timeline']) {
+      expect(screen.queryByTestId(absent), `${absent} was invented for a cargo with no case`).toBeNull()
+    }
+    expect(screen.getByTestId('journey-customs-amount')).toHaveTextContent('Not yet assessed')
+    expect(screen.getByTestId('journey-customs-no-agent')).toHaveTextContent(/no clearing agent is recorded/i)
+    expect(screen.getByTestId('journey-customs')).not.toHaveTextContent(/null|undefined|NaN/)
+  })
+
+  it('names the clearing agent by display name only, with their role', async () => {
+    await openCustoms(withCustoms(customsComposed()))
+    expect(screen.getByTestId('journey-customs-agent-name')).toHaveTextContent('Synthetic Agent')
+    expect(screen.getByTestId('journey-customs-agent')).toHaveTextContent('Clearing agent')
+    expect(screen.getByTestId('journey-customs-agent')).not.toHaveTextContent(/licen[cs]e/i)
+  })
+
+  it('says no agent is recorded when there is none — not that none is needed', async () => {
+    await openCustoms(withCustoms(customsComposed(), agentsOf({ items: [], note: 'No clearing agent has been appointed for your consignment yet.' })))
+    expect(screen.getByTestId('journey-customs-no-agent')).toHaveTextContent('No clearing agent has been appointed')
+    expect(screen.queryByTestId('journey-customs-agent-name')).toBeNull()
+  })
+
+  it('shows no agent card where the agent contact is not composed', async () => {
+    await openCustoms(withCustoms(customsComposed(), { availability: 'withheld', note: 'x' }))
+    expect(screen.queryByTestId('journey-customs-agent')).toBeNull()
+  })
+
+  it('carries T12\u2019s own notes, and links to the customer\u2019s own customs page for that booking', async () => {
+    await openCustoms(withCustoms(customsComposed()))
+    expect(screen.getByTestId('journey-customs-disclaimer')).toHaveTextContent(/is not ZIMRA/i)
+    expect(screen.getByTestId('journey-customs-unknown-note')).toHaveTextContent(/not the same as it being nil, refused, or complete/i)
+    expect(screen.getByTestId('journey-customs-link')).toHaveAttribute('href', `/diaspora/my-customs/cargo_reservation/${RES}`)
+  })
+
+  it('offers no customs link where the link is missing or is not one it understands', async () => {
+    await openCustoms(withCustoms(customsComposed({ link: { type: 'external', subject: { type: 'cargo_reservation', id: RES } } })))
+    expect(screen.queryByTestId('journey-customs-link')).toBeNull()
+  })
+
+  it('says a withheld section is withheld — and still shows where it is going', async () => {
+    await openCustoms(withCustoms({ availability: 'withheld', note: 'Customs status for this cargo is not available to you here.' }, { availability: 'withheld', note: 'x' }))
+    expect(screen.getByTestId('journey-customs-withheld')).toHaveTextContent(/not available to you/i)
+    expect(screen.getByTestId('journey-destination')).toBeInTheDocument()
+    expect(screen.queryByTestId('journey-customs-status')).toBeNull()
+    expect(screen.queryByTestId('journey-customs-link')).toBeNull()
+  })
+
+  it.each([
+    ['unavailable', 'Customs status could not be read right now. That does not mean nothing has happened.', /could not be read/i],
+    ['ambiguous', 'More than one cargo booking is on this order, so customs cannot be matched to one of them.', /more than one cargo booking/i],
+    ['disagrees', 'The customs case for this booking is linked to a different shipment or order than the one shown here, so none of it is shown. The records disagree.', /records disagree/i],
+  ])('says %s in the service\u2019s own words — never "no customs"', async (availability, note, pattern) => {
+    await openCustoms(withCustoms({ availability, note }, { availability, note }))
+    const panel = screen.getByTestId(`journey-customs-${availability}`)
+    expect(panel).toHaveTextContent(pattern)
+    expect(screen.queryByTestId('journey-customs-status')).toBeNull()
+    expect(screen.getByTestId('journey-customs')).not.toHaveTextContent(/no customs|customs is complete|cleared/i)
+  })
+
+  it('says a customs journey does not apply where the order has no container booking', async () => {
+    await openCustoms(withCustoms({ availability: 'not_applicable', note: 'Customs tracking follows a container booking, and this order has none.' }, { availability: 'not_applicable' }))
+    expect(screen.getByTestId('journey-customs-not_applicable')).toHaveTextContent(/container booking/i)
+  })
+
+  it('says a section state it does not know is not shown — never that nothing happened', async () => {
+    await openCustoms(withCustoms({ availability: 'quarantined' }))
+    const panel = screen.getByTestId('journey-customs-unshown')
+    expect(panel).toHaveTextContent(/could not be shown/i)
+    expect(panel).toHaveTextContent(/does not mean nothing has happened/i)
+  })
+
+  it('still shows the old placeholder when the service predates customs', async () => {
+    await openCustoms(journey())
+    expect(screen.getByTestId('journey-section-note')).toHaveTextContent(/not shown in this view yet/i)
+    expect(screen.queryByTestId('journey-customs')).toBeNull()
+  })
+
+  it('surfaces a case that disagrees with the shipment as an alert on the journey, in words', async () => {
+    state.view = withCustoms({ availability: 'disagrees', note: 'x' }, { availability: 'disagrees', note: 'x' }, {
+      exceptions: [{ code: 'CUSTOMS_CASE_MISMATCH', note: 'fallback' }],
+    })
+    await open()
+    expect(screen.getByTestId('journey-exception-CUSTOMS_CASE_MISMATCH')).toHaveTextContent(/none of it is shown/i)
+  })
+
+  it('shows a customs step in what-to-do-next, linked to the customs page — not the document workspace', async () => {
+    state.view = withCustoms(customsComposed(), agentsOf(), {
+      sections: { documents: NOT_COMPOSED('T8'), customs: customsComposed(), payments: NOT_COMPOSED('T13'), notifications: NOT_COMPOSED('T7'),
+        actions: { availability: 'composed', note: 'Steps are listed only where a record says someone must act. An empty list does not mean nothing is needed.', items: [
+          { kind: 'YOUR_ACTION', code: 'CUSTOMS_DOCUMENTS_REQUESTED', waiting_on: 'you', text: 'The clearing agent has asked for customs documents. Supply them on the customs page.', link: { type: 'customs_status', subject: { type: 'cargo_reservation', id: RES } } },
+        ] } },
+    })
+    await open()
+    const row = screen.getByTestId('journey-action-CUSTOMS_DOCUMENTS_REQUESTED')
+    expect(row).toHaveTextContent('Your action')
+    const link = within(row).getByRole('link', { name: /customs page/i })
+    expect(link).toHaveAttribute('href', `/diaspora/my-customs/cargo_reservation/${RES}`)
+    expect(within(row).queryByRole('link', { name: /document workspace/i })).toBeNull()
+  })
+
+  it('says the header\u2019s route is made of ports on the shipment record, so a port of discharge is not read as the destination', async () => {
+    await open()
+    expect(screen.getByTestId('journey-route-basis')).toHaveTextContent('ports on the shipment record')
+  })
+
+  it('says the header\u2019s route is made of places on the order where no shipment names ports', async () => {
+    state.view = journey({ shipping: { ...journey().shipping, references: null } })
+    await open()
+    expect(screen.getByTestId('journey-route-basis')).toHaveTextContent('places on the order')
+  })
+
+  it('has no route basis where no route is recorded', async () => {
+    state.view = journey({ shipping: { ...journey().shipping, references: null }, transaction: { order_id: ORDER, status: 'SHIPPED', origin_country: null, origin_city: null, destination_country: null, destination_city: null } })
+    await open()
+    expect(screen.getByTestId('journey-route')).toHaveTextContent('Route not recorded')
+    expect(screen.queryByTestId('journey-route-basis')).toBeNull()
+  })
+
+  it('labels the shipment\u2019s ports for what they are, with the note that the port of discharge is not the destination', async () => {
+    await open()
+    const refs = screen.getByTestId('journey-references')
+    expect(refs).toHaveTextContent('Port of loading')
+    expect(refs).toHaveTextContent('Port of discharge')
+    expect(refs).not.toHaveTextContent(/\bTo\b\s*Dest Port/)
+    expect(screen.getByTestId('journey-port-note')).toHaveTextContent(/not the final destination/i)
+  })
+
+  it('names the customs record in the provenance block, in words', async () => {
+    state.view = { ...(withCustoms(customsComposed()) as object), provenance: { ...journey().provenance, customs: { authority: 'T12' } } }
+    await open()
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/customs/i)
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/customs record/i)
+    expect(screen.getByTestId('journey-provenance')).not.toHaveTextContent(/\bT12\b/)
+  })
+})

@@ -16,17 +16,30 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, Anchor, Clock, FileText, ListChecks, Loader2, MapPin, Ship, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, Anchor, ClipboardList, Clock, FileText, ListChecks, Loader2, MapPin, Ship, ShieldCheck, UserCheck } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type Journey } from '@/hooks/useTradeLogisticsApi'
 import {
+  CARUP_IS_NOT_ZIMRA,
+  GATEWAY_IS_NOT_DESTINATION,
+  NOTHING_RECORDED_IS_NOT_NOTHING_HAPPENED,
+  STEP_STATE_UI,
+  STRENGTH_UI,
+  describeAssessment,
+  describeCustomsRate,
+  describeHandoffs,
+  when as customsWhen,
+} from './customsDisplay'
+import {
   CONSIGNEE_KIND_UI,
+  CUSTOMS_UNSHOWN_FALLBACK,
   DOCUMENTS_NOT_APPLICABLE,
   DOCUMENTS_UNAVAILABLE_FALLBACK,
   DOCUMENTS_WITHHELD_FALLBACK,
   JOURNEY_STATE_UI,
   NO_STEPS_RECORDED,
+  PORT_OF_DISCHARGE_IS_NOT_DESTINATION,
   PROVENANCE_PART_UI,
   REFERENCE_IS_NOT_MOVEMENT,
   SECTION_UI,
@@ -34,8 +47,10 @@ import {
   actionBadge,
   associationNote,
   authorityLabel,
+  customsPath,
   describeArrival,
   describeDeparture,
+  destinationFacts,
   documentProvenance,
   documentState,
   documentWorkspacePath,
@@ -49,6 +64,7 @@ import {
   plannedDeparture,
   revisionReason,
   revisionTitle,
+  routeBasis,
   routeLabel,
   sectionKeyForTab,
   shortDate,
@@ -133,6 +149,12 @@ export default function JourneyArrival() {
   // right now, or not applicable. Only a service that sends none of those falls back to the placeholder.
   const documents = data.sections?.documents
   const documentsShown = Boolean(documents) && documents?.availability !== 'not_yet_composed'
+  // CAP-07. Customs is T12's, composed only for a viewer T12 admits. Every other state says what it is.
+  const customs = data.sections?.customs
+  const customsShown = Boolean(customs) && customs?.availability !== 'not_yet_composed'
+  const agents = data.contacts?.agents
+  const destination = destinationFacts(data)
+  const basis = routeBasis(data)
   const actions = data.sections?.actions && data.sections.actions.availability === 'composed' ? data.sections.actions : null
   const workspacePath = documentWorkspacePath(data.subject.order_id ? { type: 'document_workspace', subject: { type: 'import_order', id: data.subject.order_id } } : null)
 
@@ -142,7 +164,11 @@ export default function JourneyArrival() {
         <p className="text-xs uppercase tracking-wide text-orange-600">Journey &amp; arrival · {orderRef}</p>
         <h1 className="mt-1 min-w-0 break-words text-2xl font-bold text-slate-950 sm:text-3xl" data-testid="journey-title">{vehicleTitle(data.asset)}</h1>
         <p className="mt-1 flex min-w-0 items-center gap-1.5 break-words text-sm text-slate-600" data-testid="journey-route">
-          <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />{route.text}
+          <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">
+            {route.text}
+            {basis ? <span className="text-slate-500" data-testid="journey-route-basis"> · {basis}</span> : null}
+          </span>
         </p>
       </header>
 
@@ -291,10 +317,11 @@ export default function JourneyArrival() {
                 <dl className="mt-3 grid gap-2 sm:grid-cols-2">
                   <Row label="Carrier" value={shipping.references.carrier} />
                   <Row label="Tracking reference" value={shipping.references.tracking_reference} />
-                  <Row label="From" value={shipping.references.origin_port} />
-                  <Row label="To" value={shipping.references.destination_port} />
+                  <Row label="Port of loading" value={shipping.references.origin_port} />
+                  <Row label="Port of discharge" value={shipping.references.destination_port} />
                 </dl>
                 <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="journey-reference-note">{REFERENCE_IS_NOT_MOVEMENT}</p>
+                <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-port-note">{PORT_OF_DISCHARGE_IS_NOT_DESTINATION}</p>
               </div>
             ) : null}
 
@@ -304,12 +331,13 @@ export default function JourneyArrival() {
                 {actions.items.length ? (
                   <ul className="mt-3 space-y-3" data-testid="journey-actions-list">
                     {actions.items.map((a, i) => {
-                      const path = documentWorkspacePath(a.link)
+                      const docPath = documentWorkspacePath(a.link)
+                      const path = docPath ?? customsPath(a.link)
                       return (
                         <li key={`${a.code}-${i}`} className="min-w-0 rounded-lg border border-slate-200 p-3" data-testid={`journey-action-${a.code}`}>
                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${a.kind === 'YOUR_ACTION' ? 'border-orange-300 bg-orange-50 text-orange-900' : 'border-slate-300 bg-slate-50 text-slate-800'}`}>{actionBadge(a)}</span>
                           <p className="mt-1.5 min-w-0 break-words text-sm text-slate-800">{a.text}</p>
-                          {path ? <Link to={path} className="mt-1 inline-block text-sm font-semibold text-orange-700 underline">Open the document workspace</Link> : null}
+                          {path ? <Link to={path} className="mt-1 inline-block text-sm font-semibold text-orange-700 underline">{docPath ? 'Open the document workspace' : 'Open the customs page'}</Link> : null}
                         </li>
                       )
                     })}
@@ -392,6 +420,143 @@ export default function JourneyArrival() {
           </div>
         ) : null}
 
+        {tab === 'customs' && customs && customsShown ? (
+          <div className="mt-5 space-y-5" data-testid="journey-customs">
+            {/* The destination is a fact about the order; the port of discharge is a fact about the shipment.
+                Neither is customs, and neither is the other — so they are shown for every viewer, apart. */}
+            <div className={card} data-testid="journey-destination">
+              <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Where it is going</h2>
+              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                {destination.showPort ? <Row label="Port of discharge (shipment record)" value={destination.port} /> : null}
+                <Row label="Destination (on the order)" value={destination.place} />
+              </dl>
+              <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="journey-destination-note">{PORT_OF_DISCHARGE_IS_NOT_DESTINATION}</p>
+            </div>
+
+            {customs.availability === 'composed' ? (
+              <>
+                <div className={card} data-testid="journey-customs-status">
+                  <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Customs</h2>
+                  <p className="mt-2 min-w-0 break-words text-base text-slate-900" data-testid="journey-customs-sentence">{customs.sentence}</p>
+                  <p className="mt-1 min-w-0 break-words text-sm font-medium text-slate-900" data-testid="journey-customs-next">{customs.next_action}</p>
+                  {customs.reference ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-customs-reference">Customs case {customs.reference}</p> : null}
+                </div>
+
+                {agents && agents.availability === 'composed' ? (
+                  <div className={card} data-testid="journey-customs-agent">
+                    <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><UserCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Who is handling clearance</h2>
+                    {agents.items.length ? (
+                      <ul className="mt-3 space-y-2">
+                        {agents.items.map((a, i) => (
+                          <li key={`${a.display_name}-${i}`} className="min-w-0">
+                            <p className="min-w-0 break-words text-base font-semibold text-slate-900" data-testid="journey-customs-agent-name">{a.display_name}</p>
+                            <p className="min-w-0 break-words text-xs text-slate-500">{a.role}</p>
+                            {a.note ? <p className="mt-1 min-w-0 break-words text-sm text-slate-600">{a.note}</p> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-customs-no-agent">{agents.note}</p>
+                    )}
+                  </div>
+                ) : null}
+
+                {(() => {
+                  const assessment = describeAssessment(customs.assessment)
+                  const rate = describeCustomsRate(customs.assessment)
+                  return (
+                    <div className={card} data-testid="journey-customs-assessment">
+                      <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Duty and tax</h2>
+                      <p className="mt-2 min-w-0 break-words text-xl font-semibold text-slate-900" data-testid="journey-customs-amount">{assessment.amount}</p>
+                      <p className="mt-1 min-w-0 break-words text-sm text-slate-600">{assessment.detail}</p>
+                      <p className="mt-2 min-w-0 break-words text-xs text-slate-600" data-testid="journey-customs-rate">{rate.headline}</p>
+                      <p className="mt-1 min-w-0 break-words text-xs text-slate-500">{rate.detail}</p>
+                    </div>
+                  )
+                })()}
+
+                {customs.payment ? (
+                  <div className={card} data-testid="journey-customs-payment">
+                    <h2 className={eyebrow}>Payment</h2>
+                    <p className="mt-2 min-w-0 break-words text-base font-semibold text-slate-900">{customs.payment.headline}</p>
+                    <p className="mt-1 min-w-0 break-words text-sm text-slate-600">{customs.payment.detail}</p>
+                  </div>
+                ) : null}
+
+                {customs.release ? (
+                  <div className={card} data-testid="journey-customs-release">
+                    <h2 className={eyebrow}>Release</h2>
+                    <p className="mt-2 min-w-0 break-words text-base font-semibold text-slate-900">{customs.release.headline}</p>
+                    <p className="mt-1 min-w-0 break-words text-sm text-slate-600">{customs.release.detail}</p>
+                  </div>
+                ) : null}
+
+                {customs.handoffs ? (
+                  <div className={card} data-testid="journey-customs-handoffs">
+                    <h2 className={eyebrow}>Where your cargo has got to</h2>
+                    <ul className="mt-3 space-y-2">
+                      {describeHandoffs(customs.handoffs).map((h) => (
+                        <li key={h.key} className="min-w-0 border-l-2 border-slate-200 pl-3" data-testid={`journey-customs-handoff-${h.key}`}>
+                          <p className="min-w-0 break-words text-sm font-medium text-slate-900">{h.label}</p>
+                          <p className="min-w-0 break-words text-xs text-slate-600">{h.value}</p>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-3 min-w-0 break-words text-xs text-slate-600" data-testid="journey-customs-handoff-note">{customs.handoffs.note || GATEWAY_IS_NOT_DESTINATION}</p>
+                  </div>
+                ) : null}
+
+                {customs.checklist ? (
+                  <div className={card} data-testid="journey-customs-checklist">
+                    <h2 className={eyebrow}>What is still needed</h2>
+                    <ul className="mt-3 space-y-2">
+                      {customs.checklist.map((step) => (
+                        <li key={step.key} className="min-w-0" data-testid={`journey-customs-step-${step.key}`}>
+                          <p className="min-w-0 break-words text-sm font-medium text-slate-900">
+                            {step.label} — <span className="font-normal text-slate-600">{STEP_STATE_UI[step.state]?.label ?? 'Status not recognised'}</span>
+                          </p>
+                          {step.needed ? <p className="min-w-0 break-words text-xs text-slate-600">{step.needed}</p> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {customs.timeline.length ? (
+                  <div className={card} data-testid="journey-customs-timeline">
+                    <h2 className={eyebrow}>What has happened</h2>
+                    <ol className="mt-3 space-y-3">
+                      {customs.timeline.map((e, i) => (
+                        <li key={`${e.event_type}-${i}`} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                          <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{e.sentence}</p>
+                          <p className="min-w-0 break-words text-xs text-slate-600">{STRENGTH_UI[e.strength]?.label ?? 'Source not stated'}</p>
+                          <p className="min-w-0 break-words text-xs text-slate-500">{customsWhen(e.event_time)}{e.location ? ` · ${e.location}` : ''}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
+
+                <p className="min-w-0 break-words text-xs text-slate-600" data-testid="journey-customs-disclaimer">{customs.note || CARUP_IS_NOT_ZIMRA}</p>
+                <p className="min-w-0 break-words text-xs text-slate-600" data-testid="journey-customs-unknown-note">{customs.unknown_note || NOTHING_RECORDED_IS_NOT_NOTHING_HAPPENED}</p>
+                {customsPath(customs.link) ? (
+                  <Link to={customsPath(customs.link) as string} className="inline-block text-sm font-semibold text-orange-700 underline" data-testid="journey-customs-link">Open the full customs page</Link>
+                ) : null}
+              </>
+            ) : customs.availability === 'withheld' || customs.availability === 'not_applicable' ? (
+              <p className="min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid={`journey-customs-${customs.availability}`}>
+                {('note' in customs && customs.note) || CUSTOMS_UNSHOWN_FALLBACK}
+              </p>
+            ) : (
+              // unavailable, ambiguous, disagrees — or a state this page does not know. Each says why; none is "no customs".
+              <Alert className="border-amber-200 bg-amber-50" data-testid={`journey-customs-${customs.availability === 'unavailable' || customs.availability === 'ambiguous' || customs.availability === 'disagrees' ? customs.availability : 'unshown'}`}>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="min-w-0 break-words text-amber-900">{('note' in customs && customs.note) || CUSTOMS_UNSHOWN_FALLBACK}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+        ) : null}
+
         {tab === 'vehicle' ? (
           <div className="mt-5 space-y-5">
             <div className={card} data-testid="journey-vehicle">
@@ -436,6 +601,7 @@ export default function JourneyArrival() {
           const key = sectionKeyForTab(tab)
           if (!key) return null
           if (key === 'documents' && documentsShown) return null
+          if (key === 'customs' && customsShown) return null
           const ui2 = SECTION_UI[key]
           return (
             <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-section-note">

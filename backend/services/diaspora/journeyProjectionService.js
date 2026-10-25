@@ -46,6 +46,8 @@ import { resolveClient } from './diasporaServiceUtils.js';
 import { listLegsForShipment, projectLeg } from './shipmentLegRead.js';
 import { listEtaRevisionsForShipment, projectEta } from './shipmentObservationRead.js';
 import { buildDocumentWorkspace } from './tradeDocumentWorkspaceService.js';
+import { findCaseForSubject } from './customsCaseService.js';
+import { getMyCustomsStatus } from './customsProjectionService.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -266,7 +268,7 @@ function emptyJourney(subject, viewer) {
     timeline: [],
     exceptions: [],
     contacts: null,
-    sections: { ...sectionsPlaceholder(), documents: NOT_APPLICABLE, actions: NOT_APPLICABLE },
+    sections: { ...sectionsPlaceholder(), documents: NOT_APPLICABLE, actions: NOT_APPLICABLE, customs: NOT_APPLICABLE },
     provenance: {},
     note: NOTE,
   };
@@ -276,7 +278,6 @@ const NOTE = 'This is a composition of records owned elsewhere. It records nothi
 
 function sectionsPlaceholder() {
   return {
-    customs: NOT_YET_COMPOSED('T12'),
     payments: NOT_YET_COMPOSED('T13'),
     notifications: NOT_YET_COMPOSED('T7'),
   };
@@ -342,12 +343,85 @@ async function composeDocuments(client, order, context) {
 }
 
 /**
+ * Customs is T12's. This calls T12's own participant status and forwards it — it does not re-derive a
+ * step, an amount, a sentence or a handoff, and it never states a customs outcome of its own. T12's
+ * authority (the cargo booking's buyer) is narrower than the Journey's, so every other viewer is told the
+ * section is WITHHELD, and that answer is the same whether or not a case exists (T12 refuses first, so
+ * there is nothing to probe). Gateway arrival, destination arrival, release, collection and delivery stay
+ * separate observations exactly as T12 keeps them.
+ *
+ * A customs case carries a shipment id and an order id that nobody verified when it was opened. Only
+ * AFTER T12 has admitted the viewer, the case is checked against the shipment and order this Journey
+ * resolved; where they disagree NOTHING from the case is shown (G10). A case linked to no shipment
+ * contradicts nothing. Cargo that did not travel, an order with no container booking, and several
+ * bookings that cannot be matched to one case each say so — none is "no customs".
+ *
+ * The result is `{ section, agents }`: the clearing agent is named only by display name, and follows the
+ * customs section's availability because it is read from the same case.
+ */
+async function composeCustoms({ client, orderId, reservation, reservationCount, shipmentId, goodsNotOnShipment, context }) {
+  const closed = (availability, note) => ({ section: { availability, note }, agents: { availability, note } });
+  if (goodsNotOnShipment) {
+    return closed('not_applicable', 'Your cargo is not on a shipment, so there is no customs journey to follow.');
+  }
+  if (!reservation) {
+    return reservationCount > 1
+      ? closed('ambiguous', 'More than one cargo booking is on this order, so customs cannot be matched to one of them. Open the journey from a booking to see its customs status.')
+      : closed('not_applicable', 'Customs tracking follows a container booking, and this order has none.');
+  }
+  try {
+    const status = await getMyCustomsStatus('cargo_reservation', reservation.id, context, { supabaseClient: client });
+    if (status.state !== 'NO_CASE') {
+      const kase = await findCaseForSubject('cargo_reservation', reservation.id, { client });
+      const wrongShipment = Boolean(kase?.shipment_id) && String(kase.shipment_id) !== String(shipmentId || '');
+      const wrongOrder = Boolean(kase?.import_order_id) && String(kase.import_order_id) !== String(orderId);
+      if (wrongShipment || wrongOrder) {
+        return {
+          ...closed('disagrees', 'The customs case for this booking is linked to a different shipment or order than the one shown here, so none of it is shown. The records disagree.'),
+          mismatch: true,
+        };
+      }
+    }
+    return {
+      section: {
+        availability: 'composed',
+        state: status.state,
+        reference: status.reference ?? null,
+        sentence: status.sentence,
+        checklist: status.checklist,
+        assessment: status.assessment,
+        payment: status.payment,
+        release: status.release,
+        handoffs: status.handoffs,
+        timeline: status.timeline,
+        next_action: status.next_action,
+        note: status.note,
+        unknown_note: status.unknown_note,
+        link: { type: 'customs_status', subject: { type: 'cargo_reservation', id: reservation.id } },
+      },
+      agents: {
+        availability: 'composed',
+        items: status.agent ? [{ display_name: status.agent.display_name, role: 'Clearing agent', note: status.agent.note }] : [],
+        note: status.agent_note || (status.agent ? 'A clearing agent is named only where one has been appointed for this cargo.' : 'No clearing agent is recorded for this cargo yet.'),
+      },
+    };
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      return closed('withheld', 'Customs status for this cargo is not available to you here.');
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[journey] customs could not be read:', err?.message);
+    return closed('unavailable', 'Customs status could not be read right now. That does not mean nothing has happened.');
+  }
+}
+
+/**
  * What is waiting on whom — derived ONLY from recorded authority state (T8's document states and the
  * exceptions already established above). Nothing here invents an obligation: a document that is merely
  * missing is not a demand, and one that is verified, present or not applicable asks for nothing. For
  * anyone but the buyer, "your action" becomes "the buyer's".
  */
-function deriveActions({ viewer, documents, exceptions, orderId }) {
+function deriveActions({ viewer, documents, customs, exceptions, orderId, reservationId }) {
   const you = viewer.kind === 'OWNER';
   const whose = you ? 'you' : 'the buyer';
   const link = { type: 'document_workspace', subject: { type: 'import_order', id: orderId } };
@@ -371,11 +445,27 @@ function deriveActions({ viewer, documents, exceptions, orderId }) {
     }
   }
 
+  // Customs documents the clearing agent asked for and nobody has supplied. Only a RECORDED request is a
+  // step: T12's "next" step is what has not been recorded yet, and an unrecorded step is not an obligation.
+  if (customs.availability === 'composed' && customs.state === 'IN_PROGRESS' && reservationId) {
+    // T12's participant view drops the checklist's `requested` flag; the recorded request is in its timeline.
+    const docs = (customs.checklist || []).find((st) => st.key === 'DOCUMENTS');
+    const asked = (customs.timeline || []).some((e) => e.event_type === 'DOCUMENT_REQUESTED');
+    if (docs && asked && docs.state === 'NOT_RECORDED') {
+      items.push({
+        kind: you ? 'YOUR_ACTION' : 'WAITING_ON', code: 'CUSTOMS_DOCUMENTS_REQUESTED', waiting_on: whose,
+        link: { type: 'customs_status', subject: { type: 'cargo_reservation', id: reservationId } },
+        text: you ? 'The clearing agent has asked for customs documents. Supply them on the customs page.' : 'Customs documents have been requested and have not been supplied.',
+      });
+    }
+  }
+
   const ORGANISER = {
     SHIPMENT_AMBIGUOUS: 'The organiser needs to resolve which shipment belongs to this order.',
     SHIPMENT_EXCEPTION: 'The organiser recorded a problem with the shipment. Ask the organiser what it means; this is not a customs decision.',
     LEG_PORT_MISMATCH: 'The vessel details and the shipment record name different ports. The organiser needs to correct one of them.',
     ORDER_CONTAINER_MISMATCH: 'The records disagree about which container this order is on. The organiser needs to resolve it.',
+    CUSTOMS_CASE_MISMATCH: 'The customs case and the shipment record disagree about which shipment or order the case belongs to. The organiser needs to resolve it.',
   };
   for (const e of exceptions) {
     if (ORGANISER[e.code]) items.push({ kind: 'WAITING_ON', code: e.code, waiting_on: 'the organiser', text: ORGANISER[e.code] });
@@ -385,6 +475,14 @@ function deriveActions({ viewer, documents, exceptions, orderId }) {
   let caveat = '';
   if (documents.availability === 'withheld') caveat = 'Document steps are not shown because the documents are not available to you here. ';
   else if (documents.availability === 'unavailable') caveat = 'Document steps are not shown because the documents could not be read right now. ';
+  // Customs steps can be missing for the same kind of reason; each says its own.
+  const CUSTOMS_CAVEAT = {
+    withheld: 'Customs steps are not shown because customs status is not available to you here. ',
+    unavailable: 'Customs steps are not shown because customs status could not be read right now. ',
+    ambiguous: 'Customs steps are not shown because customs cannot be matched to one booking. ',
+    disagrees: 'Customs steps are not shown because the customs case disagrees with the shipment record. ',
+  };
+  caveat += CUSTOMS_CAVEAT[customs.availability] || '';
   return {
     availability: 'composed',
     items,
@@ -452,6 +550,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   const exceptions = [];
   let state;
   let shipping;
+  let resolvedShipmentId = null;
 
   const goodsNotOnShipment = loadState === JOURNEY_STATES.LEFT_BEHIND || loadState === JOURNEY_STATES.NOT_LOADED;
   if (goodsNotOnShipment) {
@@ -486,6 +585,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       };
     } else {
       const shipment = picked.shipment;
+      resolvedShipmentId = shipment.id;
       const { data: events } = await client.from(STAGE_EVENTS).select('*')
         .eq('shipment_id', shipment.id).is('deleted_at', null);
       const movement = projectMovement(events);
@@ -551,7 +651,20 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
 
   // Documents are T8's and are composed from it; next steps are derived only from recorded state.
   const documents = await composeDocuments(client, order, context);
-  const actions = deriveActions({ viewer, documents, exceptions, orderId: order.id });
+
+  // Customs is T12's, composed only after T12 has admitted the viewer, then checked against the shipment
+  // and order this journey resolved. A disagreement is surfaced as an exception and shows nothing of the case.
+  const { section: customs, agents, mismatch } = await composeCustoms({
+    client, orderId: order.id, reservation: ladderReservation, reservationCount: liveReservations.length,
+    shipmentId: resolvedShipmentId, goodsNotOnShipment, context,
+  });
+  if (mismatch) {
+    exceptions.push({
+      code: 'CUSTOMS_CASE_MISMATCH',
+      note: 'The customs case for this booking is linked to a different shipment or order than the one shown here. The records disagree.',
+    });
+  }
+  const actions = deriveActions({ viewer, documents, customs, exceptions, orderId: order.id, reservationId: ladderReservation?.id || null });
 
   return {
     subject: { type, id, order_id: order.id, ...(aliasReservation ? { reservation_id: aliasReservation.id } : {}) },
@@ -572,9 +685,9 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
     exceptions,
     contacts: {
       consignee: projectConsignee(order, viewer.privateAccess),
-      agents: NOT_YET_COMPOSED('T12'),
+      agents,
     },
-    sections: { ...sectionsPlaceholder(), documents, actions },
+    sections: { ...sectionsPlaceholder(), documents, customs, actions },
     provenance: {
       asset: { authority: vehicle ? 'vehicles' : 'unknown', note: 'Only recorded fields. A request is not a vehicle.' },
       transaction: { authority: 'T4' },
@@ -583,6 +696,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       timeline: { authority: 'T11 + T10' },
       legs: { authority: 'declared legs', note: 'Declared by the organiser, not observed.' },
       documents: { authority: 'T8', note: 'Read from the document workspace; nothing is stored here.' },
+      customs: { authority: 'T12', note: 'Read from the customs record; nothing is stored here. CarUp coordinates customs; it does not decide it.' },
       eta: { authority: 'estimate revisions', note: 'Recorded by the organiser; shown beside the shipment record, not over it.' },
       contacts: { authority: 'intake (T3)', note: 'Private: shown only to the order owner and platform admins.' },
     },

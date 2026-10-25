@@ -10,21 +10,26 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+  CUSTOMS_UNSHOWN_FALLBACK,
   DOCUMENT_STATE_UI,
   JOURNEY_STATE_UI,
   NO_STEPS_RECORDED,
+  PORT_OF_DISCHARGE_IS_NOT_DESTINATION,
   PROVENANCE_PART_UI,
   TABS,
   SECTION_UI,
   actionBadge,
   associationNote,
   authorityLabel,
+  customsPath,
+  destinationFacts,
   documentProvenance,
   documentState,
   documentWorkspacePath,
   documentsSummaryLine,
   exceptionText,
   lastRecordedUpdate,
+  routeBasis,
   routeLabel,
   sectionKeyForTab,
   sourceLabel,
@@ -341,5 +346,71 @@ describe('CAP-06: provenance names documents for people', () => {
   it('has a part name and a plain authority for documents', () => {
     expect(PROVENANCE_PART_UI.documents).toBe('Documents')
     expect(authorityLabel('T8')).toBe('Document workspace')
+  })
+})
+
+describe('CAP-07: the port of discharge is not the destination', () => {
+  it('says so in words', () => {
+    expect(PORT_OF_DISCHARGE_IS_NOT_DESTINATION).toMatch(/not the final destination/i)
+    expect(PORT_OF_DISCHARGE_IS_NOT_DESTINATION).toMatch(/customs, collection and delivery are separate/i)
+  })
+
+  it('takes the port from the shipment record and the place from the order — never one for the other', () => {
+    const f = destinationFacts({
+      shipping: { references: { destination_port: 'Discharge Port' } },
+      transaction: { destination_city: 'Harare', destination_country: 'Zimbabwe' },
+    })
+    expect(f).toEqual({ showPort: true, port: 'Discharge Port', place: 'Harare, Zimbabwe' })
+  })
+
+  it('has no port line where there is no shipment record — cargo that did not travel has no port to report', () => {
+    expect(destinationFacts({ shipping: { references: null }, transaction: { destination_country: 'Zimbabwe' } }).showPort).toBe(false)
+    expect(destinationFacts({ shipping: null, transaction: null }).showPort).toBe(false)
+  })
+
+  it('keeps a recorded shipment with no port as "port not recorded", not as no port line', () => {
+    const f = destinationFacts({ shipping: { references: { destination_port: '  ' } }, transaction: null })
+    expect(f.showPort).toBe(true)
+    expect(f.port).toBeNull()
+  })
+
+  it('does not invent a destination from the port, or a port from the destination', () => {
+    expect(destinationFacts({ shipping: { references: { destination_port: 'Discharge Port' } }, transaction: null }).place).toBeNull()
+    expect(destinationFacts({ shipping: null, transaction: { destination_country: 'Zimbabwe' } }).port).toBeNull()
+  })
+
+  it('says what the header\u2019s route is made of', () => {
+    expect(routeBasis({ shipping: { references: { origin_port: 'A', destination_port: 'B' } } })).toBe('ports on the shipment record')
+    expect(routeBasis({ transaction: { origin_country: 'Japan', destination_country: 'Zimbabwe' } })).toBe('places on the order')
+    expect(routeBasis({})).toBeNull()
+  })
+})
+
+describe('CAP-07: only a customs link the page understands is followed', () => {
+  it('builds the customer\u2019s own customs page from the named booking', () => {
+    expect(customsPath({ type: 'customs_status', subject: { type: 'cargo_reservation', id: 'res 1/2' } }))
+      .toBe('/diaspora/my-customs/cargo_reservation/res%201%2F2')
+  })
+  it('follows nothing else', () => {
+    expect(customsPath(null)).toBeNull()
+    expect(customsPath({ type: 'document_workspace', subject: { type: 'cargo_reservation', id: 'x' } })).toBeNull()
+    expect(customsPath({ type: 'customs_status', subject: { type: 'import_order', id: 'x' } })).toBeNull()
+    expect(customsPath({ type: 'customs_status', subject: { type: 'cargo_reservation', id: ' ' } })).toBeNull()
+    expect(customsPath({ type: 'customs_status' })).toBeNull()
+  })
+})
+
+describe('CAP-07: wording for customs never claims an outcome', () => {
+  it('says an unshown section is not "nothing happened"', () => {
+    expect(CUSTOMS_UNSHOWN_FALLBACK).toMatch(/does not mean nothing has happened/i)
+  })
+  it('flags a case that disagrees with the shipment, and says none of it is shown', () => {
+    const text = exceptionText('CUSTOMS_CASE_MISMATCH', 'fallback')
+    expect(text).toMatch(/disagree/i)
+    expect(text).toMatch(/none of it is shown/i)
+  })
+  it('names the customs record for people, not as an engineer code', () => {
+    expect(authorityLabel('T12')).toBe('Customs record')
+    expect(PROVENANCE_PART_UI.customs).toBe('Customs')
   })
 })

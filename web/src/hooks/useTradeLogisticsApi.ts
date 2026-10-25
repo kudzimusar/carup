@@ -743,10 +743,42 @@ export type JourneyActions =
   | { availability: 'composed'; items: JourneyAction[]; note: string }
   | { availability: 'not_applicable' }
   | JourneyNotComposed
+// ── T11-CAP-07 — customs and the clearing agent, composed from T12 ───────────
+// What is forwarded IS T12's own participant status; the Journey states no customs outcome of its own.
+// `withheld` (T12 does not admit this viewer — the same answer whether or not a case exists), `unavailable`
+// (T12 could not be read), `not_applicable` (no container booking, or the cargo did not travel),
+// `ambiguous` (several bookings) and `disagrees` (the case names a different shipment or order, so none
+// of it is shown) each carry their own note. None of them is "there is no customs".
+export interface JourneyCustomsComposed {
+  availability: 'composed'
+  state: string
+  reference: string | null
+  sentence: string
+  checklist: MyCustomsStatus['checklist']
+  assessment: MyCustomsStatus['assessment']
+  payment: MyCustomsStatus['payment']
+  release: MyCustomsStatus['release']
+  handoffs: MyCustomsStatus['handoffs']
+  timeline: MyCustomsStatus['timeline']
+  next_action: string
+  note: string
+  unknown_note: string
+  link: { type: string; subject: { type: string; id: string } }
+}
+export type JourneyCustoms =
+  | JourneyCustomsComposed
+  | { availability: 'withheld' | 'unavailable' | 'not_applicable' | 'ambiguous' | 'disagrees'; note?: string }
+  | JourneyNotComposed
+// The clearing agent, by display name only — never an id or a licence reference.
+export type JourneyAgents =
+  | { availability: 'composed'; items: Array<{ display_name: string; role: string; note: string | null }>; note: string }
+  | { availability: 'withheld' | 'unavailable' | 'not_applicable' | 'ambiguous' | 'disagrees'; note?: string }
+  | JourneyNotComposed
 export interface JourneySections {
   documents?: JourneyDocuments
   actions?: JourneyActions
-  [section: string]: JourneyDocuments | JourneyActions | JourneyNotComposed | { availability: string; owner?: string } | undefined
+  customs?: JourneyCustoms
+  [section: string]: JourneyDocuments | JourneyActions | JourneyCustoms | JourneyNotComposed | { availability: string; owner?: string } | undefined
 }
 export interface Journey {
   subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
@@ -764,7 +796,7 @@ export interface Journey {
   exceptions: JourneyException[]
   contacts: {
     consignee: { recorded: boolean; kind: string | null; name: string | null; phone: string | null } | null
-    agents: JourneyNotComposed
+    agents: JourneyAgents
   } | null
   sections: JourneySections
   provenance: Record<string, { authority: string; note?: string; association?: string }>
