@@ -11,10 +11,10 @@ name: T11-CAP-LR01-R1 VEZEL SEED
 #   * this workflow adds no product code: the certification branch differs from the product commit by this file only;
 #   * no events are emitted and nothing is sent.
 
+# RETIRED after the one run that created the records (run 40161210296): the push trigger is removed so that editing
+# this branch can never re-run a staging writer. A manual dispatch is an idempotent verify.
 on:
-  push:
-    branches:
-      - cert/t11-cap-lr01-r1-vezel-seed
+  workflow_dispatch:
 
 concurrency:
   group: t11-cap-lr01-r1-vezel-seed
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
           test "$GITHUB_REF_NAME" = "cert/t11-cap-lr01-r1-vezel-seed"
           git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
           git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
