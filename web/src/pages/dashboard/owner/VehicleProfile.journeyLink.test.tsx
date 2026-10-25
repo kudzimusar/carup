@@ -19,8 +19,13 @@ const fetchVehicleEvidence = vi.fn()
 const fetchEvidenceTaxonomy = vi.fn()
 const fetchEvidenceSources = vi.fn()
 
+// A later lineage's VehicleProfile also reads the owner's management scope and the governed service history; an older
+// one never calls these, so providing them costs nothing and the same test holds on both.
+const fetchOwnedVehicles = vi.fn()
+const fetchServiceHistory = vi.fn()
+
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources }),
+  useCarUpApi: () => ({ fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchOwnedVehicles, fetchServiceHistory }),
 }))
 
 const route = vi.hoisted(() => ({ id: 'VIN-WITH/SLASH 1' }))
@@ -46,6 +51,8 @@ beforeEach(() => {
   fetchEvidenceTaxonomy.mockResolvedValue({ classes: [] })
   fetchEvidenceSources.mockResolvedValue({ sources: [] })
   fetchVehicleEvidence.mockResolvedValue([])
+  fetchOwnedVehicles.mockImplementation(async () => [{ vin: route.id }])
+  fetchServiceHistory.mockResolvedValue([])
 })
 
 describe('the vehicle page offers the vehicle’s Journey & arrival', () => {
