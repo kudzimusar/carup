@@ -86,6 +86,16 @@ jobs:
       - name: Probe - an unrelated ordinary user asks for journeys that are not theirs
         run: node backend/scripts/t11-cap-r1-isolation-probe.mjs
 
+      - name: Evidence as annotations (public, no secrets: statuses and refusal words only)
+        if: always()
+        shell: bash
+        run: |
+          f="$T11_CAP_RESULTS_DIR/isolation.json"
+          if [ ! -f "$f" ]; then echo "::notice title=probe::no isolation.json was written"; exit 0; fi
+          echo "::notice title=signins::$(node -e "const d=require('./$f'); console.log(JSON.stringify(d.signins))")"
+          echo "::notice title=verdict::$(node -e "const d=require('./$f'); console.log(d.verdict+' '+JSON.stringify(d.problems))")"
+          node -e "const d=require('./$f'); for (const o of d.observations) console.log('::notice title=obs::'+[o.who,o.label,o.path,o.status,o.message||''].join(' | '))"
+
       - name: Evidence summary
         if: always()
         shell: bash
