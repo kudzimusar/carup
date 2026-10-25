@@ -52,10 +52,15 @@ export function judge(observations) {
     byWho.get(o.who)[o.label] = o
   }
   for (const [who, labels] of byWho) {
-    const real = labels['vehicle (exists, not theirs)']
-    const none = labels['vehicle (does not exist)']
-    if (real && none && (real.status !== none.status || real.message !== none.message)) {
-      problems.push(`${who}: a vehicle that exists and one that does not are refused differently (${real.status}/${real.message} vs ${none.status}/${none.message})`)
+    // Every "<kind> (exists, not theirs)" is compared with its "<kind> (does not exist)" twin, when one was asked for.
+    for (const label of Object.keys(labels)) {
+      const m = /^(.*?)\s*\(exists, not theirs\)$/.exec(label)
+      if (!m) continue
+      const none = labels[`${m[1]} (does not exist)`]
+      const real = labels[label]
+      if (none && (real.status !== none.status || real.message !== none.message)) {
+        problems.push(`${who}: ${m[1]} that exists and one that does not are refused differently (${real.status}/${real.message} vs ${none.status}/${none.message})`)
+      }
     }
   }
   return { verdict: problems.length ? 'FAIL' : 'PASS', problems }

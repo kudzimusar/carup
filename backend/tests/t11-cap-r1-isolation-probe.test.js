@@ -59,6 +59,17 @@ test('R1-I: an existing vehicle refused 403 while a missing one is refused 401 i
   assert.ok(r.problems.some((p) => /refused differently/.test(p)))
 })
 
+test('R1-I: the same oracle check applies to orders, not only vehicles', () => {
+  const r = judge([
+    { who: 'a', label: 'order (exists, not theirs)', status: 403, message: DENIED_TEXT },
+    { who: 'a', label: 'order (does not exist)', status: 401, message: 'Unauthorized' },
+  ])
+  assert.equal(r.verdict, 'FAIL')
+  assert.ok(r.problems.some((p) => /order that exists and one that does not are refused differently/.test(p)))
+  // …and a subject with no twin asked for is simply judged on its own.
+  assert.equal(judge([{ who: 'a', label: 'vehicle Serena (exists, not theirs)', status: 403, message: DENIED_TEXT }]).verdict, 'PASS')
+})
+
 test('R1-I: an unexpected status (a 500, a 404) is not a refusal and fails', () => {
   const r = judge([{ who: 'a', label: 'order', status: 500, message: 'boom' }])
   assert.equal(r.verdict, 'FAIL')
