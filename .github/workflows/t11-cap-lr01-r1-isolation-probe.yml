@@ -86,7 +86,7 @@ jobs:
       - name: Probe - an unrelated ordinary user asks for journeys that are not theirs
         run: node backend/scripts/t11-cap-r1-isolation-probe.mjs
 
-      - name: Evidence as annotations (public, no secrets: statuses and refusal words only)
+      - name: Evidence as annotations - public, statuses and refusal words only
         if: always()
         shell: bash
         run: |
