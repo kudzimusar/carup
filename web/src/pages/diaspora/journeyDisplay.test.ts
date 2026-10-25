@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+  STATISTICS_ARE_NOT_A_PREDICTION,
   CUSTOMS_UNSHOWN_FALLBACK,
   DOCUMENT_STATE_UI,
   JOURNEY_STATE_UI,
@@ -19,6 +20,7 @@ import {
   TABS,
   SECTION_UI,
   actionBadge,
+  againstFirstEstimateText,
   associationNote,
   authorityLabel,
   customsPath,
@@ -28,11 +30,13 @@ import {
   documentWorkspacePath,
   documentsSummaryLine,
   exceptionText,
+  laneText,
   lastRecordedUpdate,
   routeBasis,
   routeLabel,
   sectionKeyForTab,
   sourceLabel,
+  transitText,
   vehicleTitle,
 } from './journeyDisplay'
 
@@ -412,5 +416,77 @@ describe('CAP-07: wording for customs never claims an outcome', () => {
   it('names the customs record for people, not as an engineer code', () => {
     expect(authorityLabel('T12')).toBe('Customs record')
     expect(PROVENANCE_PART_UI.customs).toBe('Customs')
+  })
+})
+
+describe('CAP-09: statistics are worded as recorded facts, never as a prediction', () => {
+  it('says how long a shipment has been moving — only from a recorded departure, and "so far" until it arrives', () => {
+    expect(transitText({ value: 12, ongoing: true })).toBe('In transit for 12 days so far, counting from the recorded departure.')
+    expect(transitText({ value: 25, ongoing: false })).toBe('The recorded transit took 25 days.')
+  })
+  it('uses the singular for one day', () => {
+    expect(transitText({ value: 1, ongoing: true })).toMatch(/1 day so far/)
+    expect(transitText({ value: 1, ongoing: false })).toMatch(/took 1 day\./)
+  })
+  it('says nothing when there is no value — never "0 days"', () => {
+    expect(transitText({ value: null })).toBeNull()
+    expect(transitText(null)).toBeNull()
+    expect(transitText({ value: Number.NaN })).toBeNull()
+    expect(transitText({ value: 0, ongoing: true })).toBe('In transit for 0 days so far, counting from the recorded departure.')
+  })
+  it('says a zero is a real answer for the first estimate — on the day — and absence is no sentence', () => {
+    expect(againstFirstEstimateText({ value: 0 })).toBe('It arrived on the date first estimated.')
+    expect(againstFirstEstimateText({ value: null })).toBeNull()
+    expect(againstFirstEstimateText(undefined)).toBeNull()
+  })
+  it('words later and earlier against the first estimate, with the right direction', () => {
+    expect(againstFirstEstimateText({ value: 3 })).toBe('It arrived 3 days later than the first estimate.')
+    expect(againstFirstEstimateText({ value: -1 })).toBe('It arrived 1 day earlier than the first estimate.')
+  })
+
+  const sufficient = (over = {}) => ({
+    availability: 'sufficient', minimum_sailings: 5, sailings: 6, transit_days: { median: 32, min: 30, max: 35 },
+    arrival_vs_estimate_days: { availability: 'sufficient', median_days: 2 }, note: 'These describe journeys already completed; not a prediction.', ...over,
+  })
+  it('states the route statistic with the number of sailings behind it', () => {
+    const t = laneText(sufficient())
+    expect(t.headline).toBe('On this route, this organiser’s 6 completed sailings took a median of 32 days (shortest 30 days, longest 35 days).')
+    expect(t.detail).toMatch(/not a prediction/i)
+  })
+  it('words the route\u2019s arrivals against its own estimates, with direction', () => {
+    expect(laneText(sufficient()).estimate).toBe('Against their first estimates, these sailings arrived a median of 2 days later.')
+    expect(laneText(sufficient({ arrival_vs_estimate_days: { availability: 'sufficient', median_days: -4 } })).estimate).toBe('Against their first estimates, these sailings arrived a median of 4 days earlier.')
+    expect(laneText(sufficient({ arrival_vs_estimate_days: { availability: 'sufficient', median_days: 0 } })).estimate).toMatch(/on the estimated date/)
+  })
+  it('refuses a median the payload itself calls insufficient — a self-contradicting answer is not a number', () => {
+    const contradicting = sufficient({ arrival_vs_estimate_days: { availability: 'insufficient_data', median_days: 3 } })
+    expect(laneText(contradicting).estimate).toBeNull()
+  })
+  it('says nothing about estimates when too few sailings had one', () => {
+    expect(laneText(sufficient({ arrival_vs_estimate_days: { availability: 'insufficient_data', note: 'x' } })).estimate).toBeNull()
+  })
+  it('says "not enough" for an insufficient route — and never how many', () => {
+    const t = laneText({ availability: 'insufficient_data', minimum_sailings: 5, note: 'Not enough completed sailings ... at least 5 separate sailings.' })
+    expect(t.headline).toMatch(/not enough completed sailings/i)
+    expect(t.headline).not.toMatch(/\d/)
+    expect(t.estimate).toBeNull()
+    expect(t.detail).toBe('This is shown once at least 5 separate sailings have been completed.')
+    expect(t.detail).not.toContain(t.headline)
+  })
+  it('states no threshold it was not given', () => {
+    expect(laneText({ availability: 'insufficient_data', note: 'x' }).detail).toBeNull()
+  })
+  it('does not turn a missing statistic into a number', () => {
+    expect(laneText({ availability: 'not_applicable', note: 'No organiser is recorded.' }).headline).toBe('No organiser is recorded.')
+    expect(laneText(null).headline).toMatch(/no route statistic/i)
+    expect(laneText({ availability: 'sufficient' } as never).headline).toMatch(/no route statistic/i)
+  })
+  it('always says statistics are not a prediction', () => {
+    expect(STATISTICS_ARE_NOT_A_PREDICTION).toMatch(/not a prediction/i)
+    for (const word of ['will arrive', 'expected to', 'forecast', 'on track', 'likely']) expect(STATISTICS_ARE_NOT_A_PREDICTION.toLowerCase()).not.toContain(word)
+  })
+  it('names the statistics for people, not as an engineer code', () => {
+    expect(PROVENANCE_PART_UI.intelligence).toBe('Statistics')
+    expect(authorityLabel('derived')).toBe('Derived from recorded dates')
   })
 })

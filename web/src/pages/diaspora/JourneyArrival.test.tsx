@@ -931,3 +931,104 @@ describe('CAP-07: destination and customs', () => {
     expect(screen.getByTestId('journey-provenance')).not.toHaveTextContent(/\bT12\b/)
   })
 })
+
+describe('CAP-09: statistics', () => {
+  const lane = (over: Record<string, unknown> = {}) => ({
+    availability: 'sufficient', minimum_sailings: 5, sailings: 6, transit_days: { median: 32, min: 30, max: 35 },
+    arrival_vs_estimate_days: { availability: 'sufficient', median_days: 2 },
+    note: 'These are this organiser’s completed sailings on this route. They describe journeys that have already been completed; this is not a prediction for your shipment.', ...over,
+  })
+  const own = (over: Record<string, unknown> = {}) => ({
+    days_in_transit: { value: 19, ongoing: true, note: 'Whole days since the recorded departure.' },
+    arrival_vs_first_estimate_days: { value: null, note: 'Not available: the shipment has not arrived, and an estimate is not an arrival.' }, ...over,
+  })
+  const stats = (o: Record<string, unknown> = {}, l: Record<string, unknown> = lane()) => ({
+    availability: 'composed', own: own(o), lane: l, note: 'Derived from recorded dates only.',
+  })
+  const withStats = (intelligence: unknown) => journey({
+    sections: { documents: NOT_COMPOSED('T8'), customs: NOT_COMPOSED('T12'), payments: NOT_COMPOSED('T13'), notifications: NOT_COMPOSED('T7'), actions: NOT_COMPOSED('derived'), intelligence },
+  })
+
+  it('shows how long the shipment has been moving, "so far", and what is known about the route', async () => {
+    state.view = withStats(stats())
+    await open()
+    expect(screen.getByTestId('journey-stat-transit')).toHaveTextContent('In transit for 19 days so far, counting from the recorded departure.')
+    expect(screen.getByTestId('journey-stat-lane')).toHaveTextContent('6 completed sailings took a median of 32 days (shortest 30 days, longest 35 days)')
+    expect(screen.getByTestId('journey-stat-lane-estimate')).toHaveTextContent('a median of 2 days later')
+  })
+
+  it('says every time that these are not a prediction', async () => {
+    state.view = withStats(stats())
+    await open()
+    expect(screen.getByTestId('journey-statistics-note')).toHaveTextContent(/not a prediction for your shipment/i)
+    expect(screen.getByTestId('journey-stat-lane-detail')).toHaveTextContent(/not a prediction/i)
+    expect(screen.getByTestId('journey-statistics')).not.toHaveTextContent(/will arrive|expected to arrive|forecast|on track/i)
+  })
+
+  it('compares an arrival with the FIRST estimate, in the right direction', async () => {
+    state.view = withStats(stats({
+      days_in_transit: { value: 27, ongoing: false, note: '' },
+      arrival_vs_first_estimate_days: { value: 3, note: '' },
+    }))
+    await open()
+    expect(screen.getByTestId('journey-stat-transit')).toHaveTextContent('The recorded transit took 27 days.')
+    expect(screen.getByTestId('journey-stat-versus')).toHaveTextContent('It arrived 3 days later than the first estimate.')
+  })
+
+  it('says "on the date first estimated" for a zero — a real answer, not an absent one', async () => {
+    state.view = withStats(stats({ arrival_vs_first_estimate_days: { value: 0, note: '' }, days_in_transit: { value: 20, ongoing: false, note: '' } }))
+    await open()
+    expect(screen.getByTestId('journey-stat-versus')).toHaveTextContent('It arrived on the date first estimated.')
+  })
+
+  it('shows the reason, not a zero, when the shipment has not departed', async () => {
+    state.view = withStats(stats({ days_in_transit: { value: null, note: 'Not available: no departure has been recorded for this shipment.' } }))
+    await open()
+    expect(screen.queryByTestId('journey-stat-transit')).toBeNull()
+    expect(screen.queryByTestId('journey-stat-versus')).toBeNull()
+    expect(screen.getByTestId('journey-stat-own-none')).toHaveTextContent('no departure has been recorded')
+    expect(screen.getByTestId('journey-statistics-own')).not.toHaveTextContent(/\b0 days\b/)
+  })
+
+  it('says "not enough" for an insufficient route — and says no number about it', async () => {
+    state.view = withStats(stats({}, { availability: 'insufficient_data', minimum_sailings: 5, note: 'Not enough completed sailings by this organiser on this route to say how long they usually take. This is shown only once at least 5 separate sailings have been completed.' }))
+    await open()
+    const lane2 = screen.getByTestId('journey-stat-lane')
+    expect(lane2).toHaveTextContent(/not enough completed sailings/i)
+    expect(lane2).not.toHaveTextContent(/\d/)
+    expect(screen.queryByTestId('journey-stat-lane-estimate')).toBeNull()
+    expect(screen.getByTestId('journey-stat-lane-detail')).toHaveTextContent(/at least 5 separate sailings/i)
+  })
+
+  it('shows the route as a statistic only with its own sufficient estimate comparison', async () => {
+    state.view = withStats(stats({}, lane({ arrival_vs_estimate_days: { availability: 'insufficient_data', note: 'x' } })))
+    await open()
+    expect(screen.getByTestId('journey-stat-lane')).toHaveTextContent('median of 32 days')
+    expect(screen.queryByTestId('journey-stat-lane-estimate')).toBeNull()
+  })
+
+  it('passes a route that does not apply through in the service\u2019s own words', async () => {
+    state.view = withStats(stats({}, { availability: 'not_applicable', note: 'The shipment record does not name both ports, so there is no route to compare.' }))
+    await open()
+    expect(screen.getByTestId('journey-stat-lane')).toHaveTextContent('does not name both ports')
+  })
+
+  it('shows no statistics card where they do not apply', async () => {
+    state.view = withStats({ availability: 'not_applicable' })
+    await open()
+    expect(screen.queryByTestId('journey-statistics')).toBeNull()
+  })
+
+  it('shows no statistics card for a service that sends none — and says nothing about them', async () => {
+    state.view = journey()
+    await open()
+    expect(screen.queryByTestId('journey-statistics')).toBeNull()
+  })
+
+  it('names the statistics in the provenance block, in words', async () => {
+    state.view = { ...(withStats(stats()) as object), provenance: { ...journey().provenance, intelligence: { authority: 'derived' } } }
+    await open()
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/statistics/i)
+    expect(screen.getByTestId('journey-provenance')).toHaveTextContent(/derived from recorded dates/i)
+  })
+})

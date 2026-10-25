@@ -254,6 +254,7 @@ const AUTHORITY_UI: Record<string, string> = {
   'estimate revisions': 'Estimates recorded by the organiser',
   T8: 'Document workspace',
   T12: 'Customs record',
+  derived: 'Derived from recorded dates',
 }
 
 /** The owning record, for people. Unknown authorities get a neutral label, never an internal code. */
@@ -271,6 +272,7 @@ export const PROVENANCE_PART_UI: Record<string, string> = {
   eta: 'Estimate history',
   documents: 'Documents',
   customs: 'Customs',
+  intelligence: 'Statistics',
   contacts: 'Contacts',
 }
 
@@ -405,6 +407,73 @@ export function customsPath(link: { type?: string; subject?: { type?: string; id
 
 /** A customs section state this page does not know is not "no customs" — it is not shown. */
 export const CUSTOMS_UNSHOWN_FALLBACK = 'Customs status could not be shown here. That does not mean nothing has happened.'
+
+// ── CAP-09: statistics ────────────────────────────────────────────────────────────────────────────────
+
+const daysWord = (n: number) => `${n} ${Math.abs(n) === 1 ? 'day' : 'days'}`
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** What it says about statistics, always: they describe what was recorded and what already happened. */
+export const STATISTICS_ARE_NOT_A_PREDICTION =
+  'These describe what has been recorded and journeys that have already been completed. They are not a prediction for your shipment.'
+
+/** How long this shipment has been moving — only from a recorded departure, "so far" until it arrives. */
+export function transitText(metric: { value: number | null; ongoing?: boolean } | null | undefined): string | null {
+  if (!metric || !isCount(metric.value)) return null
+  return metric.ongoing
+    ? `In transit for ${daysWord(metric.value)} so far, counting from the recorded departure.`
+    : `The recorded transit took ${daysWord(metric.value)}.`
+}
+
+/** An arrival against the FIRST estimate. Zero is a real answer ("on the day"); no value is no sentence. */
+export function againstFirstEstimateText(metric: { value: number | null } | null | undefined): string | null {
+  if (!metric || !isCount(metric.value)) return null
+  if (metric.value === 0) return 'It arrived on the date first estimated.'
+  return metric.value > 0
+    ? `It arrived ${daysWord(metric.value)} later than the first estimate.`
+    : `It arrived ${daysWord(-metric.value)} earlier than the first estimate.`
+}
+
+type LaneLike = {
+  availability: string
+  note?: string
+  minimum_sailings?: number
+  sailings?: number
+  transit_days?: { median: number; min: number; max: number }
+  arrival_vs_estimate_days?: { availability: string; median_days?: number }
+} | null | undefined
+
+/**
+ * The route statistic in words. Sufficient: the numbers it was given and how many sailings stand behind them.
+ * Insufficient: that there is not enough to say — never how many there are. Anything else: the service's own note.
+ */
+export function laneText(lane: LaneLike): { headline: string; estimate: string | null; detail: string | null } {
+  if (lane?.availability === 'sufficient' && lane.transit_days && isCount(lane.sailings)) {
+    const t = lane.transit_days
+    const v = lane.arrival_vs_estimate_days
+    let estimate: string | null = null
+    if (v?.availability === 'sufficient' && isCount(v.median_days)) {
+      estimate = v.median_days === 0
+        ? 'Against their first estimates, these sailings arrived on the estimated date (median).'
+        : `Against their first estimates, these sailings arrived a median of ${daysWord(Math.abs(v.median_days))} ${v.median_days > 0 ? 'later' : 'earlier'}.`
+    }
+    return {
+      headline: `On this route, this organiser\u2019s ${lane.sailings} completed sailings took a median of ${daysWord(t.median)} (shortest ${daysWord(t.min)}, longest ${daysWord(t.max)}).`,
+      estimate,
+      detail: lane.note || null,
+    }
+  }
+  if (lane?.availability === 'insufficient_data') {
+    // The headline already says "not enough"; the second line states the threshold from its structured field,
+    // not by cutting up the service's sentence — and it is the MINIMUM, never how many there are.
+    return {
+      headline: 'Not enough completed sailings on this route to say how long they usually take.',
+      estimate: null,
+      detail: isCount(lane.minimum_sailings) ? `This is shown once at least ${lane.minimum_sailings} separate sailings have been completed.` : null,
+    }
+  }
+  return { headline: lane?.note || 'There is no route statistic for this shipment.', estimate: null, detail: null }
+}
 
 export const CONSIGNEE_KIND_UI: Record<string, string> = {
   self: 'The buyer',

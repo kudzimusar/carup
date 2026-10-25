@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, Anchor, ClipboardList, Clock, FileText, ListChecks, Loader2, MapPin, Ship, ShieldCheck, UserCheck } from 'lucide-react'
+import { Activity, AlertTriangle, Anchor, ClipboardList, Clock, FileText, ListChecks, Loader2, MapPin, Ship, ShieldCheck, UserCheck } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type Journey } from '@/hooks/useTradeLogisticsApi'
@@ -43,8 +43,10 @@ import {
   PROVENANCE_PART_UI,
   REFERENCE_IS_NOT_MOVEMENT,
   SECTION_UI,
+  STATISTICS_ARE_NOT_A_PREDICTION,
   TABS,
   actionBadge,
+  againstFirstEstimateText,
   associationNote,
   authorityLabel,
   customsPath,
@@ -58,6 +60,7 @@ import {
   estimateChange,
   estimatedArrival,
   exceptionText,
+  laneText,
   lastRecordedUpdate,
   legRoute,
   legTitle,
@@ -71,6 +74,7 @@ import {
   shortRef,
   sourceLabel,
   timelineLabel,
+  transitText,
   vehicleTitle,
   when,
   type TabId,
@@ -153,6 +157,8 @@ export default function JourneyArrival() {
   const customs = data.sections?.customs
   const customsShown = Boolean(customs) && customs?.availability !== 'not_yet_composed'
   const agents = data.contacts?.agents
+  // CAP-09. Statistics are an extension: a service that does not send them shows nothing, and says nothing about them.
+  const stats = data.sections?.intelligence && data.sections.intelligence.availability === 'composed' ? data.sections.intelligence : null
   const destination = destinationFacts(data)
   const basis = routeBasis(data)
   const actions = data.sections?.actions && data.sections.actions.availability === 'composed' ? data.sections.actions : null
@@ -258,6 +264,34 @@ export default function JourneyArrival() {
                   ))}
                 </ol>
                 <p className="mt-3 min-w-0 break-words text-xs text-slate-500">{eta.note}</p>
+              </div>
+            ) : null}
+
+            {stats ? (
+              <div className={`mt-5 ${card}`} data-testid="journey-statistics">
+                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Activity className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Statistics</h2>
+                {(() => {
+                  const transit = transitText(stats.own.days_in_transit)
+                  const versus = againstFirstEstimateText(stats.own.arrival_vs_first_estimate_days)
+                  const lane = laneText(stats.lane)
+                  return (
+                    <>
+                      <div className="mt-3 min-w-0" data-testid="journey-statistics-own">
+                        <h3 className="text-xs font-semibold text-slate-700">This shipment</h3>
+                        {transit ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-transit">{transit}</p> : null}
+                        {versus ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-versus">{versus}</p> : null}
+                        {!transit && !versus ? <p className="mt-1 min-w-0 break-words text-sm text-slate-600" data-testid="journey-stat-own-none">{stats.own.days_in_transit.note}</p> : null}
+                      </div>
+                      <div className="mt-3 min-w-0" data-testid="journey-statistics-lane">
+                        <h3 className="text-xs font-semibold text-slate-700">On this route</h3>
+                        <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-lane">{lane.headline}</p>
+                        {lane.estimate ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-lane-estimate">{lane.estimate}</p> : null}
+                        {lane.detail ? <p className="mt-1 min-w-0 break-words text-xs text-slate-600" data-testid="journey-stat-lane-detail">{lane.detail}</p> : null}
+                      </div>
+                    </>
+                  )
+                })()}
+                <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-statistics-note">{STATISTICS_ARE_NOT_A_PREDICTION}</p>
               </div>
             ) : null}
 

@@ -48,6 +48,7 @@ import { listEtaRevisionsForShipment, projectEta } from './shipmentObservationRe
 import { buildDocumentWorkspace } from './tradeDocumentWorkspaceService.js';
 import { findCaseForSubject } from './customsCaseService.js';
 import { getMyCustomsStatus } from './customsProjectionService.js';
+import { projectLaneStatistics, projectOwnMetrics } from './journeyIntelligence.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -268,7 +269,7 @@ function emptyJourney(subject, viewer) {
     timeline: [],
     exceptions: [],
     contacts: null,
-    sections: { ...sectionsPlaceholder(), documents: NOT_APPLICABLE, actions: NOT_APPLICABLE, customs: NOT_APPLICABLE },
+    sections: { ...sectionsPlaceholder(), documents: NOT_APPLICABLE, actions: NOT_APPLICABLE, customs: NOT_APPLICABLE, intelligence: NOT_APPLICABLE },
     provenance: {},
     note: NOTE,
   };
@@ -586,6 +587,9 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   let state;
   let shipping;
   let resolvedShipmentId = null;
+  // CAP-09. Statistics exist only for a shipment the Journey plainly resolved; everything else says there are none.
+  let intelligence = NOT_APPLICABLE;
+  const now = options.now ? new Date(options.now) : new Date();
 
   if (goodsNotOnShipment) {
     // Cargo that did not travel has no journey to follow, and a container-level shipment is not theirs to read.
@@ -659,6 +663,16 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       // The estimate, current BESIDE original. An accepted revision is an observation shown next to the
       // shipment record's own estimate, never written over it — and an estimate is never an arrival.
       const eta = projectEta(shipment, await listEtaRevisionsForShipment(shipment.id, client));
+      // Derived only from RECORDED observations, and only where the association is plain: an inconsistent
+      // one is flagged on the Journey, so statistics about it would be statistics about a disagreement.
+      if (['order', 'container'].includes(picked.association)) {
+        intelligence = {
+          availability: 'composed',
+          own: projectOwnMetrics(dates, now),
+          lane: await projectLaneStatistics(client, shipment),
+          note: 'Derived from recorded dates only. It describes what has been recorded and what has already been completed, and predicts nothing.',
+        };
+      }
       shipping = {
         association: picked.association,
         reference: shipmentReference(shipment.id),
@@ -714,7 +728,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       consignee: projectConsignee(order, viewer.privateAccess),
       agents,
     },
-    sections: { ...sectionsPlaceholder(), documents, customs, actions },
+    sections: { ...sectionsPlaceholder(), documents, customs, actions, intelligence },
     provenance: {
       asset: { authority: vehicle ? 'vehicles' : 'unknown', note: 'Only recorded fields. A request is not a vehicle.' },
       transaction: { authority: 'T4' },
@@ -723,6 +737,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       timeline: { authority: 'T11 + T10' },
       legs: { authority: 'declared legs', note: 'Declared by the organiser, not observed.' },
       documents: { authority: 'T8', note: 'Read from the document workspace; nothing is stored here.' },
+      intelligence: { authority: 'derived', note: 'Derived from recorded shipment dates. Nothing is stored and nothing is predicted.' },
       customs: { authority: 'T12', note: 'Read from the customs record; nothing is stored here. CarUp coordinates customs; it does not decide it.' },
       eta: { authority: 'estimate revisions', note: 'Recorded by the organiser; shown beside the shipment record, not over it.' },
       contacts: { authority: 'intake (T3)', note: 'Private: shown only to the order owner and platform admins.' },

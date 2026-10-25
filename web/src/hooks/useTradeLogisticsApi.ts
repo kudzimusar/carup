@@ -774,11 +774,38 @@ export type JourneyAgents =
   | { availability: 'composed'; items: Array<{ display_name: string; role: string; note: string | null }>; note: string }
   | { availability: 'withheld' | 'unavailable' | 'not_applicable' | 'ambiguous' | 'disagrees'; note?: string }
   | JourneyNotComposed
+// ── T11-CAP-09 — statistics, derived only from recorded observations ────────
+// A number comes from an OBSERVED date or it is absent (`value: null`, with the reason in `note`) — never
+// zero standing in for "unknown". A route statistic is the SAME organiser's completed sailings only, counts
+// sailings rather than shipments, and below the stated minimum says "not enough data" without saying how many.
+// It describes journeys already completed; it is not a prediction.
+export interface JourneyOwnMetric { value: number | null; ongoing?: boolean; note: string }
+export type JourneyLane =
+  | {
+    availability: 'sufficient'
+    minimum_sailings: number
+    sailings: number
+    transit_days: { median: number; min: number; max: number }
+    arrival_vs_estimate_days: { availability: 'sufficient'; median_days: number } | { availability: 'insufficient_data'; note: string }
+    note: string
+  }
+  | { availability: 'insufficient_data'; minimum_sailings: number; note: string }
+  | { availability: 'not_applicable'; note: string }
+export type JourneyIntelligence =
+  | {
+    availability: 'composed'
+    own: { days_in_transit: JourneyOwnMetric; arrival_vs_first_estimate_days: JourneyOwnMetric }
+    lane: JourneyLane
+    note: string
+  }
+  | { availability: 'not_applicable' }
+  | JourneyNotComposed
 export interface JourneySections {
   documents?: JourneyDocuments
   actions?: JourneyActions
   customs?: JourneyCustoms
-  [section: string]: JourneyDocuments | JourneyActions | JourneyCustoms | JourneyNotComposed | { availability: string; owner?: string } | undefined
+  intelligence?: JourneyIntelligence
+  [section: string]: JourneyDocuments | JourneyActions | JourneyCustoms | JourneyIntelligence | JourneyNotComposed | { availability: string; owner?: string } | undefined
 }
 export interface Journey {
   subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
