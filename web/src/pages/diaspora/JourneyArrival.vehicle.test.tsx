@@ -180,6 +180,24 @@ describe('a vehicle with no Trade OS history is shown honestly and without borro
     expect(eyebrow).not.toMatch(/VIN-NO/i)
   })
 
+  it('the Customs tab says there is no order — it does not say customs "could not be shown" or print an empty destination', async () => {
+    await open(`/diaspora/journey/vehicle/${VIN_B}`)
+    fireEvent.click(screen.getByRole('tab', { name: 'Customs' }))
+    expect(screen.getByTestId('journey-destination-no-order')).toHaveTextContent(/no import order here yet/i)
+    expect(screen.getByTestId('journey-destination-no-order')).toHaveTextContent(/not a report that nothing has happened/i)
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).not.toHaveTextContent(/could not be shown/i)
+    expect(panel).not.toHaveTextContent(/Destination \(on the order\)/i)
+    expect(screen.queryByTestId('journey-destination-note')).toBeNull()
+  })
+
+  it('the Documents tab says nothing here has an order yet — not "this booking"', async () => {
+    await open(`/diaspora/journey/vehicle/${VIN_B}`)
+    fireEvent.click(screen.getByRole('tab', { name: 'Documents' }))
+    expect(screen.getByTestId('journey-documents-not-applicable')).toHaveTextContent(/belong to an import order, and nothing here has one yet/i)
+    expect(screen.getByTestId('journey-documents-not-applicable')).not.toHaveTextContent(/booking/i)
+  })
+
   it('every tab opens without throwing, and none shows another vehicle’s facts', async () => {
     await open(`/diaspora/journey/vehicle/${VIN_B}`)
     for (const name of ['Journey', 'Documents', 'Vehicle', 'Customs', 'Contacts', 'Payments', 'Messages']) {

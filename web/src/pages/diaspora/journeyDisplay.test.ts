@@ -36,6 +36,7 @@ import {
   routeLabel,
   sectionKeyForTab,
   sourceLabel,
+  timelineLabel,
   transitText,
   vehicleTitle,
 } from './journeyDisplay'
@@ -114,6 +115,17 @@ describe('the last recorded update', () => {
     const u = lastRecordedUpdate([])
     expect(u.at).toBeNull()
     expect(u.label).toMatch(/no movement has been recorded/i)
+  })
+})
+
+describe('a shipment being set up is not read as a date', () => {
+  it('words the creation stage as a plan, not a movement', () => {
+    expect(timelineLabel({ kind: 'MOVEMENT', stage: 'PLANNED' })).toMatch(/a plan, not a movement/i)
+    expect(timelineLabel({ kind: 'MOVEMENT', stage: 'PLANNED' })).not.toBe('Planned')
+  })
+  it('leaves the stages that ARE movements as T11 words them', () => {
+    expect(timelineLabel({ kind: 'MOVEMENT', stage: 'IN_TRANSIT' })).toBe('On its way')
+    expect(timelineLabel({ kind: 'LOAD', stage: 'LOADED' })).toBe('Loaded into the container')
   })
 })
 

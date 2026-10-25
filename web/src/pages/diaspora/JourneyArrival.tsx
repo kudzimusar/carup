@@ -39,6 +39,7 @@ import {
   DOCUMENTS_WITHHELD_FALLBACK,
   JOURNEY_STATE_UI,
   NO_ESTIMATE_REVISIONS,
+  NO_ORDER_NO_DESTINATION,
   NO_STEPS_RECORDED,
   NOTHING_CONNECTED_YET,
   PORT_OF_DISCHARGE_IS_NOT_DESTINATION,
@@ -481,11 +482,17 @@ export default function JourneyArrival() {
                 Neither is customs, and neither is the other — so they are shown for every viewer, apart. */}
             <div className={card} data-testid="journey-destination">
               <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Where it is going</h2>
-              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                {destination.showPort ? <Row label="Port of discharge (shipment record)" value={destination.port} /> : null}
-                <Row label="Destination (on the order)" value={destination.place} />
-              </dl>
-              <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="journey-destination-note">{PORT_OF_DISCHARGE_IS_NOT_DESTINATION}</p>
+              {data.transaction ? (
+                <>
+                  <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {destination.showPort ? <Row label="Port of discharge (shipment record)" value={destination.port} /> : null}
+                    <Row label="Destination (on the order)" value={destination.place} />
+                  </dl>
+                  <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="journey-destination-note">{PORT_OF_DISCHARGE_IS_NOT_DESTINATION}</p>
+                </>
+              ) : (
+                <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-destination-no-order">{NO_ORDER_NO_DESTINATION}</p>
+              )}
             </div>
 
             {customs.availability === 'composed' ? (
@@ -598,7 +605,7 @@ export default function JourneyArrival() {
                   <Link to={customsPath(customs.link) as string} className="inline-block text-sm font-semibold text-orange-700 underline" data-testid="journey-customs-link">Open the full customs page</Link>
                 ) : null}
               </>
-            ) : customs.availability === 'withheld' || customs.availability === 'not_applicable' ? (
+            ) : customs.availability === 'not_applicable' && !data.transaction ? null : customs.availability === 'withheld' || customs.availability === 'not_applicable' ? (
               <p className="min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid={`journey-customs-${customs.availability}`}>
                 {('note' in customs && customs.note) || CUSTOMS_UNSHOWN_FALLBACK}
               </p>

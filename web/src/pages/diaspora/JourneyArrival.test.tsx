@@ -540,7 +540,7 @@ describe('CAP-06: documents and next steps', () => {
 
   it('says documents do not apply to a booking with no order', async () => {
     await openDocuments(withSections({ availability: 'not_applicable' }, { availability: 'not_applicable' }))
-    expect(screen.getByTestId('journey-documents-not-applicable')).toHaveTextContent(/does not have one yet/i)
+    expect(screen.getByTestId('journey-documents-not-applicable')).toHaveTextContent(/nothing here has one yet/i)
     expect(screen.queryByTestId('journey-documents-list')).toBeNull()
   })
 
@@ -548,7 +548,7 @@ describe('CAP-06: documents and next steps', () => {
     await openDocuments(withSections({ availability: 'quarantined' }))
     const panel = screen.getByTestId('journey-documents-unavailable')
     expect(panel).toHaveTextContent(/could not be read/i)
-    expect(screen.getByTestId('journey-documents')).not.toHaveTextContent(/does not have one yet|no documents/i)
+    expect(screen.getByTestId('journey-documents')).not.toHaveTextContent(/nothing here has one yet|no documents/i)
   })
 
   it('does not claim a checklist is empty when none was listed', async () => {
