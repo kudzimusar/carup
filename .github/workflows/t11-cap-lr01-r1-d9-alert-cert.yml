@@ -8,10 +8,9 @@ name: T11-CAP-LR01-R1 D9 ALERT CERTIFICATION
 #   * the harness and its tests are the only additions to the exact candidate commit, pinned by git blob;
 #   * the people are staging's synthetic outsider identities; the real Vezel and the Serena are never read or written.
 
+# RETIRED after the runs that produced the evidence (40174488695, 40174673754): editing this branch can no longer re-run it.
 on:
-  push:
-    branches:
-      - cert/t11-cap-lr01-r1-d9-alert-cert
+  workflow_dispatch:
 
 concurrency:
   group: t11-cap-lr01-r1-d9-alert-cert
