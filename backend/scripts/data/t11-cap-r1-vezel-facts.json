@@ -1,0 +1,103 @@
+{
+  "programme": "T11-CAP-LR01-R1",
+  "purpose": "Create the Owner-authorised real purchase as an ADDITIONAL staging vehicle/transaction. Every value below is either observed on the Owner's own BE FORWARD CAP page, a schema-mandatory placeholder that follows an existing CarUp convention, or deliberately absent. Nothing is inferred. A column not listed here is left to its schema default.",
+  "source": {
+    "system": "BE FORWARD CAP (customer portal page for the Owner's own purchase)",
+    "observed_utc": "2026-10-24",
+    "method": "Owner-authorised REA capture of the rendered page; the access token is a secret and appears nowhere in this repository",
+    "evidence": "private bundle held outside the repository (cap-00 evidence bundle, scenario cap-scn-01-initial-load); not committed"
+  },
+  "account": {
+    "user_id": "u_66cace85fad949e4",
+    "note": "The canonical staging account. Its display name is NOT changed from the CAP spelling of the consignee."
+  },
+  "protected_vehicle": {
+    "vin": "GFC27-027051",
+    "note": "The existing 2016 Nissan Serena Highway Star. A different legitimate vehicle: it is fingerprinted before and after, and the run is rolled back if it differs by one byte."
+  },
+  "vehicle": {
+    "table": "vehicles",
+    "fields": {
+      "vin": { "value": "RU3-1316558", "basis": "CAP_OBSERVED", "note": "CAP exposes a chassis number and no separate VIN. CarUp's own Japan-import identity convention uses the chassis as the vehicle key (docs/DIASPORA_TRADE_OS_MVP_ACCEPTANCE_MATRIX.md row 24 'chassis-as-vin'; docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md: documented import frame/chassis identifiers are valid, CarUp never fabricates a 17-character VIN for an import). The existing Serena is keyed the same way. At 11 characters it is below the marketplace-listing floor of 12 — it is NOT a marketplace listing and is not published." },
+      "chassis_number": { "value": "RU3-1316558", "basis": "CAP_OBSERVED" },
+      "engine_number": { "value": "LEB6736579", "basis": "CAP_OBSERVED" },
+      "make": { "value": "Honda", "basis": "CAP_OBSERVED" },
+      "model": { "value": "Vezel", "basis": "CAP_OBSERVED" },
+      "trim": { "value": "Hybrid Z Honda Sensing", "basis": "CAP_OBSERVED", "note": "CAP grade; model code DAA-RU3 has no column and is not stored" },
+      "year": { "value": 2018, "basis": "CAP_OBSERVED" },
+      "color": { "value": "Pearl", "basis": "CAP_OBSERVED" },
+      "mileage": { "value": 134741, "basis": "CAP_OBSERVED", "note": "as stated by BE FORWARD at purchase; not an attested odometer reading" },
+      "fuel_type": { "value": "Hybrid", "basis": "CAP_OBSERVED" },
+      "drivetrain": { "value": "2WD", "basis": "CAP_OBSERVED" },
+      "transmission": { "value": "Automatic", "basis": "CAP_OBSERVED" },
+      "import_source": { "value": "diaspora_import", "basis": "CARUP_CONVENTION", "note": "diasporaOwnershipHandoffService.insertVehicleIdentity" },
+      "status": { "value": "Pending", "basis": "CARUP_CONVENTION", "note": "same: off the marketplace" },
+      "publication_status": { "value": "draft", "basis": "CARUP_CONVENTION", "note": "same: not published" },
+      "price": { "value": 0, "basis": "SCHEMA_MANDATORY_PLACEHOLDER", "note": "vehicles.price is NOT NULL. 0 is the existing 'not listed for sale' convention (insertVehicleIdentity). It is NOT the purchase price, which is unknown to CarUp and is not recorded." },
+      "owner_id": { "value": "u_66cace85fad949e4", "basis": "OWNER_AUTHORISED", "note": "the Owner-authorised purchaser" }
+    },
+    "left_unset": [
+      "currency", "current_seller_id", "current_seller_type", "registration_status", "registration_country", "plate_number",
+      "duty_paid", "police_verified", "zimra_verified", "passport_verified", "trust_score", "listing_*", "seller_*", "tenant_id"
+    ]
+  },
+  "order": {
+    "table": "diaspora_import_orders",
+    "fields": {
+      "buyer_id": { "value": "u_66cace85fad949e4", "basis": "OWNER_AUTHORISED" },
+      "created_by": { "value": "u_66cace85fad949e4", "basis": "OWNER_AUTHORISED" },
+      "order_type": { "value": "vehicle", "basis": "CAP_OBSERVED" },
+      "origin_country": { "value": "Japan", "basis": "CAP_OBSERVED", "note": "port of loading: Shimonoseki, Japan" },
+      "destination_country": { "value": "Zimbabwe", "basis": "SCHEMA_MANDATORY_PLACEHOLDER", "note": "NOT NULL with default 'Zimbabwe'. Consistent with the CAP consignee country (Zimbabwe), but CAP's own 'Destination' field is blank — this is the order's country, not a claim that anything has reached it. The Dar es Salaam port of discharge is a separate fact on the shipment." },
+      "linked_vehicle_vin": { "value": "RU3-1316558", "basis": "CAP_OBSERVED" },
+      "chassis_number": { "value": "RU3-1316558", "basis": "CAP_OBSERVED" },
+      "status": { "value": "IMPORT_REQUESTED", "basis": "SCHEMA_DEFAULT", "note": "the earliest status. Nothing later is claimed: no documents verified, no container booked, no loading, no sailing." }
+    },
+    "metadata": {
+      "external_reference": { "system": "BE FORWARD", "reference": "CD740269", "basis": "CAP_OBSERVED" }
+    },
+    "left_unset": [
+      "budget_amount", "consignee_kind", "consignee_name", "consignee_phone", "delivery_address", "clearing_agent_*", "requested_make", "requested_model",
+      "requested_year_min", "destination_city", "origin_city", "tenant_id", "vin"
+    ]
+  },
+  "shipment": {
+    "table": "diaspora_shipments",
+    "fields": {
+      "carrier_name": { "value": "Hoegh Autoliners K.K.", "basis": "CAP_OBSERVED", "note": "CAP: 'HOEGH (Hoegh Autoliners K.K.)'" },
+      "origin_port": { "value": "Shimonoseki, Japan", "basis": "CAP_OBSERVED", "note": "CAP port of loading: SHIMONOSEKI / JAPAN" },
+      "destination_port": { "value": "Dar es Salaam", "basis": "CAP_OBSERVED", "note": "CAP port of discharge: DAR ES SALAAM. A port of discharge is not the destination." },
+      "estimated_arrival_date": { "value": "2026-09-18T00:00:00Z", "basis": "CAP_OBSERVED", "note": "CAP ETA 18-Sep-2026, date only. It is an ESTIMATE and is already in the past; no arrival has been observed." },
+      "status": { "value": "PLANNED", "basis": "SCHEMA_DEFAULT" }
+    },
+    "metadata": {
+      "planned_departure_date": { "value": "2026-08-29T00:00:00Z", "basis": "CAP_OBSERVED", "note": "CAP ETD 29-Aug-2026, date only. A PLAN: CAP shows a 'Load Confirmed' marker but no time, and CarUp has no observation of a departure." },
+      "planned_departure_source": { "value": "stated_at_creation", "basis": "CARUP_CONVENTION", "note": "what createShipment writes for a date supplied at creation" },
+      "date_precision": { "value": "date_only", "basis": "CAP_OBSERVED" }
+    },
+    "left_unset": [
+      "departure_date", "actual_arrival_date", "tracking_number", "container_id", "tenant_id", "created_by",
+      "NO IN_TRANSIT / ARRIVED / RELEASED / COMPLETED event or date: CAP's per-stage times are not established"
+    ]
+  },
+  "leg": {
+    "table": "diaspora_shipment_legs",
+    "fields": {
+      "leg_sequence": { "value": 1, "basis": "CAP_OBSERVED", "note": "CAP shows a single vessel and a single leg; no transshipment is recorded" },
+      "carrier_name": { "value": "Hoegh Autoliners K.K.", "basis": "CAP_OBSERVED" },
+      "vessel_name": { "value": "HOEGH TRACER (V-61)", "basis": "CAP_OBSERVED", "note": "verbatim, including the parenthesised V-61 which CAP does not label. It is NOT interpreted as a voyage number." },
+      "port_of_loading": { "value": "Shimonoseki, Japan", "basis": "CAP_OBSERVED" },
+      "port_of_discharge": { "value": "Dar es Salaam", "basis": "CAP_OBSERVED" },
+      "planned_departure_date": { "value": "2026-08-29T00:00:00Z", "basis": "CAP_OBSERVED" },
+      "estimated_arrival_date": { "value": "2026-09-18T00:00:00Z", "basis": "CAP_OBSERVED" },
+      "source": { "value": "OPERATOR_DECLARED", "basis": "CARUP_CONVENTION" },
+      "source_reference": { "value": "BE FORWARD CAP customer page, observed 2026-10-24 (Owner-authorised capture). Vessel name as displayed.", "basis": "CAP_OBSERVED" }
+    },
+    "left_unset": ["voyage_ref", "imo", "mmsi", "created_by"]
+  },
+  "not_recorded": [
+    "purchase amount", "duty", "customs decision", "payment state", "actual departure", "actual arrival", "release", "delivery",
+    "inspection verification", "government verification", "agent appointment", "transshipment", "any estimate revision",
+    "any shipping document (B/L, invoice, export certificate)", "the consignee's name, phone and street address"
+  ]
+}
