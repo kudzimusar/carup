@@ -1,0 +1,139 @@
+name: T11-CAP-LR01 STAGING CONVERGENCE R1
+
+# Applies the three T11-CAP-LR01 migrations (CAP-04 shipment legs, CAP-05 shipment observations, CAP-08 Journey
+# alerts) to the approved STAGING database and diffs the live catalog against the manifest generated from the
+# tested PGlite world.
+#
+#   * staging only: the harness refuses any URL that is not project eoyenigwevnxwwhyhaer and refuses the
+#     production ref by name — and a step below refuses it again before the harness runs;
+#   * additive: three new/extended objects groups; the SHARED communication_domain_event_dedupe_key() is never
+#     touched, and a migration that changed it would be rolled back before it could commit;
+#   * idempotent: a migration already in the ledger is never re-run, so a re-trigger is a read-only verify;
+#   * each migration is applied in ONE transaction together with its ledger row;
+#   * this workflow adds no product code: the certification branch differs from the product commit by this file only.
+
+on:
+  push:
+    branches:
+      - cert/t11-cap-lr01-stg-convergence-r1
+
+concurrency:
+  group: t11-cap-lr01-stg-convergence-r1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  converge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PRODUCT_SHA: 36aebeb9435fba2295166caf0d18ee092bd6aec1
+      PRODUCT_BRANCH: feat/trade-os-t11-cap-lr01-journey-arrival
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      T11_CAP_RESULTS_DIR: cert-results/t11-cap-stg
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit, on the product branch, workflow-only diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "cert/t11-cap-lr01-stg-convergence-r1"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+
+          # this branch adds ONLY this workflow
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/t11-cap-lr01-stg-convergence.yml) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+
+          # the three migrations are exactly the reviewed bytes
+          test "$(git hash-object database/migrations/20260920090000_trade_os_cap04_shipment_legs.sql)" = "0d9c76cc3a715f0259edcdaec1674c503a3f8851"
+          test "$(git hash-object database/migrations/20260921090000_trade_os_cap05_shipment_observations.sql)" = "75442903c79fbdd186fd055238137a316e057975"
+          test "$(git hash-object database/migrations/20260922090000_trade_os_cap08_journey_alerts.sql)" = "1c18274d50572392f83eca3f84d5ad84e946743f"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PRODUCT_SHA=$PRODUCT_SHA"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Rehearsal gates (no database access) - the migrations, the harness and the coverage gates
+        env:
+          NODE_ENV: test
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+          SUPABASE_ANON_KEY: test-anon-key
+          JWT_SECRET: test-jwt-secret
+          DIASPORA_STAGING_DATABASE_URL: ''
+        run: |
+          set -euo pipefail
+          node database/test/trade_os_cap04_legs_check.mjs
+          node database/test/trade_os_cap05_observations_check.mjs
+          node database/test/trade_os_cap08_journey_alerts_check.mjs
+          node --test \
+            backend/tests/t11-cap-stg-converge-harness.test.js \
+            backend/tests/migration-integrity.test.js \
+            backend/tests/communication-event-coverage.test.js \
+            backend/tests/trade-os-t11-cap-08-journey-alerts.test.js
+
+      - name: Validate harness syntax
+        run: node --check backend/scripts/t11-cap-stg-converge.mjs
+
+      - name: Preflight (read-only)
+        run: node backend/scripts/t11-cap-stg-converge.mjs --mode=preflight
+
+      - name: Apply (idempotent) and verify the live catalog against the expected manifest
+        run: node backend/scripts/t11-cap-stg-converge.mjs --mode=apply
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### T11-CAP-LR01 STAGING CONVERGENCE R1"
+            echo "product sha: \`$PRODUCT_SHA\`   target project: \`$EXPECTED_STAGING_PROJECT_REF\`   production: **not accessed**"
+            for f in preflight apply verify; do
+              if [ -f "$T11_CAP_RESULTS_DIR/$f.json" ]; then echo; echo "#### $f"; echo '```json'; head -c 6000 "$T11_CAP_RESULTS_DIR/$f.json"; echo; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t11-cap-lr01-stg-convergence-r1
+          path: cert-results/t11-cap-stg
+          retention-days: 30
+          if-no-files-found: warn
