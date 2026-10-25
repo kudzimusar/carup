@@ -1,5 +1,10 @@
 name: T11-CAP-LR01 STAGING CONVERGENCE R1
 
+# RETIRED AFTER ITS RUN. R1 executed on push at 2026-10-25T02:54Z (run 40156210257, all 12 steps green) and applied
+# the three migrations to approved staging. The push trigger has been removed so that editing this branch can never
+# re-run a staging writer; it remains runnable by hand, and because the harness is idempotent a re-run applies nothing
+# and only re-verifies the live catalog (verdict ALREADY_APPLIED).
+
 # Applies the three T11-CAP-LR01 migrations (CAP-04 shipment legs, CAP-05 shipment observations, CAP-08 Journey
 # alerts) to the approved STAGING database and diffs the live catalog against the manifest generated from the
 # tested PGlite world.
@@ -13,9 +18,7 @@ name: T11-CAP-LR01 STAGING CONVERGENCE R1
 #   * this workflow adds no product code: the certification branch differs from the product commit by this file only.
 
 on:
-  push:
-    branches:
-      - cert/t11-cap-lr01-stg-convergence-r1
+  workflow_dispatch: {}
 
 concurrency:
   group: t11-cap-lr01-stg-convergence-r1
@@ -48,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
           test "$GITHUB_REF_NAME" = "cert/t11-cap-lr01-stg-convergence-r1"
           git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
           git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
