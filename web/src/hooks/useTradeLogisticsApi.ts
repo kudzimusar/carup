@@ -417,6 +417,14 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T11-CAP-02 — Journey & Arrival (read-only composition) ─────────────
+
+  const getJourney = useCallback(async (subjectType: string, subjectId: string): Promise<Journey> => {
+    const response = await request<{ data: Journey }>(
+      `/diaspora/journeys/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`)
+    return response.data
+  }, [request])
+
   // ── T12 — attributed customs coordination & Zimbabwe destination ───────
 
   const getCustomsCase = useCallback(async (caseId: string): Promise<CustomsCaseWorkspace> => {
@@ -507,6 +515,7 @@ export function useTradeLogisticsApi() {
     appointClearingAgent,
     recordCustomsEvent,
     getMyCustoms,
+    getJourney,
   }), [
     listMyRequests,
     getRequest,
@@ -562,6 +571,7 @@ export function useTradeLogisticsApi() {
     appointClearingAgent,
     recordCustomsEvent,
     getMyCustoms,
+    getJourney,
   ])
 }
 
@@ -616,6 +626,61 @@ export interface MyTracking {
   references: ShipmentReferences | null
   timeline: Array<{ stage: string; event_time: string | null; location: string | null }>
   exception?: { stage: string; recorded_at: string | null; note: string } | null
+  note: string
+}
+
+// ── T11-CAP-02 — Journey & Arrival ───────────────────────────────────────────
+// Mirrors journeyProjectionService. A COMPOSITION of records other layers own. A section that is
+// `not_yet_composed` is NOT empty-and-complete: it is not connected to this view yet.
+
+export interface JourneyNotComposed { availability: 'not_yet_composed'; owner: string }
+export interface JourneyTimelineEntry {
+  kind: 'MOVEMENT' | 'LOAD' | string
+  stage: string
+  event_time: string | null
+  location: string | null
+  source: string | null
+}
+export interface JourneyException { code: string; note: string; stage?: string; recorded_at?: string | null }
+export interface JourneyAsset {
+  make: string | null; model: string | null; year: number | null; color: string | null; mileage: number | null
+  source: string
+  // Present only for the order's owner and platform admins; absent (not null) for everyone else.
+  chassis_number?: string | null
+  engine_number?: string | null
+}
+export interface JourneyShipping {
+  association: 'order' | 'container' | 'order_container_mismatch' | 'ambiguous' | 'none' | 'not_applicable' | string
+  reference?: string
+  candidate_count?: number
+  dates: ShipmentDates | null
+  references: {
+    carrier: string | null; tracking_reference: string | null
+    origin_port: string | null; destination_port: string | null; note: string
+  } | null
+  legs: JourneyNotComposed
+}
+export interface Journey {
+  subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
+  viewer: { kind: 'OWNER' | 'ADMIN' | 'PARTICIPANT' }
+  state: string
+  sentence: string
+  asset: JourneyAsset | null
+  transaction: {
+    order_id: string; status: string | null
+    origin_country: string | null; origin_city: string | null
+    destination_country: string | null; destination_city: string | null
+  } | null
+  shipping: JourneyShipping | null
+  timeline: JourneyTimelineEntry[]
+  exceptions: JourneyException[]
+  contacts: {
+    consignee: { recorded: boolean; kind: string | null; name: string | null; phone: string | null } | null
+    agents: JourneyNotComposed
+  } | null
+  sections: Record<string, JourneyNotComposed | { availability: string; owner?: string }>
+  provenance: Record<string, { authority: string; note?: string; association?: string }>
+  generated_at?: string
   note: string
 }
 
