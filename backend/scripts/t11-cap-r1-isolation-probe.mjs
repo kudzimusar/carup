@@ -74,7 +74,10 @@ async function call(base, pathname, token, fetchFn = fetch) {
   try { body = await res.json() } catch { /* not json */ }
   const text = body ? JSON.stringify(body) : ''
   const leaked = FIELDS_THAT_MUST_NOT_APPEAR.filter((f) => text.includes(`"${f}"`))
-  return { status: res.status, message: body?.error || body?.message || null, leaked: leaked.length ? leaked.join(',') : null }
+  // CarUp's error body is { error: { code, message, … } } (a plain string on a few older routes): read the words, not the object.
+  const err = body?.error
+  const message = typeof err === 'string' ? err : (err?.message ?? body?.message ?? null)
+  return { status: res.status, message, leaked: leaked.length ? leaked.join(',') : null }
 }
 
 async function signIn(base, email, password, fetchFn = fetch) {
