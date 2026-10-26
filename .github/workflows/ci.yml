@@ -193,6 +193,9 @@ jobs:
       - name: Trade OS T11-CAP-08 Journey alert identity and governed template verification (isolated PGlite Postgres)
         run: node database/test/trade_os_cap08_journey_alerts_check.mjs
 
+      - name: Trade OS T11-CAP-LR01-R2 customer-journey authorities verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_cap_r2_authorities_check.mjs
+
       # The deployed-staging gate's product assertions must MATTER. Its own suite takes ~30 minutes
       # on one viewport and cannot run concurrently, so the load-bearing security/T5/T2 assertions
       # are pinned here and checked in seconds.
