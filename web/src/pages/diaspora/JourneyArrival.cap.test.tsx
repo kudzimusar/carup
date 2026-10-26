@@ -29,6 +29,7 @@ vi.mock('@/hooks/useTradeLogisticsApi', () => ({
 }))
 
 import JourneyArrival from './JourneyArrival'
+import { when } from './journeyDisplay'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FACTS = JSON.parse(readFileSync(resolve(HERE, '../../../../backend/scripts/data/t11-cap-r2-historical-facts.json'), 'utf8'))
@@ -236,6 +237,19 @@ describe('the latest update and the purchased vehicle', () => {
     await open()
     expect(screen.getByTestId('cap-important-update-title')).toHaveTextContent('Documents: Arrived at delivery address')
     expect(screen.getByTestId('cap-important-update-source')).toHaveTextContent(`Reported by ${SOURCE}`)
+  })
+
+  it('the time beside a REPORTED update is when it was read, so it says "as of" — it is never left to read as when the thing happened', async () => {
+    await open()
+    expect(screen.getByTestId('cap-important-update-source')).toHaveTextContent(`Reported by ${SOURCE} · as of ${when(FACTS.source.observed_at)}`)
+  })
+
+  it('the time beside CarUp\'s own update is CarUp\'s record time, stated plainly', async () => {
+    const recordedAt = '2026-10-25T04:16:00Z'
+    await open(vezelShaped({ important_update: { availability: 'composed', kind: 'exception', title: 'Departure delayed', detail: null, as_of: recordedAt, origin: 'carup', source_label: null } }))
+    const source = screen.getByTestId('cap-important-update-source')
+    expect(source).toHaveTextContent(`Recorded by CarUp · ${when(recordedAt)}`)
+    expect(source).not.toHaveTextContent(/as of/i)
   })
 
   it('with no real update, nothing is drawn — an update is never manufactured', async () => {
@@ -523,6 +537,15 @@ describe('destination and agent; payments', () => {
 })
 
 // ═════════════════════════════ an older service, and reusable-code hygiene ═════════════════════════════
+
+describe('a system label somebody typed is worded for the customer, never echoed', () => {
+  it('a movement record whose source reads "certification seed" shows plain words, so a genuine record is not made to look like test data', async () => {
+    await open(vezelShaped({ timeline: [{ kind: 'MOVEMENT', stage: 'PLANNED', event_time: '2026-10-25T04:16:00Z', location: null, source: 'certification seed' }] }))
+    const page = screen.getByTestId('journey-page')
+    expect(page).not.toHaveTextContent(/certification seed|\bseed\b|Source:/i)
+    expect(page).toHaveTextContent('Recorded in CarUp')
+  })
+})
 
 describe('an older service that sends none of this', () => {
   it('draws none of the new sections and no navigation — the page is exactly what it was', async () => {

@@ -150,6 +150,21 @@ describe('association, exceptions and sources are worded, not hinted at', () => 
     expect(sourceLabel('T10')).toMatch(/loading/i)
     expect(sourceLabel(null)).toMatch(/not stated/i)
   })
+  it('never echoes a source label it has no wording for — a typed system label must not make a genuine record read as test data', () => {
+    for (const raw of ['certification seed', 'seed', 'forwarder_feed_7', 'UAT', 'demo']) {
+      const words = sourceLabel(raw)
+      expect(words).toBe('Recorded in CarUp')
+      expect(words.toLowerCase()).not.toContain(raw.toLowerCase())
+    }
+    // The four sources the leg service allows each keep their own plain wording, whatever the casing.
+    expect(sourceLabel('operator_declared')).toBe('Stated by the organiser')
+    expect(sourceLabel('OPERATOR_DECLARED')).toBe('Stated by the organiser')
+    expect(sourceLabel('DOCUMENT')).toBe('Taken from a document')
+    expect(sourceLabel('carrier')).toBe('Reported by the carrier')
+    expect(sourceLabel('PROVIDER')).toBe('Reported by a tracking provider')
+    // An empty string is an unstated source, not an unknown one.
+    expect(sourceLabel('')).toMatch(/not stated/i)
+  })
   it('names authorities for people, not for engineers', () => {
     expect(authorityLabel('T11')).not.toBe('T11')
     expect(authorityLabel('vehicles')).toMatch(/vehicle/i)
