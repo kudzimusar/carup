@@ -2684,7 +2684,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         code: 'SELLER_VEHICLE_IDENTIFIER_NOT_ISO_VIN',
       }
       : {
-        error: 'Vehicle identifier must be 12 to 17 letters, numbers, or hyphens',
+        error: 'Vehicle identifier must be a 17-character VIN, 12 to 17 letters, numbers or hyphens, or a hyphenated Japanese frame number such as GFC27-027051 or RU3-1316558',
         code: 'SELLER_VEHICLE_IDENTIFIER_INVALID',
       });
   }

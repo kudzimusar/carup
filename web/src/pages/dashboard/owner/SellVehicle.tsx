@@ -643,7 +643,7 @@ export default function SellVehicle() {
         // satisfies it tells the seller nothing they can act on.
         e.vin = sellerVehicleIdentifierProblem(form.vin) === 'vin_alphabet'
           ? 'A 17-character VIN never contains I, O or Q — they are excluded so they cannot be read as 1 and 0. Check those characters.'
-          : 'Vehicle identifier must be 12–17 letters, numbers or hyphens'
+          : 'Enter a 17-character VIN, a 12–17 character identifier, or a hyphenated Japanese frame number such as RU3-1316558'
       }
       else if (governedScopeEstablished) { /* governed scope answers this; the advisory check may not gate it */ }
       else if (identifying) e.vin = 'Wait for the CarUp Passport check to finish'
@@ -1219,7 +1219,7 @@ export default function SellVehicle() {
                   {vinValid === true && <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />}
                   {vinValid === false && <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters · minimum 12. Japanese chassis/frame identifiers are accepted when documented.</p>
+                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters · a VIN or 12–17 character identifier, or a documented Japanese frame number such as RU3-1316558.</p>
                 {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
                 <VehicleIdentificationNotice
                   result={identification}
