@@ -1,0 +1,168 @@
+name: T11-CAP-LR01-R2 STAGING CONVERGENCE AND INGESTION
+
+# Applies the ONE additive R2 migration (the five customer-journey authorities) to approved STAGING and then ingests the
+# Owner-authorised real purchase's historical CAP records into them, from the verified facts file only.
+#
+#   * staging only: the harness refuses any database URL that is not project eoyenigwevnxwwhyhaer and refuses the
+#     production ref by name — and a step below refuses it again before any script runs;
+#   * the migration is ADDITIVE: a fingerprint of every object it does not own is taken before and after, and ANY
+#     difference rolls the whole transaction back before it can commit;
+#   * the ingestion is INSERT only and idempotent by natural key (a second run is a no-op), STOPS on any conflicting
+#     existing fact, fingerprints the protected Nissan Serena and the target vehicle/order/shipment before and after, and
+#     rolls the whole run back if anything else moved (movement events, notifications, the shipment, a document, a payment);
+#   * preflight is the WHOLE write inside a transaction that is rolled back; apply is the same, committed;
+#   * this workflow adds no product code: the certification branch differs from the product commit by this file only;
+#   * no events are emitted and nothing is sent.
+
+on:
+  push:
+    branches:
+      - cert/t11-cap-lr01-r2-converge
+
+concurrency:
+  group: t11-cap-lr01-r2-converge
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  converge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRODUCT_SHA: 471f76801ba460a03ca6459d4ae841f05ac1ff98
+      PRODUCT_BRANCH: feat/trade-os-t11-cap-lr01-journey-arrival
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      FORBIDDEN_PRODUCTION_PROJECT_REF: vhmnajoeicasaigiophh
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit, on the product branch, workflow-only diff, reviewed bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF_NAME" = "cert/t11-cap-lr01-r2-converge"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/t11-cap-lr01-r2-converge.yml) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          # the migration, both scripts, the facts, the manifest and the harness they stand on are exactly the reviewed bytes
+          test "$(git hash-object database/migrations/20260926090000_trade_os_cap_r2_customer_journey_authorities.sql)" = "49d75cb555bc7f019e9a5a7f3917bfafd66f703b"
+          test "$(git hash-object backend/scripts/t11-cap-r2-converge.mjs)" = "14aa7ddcc266e94544a5c1878bb5851f2841a0bc"
+          test "$(git hash-object backend/scripts/t11-cap-r2-ingest.mjs)" = "15d136b723d5f09cd43047ff85f05ba8f1f0508c"
+          test "$(git hash-object backend/scripts/data/t11-cap-r2-historical-facts.json)" = "1fcaa761f3ec19e2417c7e623e1cc3b9179d65e3"
+          test "$(git hash-object backend/scripts/t11-cap-r2-expected-manifest.json)" = "76796ecfbf51b269c21a42bf12aebb8bc996dbec"
+          test "$(git hash-object backend/scripts/t11-cap-stg-converge.mjs)" = "c24ab3bb0f96ba2d71a895f947508150f3300b71"
+          test "$(git hash-object backend/scripts/t11-cap-r1-vezel-seed.mjs)" = "90924e2e06261c9d09b3e0b67603894f8260d3b9"
+          test "$(git hash-object backend/db/migrationParser.js)" = "6c94f38301bf4a0696e127af567150a723ba0340"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PRODUCT_SHA=$PRODUCT_SHA"
+          echo "::notice title=custody::product $PRODUCT_SHA, cert head $(git rev-parse HEAD), workflow-only diff, reviewed bytes pinned"
+
+      - name: Require approved staging-only database authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIASPORA_STAGING_DATABASE_URL"
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$FORBIDDEN_PRODUCTION_PROJECT_REF"*) echo "::error::Production database reference detected"; exit 1 ;;
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::Database URL is not approved staging"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Rehearsal gate (no database access) - the migration, the converge harness and the ingestion against staging-shaped worlds
+        env:
+          NODE_ENV: test
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+          SUPABASE_ANON_KEY: test-anon-key
+          JWT_SECRET: test-jwt-secret
+          DIASPORA_STAGING_DATABASE_URL: ''
+        run: |
+          set -euo pipefail
+          node database/test/trade_os_cap_r2_authorities_check.mjs
+          node --test backend/tests/t11-cap-r2-converge-harness.test.js backend/tests/t11-cap-r2-ingest.test.js
+
+      - name: Validate script syntax
+        run: |
+          node --check backend/scripts/t11-cap-r2-converge.mjs
+          node --check backend/scripts/t11-cap-r2-ingest.mjs
+
+      - name: Migration preflight (read-only) - live prerequisites, absent/applied/partial
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/converge
+        run: node backend/scripts/t11-cap-r2-converge.mjs --mode=preflight
+
+      - name: Migration apply (one transaction, ledger row, foreign-object tripwire) and verify
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/converge
+        run: node backend/scripts/t11-cap-r2-converge.mjs --mode=apply
+
+      - name: Migration verify (read-only, independent second pass)
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/converge
+        run: node backend/scripts/t11-cap-r2-converge.mjs --mode=verify
+
+      - name: Ingestion preflight - the WHOLE write inside a transaction that is ROLLED BACK
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/ingest
+        run: node backend/scripts/t11-cap-r2-ingest.mjs --mode=preflight
+
+      - name: Ingestion apply (INSERT only, idempotent, tripwire) and verify
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/ingest
+        run: node backend/scripts/t11-cap-r2-ingest.mjs --mode=apply
+
+      - name: Ingestion verify (read-only, independent second pass)
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/ingest
+        run: node backend/scripts/t11-cap-r2-ingest.mjs --mode=verify
+
+      - name: Idempotency - a second apply writes nothing
+        env:
+          T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2/ingest-second-apply
+        run: node backend/scripts/t11-cap-r2-ingest.mjs --mode=apply
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### T11-CAP-LR01-R2 STAGING CONVERGENCE AND INGESTION"
+            echo "product sha: \`$PRODUCT_SHA\`   target project: \`$EXPECTED_STAGING_PROJECT_REF\`   production: **not accessed**"
+            for f in cert-results/t11-cap-r2/converge/*.json cert-results/t11-cap-r2/ingest/*.json cert-results/t11-cap-r2/ingest-second-apply/*.json; do
+              if [ -f "$f" ]; then echo; echo "#### $f"; echo '```json'; head -c 6000 "$f"; echo; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t11-cap-lr01-r2-converge
+          path: cert-results/t11-cap-r2
+          retention-days: 30
+          if-no-files-found: warn
