@@ -1123,6 +1123,36 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     description: 'What has actually been recorded about your cargo moving',
   },
   {
+    // T11-CAP — Journey & Arrival: what is happening to a vehicle (or an order, booking or shipment) and what has
+    // actually been recorded. Parameterized and reached from the vehicle and the import order, so placements is
+    // empty; the FULL path is declared because the dead-link gate compares verbatim. The server is the authority:
+    // it refuses anyone who may not read the subject, identically for one that exists and one that does not.
+    id: 'diaspora.journey',
+    label: 'Journey & Arrival',
+    route: '/diaspora/journey/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Ship',
+    description: 'What has actually been recorded about a vehicle\u2019s journey and arrival',
+  },
+  {
+    // T8 — the paperwork for one purchase (read-only status of each shipping document). The Journey links here, and a
+    // route that is not in the registry is served as not-found by the public-page function (HTTP 404) even though the
+    // app renders it, so a direct load or a refresh of the link the Journey offers answered 404. Declared the way its
+    // sibling Trade OS routes are: parameterised, no placements, requiresAuth.
+    id: 'diaspora.documents-workspace',
+    label: 'Paperwork for this purchase',
+    route: '/diaspora/documents/:subjectType/:subjectId',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+    description: 'Which shipping documents have been supplied, and what has been checked',
+  },
+  {
     // T10.3 — a participant's own cargo against the container. Parameterized and reached from the
     // transaction, so placements is empty on purpose; the FULL path is declared because the
     // dead-link gate compares against App.tsx verbatim.

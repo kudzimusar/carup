@@ -71,6 +71,17 @@ test('11-character identifier fails the minimum-length gate', () => {
   assert.ok(reasons(P({ vin: 'GFC27-02705' })).includes('invalid_vin_format'));
 });
 
+// 7b — T11-CAP-LR01-R2 §16
+test('a real 11-character Japanese frame number (the Honda Vezel) is a structurally valid identifier, and a truncated 11-character one still is not', () => {
+  assert.equal(isStructurallyValidVin('RU3-1316558'), true);
+  assert.equal(getListingEligibility(P({ vin: 'RU3-1316558' })).reasons.includes('invalid_vin_format'), false);
+  // GFC27-02705 is the Serena's id with a digit missing: its tail is five digits, so it is a truncation and stays refused (test 7).
+  assert.equal(isStructurallyValidVin('GFC27-02705'), false);
+  // markers still win over shape: a fixture name does not become real by being frame-shaped
+  assert.equal(isStructurallyValidVin('TEST-1234567'), false);
+  assert.equal(isStructurallyValidVin('VIN-1234567'), false);
+});
+
 // 8
 test('18-character VIN fails', () => {
   assert.equal(isStructurallyValidVin('1HGBH41JXMN1091866'), false);

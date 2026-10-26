@@ -12,13 +12,16 @@ import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
 import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
 import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import diasporaSchedulerRouter from './diasporaSchedulerRoutes.js';
+import diasporaJourneyRouter from './diasporaJourneyRoutes.js';
+import diasporaShipmentLegRouter from './diasporaShipmentLegRoutes.js';
+import diasporaShipmentObservationRouter from './diasporaShipmentObservationRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, getOwnTradeProfiles, submitTradeProfileForReview, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
 import { buildDocumentWorkspace } from '../services/diaspora/tradeDocumentWorkspaceService.js';
-import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument, replaceTradeDocument, getTradeDocumentLineage } from '../services/diaspora/diasporaDocumentService.js';
+import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument, replaceTradeDocument, getTradeDocumentLineage, getTradeDocumentAccess } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
 import { createCargoReservation, listCargoReservations, updateReservationStatus } from '../services/diaspora/diasporaReservationService.js';
 import { createShipment, listShipments, getShipment, updateShipmentStage, getShipmentTimeline } from '../services/diaspora/diasporaShipmentService.js';
@@ -59,6 +62,15 @@ router.use(diasporaAiCommandRouter);
 
 // Phase 6: Container co-loading marketplace (authoritative server-side capacity rules).
 router.use(diasporaContainerMarketplaceRouter);
+
+// T11-CAP-02: Journey & Arrival — one read-only composition over T4/T10/T11 (no write route exists).
+router.use(diasporaJourneyRouter);
+
+// T11-CAP-04: declared vessel/route legs under a shipment (declared, not observed; supersede, never erase).
+router.use(diasporaShipmentLegRouter);
+
+// T11-CAP-05: estimate-revision observations (append-only inputs; no edit or delete route exists).
+router.use(diasporaShipmentObservationRouter);
 
 // Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
 router.use(diasporaDriveRouter);
@@ -188,6 +200,15 @@ router.get('/documents', auth, asyncHandler(documentListHandler));
 router.post('/documents', auth, asyncHandler(documentCreateHandler));
 router.get('/trade-documents', auth, asyncHandler(documentListHandler));
 router.post('/trade-documents', auth, asyncHandler(documentCreateHandler));
+// T11-CAP-LR01-R2 step H — a short-lived view of one document's FILE, for its owner, its uploader and the platform roles (narrower than the
+// read rule above). It mints a capability for a private object, so the identity must be PROVEN; the response is never cached.
+async function documentAccessHandler(req, res) {
+  const result = await getTradeDocumentAccess(req.params.id, req.userContext, { disposition: req.query.disposition === undefined ? 'view' : String(req.query.disposition), req });
+  res.set('Cache-Control', 'private, no-store');
+  res.json(result);
+}
+router.get('/documents/:id/access', auth, requireProvenIdentity(), asyncHandler(documentAccessHandler));
+router.get('/trade-documents/:id/access', auth, requireProvenIdentity(), asyncHandler(documentAccessHandler));
 router.get('/documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.get('/trade-documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.post('/documents/:id/extractions', auth, asyncHandler(async (req, res) => res.status(201).json(await recordDocumentExtraction(req.params.id, req.body, req.userContext, req))));

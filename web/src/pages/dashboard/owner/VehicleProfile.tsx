@@ -23,7 +23,10 @@ import EvidenceUploadModal from '@/components/EvidenceUploadModal'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
-import { statedMileage, statedPrice, statedDate } from './ownerStatedValues'
+import { statedMileage, statedVehiclePrice, statedDate } from './ownerStatedValues'
+import { GovernedGallery } from '@/components/media/GovernedGallery'
+import { GovernedPhoto } from '@/components/media/GovernedPhoto'
+import { governedHeroItem } from '@/lib/governedMedia'
 import { evidenceClassificationLabel, satisfiesOwnershipRegistration } from '@/lib/evidenceClassification'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
@@ -223,6 +226,10 @@ export default function VehicleProfile() {
   const primaryListingImage = primaryListingImageUrl(
     (passportData as { listing_media?: unknown }).listing_media,
   )
+  // The owner's PRIVATE photographs of this vehicle: a third block, neither listing media nor evidence, present only when the passport was read by
+  // someone entitled to it. Absent means "not sent", never "none".
+  const governedMedia = (passportData as { governed_media?: unknown }).governed_media
+  const governedHero = governedHeroItem(governedMedia)
   const vehicle = {
     make: pv.make || null,
     model: pv.model || null,
@@ -231,6 +238,7 @@ export default function VehicleProfile() {
     mileage: numOrNull(pv.mileage),
     color: pv.color || null,
     price: numOrNull(pv.price),
+    currency: typeof pv.currency === 'string' ? pv.currency : null,
     imageUrl: primaryListingImage ?? pv.image_url ?? null,
     registration: pv.vin || id || '',
     engineNumber: pv.engine_number || null,
@@ -346,6 +354,9 @@ export default function VehicleProfile() {
         </Button>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" asChild>
+            <Link to={`/diaspora/journey/vehicle/${encodeURIComponent(vehicle.vin)}`} data-testid="vehicle-journey-link">Journey &amp; arrival</Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
             <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
           </Button>
           <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
@@ -359,12 +370,22 @@ export default function VehicleProfile() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="border-0 card-shadow overflow-hidden">
             <div className="relative h-56">
-              <ListingImage
-                src={vehicle.imageUrl}
-                alt={`${[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'} listing photo`}
-                className="h-full w-full"
-                imgClassName="h-56"
-              />
+              {!vehicle.imageUrl && governedHero ? (
+                <GovernedPhoto
+                  src={governedHero.view.href}
+                  alt={`${[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'} photograph`}
+                  className="h-56 w-full"
+                  imgClassName="h-56"
+                  loading="eager"
+                />
+              ) : (
+                <ListingImage
+                  src={vehicle.imageUrl}
+                  alt={`${[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'} listing photo`}
+                  className="h-full w-full"
+                  imgClassName="h-56"
+                />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <div className="flex items-center gap-2 mb-1">
@@ -462,6 +483,12 @@ export default function VehicleProfile() {
               </div>
             </CardContent>
           </Card>
+
+          <GovernedGallery
+            media={governedMedia}
+            title="Photographs"
+            vehicleLabel={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
+          />
 
           {evidenceLoadState === 'error' && (
             <Card className="border-amber-200 bg-amber-50" data-testid="passport-evidence-unavailable">
@@ -738,7 +765,7 @@ export default function VehicleProfile() {
                 {/* Recorded price only. CarUp publishes no market valuation for this vehicle, so there is
                     no "Current Value" / "Depreciation" / "AI Valuation" — inventing one (price * 0.9)
                     would be a fabricated business fact. */}
-                <div className="flex justify-between"><span className="text-gray-500">Recorded Price</span><span>{statedPrice(vehicle.price)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Recorded Price</span><span>{statedVehiclePrice(vehicle.price, vehicle.currency)}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Total Services</span><span>{vehicle.serviceHistory.length}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Total Parts</span><span>{vehicle.partsHistory.length}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Recorded Service Cost</span><span>${vehicle.serviceHistory.reduce((a, s) => a + (s.cost ?? 0), 0).toLocaleString()}</span></div>

@@ -1,0 +1,12 @@
+{
+  "browser": { "mode": "launch", "executable_path": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "headless": true },
+  "start_url": { "url": "https://www.beforward.jp/customer/cap", "query": [ { "name": "t", "value": { "source": "secret", "secret_id": "cap_t" } } ] },
+  "environment": { "viewport": { "width": 1280, "height": 1600, "device_scale_factor": 1 }, "service_workers": "allow" },
+  "actions": [
+    { "step_id": "settle", "action": "wait_for_timeout", "duration_ms": 2500 },
+    { "step_id": "open.er", "action": "click", "locator": { "kind": "css", "selector": "a[href*=\"/customer/download/er/\"]" }, "timeout_ms": 15000 },
+    { "step_id": "after.er", "action": "wait_for_timeout", "duration_ms": 4000 }
+  ],
+  "secrets": [ { "secret_id": "cap_t", "environment_variable": "CAP_T" } ],
+  "capture": { "at_end": ["url", "history"], "events": ["network", "downloads", "popups", "page-errors"], "network": { "request_body": false, "response_body": false, "header_values": false } }
+}

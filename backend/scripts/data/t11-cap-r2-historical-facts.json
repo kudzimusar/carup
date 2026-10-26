@@ -1,0 +1,338 @@
+{
+  "programme": "T11-CAP-LR01-R2",
+  "purpose": "Ingest the Owner-authorised historical customer-progress record of the first real transaction into CarUp's own tables, with provenance. Generated from the private CAP-00 capture; nothing is typed from memory.",
+  "ingestion_run": "t11-cap-lr01-r2-ingest-1",
+  "source": {
+    "system": "BE_FORWARD_CAP",
+    "label": "BE FORWARD CAP (customer portal page for the Owner's own purchase)",
+    "display_label": "BE FORWARD portal",
+    "reference": "CD740269",
+    "observed_at": "2026-10-24T23:46:01Z",
+    "observed_at_basis": "modification time of the capture output (UTC). The capture file contains no timestamp of its own; this lies inside the CAP-00 investigation window (23:03Z-23:55Z on 2026-10-24).",
+    "method": "Owner-authorised REA capture of the rendered page; the access token is a secret, was redacted by the capture, and appears nowhere in this repository",
+    "evidence": {
+      "ref": "private-bundle:t11-cap-lr01/cap-00/08-scenarios/cap-scn-01-initial-load.json#normalized_result.steps[1].artifacts.accessibility.value.text",
+      "digest_sha256": "59d029b49b7276fbd764102e94269c85cb5112508ae235e49705b417b3a912a2",
+      "capture_file_sha256": "699bd26f88c8525ca19e7c71c3ab6f2b37b64c8f7b0497bdc7f28993debb18b4"
+    }
+  },
+  "account": {
+    "user_id": "u_66cace85fad949e4"
+  },
+  "target": {
+    "vin": "RU3-1316558"
+  },
+  "protected_vehicle": {
+    "vin": "GFC27-027051"
+  },
+  "progress": [
+    {
+      "entry_sequence": 1,
+      "stage_code": "BOOKING",
+      "action_sequence": 1,
+      "action_taker_reported": "BE FORWARD",
+      "action_taker_kind": "PROVIDER",
+      "action_text": "Your Cap is now available.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 1 of 14"
+    },
+    {
+      "entry_sequence": 2,
+      "stage_code": "BOOKING",
+      "action_sequence": 2,
+      "action_taker_reported": "BE FORWARD",
+      "action_taker_kind": "PROVIDER",
+      "action_text": "Reflect Document delivery address, confirmed you by email, on to CAP.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 2 of 14"
+    },
+    {
+      "entry_sequence": 3,
+      "stage_code": "BOOKING",
+      "action_sequence": 3,
+      "action_taker_reported": "BE FORWARD",
+      "action_taker_kind": "PROVIDER",
+      "action_text": "Booking Department approached shipping line for vessel booking.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 3 of 14"
+    },
+    {
+      "entry_sequence": 4,
+      "stage_code": "BOOKING",
+      "action_sequence": 4,
+      "action_taker_reported": "BE FORWARD",
+      "action_taker_kind": "PROVIDER",
+      "action_text": "Uploaded Export Certificate on to CAP.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 4 of 14"
+    },
+    {
+      "entry_sequence": 5,
+      "stage_code": "BOOKING",
+      "action_sequence": 5,
+      "action_taker_reported": "SHIPPING COMPANY",
+      "action_taker_kind": "CARRIER",
+      "action_text": "Allocated a vessel to your vehicle (confirmed our Booking Department's request).",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 5 of 14"
+    },
+    {
+      "entry_sequence": 6,
+      "stage_code": "BOOKING",
+      "action_sequence": 6,
+      "action_taker_reported": "BE FORWARD / CAP",
+      "action_taker_kind": "PROVIDER",
+      "action_text": "Reflect shipping company's vessel plan on to CAP.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 6 of 14"
+    },
+    {
+      "entry_sequence": 7,
+      "stage_code": "BOOKING",
+      "action_sequence": 7,
+      "action_taker_reported": "BE FORWARD",
+      "action_taker_kind": "PROVIDER",
+      "action_text": "Uploaded Invoice on to CAP.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 7 of 14"
+    },
+    {
+      "entry_sequence": 8,
+      "stage_code": "DEPARTURE",
+      "action_sequence": 1,
+      "action_taker_reported": "SHIPPING COMPANY",
+      "action_taker_kind": "CARRIER",
+      "action_text": "Comfirmed the loading of your vehicle to the vessel.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 8 of 14"
+    },
+    {
+      "entry_sequence": 9,
+      "stage_code": "BILL_OF_LADING",
+      "action_sequence": 1,
+      "action_taker_reported": "BF DOCUMENT CENTER",
+      "action_taker_kind": "DOCUMENT_CENTRE",
+      "action_text": "Uploaded B/L on to CAP.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 9 of 14"
+    },
+    {
+      "entry_sequence": 10,
+      "stage_code": "BILL_OF_LADING",
+      "action_sequence": 2,
+      "action_taker_reported": "You! (Customer) Your Action",
+      "action_taker_kind": "CUSTOMER",
+      "action_text": "Proofread B/L documents and gave feedbacks to BE FORWARD.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 10 of 14"
+    },
+    {
+      "entry_sequence": 11,
+      "stage_code": "BILL_OF_LADING",
+      "action_sequence": 3,
+      "action_taker_reported": "BF DOCUMENT CENTER",
+      "action_taker_kind": "DOCUMENT_CENTRE",
+      "action_text": "Completed to reflect all customer's feedbacks on B/L.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 11 of 14"
+    },
+    {
+      "entry_sequence": 12,
+      "stage_code": "DISPATCH",
+      "action_sequence": 1,
+      "action_taker_reported": "BF DOCUMENT CENTER",
+      "action_taker_kind": "DOCUMENT_CENTRE",
+      "action_text": "Sent out B/L documents and reflected tracking number on CAP.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 12 of 14"
+    },
+    {
+      "entry_sequence": 13,
+      "stage_code": "CLEARING_DELIVERY",
+      "action_sequence": 1,
+      "action_taker_reported": "BE FORWARD TANZANIA",
+      "action_taker_kind": "DESTINATION_AGENT",
+      "action_text": "Originals documents have been received.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 13 of 14"
+    },
+    {
+      "entry_sequence": 14,
+      "stage_code": "CLEARING_DELIVERY",
+      "action_sequence": 2,
+      "action_taker_reported": "You! (Customer) Your Action",
+      "action_taker_kind": "CUSTOMER",
+      "action_text": "Canceled the delivery service and documents have been collected.",
+      "reported_status": "COMPLETED",
+      "source_position": "status table, row 14 of 14"
+    }
+  ],
+  "parties": [
+    {
+      "party_role": "CONSIGNEE",
+      "party_kind": "INDIVIDUAL",
+      "display_name": "Kingstone Musaurwa",
+      "city": "HARARE",
+      "country": "Zimbabwe",
+      "source_position": "CONSIGNEE block",
+      "withheld_from_source_control": [
+        "address_line",
+        "phone",
+        "email"
+      ],
+      "note": "Name as declared on the paperwork. Street address, phone and email are personal data: they are not committed here, and the account profile remains the one home for the owner's contact details."
+    },
+    {
+      "party_role": "NOTIFY_PARTY",
+      "party_kind": "ORGANISATION",
+      "display_name": "BE FORWARD TANZANIA",
+      "source_position": "Notify party block",
+      "address_line": "Palm Residency, Ground Floor, 45-46 Chimara Road, Opposite Ocean Road Hospital",
+      "city": "Dar es Salaam",
+      "country": "Tanzania",
+      "phone": "+255-222-924-120"
+    },
+    {
+      "party_role": "DOCUMENT_DELIVERY",
+      "party_kind": "ORGANISATION",
+      "display_name": "BE FORWARD TANZANIA",
+      "source_position": "DOCUMENT DELIVERY ADDRESS block",
+      "address_line": "Palm Residency, Ground Floor, 45-46 Chimara Road, Opposite Ocean Road Hospital",
+      "city": "Dar es Salaam",
+      "country": "Tanzania",
+      "phone": "+255-222-924-120"
+    },
+    {
+      "party_role": "DOCUMENT_CENTRE",
+      "party_kind": "ORGANISATION",
+      "display_name": "PRIME",
+      "source_position": "Document Center block",
+      "address_line": "Golden Jubilee Mezzanine Floor, Ohio Street,",
+      "city": "Dar es salaam",
+      "country": "Tanzania",
+      "phone": "+255 22 29 22 213",
+      "email": "documentcenter_001@beforward.jp"
+    },
+    {
+      "party_role": "DESTINATION_AGENT",
+      "party_kind": "ORGANISATION",
+      "display_name": "BFT (DOCUMENT)",
+      "source_position": "Delivery table: Agent",
+      "note": "The portal's own \"Agent\" label. It is not an appointed clearing agent and is not presented as one."
+    }
+  ],
+  "dispatch": {
+    "document_types": [
+      "bill_of_lading"
+    ],
+    "recipient_party_role": "DOCUMENT_DELIVERY",
+    "status_reported_text": "Arrived at delivery address",
+    "dispatch_status": "DELIVERED",
+    "message_text": "This is your tracking number for your envelope. (It's also a click-open tracking link.)",
+    "source_position": "Document tracking number block",
+    "note": "The portal stores a status phrase in its tracking-number field. No tracking number, courier or time is stated, so none is recorded."
+  },
+  "specifications": [
+    {
+      "spec_key": "MODEL_CODE",
+      "value_text": "DAA-RU3",
+      "source_value_raw": "DAA-RU3",
+      "source_position": "vehicle table: Model Code"
+    },
+    {
+      "spec_key": "REGISTRATION_YEAR_MONTH",
+      "value_text": "2018-12",
+      "source_value_raw": "2018/12",
+      "source_position": "vehicle table: Registration Year/Month"
+    },
+    {
+      "spec_key": "MANUFACTURE_YEAR_MONTH",
+      "value_text": "2018-06",
+      "source_value_raw": "2018/6",
+      "source_position": "vehicle table: Manufacture Year/month"
+    },
+    {
+      "spec_key": "ENGINE_DISPLACEMENT_CC",
+      "value_number": 1490,
+      "unit": "cc",
+      "source_value_raw": "1490",
+      "source_position": "vehicle table: Engine Size"
+    },
+    {
+      "spec_key": "STEERING_SIDE",
+      "value_text": "RIGHT",
+      "source_value_raw": "Right",
+      "source_position": "vehicle table: Steering"
+    },
+    {
+      "spec_key": "SEAT_COUNT",
+      "value_number": 5,
+      "unit": "count",
+      "source_value_raw": "5",
+      "source_position": "vehicle table: Seats"
+    },
+    {
+      "spec_key": "DOOR_COUNT",
+      "value_number": 5,
+      "unit": "count",
+      "source_value_raw": "5",
+      "source_position": "vehicle table: Doors"
+    },
+    {
+      "spec_key": "FUEL_DETAIL",
+      "value_text": "Hybrid (Petrol)",
+      "source_value_raw": "Hybrid(Petrol)",
+      "source_position": "vehicle table: Fuel"
+    },
+    {
+      "spec_key": "EQUIPMENT_ITEM",
+      "value_text": "A/C",
+      "source_value_raw": "A/C",
+      "source_position": "vehicle options list"
+    },
+    {
+      "spec_key": "EQUIPMENT_ITEM",
+      "value_text": "Airbag",
+      "source_value_raw": "Airbag",
+      "source_position": "vehicle options list"
+    },
+    {
+      "spec_key": "EQUIPMENT_ITEM",
+      "value_text": "Alloy Wheels",
+      "source_value_raw": "Alloy Wheels",
+      "source_position": "vehicle options list"
+    },
+    {
+      "spec_key": "EQUIPMENT_ITEM",
+      "value_text": "Power Steering",
+      "source_value_raw": "Power Steering",
+      "source_position": "vehicle options list"
+    },
+    {
+      "spec_key": "EQUIPMENT_ITEM",
+      "value_text": "Power Window",
+      "source_value_raw": "Power Window",
+      "source_position": "vehicle options list"
+    }
+  ],
+  "media": {
+    "evidence_selector": {
+      "evidence_type": "import_photo",
+      "evidence_subtype": "export_yard_photo"
+    },
+    "expected_count": 50,
+    "ordinal_basis": "SOURCE_GALLERY_ORDER",
+    "ordinal_note": "Derived: the R1 import uploaded the source gallery in page order (first image, then increasing batch windows). Position = rank by uploaded_at. The original filename is not stored on the row, so this is an inference from the import sequence and is labelled as one.",
+    "primary_position": 1,
+    "primary_basis": "SOURCE_FIRST_IMAGE"
+  },
+  "not_recorded": [
+    "any completion time for any of the 14 reported actions (the source supplies none)",
+    "a tracking number, courier, dispatch time or delivery time for the documents",
+    "the consignee's street address, phone and email (personal data, not committed)",
+    "a purchase amount, payment, duty or customs decision",
+    "a destination (the portal's own Destination field is blank)",
+    "any movement of the vessel (planned and estimated dates are T11's, unchanged)",
+    "the operator's personal name"
+  ]
+}

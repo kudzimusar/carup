@@ -13,6 +13,9 @@
  *  - `import_source = 'test'` (and other seed/junk values) is POISONED and excluded.
  */
 
+// The identifier shape rule is defined once (a pure helper), shared with the Seller form and the listing eligibility gate.
+import { hasAcceptableIdentifierShape } from '../../utils/sellerVehicleIdentifier.js'
+
 export const CONDITION_CATEGORIES = [
   'brand_new',
   'recently_imported',
@@ -106,10 +109,10 @@ const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i
 /**
  * Real-market Seller identifiers. Standard 17-char VINs remain accepted, while documented
- * Japanese domestic frame/chassis identifiers such as GFC27-027051 are valid 12–17 character
- * identifiers. Hyphen is permitted; underscore remains reserved/synthetic.
+ * Japanese domestic frame/chassis identifiers such as GFC27-027051 or RU3-1316558 are valid too.
+ * Hyphen is permitted; underscore remains reserved/synthetic. The shape rule is defined ONCE, in
+ * utils/sellerVehicleIdentifier.js.
  */
-const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i
 /** Reserved Seller automation marker. Human listings using this exact prefix are treated as fixtures. */
 export const SELLER_AUTOMATION_DESCRIPTION_RE = /^Golden Dynamic Seller ([a-z0-9-]+):/i
 
@@ -140,7 +143,7 @@ export function getFixtureExclusion(vehicle = {}) {
   // (synthetic OR integration OR underscored); only the reported reason differs.
   if (vin && INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
   if (vin && (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_'))) return `synthetic_vin_prefix(${vin})`
-  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) {
+  if (vin && !hasAcceptableIdentifierShape(vin)) {
     return `invalid_vin_format(${vin})`
   }
   if (owner && (SEED_OWNER_IDS.has(owner) || /^u\d+$/.test(owner))) return `seed_owner_id(${owner})`

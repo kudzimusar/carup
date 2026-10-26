@@ -66,6 +66,19 @@ export function statedPrice(amount: unknown): string {
   return typeof amount === 'number' && Number.isFinite(amount) ? `$${amount.toLocaleString()}` : 'Price not recorded'
 }
 
+/**
+ * The price of a VEHICLE RECORD (My Garage, the vehicle profile) — not a listing's asking price, which keeps `statedPrice`'s own rule.
+ *
+ * `vehicles.price` is NOT NULL, so a record that was never priced carries 0: a placeholder, never a price paid or asked. Printing it as
+ * "$0" states a purchase price CarUp does not hold (T11-CAP-LR01-R2: the real vehicle was imported with 0 and no currency). A zero is
+ * therefore "not recorded" here unless a currency was stated beside it; every other value prints exactly as it always has.
+ */
+export function statedVehiclePrice(amount: unknown, currency?: unknown): string {
+  const currencyStated = typeof currency === 'string' && currency.trim() !== ''
+  if (amount === 0 && !currencyStated) return 'Price not recorded'
+  return statedPrice(amount)
+}
+
 /** `new Date('').toLocaleDateString()` is the string "Invalid Date"; an absent date says so. */
 export function statedDate(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null

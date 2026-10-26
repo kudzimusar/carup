@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   identifySellerVehicle,
   isCompleteVin,
+  sellerVehicleIdentifierProblem,
   type SellerVehicleIdentification,
 } from './sellerVehicleIdentification'
 
@@ -35,6 +36,31 @@ describe('S1 seller vehicle identification', () => {
     const result = await identifySellerVehicle('GFC27-02705', lookup)
     expect(lookup).not.toHaveBeenCalled()
     expect(result.state).toBe('incomplete')
+  })
+
+  it('T11-CAP-LR01-R2 §16: accepts a documented Japanese frame number shorter than 12 characters — the real Vezel — and nothing looser', async () => {
+    // RU3-1316558 is the real 2018 Honda Vezel's frame number: ELEVEN characters. A flat 12-character floor refused a
+    // legitimate vehicle CarUp already holds. The fix is one structured shape, not a lower floor.
+    expect(isCompleteVin('RU3-1316558')).toBe(true)
+    expect(isCompleteVin('  ru3-1316558  ')).toBe(true)
+    for (const frame of ['GK3-1234567', 'E12-123456', 'ZRR80-0123456', 'NZE141-3012345', 'CP9A-0001234']) expect(isCompleteVin(frame)).toBe(true)
+
+    // Below 12 characters nothing else is accepted: no hyphen, a short or lettered serial, a numeric type code, other punctuation.
+    for (const refused of ['SHORT12345', 'RU31316558', 'RU3-1316', 'GFC27-02705', 'R-1316558', 'RU3--131655', '-RU3-131655', '263-7732364', '123-4567890', 'RU3-13165A8', 'RU3_1316558', 'RU3 1316558', 'RU3.1316558']) {
+      expect(isCompleteVin(refused), refused).toBe(false)
+    }
+    // …and unsafe characters are refused at any length.
+    expect(isCompleteVin('RU3-1316558;--')).toBe(false)
+    expect(isCompleteVin('<RU3>-1316558')).toBe(false)
+
+    // The lookup runs on the normalised identifier, exactly as it does for the Serena.
+    const lookup = vi.fn().mockRejectedValue(Object.assign(new Error('Vehicle not found'), { status: 404 }))
+    const result = await identifySellerVehicle('ru3-1316558', lookup)
+    expect(lookup).toHaveBeenCalledWith('RU3-1316558')
+    expect(result.state).toBe('no_carup_record')
+    expect(result.vin).toBe('RU3-1316558')
+    expect(sellerVehicleIdentifierProblem('RU3-1316558')).toBeNull()
+    expect(sellerVehicleIdentifierProblem('SHORT12345')).toBe('shape')
   })
 
   it('refuses a 17-character VIN carrying I, O or Q so one typo cannot mint a second Passport', () => {

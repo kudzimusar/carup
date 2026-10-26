@@ -146,6 +146,10 @@ import { projectFinanceObligationForVehicle } from './services/finance/vehicleFi
 // have accepted. See the listing-media block of POST /api/vehicles/add.
 import { toVehicleMedia, isPublishableMediaUrl, toListingMediaBlock } from './utils/vehicleMediaProjection.js';
 import {
+  actorForGovernedMedia, createStorageSigner, readGovernedMedia, readGovernedMediaForVehicles,
+} from './services/evidence/governedVehicleMediaService.js';
+import { createGovernedMediaRouter } from './routes/governedMediaRoutes.js';
+import {
   LOOKUP_KINDS,
   LOOKUP_DECISIONS,
   NON_ENUMERABLE_LOOKUP_RESPONSE,
@@ -158,6 +162,7 @@ import { buildVehicleListingCandidate, getListingEligibility } from './services/
 import { normalizeZimbabweRegistrationStatus } from './services/registration/zimbabweRegistrationLifecycle.js';
 import { normalizeVehicleTaxonomyInput } from './services/taxonomy/vehicleTaxonomyService.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
+import { registerJourneyAlertListeners } from './services/diaspora/journeyAlertNotifier.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
 import { buildCanonicalVehicleLifecycle } from './services/report/canonicalVehicleLifecycleService.js';
@@ -383,6 +388,8 @@ app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehicleOperationsRouter);
 app.use(vehiclesRouter);
+// T11-CAP-LR01-R2 step F: a vehicle's governed media, in full, for the people entitled to it (identical 404 for everyone else).
+app.use(createGovernedMediaRouter());
 app.use(evidenceCatalogRouter);
 app.use(ingestionRouter);
 app.use(sourceVerificationRouter);
@@ -435,6 +442,7 @@ if (connectionError) {
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
   registerCommunicationListeners(eventWorker);
+  registerJourneyAlertListeners(eventWorker);
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 
@@ -734,6 +742,41 @@ async function ownerListingMedia(vins) {
     vin,
     toListingMediaBlock(rows === null ? null : rows.filter((row) => row.vin === vin)),
   ]));
+}
+
+/**
+ * T11-CAP-LR01-R2 step F — the vehicle's GOVERNED MEDIA, attached by the ROUTE and not by `buildVehiclePassport`.
+ *
+ * The passport builder's collaborator list is closed on purpose (eleven names, pinned by older certified harnesses that execute its
+ * shipped source), so the block is added to the body AFTER the builder returns. Same audience rule the builder applies to its private
+ * evidence vault — the vehicle's owner or a platform role, from a PROVEN identity — and for everyone else NOTHING IS ADDED: no empty
+ * block, no count, no flag, so a public passport is byte-identical whether or not the vehicle has any governed media. A fault here
+ * never fails the passport and never says anything about the vehicle.
+ */
+const governedMediaSigner = createStorageSigner(supabase);
+
+async function withGovernedMedia(passport, vin, req) {
+  const actor = actorForGovernedMedia(req.userContext);
+  // Anonymous and asserted callers cost nothing and learn nothing: no query is issued for them at all.
+  if (!passport || !actor.id || actor.identityAsserted) return passport;
+  try {
+    const { data: vehicle } = await supabase.from('vehicles').select('vin, owner_id').eq('vin', vin).maybeSingle();
+    if (!vehicle) return passport;
+    const block = await readGovernedMedia({ client: supabase, vehicle, actor, signer: governedMediaSigner });
+    return block ? { ...passport, governed_media: block } : passport;
+  } catch (error) {
+    console.warn('[governed-media] could not be attached to the passport:', error?.message);
+    return passport;
+  }
+}
+
+/**
+ * A passport body that carries the owner's short-lived photograph links is a capability for THAT viewer alone: a browser or a shared cache must never
+ * store it. A body without the block (every public passport) is sent exactly as before.
+ */
+function sendPassportBody(res, body) {
+  if (body && body.governed_media) res.set('Cache-Control', 'private, no-store');
+  return res.json(body);
 }
 
 /**
@@ -1648,7 +1691,7 @@ app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (r
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
-    res.json(passport);
+    return sendPassportBody(res, await withGovernedMedia(passport, vin, req));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1693,7 +1736,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
-    res.json(passport);
+    return sendPassportBody(res, await withGovernedMedia(passport, resolvedVin, req));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2682,7 +2725,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
         code: 'SELLER_VEHICLE_IDENTIFIER_NOT_ISO_VIN',
       }
       : {
-        error: 'Vehicle identifier must be 12 to 17 letters, numbers, or hyphens',
+        error: 'Vehicle identifier must be a 17-character VIN, 12 to 17 letters, numbers or hyphens, or a hyphenated Japanese frame number such as GFC27-027051 or RU3-1316558',
         code: 'SELLER_VEHICLE_IDENTIFIER_INVALID',
       });
   }
@@ -3936,10 +3979,27 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // uses. Without this the owner list surfaces have no media field to read at all and every card
     // falls back to the "Image unavailable" placeholder — see ownerListingMedia.
     const media = await ownerListingMedia(withTrust.map((vehicle) => vehicle.vin))
+    // T11-CAP-LR01-R2 step F: the hero of each vehicle's GOVERNED media, for the vehicles this user may view (owner or platform role).
+    // A separate, key-disjoint block beside `listing_media`, which is untouched. A fault here leaves the key off; it never fails the garage.
+    let governed = new Map()
+    try {
+      governed = await readGovernedMediaForVehicles({
+        client: supabase,
+        vehicles: withTrust.map((vehicle) => ({ vin: vehicle.vin, owner_id: vehicle.owner_id })),
+        actor: actorForGovernedMedia(req.userContext),
+        signer: governedMediaSigner,
+        limit: 1,
+      })
+    } catch (governedError) {
+      console.warn('[governed-media] garage heroes unavailable:', governedError?.message)
+    }
+    // A list that carries the owner's short-lived photograph links is for that viewer alone; it is never stored by a browser or a shared cache.
+    if (governed.size > 0) res.set('Cache-Control', 'private, no-store')
     res.json(withTrust.map((vehicle) => ({
       ...vehicle,
       counts: counts.get(vehicle.vin) ?? null,
       listing_media: media.get(vehicle.vin) ?? toListingMediaBlock(null),
+      ...(governed.has(vehicle.vin) ? { governed_media: governed.get(vehicle.vin) } : {}),
     })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)

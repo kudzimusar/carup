@@ -2,6 +2,7 @@ import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 import { loadPairingFile, resolvePreviewApiUrl } from "./build/previewPairing"
+import { resolveCommitSha, resolveGitRef } from "./build/commitIdentity"
 
 // ── Candidate provenance (Issue #164 Phase 8, Cluster I) ────────────────────────────────────────
 // A per-branch preview must be built against ITS OWN backend preview. The first Phase 8 physical UAT
@@ -21,8 +22,10 @@ const pairing = resolvePreviewApiUrl({
 if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
 // The SHA this bundle was built from, so the running app can prove which candidate it is and compare
 // itself against the backend's `/api/health`. Empty when built outside Vercel (local/dev).
-process.env.VITE_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? ''
-process.env.VITE_GIT_REF = process.env.VERCEL_GIT_COMMIT_REF ?? ''
+// A CLI upload has no Git variables; the deployer's explicit CARUP_BUILD_SHA / CARUP_BUILD_REF stand in for them,
+// and a disagreement between the two sources stops the build (web/build/commitIdentity.ts).
+process.env.VITE_COMMIT_SHA = resolveCommitSha(process.env)
+process.env.VITE_GIT_REF = resolveGitRef(process.env)
 // Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.
 console.log(
   `[carup] API base for this build: ${pairing.apiUrl ?? '(runtime host resolution)'} — ${pairing.reason}`,

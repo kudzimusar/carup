@@ -184,6 +184,18 @@ jobs:
       - name: Trade OS T12 attributed customs schema verification (isolated PGlite Postgres)
         run: node database/test/trade_os_t12_customs_check.mjs
 
+      - name: Trade OS T11-CAP-04 shipment legs schema verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_cap04_legs_check.mjs
+
+      - name: Trade OS T11-CAP-05 shipment observations schema verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_cap05_observations_check.mjs
+
+      - name: Trade OS T11-CAP-08 Journey alert identity and governed template verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_cap08_journey_alerts_check.mjs
+
+      - name: Trade OS T11-CAP-LR01-R2 customer-journey authorities verification (isolated PGlite Postgres)
+        run: node database/test/trade_os_cap_r2_authorities_check.mjs
+
       # The deployed-staging gate's product assertions must MATTER. Its own suite takes ~30 minutes
       # on one viewport and cannot run concurrently, so the load-bearing security/T5/T2 assertions
       # are pinned here and checked in seconds.

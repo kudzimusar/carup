@@ -1,0 +1,842 @@
+{
+  "functions": [
+    {
+      "name": "carup_cap_recorded_fact_guard",
+      "args": "",
+      "body_md5": "9d9a4ecc81935a10fecbc1d0f217064e",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "expected_body_md5": "9d9a4ecc81935a10fecbc1d0f217064e"
+    },
+    {
+      "name": "carup_cap_recorded_fact_no_delete",
+      "args": "",
+      "body_md5": "658015229e1b61d828f0ec94b636b39d",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "expected_body_md5": "658015229e1b61d828f0ec94b636b39d"
+    },
+    {
+      "name": "carup_document_dispatch_time_guard",
+      "args": "",
+      "body_md5": "56bae34eb15da3059a3483318177978a",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "expected_body_md5": "56bae34eb15da3059a3483318177978a"
+    },
+    {
+      "name": "carup_vehicle_media_reference_check",
+      "args": "",
+      "body_md5": "359bc56df1c3c0e9570d9bd85883975d",
+      "secdef": false,
+      "is_trigger": true,
+      "config": null,
+      "anon_exec": true,
+      "authenticated_exec": true,
+      "expected_body_md5": "359bc56df1c3c0e9570d9bd85883975d"
+    }
+  ],
+  "tables": [
+    {
+      "name": "diaspora_document_dispatches",
+      "rls": true,
+      "force_rls": true,
+      "columns": 29,
+      "anon_any": false,
+      "authenticated_any": false
+    },
+    {
+      "name": "diaspora_external_progress_entries",
+      "rls": true,
+      "force_rls": true,
+      "columns": 29,
+      "anon_any": false,
+      "authenticated_any": false
+    },
+    {
+      "name": "diaspora_order_parties",
+      "rls": true,
+      "force_rls": true,
+      "columns": 27,
+      "anon_any": false,
+      "authenticated_any": false
+    },
+    {
+      "name": "vehicle_media_references",
+      "rls": true,
+      "force_rls": true,
+      "columns": 20,
+      "anon_any": false,
+      "authenticated_any": false
+    },
+    {
+      "name": "vehicle_specification_observations",
+      "rls": true,
+      "force_rls": true,
+      "columns": 23,
+      "anon_any": false,
+      "authenticated_any": false
+    }
+  ],
+  "triggers": [
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "trg_document_dispatch_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "trg_document_dispatch_no_delete",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": true,
+      "on_update": false
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "trg_document_dispatch_time_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": true,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "trg_external_progress_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "trg_external_progress_no_delete",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": true,
+      "on_update": false
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "trg_order_party_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "trg_order_party_no_delete",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": true,
+      "on_update": false
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "trg_vehicle_media_ref_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "trg_vehicle_media_ref_validate",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": true,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "trg_vehicle_spec_obs_guard",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": false,
+      "on_update": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "trg_vehicle_spec_obs_no_delete",
+      "enabled": "O",
+      "before_row_timing": true,
+      "for_each_row": true,
+      "on_insert": false,
+      "on_delete": true,
+      "on_update": false
+    }
+  ],
+  "constraints": [
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_courier_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_evidence_digest_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_evidence_ref_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_external_provenance_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_import_order_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_origin_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_recipient_party_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_shipment_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_source_position_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_source_system_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_status_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_tenant_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_text_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_times_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_tracking_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_types_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_updated_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_document_dispatches",
+      "name": "diaspora_document_dispatches_verification_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_import_order_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_shipment_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_tenant_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_updated_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_entries_vehicle_vin_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_evidence_digest_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_evidence_ref_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_observed_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_sequence_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_source_position_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_source_system_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_stage_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_status_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_taker_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_taker_kind_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_text_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_time_basis_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_time_order_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_external_progress_entries",
+      "name": "diaspora_external_progress_verification_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_address_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_email_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_evidence_digest_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_evidence_ref_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_external_provenance_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_import_order_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_kind_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_name_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_observed_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_origin_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_phone_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_role_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_source_position_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_source_system_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_tenant_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_updated_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "diaspora_order_parties",
+      "name": "diaspora_order_parties_verification_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_label_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_observed_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_ordinal_basis_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_position_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_primary_basis_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_primary_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_source_position_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_ref_source_system_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_references_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_references_evidence_id_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_references_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_references_updated_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_media_references",
+      "name": "vehicle_media_references_vin_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_count_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_displacement_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_evidence_digest_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_evidence_ref_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_external_provenance_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_key_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_observed_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_origin_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_raw_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_source_position_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_source_reference_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_source_system_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_steering_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_text_keys_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_verification_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_spec_obs_year_month_chk",
+      "type": "c",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_specification_observations_created_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_specification_observations_pkey",
+      "type": "p",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_specification_observations_updated_by_fkey",
+      "type": "f",
+      "validated": true
+    },
+    {
+      "table_name": "vehicle_specification_observations",
+      "name": "vehicle_specification_observations_vin_fkey",
+      "type": "f",
+      "validated": true
+    }
+  ],
+  "indexes": [
+    {
+      "name": "diaspora_document_dispatches_pkey"
+    },
+    {
+      "name": "diaspora_external_progress_entries_pkey"
+    },
+    {
+      "name": "diaspora_order_parties_pkey"
+    },
+    {
+      "name": "idx_document_dispatch_order"
+    },
+    {
+      "name": "idx_external_progress_order"
+    },
+    {
+      "name": "idx_vehicle_media_ref_vin"
+    },
+    {
+      "name": "idx_vehicle_spec_obs_vin"
+    },
+    {
+      "name": "uq_document_dispatch_live_source"
+    },
+    {
+      "name": "uq_external_progress_live_entry"
+    },
+    {
+      "name": "uq_external_progress_live_stage_action"
+    },
+    {
+      "name": "uq_order_party_live_role"
+    },
+    {
+      "name": "uq_vehicle_media_ref_live_asset"
+    },
+    {
+      "name": "uq_vehicle_media_ref_live_position"
+    },
+    {
+      "name": "uq_vehicle_media_ref_live_primary"
+    },
+    {
+      "name": "uq_vehicle_spec_obs_live_equipment"
+    },
+    {
+      "name": "uq_vehicle_spec_obs_live_single"
+    },
+    {
+      "name": "vehicle_media_references_pkey"
+    },
+    {
+      "name": "vehicle_specification_observations_pkey"
+    }
+  ]
+}

@@ -42,6 +42,7 @@
  * remains correct afterwards.)
  */
 import { isPublicVehicleStatus, normalizeVehicleStatus } from '../../utils/vehicleStatus.js';
+import { hasAcceptableIdentifierShape } from '../../utils/sellerVehicleIdentifier.js';
 import { vehicleYearBounds } from '../taxonomy/vehicleTaxonomyService.js';
 import {
   getFixtureExclusion,
@@ -51,9 +52,9 @@ import {
   SEED_TENANT_IDS,
 } from './marketplaceClassificationRules.js';
 
-// Real-market identity: standard ISO VINs remain valid, and documented import frame/chassis
-// identifiers are also valid when they are 12–17 characters using letters/numbers/hyphens.
-const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i;
+// Real-market identity: standard ISO VINs remain valid, and documented import frame/chassis identifiers are also valid —
+// 12–17 letters/numbers/hyphens, or a hyphenated Japanese frame number such as RU3-1316558. The rule is defined ONCE, in
+// utils/sellerVehicleIdentifier.js, so the Seller form, the API and this gate can never disagree about what counts as one vehicle.
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i;
 const SEED_OWNER_RE = /^u\d+$/;
 
@@ -73,7 +74,7 @@ function norm(value) {
  */
 export function isStructurallyValidVin(vin) {
   const v = String(vin ?? '').trim();
-  if (!VALID_VEHICLE_IDENTIFIER_RE.test(v)) return false;
+  if (!hasAcceptableIdentifierShape(v)) return false;
   if (SYNTHETIC_VIN_RE.test(v)) return false; // belt-and-suspenders for test/fixture prefixes
   return true;
 }
