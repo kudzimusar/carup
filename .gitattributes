@@ -1,0 +1,4 @@
+# T11-CAP-LR01-R2: the controlling authority document is committed byte-for-byte as the Moderator supplied it (custody of its bytes is part of
+# the evidence). Its markdown hard line breaks are trailing spaces, so the trailing-space check of `git diff --check` is switched off for
+# THIS ONE FILE rather than rewriting the document.
+docs/trade-os/T11_CAP_LR01_R2_CARUP_CAP_PRODUCT_AUTHORITY.md whitespace=-trailing-space
