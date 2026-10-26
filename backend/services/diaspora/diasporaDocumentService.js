@@ -1,16 +1,19 @@
 import { supabase } from '../../db/supabase.js';
 import { DOCUMENT_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { CarUpError, DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateTradeDocumentPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
+import { generateSecureReadUrl } from '../storage/storageService.js';
 import {
   assertCanReadTradeDocument,
   assertImportOrderIdRequired,
   canReadImportOrder,
   canReadTradeDocument,
+  isPlatformAdmin,
   isPlatformReviewer,
+  normalizeId,
   redactTradeDocumentStorage,
   requireUserContext,
 } from './diasporaAuthorization.js';
@@ -160,6 +163,104 @@ export async function getTradeDocumentWithStorage(id, userContext = {}) {
 
 export async function getTradeDocument(id, userContext = {}) {
   return redactTradeDocumentStorage(await getTradeDocumentWithStorage(id, userContext));
+}
+
+// ── T11-CAP-LR01-R2 step H — open one of MY documents ─────────────────────────────────────────────────────
+
+/** Where T8's files live, and how long a link to one lasts: a capability for minutes, not a credential for hours. */
+export const TRADE_DOCUMENT_BUCKET = 'ocr-documents';
+export const TRADE_DOCUMENT_ACCESS_TTL_SECONDS = 300;
+export const TRADE_DOCUMENT_DISPOSITIONS = Object.freeze(['view', 'download']);
+
+const DOWNLOAD_NAMES = Object.freeze({
+  bill_of_lading: 'Bill of lading', commercial_invoice: 'Commercial invoice', export_certificate: 'Export certificate',
+  inspection_certificate: 'Inspection certificate', insurance_certificate: 'Insurance certificate', packing_list: 'Packing list',
+});
+
+/** What a review state may be called. Opening a file is never a statement that CarUp has checked it. */
+function reviewWords(status) {
+  switch (String(status || '').toUpperCase()) {
+    case 'VERIFIED': return { state: 'verified', note: 'Checked and verified by CarUp.' };
+    case 'REJECTED': return { state: 'rejected', note: 'Reviewed and rejected. A corrected version can be supplied.' };
+    case 'FLAGGED': return { state: 'flagged', note: 'Flagged for attention. CarUp has not verified this file.' };
+    default: return { state: 'not_verified', note: 'Supplied. CarUp has not verified this file.' };
+  }
+}
+
+/**
+ * The short-lived view of ONE document's file, for the people it belongs to: the order's owner, the person who uploaded it, and the
+ * platform roles. T8's own read rule applies first and is never widened; this is NARROWER — a participant, a supplier or a tenant
+ * administrator may read a document's record, but is not given its file here. (The Journey forwards a document's id to exactly this
+ * set, and no one else.)
+ *
+ * EVERY refusal is the same "not found": a missing document, someone else's, and one the caller may read but not open are
+ * indistinguishable, so the route cannot be used to learn which ids exist.
+ *
+ * What leaves this function is a link and its expiry — never the storage path, the bucket, the uploader or the reviewer. The access is
+ * audited, and if it cannot be audited the link is not returned.
+ */
+export async function getTradeDocumentAccess(id, userContext = {}, { disposition = 'view', req = null, signUrl = generateSecureReadUrl, now = new Date() } = {}) {
+  const context = requireUserContext(userContext);
+  if (!TRADE_DOCUMENT_DISPOSITIONS.includes(disposition)) throw new ValidationError(`disposition must be one of: ${TRADE_DOCUMENT_DISPOSITIONS.join(', ')}`);
+  const refuse = () => new NotFoundError('Document not found');
+
+  let doc;
+  try {
+    doc = await getTradeDocumentWithStorage(id, context);
+  } catch (error) {
+    if (error instanceof NotFoundError || error?.statusCode === 403) throw refuse();
+    throw error;
+  }
+
+  const privileged = isPlatformAdmin(context) || isPlatformReviewer(context);
+  const uploader = normalizeId(doc.uploaded_by) === context.id;
+  let owner = false;
+  if (!privileged && !uploader && doc.import_order_id) {
+    try {
+      const order = await getOrder(doc.import_order_id);
+      owner = [order.buyer_id, order.created_by].map(normalizeId).filter(Boolean).includes(context.id);
+    } catch { owner = false; }
+  }
+  if (!privileged && !uploader && !owner) throw refuse();
+  if (!doc.storage_path) throw new NotFoundError('This document has no file to open');
+
+  const extension = (/\.([A-Za-z0-9]{2,5})$/.exec(String(doc.storage_path)) || [])[1];
+  const downloadName = `${DOWNLOAD_NAMES[doc.document_type] || 'Document'}${extension ? `.${extension.toLowerCase()}` : ''}`;
+  let href;
+  try {
+    href = await signUrl(TRADE_DOCUMENT_BUCKET, doc.storage_path, TRADE_DOCUMENT_ACCESS_TTL_SECONDS, disposition === 'download' ? { download: downloadName } : undefined);
+  } catch {
+    throw new CarUpError('The document could not be opened right now. Please try again.', 503, 'DOCUMENT_UNAVAILABLE');
+  }
+  if (!href) throw new CarUpError('The document could not be opened right now. Please try again.', 503, 'DOCUMENT_UNAVAILABLE');
+
+  // Audited BEFORE the link leaves: an access that cannot be recorded does not happen. The record names the document and the person, never the link.
+  await writeDiasporaAudit({
+    importOrderId: doc.import_order_id || null,
+    actorId: context.id,
+    tenantId: doc.tenant_id || null,
+    action: 'TRADE_DOCUMENT_ACCESSED',
+    resourceType: 'diaspora_trade_document',
+    resourceId: doc.id,
+    metadata: { document_type: doc.document_type, version: doc.version ?? null, disposition, ttl_seconds: TRADE_DOCUMENT_ACCESS_TTL_SECONDS },
+    req,
+  });
+
+  const review = reviewWords(doc.verification_status);
+  return {
+    data: {
+      document: {
+        id: doc.id,
+        document_type: doc.document_type,
+        version: doc.version ?? 1,
+        supplied_at: doc.created_at || null,
+        review_state: review.state,
+        review_note: review.note,
+      },
+      view: { href, expires_at: new Date(new Date(now).getTime() + TRADE_DOCUMENT_ACCESS_TTL_SECONDS * 1000).toISOString(), disposition },
+      note: 'This link opens the file for a few minutes and is for you. Opening a file does not mean CarUp has checked it.',
+    },
+  };
 }
 
 export async function recordDocumentExtraction(documentId, payload, userContext = {}, req = null) {

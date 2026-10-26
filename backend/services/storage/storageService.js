@@ -111,12 +111,15 @@ export async function uploadToStorage(bucketName, fileName, fileBuffer, mimeType
  * @param {string} bucketName - Usually 'ocr-documents'
  * @param {string} storagePath - The secure relative storage path in the bucket
  * @param {number} expiresInSeconds - Time before link expires (default 1 hour)
+ * @param {{download?: string|boolean}} [options] - passed to the signer when given (a download link rather than an inline one)
  * @returns {Promise<string>} Temporary signed read URL
  */
-export async function generateSecureReadUrl(bucketName, storagePath, expiresInSeconds = 3600) {
-  const { data, error } = await supabase.storage
-    .from(bucketName)
-    .createSignedUrl(storagePath, expiresInSeconds);
+export async function generateSecureReadUrl(bucketName, storagePath, expiresInSeconds = 3600, options = undefined) {
+  // `options` (e.g. `{ download: 'name.pdf' }`) is passed on ONLY when given, so every existing caller makes exactly the call it always made.
+  const bucket = supabase.storage.from(bucketName);
+  const { data, error } = options
+    ? await bucket.createSignedUrl(storagePath, expiresInSeconds, options)
+    : await bucket.createSignedUrl(storagePath, expiresInSeconds);
 
   if (error) {
     console.error('❌ [Storage Service] Failed to generate signed URL:', error.message);
