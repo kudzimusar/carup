@@ -1,5 +1,8 @@
 # T11-CAP-LR01 — Journey & Arrival · Final return packet
 
+> **Superseded by [T11_CAP_LR01_R1_RETURN.md](T11_CAP_LR01_R1_RETURN.md).** The `RECOMMEND BLOCK` below was the disposition at the first return; the Moderator ruled
+> the blocking decisions (D1–D9) and the R1 run closed the real-data UAT. This file is kept unedited otherwise, as the record of that return.
+
 **Programme:** CarUp Trade OS — reconstruct the Owner-authorised BE FORWARD CAP page with REA, reconcile it against the frozen
 Trade OS authorities, build the Journey & Arrival capability, converge it onto staging, and run a real-data physical UAT.
 

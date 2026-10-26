@@ -48,6 +48,11 @@ import { buildDocumentWorkspace } from './tradeDocumentWorkspaceService.js';
 import { findCaseForSubject } from './customsCaseService.js';
 import { getMyCustomsStatus } from './customsProjectionService.js';
 import { projectLaneStatistics, projectOwnMetrics } from './journeyIntelligence.js';
+import {
+  PURCHASE_PRICE_NOT_RECORDED, composeDocumentDelivery, composeImportantUpdate, composeParties, composePayments, composeProgress, composeSpecifications,
+  deriveNativeProgress, readCapRecords,
+} from './journeyCapComposition.js';
+import { actorForGovernedMedia, createStorageSigner, readGovernedMedia } from '../evidence/governedVehicleMediaService.js';
 
 const ORDERS = 'diaspora_import_orders';
 const PARTICIPANTS = 'diaspora_import_order_participants';
@@ -304,7 +309,7 @@ export const JOURNEY_DOCUMENT_TYPES = Object.freeze([
  * WITHHELD, not as an error. If T8 cannot be read at all the section says UNAVAILABLE — it never fails
  * the journey, and it never implies there are no documents.
  */
-async function composeDocuments(client, order, context) {
+async function composeDocuments(client, order, context, privateAccess = false) {
   try {
     const workspace = await buildDocumentWorkspace('import_order', order.id, context, { supabaseClient: client });
     const byCode = new Map((workspace.items || []).map((i) => [i.document_type, i]));
@@ -315,6 +320,9 @@ async function composeDocuments(client, order, context) {
       state: i.state,
       note: i.note,
       document: i.document ? {
+        // The id is forwarded ONLY to a viewer with private access, so the page can offer to open the document; the open route
+        // re-checks T8's own read rule, so holding an id grants nothing.
+        ...(privateAccess ? { id: i.document.id, can_open: true } : {}),
         version: i.document.version,
         supplied_at: i.document.supplied_at,
         reviewed_at: i.document.reviewed_at,
@@ -612,6 +620,53 @@ async function getVehicleJourney(client, vin, context, options) {
  * The journey of one import order, however the caller names it (the order, a cargo booking on it, or
  * its shipment). Bounded reads — the number of queries does not grow with the length of the timeline.
  */
+/**
+ * T11-CAP-LR01-R2 step G. The parts of the customer's CAP that no earlier layer composes. Nothing here is stored or decided; see
+ * journeyCapComposition.js. A viewer without private access receives `withheld` for every part, identically whether or not anything exists.
+ */
+async function composeCap({ client, order, vehicle, viewer, context, options, now, documents, customs, exceptions, loadRecord, movement, dates }) {
+  const privateAccess = viewer.privateAccess === true;
+  if (!privateAccess) {
+    const closed = { availability: 'withheld', note: 'This is not available to you here.' };
+    return {
+      reference: null, specifications: closed, media: null, parties: closed, document_delivery: closed, progress: closed, payments: closed,
+      important_update: composeImportantUpdate({ exceptions }),
+    };
+  }
+  const records = await readCapRecords(client, { orderId: order.id, vin: vehicle?.vin || order.linked_vehicle_vin || null });
+  // The purchase's own reference number as the paperwork carries it; nothing about which system issued it.
+  const reference = order.metadata?.external_reference?.reference ? { value: String(order.metadata.external_reference.reference) } : null;
+  const specifications = composeSpecifications({
+    vehicle, specs: records.specs.rows, specsRead: records.specs.ok, externalReference: order.metadata?.external_reference || null, privateAccess,
+  });
+  const parties = composeParties({ parties: records.parties.rows, partiesRead: records.parties.ok, privateAccess });
+  const document_delivery = composeDocumentDelivery({ dispatches: records.dispatches.rows, dispatchesRead: records.dispatches.ok, parties: records.parties.rows, privateAccess });
+  const native = deriveNativeProgress({ movement, loadRecord, dates, documents, dispatches: records.dispatches.rows || [], customs });
+  const progress = composeProgress({ ledger: records.ledger.rows, ledgerRead: records.ledger.ok, native, privateAccess });
+  const payments = composePayments({ payments: records.payments.rows, paymentsRead: records.payments.ok, privateAccess });
+
+  // The vehicle's own photographs — only if THIS viewer may view THIS vehicle's media (its owner, or a platform role). A buyer who does not
+  // own the vehicle is not shown its owner's private photographs just because they can read the order.
+  let media = null;
+  if (vehicle?.vin) {
+    try {
+      media = await readGovernedMedia({
+        client,
+        vehicle: { vin: vehicle.vin, owner_id: vehicle.owner_id },
+        actor: actorForGovernedMedia(context),
+        isPrivileged: privileged(context),
+        signer: options.governedMediaSigner || createStorageSigner(client),
+        now,
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[journey] governed media could not be read:', error?.message);
+      media = null;
+    }
+  }
+  return { reference, specifications, media, parties, document_delivery, progress, payments, important_update: composeImportantUpdate({ exceptions, deliverySection: document_delivery }) };
+}
+
 export async function getJourney(subjectType, subjectId, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
@@ -653,6 +708,9 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   let state;
   let shipping;
   let resolvedShipmentId = null;
+  // What CarUp's own progress rows are derived from (see journeyCapComposition): the recorded movement and the recorded dates.
+  let recordedMovement = [];
+  let recordedDates = null;
   // CAP-09. Statistics exist only for a shipment the Journey plainly resolved; everything else says there are none.
   let intelligence = NOT_APPLICABLE;
   const now = options.now ? new Date(options.now) : new Date();
@@ -687,6 +745,8 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
         .eq('shipment_id', shipment.id).is('deleted_at', null);
       const movement = projectMovement(events);
       const dates = projectDates(shipment);
+      recordedMovement = movement;
+      recordedDates = dates;
       timeline.push(...movement);
 
       // Derived from OBSERVED facts, not from the status enum, which can carry customs and release
@@ -757,7 +817,7 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
     : { data: null };
 
   // Documents are T8's and are composed from it; next steps are derived only from recorded state.
-  const documents = await composeDocuments(client, order, context);
+  const documents = await composeDocuments(client, order, context, viewer.privateAccess);
 
   // Customs is T12's, composed only after T12 has admitted the viewer, then checked against the shipment
   // and order this journey resolved. A disagreement is surfaced as an exception and shows nothing of the case.
@@ -773,12 +833,27 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
   }
   const actions = deriveActions({ viewer, documents, customs, exceptions, orderId: order.id, reservationId: ladderReservation?.id || null });
 
+  // T11-CAP-LR01-R2 step G — the customer's CAP: specifications, parties, document delivery, progress, payments, the governed media and
+  // the important update. Composed from records other layers own; every part is withheld from a viewer without private access, and a
+  // failed read says "unavailable" instead of failing the Journey.
+  // The container's load record is shown as THIS cargo's loading only where this cargo was loaded (the same rule the timeline applies above);
+  // a LEFT_BEHIND or NOT_LOADED cargo is not helped by the container's confirmation.
+  const cap = await composeCap({
+    client, order, vehicle, viewer, context, options, now, documents, customs, exceptions,
+    loadRecord: loadState === JOURNEY_STATES.LOADED ? loadRecord : null, movement: recordedMovement, dates: recordedDates,
+  });
+
   return {
     subject: { type, id, order_id: order.id, ...(aliasReservation ? { reservation_id: aliasReservation.id } : {}) },
     viewer: { kind: viewer.kind },
     state,
     sentence: SENTENCE[state],
-    asset: projectAsset(order, vehicle, viewer.privateAccess),
+    asset: {
+      ...projectAsset(order, vehicle, viewer.privateAccess),
+      reference: cap.reference,
+      specifications: cap.specifications,
+      ...(cap.media ? { media: cap.media } : {}),
+    },
     transaction: {
       order_id: order.id,
       status: order.status || null,
@@ -786,6 +861,9 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       origin_city: order.origin_city || null,
       destination_country: order.destination_country || null,
       destination_city: order.destination_city || null,
+      // Never the vehicle's `price` (0 is the "not listed for sale" placeholder) and never a listing price: a purchase price is
+      // shown only where a purchase price is recorded, and none is.
+      purchase_price: PURCHASE_PRICE_NOT_RECORDED,
     },
     shipping,
     timeline,
@@ -793,8 +871,13 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
     contacts: {
       consignee: projectConsignee(order, viewer.privateAccess),
       agents,
+      parties: cap.parties,
     },
-    sections: { ...sectionsPlaceholder(), documents, customs, actions, intelligence },
+    important_update: cap.important_update,
+    sections: {
+      ...sectionsPlaceholder(), payments: cap.payments, documents, customs, actions, intelligence,
+      document_delivery: cap.document_delivery, progress: cap.progress,
+    },
     provenance: {
       asset: { authority: vehicle ? 'vehicles' : 'unknown', note: 'Only recorded fields. A request is not a vehicle.' },
       transaction: { authority: 'T4' },
@@ -806,7 +889,12 @@ export async function getJourney(subjectType, subjectId, userContext = {}, optio
       intelligence: { authority: 'derived', note: 'Derived from recorded shipment dates. Nothing is stored and nothing is predicted.' },
       customs: { authority: 'T12', note: 'Read from the customs record; nothing is stored here. CarUp coordinates customs; it does not decide it.' },
       eta: { authority: 'estimate revisions', note: 'Recorded by the organiser; shown beside the shipment record, not over it.' },
-      contacts: { authority: 'intake (T3)', note: 'Private: shown only to the order owner and platform admins.' },
+      contacts: { authority: 'intake (T3) and declared parties', note: 'Private: shown only to the order owner and platform admins.' },
+      specifications: { authority: 'vehicles + recorded specification observations', note: 'Recorded for this purchase; not independently verified by CarUp unless the passport says so.' },
+      media: { authority: 'governed vehicle media (references to evidence images)', note: 'Private to the vehicle\'s owner. Not listing media, not verified evidence, and never public.' },
+      progress: { authority: 'reported ledger + CarUp records (derived)', note: 'Reported steps are the sender\'s statement. CarUp\'s own steps are derived from the records that own them.' },
+      document_delivery: { authority: 'document dispatches', note: 'As reported by the sender; no date or tracking number is shown unless one was supplied.' },
+      payments: { authority: 'payment milestones (T4)', note: 'Read-only. Nothing is inferred.' },
     },
     generated_at: new Date().toISOString(),
     note: NOTE,

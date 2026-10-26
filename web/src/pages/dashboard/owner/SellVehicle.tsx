@@ -24,6 +24,9 @@ import { ZIMBABWE_REGISTRATION_OPTIONS, normalizeSellerRegistrationStatus, regis
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
+import { GovernedGallery } from '@/components/media/GovernedGallery'
+import { GovernedPhoto } from '@/components/media/GovernedPhoto'
+import { governedHeroItem } from '@/lib/governedMedia'
 import { readOwnerTrustClaim, statedCount } from './ownerStatedValues'
 import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
 import {
@@ -193,7 +196,7 @@ const INITIAL = {
 }
 
 export default function SellVehicle() {
-  const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles } = useCarUpApi()
+  const { createVehicleListing, updateSellerDraft, uploadVehicleImages, requestSellerAuthorityClaim, fetchOwnedVehicles, fetchGovernedMedia } = useCarUpApi()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const resumeVin = String(searchParams.get('vin') || '').trim().toUpperCase()
@@ -251,6 +254,8 @@ export default function SellVehicle() {
   const [serverDraftLoading, setServerDraftLoading] = useState(() => Boolean(!guestDraft && isCompleteVin(resumeVin)))
   const [serverDraftLoaded, setServerDraftLoaded] = useState(false)
   const [serverVehicle, setServerVehicle] = useState<Vehicle | null>(null)
+  // The whole private gallery (the garage list carries only the hero). Null until read; a failed read leaves the hero window, never an empty claim.
+  const [fullGovernedMedia, setFullGovernedMedia] = useState<unknown>(null)
   // Operations M7: provenance of the stored registration stage. The stage is a
   // lifecycle/readiness CLAIM, not immutable identity — the seller may (re)state
   // their own claim on a restored draft; only a governed/operator-recorded stage
@@ -415,6 +420,16 @@ export default function SellVehicle() {
 
     return () => { active = false }
   }, [fetchOwnedVehicles, guestDraft, requestedStage, resumeVin])
+
+  useEffect(() => {
+    const vin = serverVehicle?.vin
+    if (!vin || typeof fetchGovernedMedia !== 'function') return
+    let active = true
+    fetchGovernedMedia(vin)
+      .then(block => { if (active) setFullGovernedMedia(block) })
+      .catch(() => { /* the hero window on the vehicle row stays; nothing is claimed about the rest */ })
+    return () => { active = false }
+  }, [fetchGovernedMedia, serverVehicle?.vin])
 
   useEffect(() => {
     // An account listing already has a governed home — the account, with its own autosave below —
@@ -653,7 +668,7 @@ export default function SellVehicle() {
         // satisfies it tells the seller nothing they can act on.
         e.vin = sellerVehicleIdentifierProblem(form.vin) === 'vin_alphabet'
           ? 'A 17-character VIN never contains I, O or Q — they are excluded so they cannot be read as 1 and 0. Check those characters.'
-          : 'Vehicle identifier must be 12–17 letters, numbers or hyphens'
+          : 'Enter a 17-character VIN, a 12–17 character identifier, or a hyphenated Japanese frame number such as RU3-1316558'
       }
       else if (governedScopeEstablished) { /* governed scope answers this; the advisory check may not gate it */ }
       else if (identifying) e.vin = 'Wait for the CarUp Passport check to finish'
@@ -933,6 +948,9 @@ export default function SellVehicle() {
     && !SELLER_STAGE_SOURCES.includes(serverStageSource)
   const studioTrust = serverVehicle ? readOwnerTrustClaim(serverVehicle) : null
   const studioMedia = serverVehicle ? primaryListingImageUrl(serverVehicle.listing_media) : (form.images[coverImageIndex ?? 0] || form.images[0] || null)
+  // The owner's PRIVATE photographs of this vehicle (T11-CAP-LR01-R2): shown in the studio when the vehicle has no listing photograph yet. They are not
+  // listing media — publishing a photograph to the marketplace remains the separate act below.
+  const studioGovernedHero = serverVehicle ? governedHeroItem(serverVehicle.governed_media) : null
   const verifiedDocumentCopy = serverVehicle
     ? statedCount(serverVehicle.counts?.verified_documents, 'verified document')
     : 'Evidence state available after account draft loads'
@@ -1120,12 +1138,22 @@ export default function SellVehicle() {
           </div>
 
           <div className="relative min-h-[260px] border-t border-white/10 bg-black/20 lg:min-h-full lg:border-l lg:border-t-0">
-            <ListingImage
-              src={studioMedia}
-              alt={`${[form.year, form.make, form.model].filter(Boolean).join(' ') || 'Seller draft'} listing media`}
-              className="absolute inset-0 h-full w-full"
-              imgClassName="h-full w-full"
-            />
+            {!studioMedia && studioGovernedHero ? (
+              <GovernedPhoto
+                src={studioGovernedHero.view.href}
+                alt={`${[form.year, form.make, form.model].filter(Boolean).join(' ') || 'Seller draft'} photograph`}
+                className="absolute inset-0 h-full w-full"
+                imgClassName="h-full w-full"
+                loading="eager"
+              />
+            ) : (
+              <ListingImage
+                src={studioMedia}
+                alt={`${[form.year, form.make, form.model].filter(Boolean).join(' ') || 'Seller draft'} listing media`}
+                className="absolute inset-0 h-full w-full"
+                imgClassName="h-full w-full"
+              />
+            )}
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#07111f] via-transparent to-transparent" />
             <div className="absolute inset-x-0 bottom-0 p-5">
               <p className="font-mono text-[11px] text-slate-300">{form.vin || 'VIN not entered'}</p>
@@ -1156,6 +1184,13 @@ export default function SellVehicle() {
           <p className="mt-1">CarUp reused this VIN's Vehicle Passport and restored the listing facts already saved to your account. Edit only what has changed.</p>
         </div>
       )}
+      {serverVehicle ? (
+        <GovernedGallery
+          media={fullGovernedMedia ?? serverVehicle.governed_media}
+          title="Photographs on file for this vehicle"
+          vehicleLabel={[form.year, form.make, form.model].filter(Boolean).join(' ') || 'Vehicle'}
+        />
+      ) : null}
       {guestDraftLoaded && (
         <div className="border-l-4 border-orange-500 bg-orange-50 p-4 text-sm text-orange-950" data-testid="seller-guest-draft-loaded">
           <p className="font-semibold">Your guest preview has been restored.</p>
@@ -1229,7 +1264,7 @@ export default function SellVehicle() {
                   {vinValid === true && <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />}
                   {vinValid === false && <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters · minimum 12. Japanese chassis/frame identifiers are accepted when documented.</p>
+                <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters · a VIN or 12–17 character identifier, or a documented Japanese frame number such as RU3-1316558.</p>
                 {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
                 <VehicleIdentificationNotice
                   result={identification}

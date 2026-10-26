@@ -257,7 +257,7 @@ export default function GuestSell() {
         // O or Q already satisfies the shape rule, so repeating it would explain nothing.
         next.vin = sellerVehicleIdentifierProblem(form.vin) === 'vin_alphabet'
           ? 'A 17-character VIN never contains I, O or Q — they are excluded so they cannot be read as 1 and 0. Check those characters.'
-          : 'Enter a documented vehicle identifier (12–17 letters, numbers or hyphens)'
+          : 'Enter a documented vehicle identifier (a VIN, 12–17 letters, numbers or hyphens, or a hyphenated Japanese frame number such as RU3-1316558)'
       }
       else if (identifying) next.vin = 'Wait for the CarUp Passport check to finish'
       else if (identification.state === 'passport_exists' && !form.existingPassportConfirmed) {
@@ -536,7 +536,7 @@ export default function GuestSell() {
                     <div className="rounded-3xl bg-[#0b1625] p-5 text-white sm:p-6">
                       <ScanLine className="h-6 w-6 text-orange-400" />
                       <h3 className="mt-4 font-black">Vehicle fingerprint</h3>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">Use the VIN or the documented chassis/frame identifier. CarUp accepts 12–17 characters for imported vehicles and checks whether this car already has a Passport.</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">Use the VIN or the documented chassis/frame identifier. CarUp accepts 12–17 characters for imported vehicles, or a hyphenated Japanese frame number such as RU3-1316558, and checks whether this car already has a Passport.</p>
                       <div className="mt-5">
                         <Field label="VIN" error={errors.vin} dark>
                           <Input value={form.vin} onChange={e => set('vin', e.target.value.toUpperCase())} maxLength={17} placeholder="17-character VIN" className="border-white/15 bg-white/10 font-mono text-white placeholder:text-slate-500" data-testid="guest-sell-vin" />

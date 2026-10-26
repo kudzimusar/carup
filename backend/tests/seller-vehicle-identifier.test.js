@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 
 import {
   ISO_3779_VIN_PATTERN,
+  JAPANESE_FRAME_NUMBER_PATTERN,
   SELLER_VEHICLE_IDENTIFIER_PATTERN,
+  hasAcceptableIdentifierShape,
   sellerVehicleIdentifierProblem,
   validSellerVehicleIdentifier,
 } from '../utils/sellerVehicleIdentifier.js';
@@ -78,6 +80,10 @@ test('the browser and the server agree on what counts as one vehicle', () => {
 
   assert.equal(patternFrom('SELLER_VEHICLE_IDENTIFIER_PATTERN'), SELLER_VEHICLE_IDENTIFIER_PATTERN.source);
   assert.equal(patternFrom('ISO_3779_VIN_PATTERN'), ISO_3779_VIN_PATTERN.source);
+  // T11-CAP-LR01-R2: the frame-number shape must be the SAME on both ends too, or a vehicle could be accepted by the form
+  // and refused by the API (or the reverse) and duplicate detection would depend on which was asked.
+  assert.equal(patternFrom('JAPANESE_FRAME_NUMBER_PATTERN'), JAPANESE_FRAME_NUMBER_PATTERN.source);
+  assert.match(web, /!JAPANESE_FRAME_NUMBER_PATTERN\.test\(identifier\)/);
   // The 17-and-unhyphenated branch is the load-bearing half; a pattern match alone would not catch
   // its removal from one side.
   assert.match(web, /identifier\.length === 17 && !identifier\.includes\('-'\)/);
@@ -102,4 +108,82 @@ test('server.js owns no second copy of the identifier rule that could drift', ()
   assert.match(server, /from '\.\/utils\/sellerVehicleIdentifier\.js'/);
   assert.doesNotMatch(server, /function validSellerVehicleIdentifier/);
   assert.doesNotMatch(server, /function sellerVehicleIdentifierProblem/);
+});
+
+// ── T11-CAP-LR01-R2 §16 — the real Honda Vezel's frame number is ELEVEN characters ─────────────────────────
+
+test('R2-§16: a documented Japanese frame number SHORTER than 12 characters is accepted — the real Vezel, RU3-1316558', () => {
+  assert.equal(validSellerVehicleIdentifier('RU3-1316558'), true, 'the real 2018 Honda Vezel (11 characters)');
+  assert.equal(sellerVehicleIdentifierProblem('RU3-1316558'), null);
+  assert.equal(hasAcceptableIdentifierShape('RU3-1316558'), true);
+  assert.equal(validSellerVehicleIdentifier('ru3-1316558'), true, 'lower case is a keyboard artefact');
+  assert.equal(validSellerVehicleIdentifier('  RU3-1316558  '), true);
+});
+
+test('R2-§16: real frame numbers of different makes and lengths are accepted', () => {
+  for (const frame of [
+    'GFC27-027051',        // the Nissan Serena — 12 characters, six-digit serial: unchanged behaviour
+    'RU3-1316558',         // Honda Vezel — 11
+    'GK3-1234567',         // Honda Fit — 11
+    'E12-123456',          // Nissan Note — 10
+    'ZRR80-0123456',       // Toyota Voxy — 13 (already inside 12–17)
+    'NZE141-3012345',      // Toyota Fielder — 14
+    'JZX100-0123456',      // Toyota Chaser — 14
+    'CP9A-0001234',        // Mitsubishi Lancer Evolution — 12
+    'AE86-5012345',        // Toyota Corolla Levin — 12
+  ]) assert.equal(validSellerVehicleIdentifier(frame), true, frame);
+});
+
+test('R2-§16: below 12 characters ONLY the structured frame shape is accepted — nothing else is lowered — and unsafe characters are refused at any length', () => {
+  for (const refused of [
+    'SHORT12345',          // the pre-existing example: 10 characters, no hyphen, not a frame number
+    'RU31316558',          // a frame number with the hyphen missing
+    'RU3-1316',            // a four-digit serial
+    'GFC27-02705',         // the Serena's id with a digit missing: a five-digit tail is a truncation, not a frame number
+    'R-1316558',           // a one-character type code
+    'RU3--131655',         // a doubled hyphen
+    '-RU3-131655',         // a leading hyphen
+    '263-7732364',         // a phone number: the type code has no letter
+    '123-4567890',         // purely numeric type code
+    'RU3-13165A8',         // a letter inside the serial
+    'RU3_1316558',         // underscore
+    'RU3 1316558',         // space
+    'RU3.1316558',         // punctuation
+    'RU3-1316558;--',      // injection-shaped
+    '<RU3>-1316558',       // markup-shaped
+    'RU3-1316558\n',       // a trailing newline is trimmed, but an embedded one is not
+  ].filter((v) => !v.endsWith('\n'))) {
+    assert.equal(validSellerVehicleIdentifier(refused), false, `${JSON.stringify(refused)} must be refused`);
+    assert.equal(sellerVehicleIdentifierProblem(refused), 'shape', refused);
+  }
+  assert.equal(validSellerVehicleIdentifier('RU3\n-1316558'), false, 'an embedded newline is not an identifier');
+});
+
+test('R2-§16: the VIN rule is untouched — a 17-character identifier is still held to ISO 3779, hyphenated frames are not', () => {
+  assert.equal(validSellerVehicleIdentifier('JTELU9FJ9K5987234'), true);
+  assert.equal(sellerVehicleIdentifierProblem('JTELU9FJ9K5987O34'), 'vin_alphabet');
+  assert.equal(sellerVehicleIdentifierProblem('JTELU9FJ9K5987I34'), 'vin_alphabet');
+  assert.equal(validSellerVehicleIdentifier('GFC27-0270511234'.padEnd(17, 'O')), true, '17 characters WITH a hyphen is a frame identifier, not a VIN');
+  // the new shape never reaches a 17-character string, so it cannot weaken the VIN branch
+  assert.equal(JAPANESE_FRAME_NUMBER_PATTERN.test('ABCDEFG-12345678'), true, '16 is the longest a frame number can be');
+  assert.equal(JAPANESE_FRAME_NUMBER_PATTERN.test('ABCDEFGH-12345678'), false);
+});
+
+test('R2-§16: the public passport lookup is NOT widened — a frame number is still a restricted identifier, never a public VIN', async () => {
+  const { classifyLookupIdentifier, LOOKUP_KINDS } = await import('../utils/passportLookupPolicy.js');
+  assert.equal(classifyLookupIdentifier('RU3-1316558').kind, LOOKUP_KINDS.RESTRICTED);
+  assert.equal(classifyLookupIdentifier('GFC27-027051').kind, LOOKUP_KINDS.RESTRICTED);
+  assert.equal(classifyLookupIdentifier('JTELU9FJ9K5987234').kind, LOOKUP_KINDS.VIN);
+});
+
+test('R2-§16: the rule lives in ONE place — no other backend file restates the shape pattern', () => {
+  const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  for (const rel of ['../server.js', '../services/marketplace/marketplaceListingEligibility.js', '../services/marketplace/marketplaceClassificationRules.js']) {
+    const source = read(rel);
+    assert.doesNotMatch(source, /\[A-Z0-9-\]\{12,17\}/, `${rel} restates the identifier shape instead of importing it`);
+    assert.doesNotMatch(source, /VALID_VEHICLE_IDENTIFIER_RE/, `${rel} still carries its own copy`);
+  }
+  assert.match(read('../services/marketplace/marketplaceListingEligibility.js'), /hasAcceptableIdentifierShape/);
+  assert.match(read('../services/marketplace/marketplaceClassificationRules.js'), /hasAcceptableIdentifierShape/);
+  assert.match(read('../server.js'), /hyphenated Japanese frame number/);
 });

@@ -14,8 +14,9 @@ import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
-import { OwnerListingMedia } from '@/components/listing/OwnerListingMedia'
-import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice, statedCount } from './ownerStatedValues'
+import { governedHeroItem } from '@/lib/governedMedia'
+import { OwnerVehicleHero } from '@/components/listing/OwnerVehicleHero'
+import { readOwnerTrustClaim, statedDate, statedMileage, statedVehiclePrice, statedCount } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
 
 function publicationLabel(value: unknown) {
@@ -147,6 +148,7 @@ export default function MyGarage() {
             const addedOn = statedDate(vehicle.created_at)
             const action = contextualAction(vehicle)
             const media = primaryListingImageUrl(vehicle.listing_media)
+            const governedHero = governedHeroItem(vehicle.governed_media)
             const publication = publicationLabel(vehicle.publication_status)
             const relation = relationshipLabel(vehicle, user?.id)
 
@@ -157,16 +159,17 @@ export default function MyGarage() {
                 data-testid={`vehicle-row-${vehicle.vin}`}
               >
                 <div className="relative min-h-[250px] overflow-hidden bg-slate-100 sm:min-h-[320px]">
-                  <OwnerListingMedia
-                    media={vehicle.listing_media}
-                    alt={`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle listing media'}
+                  <OwnerVehicleHero
+                    listingMedia={vehicle.listing_media}
+                    governedMedia={vehicle.governed_media}
+                    alt={`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle photograph'}
                     className="absolute inset-0 h-full w-full"
                     imgClassName="h-full w-full"
                   />
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent px-5 pb-5 pt-14 text-white">
                     <p className="font-mono text-[11px] tracking-wide">{vehicle.vin}</p>
                     <p className="mt-1 text-xs text-slate-200">
-                      {media ? 'Seller listing media' : 'No seller listing photo recorded'}
+                      {media ? 'Seller listing media' : governedHero ? 'Your photograph — private, not in a listing' : 'No seller listing photo recorded'}
                     </p>
                   </div>
                 </div>
@@ -187,7 +190,7 @@ export default function MyGarage() {
                     <div className="border-l-2 border-orange-500 pl-4 text-right">
                       <p className="text-[10px] font-black uppercase tracking-[0.17em] text-slate-400">Asking Price</p>
                       <p className="mt-1 text-xl font-black text-slate-950" data-testid={`vehicle-price-${vehicle.vin}`}>
-                        {statedPrice(vehicle.price)}
+                        {statedVehiclePrice(vehicle.price, vehicle.currency)}
                       </p>
                     </div>
                   </div>

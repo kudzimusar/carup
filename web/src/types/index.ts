@@ -51,6 +51,12 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
    * `describeReadyToPublish` (web/src/lib/publicationStatus.ts).
    */
   publication_last_change?: PublicationLastChange | null;
+  /**
+   * T11-CAP-LR01-R2 — the owner's PRIVATE photographs of their own vehicle (the governed-media block, a window onto the gallery on a list
+   * response). ABSENT unless the viewer is entitled to the vehicle, so absent means "not sent", never "none". Read it through
+   * `web/src/lib/governedMedia.ts`; it is neither listing media nor verified evidence.
+   */
+  governed_media?: unknown;
   location?: string;
   /**
    * Why `location` is or is not there. Carried through from the marketplace summary so a card can

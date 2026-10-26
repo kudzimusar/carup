@@ -50,6 +50,13 @@ export interface SellerVehicleIdentification {
 // This is syntax only; provenance/ownership/verification remain governed separately.
 const SELLER_VEHICLE_IDENTIFIER_PATTERN = /^[A-Z0-9-]{12,17}$/
 
+// T11-CAP-LR01-R2 (§16): a Japanese domestic frame number is `<type code>-<serial>` and the type code can be as
+// short as three characters — the real 2018 Honda Vezel RU3-1316558 is ELEVEN. A flat 12-character floor refused a
+// legitimate vehicle CarUp already holds. The remedy is one structured shape, not a lower floor: a 2–7 character type
+// code containing at least one letter, one hyphen, and a 6–8 digit serial. `SHORT12345`, a phone number and a
+// half-typed VIN still fail. Nothing is ever padded or rewritten to make a real identifier fit.
+const JAPANESE_FRAME_NUMBER_PATTERN = /^(?=[A-Z0-9]*[A-Z])[A-Z0-9]{2,7}-[0-9]{6,8}$/
+
 // ISO 3779 excludes I, O and Q from a VIN precisely so they can never be read as 1, 0 and 0.
 // Widening the alphabet to admit Japanese frame identifiers must not also widen it for real VINs:
 // a 17-character identifier IS a VIN, and accepting `JTELU9FJ9K5987O34` for `...5987034` mints a
@@ -62,7 +69,7 @@ const ISO_3779_VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/
  * WHY an identifier was refused, or null when it is acceptable.
  *
  * Shape and alphabet are different refusals and must not share one message. "Must be 12–17 letters,
- * numbers or hyphens" is a true description of the shape rule and a FALSE explanation of why
+ * numbers or hyphens (or a hyphenated Japanese frame number)" is a true description of the shape rule and a FALSE explanation of why
  * `JTELU9FJ9K5987O34` was refused — that identifier satisfies it exactly. A seller told this about
  * an identifier that plainly matches it is left re-reading a correct-looking VIN with no way to
  * find their own typo. Mirrors backend/utils/sellerVehicleIdentifier.js.
@@ -71,7 +78,7 @@ export type SellerIdentifierProblem = 'shape' | 'vin_alphabet'
 
 export function sellerVehicleIdentifierProblem(value: string): SellerIdentifierProblem | null {
   const identifier = String(value ?? '').trim().toUpperCase()
-  if (!SELLER_VEHICLE_IDENTIFIER_PATTERN.test(identifier)) return 'shape'
+  if (!SELLER_VEHICLE_IDENTIFIER_PATTERN.test(identifier) && !JAPANESE_FRAME_NUMBER_PATTERN.test(identifier)) return 'shape'
   if (identifier.length === 17 && !identifier.includes('-') && !ISO_3779_VIN_PATTERN.test(identifier)) {
     return 'vin_alphabet'
   }

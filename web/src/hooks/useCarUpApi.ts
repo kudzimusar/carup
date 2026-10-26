@@ -2628,6 +2628,15 @@ export function useCarUpApi() {
     return request<Vehicle[]>('/vehicles/me', { method: 'GET' })
   }, [request])
 
+  /**
+   * T11-CAP-LR01-R2 — the whole PRIVATE gallery of one vehicle for the people entitled to it. The server answers 404 to everyone else (and for a
+   * vehicle that does not exist), so a failure here means "not available to this viewer" or a fault — never "the vehicle has no photographs".
+   */
+  const fetchGovernedMedia = useCallback(async (vin: string): Promise<unknown> => {
+    const response = await request<{ data?: unknown }>(`/vehicles/${encodeURIComponent(vin)}/governed-media`, { method: 'GET' })
+    return response?.data ?? null
+  }, [request])
+
   const fetchSavedVehicles = useCallback(async (): Promise<Vehicle[]> => {
     return request<Vehicle[]>('/vehicles/saved', { method: 'GET' })
   }, [request])
@@ -3809,6 +3818,7 @@ export function useCarUpApi() {
     requestSellerAuthorityClaim,
     uploadVehicleImages,
     fetchOwnedVehicles,
+    fetchGovernedMedia,
     fetchSavedVehicles,
     unsaveVehicle,
     saveVehicle,

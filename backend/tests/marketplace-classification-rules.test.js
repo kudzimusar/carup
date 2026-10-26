@@ -198,3 +198,14 @@ test('reserved Golden Dynamic Seller description marks a valid VIN as an automat
   };
   assert.match(getFixtureExclusion(row) || '', /seller_automation_fixture\(seller-12345-1\)/);
 });
+
+// T11-CAP-LR01-R2 §16 — a real vehicle is not a fixture because its frame number is eleven characters.
+test('the real Honda Vezel (RU3-1316558) is not excluded as a fixture; markers still are', async () => {
+  const { getFixtureExclusion } = await import('../services/marketplace/marketplaceClassificationRules.js');
+  assert.equal(getFixtureExclusion({ vin: 'RU3-1316558', owner_id: 'u_66cace85fad949e4' }), null);
+  assert.equal(getFixtureExclusion({ vin: 'GFC27-027051', owner_id: 'u_66cace85fad949e4' }), null);
+  assert.match(getFixtureExclusion({ vin: 'TEST-1234567' }), /synthetic_vin_prefix/);
+  assert.match(getFixtureExclusion({ vin: 'QA-1234567' }), /integration_fixture_vin/);
+  assert.match(getFixtureExclusion({ vin: 'RU3_1316558' }), /synthetic_vin_prefix/);
+  assert.match(getFixtureExclusion({ vin: 'RU31316558' }), /invalid_vin_format/);
+});

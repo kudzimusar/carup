@@ -25,13 +25,23 @@ const transport = (journey) => async (url, init = {}) => {
   if (!token) return json(401, { error: 'Unauthorized' })
   return journey(u.pathname)
 }
-const refuse = () => json(403, { error: DENIED_TEXT })
+// The real backend nests the words: { error: { code, message, … } }. A flatter stub once hid that the probe printed "[object Object]".
+const refuse = () => json(403, { error: { code: 'INSUFFICIENT_PERMISSIONS', message: DENIED_TEXT, requestId: 'req-test' } })
+const refuseFlat = () => json(403, { error: DENIED_TEXT })
 
 test('R1-I: clean, identical refusals pass — and a missing session is 401', async () => {
   const out = await probe({ base: BASE, password: 'x', subjects: SUBJECTS, fetchFn: transport(refuse) })
   assert.equal(out.verdict, 'PASS', out.problems.join('; '))
   assert.equal(out.signins.length, OUTSIDERS.length)
   assert.ok(out.observations.some((o) => o.expect === 'unauthenticated' && o.status === 401))
+})
+
+test('R1-I: the refusal words are read from the nested error body — and a plain-string body reads the same', async () => {
+  const nested = await probe({ base: BASE, password: 'x', subjects: SUBJECTS, outsiders: [OUTSIDERS[0]], fetchFn: transport(refuse) })
+  assert.equal(nested.verdict, 'PASS', nested.problems.join('; '))
+  assert.ok(nested.observations.filter((o) => o.expect !== 'unauthenticated').every((o) => o.message === DENIED_TEXT), 'the words were not extracted');
+  const flat = await probe({ base: BASE, password: 'x', subjects: SUBJECTS, outsiders: [OUTSIDERS[0]], fetchFn: transport(refuseFlat) })
+  assert.equal(flat.verdict, 'PASS', flat.problems.join('; '))
 })
 
 test('R1-I: an unrelated user who is ANSWERED fails the probe', async () => {
