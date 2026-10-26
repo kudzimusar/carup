@@ -10,11 +10,8 @@ name: T11-CAP-LR01-R2 ISOLATION PROBE
 # THIRD MEASUREMENT, on the FINAL deployed pair (candidate e28cbf25 = the product head 6c13fdc4 merged into the runtime lineage). The run first proves, from
 # the deployed backend's own /api/health, that the host it is about to probe is running EXACTLY that candidate, and that the candidate contains the product head.
 
-# The first run is the push of this branch (a new workflow is only dispatchable once Actions knows it); the push trigger is retired in the very next commit.
+# RETIRED after the run that produced the evidence (run 40297968122, PASS): editing this branch can no longer re-run it.
 on:
-  push:
-    branches:
-      - cert/t11-cap-lr01-r2-isolation-probe-3
   workflow_dispatch:
 
 concurrency:
