@@ -1,0 +1,148 @@
+name: T11-CAP-LR01-R2 ISOLATION PROBE
+
+# Can an UNRELATED ordinary user reach the real purchase's journey, its PRIVATE photographs or its documents on the exact-candidate Preview?
+#
+# Signs in as the staging project's own synthetic "outsider" identities (ordinary `owner` role) with the protected staging-only UAT secret and asks the
+# candidate Preview backend for things that are not theirs: journeys, the private gallery, document links, the public passport and their own list.
+# READ-ONLY: it writes nothing but the sign-in session rows any login writes, touches no database directly, never prints a token or a body, and refuses any
+# backend host that is not an immutable CarUp Preview deployment host (never a canonical alias).
+#
+# THIRD MEASUREMENT, on the FINAL deployed pair (candidate e28cbf25 = the product head 6c13fdc4 merged into the runtime lineage). The run first proves, from
+# the deployed backend's own /api/health, that the host it is about to probe is running EXACTLY that candidate, and that the candidate contains the product head.
+
+# The first run is the push of this branch (a new workflow is only dispatchable once Actions knows it); the push trigger is retired in the very next commit.
+on:
+  push:
+    branches:
+      - cert/t11-cap-lr01-r2-isolation-probe-3
+  workflow_dispatch:
+
+concurrency:
+  group: t11-cap-lr01-r2-isolation-probe-3
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PRODUCT_SHA: 6c13fdc4481aec703b0b2189027143a8e3d1fe9d
+      PRODUCT_BRANCH: feat/trade-os-t11-cap-lr01-journey-arrival
+      DEPLOYED_CANDIDATE_SHA: e28cbf25f05a76a05f3b41bacd95c586a36bb365
+      CANDIDATE_BRANCH: cert/t11-cap-lr01-r2-uat-candidate
+      PREVIEW_API_BASE: https://carup-backend-staging-atkd1zlff-11-11.vercel.app/api
+      STAGING_UAT_PASSWORD: ${{ secrets.STAGING_UAT_PASSWORD }}
+      T11_CAP_RESULTS_DIR: cert-results/t11-cap-r2-isolation
+      PROBE_SUBJECTS: >-
+        [
+          {"kind":"journey","label":"vehicle (exists, not theirs)","path":"/diaspora/journeys/vehicle/RU3-1316558"},
+          {"kind":"journey","label":"vehicle (does not exist)","path":"/diaspora/journeys/vehicle/RU3-0000000"},
+          {"kind":"journey","label":"vehicle Serena (exists, not theirs)","path":"/diaspora/journeys/vehicle/GFC27-027051"},
+          {"kind":"journey","label":"order (exists, not theirs)","path":"/diaspora/journeys/import_order/3e2b66a0-1e8b-43c9-bd48-507f88016f71"},
+          {"kind":"journey","label":"order (does not exist)","path":"/diaspora/journeys/import_order/00000000-0000-4000-8000-000000000000"},
+          {"kind":"journey","label":"shipment (exists, not theirs)","path":"/diaspora/journeys/shipment/f8cb8f50-ba8d-4cff-b515-1fb1fbe9c1fb"},
+          {"kind":"not_found","label":"private gallery (exists, not theirs)","path":"/vehicles/RU3-1316558/governed-media"},
+          {"kind":"not_found","label":"private gallery (does not exist)","path":"/vehicles/RU3-0000000/governed-media"},
+          {"kind":"not_found","label":"private gallery Serena (exists, not theirs)","path":"/vehicles/GFC27-027051/governed-media"},
+          {"kind":"not_found","anon":401,"label":"document link B/L (exists, not theirs)","path":"/diaspora/trade-documents/ce35a49b-2e19-4950-a207-720c8ab93d11/access"},
+          {"kind":"not_found","anon":401,"label":"document link invoice (exists, not theirs)","path":"/diaspora/trade-documents/4b41bf05-633e-4dc6-b488-7b6d7f504f49/access"},
+          {"kind":"not_found","anon":401,"label":"document link export certificate (exists, not theirs)","path":"/diaspora/trade-documents/18270da4-2181-46ec-bbff-9222298892a5/access"},
+          {"kind":"not_found","anon":401,"label":"document link (does not exist)","path":"/diaspora/trade-documents/00000000-0000-4000-8000-000000000000/access"},
+          {"kind":"public","label":"public passport (exists)","path":"/vehicles/RU3-1316558/passport"},
+          {"kind":"own_list","label":"own list","path":"/vehicles/me","forbidValues":["RU3-1316558","GFC27-027051"]}
+        ]
+
+    steps:
+      - name: Checkout certification branch exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Custody - exact product commit, on the product branch, workflow-only diff, reviewed bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "push" -o "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
+          # the deployed integration candidate contains the exact product head, and is itself on the candidate branch
+          git merge-base --is-ancestor "$PRODUCT_SHA" "$DEPLOYED_CANDIDATE_SHA"
+          git merge-base --is-ancestor "$DEPLOYED_CANDIDATE_SHA" "origin/$CANDIDATE_BRANCH"
+          mapfile -t changed < <(git diff --name-only "$PRODUCT_SHA"...HEAD)
+          test "${#changed[@]}" -eq 1
+          for file in "${changed[@]}"; do
+            case "$file" in
+              .github/workflows/t11-cap-lr01-r2-isolation-probe.yml) ;;
+              *) echo "::error::Forbidden certification diff file: $file"; exit 1 ;;
+            esac
+          done
+          test "$(git hash-object backend/scripts/t11-cap-r2-isolation-probe.mjs)" = "16836f0db7ada12ff0cccbcf4d56a22347a9c0fc"
+          test "$(git hash-object backend/scripts/t11-cap-r1-isolation-probe.mjs)" = "1e8a2940c5e697750c1879a1e1cbdbb48b7f5af3"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "PRODUCT_SHA=$PRODUCT_SHA"
+          echo "DEPLOYED_CANDIDATE_SHA=$DEPLOYED_CANDIDATE_SHA"
+
+      - name: Require the protected staging-only secret and an immutable Preview host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$STAGING_UAT_PASSWORD" || { echo "::error::STAGING_UAT_PASSWORD is not configured"; exit 2; }
+          case "$PREVIEW_API_BASE" in
+            https://carup-backend-staging-*-11-11.vercel.app/api) ;;
+            *) echo "::error::API base is not an immutable CarUp Preview host"; exit 1 ;;
+          esac
+
+      - name: Bind the probe to the deployed build - the host answers as EXACTLY the candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          health="$(curl -fsS -m 30 "$PREVIEW_API_BASE/health")"
+          sha="$(echo "$health" | jq -r '.build.commit_sha')"
+          env_name="$(echo "$health" | jq -r '.build.environment')"
+          echo "deployed build: commit_sha=$sha environment=$env_name"
+          test "$sha" = "$DEPLOYED_CANDIDATE_SHA" || { echo "::error::the host runs $sha, not the candidate $DEPLOYED_CANDIDATE_SHA"; exit 1; }
+          test "$env_name" = "preview" || { echo "::error::the host is not a Preview build"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Judgement rehearsal (stubbed transport)
+        run: node --test backend/tests/t11-cap-r2-isolation-probe.test.js
+
+      - name: Probe - an unrelated ordinary user asks for what is not theirs
+        run: node backend/scripts/t11-cap-r2-isolation-probe.mjs
+
+      - name: Evidence as annotations - statuses, words and shapes only
+        if: always()
+        shell: bash
+        run: |
+          f="$T11_CAP_RESULTS_DIR/isolation.json"
+          if [ ! -f "$f" ]; then echo "::notice title=probe::no isolation.json was written"; exit 0; fi
+          echo "::notice title=signins::$(node -e "const d=require('./$f'); console.log(JSON.stringify(d.signins))")"
+          echo "::notice title=verdict::$(node -e "const d=require('./$f'); console.log(d.verdict+' '+JSON.stringify(d.problems))")"
+          node -e "const d=require('./$f'); for (const o of d.observations) console.log('::notice title=obs::'+[o.who,o.kind,o.label,o.path,o.status,o.message||'', (o.markers||[]).join(',')].join(' | '))"
+
+      - name: Evidence summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### T11-CAP-LR01-R2 ISOLATION PROBE"
+            echo "product sha: \`$PRODUCT_SHA\`   preview api: \`$PREVIEW_API_BASE\`   production: **not accessed**"
+            if [ -f "$T11_CAP_RESULTS_DIR/isolation.json" ]; then echo '```json'; head -c 12000 "$T11_CAP_RESULTS_DIR/isolation.json"; echo; echo '```'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t11-cap-lr01-r2-isolation-probe
+          path: cert-results/t11-cap-r2-isolation
+          retention-days: 30
+          if-no-files-found: warn
