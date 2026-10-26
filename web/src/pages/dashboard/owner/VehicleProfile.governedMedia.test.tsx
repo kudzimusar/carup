@@ -14,8 +14,14 @@ const fetchVehiclePassport = vi.fn()
 const fetchVehicleEvidence = vi.fn()
 const fetchEvidenceTaxonomy = vi.fn()
 const fetchEvidenceSources = vi.fn()
+// Other lineages' VehicleProfile also reads the owner's service history, and the owner's vehicle list to establish MANAGEMENT SCOPE for the route (a foreign VIN
+// must not render as a manageable vehicle) — so the scope read returns this VIN. Neither is what this test exercises.
+const fetchServiceHistory = vi.fn()
+const fetchOwnedVehicles = vi.fn()
 
-vi.mock('@/hooks/useCarUpApi', () => ({ useCarUpApi: () => ({ fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources }) }))
+vi.mock('@/hooks/useCarUpApi', () => ({
+  useCarUpApi: () => ({ fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchServiceHistory, fetchOwnedVehicles }),
+}))
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return { ...actual, useParams: () => ({ id: 'FRAME-0000123' }) }
@@ -45,6 +51,8 @@ beforeEach(() => {
   fetchVehicleEvidence.mockResolvedValue([])
   fetchEvidenceTaxonomy.mockResolvedValue({ classes: [] })
   fetchEvidenceSources.mockResolvedValue({ sources: [] })
+  fetchServiceHistory.mockResolvedValue([])
+  fetchOwnedVehicles.mockResolvedValue([{ vin: 'FRAME-0000123' }])
 })
 
 describe('Vehicle Passport (owner) — the private gallery', () => {
