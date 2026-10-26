@@ -365,9 +365,16 @@ test('CAP-02: a vehicle with no recorded row stays unknown — requested make/mo
 
 test('CAP-02: sections not yet composed say so; they are not empty-and-implied-complete', async () => {
   const j = await getJourney('import_order', 'ord-a', BUYER, opts(world()));
-  for (const section of ['payments', 'notifications']) {
-    assert.equal(j.sections[section].availability, 'not_yet_composed', `${section} implied it was complete`);
-  }
+  // Notifications are T7's own inbox and are still not composed here.
+  assert.equal(j.sections.notifications.availability, 'not_yet_composed', 'notifications implied they were complete');
+  // T11-CAP-LR01-R2 (§21): payments ARE now composed — read-only, from the payment milestones that exist — and with none recorded the
+  // section says so in words. It is never an empty list that reads as "paid", and nothing is inferred.
+  assert.equal(j.sections.payments.availability, 'composed');
+  assert.deepEqual(j.sections.payments.milestones, []);
+  assert.equal(j.sections.payments.note, 'No payment is recorded for this purchase.');
+  // …and a viewer without private access is told it is withheld, not that there are none.
+  const outsider = await getJourney('import_order', 'ord-a', PARTICIPANT, opts(world()));
+  assert.equal(outsider.sections.payments.availability, 'withheld');
   // Legs were a placeholder in CAP-02 and are composed from CAP-04; documents and next steps from CAP-06;
   // customs and the clearing agent from CAP-07 (see the sections below).
 });
@@ -749,13 +756,20 @@ test('CAP-06: the states come from T8, not from the file existing — a present 
   assert.match(by.bill_of_lading.note, /verified/i);
 });
 
-test('CAP-06: no document id, user id, storage path or extraction id is forwarded', async () => {
+test('CAP-06: no user id, storage path or extraction id is forwarded; the document id goes ONLY to a viewer with private access, to open it', async () => {
   const w = DOC_WORLD();
   for (const who of [BUYER, ADMIN]) {
     const text = JSON.stringify(await getJourney('import_order', 'ord-a', who, opts(w)));
-    for (const leak of ['u-secret-uploader', 'u-secret-reviewer', 'ocr-secret', 'secret/path.pdf', 'doc-bill_of_lading', 'supplied_by', 'reviewed_by', 'viewer_role']) {
+    for (const leak of ['u-secret-uploader', 'u-secret-reviewer', 'ocr-secret', 'secret/path.pdf', 'supplied_by', 'reviewed_by', 'viewer_role']) {
       assert.ok(!text.includes(leak), `${leak} leaked to ${who.id}`);
     }
+    // T11-CAP-LR01-R2 (§17): the owner and a platform admin are given the document's id so the page can offer to open it. The open route
+    // re-checks T8's own read rule, so holding the id grants nothing; and nobody else is ever given one.
+    assert.ok(text.includes('doc-bill_of_lading'), `${who.id} cannot open the document: no id was forwarded`);
+  }
+  for (const who of [TENANT_ADMIN, PARTICIPANT]) {
+    const text = JSON.stringify(await getJourney('import_order', 'ord-a', who, opts(w)));
+    assert.ok(!text.includes('doc-bill_of_lading') && !text.includes('can_open'), `${who.id} was given a document id`);
   }
 });
 
@@ -766,7 +780,10 @@ test('CAP-06: a document\'s provenance is shown as when, and whether it was chec
   assert.equal(bl.document.has_extraction, true);
   assert.equal(bl.document.supplied_at, '2026-09-02T00:00:00Z');
   assert.equal(bl.document.reviewed_at, '2026-09-03T00:00:00Z');
-  assert.ok(!('supplied_by' in bl.document) && !('reviewed_by' in bl.document) && !('id' in bl.document));
+  assert.ok(!('supplied_by' in bl.document) && !('reviewed_by' in bl.document));
+  // R2: the owner may open the document, so its id and an explicit "can open" travel with it — and nothing else about who handled it.
+  assert.equal(bl.document.id, 'doc-bill_of_lading');
+  assert.equal(bl.document.can_open, true);
 });
 
 test('CAP-06: the document summary counts the journey\'s documents, not T8\'s whole checklist', async () => {
