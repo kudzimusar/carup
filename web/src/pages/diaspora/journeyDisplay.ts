@@ -265,6 +265,13 @@ const AUTHORITY_UI: Record<string, string> = {
   T8: 'Document workspace',
   T12: 'Customs record',
   derived: 'Derived from recorded dates',
+  // T11-CAP-LR01-R2
+  'intake (T3) and declared parties': 'Details given when ordering, and the parties named on the paperwork',
+  'vehicles + recorded specification observations': 'Vehicle record and recorded specifications',
+  'governed vehicle media (references to evidence images)': 'Your private photographs of this vehicle',
+  'reported ledger + CarUp records (derived)': 'Steps reported by the sender, and CarUp\'s own records',
+  'document dispatches': 'Document dispatch records',
+  'payment milestones (T4)': 'Payment milestones',
 }
 
 /** The owning record, for people. Unknown authorities get a neutral label, never an internal code. */
@@ -284,6 +291,11 @@ export const PROVENANCE_PART_UI: Record<string, string> = {
   customs: 'Customs',
   intelligence: 'Statistics',
   contacts: 'Contacts',
+  specifications: 'Specifications',
+  media: 'Photographs',
+  progress: 'Progress',
+  document_delivery: 'Document delivery',
+  payments: 'Payments',
 }
 
 // ── CAP-06: documents and next steps ─────────────────────────────────────────────────────────────────

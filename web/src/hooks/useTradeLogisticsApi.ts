@@ -18,6 +18,7 @@ import type { DraftComponent } from '@/pages/diaspora/commercialFormat'
 import type { QuoteCommercials, ComparableQuote, ComparisonResult, AdviceResult } from '@/pages/diaspora/TradeQuoteComparison'
 import type { CorridorBenchmark } from '@/pages/diaspora/TradeRateResearch'
 import type { CustomsCaseWorkspace, MyCustomsStatus } from '@/pages/diaspora/customsDisplay'
+import type { GovernedMediaBlock } from '@/lib/governedMedia'
 
 const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -425,6 +426,13 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T11-CAP-LR01-R2 step H — open one of MY documents (a five-minute view; the server decides who may) ──
+  const getDocumentAccess = useCallback(async (documentId: string, disposition: 'view' | 'download' = 'view'): Promise<DocumentAccess> => {
+    const response = await request<{ data: DocumentAccess }>(
+      `/diaspora/trade-documents/${encodeURIComponent(documentId)}/access?disposition=${disposition}`)
+    return response.data
+  }, [request])
+
   // ── T12 — attributed customs coordination & Zimbabwe destination ───────
 
   const getCustomsCase = useCallback(async (caseId: string): Promise<CustomsCaseWorkspace> => {
@@ -516,6 +524,7 @@ export function useTradeLogisticsApi() {
     recordCustomsEvent,
     getMyCustoms,
     getJourney,
+    getDocumentAccess,
   }), [
     listMyRequests,
     getRequest,
@@ -572,6 +581,7 @@ export function useTradeLogisticsApi() {
     recordCustomsEvent,
     getMyCustoms,
     getJourney,
+    getDocumentAccess,
   ])
 }
 
@@ -648,6 +658,75 @@ export interface JourneyAsset {
   // Present only for the order's owner and platform admins; absent (not null) for everyone else.
   chassis_number?: string | null
   engine_number?: string | null
+  // T11-CAP-LR01-R2. The purchase's own reference number (private access only; null otherwise), the specifications as recorded, and the owner's
+  // PRIVATE photographs of the vehicle — present only for someone entitled to THAT VEHICLE, absent (not empty) for everyone else.
+  reference?: { value: string } | null
+  specifications?: JourneySpecifications
+  media?: GovernedMediaBlock
+}
+
+// ── T11-CAP-LR01-R2 — the customer's CAP, composed (mirrors journeyCapComposition) ───────────────────────────────
+// Every part is withheld — identically to a missing one — from a viewer without private access; a failed read says `unavailable`, never "none".
+export type CapWithheld = { availability: 'withheld' | 'unavailable'; note: string }
+export interface JourneySpecItem { key: string; label: string; value: string; source: 'vehicle_record' | 'recorded_observation' | 'purchase_record' | string; reported: boolean; unit: string | null }
+export type JourneySpecifications =
+  | { availability: 'composed'; items: JourneySpecItem[]; equipment: { items: string[]; reported: boolean } | null; partial: boolean; note: string | null; read_note: string | null }
+  | CapWithheld
+export type CapOrigin = 'external_report' | 'owner_declared' | 'carup'
+export interface JourneyParty {
+  role: string; role_label: string; kind: string | null; name: string
+  address: string | null; city: string | null; country: string | null; phone: string | null; email: string | null
+  origin: CapOrigin; source_label: string; as_of: string | null; note: string | null
+}
+export type JourneyParties = { availability: 'composed'; items: JourneyParty[]; note: string } | CapWithheld
+export interface JourneyDispatch {
+  document_types: string[]; document_labels: string[]
+  status: string; status_label: string; status_reported_text: string | null; message: string | null
+  courier: string | null; tracking_number: string | null; dispatched_at: string | null; delivered_at: string | null; observed_at: string | null
+  recipient: { role: string; name: string; city: string | null; country: string | null } | null
+  origin: CapOrigin; source_label: string
+}
+export type JourneyDocumentDelivery =
+  | {
+    availability: 'composed'; items: JourneyDispatch[]; note: string
+    contact: { name: string; phone: string | null; email: string | null; city: string | null; country: string | null; note: string } | null
+  }
+  | CapWithheld
+export interface JourneyProgressRow {
+  sequence: number
+  action_taker: { label: string; kind: string; display_label: string }
+  text: string; status: string; status_label: string
+  time: { value: string; basis: string | null } | null; time_note: string | null
+  origin: CapOrigin; source_label: string; verification: string
+}
+export interface JourneyProgressGroup {
+  code: 'BOOKING' | 'DEPARTURE' | 'BILL_OF_LADING' | 'DISPATCH' | 'CLEARING_DELIVERY' | string
+  title: string
+  state: 'reported_completed' | 'reported_in_progress' | 'carup_recorded' | 'reported_to_carup' | 'not_recorded' | string
+  reported_count: number; carup_count: number; rows: JourneyProgressRow[]
+}
+export type JourneyProgress =
+  | {
+    availability: 'composed'; groups: JourneyProgressGroup[]; totals: { reported_rows: number; carup_rows: number }
+    sources: Array<{ origin: CapOrigin; source_label: string; observed_at: string | null; row_count: number }>; note: string
+  }
+  | CapWithheld
+export type JourneyPayments =
+  | {
+    availability: 'composed'
+    milestones: Array<{ type: string; amount: number | null; currency: string | null; status: string; due_date: string | null; confirmed_at: string | null }>
+    recorded: number; note: string; disclaimer: string
+  }
+  | CapWithheld
+export type JourneyImportantUpdate =
+  | { availability: 'composed'; kind: 'exception' | 'document_dispatch' | string; title: string; detail: string | null; as_of: string | null; origin: CapOrigin; source_label?: string }
+  | { availability: 'none'; note: string }
+export type JourneyPurchasePrice = { availability: 'not_recorded'; note: string }
+/** The short-lived view of one document's FILE (step H). Nothing here says where the file lives. */
+export interface DocumentAccess {
+  document: { id: string; document_type: string; version: number; supplied_at: string | null; review_state: 'verified' | 'rejected' | 'flagged' | 'not_verified' | string; review_note: string }
+  view: { href: string; expires_at: string; disposition: 'view' | 'download' }
+  note: string
 }
 export interface JourneyLeg {
   sequence: number
@@ -714,6 +793,9 @@ export interface JourneyDocumentItem {
   state: 'VERIFIED' | 'AWAITING_REVIEW' | 'PRESENT' | 'REJECTED' | 'REQUESTED' | 'MISSING' | 'NOT_APPLICABLE' | string
   note: string
   document: {
+    // Forwarded ONLY to a viewer with private access, so the page can offer to open the file; the open route re-checks the rule, so an id grants nothing.
+    id?: string
+    can_open?: boolean
     version: number | null
     supplied_at: string | null
     reviewed_at: string | null
@@ -805,7 +887,10 @@ export interface JourneySections {
   actions?: JourneyActions
   customs?: JourneyCustoms
   intelligence?: JourneyIntelligence
-  [section: string]: JourneyDocuments | JourneyActions | JourneyCustoms | JourneyIntelligence | JourneyNotComposed | { availability: string; owner?: string } | undefined
+  document_delivery?: JourneyDocumentDelivery
+  progress?: JourneyProgress
+  payments?: JourneyPayments | JourneyNotComposed
+  [section: string]: JourneyDocuments | JourneyActions | JourneyCustoms | JourneyIntelligence | JourneyDocumentDelivery | JourneyProgress | JourneyPayments | JourneyNotComposed | { availability: string; owner?: string } | undefined
 }
 export interface Journey {
   subject: { type: string; id: string; order_id: string | null; reservation_id?: string }
@@ -819,6 +904,8 @@ export interface Journey {
     order_id: string; status: string | null
     origin_country: string | null; origin_city: string | null
     destination_country: string | null; destination_city: string | null
+    // Never a listing price: a purchase price is shown only where one is recorded, and none is.
+    purchase_price?: JourneyPurchasePrice
   } | null
   shipping: JourneyShipping | null
   timeline: JourneyTimelineEntry[]
@@ -826,7 +913,11 @@ export interface Journey {
   contacts: {
     consignee: { recorded: boolean; kind: string | null; name: string | null; phone: string | null } | null
     agents: JourneyAgents
+    // The parties the paperwork names (declared, not authoritative). Absent from a service that predates them.
+    parties?: JourneyParties
   } | null
+  // The most meaningful REAL record: a journey exception, else the latest document dispatch, else nothing.
+  important_update?: JourneyImportantUpdate
   sections: JourneySections
   provenance: Record<string, { authority: string; note?: string; association?: string }>
   generated_at?: string

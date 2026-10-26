@@ -55,8 +55,6 @@ import {
   describeArrival,
   describeDeparture,
   destinationFacts,
-  documentProvenance,
-  documentState,
   documentWorkspacePath,
   documentsSummaryLine,
   estimateChange,
@@ -81,6 +79,17 @@ import {
   when,
   type TabId,
 } from './journeyDisplay'
+import { reportedProgressSummary } from './capDisplay'
+import { CapNav } from './cap/CapNav'
+import { CapSection, Unshown } from './cap/ui'
+import { DestinationAgent } from './cap/DestinationAgent'
+import { DocumentDelivery } from './cap/DocumentDelivery'
+import { DocumentsList } from './cap/DocumentsList'
+import { ImportantUpdate } from './cap/ImportantUpdate'
+import { PaymentsSection } from './cap/PaymentsSection'
+import { ProgressGroups } from './cap/ProgressGroups'
+import { PurchasedVehicle } from './cap/PurchasedVehicle'
+import { TransactionParties } from './cap/TransactionParties'
 
 const card = 'min-w-0 rounded-xl border border-slate-200 bg-white p-4 sm:p-5'
 const eyebrow = 'text-xs font-semibold uppercase tracking-wide text-slate-500'
@@ -137,6 +146,9 @@ export default function JourneyArrival() {
   }
 
   const ui = JOURNEY_STATE_UI[data.state] ?? { label: 'Status unavailable', tone: 'border-slate-300 bg-slate-50 text-slate-700' }
+  // When a sender has REPORTED progress, "shipment set up — nothing moving yet" alone would read as a journey that has not started. The sender's report
+  // is headlined as the sender's, and CarUp's own movement sentence stays beneath it, verbatim.
+  const reported = reportedProgressSummary(data)
   const route = routeLabel(data)
   const last = lastRecordedUpdate(data.timeline)
   const shipping = data.shipping
@@ -162,6 +174,17 @@ export default function JourneyArrival() {
   const destination = destinationFacts(data)
   const basis = routeBasis(data)
   const actions = data.sections?.actions && data.sections.actions.availability === 'composed' ? data.sections.actions : null
+  // T11-CAP-LR01-R2. The sections that exist for this viewer, in the order the page draws them (the "On this page" links).
+  const capNav = [
+    data.important_update?.availability === 'composed' ? { id: 'cap-important-update', label: 'Update' } : null,
+    data.asset && (data.asset.specifications || data.asset.media) ? { id: 'cap-vehicle', label: 'Vehicle' } : null,
+    data.contacts?.parties ? { id: 'cap-parties', label: 'Parties' } : null,
+    data.sections?.document_delivery ? { id: 'cap-delivery', label: 'Document delivery' } : null,
+    shipping ? { id: 'cap-shipping', label: 'Shipping' } : null,
+    documents && documentsShown && ['composed', 'withheld', 'unavailable'].includes(documents.availability) ? { id: 'cap-documents', label: 'Documents' } : null,
+    data.sections?.progress ? { id: 'cap-progress', label: 'Progress' } : null,
+    data.sections?.payments && data.sections.payments.availability !== 'not_yet_composed' ? { id: 'cap-payments', label: 'Payments' } : null,
+  ].filter((item): item is { id: string; label: string } => item !== null)
   const workspacePath = documentWorkspacePath(data.subject.order_id ? { type: 'document_workspace', subject: { type: 'import_order', id: data.subject.order_id } } : null)
 
   return (
@@ -179,12 +202,17 @@ export default function JourneyArrival() {
       </header>
 
       <div className="mt-6 min-w-0 rounded-xl border border-slate-200 bg-white p-4 sm:p-5" data-testid="journey-state">
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${ui.tone}`} data-testid="journey-badge">
-          <Ship className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{ui.label}
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${reported ? 'border-sky-300 bg-sky-50 text-sky-900' : ui.tone}`} data-testid="journey-badge">
+          <Ship className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{reported ? reported.badge : ui.label}
         </span>
-        <p className="mt-3 min-w-0 break-words text-sm text-slate-800" data-testid="journey-sentence">{data.sentence}</p>
+        <p className="mt-3 min-w-0 break-words text-sm text-slate-800" data-testid="journey-sentence">{reported ? reported.sentence : data.sentence}</p>
+        {reported ? (
+          <p className="mt-2 min-w-0 break-words text-sm text-slate-700" data-testid="journey-carup-record">
+            <span className="font-semibold">CarUp&rsquo;s own movement record: </span>{ui.label}. {data.sentence}
+          </p>
+        ) : null}
         <p className="mt-2 min-w-0 break-words text-xs text-slate-600" data-testid="journey-last-update">
-          Last recorded update: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
+          {reported ? 'Last update recorded by CarUp' : 'Last recorded update'}: {last.label}{last.at ? ` · ${when(last.at)}` : ''}
         </p>
       </div>
 
@@ -245,141 +273,169 @@ export default function JourneyArrival() {
               </div>
             ) : null}
 
-            {dates ? (
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <div className={card} data-testid="journey-departure">
-                  <p className={`flex items-center gap-1.5 ${eyebrow}`}><Anchor className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Leaving</p>
-                  <p className={`mt-1 min-w-0 break-words text-base font-semibold ${departure.observed ? 'text-slate-900' : 'text-slate-700'}`} data-testid="journey-departure-headline">{departure.headline}</p>
-                  <p className="mt-0.5 min-w-0 break-words text-sm text-slate-600" data-testid="journey-departure-detail">{departure.detail}</p>
+            <CapNav items={capNav} />
+            <ImportantUpdate update={data.important_update} />
+            <PurchasedVehicle asset={data.asset} price={data.transaction?.purchase_price} />
+            <TransactionParties parties={data.contacts?.parties} />
+            <DocumentDelivery delivery={data.sections?.document_delivery} parties={data.contacts?.parties} />
+
+            <div id="cap-shipping" className="scroll-mt-20" data-testid="cap-shipping">
+              {shipping ? <h2 id="cap-shipping-heading" className="mt-6 text-base font-semibold text-slate-950">Shipping information</h2> : null}
+              {dates ? (
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div className={card} data-testid="journey-departure">
+                    <p className={`flex items-center gap-1.5 ${eyebrow}`}><Anchor className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Leaving</p>
+                    <p className={`mt-1 min-w-0 break-words text-base font-semibold ${departure.observed ? 'text-slate-900' : 'text-slate-700'}`} data-testid="journey-departure-headline">{departure.headline}</p>
+                    <p className="mt-0.5 min-w-0 break-words text-sm text-slate-600" data-testid="journey-departure-detail">{departure.detail}</p>
+                  </div>
+                  <div className={card} data-testid="journey-arrival">
+                    <p className={`flex items-center gap-1.5 ${eyebrow}`}><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Arriving</p>
+                    <p className={`mt-1 min-w-0 break-words text-base font-semibold ${arrival.observed ? 'text-slate-900' : 'text-slate-700'}`} data-testid="journey-arrival-headline">{arrival.headline}</p>
+                    <p className="mt-0.5 min-w-0 break-words text-sm text-slate-600" data-testid="journey-arrival-detail">{arrival.detail}</p>
+                    {etaBasis ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-basis">{etaBasis}</p> : null}
+                    {eta && eta.current && eta.revision_count === 0 ? (
+                      <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-no-revisions">{NO_ESTIMATE_REVISIONS}</p>
+                    ) : null}
+                  </div>
                 </div>
-                <div className={card} data-testid="journey-arrival">
-                  <p className={`flex items-center gap-1.5 ${eyebrow}`}><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Arriving</p>
-                  <p className={`mt-1 min-w-0 break-words text-base font-semibold ${arrival.observed ? 'text-slate-900' : 'text-slate-700'}`} data-testid="journey-arrival-headline">{arrival.headline}</p>
-                  <p className="mt-0.5 min-w-0 break-words text-sm text-slate-600" data-testid="journey-arrival-detail">{arrival.detail}</p>
-                  {etaBasis ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-basis">{etaBasis}</p> : null}
-                  {eta && eta.current && eta.revision_count === 0 ? (
-                    <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-eta-no-revisions">{NO_ESTIMATE_REVISIONS}</p>
+              ) : null}
+
+              {eta && eta.revision_count > 0 ? (
+                <div className={`mt-5 ${card}`} data-testid="journey-eta">
+                  <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Estimate history</h2>
+                  <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <Row label="Current estimate" value={shortDate(eta.current)} />
+                    <Row label="Original (shipment record)" value={shortDate(eta.original)} />
+                  </dl>
+                  {estimateChange(eta.change_days) ? (
+                    <p className="mt-2 min-w-0 break-words text-sm text-slate-700">{estimateChange(eta.change_days)}</p>
                   ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            {eta && eta.revision_count > 0 ? (
-              <div className={`mt-5 ${card}`} data-testid="journey-eta">
-                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Estimate history</h2>
-                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <Row label="Current estimate" value={shortDate(eta.current)} />
-                  <Row label="Original (shipment record)" value={shortDate(eta.original)} />
-                </dl>
-                {estimateChange(eta.change_days) ? (
-                  <p className="mt-2 min-w-0 break-words text-sm text-slate-700">{estimateChange(eta.change_days)}</p>
-                ) : null}
-                <ol className="mt-3 space-y-2">
-                  {eta.revisions.map((r, i) => (
-                    <li key={`${r.observed_at}-${i}`} className="min-w-0 border-l-2 border-slate-200 pl-3">
-                      <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
-                        {revisionTitle(r)}{r.superseded ? <span className="font-normal text-slate-500"> · Superseded</span> : null}
-                      </p>
-                      <p className="min-w-0 break-words text-xs text-slate-600">Recorded {when(r.observed_at)} · {sourceLabel(r.source)}</p>
-                      <p className="min-w-0 break-words text-xs text-slate-600">{revisionReason(r.reason)}</p>
-                    </li>
-                  ))}
-                </ol>
-                <p className="mt-3 min-w-0 break-words text-xs text-slate-500">{eta.note}</p>
-              </div>
-            ) : null}
-
-            {stats ? (
-              <div className={`mt-5 ${card}`} data-testid="journey-statistics">
-                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Activity className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Statistics</h2>
-                {(() => {
-                  const transit = transitText(stats.own.days_in_transit)
-                  const versus = againstFirstEstimateText(stats.own.arrival_vs_first_estimate_days)
-                  const lane = laneText(stats.lane)
-                  return (
-                    <>
-                      <div className="mt-3 min-w-0" data-testid="journey-statistics-own">
-                        <h3 className="text-xs font-semibold text-slate-700">This shipment</h3>
-                        {transit ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-transit">{transit}</p> : null}
-                        {versus ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-versus">{versus}</p> : null}
-                        {!transit && !versus ? <p className="mt-1 min-w-0 break-words text-sm text-slate-600" data-testid="journey-stat-own-none">{stats.own.days_in_transit.note}</p> : null}
-                      </div>
-                      <div className="mt-3 min-w-0" data-testid="journey-statistics-lane">
-                        <h3 className="text-xs font-semibold text-slate-700">On this route</h3>
-                        <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-lane">{lane.headline}</p>
-                        {lane.estimate ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-lane-estimate">{lane.estimate}</p> : null}
-                        {lane.detail ? <p className="mt-1 min-w-0 break-words text-xs text-slate-600" data-testid="journey-stat-lane-detail">{lane.detail}</p> : null}
-                      </div>
-                    </>
-                  )
-                })()}
-                <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-statistics-note">{STATISTICS_ARE_NOT_A_PREDICTION}</p>
-              </div>
-            ) : null}
-
-            <div className={`mt-5 ${card}`}>
-              <h2 className={eyebrow}>What has been recorded</h2>
-              {data.timeline.length ? (
-                <ol className="mt-3 space-y-2" data-testid="journey-timeline">
-                  {data.timeline.map((e, i) => (
-                    <li key={`${e.kind}-${e.stage}-${e.event_time}-${i}`} className="min-w-0 border-l-2 border-slate-200 pl-3">
-                      <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{timelineLabel(e)}</p>
-                      <p className="min-w-0 break-words text-xs text-slate-600">
-                        {when(e.event_time)}{e.location ? ` · ${e.location}` : ''} · {sourceLabel(e.source)}
-                      </p>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-timeline-empty">No movement has been recorded.</p>
-              )}
-            </div>
-
-            {/* Declared vessel legs. Declared, never observed: a leg cannot say a vessel sailed. */}
-            {shipping?.legs?.availability === 'composed' ? (
-              <div className={`mt-5 ${card}`} data-testid="journey-legs">
-                <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Ship className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Vessel and route</h2>
-                {shipping.legs.items.length ? (
-                  <ol className="mt-3 space-y-3">
-                    {shipping.legs.items.map((l) => (
-                      <li key={l.sequence} className="min-w-0 border-l-2 border-slate-200 pl-3">
-                        <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{legTitle(l)}</p>
-                        <p className="min-w-0 break-words text-sm text-slate-700">{legRoute(l)}</p>
-                        <p className="min-w-0 break-words text-xs text-slate-600">
-                          {plannedDeparture(l.planned_departure)} · {estimatedArrival(l.estimated_arrival)}
+                  <ol className="mt-3 space-y-2">
+                    {eta.revisions.map((r, i) => (
+                      <li key={`${r.observed_at}-${i}`} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                        <p className="min-w-0 break-words text-sm font-semibold text-slate-900">
+                          {revisionTitle(r)}{r.superseded ? <span className="font-normal text-slate-500"> · Superseded</span> : null}
                         </p>
-                        {l.vessel_name && l.carrier_name ? <p className="min-w-0 break-words text-xs text-slate-600">Carrier: {l.carrier_name}</p> : null}
-                        {l.imo || l.mmsi ? (
-                          <p className="min-w-0 break-words text-xs text-slate-600">
-                            {[l.imo ? `IMO ${l.imo}` : null, l.mmsi ? `MMSI ${l.mmsi}` : null].filter(Boolean).join(' · ')}
-                          </p>
-                        ) : null}
+                        <p className="min-w-0 break-words text-xs text-slate-600">Recorded {when(r.observed_at)} · {sourceLabel(r.source)}</p>
+                        <p className="min-w-0 break-words text-xs text-slate-600">{revisionReason(r.reason)}</p>
                       </li>
                     ))}
                   </ol>
-                ) : null}
-                <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-legs-note">{shipping.legs.note}</p>
+                  <p className="mt-3 min-w-0 break-words text-xs text-slate-500">{eta.note}</p>
+                </div>
+              ) : null}
+
+              {stats ? (
+                <div className={`mt-5 ${card}`} data-testid="journey-statistics">
+                  <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Activity className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Statistics</h2>
+                  {(() => {
+                    const transit = transitText(stats.own.days_in_transit)
+                    const versus = againstFirstEstimateText(stats.own.arrival_vs_first_estimate_days)
+                    const lane = laneText(stats.lane)
+                    return (
+                      <>
+                        <div className="mt-3 min-w-0" data-testid="journey-statistics-own">
+                          <h3 className="text-xs font-semibold text-slate-700">This shipment</h3>
+                          {transit ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-transit">{transit}</p> : null}
+                          {versus ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-versus">{versus}</p> : null}
+                          {!transit && !versus ? <p className="mt-1 min-w-0 break-words text-sm text-slate-600" data-testid="journey-stat-own-none">{stats.own.days_in_transit.note}</p> : null}
+                        </div>
+                        <div className="mt-3 min-w-0" data-testid="journey-statistics-lane">
+                          <h3 className="text-xs font-semibold text-slate-700">On this route</h3>
+                          <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-lane">{lane.headline}</p>
+                          {lane.estimate ? <p className="mt-1 min-w-0 break-words text-sm text-slate-900" data-testid="journey-stat-lane-estimate">{lane.estimate}</p> : null}
+                          {lane.detail ? <p className="mt-1 min-w-0 break-words text-xs text-slate-600" data-testid="journey-stat-lane-detail">{lane.detail}</p> : null}
+                        </div>
+                      </>
+                    )
+                  })()}
+                  <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-statistics-note">{STATISTICS_ARE_NOT_A_PREDICTION}</p>
+                </div>
+              ) : null}
+
+              <div className={`mt-5 ${card}`}>
+                <h2 className={eyebrow}>What has been recorded</h2>
+                {data.timeline.length ? (
+                  <ol className="mt-3 space-y-2" data-testid="journey-timeline">
+                    {data.timeline.map((e, i) => (
+                      <li key={`${e.kind}-${e.stage}-${e.event_time}-${i}`} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                        <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{timelineLabel(e)}</p>
+                        <p className="min-w-0 break-words text-xs text-slate-600">
+                          {when(e.event_time)}{e.location ? ` · ${e.location}` : ''} · {sourceLabel(e.source)}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-timeline-empty">No movement has been recorded.</p>
+                )}
               </div>
-            ) : dates && (!shipping?.legs || shipping.legs.availability === 'not_yet_composed') ? (
-              // The API said legs are not connected, or sent nothing about them: say so rather than imply there are none.
-              <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-legs-note">
-                <strong className="font-semibold">{SECTION_UI.legs.title}: </strong>{SECTION_UI.legs.message}
-              </p>
+
+              {/* Declared vessel legs. Declared, never observed: a leg cannot say a vessel sailed. */}
+              {shipping?.legs?.availability === 'composed' ? (
+                <div className={`mt-5 ${card}`} data-testid="journey-legs">
+                  <h2 className={`flex items-center gap-1.5 ${eyebrow}`}><Ship className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />Vessel and route</h2>
+                  {shipping.legs.items.length ? (
+                    <ol className="mt-3 space-y-3">
+                      {shipping.legs.items.map((l) => (
+                        <li key={l.sequence} className="min-w-0 border-l-2 border-slate-200 pl-3">
+                          <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{legTitle(l)}</p>
+                          <p className="min-w-0 break-words text-sm text-slate-700">{legRoute(l)}</p>
+                          <p className="min-w-0 break-words text-xs text-slate-600">
+                            {plannedDeparture(l.planned_departure)} · {estimatedArrival(l.estimated_arrival)}
+                          </p>
+                          {l.vessel_name && l.carrier_name ? <p className="min-w-0 break-words text-xs text-slate-600">Carrier: {l.carrier_name}</p> : null}
+                          {l.imo || l.mmsi ? (
+                            <p className="min-w-0 break-words text-xs text-slate-600">
+                              {[l.imo ? `IMO ${l.imo}` : null, l.mmsi ? `MMSI ${l.mmsi}` : null].filter(Boolean).join(' · ')}
+                            </p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                  <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-legs-note">{shipping.legs.note}</p>
+                </div>
+              ) : dates && (!shipping?.legs || shipping.legs.availability === 'not_yet_composed') ? (
+                // The API said legs are not connected, or sent nothing about them: say so rather than imply there are none.
+                <p className="mt-5 min-w-0 break-words rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="journey-legs-note">
+                  <strong className="font-semibold">{SECTION_UI.legs.title}: </strong>{SECTION_UI.legs.message}
+                </p>
+              ) : null}
+
+              {shipping?.references ? (
+                <div className={`mt-5 ${card}`} data-testid="journey-references">
+                  <h2 className={eyebrow}>Shipping references</h2>
+                  <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <Row label="Carrier" value={shipping.references.carrier} />
+                    <Row label="Tracking reference" value={shipping.references.tracking_reference} />
+                    <Row label="Port of loading" value={shipping.references.origin_port} />
+                    <Row label="Port of discharge" value={shipping.references.destination_port} />
+                  </dl>
+                  <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="journey-reference-note">{REFERENCE_IS_NOT_MOVEMENT}</p>
+                  <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-port-note">{PORT_OF_DISCHARGE_IS_NOT_DESTINATION}</p>
+                </div>
+              ) : null}
+
+            </div>
+
+            {documents && documentsShown && (documents.availability === 'composed' || documents.availability === 'withheld' || documents.availability === 'unavailable') ? (
+              <CapSection id="cap-documents" title="Documents" icon={<FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}>
+                {documents.availability === 'composed' ? (
+                  <>
+                    <DocumentsList documents={documents} />
+                    <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="cap-documents-disclaimer">{documents.disclaimer}</p>
+                    {workspacePath ? <Link to={workspacePath} className="mt-3 inline-block text-sm font-semibold text-orange-700 underline" data-testid="cap-documents-link">Open the document workspace</Link> : null}
+                  </>
+                ) : (
+                  <Unshown availability={documents.availability} note={documents.note} testId="cap-documents-unshown" />
+                )}
+              </CapSection>
             ) : null}
 
-            {shipping?.references ? (
-              <div className={`mt-5 ${card}`} data-testid="journey-references">
-                <h2 className={eyebrow}>Shipping references</h2>
-                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <Row label="Carrier" value={shipping.references.carrier} />
-                  <Row label="Tracking reference" value={shipping.references.tracking_reference} />
-                  <Row label="Port of loading" value={shipping.references.origin_port} />
-                  <Row label="Port of discharge" value={shipping.references.destination_port} />
-                </dl>
-                <p className="mt-2 min-w-0 break-words text-xs text-slate-500" data-testid="journey-reference-note">{REFERENCE_IS_NOT_MOVEMENT}</p>
-                <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid="journey-port-note">{PORT_OF_DISCHARGE_IS_NOT_DESTINATION}</p>
-              </div>
-            ) : null}
+            <DestinationAgent journey={data} />
+            <ProgressGroups progress={data.sections?.progress} />
+            <PaymentsSection payments={data.sections?.payments} />
 
             {actions ? (
               <div className={`mt-5 ${card}`} data-testid="journey-actions">
@@ -432,26 +488,7 @@ export default function JourneyArrival() {
                 {documentsSummaryLine(documents.summary) ? (
                   <p className="mt-2 min-w-0 break-words text-sm text-slate-700" data-testid="journey-documents-summary">{documentsSummaryLine(documents.summary)}</p>
                 ) : null}
-                {documents.items.length ? (
-                  <ul className="mt-3 space-y-3" data-testid="journey-documents-list">
-                    {documents.items.map((item) => {
-                      const st = documentState(item.state)
-                      const provenance = documentProvenance(item.document)
-                      return (
-                        <li key={item.document_type} className="min-w-0 rounded-lg border border-slate-200 p-3" data-testid={`journey-document-${item.document_type}`}>
-                          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                            <p className="min-w-0 break-words text-sm font-semibold text-slate-900">{item.display_name}</p>
-                            <span className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${st.tone}`} data-testid={`journey-document-state-${item.document_type}`}>{st.label}</span>
-                          </div>
-                          <p className="mt-1 min-w-0 break-words text-xs text-slate-600">{item.note}</p>
-                          {provenance ? <p className="mt-1 min-w-0 break-words text-xs text-slate-500" data-testid={`journey-document-provenance-${item.document_type}`}>{provenance}</p> : null}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                ) : (
-                  <p className="mt-3 min-w-0 break-words text-sm text-slate-700" data-testid="journey-documents-none-listed">No shipping documents are listed in this view.</p>
-                )}
+                <DocumentsList documents={documents} />
                 <p className="mt-3 min-w-0 break-words text-xs text-slate-500" data-testid="journey-documents-disclaimer">{documents.disclaimer}</p>
                 {workspacePath ? <Link to={workspacePath} className="mt-3 inline-block text-sm font-semibold text-orange-700 underline" data-testid="journey-documents-link">Open the document workspace</Link> : null}
               </div>
