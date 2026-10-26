@@ -14,10 +14,10 @@ name: T11-CAP-LR01-R2 STAGING CONVERGENCE AND INGESTION
 #   * this workflow adds no product code: the certification branch differs from the product commit by this file only;
 #   * no events are emitted and nothing is sent.
 
+# RETIRED after the one run that applied the migration and ingested the records (run 40274757763): the push trigger is removed so that
+# editing this branch can never re-run a staging writer. A manual dispatch is an idempotent verify (the second apply writes nothing).
 on:
-  push:
-    branches:
-      - cert/t11-cap-lr01-r2-converge
+  workflow_dispatch:
 
 concurrency:
   group: t11-cap-lr01-r2-converge
@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
           test "$GITHUB_REF_NAME" = "cert/t11-cap-lr01-r2-converge"
           git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
           git merge-base --is-ancestor "$PRODUCT_SHA" "origin/$PRODUCT_BRANCH"
