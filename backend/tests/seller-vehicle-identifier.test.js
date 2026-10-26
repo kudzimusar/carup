@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   ISO_3779_VIN_PATTERN,
@@ -176,14 +178,33 @@ test('R2-§16: the public passport lookup is NOT widened — a frame number is s
   assert.equal(classifyLookupIdentifier('JTELU9FJ9K5987234').kind, LOOKUP_KINDS.VIN);
 });
 
-test('R2-§16: the rule lives in ONE place — no other backend file restates the shape pattern', () => {
-  const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
-  for (const rel of ['../server.js', '../services/marketplace/marketplaceListingEligibility.js', '../services/marketplace/marketplaceClassificationRules.js']) {
-    const source = read(rel);
-    assert.doesNotMatch(source, /\[A-Z0-9-\]\{12,17\}/, `${rel} restates the identifier shape instead of importing it`);
-    assert.doesNotMatch(source, /VALID_VEHICLE_IDENTIFIER_RE/, `${rel} still carries its own copy`);
+test('R2-§16: the rule lives in ONE place — no backend file restates the shape pattern, and every file that rules a format invalid asks the shared helper', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const code = (text) => text.replace(/\/\*[\s\S]*?\*\//g, ' ').split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (!/^(node_modules|tests?|__tests__)$/.test(entry.name)) walk(full); } else if (/\.m?js$/.test(entry.name)) files.push(full);
+    }
+  };
+  for (const dir of ['services', 'utils', 'routes', 'middleware', 'validators']) walk(path.join(root, dir));
+  files.push(path.join(root, 'server.js'));
+  assert.ok(files.length > 200, `the scan found only ${files.length} files`);
+
+  const restating = [];
+  const rulers = [];
+  for (const file of files) {
+    const rel = path.relative(root, file);
+    if (rel === path.join('utils', 'sellerVehicleIdentifier.js')) continue;
+    const source = code(readFileSync(file, 'utf8'));
+    if (/\[A-Z0-9-\]\{12,17\}/.test(source) || /VALID_VEHICLE_IDENTIFIER_RE/.test(source)) restating.push(rel);
+    // A file that DECIDES a format is invalid (it names the exclusion reason in code) must ask the shared helper rather than judge for itself.
+    if (/invalid_vin_format\(/.test(source)) rulers.push([rel, /hasAcceptableIdentifierShape/.test(source)]);
   }
-  assert.match(read('../services/marketplace/marketplaceListingEligibility.js'), /hasAcceptableIdentifierShape/);
-  assert.match(read('../services/marketplace/marketplaceClassificationRules.js'), /hasAcceptableIdentifierShape/);
-  assert.match(read('../server.js'), /hyphenated Japanese frame number/);
+  assert.deepEqual(restating, [], `these files restate the identifier shape instead of importing it: ${restating.join(', ')}`);
+  assert.ok(rulers.length >= 1, 'no file rules an identifier invalid — the scan is not looking where it thinks it is');
+  assert.deepEqual(rulers.filter(([, usesHelper]) => !usesHelper).map(([rel]) => rel), [], 'a file rules an identifier invalid without asking the shared helper');
+  assert.match(readFileSync(new URL('../services/marketplace/marketplaceListingEligibility.js', import.meta.url), 'utf8'), /hasAcceptableIdentifierShape/);
+  assert.match(readFileSync(new URL('../server.js', import.meta.url), 'utf8'), /hyphenated Japanese frame number/);
 });

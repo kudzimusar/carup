@@ -23,7 +23,10 @@ export function createJourneyRouter({ auth = participantAuth, getJourneyFn = get
 
   // `subjectType` is `import_order`, `cargo_reservation` or `shipment`; the service validates it.
   router.get('/journeys/:subjectType/:subjectId', auth, asyncHandler(async (req, res) => {
-    res.json({ data: await getJourneyFn(req.params.subjectType, req.params.subjectId, req.userContext, { req }) });
+    const data = await getJourneyFn(req.params.subjectType, req.params.subjectId, req.userContext, { req });
+    // Private to the viewer, and — for the vehicle's owner — it carries short-lived links to their photographs: never stored by a browser or a shared cache.
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ data });
   }));
 
   return router;
