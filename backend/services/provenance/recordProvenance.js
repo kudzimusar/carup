@@ -28,6 +28,8 @@
  * below — the public-listing fixture question keeps its exact reasons, but there is one definition.
  */
 
+import { hasAcceptableIdentifierShape } from '../../utils/sellerVehicleIdentifier.js';
+
 export const PROVENANCE_CLASSES = Object.freeze([
   'real_owner_created',
   'real_business_operational',
@@ -96,12 +98,8 @@ export const SEED_TENANT_IDS = new Set([
 const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([_-]|\d|$)/i;
 /** Obviously synthetic identifier (starts with the literal letters "VIN" or a test/demo prefix). */
 const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i;
-/**
- * Real-market Seller identifiers. Standard 17-char VINs remain accepted, while documented Japanese
- * domestic frame/chassis identifiers such as GFC27-027051 are valid 12–17 character identifiers.
- * Hyphen is permitted; underscore remains reserved/synthetic.
- */
-const VALID_VEHICLE_IDENTIFIER_RE = /^[A-Z0-9-]{12,17}$/i;
+// Real-market Seller identifiers: standard 17-character VINs, documented 12–17 character identifiers, and hyphenated Japanese domestic frame numbers
+// (GFC27-027051, RU3-1316558). The shape rule is defined ONCE, in utils/sellerVehicleIdentifier.js. Hyphen is permitted; underscore remains reserved/synthetic.
 /** Reserved Seller automation marker. Human listings using this exact prefix are treated as fixtures. */
 export const SELLER_AUTOMATION_DESCRIPTION_RE = /^Golden Dynamic Seller ([a-z0-9-]+):/i;
 /** Governed run markers written by certification automation into the listing text. */
@@ -151,7 +149,7 @@ export function vehicleFixtureMarker(vehicle = {}) {
   // specific diagnosis; both orders exclude exactly the same rows, only the reported reason differs.
   if (vin && INTEGRATION_VIN_RE.test(vin)) return { reason: `integration_fixture_vin(${vin})`, class: 'ci_automation' };
   if (vin && (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_'))) return { reason: `synthetic_vin_prefix(${vin})`, class: 'legacy_synthetic' };
-  if (vin && !VALID_VEHICLE_IDENTIFIER_RE.test(vin)) return { reason: `invalid_vin_format(${vin})`, class: 'legacy_synthetic' };
+  if (vin && !hasAcceptableIdentifierShape(vin)) return { reason: `invalid_vin_format(${vin})`, class: 'legacy_synthetic' };
   if (owner && (SEED_OWNER_IDS.has(owner) || /^u\d+$/.test(owner))) return { reason: `seed_owner_id(${owner})`, class: 'seed_demo' };
   if (tenant && SEED_TENANT_IDS.has(tenant)) return { reason: `seed_tenant_id(${tenant})`, class: 'seed_demo' };
   return null;
