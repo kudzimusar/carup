@@ -992,6 +992,15 @@ async function withGovernedMedia(passport, vin, req) {
 }
 
 /**
+ * A passport body that carries the owner's short-lived photograph links is a capability for THAT viewer alone: a browser or a shared cache must never
+ * store it. A body without the block (every public passport) is sent exactly as before.
+ */
+function sendPassportBody(res, body) {
+  if (body && body.governed_media) res.set('Cache-Control', 'private, no-store');
+  return res.json(body);
+}
+
+/**
  * Order by canonical trust, highest first, with every unscored vehicle after every scored one.
  *
  * A vehicle with no canonical evaluation is NOT a zero and must not be ranked as one — it sorts
@@ -1986,7 +1995,7 @@ app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (r
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
-    res.json(await withGovernedMedia(passport, vin, req));
+    return sendPassportBody(res, await withGovernedMedia(passport, vin, req));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2031,7 +2040,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
-    res.json(await withGovernedMedia(passport, resolvedVin, req));
+    return sendPassportBody(res, await withGovernedMedia(passport, resolvedVin, req));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4404,6 +4413,8 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     } catch (governedError) {
       console.warn('[governed-media] garage heroes unavailable:', governedError?.message)
     }
+    // A list that carries the owner's short-lived photograph links is for that viewer alone; it is never stored by a browser or a shared cache.
+    if (governed.size > 0) res.set('Cache-Control', 'private, no-store')
     res.json(withTrust.map((vehicle) => ({
       ...vehicle,
       counts: counts.get(vehicle.vin) ?? null,

@@ -212,7 +212,8 @@ test('W9: the passport attachment — a fault never fails the passport and never
 });
 
 test('W10: both passport routes wrap their response with the SAME attachment, passing the VIN they actually resolved', () => {
-  const sites = [...serverSrc.matchAll(/res\.json\(await withGovernedMedia\(passport, (\w+), req\)\)/g)].map((m) => m[1]);
+  // (they send it through `sendPassportBody`, which only adds `Cache-Control: private, no-store` when the block is attached — see t11-cap-r2-capability-headers)
+  const sites = [...serverSrc.matchAll(/sendPassportBody\(res, await withGovernedMedia\(passport, (\w+), req\)\)/g)].map((m) => m[1]);
   assert.deepEqual(sites.sort(), ['resolvedVin', 'vin']);
   assert.equal([...serverSrc.matchAll(/res\.json\(passport\)/g)].length, 0, 'no passport response bypasses the attachment');
   // the builder is untouched: it takes no governed-media collaborator and never learned of the block
@@ -230,28 +231,43 @@ function instantiateGarageHandler({ vehicles, governed, throwGoverned = false })
   const brace = serverSrc.indexOf('{', arrowIdx);
   const handlerSource = `${serverSrc.slice(arrowIdx, brace)}${sliceBalanced(serverSrc, brace)}`;
   const supabase = { from: () => ({ select: () => ({ or: async () => ({ data: vehicles, error: null }) }) }) };
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(
-    'supabase', 'withCanonicalTrust', 'ownerGarageCounts', 'ownerListingMedia', 'toListingMediaBlock', 'readGovernedMediaForVehicles', 'actorForGovernedMedia', 'governedMediaSigner', 'console',
-    `return (${handlerSource});`,
-  );
-  const seen = {};
-  const handler = factory(
+  const seen = { unknown: new Set() };
+  const provided = {
     supabase,
-    async (rows) => rows,
-    async () => new Map(),
-    async () => new Map(),
-    (rows) => ({ state: rows === null ? 'not_loaded' : 'none', items: [] }),
-    async (input) => { seen.input = input; if (throwGoverned) throw new Error('governed exploded'); return governed(input); },
+    withCanonicalTrust: async (rows) => rows,
+    ownerGarageCounts: async () => new Map(),
+    ownerListingMedia: async () => new Map(),
+    toListingMediaBlock: (rows) => ({ state: rows === null ? 'not_loaded' : 'none', items: [] }),
+    readGovernedMediaForVehicles: async (input) => { seen.input = input; if (throwGoverned) throw new Error('governed exploded'); return governed(input); },
     actorForGovernedMedia,
-    { signer: true },
-    { warn: () => {}, error: () => {} },
-  );
-  return { handler, seen };
+    governedMediaSigner: { signer: true },
+    console: { warn: () => {}, error: () => {} },
+  };
+  // A handler may gain collaborators on other lineages (the runtime lineage reads who last changed a listing's publication). They are not what this test
+  // exercises, so each unknown name resolves to a stub that answers an empty Map — and is RECORDED, so a collaborator nobody expected still fails the test.
+  const scope = new Proxy(provided, {
+    has: (target, key) => typeof key === 'string' && (key in target || !(key in globalThis)),
+    get: (target, key) => {
+      if (typeof key === 'symbol') return undefined;
+      if (key in target) return target[key];
+      seen.unknown.add(key);
+      return async () => new Map();
+    },
+  });
+  // eslint-disable-next-line no-new-func
+  const factory = new Function('scope', `with (scope) { return (${handlerSource}); }`);
+  return { handler: factory(scope), seen };
 }
+/** Collaborators the garage handler has on OTHER lineages and this lineage's tests do not exercise. */
+const OTHER_LINEAGE_COLLABORATORS = new Set(['readPublicationLastChange']);
 const runHandler = async (handler, userContext) => {
   const out = {};
-  await handler({ userContext }, { json: (body) => { out.body = body; return out; }, status: (code) => ({ json: (body) => { out.status = code; out.body = body; } }) });
+  out.headers = {};
+  await handler({ userContext }, {
+    set: (k, v) => { out.headers[k] = v; },
+    json: (body) => { out.body = body; return out; },
+    status: (code) => ({ json: (body) => { out.status = code; out.body = body; } }),
+  });
   return out;
 };
 
@@ -266,7 +282,20 @@ test('W11: the garage list adds each vehicle\'s hero beside — never instead of
   assert.ok(body.every((v) => v.listing_media), 'listing_media is untouched');
   assert.deepEqual(body.map((v) => 'governed_media' in v), [true, true, false], 'a vehicle the user only SELLS carries no governed media');
   assert.equal(seen.input.limit, 1, 'a list asks for the hero, not the gallery');
+  assert.deepEqual([...seen.unknown].filter((name) => !OTHER_LINEAGE_COLLABORATORS.has(name)), [], 'the garage handler depends on a collaborator this harness does not know');
   assert.deepEqual(seen.input.actor, { id: OWNER, role: 'owner', identityAsserted: false });
+});
+
+test('W11b: the garage list is uncacheable exactly when it carries photograph links', async () => {
+  const withHeroes = instantiateGarageHandler({
+    vehicles: [{ vin: VIN, owner_id: OWNER }],
+    governed: ({ vehicles: asked }) => new Map(asked.map((v) => [v.vin, { state: 'available', items: [{ gallery_rank: 1 }], total_count: 1 }])),
+  });
+  assert.deepEqual((await runHandler(withHeroes.handler, { id: OWNER, role: 'owner' })).headers, { 'Cache-Control': 'private, no-store' });
+  const none = instantiateGarageHandler({ vehicles: [{ vin: VIN, owner_id: 'u_other' }], governed: () => new Map() });
+  assert.deepEqual((await runHandler(none.handler, { id: OWNER, role: 'owner' })).headers, {}, 'a list with no links gained a header');
+  const faulted = instantiateGarageHandler({ vehicles: [{ vin: VIN, owner_id: OWNER }], governed: () => new Map(), throwGoverned: true });
+  assert.deepEqual((await runHandler(faulted.handler, { id: OWNER, role: 'owner' })).headers, {});
 });
 
 test('W12: a fault in governed media NEVER fails the garage — the vehicles come back without the key', async () => {
