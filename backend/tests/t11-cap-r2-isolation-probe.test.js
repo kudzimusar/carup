@@ -38,7 +38,7 @@ const clean = (path, signedIn) => {
   if (path.includes('/diaspora/journeys/')) return signedIn ? jr() : json(401, { error: 'Unauthorized' })
   if (path.endsWith('/governed-media')) return nf()
   if (path.endsWith('/access')) return signedIn ? dnf() : json(401, { error: 'Unauthorized' })
-  if (path.endsWith('/passport')) return json(200, { vehicle: { vin: REAL, make: 'Honda' }, listing_media: { state: 'none', items: [] } })
+  if (path.endsWith('/passport')) return signedIn ? json(200, { vehicle: { vin: REAL, make: 'Honda' }, listing_media: { state: 'none', items: [] } }) : json(401, { error: 'Sign in to look up a vehicle by plate, chassis or frame number.' })
   if (path.endsWith('/vehicles/me')) return signedIn ? json(200, []) : json(401, { error: 'Unauthorized' })
   return json(404, { error: 'unexpected' })
 }
@@ -103,6 +103,17 @@ test('R2-I7: a public passport that carries the private block, a signed link or 
     assert.equal(out.verdict, 'FAIL', JSON.stringify(leak))
     assert.ok(out.problems.some((x) => /public passport: a public answer carried private\/capability words/.test(x)))
   }
+})
+
+test('R2-I7b: a public passport may ask a visitor to sign in (401) — but anything else for a visitor, or a 500 for anyone, fails', async () => {
+  const ok = await run(clean)
+  assert.equal(ok.verdict, 'PASS', ok.problems.join('; '))
+  assert.ok(ok.observations.some((o) => o.anonymous && o.kind === 'public' && o.status === 401))
+  const broken = await run((p, s) => (p.endsWith('/passport') && s ? json(500, { error: 'boom' }) : clean(p, s)))
+  assert.equal(broken.verdict, 'FAIL')
+  assert.ok(broken.problems.some((x) => /expected the public passport \(200\/404\), got 500/.test(x)))
+  const visitor = await run((p, s) => (p.endsWith('/passport') && !s ? json(403, { error: 'no' }) : clean(p, s)))
+  assert.equal(visitor.verdict, 'FAIL')
 })
 
 test('R2-I8: a stranger\'s own list that carries the real purchase fails the probe; their own empty or unrelated list passes', async () => {

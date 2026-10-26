@@ -77,7 +77,10 @@ export function judge(observations) {
       if (o.status !== 404) problems.push(`${tag}: expected 404, got ${o.status}${o.status === 200 ? ' — an unrelated user was ANSWERED' : ''}`)
       if (o.markers.length) problems.push(`${tag}: the refusal carried capability words (${o.markers.join(',')})`)
     } else if (o.kind === 'public') {
-      if (o.status !== 200 && o.status !== 404) problems.push(`${tag}: expected the public passport (200) or 404, got ${o.status}`)
+      // A public passport may answer (200), not exist (404), or — for a frame/chassis number, which is a RESTRICTED lookup — ask a visitor to sign in (401).
+      // What it must never do is carry the private block, a signed link or a storage word, whoever asks.
+      const allowed = o.anonymous ? [200, 401, 404] : [200, 404]
+      if (!allowed.includes(o.status)) problems.push(`${tag}: expected the public passport (${allowed.join('/')}), got ${o.status}`)
       if (o.markers.length) problems.push(`${tag}: a public answer carried private/capability words (${o.markers.join(',')})`)
       if (o.forbidden.length) problems.push(`${tag}: a public answer carried forbidden values (${o.forbidden.join(',')})`)
     } else if (o.kind === 'own_list') {
