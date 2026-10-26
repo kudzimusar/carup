@@ -238,6 +238,18 @@ const AUTHORIZATION_CHECK_VEHICLE_READS = [
       + 'getRepairHistory(). The response is repair history, never the vehicle row.',
   },
   {
+    key: 'server.js (GET /api/vehicles/:vin/details) owner_id',
+    why: 'withGovernedMedia() (T11-CAP-LR01-R2): owner_id is compared to the PROVEN identity — never an asserted one — to decide whether the '
+      + 'owner-only governed-media block is attached to the passport body. It is never echoed; anonymous and asserted callers issue no query at all, '
+      + 'and a viewer who is not entitled receives a passport byte-identical to one for a vehicle with no governed media.',
+  },
+  {
+    key: 'routes/governedMediaRoutes.js (GET /api/vehicles/:vin/governed-media) owner_id',
+    why: 'optionalAuth(); owner_id is compared to the proven identity inside canViewGovernedMedia() to decide whether the caller may see the vehicle\'s '
+      + 'private gallery. The response is the gallery block only, and every refusal — anonymous, asserted, a stranger, a missing vehicle — is the same '
+      + '404, so the row (and whose it is) is never returned.',
+  },
+  {
     key: 'routes/vehiclesRoutes.js (GET /api/vehicles/:vin/evidence) owner_id, tenant_id',
     why: 'compared to the active identity to choose the vehicle_evidence visibility filter; the '
       + 'response is evidence rows only. That this endpoint derives that identity from UNVERIFIED '
