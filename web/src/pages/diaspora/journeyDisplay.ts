@@ -244,12 +244,20 @@ export function exceptionText(code: string, fallback: string): string {
   }
 }
 
-/** Where a timeline row came from, in words. An unstated source is said to be unstated. */
+/**
+ * Where a timeline row came from, in words. An unstated source is said to be unstated. A label this page has no wording for is never echoed: it is a
+ * system label somebody typed when the record was made, not language for a customer, and read raw it can make a genuine record look like test data.
+ */
 export function sourceLabel(source: string | null | undefined): string {
   if (!source) return 'Source not stated'
-  if (source === 'T10') return 'Recorded at loading'
-  if (source === 'operator_declared' || source === 'OPERATOR_DECLARED') return 'Stated by the organiser'
-  return `Source: ${source}`
+  switch (source.toUpperCase()) {
+    case 'T10': return 'Recorded at loading'
+    case 'OPERATOR_DECLARED': return 'Stated by the organiser'
+    case 'DOCUMENT': return 'Taken from a document'
+    case 'CARRIER': return 'Reported by the carrier'
+    case 'PROVIDER': return 'Reported by a tracking provider'
+    default: return 'Recorded in CarUp'
+  }
 }
 
 const AUTHORITY_UI: Record<string, string> = {
