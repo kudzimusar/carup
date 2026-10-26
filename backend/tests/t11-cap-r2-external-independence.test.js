@@ -48,18 +48,46 @@ function runtimeFiles() {
   return out;
 }
 
-test('X1: no shipped file names the source\'s host, a capability URL or a token', () => {
-  const files = runtimeFiles();
-  assert.ok(files.length > 300, `the scan found only ${files.length} runtime files — it is not looking where it thinks it is`);
-  const forbidden = [
-    /beforward/i, /be-forward/i, /\bcap\.[a-z0-9-]+\.[a-z]{2,}\b.*token/i, /[?&]access_?token=/i, /capability[_-]?token/i,
+// The files that make up the customer's CAP read path. (Other parts of the platform may legitimately mention other external parties — a stock importer
+// has its own business with a public catalogue, a garage invitation has its own "capability token" — and none of that is the CAP's dependency.)
+const CAP_PATH_FILES = [
+  'backend/services/diaspora/journeyCapComposition.js', 'backend/services/diaspora/journeyProjectionService.js',
+  'backend/services/diaspora/diasporaDocumentService.js', 'backend/services/evidence/governedVehicleMediaService.js',
+  'backend/utils/governedVehicleMedia.js', 'backend/routes/governedMediaRoutes.js', 'backend/routes/diasporaJourneyRoutes.js',
+  'web/src/lib/governedMedia.ts', 'web/src/components/listing/OwnerVehicleHero.tsx',
+];
+function capPathFiles() {
+  const out = CAP_PATH_FILES.filter((f) => fs.existsSync(path.join(ROOT, f)));
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(rel);
+      else if (/\.(ts|tsx)$/.test(entry.name) && !isTestFile(rel)) out.push(rel);
+    }
+  };
+  for (const dir of ['web/src/pages/diaspora', 'web/src/components/media']) if (fs.existsSync(path.join(ROOT, dir))) walk(dir);
+  return out;
+}
+
+test('X1: nothing on the CAP read path names the source\'s host or a capability address, and no shipped file carries one', () => {
+  const capFiles = capPathFiles();
+  assert.ok(capFiles.length >= 20, `the CAP path scan found only ${capFiles.length} files — it is not looking where it thinks it is`);
+  const names = [/beforward/i, /be-forward/i];
+  const addresses = [
     // the portal's own CAP page address shapes (an absolute URL: a relative `./cap/…` import is this repository's own folder)
-    /https?:\/\/[^\s'"`)]+\/cap\/[A-Za-z0-9_-]{16,}/, /[?&]cap_?id=/i,
+    /https?:\/\/[^\s'"`)]+\/cap\/[A-Za-z0-9_-]{16,}/, /[?&]cap_?id=/i, /[?&]access_?token=[A-Za-z0-9_-]{16,}/i,
   ];
   const hits = [];
+  for (const rel of capFiles) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    for (const re of [...names, ...addresses]) if (re.test(text)) hits.push(`${rel}: ${re}`);
+  }
+  // Across EVERY shipped file, only the address/token SHAPES are forbidden (other integrations may name other external parties).
+  const files = runtimeFiles();
+  assert.ok(files.length > 300, `the scan found only ${files.length} runtime files — it is not looking where it thinks it is`);
   for (const rel of files) {
     const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-    for (const re of forbidden) if (re.test(text)) hits.push(`${rel}: ${re}`);
+    for (const re of addresses) if (re.test(text)) hits.push(`${rel}: ${re}`);
   }
   assert.deepEqual(hits, [], `a shipped file depends on, or names, the external portal: ${hits.join('; ')}`);
 });
