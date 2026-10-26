@@ -10,7 +10,7 @@
 2. Everything on that page is read from CarUp's own database. Five narrowly-scoped additive tables (one migration) hold what had no home; everything else reuses the authority that already owned it.
 3. The sender's report is attributed to the sender, never shown as CarUp's observation: every reported step reads **Completed** with **no invented date**; the shipment is still *planned*, not departed, not arrived; price, tracking number, courier and payments are **Not recorded**.
 4. Nothing depends on the external portal at runtime (proved four ways, §17), and a CarUp-native journey fills the **same structures** with no second architecture (§18).
-5. The physical UAT, run as the customer in a visible Chromium at 390 / 768 / 1280 / 1920 px, found **two wording defects and one pre-existing side effect** (§16). Both defects are fixed, tested, mutation-tested and redeployed; the side effect is reported, not hidden.
+5. The physical UAT, run as the customer in a visible Chromium at 390 / 768 / 1280 / 1920 px, found **two wording defects and one pre-existing side effect** (§16). Both defects are fixed, tested, mutation-tested and redeployed, **and the corrected product was physically re-passed on the final deployed pair (§16.4)**; the side effect is reported, not hidden.
 6. Every red in the PR's own CI is inherited and independently reproduced on the PR's parent (§19); nothing R2 added is red.
 
 ## 1. SHAs, branch, PR state, ancestry
@@ -20,7 +20,7 @@
 | **Starting product SHA** (R1's last commit, where R2 began) | `304607ea4093af09b8a8cb5fe3223a64f0e7a545` |
 | PR #243's parent (Trade OS base) — unchanged by R2 | `577428decfea6beb98e88aa8132a8a8419e3349e` |
 | **Final product CODE head** | `6c13fdc4481aec703b0b2189027143a8e3d1fe9d` |
-| Above the code head | this packet only — a docs-only commit; no code, test, migration or workflow changes after `6c13fdc4` |
+| Above the code head | this packet only, in two docs-only commits (the return, then its final-pass evidence closure); no code, test, migration or workflow changes after `6c13fdc4` |
 | **Deployed integration SHA** (where it differs) | `e28cbf25f05a76a05f3b41bacd95c586a36bb365` on `cert/t11-cap-lr01-r2-uat-candidate` |
 | Branch | `feat/trade-os-t11-cap-lr01-journey-arrival` |
 | PR | #243 · **OPEN · DRAFT · MERGEABLE** · base `feat/trade-os-client-demo-convergence` · **not merged, and will not be without the Owner's explicit authority** |
@@ -203,7 +203,7 @@ All run in clean throwaway worktrees; Node 22; the backend suite under the `ci.y
 | Lineage | Head | Files | Tests | Pass | Fail | Cancelled |
 |---|---|---:|---:|---:|---:|---:|
 | Product | `b998d311` (no backend/database/shared file changed since — `git diff --name-only` over those paths is empty) | 459 | 7,228 | 7,206 | **1** — inherited T3 `SAILING MATCH` | 0 |
-| Candidate | `e28cbf25` | 642 | 9,747 | 9,698 | **1** — `lender-routes-authz` consent deletion, **did not reproduce** (file alone 5/5; the exact shard re-run 754/754) | **9** — inherited FX file |
+| Candidate | `e28cbf25` | 642 | 9,747 | 9,698 | **1** — a **non-reproducing test anomaly**, `lender-routes-authz` consent deletion (file alone 5/5; the exact shard re-run 754/754) | **9** — inherited FX file |
 
 R2's own 14 backend test files (9 new, 5 extended): **444 tests, 444 pass** — migration/ingest/harness (64 + 36), compositor (60), document access (14), headers (3), isolation judge (12), external independence (4), governed media (31 + 14), identifier rule and marketplace rules (15 + 20 + 29), the #164 read-contract register (24), the Journey projection (118).
 
@@ -300,7 +300,7 @@ The Vezel vehicle's fingerprint is `1c764dc8…` now, not the `80823a18…` reco
 
 **Proof it is *only* those six:** setting exactly those six columns back to NULL in a copy of the current row reproduces the recorded baseline `80823a186bc7beb2c071b64a0be677fd` **exactly**. Identity, specification, price (`0` / currency `NULL`), status (`Pending`), publication (`draft`), owner, evidence and media were not touched; nothing was published; the Serena, the order and the shipment fingerprints are unchanged. This is what the page does for any seller who opens it; R2 did not introduce it. It is disclosed because the UAT, not the ingestion, moved a protected-looking fingerprint.
 
-### 16.4 Final pair — what was and was not re-verified
+### 16.4 Final pair — what was re-verified, and the exact-host physical re-pass
 
 | Check | Result |
 |---|---|
@@ -308,7 +308,35 @@ The Vezel vehicle's fingerprint is `1c764dc8…` now, not the `80823a18…` reco
 | Pair provenance, health and pairing proof | ✔ (§15) |
 | Third isolation probe against the final backend host | ✔ PASS, run `40297968122` (§14) |
 | Full backend, web, type-check, build, lint, DB suites at the final heads | ✔ (§14) |
-| **Physical re-pass of the Journey page on the final web host at 390 / 768 / 1280 / 1920** | **Pending the Owner's own sign-in on the new Preview origin** — the specialist does not enter credentials. The visible Chromium tab is open on that origin's sign-in page. The pass (the Journey page at the four widths, the two corrected lines, one document View) takes minutes once signed in, and its result will be appended to this section. Its subject is two display strings whose deployed bytes, unit tests and mutation pass are already evidenced above |
+| **Physical re-pass of the Journey page on the final web host at 390 / 768 / 1280 / 1920** | **✔ PASS** — 2026-10-26, signed in by the Owner personally; the full record follows |
+
+#### Final exact-host re-pass — record
+
+Closes the evidence gap the Moderator named: pass 1 cannot certify bytes that changed afterwards, so the corrected product was physically re-passed on the **final deployed pair**, authenticated as the customer. Bounded exactly as directed — the Journey page, the two corrected wordings, one document View; nothing else.
+
+| Field | Record |
+|---|---|
+| Date and time (from `date -u`) | **2026-10-26T10:10:16Z → 10:15:39Z** |
+| Exact product code head | `6c13fdc4481aec703b0b2189027143a8e3d1fe9d` (the PR head at the time was `3e7d5301…`, a docs-only commit above it) |
+| Exact deployed integration SHA | `e28cbf25f05a76a05f3b41bacd95c586a36bb365` — re-read from **both** hosts at the start of the re-pass: the web's `/carup-provenance.json` and the backend's `/api/health` |
+| Exact web deployment | `dpl_C5aMJ7r8tkdmBr4TwQActqW2RjU4` · `https://carup-staging-cxz32nfyh-11-11.vercel.app` · `api_base_url` = the paired backend `dpl_Aqn2JaeVvooJ6RLSiJsxNgGXuiC4` (`…atkd1zlff…`), `unpaired: false` |
+| Authenticated identity class | **The real customer's own account** — the owner-role account that owns the Vezel (`u_66cace85fad949e4`, shown as Kingston Musarurwa, "Trade participant · Zimbabwe trade operations"). Signed in by the Owner personally in a visible Chromium; not an administrator and not a synthetic outsider; no credential was typed by the specialist |
+| Page | `/diaspora/journey/vehicle/RU3-1316558`, a fresh load at each width |
+| Widths tested | **390, 768, 1280, 1920 px** |
+| Overflow | **None at any width** (`scrollWidth = clientWidth`: 384 / 762 / 1274 / 1914, the viewport less its scrollbar). Only *contained* scrollers: at 390 the app navigation, the Journey tab strip and the "On this page" pills; at 768 the pills; none at 1280 or 1920 |
+| Vehicle media | Hero "Photograph 1 of 50", "Private to you"; **51 images, every one from the staging project's own storage, 0 broken** at every width (at 390, 49 on first paint and the 2 lazy ones on scroll: 51 / 51) |
+| Progress | **5 groups** in order (Booking, Departure, B/L, Dispatch, Clearing & Delivery); **14 action rows**, **14 × "Completed"**, **14 × "The source did not supply a date for this step."**; the only date in the Progress section is the sources footer "as of Oct 25, 2026, 8:46 AM" (the capture time) — no completion date anywhere |
+| Shipping | "Not recorded as departed" (planned around Aug 29, 2026) and "Not recorded as arrived" (estimated Sep 18, 2026); no actual departure or arrival appears |
+| Price and framing | "Purchase price — Not recorded"; **no `$0`**; none of *certification seed*, "Source: ", *demo*, *mock*, *simulation*, *test shipment*, *external clone*, *undefined*, *NaN* anywhere in the page |
+| **Corrected wording** | The timeline row reads **"Oct 25, 2026, 1:16 PM · Recorded in CarUp"** — no "Source: certification seed". The Latest Update reads **"Reported by BE FORWARD portal · as of Oct 25, 2026, 8:46 AM"**. Both were seen on screen (1920 and 1280) and in the page text at **all four** widths |
+| Document View | **One View — the Bill of Lading — succeeded.** A new tab opened on the staging project's own private storage as a signed link valid **300 s** (`iat`→`exp` = 300); the page's DOM carries **no** storage path, bucket or token for any document (0 hits); **no source-portal host was contacted**; the tab was closed at once; **no screenshot or download of any document was made or kept** |
+| Console | **0 errors, 0 warnings** on all four Journey loads and the View. The browser session holds exactly one message — `net::ERR_NETWORK_IO_SUSPENDED` on `/api/features/effective` — which was already there while the tab sat on the Sign In page, before the Owner signed in (a machine-sleep artefact), not from any Journey load |
+| Network hosts | The final backend (`/api/health`, features, `auth/me`, **`GET /api/diaspora/journeys/vehicle/RU3-1316558` → 200**, trade context, CSRF token, navigation analytics → 202, and **`GET …/trade-documents/<id>/access?disposition=view` → 200**); the staging project's storage (signed photograph links); the final web host; the Vercel Preview toolbar; Google Fonts. **No source-portal host — 0 matches for `beforward`** |
+| Not done, by direction | Seller Studio was **not** opened; no document was downloaded; no staging ingestion was re-run; **no product code changed** |
+| Staging after the re-pass (read-only) | Vezel vehicle `1c764dc858b0029a011480a10d4bb4e6` (unchanged since §16.3), Serena `e9d216b9ca1eb39440d9be8ab39123e6`, order `4714abd7…`, shipment `4f7431fd…`, progress rows 14, media references 50, `listing_images` (Vezel) 0, `domain_events` 1,947, `notification_queue` 1,888 — all as before. The only database writes this re-pass caused are the product's own: the audit entry for the one View and a navigation-analytics event; the Journey read writes nothing |
+| Evidence | Seven screenshots, a token-redacted network log and the console log, in the private evidence folder — **not committed** (they show the customer's own vehicle and parties) |
+
+**Result: every bounded check passed. No new defect was found.** The corrected product is confirmed on the exact deployed bytes the Moderator named.
 
 ## 17. External-runtime-independence proof
 
@@ -337,7 +365,7 @@ Proved by the compositor tests **G-NATIVE1–6** and **G-N1–N5** (a native jou
 
 ## 19. Inherited-versus-new CI classification
 
-PR #243 at head `6c13fdc4`, as it stands on GitHub:
+PR #243 at head `6c13fdc4` and again at `3e7d5301` (the docs-only packet commit; identical results), as it stands on GitHub:
 
 | Check | Result | Class | Evidence |
 |---|---|---|---|
@@ -350,9 +378,9 @@ Reds R2 **introduced and fixed** along the way (not red now): diff-hygiene on th
 
 ## 20. Limitations and notes for the Moderator
 
-* **Final physical re-pass** — see §16.4.
+* **Final physical re-pass** — done on 2026-10-26 on the exact deployed pair, every bounded check passed (§16.4).
 * **Merge-time note.** #243 targets the Trade OS base, where `recordProvenance.js` does not exist. Merged into any lineage that has it (PC01-K2B), R2's hunk in `marketplaceClassificationRules.js` conflicts by design: take that lineage's file and apply `d065047e` (one helper call) — otherwise `RU3-1316558` is classed `invalid_vin_format` there.
-* **Seller Studio autosaves on open** (pre-existing, §16.3) — the product writes six draft columns when a seller merely views the page. Worth its own ticket; unchanged here.
+* **A separately actionable Seller Studio lifecycle defect** (pre-existing, §16.3): the product writes six draft columns when a seller merely views the page. It is **not repaired in R2** and not authorised for repair in the evidence-closure unit; the final re-pass does **not** open Seller Studio.
 * **The gallery order is inferred** from the import sequence (the original filename is not stored) and is labelled as an inference; the primary is a *stated* choice.
 * **The three documents are "Supplied — awaiting review"** — CarUp has not reviewed them, by design. The B/L itself carries a shipped-on-board date; that is a claim in an unverified document and was **not** ingested as a movement.
 * **Stale estimate.** The estimated arrival (Sep 18, 2026) is in the past and no arrival is recorded. The page says it is an estimate and not a record, and shows "Not recorded as arrived"; no staleness alert fires (outside R2).
@@ -361,7 +389,7 @@ Reds R2 **introduced and fixed** along the way (not red now): diff-hygiene on th
 * **Accessibility.** No overflow at any width; the contained tab strips scroll; two standalone text links ("Open full size", "Open the document workspace") are 16–20 px tall — below a comfortable tap target — and were not changed (R1 styling + one R2 link).
 * **Vercel's Preview toolbar** (a round button) appears on Preview hosts only; it is not product.
 * The machine slept for roughly an hour during the candidate backend run (shard 1 shows 4,228 s of wall time); no test was affected.
-* **One non-reproducing failure** in the first complete candidate backend run (`lender-routes-authz`, consent deletion, `400 !== 403`): not R2 code, passes alone (5 / 5) and in its exact shard (754 / 754).
+* **One non-reproducing test anomaly** in the first complete candidate backend run (`lender-routes-authz`, consent deletion, `400 !== 403`): unrelated lender authorisation code, not R2; passes alone (5 / 5) and in its exact shard (754 / 754). Recorded, not acted on; lender authorisation is untouched.
 
 ## 21. Production
 
@@ -369,7 +397,7 @@ Reds R2 **introduced and fixed** along the way (not red now): diff-hygiene on th
 
 ## 22. Recommendation
 
-Every item of §33 is evidenced above; every red in the PR's own CI is inherited and reproduced on the PR's parent; the two defects the physical UAT found are fixed and the one pre-existing side effect is disclosed. The single item the specialist could not complete alone is the physical re-pass of the final web host (§16.4), which needs the Owner's own sign-in on the new Preview origin; the Moderator retains acceptance and may require that re-pass first.
+Every item of §33 is evidenced above; every red in the PR's own CI is inherited and reproduced on the PR's parent; the two defects the physical UAT found are fixed and the one pre-existing side effect is disclosed. The exact-host physical re-pass the Moderator required was completed on the final deployed pair, authenticated as the customer, and every bounded check passed (§16.4); no product code changed after `6c13fdc4`. Nothing is open inside R2. The Seller Studio autosave (§16.3, §20) is a separately actionable lifecycle defect and is not part of this recommendation. The Moderator retains acceptance.
 
 `RECOMMEND ACCEPT`
 
