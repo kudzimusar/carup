@@ -7,7 +7,7 @@
  * journey leads, the Vehicle Passport appears only when the order endpoint proved ownership, and every page has a labelled way up.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent, cleanup, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 
 vi.setConfig({ testTimeout: 30_000 })
@@ -235,11 +235,12 @@ describe('Trade documents (a page of the order)', () => {
   it('sits under the order and goes back to it', async () => {
     mount(`/diaspora/imports/${ORDER}/documents`)
     await waitFor(() => expect(screen.getByTestId('diaspora-import-documents-route')).toBeInTheDocument())
-    expect(crumbs()).toEqual([
+    // No vehicle to name: the short reference, once the vehicle read has ANSWERED ("Import order" until then).
+    await waitFor(() => expect(crumbs()).toEqual([
       ['Trade & Imports', '/diaspora/imports'],
       ['Import Orders', '/diaspora/imports'],
       ['Import order 3E2B66A0', `/diaspora/imports/${ORDER}`],
-    ])
+    ]))
     expect(within(trail()).getByTestId('workspace-crumb-current')).toHaveTextContent('Trade documents')
     expect(screen.getByRole('link', { name: 'Back to import order' })).toHaveAttribute('href', `/diaspora/imports/${ORDER}`)
   })
@@ -276,5 +277,59 @@ describe('Container & shipment (a page of the order)', () => {
     mount(`/diaspora/imports/${ORDER}/shipment`)
     fireEvent.click(await screen.findByRole('link', { name: 'Back to import order' }))
     await waitFor(() => expect(location()).toBe(`/diaspora/imports/${ORDER}`))
+  })
+})
+
+/** A promise the test settles by hand, so a page can be looked at while its read is still out. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+describe('an order still being read is called "Import order" — never its reference (physical UAT finding)', () => {
+  // On the deployed candidate the trail read "Import order 3E2B66A0" for two to three seconds on every visit to these pages and then
+  // changed to "2018 Honda Vezel": the same order, two names. The short reference is the name of an order nothing else is known about,
+  // so it may appear only once the read that would name the order has ANSWERED.
+  it('Import Order: "Import order" while the order loads, then the vehicle', async () => {
+    const read = deferred<unknown>()
+    h.api.fetchDiasporaImportOrder.mockImplementation(() => read.promise)
+    mount(`/diaspora/imports/${ORDER}`)
+    await waitFor(() => expect(within(trail()).getByTestId('workspace-crumb-current')).toHaveTextContent(/^Import order$/))
+    expect(trail().textContent).not.toMatch(/3E2B66A0/i)
+    await act(async () => { read.resolve(owned()) })
+    await waitFor(() => expect(within(trail()).getByTestId('workspace-crumb-current')).toHaveTextContent('2018 Honda Vezel'))
+  })
+
+  it('Trade documents: the order link says "Import order" until the vehicle read answers, then names the vehicle', async () => {
+    const read = deferred<{ vin: string; title: string | null } | null>()
+    h.getOrderVehicle.mockImplementation(() => read.promise)
+    mount(`/diaspora/imports/${ORDER}/documents`)
+    await waitFor(() => expect(screen.getByTestId('diaspora-import-documents-route')).toBeInTheDocument())
+    expect(crumbs()[2]).toEqual(['Import order', `/diaspora/imports/${ORDER}`])
+    expect(trail().textContent).not.toMatch(/3E2B66A0/i)
+    await act(async () => { read.resolve({ vin: VIN, title: '2018 Honda Vezel' }) })
+    await waitFor(() => expect(crumbs()[2]).toEqual(['2018 Honda Vezel', `/diaspora/imports/${ORDER}`]))
+  })
+
+  it('Trade documents: a vehicle read that FAILED has answered — the order then gets its short reference', async () => {
+    const read = deferred<{ vin: string; title: string | null } | null>()
+    h.getOrderVehicle.mockImplementation(() => read.promise)
+    mount(`/diaspora/imports/${ORDER}/documents`)
+    await waitFor(() => expect(crumbs()[2]).toEqual(['Import order', `/diaspora/imports/${ORDER}`]))
+    await act(async () => { read.reject(new Error('Server unavailable')) })
+    await waitFor(() => expect(crumbs()[2]).toEqual(['Import order 3E2B66A0', `/diaspora/imports/${ORDER}`]))
+  })
+
+  it('Container & shipment: "Import order" while the order loads, then the vehicle', async () => {
+    const read = deferred<unknown>()
+    h.api.fetchDiasporaImportOrder.mockImplementation(() => read.promise)
+    mount(`/diaspora/imports/${ORDER}/shipment`)
+    await waitFor(() => expect(screen.getByTestId('diaspora-import-shipment-route')).toBeInTheDocument())
+    expect(crumbs()[2]).toEqual(['Import order', `/diaspora/imports/${ORDER}`])
+    expect(trail().textContent).not.toMatch(/3E2B66A0/i)
+    await act(async () => { read.resolve(owned()) })
+    await waitFor(() => expect(crumbs()[2]).toEqual(['2018 Honda Vezel', `/diaspora/imports/${ORDER}`]))
   })
 })

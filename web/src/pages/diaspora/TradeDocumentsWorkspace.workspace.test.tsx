@@ -7,7 +7,7 @@
  * gets the workspace and its own name and no parent that would be a guess.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent, cleanup, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 
 vi.setConfig({ testTimeout: 30_000 })
@@ -79,11 +79,12 @@ afterEach(cleanup)
 describe('an import order’s paperwork', () => {
   it('is a page of the order: trail, way up, and the journey beside it', async () => {
     await open('import_order', ORDER)
-    expect(crumbs()).toEqual([
+    // An order with no vehicle to name is called by its short reference once the vehicle read has ANSWERED ("Import order" until then).
+    await waitFor(() => expect(crumbs()).toEqual([
       ['Trade & Imports', '/diaspora/imports'],
       ['Import Orders', '/diaspora/imports'],
       ['Import order 3E2B66A0', `/diaspora/imports/${ORDER}`],
-    ])
+    ]))
     expect(within(trail()).getByTestId('workspace-crumb-current')).toHaveTextContent('Documents & evidence')
     expect(screen.getByRole('link', { name: 'Back to import order' })).toHaveAttribute('href', `/diaspora/imports/${ORDER}`)
     const exits = screen.getByRole('navigation', { name: 'Elsewhere for this purchase' })
@@ -159,5 +160,19 @@ describe('paperwork that could not be opened', () => {
     expect(screen.queryByRole('link', { name: 'Back to import order' })).toBeNull()
     expect(screen.getByTestId('documents-unreadable').innerHTML).not.toContain(ORDER)
     expect(h.getOrderVehicle).not.toHaveBeenCalled()
+  })
+})
+
+describe('an order still being read is called "Import order" — never its reference (physical UAT finding)', () => {
+  it('the order link says "Import order" until the vehicle read answers, then names the vehicle', async () => {
+    let answer!: (vehicle: { vin: string; title: string | null } | null) => void
+    h.getOrderVehicle.mockImplementation(() => new Promise((resolve) => { answer = resolve }))
+    await open('import_order', ORDER)
+    await waitFor(() => expect(crumbs()[2]).toEqual(['Import order', `/diaspora/imports/${ORDER}`]))
+    expect(trail().textContent).not.toMatch(/3E2B66A0/i)
+    // The page's own reference line is the page's content, not the trail — it is untouched.
+    expect(screen.getByTestId('documents-subject-ref')).toHaveTextContent('PURCHASE 3E2B66A0')
+    await act(async () => { answer({ vin: VIN, title: '2018 Honda Vezel' }) })
+    await waitFor(() => expect(crumbs()[2]).toEqual(['2018 Honda Vezel', `/diaspora/imports/${ORDER}`]))
   })
 })

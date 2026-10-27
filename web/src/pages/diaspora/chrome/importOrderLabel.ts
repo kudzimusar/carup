@@ -26,3 +26,16 @@ export function importOrderLabel(order: OrderNameParts): string {
   if (requested) return requested
   return `Import order ${shortRef(order.id)}`
 }
+
+/** What an order is called while the read that would name it has not answered: the kind of thing it is, never its reference. */
+export const PENDING_ORDER_LABEL = 'Import order'
+
+/**
+ * The order's name once the read that names it has answered, and `PENDING_ORDER_LABEL` until then. Found by the physical UAT:
+ * naming a still-loading order by its fallback put "Import order 3E2B66A0" in the trail for two to three seconds on every
+ * visit, before it changed to "2018 Honda Vezel" — the same order called two things. A read that FAILED has answered, so
+ * it gets the fallback, which is the honest name for an order nothing else is known about.
+ */
+export function settledOrderLabel(order: OrderNameParts, settled: boolean): string {
+  return settled ? importOrderLabel(order) : PENDING_ORDER_LABEL
+}

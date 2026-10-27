@@ -489,3 +489,41 @@ test.describe('the owner journey, by explicit controls only (no browser Back)', 
     })
   }
 })
+
+test.describe('an order still being read is never named by its reference (physical UAT finding)', () => {
+  // On the deployed candidate the trail read "Import order 3E2B66A0" for two to three seconds on every visit and then changed to the
+  // vehicle's name. Here the order endpoint (which is also what names the order's vehicle) answers slowly, as the deployed backend did,
+  // and the trail is sampled the whole time it is out.
+  test.use({ viewport: { width: 1280, height: 900 } })
+  for (const [name, path] of [
+    ['Import Order', `/diaspora/imports/${ORDER}`],
+    ['Trade documents', `/diaspora/imports/${ORDER}/documents`],
+    ['Container & shipment', `/diaspora/imports/${ORDER}/shipment`],
+    ['Documents & evidence', `/diaspora/documents/import_order/${ORDER}`],
+  ] as const) {
+    test(`${name}: "Import order" while the order is read, then its vehicle — never its reference`, async ({ page }) => {
+      await mockApi(page)
+      // Registered after mockApi, so it takes precedence for this one endpoint.
+      await page.route(`**/api/diaspora/import-orders/${ORDER}`, async (route) => {
+        if (route.request().method() !== 'OPTIONS') await new Promise((resolve) => setTimeout(resolve, 1500))
+        await fulfillJson(route, orderRow)
+      })
+      await page.goto(path)
+      const trail = page.getByRole('navigation', { name: 'Breadcrumb' }).first()
+      const labels: string[] = []
+      let final = ''
+      const deadline = Date.now() + 8000
+      while (Date.now() < deadline) {
+        const items = (await trail.locator('li').allInnerTexts().catch(() => [] as string[])).map((text) => text.trim()).filter((text) => text && text !== '/')
+        const label = items[2] ?? ''
+        if (label && labels[labels.length - 1] !== label) labels.push(label)
+        if (/Honda/i.test(label)) { final = label; break }
+        await page.waitForTimeout(100)
+      }
+      expect(labels.filter((label) => /3E2B66A0/i.test(label)), `every name the order was given: ${JSON.stringify(labels)}`).toEqual([])
+      // Not vacuous: the trail was on screen while the order was still being read, and it said what the order is.
+      expect(labels[0], `every name the order was given: ${JSON.stringify(labels)}`).toMatch(/^Import order$/i)
+      expect(final).toMatch(/2018 Honda/i)
+    })
+  }
+})
