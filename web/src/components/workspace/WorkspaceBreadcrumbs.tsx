@@ -32,7 +32,8 @@ export function WorkspaceBreadcrumbs({
       <BreadcrumbList
         className={cn(
           'gap-x-2 gap-y-0 text-[10px] font-black uppercase leading-4 tracking-[0.16em] sm:gap-x-2.5',
-          dark ? 'text-slate-500' : 'text-slate-400',
+          // AA (4.5:1) on the surfaces these sit on: slate-600 on white/gray-50, slate-400 on the dark shell.
+          dark ? 'text-slate-400' : 'text-slate-600',
         )}
       >
         {items.map((crumb, index) => {

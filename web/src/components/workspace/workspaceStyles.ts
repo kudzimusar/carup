@@ -20,10 +20,10 @@
 export const WS_STYLE = {
   /** H:36 — the small, tracked, uppercase, orange line above a title. */
   eyebrow: 'text-[10px] font-black uppercase tracking-[0.22em] text-orange-600',
-  /** G:180 — the quieter eyebrow used on a data row. */
-  eyebrowQuiet: 'text-[10px] font-black uppercase tracking-[0.2em] text-slate-400',
-  /** G:200 — the label inside a `gap-px` information grid. */
-  gridLabel: 'text-[10px] font-black uppercase tracking-[0.16em] text-slate-400',
+  /** G:180 — the quieter eyebrow used on a data row. Colour is slate-500, not the reference's slate-400: 10px text needs 4.5:1 (slate-400 on white is 2.56:1). */
+  eyebrowQuiet: 'text-[10px] font-black uppercase tracking-[0.2em] text-slate-500',
+  /** G:200 — the label inside a `gap-px` information grid. Same contrast correction as eyebrowQuiet. */
+  gridLabel: 'text-[10px] font-black uppercase tracking-[0.16em] text-slate-500',
   /** G:201 — the value under a grid label. */
   gridValue: 'mt-2 text-sm font-bold text-slate-800',
   /** G:198 — hairline-divided information grid: 1px of slate-200 showing between white cells. */

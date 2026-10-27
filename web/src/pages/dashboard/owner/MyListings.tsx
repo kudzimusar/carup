@@ -254,7 +254,7 @@ export default function MyListings() {
             ['Listing value', listingValue, canAggregateValue ? 'One recorded currency' : 'Not aggregated across currencies/gaps'],
           ].map(([label, value, detail]) => (
             <div key={label} className="bg-white px-4 py-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{label}</p>
               <p className="mt-2 break-words text-2xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">{detail}</p>
             </div>
@@ -353,7 +353,7 @@ export default function MyListings() {
                 <div className="min-w-0 py-5 lg:py-1">
                   <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
                         Listing {String(index + 1).padStart(2, '0')}
                       </p>
                       <h2 className="mt-2 text-3xl font-black tracking-[-0.045em] text-slate-950">
@@ -387,13 +387,13 @@ export default function MyListings() {
 
                   <div className="mt-6 grid gap-px bg-slate-200 sm:grid-cols-3">
                     <div className="bg-white px-4 py-4" data-testid={`listing-views-${listing.vin}`}>
-                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Views</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Views</p>
                       <p className="mt-2 text-sm font-bold text-slate-800">
                         {typeof listing.viewCount === 'number' ? `${listing.viewCount} views` : 'Views not tracked'}
                       </p>
                     </div>
                     <div className="bg-white px-4 py-4" data-testid={`trust-claim-${listing.vin}`}>
-                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Canonical Trust</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Canonical Trust</p>
                       {trust.score !== null ? (
                         <p className="mt-2 text-sm font-bold text-slate-800" data-testid={`trust-claim-score-${listing.vin}`}>
                           {trust.score} / 100 · {trust.headline}
@@ -405,7 +405,7 @@ export default function MyListings() {
                       )}
                     </div>
                     <div className="bg-white px-4 py-4">
-                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Buyer activity</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Buyer activity</p>
                       <p className="mt-2 text-sm font-bold text-slate-800">
                         {communicationsState === 'ready'
                           ? `${listingConversations.length} conversations · ${listingUnread} unread`
@@ -418,7 +418,7 @@ export default function MyListings() {
                   {latest && <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">Latest buyer message: “{latest}”</p>}
 
                   <div className="mt-6 border-t border-slate-200 pt-5">
-                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Manage this listing</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Manage this listing</p>
                     <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
                       <Button size="sm" variant="outline" className="min-h-10 rounded-none text-xs font-bold" asChild>
                         <Link to={isPublished

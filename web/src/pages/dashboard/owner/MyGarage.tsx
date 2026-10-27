@@ -163,7 +163,7 @@ export default function MyGarage() {
                 <div className="flex min-w-0 flex-col py-6 lg:py-2">
                   <div className="flex flex-wrap items-start justify-between gap-5">
                     <div className="min-w-0">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
                         Vehicle {String(index + 1).padStart(2, '0')} · Vehicle Passport
                       </p>
                       <h2 className="mt-2 text-3xl font-black tracking-[-0.045em] text-slate-950 sm:text-4xl">
@@ -174,7 +174,7 @@ export default function MyGarage() {
                       </p>
                     </div>
                     <div className="border-l-2 border-orange-500 pl-4 text-right">
-                      <p className="text-[10px] font-black uppercase tracking-[0.17em] text-slate-400">Asking Price</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.17em] text-slate-500">Asking Price</p>
                       <p className="mt-1 text-xl font-black text-slate-950" data-testid={`vehicle-price-${vehicle.vin}`}>
                         {statedVehiclePrice(vehicle.price, vehicle.currency)}
                       </p>
@@ -183,7 +183,7 @@ export default function MyGarage() {
 
                   <div className="mt-7 grid gap-px bg-slate-200 sm:grid-cols-3">
                     <div className="bg-white px-4 py-4">
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Relationship</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Relationship</p>
                       <p className="mt-2 text-sm font-bold text-slate-800">{relation}</p>
                     </div>
                     <div
@@ -223,7 +223,7 @@ export default function MyGarage() {
                     <div data-testid={`trust-claim-${vehicle.vin}`}>
                       <div className="flex items-end justify-between gap-3">
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Canonical Trust</p>
+                          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Canonical Trust</p>
                           {trust.score !== null ? (
                             <p className="mt-2 text-sm font-bold text-slate-800" data-testid={`trust-claim-score-${vehicle.vin}`}>
                               {trust.score} / 100 · {trust.headline}
@@ -239,7 +239,7 @@ export default function MyGarage() {
                     </div>
 
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Governed supporting state</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Governed supporting state</p>
                       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-600">
                         <span className="inline-flex items-center gap-1.5">
                           <FileCheck2 className="h-3.5 w-3.5 text-orange-600" />
