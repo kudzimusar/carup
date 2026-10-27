@@ -16,20 +16,11 @@ import { useAuth } from '@/context/AuthContext'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { governedHeroItem } from '@/lib/governedMedia'
 import { OwnerVehicleHero } from '@/components/listing/OwnerVehicleHero'
+import { describeMarketplaceCapability, describeTradeImportCapability, type CapabilityAction } from '@/components/workspace/capabilityPresentation'
+import { WS_STYLE } from '@/components/workspace/workspaceStyles'
+import { cn } from '@/lib/utils'
 import { readOwnerTrustClaim, statedDate, statedMileage, statedVehiclePrice, statedCount } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
-
-function publicationLabel(value: unknown) {
-  switch (String(value || '').toLowerCase()) {
-    case 'published': return 'Published on Marketplace'
-    case 'publishable': return 'Ready to publish'
-    case 'review_pending': return 'Review pending'
-    case 'documents_submitted': return 'Documents submitted'
-    case 'identity_complete': return 'Identity complete'
-    case 'draft': return 'Draft'
-    default: return 'Publication state not recorded'
-  }
-}
 
 function relationshipLabel(vehicle: Vehicle, userId?: string | null) {
   const row = vehicle as Vehicle & { owner_id?: string | null; current_seller_id?: string | null }
@@ -39,30 +30,18 @@ function relationshipLabel(vehicle: Vehicle, userId?: string | null) {
   return 'Vehicle in your governed Garage scope'
 }
 
-function contextualAction(vehicle: Vehicle) {
-  const row = vehicle as Vehicle & { current_seller_id?: string | null }
-  const publication = String(vehicle.publication_status || '').toLowerCase()
-  const hasSellerThread = Boolean(
-    row.current_seller_id
-    || vehicle.seller_description
-    || (Array.isArray(vehicle.seller_features) && vehicle.seller_features.length)
-    || publication !== 'draft',
-  )
-
-  if (vehicle.publication_status === 'published') {
-    return { label: 'Manage listing', href: '/dashboard/listings', testId: `garage-manage-${vehicle.vin}` }
-  }
-  if (hasSellerThread) {
-    return {
-      label: 'Continue listing',
-      href: `/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`,
-      testId: `garage-continue-${vehicle.vin}`,
-    }
-  }
-  return {
-    label: 'Sell this vehicle',
-    href: `/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`,
-    testId: `garage-sell-${vehicle.vin}`,
+/**
+ * One test id per kind of Marketplace action, so the Garage keeps the ids it always had
+ * (garage-manage-, garage-continue-, garage-sell-) and a sold vehicle's action gets its own.
+ */
+function garageActionTestId(action: CapabilityAction, vin: string) {
+  switch (action.kind) {
+    case 'manage': return `garage-manage-${vin}`
+    case 'continue': return `garage-continue-${vin}`
+    case 'sell': return `garage-sell-${vin}`
+    case 'view-listing': return `garage-view-listing-${vin}`
+    case 'view-cap': return `garage-cap-${vin}`
+    default: return `garage-${action.kind}-${vin}`
   }
 }
 
@@ -149,11 +128,15 @@ export default function MyGarage() {
           {vehicles.map((vehicle, index) => {
             const trust = readOwnerTrustClaim(vehicle)
             const addedOn = statedDate(vehicle.created_at)
-            const action = contextualAction(vehicle)
             const media = primaryListingImageUrl(vehicle.listing_media)
             const governedHero = governedHeroItem(vehicle.governed_media)
-            const publication = publicationLabel(vehicle.publication_status)
             const relation = relationshipLabel(vehicle, user?.id)
+            // R3 — the vehicle's two INDEPENDENT capabilities come from the server and are worded by the same function the Passport uses, so the Garage
+            // and the Passport can never describe one vehicle differently. A vehicle with no import journey gets no Trade & Imports row at all.
+            const marketplace = vehicle.capabilities ? describeMarketplaceCapability(vehicle.vin, vehicle.capabilities.marketplace) : null
+            const tradeImport = vehicle.capabilities ? describeTradeImportCapability(vehicle.vin, vehicle.capabilities.trade_import) : null
+            const marketplaceAction = marketplace?.actions[0] ?? null
+            const tradeAction = tradeImport?.actions[0] ?? null
 
             return (
               <article
@@ -203,17 +186,37 @@ export default function MyGarage() {
                       <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Relationship</p>
                       <p className="mt-2 text-sm font-bold text-slate-800">{relation}</p>
                     </div>
-                    <div className="bg-white px-4 py-4">
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Commerce lifecycle</p>
-                      <p className="mt-2 text-sm font-bold text-slate-800">{publication}</p>
+                    <div
+                      className={WS_STYLE.gridCell}
+                      data-testid={`garage-marketplace-${vehicle.vin}`}
+                      data-state={marketplace?.state ?? 'not_loaded'}
+                    >
+                      <p className={WS_STYLE.gridLabel}>Marketplace</p>
+                      <p className={cn(WS_STYLE.gridValue, marketplace?.fault ? 'text-amber-800' : '', !marketplace ? 'text-slate-500' : '')}>
+                        {marketplace ? marketplace.label : 'Listing state not loaded'}
+                      </p>
                       <p className="mt-1 text-xs text-slate-500" data-testid={`vehicle-status-${vehicle.vin}`}>
-                        {vehicle.status ? `Availability: ${vehicle.status}` : 'Status not recorded'}
+                        {/* A vehicle that was never listed has no "availability": that word describes a listing, and the import hand-off's placeholder status must not stand in for one. */}
+                        {marketplace?.state === 'not_listed'
+                          ? marketplace.detail
+                          : vehicle.status ? `Availability: ${vehicle.status}` : 'Status not recorded'}
                       </p>
                     </div>
-                    <div className="bg-white px-4 py-4">
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Garage record</p>
-                      <p className="mt-2 text-sm font-bold text-slate-800">{addedOn ? `Added ${addedOn}` : 'Date added not recorded'}</p>
+                    <div className={WS_STYLE.gridCell}>
+                      <p className={WS_STYLE.gridLabel}>Garage record</p>
+                      <p className={WS_STYLE.gridValue}>{addedOn ? `Added ${addedOn}` : 'Date added not recorded'}</p>
                     </div>
+                    {tradeImport ? (
+                      <div
+                        className={cn(WS_STYLE.gridCell, 'sm:col-span-3')}
+                        data-testid={`garage-trade-${vehicle.vin}`}
+                        data-state={tradeImport.state}
+                      >
+                        <p className={WS_STYLE.gridLabel}>Trade &amp; Imports</p>
+                        <p className={cn(WS_STYLE.gridValue, tradeImport.fault ? 'text-amber-800' : '')}>{tradeImport.label}</p>
+                        <p className="mt-1 text-xs text-slate-500">{tradeImport.detail}</p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="mt-7 grid gap-6 xl:grid-cols-[1fr_1fr]">
@@ -265,11 +268,24 @@ export default function MyGarage() {
                     >
                       View Vehicle Passport <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
-                    <Button asChild className="min-h-11 rounded-none bg-slate-950 px-6 font-black hover:bg-orange-600">
-                      <Link to={action.href} data-testid={action.testId}>
-                        {action.label} <ArrowRight className="ml-2 h-4 w-4" />
-                      </Link>
-                    </Button>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      {tradeAction ? (
+                        <Link
+                          to={tradeAction.href}
+                          data-testid={garageActionTestId(tradeAction, vehicle.vin)}
+                          className={cn(WS_STYLE.secondaryAction, 'justify-center', WS_STYLE.focus)}
+                        >
+                          {tradeAction.label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </Link>
+                      ) : null}
+                      {marketplaceAction ? (
+                        <Button asChild className="min-h-11 rounded-none bg-slate-950 px-6 font-black hover:bg-orange-600">
+                          <Link to={marketplaceAction.href} data-testid={garageActionTestId(marketplaceAction, vehicle.vin)}>
+                            {marketplaceAction.label} <ArrowRight className="ml-2 h-4 w-4" />
+                          </Link>
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </article>

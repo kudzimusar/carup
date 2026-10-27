@@ -7,6 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const garage = readFileSync(resolve(here, 'MyGarage.tsx'), 'utf8')
 const listings = readFileSync(resolve(here, 'MyListings.tsx'), 'utf8')
 const studio = readFileSync(resolve(here, 'SellVehicle.tsx'), 'utf8')
+const capabilityPresentation = readFileSync(resolve(here, '../../../components/workspace/capabilityPresentation.ts'), 'utf8')
 
 describe('Seller master phases H-I-J — workspace convergence contract', () => {
   it('H: My Garage is a vehicle-story workspace with one contextual commerce CTA', () => {
@@ -15,15 +16,21 @@ describe('Seller master phases H-I-J — workspace convergence contract', () => 
     expect(garage).toContain('workspace="vehicles"')
     expect(garage).not.toContain('Vehicle workspace')
     expect(garage).toContain('relationshipLabel')
-    expect(garage).toContain('publicationLabel')
     expect(garage).toContain('readOwnerTrustClaim')
     expect(garage).toContain('verified_documents')
     expect(garage).toContain('active_insurance')
     expect(garage).toContain('parts')
-    expect(garage).toContain('Continue listing')
-    expect(garage).toContain('Manage listing')
-    expect(garage).toContain('Sell this vehicle')
     expect(garage).toContain('View Vehicle Passport')
+    // R3: the commerce words (Continue listing / Manage listing / Sell this vehicle) now live in ONE shared description that the Garage and the
+    // Vehicle Passport both read, so the two can never word or route one vehicle differently. The Garage's private heuristic is gone.
+    expect(garage).toContain('describeMarketplaceCapability')
+    expect(garage).toContain('describeTradeImportCapability')
+    expect(garage).not.toContain('contextualAction')
+    expect(garage).not.toContain('publicationLabel')
+    for (const words of ['Continue listing', 'Manage listing', 'Sell this vehicle']) {
+      expect(capabilityPresentation).toContain(words)
+      expect(garage).not.toContain(`'${words}'`)
+    }
     expect(garage).not.toContain('rounded-xl p-8 flex flex-col items-center justify-center')
   })
 

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useSearchParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import {
-  ArrowLeft, Gauge, Calendar, FileText, Shield, CheckCircle,
+  Gauge, Calendar, FileText, Shield, CheckCircle,
   Wrench, Palette, Hash, Upload, Star, Loader2,
   Eye, EyeOff, Lock
 } from 'lucide-react'
@@ -28,6 +28,9 @@ import { GovernedGallery } from '@/components/media/GovernedGallery'
 import { GovernedPhoto } from '@/components/media/GovernedPhoto'
 import { governedHeroItem } from '@/lib/governedMedia'
 import { evidenceClassificationLabel, satisfiesOwnershipRegistration } from '@/lib/evidenceClassification'
+import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
+import { VehicleCapabilityPanel } from '@/components/workspace/VehicleCapabilityPanel'
+import { formatVehicleTitle, workspaceCrumb } from '@/components/workspace/workspaceModel'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
 /**
@@ -346,24 +349,26 @@ export default function VehicleProfile() {
       : 'Published by CarUp’s trust authority under its current calculation rules.')
     : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
 
+  // R3 — the page names its workspace, its place in it, and its parent (the Seller-derived header), and shows the vehicle's two INDEPENDENT
+  // capabilities as facts from the server. The four static buttons it used to carry offered a CAP journey for every vehicle and the same listing
+  // action whatever the listing's state; neither is derivable from a literal.
+  const passportTitle = formatVehicleTitle({ year: vehicle.year, make: vehicle.make, model: vehicle.model }) || 'Vehicle details not recorded'
+
   return (
     <main className="space-y-6 max-w-7xl mx-auto px-3 sm:px-0" aria-labelledby="vehicle-passport-title">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" className="gap-1" asChild>
-          <Link to="/dashboard/garage"><ArrowLeft className="w-4 h-4" /> Back to Garage</Link>
-        </Button>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/diaspora/journey/vehicle/${encodeURIComponent(vehicle.vin)}`} data-testid="vehicle-journey-link">Journey &amp; arrival</Link>
-          </Button>
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/dashboard/sell-vehicle?vin=${encodeURIComponent(vehicle.vin)}`}>Edit / continue listing</Link>
-          </Button>
-          <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
-            <Link to="/dashboard/listings">Listing &amp; Marketplace</Link>
-          </Button>
-        </div>
-      </div>
+      <SellerWorkspaceHeader
+        workspace="vehicles"
+        breadcrumbs={[workspaceCrumb('vehicles'), { label: passportTitle }]}
+        eyebrow="Vehicle Passport"
+        title={passportTitle}
+        titleId="vehicle-passport-title"
+        description="One durable record for this vehicle. Its evidence, history and everything you can do with it stay attached to the same VIN."
+        backHref="/dashboard/garage"
+        backLabel="Back to My Garage"
+        objectIdentity={`VIN ${vehicle.vin}`}
+      />
+
+      <VehicleCapabilityPanel vin={vehicle.vin} capabilities={passportData.capabilities} />
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Main */}
@@ -389,7 +394,8 @@ export default function VehicleProfile() {
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <div className="flex items-center gap-2 mb-1">
-                  <h1 id="vehicle-passport-title" className="text-xl sm:text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
+                  {/* The page's heading is the header above; this is the same name over the photograph, so it is not a second h1. */}
+                  <p className="text-xl sm:text-2xl font-bold">{passportTitle}</p>
                   <Badge className="bg-white/20 text-white">{vehicle.registration}</Badge>
                 </div>
                 <p className="text-sm text-gray-200">VIN: {vehicle.vin}</p>

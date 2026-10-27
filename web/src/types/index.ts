@@ -2345,6 +2345,11 @@ export interface VehicleLifecycleProjection {
 
 export interface VehiclePassport {
   vehicle: Vehicle;
+  /**
+   * T11-CAP-LR01-R3 — what this vehicle can DO (Marketplace; Trade & Imports). Sent to the vehicle's owner / current seller only, so absent
+   * means "not sent" (not the owner, or the server could not tell) and must show nothing — never an empty panel and never "none".
+   */
+  capabilities?: VehicleCapabilities | null;
   /** Sealed governed claims. Read these, never a same-named column on `vehicle`. */
   claims?: VehiclePassportClaims;
   timeline: TimelineEvent[];

@@ -70,7 +70,8 @@ export default function MyListings() {
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [publishingVin, setPublishingVin] = useState<string | null>(null)
   const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
-  const [myListings, setMyListings] = useState<Vehicle[]>([])
+  // Every vehicle the account owns or sells. What this page LISTS is derived from it below — a vehicle is not a listing merely because it is owned.
+  const [ownedVehicles, setOwnedVehicles] = useState<Vehicle[]>([])
   const [conversations, setConversations] = useState<ListingConversation[]>([])
   // Lets SellerInquiriesCard tell "owned listings not loaded yet" apart from
   // "loaded and genuinely empty" — it receives undefined until the fetch lands.
@@ -110,7 +111,7 @@ export default function MyListings() {
       // The SERVER's price is displayed, never the typed one: echoing the input would show a price
       // that was never stored if the write were refused or adjusted.
       const persisted = typeof result?.price === 'number' ? result.price : parsed
-      setMyListings(prev => prev.map(item => (item.vin === vin ? { ...item, price: persisted } : item)))
+      setOwnedVehicles(prev => prev.map(item => (item.vin === vin ? { ...item, price: persisted } : item)))
       toast.success('Price updated. Buyers will see the new price on your listing.')
       closePriceEditor()
     } catch (e: unknown) {
@@ -149,11 +150,11 @@ export default function MyListings() {
     ]).then(([vehiclesResult, communicationsResult]) => {
       if (!mounted) return
       if (vehiclesResult.status === 'fulfilled') {
-        setMyListings(Array.isArray(vehiclesResult.value) ? vehiclesResult.value : [])
+        setOwnedVehicles(Array.isArray(vehiclesResult.value) ? vehiclesResult.value : [])
         setOwnedLoaded(true)
         setListingsState('ready')
       } else {
-        setMyListings([])
+        setOwnedVehicles([])
         setOwnedLoaded(false)
         setListingsState('error')
       }
@@ -175,7 +176,7 @@ export default function MyListings() {
       const result = await updateVehicleStatus(vin, 'sold')
       const persistedStatus = String(result?.status || 'Sold')
       setListingStatuses(prev => ({ ...prev, [vehicleId]: persistedStatus }))
-      setMyListings(prev => applyPersistedListingStatus(prev, vin, persistedStatus))
+      setOwnedVehicles(prev => applyPersistedListingStatus(prev, vin, persistedStatus))
       toast.success('Vehicle marked as sold! It will be removed from active listings.')
     } catch {
       toast.error('Could not mark this vehicle as sold. Please try again.')
@@ -183,6 +184,14 @@ export default function MyListings() {
       setMarkingId(null)
     }
   }
+
+  // R3 / Moderator D-3 — My Listings lists LISTINGS. A vehicle appears here when its Marketplace capability (derived on the server from real Seller activity, never from
+  // the 'draft' column default, import provenance or anything the Seller Studio stamps merely by being opened) is published, in progress or sold. A vehicle that was never
+  // listed stays in My Garage. A vehicle whose state could not be read is NOT silently dropped and NOT silently listed: it is counted in a notice below.
+  const LISTED_MARKETPLACE_STATES = new Set(['published', 'in_progress', 'sold'])
+  const myListings = ownedVehicles.filter(vehicle => !vehicle.capabilities || LISTED_MARKETPLACE_STATES.has(vehicle.capabilities.marketplace.state))
+  const unreadListingCount = ownedVehicles.filter(vehicle => vehicle.capabilities?.marketplace.state === 'unavailable').length
+  const capabilitiesNotLoaded = ownedVehicles.length > 0 && ownedVehicles.some(vehicle => !vehicle.capabilities)
 
   const marketplaceConversations = conversations.filter((conversation) =>
     conversation.business_workflow === 'marketplace' || conversation.thread_type === 'marketplace_inquiry')
@@ -225,8 +234,8 @@ export default function MyListings() {
           : listingsState === 'error'
             ? 'Listing read unavailable'
             : communicationsState === 'error'
-              ? `${myListings.length} vehicle listings · conversation read unavailable`
-              : `${myListings.length} vehicle listings · ${marketplaceConversations.length} conversations · ${totalUnread} unread`}
+              ? `${myListings.length} ${myListings.length === 1 ? 'vehicle listing' : 'vehicle listings'} · conversation read unavailable`
+              : `${myListings.length} ${myListings.length === 1 ? 'vehicle listing' : 'vehicle listings'} · ${marketplaceConversations.length} conversations · ${totalUnread} unread`}
         primaryAction={(
           <Button className="min-h-11 rounded-none bg-orange-600 font-black hover:bg-orange-700" asChild>
             <Link to="/sell"><Plus className="mr-2 h-4 w-4" /> Sell another vehicle</Link>
@@ -251,6 +260,25 @@ export default function MyListings() {
             </div>
           ))}
         </section>
+      )}
+
+      {listingsState === 'ready' && unreadListingCount > 0 && (
+        <div className="border-y border-amber-200 bg-amber-50 px-5 py-5" role="status" data-testid="listing-state-unread">
+          <p className="font-black text-slate-950">
+            {unreadListingCount === 1 ? '1 of your vehicles' : `${unreadListingCount} of your vehicles`} could not be checked for a listing just now.
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            It is not shown here, and CarUp has not concluded it is unlisted. Every vehicle you own is still in{' '}
+            <Link to="/dashboard/garage" className="font-bold text-slate-950 underline">My Garage</Link>.
+          </p>
+        </div>
+      )}
+
+      {listingsState === 'ready' && capabilitiesNotLoaded && (
+        <div className="border-y border-amber-200 bg-amber-50 px-5 py-5" role="status" data-testid="listing-capabilities-not-loaded">
+          <p className="font-black text-slate-950">Listing states could not be loaded.</p>
+          <p className="mt-1 text-sm text-slate-600">Every vehicle you own is shown below until they can. Reload this page to try again.</p>
+        </div>
       )}
 
       <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
