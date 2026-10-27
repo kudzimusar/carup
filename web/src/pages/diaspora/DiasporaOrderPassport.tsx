@@ -232,7 +232,7 @@ export default function DiasporaOrderPassport() {
             <span className="ml-2 inline-flex gap-2">
               {fatal.kind === 'error' && <Button size="sm" variant="outline" onClick={() => void load()} data-testid="order-passport-retry">Retry</Button>}
               {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to="/login" data-testid="order-passport-signin">Sign in</Link></Button>}
-              <Button asChild size="sm" variant="ghost"><Link to="/diaspora/imports" data-testid="order-passport-back">Back to import orders</Link></Button>
+              <Button asChild size="sm" variant="ghost" className="min-h-11"><Link to="/diaspora/imports" data-testid="order-passport-back">Back to import orders</Link></Button>
             </span>
           </AlertDescription>
         </Alert>
@@ -265,7 +265,8 @@ export default function DiasporaOrderPassport() {
     <main className="mx-auto max-w-4xl px-4 py-8" data-testid="order-passport-page" aria-busy={loading}>
       {/* R3 — these are the ORDER's details, a page of the order (not a second "passport" beside the Vehicle Passport). The trail names the
           order by its vehicle for the vehicle's owner; the journey and the Vehicle Passport are offered beside it. The one labelled control
-          back to the order is the button below, so the chrome's own parent link is suppressed. */}
+          back to the order is the button below, so the chrome's own parent link is suppressed — and, being the page's way up, it keeps the
+          way up's 44px touch target at every width (found by the physical UAT: the compact button was 32px from 768px up). */}
       <TradeOrderChrome
         orderId={order.id}
         orderLabel={importOrderLabel(order)}
@@ -276,7 +277,7 @@ export default function DiasporaOrderPassport() {
         className="mb-3"
       />
       <div className="mb-3 flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm">
+        <Button asChild variant="ghost" size="sm" className="min-h-11">
           <Link to={`/diaspora/imports/${encodeURIComponent(order.id)}`} data-testid="order-passport-back"><ArrowLeft className="mr-1 h-4 w-4" aria-hidden="true" /> Back to import order</Link>
         </Button>
         <Button variant="outline" size="sm" onClick={() => void load()} aria-busy={loading} data-testid="order-passport-refresh">

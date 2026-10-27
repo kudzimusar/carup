@@ -527,3 +527,21 @@ test.describe('an order still being read is never named by its reference (physic
     })
   }
 })
+
+test.describe('Order details: its own way up is a 44px touch target at every width (physical UAT finding)', () => {
+  // The page hides the chrome's "Back to import order" because it carries its own; on the deployed candidate that button was the
+  // compact 32px size from 768px up, so the page's only way up missed the target every other way up meets.
+  for (const width of WIDTHS) {
+    test(`at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width < 768 ? 844 : 900 })
+      await mockApi(page)
+      await page.goto(`/diaspora/imports/${ORDER}/passport`)
+      const back = page.getByTestId('order-passport-back')
+      await expect(back).toBeVisible()
+      await expect(back).toHaveText(/Back to import order/)
+      await expect(page.getByTestId('workspace-parent-link')).toHaveCount(0)
+      const box = await back.boundingBox()
+      expect(box?.height ?? 0, 'Order details "Back to import order" is at least 44px tall').toBeGreaterThanOrEqual(43.5)
+    })
+  }
+})

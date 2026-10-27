@@ -107,6 +107,8 @@ describe('Order details', () => {
     expect(back).toHaveTextContent('Back to import order')
     expect(back).toHaveAttribute('href', `/diaspora/imports/${ORDER}`)
     expect(screen.queryByTestId('workspace-parent-link')).toBeNull()
+    // It IS the page's way up, so it keeps the way up's 44px touch target at every width (physical UAT: 32px from 768px up).
+    expect(back.className).toContain('min-h-11')
   })
 
   it('offers the journey, and the Vehicle Passport only when the order named the vehicle to this viewer', async () => {
@@ -147,6 +149,7 @@ describe('Order details that cannot be opened', () => {
     expect(screen.getByText('Unable to open order details')).toBeInTheDocument()
     expect(screen.getByTestId('order-passport-back')).toHaveTextContent('Back to import orders')
     expect(screen.getByTestId('order-passport-back')).toHaveAttribute('href', '/diaspora/imports')
+    expect(screen.getByTestId('order-passport-back').className).toContain('min-h-11')
     expect(screen.getByTestId('order-passport-forbidden').textContent).not.toMatch(/passport/i)
   })
 })
