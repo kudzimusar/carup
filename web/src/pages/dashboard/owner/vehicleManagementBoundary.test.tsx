@@ -43,9 +43,12 @@ beforeEach(() => {
   fetchVehicleEvidence.mockResolvedValue([])
   fetchEvidenceTaxonomy.mockResolvedValue({ version: 'v1', classes: [] })
   fetchEvidenceSources.mockResolvedValue([])
+  // R3: the server tells a vehicle's own owner what they can do with it (a block it sends to no one else). The static "Edit / continue listing"
+  // button this boundary used to pin is now that block's Marketplace action — which is a management control and is held to the same rule.
   fetchVehiclePassport.mockImplementation(async (vin: string) => ({
     vehicle: { vin, make: 'Mazda', model: 'BT-50', year: 2020, mileage: 62000, price: 21000 },
     timeline: [],
+    capabilities: { marketplace: { state: 'not_listed' }, trade_import: { state: 'none' } },
   }))
 })
 
@@ -59,7 +62,9 @@ const open = (vin: string) =>
 describe('R7 — private vehicle management boundary', () => {
   it('an owned vehicle is fully manageable', async () => {
     open(MINE)
-    expect(await screen.findByTestId('edit-continue-listing', {}, { timeout: 15000 })).toBeTruthy()
+    // The way into Seller Studio for an owned vehicle: the capability panel's Marketplace action, to THIS vehicle's Studio.
+    const sell = await screen.findByTestId('capability-action-sell', {}, { timeout: 15000 })
+    expect(sell.getAttribute('href')).toBe(`/dashboard/sell-vehicle?vin=${MINE}`)
     expect(screen.queryByTestId('vehicle-not-managed')).toBeNull()
   }, 40000)
 
@@ -76,6 +81,7 @@ describe('R7 — private vehicle management boundary', () => {
     expect(screen.queryByTestId('edit-continue-listing')).toBeNull()
     expect(screen.queryByTestId('upload-document')).toBeNull()
     expect(screen.queryByText(/Edit \/ continue listing/i)).toBeNull()
+    expect(screen.queryByTestId('vehicle-capability-panel')).toBeNull()
 
     // Nothing may route into Seller Studio for a VIN this account does not own.
     const sellerStudioLinks = screen.queryAllByRole('link')
@@ -97,8 +103,11 @@ describe('R7 — private vehicle management boundary', () => {
     fetchOwnedVehicles.mockRejectedValue(new Error('network'))
     open(MINE)
     await waitFor(() => expect(fetchOwnedVehicles).toHaveBeenCalled())
-    // Scope never resolved to "owned", so nothing manageable may render.
+    // Scope never resolved to "owned", so nothing manageable may render — not the old button, not the capability panel that replaced it, even
+    // though this passport carries `capabilities`.
     await waitFor(() => expect(screen.queryByTestId('edit-continue-listing')).toBeNull())
     expect(screen.queryByTestId('upload-document')).toBeNull()
+    expect(screen.queryByTestId('vehicle-capability-panel')).toBeNull()
+    expect(screen.queryByTestId('capability-action-sell')).toBeNull()
   }, 40000)
 })

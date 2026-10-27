@@ -448,7 +448,10 @@ export default function VehicleProfile() {
         objectIdentity={`VIN ${vehicle.vin}`}
       />
 
-      <VehicleCapabilityPanel vin={vehicle.vin} capabilities={passportData.capabilities} />
+      {/* R7 (runtime lineage): management controls render only once ownership is CONFIRMED; while scope is unknown (loading, or the read failed) none
+          does. The capability panel routes into Seller Studio and the import journey, so it is held to the same rule — on top of the server, which
+          sends `capabilities` only to the vehicle's own owner or seller. */}
+      {manageScope === 'owned' && <VehicleCapabilityPanel vin={vehicle.vin} capabilities={passportData.capabilities} />}
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Main */}

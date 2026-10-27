@@ -72,10 +72,17 @@ describe('REL-02 A — the loaded owner page identifies itself as the Vehicle Pa
     expect(label).toHaveTextContent(/^Vehicle Passport$/)
     expect(label).toBeVisible()
     expect(label.className).not.toMatch(/\bsr-only\b|\bhidden\b|\binvisible\b/)
-    // Composition: "Vehicle Passport" / "2020 Toyota Hilux" / "VIN: …", in reading order.
-    expect(label.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Composition, in reading order: "Vehicle Passport" / "2020 Toyota Hilux" / the VIN.
+    // R3: the page heading now lives in the Seller-derived workspace header — eyebrow "Vehicle Passport", then the heading, then the VIN line — so
+    // that is where the composition reads. The label over the photograph still names the surface above the same name and the same VIN.
+    const header = screen.getByTestId('seller-workspace-header')
+    const eyebrow = within(header).getByText('Vehicle Passport')
+    expect(eyebrow.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const identity = within(header).getByTestId('seller-workspace-object')
+    expect(identity).toHaveTextContent('VIN JTHLCCHR030628462')
+    expect(heading.compareDocumentPosition(identity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     const vinLine = screen.getByText('VIN: JTHLCCHR030628462')
-    expect(heading.compareDocumentPosition(vinLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(label.compareDocumentPosition(vinLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('names the page landmark "Vehicle Passport" plus the vehicle, so the heading and label stay one accessible name', async () => {
