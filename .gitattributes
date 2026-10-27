@@ -2,3 +2,7 @@
 # the evidence). Its markdown hard line breaks are trailing spaces, so the trailing-space check of `git diff --check` is switched off for
 # THIS ONE FILE rather than rewriting the document.
 docs/trade-os/T11_CAP_LR01_R2_CARUP_CAP_PRODUCT_AUTHORITY.md whitespace=-trailing-space
+
+# T11-CAP-LR01-R3: the same custody rule for the R3 authority document (committed byte-for-byte as the Moderator supplied it; its markdown hard
+# line breaks are trailing spaces). Switched off for THIS ONE FILE only.
+docs/trade-os/T11_CAP_LR01_R3_WORKSPACE_NAVIGATION_VEHICLE_CAPABILITY_AUTHORITY.md whitespace=-trailing-space

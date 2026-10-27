@@ -14,7 +14,7 @@ import { importJourneyPath, importOrderPath, sellerStudioPath, vehicleJourneyPat
  *     "not listed". It carries no action that would act on a state we could not read.
  *   - Several import orders never resolve to one: the action is a chooser.
  */
-export type CapabilityActionKind = 'manage' | 'continue' | 'sell' | 'view-listing' | 'view-cap' | 'choose-journey' | 'view-order'
+export type CapabilityActionKind = 'manage' | 'edit-details' | 'continue' | 'sell' | 'view-listing' | 'view-cap' | 'choose-journey' | 'view-order'
 
 export interface CapabilityAction {
   kind: CapabilityActionKind
@@ -37,11 +37,17 @@ export function describeMarketplaceCapability(vin: string, capability: VehicleCa
   const sellerStudio = sellerStudioPath(vin)
   switch (capability.state) {
     case 'published':
+      // Managing a live listing (price, sold, unpublish) happens in My Listings; changing what the listing SAYS happens in
+      // the Seller Studio. Found by the physical UAT: with only "Manage listing" a published listing had no way into the
+      // Studio at all — R2's static "Edit / continue listing" was replaced and My Listings never linked there.
       return {
         state: 'published', fault: false,
         label: 'Published on Marketplace',
         detail: 'Buyers can see this listing.',
-        actions: [{ kind: 'manage', label: 'Manage listing', href: '/dashboard/listings' }],
+        actions: [
+          { kind: 'manage', label: 'Manage listing', href: '/dashboard/listings' },
+          { kind: 'edit-details', label: 'Edit listing details', href: sellerStudio },
+        ],
       }
     case 'in_progress':
       return {

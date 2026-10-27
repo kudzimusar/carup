@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { VehicleCapabilities } from '@/types'
 import { VehicleCapabilityCells, VehicleCapabilityPanel } from './VehicleCapabilityPanel'
@@ -22,6 +22,21 @@ describe('VehicleCapabilityPanel — Serena: an owned vehicle with a local Marke
     expect(screen.queryByText(/CAP/)).toBeNull()
     expect(screen.queryByText(/import/i)).toBeNull()
     expect(screen.queryByRole('link', { name: /journey|CAP/i })).toBeNull()
+  })
+
+  it('keeps the Seller Studio reachable — "Edit listing details" follows the primary action and opens the Studio for THIS vehicle', () => {
+    renderPanel(SERENA, capabilities)
+    const links = within(screen.getByTestId('capability-marketplace')).getAllByRole('link')
+    expect(links.map((link) => link.textContent?.trim())).toEqual(['Manage listing', 'Edit listing details'])
+    expect(screen.getByTestId('capability-action-edit-details')).toHaveAttribute('href', `/dashboard/sell-vehicle?vin=${SERENA}`)
+  })
+
+  it('a sold vehicle offers no edit entry, and a failed read offers no action at all', () => {
+    const sold = renderPanel(SERENA, { marketplace: { state: 'sold' }, trade_import: { state: 'none' } })
+    expect(screen.queryByTestId('capability-action-edit-details')).toBeNull()
+    sold.unmount()
+    renderPanel(SERENA, { marketplace: { state: 'unavailable' }, trade_import: { state: 'none' } })
+    expect(within(screen.getByTestId('capability-marketplace')).queryAllByRole('link')).toHaveLength(0)
   })
 })
 

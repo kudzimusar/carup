@@ -8,7 +8,6 @@ const ORDER = '3e2b66a0-1e8b-43c9-bd48-507f88016f71'
 
 describe('Marketplace capability presentation', () => {
   it.each([
-    ['published', 'Published on Marketplace', 'manage', 'Manage listing', '/dashboard/listings'],
     ['in_progress', 'Listing in progress', 'continue', 'Continue listing', `/dashboard/sell-vehicle?vin=${VEZEL}`],
     ['sold', 'Sold', 'view-listing', 'View listing', '/dashboard/listings'],
     ['not_listed', 'Not listed', 'sell', 'Sell this vehicle', `/dashboard/sell-vehicle?vin=${VEZEL}`],
@@ -17,6 +16,31 @@ describe('Marketplace capability presentation', () => {
     expect(view.label).toBe(label)
     expect(view.fault).toBe(false)
     expect(view.actions).toEqual([{ kind, label: actionLabel, href }])
+  })
+
+  it('published -> "Published on Marketplace": Manage listing first, and the Seller Studio stays reachable as a second action', () => {
+    const view = describeMarketplaceCapability(VEZEL, { state: 'published' })
+    expect(view.label).toBe('Published on Marketplace')
+    expect(view.fault).toBe(false)
+    expect(view.actions).toEqual([
+      { kind: 'manage', label: 'Manage listing', href: '/dashboard/listings' },
+      { kind: 'edit-details', label: 'Edit listing details', href: `/dashboard/sell-vehicle?vin=${VEZEL}` },
+    ])
+  })
+
+  it('only a LIVE listing carries the Studio edit action: no other state repeats it or invents it', () => {
+    for (const state of ['in_progress', 'sold', 'not_listed', 'unavailable'] as const) {
+      expect(describeMarketplaceCapability(VEZEL, { state }).actions.some((action) => action.kind === 'edit-details')).toBe(false)
+    }
+    // A draft and a vehicle that was never listed each already have the Studio as their ONE action.
+    for (const state of ['in_progress', 'not_listed'] as const) {
+      expect(describeMarketplaceCapability(VEZEL, { state }).actions).toHaveLength(1)
+    }
+  })
+
+  it('encodes the VIN in the published listing\'s Studio action too', () => {
+    const edit = describeMarketplaceCapability('A B/C', { state: 'published' }).actions.find((action) => action.kind === 'edit-details')
+    expect(edit?.href).toBe('/dashboard/sell-vehicle?vin=A%20B%2FC')
   })
 
   it('a listing that could not be read is a fault with NO action — never "Not listed"', () => {

@@ -125,6 +125,7 @@ async function mockApi(page: Page): Promise<Seen> {
   await json(`**/api/vehicles/${VEZEL}/evidence`, [])
   await json('**/api/evidence/taxonomy', { classes: [], legacy_map: {} })
   await json('**/api/evidence/sources', { sources: [] })
+  await json('**/api/service-history/me', [])
   await json('**/api/diaspora/container-marketplace/trade-context', { data: { user: { name: owner.name }, country_of_residence: 'Zimbabwe', organisation: null } })
   await json('**/api/diaspora/import-orders', { data: [orderRow] })
   await json(`**/api/diaspora/import-orders/${ORDER}`, orderRow)
@@ -174,9 +175,13 @@ async function expectNoHorizontalOverflow(page: Page) {
 async function expectActiveWorkspaceOnScreen(page: Page, workspace: 'vehicles' | 'marketplace' | 'trade') {
   const bar = page.getByTestId('workspace-bar').first()
   await expect(bar).toHaveAttribute('data-active-workspace', workspace)
-  const box = await bar.locator('[aria-current="page"]').first().boundingBox()
+  const active = bar.locator('[aria-current="page"]').first()
+  await expect(active).toBeVisible()
+  // A lazily loaded route (the runtime lineage lazy-loads its pages) swaps the page's DOM underneath us, so the box is read until it is steady
+  // rather than once.
+  let box: { x: number; y: number; width: number; height: number } | null = null
+  await expect.poll(async () => { box = await active.boundingBox(); return box !== null }, { message: 'active workspace item has a box' }).toBe(true)
   const viewport = page.viewportSize()!
-  expect(box, 'active workspace item has a box').not.toBeNull()
   expect(box!.x).toBeGreaterThanOrEqual(0)
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1)
   expect(box!.height).toBeGreaterThanOrEqual(44)
@@ -277,7 +282,7 @@ const BRAND_ORANGE = '#ea580c'
 
 async function chromeAccessibility(page: Page) {
   const results = await new AxeBuilder({ page })
-    .include('[data-testid="workspace-chrome"], [data-testid="workspace-bar"], [data-testid="seller-workspace-header"], [data-testid="vehicle-capability-panel"], [data-testid="vehicle-context"], [data-testid^="garage-marketplace-"], [data-testid^="garage-trade-"]')
+    .include('[data-testid="workspace-chrome"], [data-testid="workspace-bar"], [data-testid="seller-workspace-header"], [data-testid="vehicle-capability-panel"], [data-testid="vehicle-context"], [data-testid^="garage-marketplace-"], [data-testid^="garage-trade-"], [data-testid="diaspora-order-summary"]')
     .withTags(['wcag2a', 'wcag2aa'])
     .analyze()
   const failing: string[] = []
@@ -454,7 +459,7 @@ test.describe('the owner journey, by explicit controls only (no browser Back)', 
         await expect(page).toHaveURL(/\/diaspora\/imports$/)
       })
 
-      test('Serena: a published listing with no import order is never offered a journey', async ({ page }) => {
+      test('Serena: a published listing with no import order is never offered a journey — and still reaches the Seller Studio', async ({ page }) => {
         const seen = await mockApi(page)
         await page.goto('/dashboard/garage')
         await expect(page.getByTestId(`vehicle-row-${SERENA}`)).toBeVisible()
@@ -467,6 +472,19 @@ test.describe('the owner journey, by explicit controls only (no browser Back)', 
         await expect(page.getByTestId('capability-action-view-cap')).toHaveCount(0)
         await expect(page.getByTestId('capability-action-manage')).toBeVisible()
         expect(seen.patches).toEqual([])
+
+        // Found by the physical UAT: a published listing must keep an explicit, touchable way into the Seller Studio.
+        const edit = page.getByTestId('capability-action-edit-details')
+        await expect(edit).toBeVisible()
+        expect((await edit.boundingBox())?.height ?? 0, 'touch target of Edit listing details').toBeGreaterThanOrEqual(44)
+        await edit.click()
+        await expect(page).toHaveURL(new RegExp(`/dashboard/sell-vehicle\\?vin=${SERENA}$`))
+        await expectActiveWorkspaceOnScreen(page, 'marketplace')
+        await expect(page.getByTestId('seller-server-draft-loaded')).toBeVisible()
+        await page.waitForTimeout(2500)
+        expect(seen.patches, 'arriving at the Studio from a published listing writes nothing').toEqual([])
+        await page.getByRole('link', { name: 'Back to Vehicle Passport' }).first().click()
+        await expect(page).toHaveURL(new RegExp(`/dashboard/garage/${SERENA}$`))
       })
     })
   }

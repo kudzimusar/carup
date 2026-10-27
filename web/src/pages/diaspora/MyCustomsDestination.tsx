@@ -73,6 +73,8 @@ export default function MyCustomsDestination() {
     return (
       <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6" data-testid="my-customs-unreadable">
         <TradeCargoChrome subjectType={subjectType} subjectId={subjectId} page="Your cargo & customs" className="mb-4" />
+        {/* The page keeps its own title when the read fails: found by the physical UAT — this was the one cargo page whose unreadable state had no heading at all. */}
+        <h1 className="mb-4 min-w-0 break-words text-2xl font-semibold text-slate-900">Your cargo &amp; customs</h1>
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription className="min-w-0 break-words">
