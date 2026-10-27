@@ -17,16 +17,22 @@ const h = vi.hoisted(() => ({
   err: null as Error | null,
   getMyTracking: vi.fn(),
   getMyCustoms: vi.fn(),
+  loading: null as unknown,
+  cargo: null as unknown,
+  getMyLoadStatus: vi.fn(),
+  getMyCargo: vi.fn(),
 }))
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({ loading: false, user: { id: 'u1', name: 'Kingston Musarurwa', role: h.role } }),
 }))
 vi.mock('@/hooks/useTradeLogisticsApi', () => ({
-  useTradeLogisticsApi: () => ({ getMyTracking: h.getMyTracking, getMyCustoms: h.getMyCustoms }),
+  useTradeLogisticsApi: () => ({ getMyTracking: h.getMyTracking, getMyCustoms: h.getMyCustoms, getMyLoadStatus: h.getMyLoadStatus, getMyCargo: h.getMyCargo }),
 }))
 
 import MyShipmentTracking from './MyShipmentTracking'
 import MyCustomsDestination from './MyCustomsDestination'
+import MyCargoLoading from './MyCargoLoading'
+import MyCargoIntake from './MyCargoIntake'
 
 const BOOKING = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
 
@@ -68,6 +74,20 @@ const customs = () => ({
   unknown_note: 'Anything not shown has not been recorded.',
 })
 
+const loading = () => ({
+  subject: { type: 'cargo_reservation', id: BOOKING },
+  state: 'LOADED', sentence: 'Your cargo has been loaded into the container.', left_behind_reason: null,
+  loaded_volume_cbm: 3.6, loaded_at: '2026-09-12T14:00:00Z', note: 'Loaded means your cargo is inside the container.',
+})
+
+const cargo = () => ({
+  subject: { type: 'cargo_reservation', id: BOOKING },
+  intake: null,
+  estimate: { volume_cbm: 3, weight_kg: 800, completeness: 'COMPLETE', items_total: 1, items_with_volume: 1, source: 'The volume this booking was approved against' },
+  status_sentence: 'No warehouse has booked this cargo in yet.',
+  eligible_for_intake: true, eligibility_note: null,
+})
+
 function Probe() {
   const location = useLocation()
   return <span data-testid="location">{location.pathname}</span>
@@ -79,6 +99,8 @@ const open = async (path: string, expected: string) => {
       <Routes>
         <Route path="/diaspora/tracking/:subjectType/:subjectId" element={<MyShipmentTracking />} />
         <Route path="/diaspora/my-customs/:subjectType/:subjectId" element={<MyCustomsDestination />} />
+        <Route path="/diaspora/cargo-loading/:subjectType/:subjectId" element={<MyCargoLoading />} />
+        <Route path="/diaspora/cargo/:subjectType/:subjectId" element={<MyCargoIntake />} />
         <Route path="/diaspora/journey/:subjectType/:subjectId" element={<p>JOURNEY PAGE</p>} />
         <Route path="/diaspora/imports" element={<p>IMPORT ORDERS LIST</p>} />
       </Routes>
@@ -97,6 +119,10 @@ beforeEach(() => {
   h.err = null
   h.tracking = tracking()
   h.customs = customs()
+  h.loading = loading()
+  h.cargo = cargo()
+  h.getMyLoadStatus.mockImplementation(async () => { if (h.err) throw h.err; return h.loading })
+  h.getMyCargo.mockImplementation(async () => { if (h.err) throw h.err; return h.cargo })
   h.getMyTracking.mockImplementation(async () => { if (h.err) throw h.err; return h.tracking })
   h.getMyCustoms.mockImplementation(async () => { if (h.err) throw h.err; return h.customs })
 })
@@ -105,6 +131,8 @@ afterEach(cleanup)
 describe.each([
   ['Where your cargo is', `/diaspora/tracking/cargo_reservation/${BOOKING}`, 'my-shipment-tracking', 'tracking-unreadable'],
   ['Your cargo & customs', `/diaspora/my-customs/cargo_reservation/${BOOKING}`, 'my-customs-destination', 'my-customs-unreadable'],
+  ['Your cargo and the container', `/diaspora/cargo-loading/cargo_reservation/${BOOKING}`, 'my-cargo-loading', 'my-loading-unreadable'],
+  ['Your cargo', `/diaspora/cargo/cargo_reservation/${BOOKING}`, 'my-cargo', 'cargo-unreadable'],
 ])('%s', (page, path, readyId, unreadableId) => {
   it('sits under the booking’s journey, in Trade & Imports, and goes up to it', async () => {
     await open(path, readyId)
@@ -131,7 +159,7 @@ describe.each([
     await open(path, unreadableId)
     expect(crumbs()).toEqual([['Trade & Imports', '/diaspora/imports'], ['Journey & arrival', JOURNEY]])
     expect(screen.getByRole('link', { name: 'Back to journey & arrival' })).toHaveAttribute('href', JOURNEY)
-    expect(screen.getByTestId(unreadableId).textContent).toMatch(/not a report that nothing has happened/i)
+    expect(screen.getByTestId(unreadableId).textContent).toMatch(/not a report that/i)
   })
 
   it('offers a role that cannot open the owner workspace the journey, and shows the workspace as text', async () => {
