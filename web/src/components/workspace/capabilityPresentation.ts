@@ -1,4 +1,5 @@
 import type { VehicleCapabilities } from '@/types'
+import { importJourneyPath, importOrderPath, sellerStudioPath, vehicleJourneyPath } from './workspaceModel'
 
 /**
  * What a customer reads, and where each action goes, for a vehicle's two independent capabilities.
@@ -32,10 +33,8 @@ export interface CapabilityView {
   actions: CapabilityAction[]
 }
 
-const enc = encodeURIComponent
-
 export function describeMarketplaceCapability(vin: string, capability: VehicleCapabilities['marketplace']): CapabilityView {
-  const sellerStudio = `/dashboard/sell-vehicle?vin=${enc(vin)}`
+  const sellerStudio = sellerStudioPath(vin)
   switch (capability.state) {
     case 'published':
       return {
@@ -86,7 +85,7 @@ export function describeTradeImportCapability(vin: string, capability: VehicleCa
           state: 'single', fault: false,
           label: 'Import journey available',
           detail: 'This vehicle is on an import order.',
-          actions: [{ kind: 'choose-journey', label: 'View CAP', href: `/diaspora/journey/vehicle/${enc(vin)}` }],
+          actions: [{ kind: 'choose-journey', label: 'View CAP', href: vehicleJourneyPath(vin) }],
         }
       }
       return {
@@ -94,8 +93,8 @@ export function describeTradeImportCapability(vin: string, capability: VehicleCa
         label: 'Import journey available',
         detail: 'This vehicle is on an import order.',
         actions: [
-          { kind: 'view-cap', label: 'View CAP', href: `/diaspora/journey/import_order/${enc(orderId)}` },
-          { kind: 'view-order', label: 'Import order', href: `/diaspora/imports/${enc(orderId)}` },
+          { kind: 'view-cap', label: 'View CAP', href: importJourneyPath(orderId) },
+          { kind: 'view-order', label: 'Import order', href: importOrderPath(orderId) },
         ],
       }
     }
@@ -105,7 +104,7 @@ export function describeTradeImportCapability(vin: string, capability: VehicleCa
         state: 'multiple', fault: false,
         label: count ? `${count} import journeys` : 'Several import journeys',
         detail: 'More than one import order includes this vehicle. You choose which to open.',
-        actions: [{ kind: 'choose-journey', label: 'Choose import journey', href: `/diaspora/journey/vehicle/${enc(vin)}` }],
+        actions: [{ kind: 'choose-journey', label: 'Choose import journey', href: vehicleJourneyPath(vin) }],
       }
     }
     case 'unavailable':

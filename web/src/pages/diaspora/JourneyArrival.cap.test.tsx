@@ -24,6 +24,8 @@ vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ loading: false, user
 vi.mock('@/hooks/useTradeLogisticsApi', () => ({
   useTradeLogisticsApi: () => ({
     getJourney: vi.fn(async () => { if (state.err) throw state.err; return state.view }),
+    // R3: the page also asks which vehicle the order carries (to offer the Vehicle Passport). These R2 tests are about the journey's content, so: none.
+    getOrderVehicle: vi.fn(async () => null),
     getDocumentAccess: vi.fn(async (id: string, kind: string) => { if (!state.access) throw new Error('no access'); return state.access(id, kind) }),
   }),
 }))

@@ -426,6 +426,19 @@ export function useTradeLogisticsApi() {
     return response.data
   }, [request])
 
+  // ── T11-CAP-LR01-R3 — which vehicle does this import order carry, if I am entitled to open its Passport? ──
+  // The order endpoint attaches `linked_vehicle` ONLY for the vehicle's owner or current seller, which is exactly who the
+  // Passport admits. So its presence is the page's entitlement to link there, and its absence — or a failed read — is "no link",
+  // never a claim about the vehicle. A rejected read propagates; the caller treats it as "not offered".
+  const getOrderVehicle = useCallback(async (orderId: string): Promise<{ vin: string; title: string | null } | null> => {
+    const order = await request<{ linked_vehicle?: { vin?: unknown; title?: unknown } | null } | null>(
+      `/diaspora/import-orders/${encodeURIComponent(orderId)}`)
+    const linked = order?.linked_vehicle
+    const vin = typeof linked?.vin === 'string' ? linked.vin.trim() : ''
+    if (!vin) return null
+    return { vin, title: typeof linked?.title === 'string' && linked.title.trim() ? linked.title : null }
+  }, [request])
+
   // ── T11-CAP-LR01-R2 step H — open one of MY documents (a five-minute view; the server decides who may) ──
   const getDocumentAccess = useCallback(async (documentId: string, disposition: 'view' | 'download' = 'view'): Promise<DocumentAccess> => {
     const response = await request<{ data: DocumentAccess }>(
@@ -524,6 +537,7 @@ export function useTradeLogisticsApi() {
     recordCustomsEvent,
     getMyCustoms,
     getJourney,
+    getOrderVehicle,
     getDocumentAccess,
   }), [
     listMyRequests,
@@ -581,6 +595,7 @@ export function useTradeLogisticsApi() {
     recordCustomsEvent,
     getMyCustoms,
     getJourney,
+    getOrderVehicle,
     getDocumentAccess,
   ])
 }

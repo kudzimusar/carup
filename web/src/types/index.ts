@@ -212,6 +212,11 @@ export interface DiasporaImportOrder {
   diaspora_trade_documents?: DiasporaTradeDocument[];
   diaspora_payment_milestones?: DiasporaPaymentMilestone[];
   diaspora_import_quotes?: DiasporaImportOrderQuoteSummary[];
+  /**
+   * R3: the vehicle this order is about, named for the vehicle's own owner or current seller ONLY. Absent for everyone else
+   * (and when the vehicle could not be read), so an order is never titled by a vehicle its viewer may not know about.
+   */
+  linked_vehicle?: { vin: string; title: string | null } | null;
 }
 
 /** Embedded quote summary on getImportOrder responses (used for the milestone cap display). */

@@ -22,14 +22,32 @@ export interface WorkspaceAction {
 export function WorkspaceExitActions({
   label,
   actions,
+  variant = 'footer',
   className,
 }: {
   /** The landmark name, e.g. "Elsewhere for this vehicle". */
   label: string
   actions: WorkspaceAction[]
+  /**
+   * `footer` = full-size controls closing a page. `inline` = quiet links that sit beside the parent link at the top
+   * of a page, for a page whose own header is already tall (the import journey) — still real links, still 44px targets.
+   */
+  variant?: 'footer' | 'inline'
   className?: string
 }) {
   if (!actions.length) return null
+  if (variant === 'inline') {
+    return (
+      <nav aria-label={label} data-testid="workspace-exit-actions" className={cn('flex flex-wrap items-center gap-x-6', className)}>
+        {actions.map((action) => (
+          <Link key={`${action.href}|${action.label}`} to={action.href} data-testid={action.testId} className={cn(WS_STYLE.quietLink, WS_STYLE.focus)}>
+            {action.label}
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        ))}
+      </nav>
+    )
+  }
   return (
     <nav
       aria-label={label}

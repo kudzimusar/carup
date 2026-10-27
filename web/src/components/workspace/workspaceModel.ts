@@ -58,6 +58,17 @@ export const WORKSPACE_SECTIONS = {
 } as const
 
 /**
+ * Destinations that are built from an id. One builder each, so no page spells a path its own way and an id is
+ * never put into a URL unencoded. These are addresses, not permissions: whether a viewer may open one is the
+ * registry's call (see workspaceAccess) and, for the data, the API's.
+ */
+export const vehiclePassportPath = (vin: string) => `/dashboard/garage/${encodeURIComponent(vin)}`
+export const sellerStudioPath = (vin: string) => `/dashboard/sell-vehicle?vin=${encodeURIComponent(vin)}`
+export const importOrderPath = (orderId: string) => `/diaspora/imports/${encodeURIComponent(orderId)}`
+export const importJourneyPath = (orderId: string) => `/diaspora/journey/import_order/${encodeURIComponent(orderId)}`
+export const vehicleJourneyPath = (vin: string) => `/diaspora/journey/vehicle/${encodeURIComponent(vin)}`
+
+/**
  * Which workspace a path belongs to, for components that are handed no explicit `workspace`.
  * Returns null for paths no workspace owns (the public site, account pages, the shared inbox).
  */

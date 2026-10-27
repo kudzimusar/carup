@@ -6,10 +6,16 @@ export { WorkspaceChrome } from './WorkspaceChrome'
 export { WorkspaceExitActions, type WorkspaceAction } from './WorkspaceExitActions'
 export { WorkspaceParentLink } from './WorkspaceParentLink'
 export { WorkspaceBarProvidedContext } from './workspaceBarContext'
+export { roleCanOpen, useWorkspaceRole } from './workspaceAccess'
 export {
   WORKSPACES,
   WORKSPACE_SECTIONS,
   formatVehicleTitle,
+  importJourneyPath,
+  importOrderPath,
+  sellerStudioPath,
+  vehicleJourneyPath,
+  vehiclePassportPath,
   workspaceCrumb,
   workspaceDefinition,
   workspaceForPath,
