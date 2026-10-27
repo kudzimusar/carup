@@ -125,6 +125,7 @@ async function mockApi(page: Page): Promise<Seen> {
   await json(`**/api/vehicles/${VEZEL}/evidence`, [])
   await json('**/api/evidence/taxonomy', { classes: [], legacy_map: {} })
   await json('**/api/evidence/sources', { sources: [] })
+  await json('**/api/service-history/me', [])
   await json('**/api/diaspora/container-marketplace/trade-context', { data: { user: { name: owner.name }, country_of_residence: 'Zimbabwe', organisation: null } })
   await json('**/api/diaspora/import-orders', { data: [orderRow] })
   await json(`**/api/diaspora/import-orders/${ORDER}`, orderRow)
@@ -174,9 +175,13 @@ async function expectNoHorizontalOverflow(page: Page) {
 async function expectActiveWorkspaceOnScreen(page: Page, workspace: 'vehicles' | 'marketplace' | 'trade') {
   const bar = page.getByTestId('workspace-bar').first()
   await expect(bar).toHaveAttribute('data-active-workspace', workspace)
-  const box = await bar.locator('[aria-current="page"]').first().boundingBox()
+  const active = bar.locator('[aria-current="page"]').first()
+  await expect(active).toBeVisible()
+  // A lazily loaded route (the runtime lineage lazy-loads its pages) swaps the page's DOM underneath us, so the box is read until it is steady
+  // rather than once.
+  let box: { x: number; y: number; width: number; height: number } | null = null
+  await expect.poll(async () => { box = await active.boundingBox(); return box !== null }, { message: 'active workspace item has a box' }).toBe(true)
   const viewport = page.viewportSize()!
-  expect(box, 'active workspace item has a box').not.toBeNull()
   expect(box!.x).toBeGreaterThanOrEqual(0)
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1)
   expect(box!.height).toBeGreaterThanOrEqual(44)
