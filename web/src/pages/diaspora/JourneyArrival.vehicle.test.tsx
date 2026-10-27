@@ -18,7 +18,11 @@ import React from 'react'
 const state = vi.hoisted(() => ({ view: null as unknown }))
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ loading: false, user: { id: 'u1' } }) }))
 vi.mock('@/hooks/useTradeLogisticsApi', () => ({
-  useTradeLogisticsApi: () => ({ getJourney: vi.fn(async () => state.view) }),
+  useTradeLogisticsApi: () => ({
+    getJourney: vi.fn(async () => state.view),
+    // R3: the page also asks which vehicle the order carries (to offer the Vehicle Passport). These R2 tests are about the journey's content, so: none.
+    getOrderVehicle: vi.fn(async () => null),
+  }),
 }))
 
 import JourneyArrival from './JourneyArrival'

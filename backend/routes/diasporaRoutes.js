@@ -17,6 +17,7 @@ import diasporaShipmentLegRouter from './diasporaShipmentLegRoutes.js';
 import diasporaShipmentObservationRouter from './diasporaShipmentObservationRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
+import { attachLinkedVehicle, attachLinkedVehicles } from '../services/diaspora/orderVehicleContext.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, getOwnTradeProfiles, submitTradeProfileForReview, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
@@ -100,7 +101,9 @@ router.use('/scheduler', diasporaSchedulerRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {
-  const data = await listImportOrders({ userContext: req.userContext, status: req.query.status, ...pagination(req) });
+  const orders = await listImportOrders({ userContext: req.userContext, status: req.query.status, ...pagination(req) });
+  // T11-CAP-LR01-R3: name the vehicle an order is about — for the vehicle's own owner/seller only (see orderVehicleContext).
+  const data = await attachLinkedVehicles(orders, req.userContext);
   res.json({ data, pagination: pagination(req) });
 }));
 
@@ -110,7 +113,7 @@ router.post('/import-orders', auth, asyncHandler(async (req, res) => {
 }));
 
 router.get('/import-orders/:id', auth, asyncHandler(async (req, res) => {
-  res.json(await getImportOrder(req.params.id, req.userContext));
+  res.json(await attachLinkedVehicle(await getImportOrder(req.params.id, req.userContext), req.userContext));
 }));
 
 router.post('/import-orders/:id/assign-seller', auth, asyncHandler(async (req, res) => {

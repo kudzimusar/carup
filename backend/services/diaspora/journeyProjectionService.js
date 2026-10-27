@@ -32,7 +32,7 @@
  * consignee is private data: only the order's own buyer/creator and platform admins/reviewers see it.
  * A sailing operator with no right to the order is refused; they have the T11 operator view.
  */
-import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import {
   requireUserContext,
   isPlatformAdmin,
@@ -575,16 +575,11 @@ async function getVehicleJourney(client, vin, context, options) {
   const { data: vehicle } = await client.from(VEHICLES).select('*').eq('vin', vin).maybeSingle();
   if (!vehicle) throw missingOrDenied(context, 'Journey');
 
-  const { data: orders } = await client.from(ORDERS).select('*')
-    .eq('linked_vehicle_vin', vehicle.vin).is('deleted_at', null);
-  const linked = orders || [];
-  const { data: participants } = linked.length
-    ? await client.from(PARTICIPANTS).select('*').in('import_order_id', linked.map((o) => o.id)).is('deleted_at', null)
-    : { data: [] };
-  const readable = privileged(context)
-    ? linked
-    : linked.filter((o) => canReadImportOrder(
-      o, (participants || []).filter((p) => normalizeId(p.import_order_id) === normalizeId(o.id)), context));
+  // One reading of "which orders carry this vehicle, and which may this viewer open" — shared with the R3
+  // capability read below, so there is a single interpretation of import ownership. A read that FAILS throws;
+  // it is never worded as "no journey" (T11-CAP-LR01-R3: unreadable != none).
+  const { orders: linked, participants } = await readOrdersAndParticipants(client, [vehicle.vin]);
+  const readable = selectReadableOrders(linked, participants, context);
 
   const ownsVehicle = [vehicle.owner_id, vehicle.current_seller_id].map(normalizeId).filter(Boolean).includes(context.id);
   if (!privileged(context) && !ownsVehicle && readable.length === 0) throw new ForbiddenError(DENIED);
@@ -614,6 +609,101 @@ async function getVehicleJourney(client, vin, context, options) {
       .map((o) => ({ order_id: o.id, status: o.status || null, created_at: o.created_at || null }))
       .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(a.order_id).localeCompare(String(b.order_id))),
   };
+}
+
+// ── T11-CAP-LR01-R3: does this vehicle have an import journey the viewer may open? ──────────────────────────
+//
+// The Vehicle Passport and My Garage must show a CAP action only for a vehicle that really has one. Asking
+// `getVehicleJourney` for that would compose a whole journey per vehicle; this is the same question answered
+// from the same two reads and the same readability rule, and nothing else:
+//
+//   none         no import order the viewer may read is linked to the vehicle. An order that exists but is
+//                not the viewer's is indistinguishable from no order: no count, no id, no hint.
+//   single       exactly one readable order → `order_id`
+//   multiple     several → `count`, never a choice (the caller offers a chooser; nothing is guessed)
+//   unavailable  the read FAILED. This is a different answer from `none` and is never folded into it.
+
+const CAPABILITY_READ_CHUNK = 100;
+
+function chunked(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/**
+ * The orders linked to these vehicles and the participants of those orders — and nothing else. A failed read
+ * THROWS. The one place this module reads them, used by the vehicle journey and by the capability read.
+ */
+async function readOrdersAndParticipants(client, vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  const orders = [];
+  for (const part of chunked(wanted, CAPABILITY_READ_CHUNK)) {
+    const { data, error } = await client.from(ORDERS).select('*').in('linked_vehicle_vin', part).is('deleted_at', null);
+    if (error) throw new DatabaseError('The import orders linked to these vehicles could not be read');
+    orders.push(...(data || []));
+  }
+  const participants = [];
+  for (const part of chunked(orders.map((order) => order.id), CAPABILITY_READ_CHUNK)) {
+    const { data, error } = await client.from(PARTICIPANTS).select('*').in('import_order_id', part).is('deleted_at', null);
+    if (error) throw new DatabaseError('The participants of these import orders could not be read');
+    participants.push(...(data || []));
+  }
+  return { orders, participants };
+}
+
+/** Which of these linked orders the viewer may open. A platform admin or reviewer reads all of them. */
+export function selectReadableOrders(linkedOrders, participants, context) {
+  const linked = linkedOrders || [];
+  if (privileged(context)) return linked;
+  return linked.filter((order) => canReadImportOrder(
+    order, (participants || []).filter((p) => normalizeId(p.import_order_id) === normalizeId(order.id)), context));
+}
+
+function capabilityOf(readable) {
+  if (readable.length === 0) return { state: 'none' };
+  if (readable.length === 1) return { state: 'single', order_id: readable[0].id };
+  return { state: 'multiple', count: readable.length };
+}
+
+/**
+ * The import capability of each of these vehicles for this viewer, as a Map keyed by VIN. Two reads in total,
+ * however many vehicles. A read that fails marks EVERY vehicle `unavailable` — it never degrades to `none`.
+ *
+ * The caller has already established that the viewer owns (or sells) each vehicle; a viewer with no standing at
+ * all on a vehicle and no readable order is answered `none`, exactly as `getVehicleJourney` refuses them.
+ */
+export async function getVehiclesImportCapabilities(vehicles, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const list = (vehicles || []).filter((vehicle) => vehicle && vehicle.vin);
+  const result = new Map(list.map((vehicle) => [vehicle.vin, { state: 'unavailable' }]));
+  if (list.length === 0) return result;
+  try {
+    const client = await resolveClient(options);
+    const { orders, participants } = await readOrdersAndParticipants(client, list.map((vehicle) => vehicle.vin));
+    const byVin = new Map();
+    for (const order of orders) {
+      const key = order.linked_vehicle_vin;
+      if (!byVin.has(key)) byVin.set(key, []);
+      byVin.get(key).push(order);
+    }
+    for (const vehicle of list) {
+      const readable = selectReadableOrders(byVin.get(vehicle.vin) || [], participants, context);
+      const ownsVehicle = [vehicle.owner_id, vehicle.current_seller_id].map(normalizeId).filter(Boolean).includes(context.id);
+      result.set(vehicle.vin, !privileged(context) && !ownsVehicle && readable.length === 0 ? { state: 'none' } : capabilityOf(readable));
+    }
+  } catch (error) {
+    console.warn('[import-capability] could not be read:', error?.message);
+    // `result` still holds `unavailable` for any vehicle not yet resolved; resolve none of them to `none`.
+    for (const vehicle of list) result.set(vehicle.vin, { state: 'unavailable' });
+  }
+  return result;
+}
+
+/** The import capability of one vehicle: `{ state, order_id? | count? }`. */
+export async function getVehicleImportCapability(vehicle, userContext = {}, options = {}) {
+  const map = await getVehiclesImportCapabilities([vehicle], userContext, options);
+  return map.get(vehicle?.vin) || { state: 'unavailable' };
 }
 
 /**

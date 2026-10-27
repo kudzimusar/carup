@@ -206,6 +206,7 @@ import {
   actorForGovernedMedia, createStorageSigner, readGovernedMedia, readGovernedMediaForVehicles,
 } from './services/evidence/governedVehicleMediaService.js';
 import { createGovernedMediaRouter } from './routes/governedMediaRoutes.js';
+import { buildOwnerCapabilities, readOwnerCapabilitiesForVin } from './services/vehicleCapabilityService.js';
 import {
   LOOKUP_KINDS,
   LOOKUP_DECISIONS,
@@ -992,11 +993,30 @@ async function withGovernedMedia(passport, vin, req) {
 }
 
 /**
- * A passport body that carries the owner's short-lived photograph links is a capability for THAT viewer alone: a browser or a shared cache must never
- * store it. A body without the block (every public passport) is sent exactly as before.
+ * T11-CAP-LR01-R3 — the vehicle's CAPABILITIES (Marketplace; Trade & Imports), attached by the ROUTE for the same reason the governed media is: the
+ * passport builder's collaborator list is closed. Same audience rule, narrower: a PROVEN identity that owns or sells the vehicle — not every platform
+ * role the media rule admits. For everyone else NOTHING IS ADDED (no empty block, no flag), so a public passport is byte-identical whether or not the
+ * vehicle has an import order or a listing. A fault here never fails the passport and says nothing about the vehicle.
+ */
+async function withOwnerCapabilities(passport, vin, req) {
+  const actor = actorForGovernedMedia(req.userContext);
+  if (!passport || !actor.id || actor.identityAsserted) return passport;
+  try {
+    // The vehicle is read INSIDE the service (named columns, never a star select): this route file makes no vehicle read of its own.
+    const capabilities = await readOwnerCapabilitiesForVin({ client: supabase, vin, userContext: req.userContext, listingMediaFor: ownerListingMedia });
+    return capabilities ? { ...passport, capabilities } : passport;
+  } catch (error) {
+    console.warn('[capabilities] could not be attached to the passport:', error?.message);
+    return passport;
+  }
+}
+
+/**
+ * A passport body that carries the owner's short-lived photograph links, or the owner's capabilities, is a capability for THAT viewer alone: a browser or
+ * a shared cache must never store it. A body without either block (every public passport) is sent exactly as before.
  */
 function sendPassportBody(res, body) {
-  if (body && body.governed_media) res.set('Cache-Control', 'private, no-store');
+  if (body && (body.governed_media || body.capabilities)) res.set('Cache-Control', 'private, no-store');
   return res.json(body);
 }
 
@@ -1995,7 +2015,7 @@ app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (r
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
-    return sendPassportBody(res, await withGovernedMedia(passport, vin, req));
+    return sendPassportBody(res, await withOwnerCapabilities(await withGovernedMedia(passport, vin, req), vin, req));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2040,7 +2060,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
-    return sendPassportBody(res, await withGovernedMedia(passport, resolvedVin, req));
+    return sendPassportBody(res, await withOwnerCapabilities(await withGovernedMedia(passport, resolvedVin, req), resolvedVin, req));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -4415,12 +4435,23 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     }
     // A list that carries the owner's short-lived photograph links is for that viewer alone; it is never stored by a browser or a shared cache.
     if (governed.size > 0) res.set('Cache-Control', 'private, no-store')
+    // T11-CAP-LR01-R3: what each vehicle can DO — Marketplace and Trade & Imports — derived here, once, for the vehicles this user owns or sells. A third
+    // additive block beside `listing_media` and `governed_media`. Each part is fault-isolated inside buildOwnerCapabilities (a failed import read arrives as
+    // `unavailable`, never `none`); a fault above that leaves the key off. It never fails the garage.
+    let capabilities = new Map()
+    try {
+      capabilities = await buildOwnerCapabilities({ client: supabase, vehicles: withTrust, listingMedia: media, userContext: req.userContext })
+    } catch (capabilityError) {
+      console.warn('[capabilities] garage capabilities unavailable:', capabilityError?.message)
+    }
+    if (capabilities.size > 0) res.set('Cache-Control', 'private, no-store')
     res.json(withTrust.map((vehicle) => ({
       ...vehicle,
       counts: counts.get(vehicle.vin) ?? null,
       listing_media: media.get(vehicle.vin) ?? toListingMediaBlock(null),
       publication_last_change: publicationChanges.get(vehicle.vin) ?? { state: 'not_read' },
       ...(governed.has(vehicle.vin) ? { governed_media: governed.get(vehicle.vin) } : {}),
+      ...(capabilities.has(vehicle.vin) ? { capabilities: capabilities.get(vehicle.vin) } : {}),
     })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)

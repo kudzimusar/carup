@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type MyLoadStatus } from '@/hooks/useTradeLogisticsApi'
 import { LEFT_BEHIND_UI, LOADED_IS_NOT_SAILED, PARTICIPANT_STATE_UI, cbm, shortDate, shortRef } from './loadingDisplay'
+import { TradeCargoChrome } from './chrome/TradeCargoChrome'
 
 export default function MyCargoLoading() {
   const { subjectType = 'cargo_reservation', subjectId = '' } = useParams()
@@ -52,6 +53,7 @@ export default function MyCargoLoading() {
   if (state === 'unreadable' || !data) {
     return (
       <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="my-loading-unreadable">
+        <TradeCargoChrome subjectType={subjectType} subjectId={subjectId} page="Your cargo and the container" className="mb-4" />
         <h1 className="text-2xl font-bold text-slate-950">Your cargo and the container</h1>
         <Alert className="mt-4 border-amber-200 bg-amber-50">
           <AlertDescription className="min-w-0 break-words">
@@ -67,6 +69,7 @@ export default function MyCargoLoading() {
 
   return (
     <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="my-cargo-loading">
+      <TradeCargoChrome subjectType={data.subject.type} subjectId={data.subject.id} page="Your cargo and the container" className="mb-4" />
       <header className="min-w-0">
         <p className="text-xs uppercase tracking-wide text-orange-600">Container booking · {shortRef(data.subject.id)}</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">Your cargo and the container</h1>

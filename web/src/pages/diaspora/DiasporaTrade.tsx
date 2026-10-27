@@ -13,6 +13,10 @@ import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import TradeIntelligence from '@/components/intelligence/TradeIntelligence'
 import { VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicleTaxonomy'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
+import { WorkspaceChrome, roleCanOpen, useWorkspaceRole, vehiclePassportPath } from '@/components/workspace'
+import { TradeOrderChrome } from './chrome/TradeOrderChrome'
+import { importOrderLabel } from './chrome/importOrderLabel'
+import { useOrderVehicle } from './chrome/useOrderVehicle'
 
 const requiredDocuments = [
   'Buyer identity document',
@@ -553,7 +557,7 @@ function OrderSummary({ order }: { order: DiasporaImportOrder }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase text-gray-400">Import order</p>
-          <h1 className="mt-1 text-2xl font-bold text-gray-950">{order.requested_make || 'Vehicle'} {order.requested_model || 'request'}</h1>
+          <h1 className="mt-1 text-2xl font-bold text-gray-950" data-testid="diaspora-order-title">{importOrderLabel(order)}</h1>
         </div>
         <StatusBadge status={order.status} />
       </div>
@@ -681,6 +685,7 @@ export function DiasporaLanding() {
 
 export function DiasporaImportList() {
   const { fetchDiasporaImportOrders } = useCarUpApi()
+  const role = useWorkspaceRole()
   const [orders, setOrders] = useState<DiasporaImportOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -695,6 +700,12 @@ export function DiasporaImportList() {
   return (
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-list-route">
+        {/* R3 — Import Orders is the root of the Trade & Imports workspace: the workspace bar says where, and the way up is the dashboard. */}
+        <WorkspaceChrome
+          workspace="trade"
+          parent={roleCanOpen(role, '/dashboard') ? { href: '/dashboard', label: 'Back to dashboard' } : null}
+          className="mb-6"
+        />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-950">Import orders</h1>
@@ -716,7 +727,7 @@ export function DiasporaImportList() {
             ) : orders.map(order => (
               <Link key={order.id} to={`/diaspora/imports/${order.id}`} className="flex items-center justify-between gap-4 px-4 py-4 hover:bg-gray-50" data-testid="diaspora-import-row">
                 <div>
-                  <p className="font-semibold text-gray-950">{order.requested_make || 'Import'} {order.requested_model || order.id}</p>
+                  <p className="font-semibold text-gray-950" data-testid="diaspora-import-row-title">{importOrderLabel(order)}</p>
                   <p className="text-sm text-gray-500">{labelize(order.order_type)} from {order.origin_country}</p>
                 </div>
                 <StatusBadge status={order.status} />
@@ -1059,6 +1070,8 @@ export function DiasporaImportDetail() {
   return (
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-detail-route">
+        {/* R3 — the order is a page of Trade & Imports, named by its vehicle where the viewer owns it; the way up is the list. */}
+        <TradeOrderChrome orderId={id ?? null} orderLabel={id ? importOrderLabel(order ?? { id }) : null} className="mb-6" />
         {loading && <div className="text-orange-600" data-testid="diaspora-import-detail-loading">Loading import order...</div>}
         {error && <Alert className="border-red-200" data-testid="diaspora-import-detail-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {order && (
@@ -1068,16 +1081,26 @@ export function DiasporaImportDetail() {
               <StatusTimeline currentStatus={order.status} />
               <DocumentChecklist documents={order.diaspora_trade_documents || []} />
             </div>
-            <div className="flex flex-wrap gap-3">
+            {/* R3 — the journey (CAP) is what this order is FOR, so it leads; the rest are its working pages. The Vehicle Passport is offered only
+                when the order endpoint named the vehicle to this viewer, which it does only for the vehicle's owner or current seller. */}
+            <div className="flex flex-wrap gap-3" data-testid="diaspora-order-actions">
+              <Button asChild className="bg-orange-600 hover:bg-orange-700" data-testid="diaspora-open-journey-button">
+                <Link to={`/diaspora/journey/import_order/${encodeURIComponent(order.id)}`}>Journey &amp; arrival</Link>
+              </Button>
               <Button asChild variant="outline" data-testid="diaspora-open-documents-button">
                 <Link to={`/diaspora/imports/${order.id}/documents`}>Documents</Link>
               </Button>
               <Button asChild variant="outline" data-testid="diaspora-open-shipment-button">
                 <Link to={`/diaspora/imports/${order.id}/shipment`}>Shipment</Link>
               </Button>
-              <Button asChild variant="outline" data-testid="diaspora-open-journey-button">
-                <Link to={`/diaspora/journey/import_order/${encodeURIComponent(order.id)}`}>Journey &amp; arrival</Link>
+              <Button asChild variant="outline" data-testid="diaspora-open-order-details-button">
+                <Link to={`/diaspora/imports/${order.id}/passport`}>Order details</Link>
               </Button>
+              {order.linked_vehicle?.vin ? (
+                <Button asChild variant="outline" data-testid="diaspora-open-vehicle-passport-button">
+                  <Link to={vehiclePassportPath(order.linked_vehicle.vin)}>View Vehicle Passport</Link>
+                </Button>
+              ) : null}
             </div>
             <PaymentMilestonesCard
               orderId={order.id}
@@ -1099,6 +1122,7 @@ export function DiasporaImportDocuments() {
   const { id } = useParams()
   const { user } = useAuth()
   const { fetchDiasporaTradeDocuments } = useCarUpApi()
+  const orderVehicle = useOrderVehicle(id ?? null)
   const [documents, setDocuments] = useState<DiasporaTradeDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1130,6 +1154,7 @@ export function DiasporaImportDocuments() {
   return (
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-documents-route">
+        <TradeOrderChrome orderId={id ?? null} orderLabel={id ? importOrderLabel({ id, linked_vehicle: orderVehicle }) : null} page="Trade documents" className="mb-6" />
         <h1 className="text-2xl font-bold text-gray-950">Trade documents</h1>
         <p className="mt-1 text-sm text-gray-500">Only documents scoped to this import order are shown.</p>
 
@@ -1366,6 +1391,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">
+      <TradeOrderChrome orderId={orderId ?? null} orderLabel={orderId ? importOrderLabel(order ?? { id: orderId }) : null} page="Container & shipment" className="mb-6" />
       <div className="flex items-center gap-3">
         <Ship className="h-6 w-6 text-orange-600" />
         <h1 className="text-2xl font-bold text-gray-950">Container & shipment</h1>

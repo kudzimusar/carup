@@ -21,6 +21,7 @@ import { AlertTriangle, Anchor, Loader2, MapPin, Package, Ship } from 'lucide-re
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type MyTracking } from '@/hooks/useTradeLogisticsApi'
+import { TradeCargoChrome } from './chrome/TradeCargoChrome'
 import {
   CUSTOMS_IS_ELSEWHERE,
   REFERENCE_IS_NOT_MOVEMENT,
@@ -63,6 +64,7 @@ export default function MyShipmentTracking() {
   if (state === 'unreadable' || !data) {
     return (
       <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="tracking-unreadable">
+        <TradeCargoChrome subjectType={subjectType} subjectId={subjectId} page="Where your cargo is" className="mb-4" />
         <h1 className="text-2xl font-bold text-slate-950">Where your cargo is</h1>
         <Alert className="mt-4 border-amber-200 bg-amber-50">
           <AlertDescription className="min-w-0 break-words">
@@ -79,6 +81,7 @@ export default function MyShipmentTracking() {
 
   return (
     <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="my-shipment-tracking">
+      <TradeCargoChrome subjectType={data.subject.type} subjectId={data.subject.id} page="Where your cargo is" className="mb-4" />
       <header className="min-w-0">
         <p className="text-xs uppercase tracking-wide text-orange-600">Container booking · {shortRef(data.subject.id)}</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">Where your cargo is</h1>

@@ -80,6 +80,8 @@ import {
   type TabId,
 } from './journeyDisplay'
 import { reportedProgressSummary } from './capDisplay'
+import { CapWorkspaceChrome } from './chrome/CapWorkspaceChrome'
+import { useOrderVehicle } from './chrome/useOrderVehicle'
 import { CapNav } from './cap/CapNav'
 import { CapSection, Unshown } from './cap/ui'
 import { DestinationAgent } from './cap/DestinationAgent'
@@ -112,6 +114,8 @@ export default function JourneyArrival() {
   const [state, setState] = useState<'loading' | 'ready' | 'unreadable'>('loading')
   const [error, setError] = useState('')
   const [tab, setTab] = useState<TabId>('journey')
+  // R3: the Vehicle Passport link is offered only when the order endpoint shows this viewer owns the vehicle.
+  const orderVehicle = useOrderVehicle(data?.subject.order_id ?? null)
 
   const load = useCallback(async () => {
     try {
@@ -135,7 +139,8 @@ export default function JourneyArrival() {
   if (state === 'unreadable' || !data) {
     return (
       <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="journey-unreadable">
-        <h1 className="text-2xl font-bold text-slate-950">Journey &amp; arrival</h1>
+        <CapWorkspaceChrome journey={null} vehicleVin={null} />
+        <h1 className="mt-4 text-2xl font-bold text-slate-950">Journey &amp; arrival</h1>
         <Alert className="mt-4 border-amber-200 bg-amber-50">
           <AlertDescription className="min-w-0 break-words">
             {error} That is not a report that nothing has happened.
@@ -189,7 +194,8 @@ export default function JourneyArrival() {
 
   return (
     <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="journey-page">
-      <header className="min-w-0">
+      <CapWorkspaceChrome journey={data} vehicleVin={orderVehicle?.vin ?? null} />
+      <header className="mt-4 min-w-0">
         <p className="text-xs uppercase tracking-wide text-orange-600">Journey &amp; arrival{orderRef ? ` · ${orderRef}` : ''}</p>
         <h1 className="mt-1 min-w-0 break-words text-2xl font-bold text-slate-950 sm:text-3xl" data-testid="journey-title">{vehicleTitle(data.asset)}</h1>
         <p className="mt-1 flex min-w-0 items-center gap-1.5 break-words text-sm text-slate-600" data-testid="journey-route">

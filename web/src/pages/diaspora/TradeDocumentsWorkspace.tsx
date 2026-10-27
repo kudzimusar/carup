@@ -16,6 +16,19 @@ import { AlertTriangle, Check, Clock, FileText, Loader2, Minus, X } from 'lucide
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import {
+  WorkspaceChrome,
+  importJourneyPath,
+  roleCanOpen,
+  useWorkspaceRole,
+  vehiclePassportPath,
+  workspaceCrumb,
+  workspaceDefinition,
+  type WorkspaceAction,
+} from '@/components/workspace'
+import { TradeOrderChrome } from './chrome/TradeOrderChrome'
+import { importOrderLabel } from './chrome/importOrderLabel'
+import { useOrderVehicle, type OrderVehicle } from './chrome/useOrderVehicle'
 
 export interface WorkspaceItem {
   document_type: string
@@ -70,6 +83,49 @@ const SUBJECT_LABEL: Record<string, string> = {
 const shortRef = (id: string) => String(id).replace(/-/g, '').slice(0, 8).toUpperCase()
 const when = (iso: string | null) => (iso ? String(iso).slice(0, 10) : null)
 
+const PAGE_NAME = 'Documents & evidence'
+
+/**
+ * T11-CAP-LR01-R3 — where the paperwork sits, and the way back to what it is paperwork FOR. CHROME ONLY.
+ *
+ * For an import order the paperwork is a page of the order: the trail names the order by its vehicle (when the
+ * viewer owns it), the way up is the order, and the journey and the Vehicle Passport are offered beside it. Any
+ * other kind of transaction has no import order above it, so it gets the workspace and its own name and no
+ * parent that would be a guess. `readable` is false when the workspace could not be opened: the trail is then
+ * generic and offers no link to an order the viewer may have been refused.
+ */
+function DocumentsChrome({ subjectType, subjectId, readable, vehicle }: {
+  subjectType: string
+  subjectId: string
+  readable: boolean
+  vehicle: OrderVehicle | null
+}) {
+  const role = useWorkspaceRole()
+  if (subjectType === 'import_order' && subjectId) {
+    if (!readable) return <TradeOrderChrome orderId={null} orderLabel={null} page={PAGE_NAME} className="mb-6" />
+    const exits: WorkspaceAction[] = [{ label: 'Journey & arrival', href: importJourneyPath(subjectId), testId: 'documents-journey-link' }]
+    if (vehicle) exits.push({ label: 'View Vehicle Passport', href: vehiclePassportPath(vehicle.vin), testId: 'documents-vehicle-passport-link' })
+    return (
+      <TradeOrderChrome
+        orderId={subjectId}
+        orderLabel={importOrderLabel({ id: subjectId, linked_vehicle: vehicle })}
+        page={PAGE_NAME}
+        exitsLabel="Elsewhere for this purchase"
+        exits={exits}
+        className="mb-6"
+      />
+    )
+  }
+  const root = workspaceDefinition('trade').root
+  return (
+    <WorkspaceChrome
+      workspace="trade"
+      breadcrumbs={[{ ...workspaceCrumb('trade'), href: roleCanOpen(role, root) ? root : undefined }, { label: PAGE_NAME }]}
+      className="mb-6"
+    />
+  )
+}
+
 export default function TradeDocumentsWorkspace() {
   const { subjectType = '', subjectId = '' } = useParams()
   const { loading: authLoading } = useAuth()
@@ -77,6 +133,8 @@ export default function TradeDocumentsWorkspace() {
   const [data, setData] = useState<DocumentWorkspace | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unreadable'>('loading')
   const [error, setError] = useState('')
+  // R3: an import order's paperwork is named for the order's vehicle when the viewer owns it — asked only once the workspace itself opened.
+  const orderVehicle = useOrderVehicle(data?.subject.type === 'import_order' ? data.subject.id : null)
 
   const load = useCallback(async () => {
     try {
@@ -109,6 +167,7 @@ export default function TradeDocumentsWorkspace() {
   if (state === 'unreadable' || !data) {
     return (
       <section className="mx-auto w-full max-w-[1100px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="documents-unreadable">
+        <DocumentsChrome subjectType={subjectType} subjectId={subjectId} readable={false} vehicle={null} />
         <h1 className="text-2xl font-bold text-slate-950">Documents &amp; evidence</h1>
         <Alert className="mt-4 border-amber-200 bg-amber-50">
           <AlertDescription>
@@ -123,6 +182,7 @@ export default function TradeDocumentsWorkspace() {
 
   return (
     <section className="mx-auto w-full max-w-[1100px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="documents-workspace">
+      <DocumentsChrome subjectType={data.subject.type} subjectId={data.subject.id} readable vehicle={orderVehicle} />
       <div className="border-b-2 border-slate-950 pb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Documents &amp; evidence</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-950">
