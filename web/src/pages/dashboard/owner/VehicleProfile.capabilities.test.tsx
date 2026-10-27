@@ -177,7 +177,8 @@ describe('where am I, what am I working on, where did I come from', () => {
     const headings = screen.getAllByRole('heading', { level: 1 })
     expect(headings).toHaveLength(1)
     expect(headings[0]).toHaveTextContent('2018 Honda Vezel')
-    expect(screen.getByRole('main')).toHaveAttribute('aria-labelledby', 'vehicle-passport-title')
+    // The page is named by its heading. (A lineage that also labels the surface "Vehicle Passport" names it by both: the heading is what must be in it.)
+    expect(screen.getByRole('main').getAttribute('aria-labelledby')?.split(' ')).toContain('vehicle-passport-title')
     expect(headings[0]).toHaveAttribute('id', 'vehicle-passport-title')
     expect(screen.getByTestId('seller-workspace-object')).toHaveTextContent(`VIN ${VEZEL}`)
     // from: an explicit parent and a trail that ends in the vehicle
