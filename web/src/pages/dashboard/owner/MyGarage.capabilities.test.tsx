@@ -62,6 +62,12 @@ describe('Serena — an owned vehicle with a local Marketplace sale', () => {
     expect(within(c).queryByTestId(`garage-cap-${SERENA}`)).toBeNull()
     expect(c.textContent).not.toMatch(/CAP\b|import journey|import order|Trade & Imports/i)
   })
+
+  it('stays a summary: one Marketplace action on the card — the Studio edit entry lives on the Passport', async () => {
+    await renderGarage([serena(SERENA_CAPS)])
+    expect(card(SERENA).textContent).not.toMatch(/Edit listing details/)
+    expect(within(card(SERENA)).queryByTestId(`garage-edit-details-${SERENA}`)).toBeNull()
+  })
 })
 
 describe('Vezel — an owned vehicle with one import journey and no listing', () => {

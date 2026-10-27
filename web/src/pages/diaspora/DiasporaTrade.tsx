@@ -556,7 +556,7 @@ function OrderSummary({ order }: { order: DiasporaImportOrder }) {
     <div className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-order-summary">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase text-gray-400">Import order</p>
+          <p className="text-xs font-semibold uppercase text-gray-600">Import order</p>
           <h1 className="mt-1 text-2xl font-bold text-gray-950" data-testid="diaspora-order-title">{importOrderLabel(order)}</h1>
         </div>
         <StatusBadge status={order.status} />

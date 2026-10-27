@@ -82,6 +82,8 @@ describe('Serena — an owned vehicle with a local Marketplace sale', () => {
     const panel = screen.getByTestId('vehicle-capability-panel')
     expect(within(panel).getByTestId('capability-marketplace')).toHaveAttribute('data-state', 'published')
     expect(within(panel).getByRole('link', { name: /Manage listing/ })).toHaveAttribute('href', '/dashboard/listings')
+    // A live listing keeps its way into the Seller Studio (found missing by the physical UAT): same Studio, this vehicle.
+    expect(within(panel).getByRole('link', { name: /Edit listing details/ })).toHaveAttribute('href', `/dashboard/sell-vehicle?vin=${SERENA}`)
     // No CAP action anywhere on the page — not hidden, not disabled: absent.
     expect(screen.queryByTestId('vehicle-journey-link')).toBeNull()
     expect(screen.queryByTestId('capability-action-view-cap')).toBeNull()
@@ -114,7 +116,7 @@ describe('Vezel — an owned vehicle with one import journey', () => {
     await show(VEZEL, capabilities)
     expect(screen.queryByTestId('vehicle-journey-link')).toBeNull()
     expect(screen.queryByText(/Journey & arrival/i)).toBeNull()
-    expect(screen.queryByRole('link', { name: /Edit \/ continue listing|Listing & Marketplace/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Edit \/ continue listing|Listing & Marketplace|Edit listing details/ })).toBeNull()
   })
 
   it('publishing the vehicle does not touch the import capability, and having an import does not touch the listing', async () => {
@@ -153,7 +155,7 @@ describe('a check that could not be read is not "none"', () => {
   it('an unreadable listing state offers no listing action and does not hide a real import journey', async () => {
     await show(VEZEL, { marketplace: { state: 'unavailable' }, trade_import: { state: 'single', order_id: ORDER } })
     expect(screen.getByTestId('capability-marketplace')).toHaveAttribute('data-state', 'unavailable')
-    expect(screen.queryByRole('link', { name: /Sell this vehicle|Continue listing|Manage listing/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Sell this vehicle|Continue listing|Manage listing|Edit listing details/ })).toBeNull()
     expect(screen.getByTestId('capability-action-view-cap')).toBeInTheDocument()
   })
 })
@@ -162,7 +164,7 @@ describe('no capabilities sent (not the vehicle\'s owner or seller)', () => {
   it.each([[undefined], [null]])('capabilities=%s: no panel and no capability action at all — the Passport itself is unaffected', async (capabilities) => {
     await show('OTHERS-0001', capabilities)
     expect(screen.queryByTestId('vehicle-capability-panel')).toBeNull()
-    expect(screen.queryByRole('link', { name: /CAP|Manage listing|Sell this vehicle|Continue listing/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /CAP|Manage listing|Edit listing details|Sell this vehicle|Continue listing/ })).toBeNull()
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
     cleanup()
   })
