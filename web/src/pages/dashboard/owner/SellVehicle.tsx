@@ -30,6 +30,7 @@ import { GovernedGallery } from '@/components/media/GovernedGallery'
 import { GovernedPhoto } from '@/components/media/GovernedPhoto'
 import { governedHeroItem } from '@/lib/governedMedia'
 import { readOwnerTrustClaim, statedCount } from './ownerStatedValues'
+import { buildAutosavePayload, createAutosaveLedger, type SellerAutosavePayload } from './sellerAutosave'
 import { VehicleHistoryDisclosuresSection } from '@/components/sell/VehicleHistoryDisclosuresSection'
 import {
   parseAccidentDisclosure,
@@ -48,23 +49,6 @@ const SERVER_AUTOSAVE_FIELDS = new Set([
   'location', 'province', 'locationVisibility', 'publicSellerDisplay',
   'accidentDisclosure', 'insuranceDisclosure', 'financeDisclosure',
 ])
-
-type SellerAutosavePayload = {
-  description?: string
-  features?: string[]
-  body_style?: string
-  seller_stated_condition?: string
-  price?: number
-  currency?: string
-  location?: string
-  province?: string
-  listing_country?: string
-  location_visibility?: 'withheld' | 'province_only' | 'public'
-  public_seller_display_enabled?: boolean
-  accident_disclosure?: AccidentDisclosure
-  insurance_disclosure?: InsuranceDisclosure
-  finance_disclosure?: FinanceDisclosure
-}
 
 function autosaveReceiptMatches(
   payload: SellerAutosavePayload,
@@ -260,6 +244,8 @@ export default function SellVehicle() {
   const [serverAutosaveState, setServerAutosaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   // A late response for revision N must never mark revision N+1 as saved.
   const serverAutosaveRevision = useRef(0)
+  // VIEW != EDIT (Moderator D-1). What the server is known to hold, so an unchanged form is never written back. See sellerAutosave.ts.
+  const autosaveLedger = useRef(createAutosaveLedger())
   const modelOptions = modelsForMake(form.make).map(item => item.name)
   // S1: one VIN has one Passport. The authenticated seller either has an established relationship
   // to that Passport or enters the governed seller-authority evidence path.
@@ -356,8 +342,7 @@ export default function SellVehicle() {
             ? String((raw as { registration_status_source?: unknown }).registration_status_source)
             : null,
         )
-        setForm(previous => ({
-          ...previous,
+        const hydrated = {
           make: String(raw.make || ''),
           model: String(raw.model || ''),
           year: raw.year ? String(raw.year) : '',
@@ -397,7 +382,11 @@ export default function SellVehicle() {
           accidentDisclosure: parseAccidentDisclosure(raw.seller_accident_disclosure),
           insuranceDisclosure: parseInsuranceDisclosure(raw.seller_insurance_disclosure),
           financeDisclosure: parseFinanceDisclosure(raw.seller_finance_disclosure),
-        }))
+        }
+        setForm(previous => ({ ...previous, ...hydrated }))
+        // The server holds exactly what was just read. Seeding from the SAME fields the form is set from (not from a second mapping of the row)
+        // is what makes "nothing changed" mean the same thing here and in the autosave effect.
+        autosaveLedger.current.seed(buildAutosavePayload(hydrated))
         setCoverImageIndex(primaryIndex >= 0 ? primaryIndex : null)
         setAuthorityState('recognized')
         setServerDraftLoaded(true)
@@ -482,28 +471,32 @@ export default function SellVehicle() {
     if (!serverDraftLoaded || serverDraftLoading || submitting || !isCompleteVin(form.vin)) return
 
     const revision = serverAutosaveRevision.current
-    const payload: SellerAutosavePayload = {
+    const payload: SellerAutosavePayload = buildAutosavePayload({
       description: form.description,
       features: form.features,
-      body_style: form.category,
-      seller_stated_condition: form.condition,
-      ...(form.price && Number.isFinite(Number(form.price)) && Number(form.price) > 0 ? { price: Number(form.price) } : {}),
-      ...(form.currency ? { currency: form.currency } : {}),
+      category: form.category,
+      condition: form.condition,
+      price: form.price,
+      currency: form.currency,
       location: form.location,
       province: form.province,
-      location_visibility: form.locationVisibility as 'withheld' | 'province_only' | 'public',
-      public_seller_display_enabled: form.publicSellerDisplay,
-      // Only ANSWERED disclosures travel: an absent key leaves the server value untouched, so an
-      // autosave can never silently retract a stored answer the seller did not change.
-      ...(form.accidentDisclosure ? { accident_disclosure: form.accidentDisclosure } : {}),
-      ...(form.insuranceDisclosure ? { insurance_disclosure: form.insuranceDisclosure } : {}),
-      ...(form.financeDisclosure ? { finance_disclosure: form.financeDisclosure } : {}),
-    }
+      locationVisibility: form.locationVisibility,
+      publicSellerDisplay: form.publicSellerDisplay,
+      accidentDisclosure: form.accidentDisclosure,
+      insuranceDisclosure: form.insuranceDisclosure,
+      financeDisclosure: form.financeDisclosure,
+    })
+
+    // VIEW != EDIT (Moderator D-1). Hydration, rendering and stage navigation are not edits: a form that still says exactly what the server
+    // holds is not written back. This compares DATA — the payload against what the server is known to hold — and nothing about the page
+    // (not how long it has been open, not whether it is the first save, not whether the draft has loaded).
+    if (autosaveLedger.current.isClean(payload)) return
 
     const timer = window.setTimeout(() => {
       // A newer edit superseded this debounced revision before it even left the browser.
       if (revision !== serverAutosaveRevision.current) return
       setServerAutosaveState('saving')
+      autosaveLedger.current.issue()
       void updateSellerDraft(form.vin.toUpperCase(), payload)
         .then((result) => {
           // A slow older PATCH cannot turn a newer dirty form back into a green "saved" claim.
@@ -512,6 +505,7 @@ export default function SellVehicle() {
             setServerAutosaveState('error')
             return
           }
+          autosaveLedger.current.confirm(payload)
           setServerAutosaveState('saved')
         })
         .catch(() => {
