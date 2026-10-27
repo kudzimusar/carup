@@ -10,7 +10,10 @@ const studio = readFileSync(resolve(here, 'SellVehicle.tsx'), 'utf8')
 
 describe('Seller master phases H-I-J — workspace convergence contract', () => {
   it('H: My Garage is a vehicle-story workspace with one contextual commerce CTA', () => {
-    expect(garage).toContain('Vehicle workspace')
+    // R3 (Moderator D-4): the workspace is named "My Vehicles"; the page title stays "My Garage".
+    expect(garage).toContain('eyebrow="My Vehicles"')
+    expect(garage).toContain('workspace="vehicles"')
+    expect(garage).not.toContain('Vehicle workspace')
     expect(garage).toContain('relationshipLabel')
     expect(garage).toContain('publicationLabel')
     expect(garage).toContain('readOwnerTrustClaim')
@@ -22,6 +25,16 @@ describe('Seller master phases H-I-J — workspace convergence contract', () => 
     expect(garage).toContain('Sell this vehicle')
     expect(garage).toContain('View Vehicle Passport')
     expect(garage).not.toContain('rounded-xl p-8 flex flex-col items-center justify-center')
+  })
+
+  it('R3: the three Seller pages name their workspace and use no Seller-only parent label', () => {
+    expect(listings).toContain('workspace="marketplace"')
+    expect(listings).toContain('eyebrow="Marketplace"')
+    expect(listings).not.toContain('Commerce workspace')
+    expect(studio).toContain('workspace="marketplace"')
+    for (const source of [garage, listings, studio]) {
+      expect(source).not.toContain('Seller / Owner home')
+    }
   })
 
   it('I: My Listings has governed KPIs, one dominant action and secondary lifecycle controls', () => {

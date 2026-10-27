@@ -6,6 +6,8 @@ import { canRoleAccessRoute } from '@/config/featureRegistry'
 import type { UserRole } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
+import { CarUpWorkspaceBar } from '@/components/workspace/CarUpWorkspaceBar'
+import { WorkspaceBarProvidedContext } from '@/components/workspace/workspaceBarContext'
 import type { DiasporaTradeContext } from '@/types'
 import TradeShippingWorkspace from '@/pages/diaspora/TradeShippingWorkspace'
 
@@ -39,7 +41,7 @@ function TradeIdentity({ context, unreadable }: { context: DiasporaTradeContext 
   if (unreadable) {
     return (
       <div className="min-w-0 text-left sm:text-right" data-testid="tradeos-identity">
-        <p className="truncate text-sm font-semibold text-white">Trade OS</p>
+        <p className="truncate text-sm font-semibold text-white">Trade &amp; Imports</p>
         <p className="truncate text-[11px] text-slate-400">Business context could not be loaded</p>
       </div>
     )
@@ -116,7 +118,7 @@ export default function TradeOSWorkspaceLayout() {
           {/*
             * At narrow widths the brand lockup and the commercial identity must NOT share a
             * physical row: both are meaningful, neither may be dropped, and squeezing them
-            * together collided "TRADE OS" with the organisation name at 393px. Below `sm` the
+            * together collided the brand with the organisation name at 393px. Below `sm` the
             * header composes vertically — lockup, then identity — and returns to the single
             * justified row from `sm` upward, where there is genuinely space for both.
             */}
@@ -128,16 +130,23 @@ export default function TradeOSWorkspaceLayout() {
                 </span>
                 <span className="hidden text-lg font-bold text-white sm:inline">Car<span className="text-orange-500">Up</span></span>
               </Link>
-              <span className="shrink-0 border-l border-slate-700 pl-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400">Trade OS</span>
             </div>
             <TradeIdentity context={context} unreadable={contextUnreadable} />
           </div>
+          {/*
+            * R3 — the workspace layer. The shell used to call itself "Trade OS" and offered no way out
+            * but the public Home logo. It now names the workspace the page is in ("Trade & Imports")
+            * and offers the other two ("My Vehicles", "Marketplace") wherever the role may open them.
+            * It is the SAME component the owner pages draw; pages inside this shell decline to draw
+            * a second one (see WorkspaceBarProvidedContext below).
+            */}
+          <CarUpWorkspaceBar active="trade" tone="dark" showAccount={false} className="sm:-mx-5" />
           {/* F7 — the nav already scrolled horizontally, but with no affordance the trailing items
               read as accidentally chopped rather than as "there is more this way". A fade at the
               trailing edge says so without hiding anything or shrinking the labels. `pr-6` keeps
               the last item from sitting under the fade. */}
           <div className="relative">
-            <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2 pr-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Trade OS" data-testid="tradeos-nav">
+            <nav className="-mx-1 flex gap-1 overflow-x-auto pb-2 pr-6 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Trade &amp; Imports sections" data-testid="tradeos-nav">
               {NAV_ITEMS.filter(([to]) => canRoleAccessRoute((user?.role as UserRole) ?? 'owner', to)).map(([to, label]) => (
               <NavLink
                 key={to}
@@ -172,11 +181,13 @@ export default function TradeOSWorkspaceLayout() {
           * while the session restores and redirects to /login when there is no user, so the
           * boundary never has to make a premature auth decision here.
           */}
-        <RegistryRouteBoundary>
-          {location.pathname === '/diaspora/containers'
-            ? <TradeShippingWorkspace context={context}><Outlet /></TradeShippingWorkspace>
-            : <Outlet />}
-        </RegistryRouteBoundary>
+        <WorkspaceBarProvidedContext.Provider value={true}>
+          <RegistryRouteBoundary>
+            {location.pathname === '/diaspora/containers'
+              ? <TradeShippingWorkspace context={context}><Outlet /></TradeShippingWorkspace>
+              : <Outlet />}
+          </RegistryRouteBoundary>
+        </WorkspaceBarProvidedContext.Provider>
       </main>
     </div>
   )

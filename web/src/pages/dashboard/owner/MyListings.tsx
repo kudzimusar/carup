@@ -214,7 +214,10 @@ export default function MyListings() {
   return (
     <div className="mx-auto max-w-[1440px] space-y-9">
       <SellerWorkspaceHeader
-        eyebrow="Commerce workspace"
+        workspace="marketplace"
+        eyebrow="Marketplace"
+        backHref="/dashboard"
+        backLabel="Back to dashboard"
         title="My Listings"
         description="Operate the commercial lifecycle around the same Vehicle Passport: continue drafts, publish deliberately, respond to buyers and retire sold stock without creating a parallel vehicle record."
         statusLabel={listingsState === 'loading'

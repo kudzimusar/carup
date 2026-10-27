@@ -94,7 +94,10 @@ export default function MyGarage() {
   return (
     <div className="mx-auto max-w-[1440px] space-y-9">
       <SellerWorkspaceHeader
-        eyebrow="Vehicle workspace"
+        workspace="vehicles"
+        eyebrow="My Vehicles"
+        backHref="/dashboard"
+        backLabel="Back to dashboard"
         title="My Garage"
         description="One durable place for the vehicles in your CarUp ownership and Seller lifecycle — Passport, evidence, listing and service context stay attached to the same VIN."
         statusLabel={vehiclesState === 'loading'

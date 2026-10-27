@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
-import { ArrowLeft } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { CarUpWorkspaceBar } from '@/components/workspace/CarUpWorkspaceBar'
+import { WorkspaceBreadcrumbs } from '@/components/workspace/WorkspaceBreadcrumbs'
+import { WorkspaceParentLink } from '@/components/workspace/WorkspaceParentLink'
+import type { WorkspaceCrumb, WorkspaceId } from '@/components/workspace/workspaceModel'
 
 export function SellerWorkspaceHeader({
   eyebrow = 'Seller workspace',
@@ -11,6 +13,8 @@ export function SellerWorkspaceHeader({
   objectIdentity,
   statusLabel,
   primaryAction,
+  workspace,
+  breadcrumbs,
 }: {
   eyebrow?: string
   title: string
@@ -20,16 +24,16 @@ export function SellerWorkspaceHeader({
   objectIdentity?: string | null
   statusLabel?: string | null
   primaryAction?: ReactNode
+  /** R3: which CarUp workspace this page belongs to. Draws the workspace bar above the parent link. */
+  workspace?: WorkspaceId
+  /** R3: the trail to this page. The last crumb is the page itself. */
+  breadcrumbs?: WorkspaceCrumb[]
 }) {
   return (
     <header className="border-b border-slate-200 pb-7" data-testid="seller-workspace-header">
-      <Link
-        to={backHref}
-        className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        {backLabel}
-      </Link>
+      {workspace ? <CarUpWorkspaceBar active={workspace} className="mb-3" /> : null}
+      {breadcrumbs && breadcrumbs.length > 0 ? <WorkspaceBreadcrumbs items={breadcrumbs} className="mb-1" /> : null}
+      <WorkspaceParentLink href={backHref} label={backLabel} />
 
       <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">

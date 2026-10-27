@@ -22,6 +22,8 @@ import { BODY_STYLES, DRIVETRAINS, FUEL_TYPES, SELLER_CONDITIONS, TRANSMISSIONS,
 import type { Vehicle } from '@/types'
 import { ZIMBABWE_REGISTRATION_OPTIONS, normalizeSellerRegistrationStatus, registrationLabel } from '@/lib/zimbabweRegistration'
 import { SellerWorkspaceHeader } from '@/components/seller/SellerWorkspaceHeader'
+import { CarUpWorkspaceBar } from '@/components/workspace/CarUpWorkspaceBar'
+import { formatVehicleTitle } from '@/components/workspace/workspaceModel'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { primaryListingImageUrl } from '@/lib/listingMedia'
 import { GovernedGallery } from '@/components/media/GovernedGallery'
@@ -947,11 +949,17 @@ export default function SellVehicle() {
   const sellerCopyState = form.description.length >= 50
     ? `${form.description.length}/500 description characters`
     : `${form.description.length}/50 minimum description characters`
+  // R3 — where this page sits. The vehicle's Passport is the page's real parent once the vehicle exists
+  // in the seller's Garage scope (`serverDraftLoaded`); a brand-new listing has no Passport to return to.
+  const studioVin = isCompleteVin(form.vin) ? form.vin.toUpperCase() : ''
+  const studioVehicleTitle = formatVehicleTitle({ year: form.year, make: form.make, model: form.model }) || studioVin
+  const studioPassportHref = serverDraftLoaded && studioVin ? `/dashboard/garage/${encodeURIComponent(studioVin)}` : null
 
   // Post-save: show completeness panel instead of the form
   if (savedVin) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
+        <CarUpWorkspaceBar active="marketplace" />
         <div className="flex items-start gap-3">
           <CheckCircle className="w-6 h-6 text-green-600 mt-0.5 shrink-0" />
           <div>
@@ -1023,7 +1031,8 @@ export default function SellVehicle() {
 
   if (serverDraftError && isCompleteVin(resumeVin) && !guestDraft) {
     return (
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-3xl mx-auto space-y-4">
+        <CarUpWorkspaceBar active="marketplace" />
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-6">
             <h1 className="text-lg font-semibold">Seller listing unavailable</h1>
@@ -1055,11 +1064,17 @@ export default function SellVehicle() {
   return (
     <div className="max-w-[1100px] mx-auto space-y-8">
       <SellerWorkspaceHeader
+        workspace="marketplace"
+        breadcrumbs={[
+          { label: 'Marketplace', href: '/dashboard/listings' },
+          ...(studioPassportHref ? [{ label: studioVehicleTitle, href: studioPassportHref }] : []),
+          { label: 'Seller Studio' },
+        ]}
         eyebrow="Seller Studio"
         title={resumeVin ? 'Continue listing' : 'Build your listing'}
         description="Save commercial details and listing media as a private draft. Ownership evidence and publication readiness remain governed separately."
-        backHref="/dashboard/garage"
-        backLabel="Back to My Garage"
+        backHref={studioPassportHref ?? '/dashboard/garage'}
+        backLabel={studioPassportHref ? 'Back to Vehicle Passport' : 'Back to My Garage'}
         objectIdentity={resumeVin || form.vin || null}
         statusLabel="Draft workspace · not public"
       />
