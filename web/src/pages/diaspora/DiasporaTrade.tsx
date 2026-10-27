@@ -15,8 +15,8 @@ import { VEHICLE_MAKES, isValidVehicleYear, modelsForMake } from '@/data/vehicle
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
 import { WorkspaceChrome, roleCanOpen, useWorkspaceRole, vehiclePassportPath } from '@/components/workspace'
 import { TradeOrderChrome } from './chrome/TradeOrderChrome'
-import { importOrderLabel } from './chrome/importOrderLabel'
-import { useOrderVehicle } from './chrome/useOrderVehicle'
+import { importOrderLabel, settledOrderLabel } from './chrome/importOrderLabel'
+import { useOrderVehicleRead } from './chrome/useOrderVehicle'
 
 const requiredDocuments = [
   'Buyer identity document',
@@ -1071,7 +1071,7 @@ export function DiasporaImportDetail() {
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-detail-route">
         {/* R3 — the order is a page of Trade & Imports, named by its vehicle where the viewer owns it; the way up is the list. */}
-        <TradeOrderChrome orderId={id ?? null} orderLabel={id ? importOrderLabel(order ?? { id }) : null} className="mb-6" />
+        <TradeOrderChrome orderId={id ?? null} orderLabel={id ? settledOrderLabel(order ?? { id }, !loading) : null} className="mb-6" />
         {loading && <div className="text-orange-600" data-testid="diaspora-import-detail-loading">Loading import order...</div>}
         {error && <Alert className="border-red-200" data-testid="diaspora-import-detail-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {order && (
@@ -1122,7 +1122,7 @@ export function DiasporaImportDocuments() {
   const { id } = useParams()
   const { user } = useAuth()
   const { fetchDiasporaTradeDocuments } = useCarUpApi()
-  const orderVehicle = useOrderVehicle(id ?? null)
+  const orderVehicle = useOrderVehicleRead(id ?? null)
   const [documents, setDocuments] = useState<DiasporaTradeDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1154,7 +1154,7 @@ export function DiasporaImportDocuments() {
   return (
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-documents-route">
-        <TradeOrderChrome orderId={id ?? null} orderLabel={id ? importOrderLabel({ id, linked_vehicle: orderVehicle }) : null} page="Trade documents" className="mb-6" />
+        <TradeOrderChrome orderId={id ?? null} orderLabel={id ? settledOrderLabel({ id, linked_vehicle: orderVehicle.vehicle }, orderVehicle.settled) : null} page="Trade documents" className="mb-6" />
         <h1 className="text-2xl font-bold text-gray-950">Trade documents</h1>
         <p className="mt-1 text-sm text-gray-500">Only documents scoped to this import order are shown.</p>
 
@@ -1391,7 +1391,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">
-      <TradeOrderChrome orderId={orderId ?? null} orderLabel={orderId ? importOrderLabel(order ?? { id: orderId }) : null} page="Container & shipment" className="mb-6" />
+      <TradeOrderChrome orderId={orderId ?? null} orderLabel={orderId ? settledOrderLabel(order ?? { id: orderId }, !loading) : null} page="Container & shipment" className="mb-6" />
       <div className="flex items-center gap-3">
         <Ship className="h-6 w-6 text-orange-600" />
         <h1 className="text-2xl font-bold text-gray-950">Container & shipment</h1>

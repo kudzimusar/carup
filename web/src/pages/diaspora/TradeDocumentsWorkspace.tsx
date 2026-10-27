@@ -27,8 +27,8 @@ import {
   type WorkspaceAction,
 } from '@/components/workspace'
 import { TradeOrderChrome } from './chrome/TradeOrderChrome'
-import { importOrderLabel } from './chrome/importOrderLabel'
-import { useOrderVehicle, type OrderVehicle } from './chrome/useOrderVehicle'
+import { settledOrderLabel } from './chrome/importOrderLabel'
+import { useOrderVehicleRead, type OrderVehicle } from './chrome/useOrderVehicle'
 
 export interface WorkspaceItem {
   document_type: string
@@ -94,11 +94,13 @@ const PAGE_NAME = 'Documents & evidence'
  * parent that would be a guess. `readable` is false when the workspace could not be opened: the trail is then
  * generic and offers no link to an order the viewer may have been refused.
  */
-function DocumentsChrome({ subjectType, subjectId, readable, vehicle }: {
+function DocumentsChrome({ subjectType, subjectId, readable, vehicle, vehicleSettled }: {
   subjectType: string
   subjectId: string
   readable: boolean
   vehicle: OrderVehicle | null
+  /** Whether the read that names the order's vehicle has answered; until it has, the order is called "Import order". */
+  vehicleSettled: boolean
 }) {
   const role = useWorkspaceRole()
   if (subjectType === 'import_order' && subjectId) {
@@ -108,7 +110,7 @@ function DocumentsChrome({ subjectType, subjectId, readable, vehicle }: {
     return (
       <TradeOrderChrome
         orderId={subjectId}
-        orderLabel={importOrderLabel({ id: subjectId, linked_vehicle: vehicle })}
+        orderLabel={settledOrderLabel({ id: subjectId, linked_vehicle: vehicle }, vehicleSettled)}
         page={PAGE_NAME}
         exitsLabel="Elsewhere for this purchase"
         exits={exits}
@@ -134,7 +136,7 @@ export default function TradeDocumentsWorkspace() {
   const [state, setState] = useState<'loading' | 'ready' | 'unreadable'>('loading')
   const [error, setError] = useState('')
   // R3: an import order's paperwork is named for the order's vehicle when the viewer owns it — asked only once the workspace itself opened.
-  const orderVehicle = useOrderVehicle(data?.subject.type === 'import_order' ? data.subject.id : null)
+  const orderVehicle = useOrderVehicleRead(data?.subject.type === 'import_order' ? data.subject.id : null)
 
   const load = useCallback(async () => {
     try {
@@ -167,7 +169,7 @@ export default function TradeDocumentsWorkspace() {
   if (state === 'unreadable' || !data) {
     return (
       <section className="mx-auto w-full max-w-[1100px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="documents-unreadable">
-        <DocumentsChrome subjectType={subjectType} subjectId={subjectId} readable={false} vehicle={null} />
+        <DocumentsChrome subjectType={subjectType} subjectId={subjectId} readable={false} vehicle={null} vehicleSettled={false} />
         <h1 className="text-2xl font-bold text-slate-950">Documents &amp; evidence</h1>
         <Alert className="mt-4 border-amber-200 bg-amber-50">
           <AlertDescription>
@@ -182,7 +184,7 @@ export default function TradeDocumentsWorkspace() {
 
   return (
     <section className="mx-auto w-full max-w-[1100px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="documents-workspace">
-      <DocumentsChrome subjectType={data.subject.type} subjectId={data.subject.id} readable vehicle={orderVehicle} />
+      <DocumentsChrome subjectType={data.subject.type} subjectId={data.subject.id} readable vehicle={orderVehicle.vehicle} vehicleSettled={orderVehicle.settled} />
       <div className="border-b-2 border-slate-950 pb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Documents &amp; evidence</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-950">
