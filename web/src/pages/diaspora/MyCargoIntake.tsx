@@ -20,6 +20,7 @@ import { AlertTriangle, Box, Camera, Check, Clock, Loader2, MapPin, Ruler, X } f
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { useTradeLogisticsApi, type MyCargoView } from '@/hooks/useTradeLogisticsApi'
+import { TradeCargoChrome } from './chrome/TradeCargoChrome'
 import {
   CONDITION_UI,
   INTAKE_STATUS_UI,
@@ -73,6 +74,7 @@ export default function MyCargoIntake() {
   if (state === 'unreadable' || !data) {
     return (
       <section className="mx-auto w-full max-w-[1000px] min-w-0 px-4 py-10 sm:px-6 lg:px-10" data-testid="cargo-unreadable">
+        <TradeCargoChrome subjectType={subjectType} subjectId={subjectId} page="Your cargo" className="mb-4" />
         <h1 className="text-2xl font-bold text-slate-950">Your cargo</h1>
         <Alert className="mt-4 border-amber-200 bg-amber-50">
           <AlertDescription>
@@ -89,6 +91,7 @@ export default function MyCargoIntake() {
 
   return (
     <section className="mx-auto w-full max-w-[1000px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="my-cargo">
+      <TradeCargoChrome subjectType={data.subject.type} subjectId={data.subject.id} page="Your cargo" className="mb-4" />
       <header className="min-w-0">
         <p className="text-xs uppercase tracking-wide text-orange-600">
           {SUBJECT_LABEL[data.subject.type] || 'cargo'} · {shortRef(data.subject.id)}

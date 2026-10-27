@@ -16,6 +16,19 @@ export interface User extends SharedAuthUser {
   joined?: string;
 }
 
+/**
+ * R3 — a vehicle's two INDEPENDENT capabilities. `VEHICLE != MARKETPLACE LISTING != IMPORT ORDER`: one never implies, creates or
+ * completes the other. Both are derived on the server from governed state (never from `import_source`, never from a column the Seller
+ * Studio stamps merely by being opened).
+ */
+export type MarketplaceCapabilityState = 'published' | 'in_progress' | 'sold' | 'not_listed' | 'unavailable';
+export type TradeImportCapabilityState = 'none' | 'single' | 'multiple' | 'unavailable';
+export interface VehicleCapabilities {
+  marketplace: { state: MarketplaceCapabilityState };
+  /** `order_id` only when exactly one readable import order exists; `count` only when several do. */
+  trade_import: { state: TradeImportCapabilityState; order_id?: string; count?: number };
+}
+
 export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   id?: string;
   /**
@@ -50,6 +63,12 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
    * `web/src/lib/governedMedia.ts`; it is neither listing media nor verified evidence.
    */
   governed_media?: unknown;
+  /**
+   * T11-CAP-LR01-R3 — what this vehicle can currently DO, derived on the server and sent to its owner only. ABSENT unless the
+   * viewer is entitled to it, so absent means "not sent", never "none". A capability that could not be read arrives as
+   * `unavailable` — it is never folded into `not_listed` / `none`.
+   */
+  capabilities?: VehicleCapabilities | null;
   location?: string;
   /**
    * Why `location` is or is not there. Carried through from the marketplace summary so a card can
@@ -193,6 +212,11 @@ export interface DiasporaImportOrder {
   diaspora_trade_documents?: DiasporaTradeDocument[];
   diaspora_payment_milestones?: DiasporaPaymentMilestone[];
   diaspora_import_quotes?: DiasporaImportOrderQuoteSummary[];
+  /**
+   * R3: the vehicle this order is about, named for the vehicle's own owner or current seller ONLY. Absent for everyone else
+   * (and when the vehicle could not be read), so an order is never titled by a vehicle its viewer may not know about.
+   */
+  linked_vehicle?: { vin: string; title: string | null } | null;
 }
 
 /** Embedded quote summary on getImportOrder responses (used for the milestone cap display). */
@@ -2326,6 +2350,11 @@ export interface VehicleLifecycleProjection {
 
 export interface VehiclePassport {
   vehicle: Vehicle;
+  /**
+   * T11-CAP-LR01-R3 — what this vehicle can DO (Marketplace; Trade & Imports). Sent to the vehicle's owner / current seller only, so absent
+   * means "not sent" (not the owner, or the server could not tell) and must show nothing — never an empty panel and never "none".
+   */
+  capabilities?: VehicleCapabilities | null;
   /** Sealed governed claims. Read these, never a same-named column on `vehicle`. */
   claims?: VehiclePassportClaims;
   timeline: TimelineEvent[];

@@ -58,8 +58,24 @@ test('H2: the shipped passport sender adds the header ONLY when the body carries
   }
 });
 
+test('H2b (R3): a body that carries the owner\'s capabilities is just as private as one that carries photograph links', () => {
+  // eslint-disable-next-line no-new-func
+  const sendPassportBody = new Function(`return (${shippedFunction('function sendPassportBody')});`)();
+  const fake = () => { const headers = {}; return { headers, set(k, v) { headers[k] = v; return this; }, json(b) { this.body = b; return this; } }; };
+  const withCapabilities = fake();
+  sendPassportBody(withCapabilities, { vehicle: {}, capabilities: { marketplace: { state: 'not_listed' }, trade_import: { state: 'none' } } });
+  assert.deepEqual(withCapabilities.headers, { 'Cache-Control': 'private, no-store' });
+  // …and the absence of both blocks is still byte-for-byte the old behaviour (H2 covers the plain bodies).
+  for (const body of [{ vehicle: {}, capabilities: null }, { vehicle: {}, capabilities: undefined }]) {
+    const plain = fake();
+    sendPassportBody(plain, body);
+    assert.deepEqual(plain.headers, {}, `a body without capabilities gained a header: ${JSON.stringify(body)}`);
+  }
+});
+
 test('H3: both passport routes send through that helper, and the garage list sets the header when heroes are attached', () => {
-  assert.equal([...serverSrc.matchAll(/return sendPassportBody\(res, await withGovernedMedia\(passport, (vin|resolvedVin), req\)\)/g)].length, 2);
+  // R3 composes the owner-only capabilities AFTER the governed media, still through the one sender. Both routes, exactly twice.
+  assert.equal([...serverSrc.matchAll(/return sendPassportBody\(res, await withOwnerCapabilities\(await withGovernedMedia\(passport, (vin|resolvedVin), req\), (vin|resolvedVin), req\)\)/g)].length, 2);
   assert.doesNotMatch(serverSrc, /res\.json\(await withGovernedMedia\(/, 'a passport route still sends the block without the header');
   const garage = serverSrc.slice(serverSrc.indexOf("console.warn('[governed-media] garage heroes unavailable:'"), serverSrc.indexOf('Error fetching owned vehicles:'));
   assert.match(garage, /if \(governed\.size > 0\) res\.set\('Cache-Control', 'private, no-store'\)/);

@@ -213,8 +213,10 @@ test('W9: the passport attachment — a fault never fails the passport and never
 
 test('W10: both passport routes wrap their response with the SAME attachment, passing the VIN they actually resolved', () => {
   // (they send it through `sendPassportBody`, which only adds `Cache-Control: private, no-store` when the block is attached — see t11-cap-r2-capability-headers)
-  const sites = [...serverSrc.matchAll(/sendPassportBody\(res, await withGovernedMedia\(passport, (\w+), req\)\)/g)].map((m) => m[1]);
-  assert.deepEqual(sites.sort(), ['resolvedVin', 'vin']);
+  // R3 composes the owner-only capabilities AFTER the media, through the same sender — and hands BOTH helpers the same resolved identifier.
+  const composed = [...serverSrc.matchAll(/sendPassportBody\(res, await withOwnerCapabilities\(await withGovernedMedia\(passport, (\w+), req\), (\w+), req\)\)/g)];
+  assert.deepEqual(composed.map((m) => m[1]).sort(), ['resolvedVin', 'vin']);
+  for (const m of composed) assert.equal(m[1], m[2], 'the capabilities helper was handed a different identifier than the media helper');
   assert.equal([...serverSrc.matchAll(/res\.json\(passport\)/g)].length, 0, 'no passport response bypasses the attachment');
   // the builder is untouched: it takes no governed-media collaborator and never learned of the block
   const builder = shippedFunction('async function buildVehiclePassport');
@@ -224,7 +226,7 @@ test('W10: both passport routes wrap their response with the SAME attachment, pa
 // ═══════════════════════════ the shipped garage handler ═══════════════════════════
 
 /** The SHIPPED `/api/vehicles/me` handler, executed over fakes. */
-function instantiateGarageHandler({ vehicles, governed, throwGoverned = false }) {
+function instantiateGarageHandler({ vehicles, governed, throwGoverned = false, capabilities = () => new Map(), throwCapabilities = false }) {
   const routeIdx = serverSrc.indexOf("app.get('/api/vehicles/me'");
   assert.ok(routeIdx > -1);
   const arrowIdx = serverSrc.indexOf('async (req, res) =>', routeIdx);
@@ -239,6 +241,8 @@ function instantiateGarageHandler({ vehicles, governed, throwGoverned = false })
     ownerListingMedia: async () => new Map(),
     toListingMediaBlock: (rows) => ({ state: rows === null ? 'not_loaded' : 'none', items: [] }),
     readGovernedMediaForVehicles: async (input) => { seen.input = input; if (throwGoverned) throw new Error('governed exploded'); return governed(input); },
+    // T11-CAP-LR01-R3: the owner-only capabilities block. Known to this harness (so W11's "no unexpected collaborator" still bites); an empty Map by default.
+    buildOwnerCapabilities: async (input) => { seen.capabilitiesInput = input; if (throwCapabilities) throw new Error('capabilities exploded'); return capabilities(input); },
     actorForGovernedMedia,
     governedMediaSigner: { signer: true },
     console: { warn: () => {}, error: () => {} },
@@ -305,6 +309,52 @@ test('W12: a fault in governed media NEVER fails the garage — the vehicles com
   assert.equal(out.body.length, 1);
   assert.equal('governed_media' in out.body[0], false);
   assert.ok(out.body[0].listing_media);
+});
+
+test('W14 (R3): the garage list adds each vehicle\'s capabilities as a third, key-disjoint block — beside, never instead of, the media blocks', async () => {
+  const vehicles = [{ vin: VIN, owner_id: OWNER }, { vin: 'GFC27-027051', owner_id: OWNER }];
+  const caps = new Map([
+    [VIN, { marketplace: { state: 'not_listed' }, trade_import: { state: 'single', order_id: 'ord-1' } }],
+    ['GFC27-027051', { marketplace: { state: 'published' }, trade_import: { state: 'none' } }],
+  ]);
+  const { handler, seen } = instantiateGarageHandler({
+    vehicles,
+    governed: ({ vehicles: asked }) => new Map(asked.map((v) => [v.vin, { state: 'available', items: [{ gallery_rank: 1 }], total_count: 1 }])),
+    capabilities: () => caps,
+  });
+  const { body } = await runHandler(handler, { id: OWNER, role: 'owner' });
+  assert.deepEqual(body.map((v) => v.capabilities), [caps.get(VIN), caps.get('GFC27-027051')]);
+  assert.ok(body.every((v) => v.listing_media && v.governed_media), 'the media blocks are untouched');
+  assert.deepEqual(seen.capabilitiesInput.userContext, { id: OWNER, role: 'owner' }, 'the viewer comes from the auth context');
+  assert.deepEqual(seen.capabilitiesInput.vehicles.map((v) => v.vin), [VIN, 'GFC27-027051'], 'the whole garage is asked about once');
+  assert.deepEqual([...seen.unknown].filter((name) => !OTHER_LINEAGE_COLLABORATORS.has(name)), []);
+});
+
+test('W15 (R3): a vehicle the capabilities map does not name carries no key — absent means "not sent", never an empty block', async () => {
+  const { handler } = instantiateGarageHandler({
+    vehicles: [{ vin: VIN, owner_id: OWNER }, { vin: 'OTHER-0001', owner_id: OWNER }],
+    governed: () => new Map(),
+    capabilities: () => new Map([[VIN, { marketplace: { state: 'published' }, trade_import: { state: 'none' } }]]),
+  });
+  const { body } = await runHandler(handler, { id: OWNER, role: 'owner' });
+  assert.equal('capabilities' in body[0], true);
+  assert.equal('capabilities' in body[1], false);
+});
+
+test('W16 (R3): the garage is uncacheable exactly when it carries capabilities, and a fault in them NEVER fails the garage', async () => {
+  const withCaps = instantiateGarageHandler({
+    vehicles: [{ vin: VIN, owner_id: OWNER }], governed: () => new Map(),
+    capabilities: () => new Map([[VIN, { marketplace: { state: 'published' }, trade_import: { state: 'none' } }]]),
+  });
+  assert.deepEqual((await runHandler(withCaps.handler, { id: OWNER, role: 'owner' })).headers, { 'Cache-Control': 'private, no-store' });
+
+  const faulted = instantiateGarageHandler({ vehicles: [{ vin: VIN, owner_id: OWNER }], governed: () => new Map(), throwCapabilities: true });
+  const out = await runHandler(faulted.handler, { id: OWNER, role: 'owner' });
+  assert.equal(out.status, undefined, 'a capabilities fault became an error response');
+  assert.equal(out.body.length, 1);
+  assert.equal('capabilities' in out.body[0], false);
+  assert.ok(out.body[0].listing_media);
+  assert.deepEqual(out.headers, {});
 });
 
 test('W13: the service is the single place that decides who may view — the garage asks it, with the actor from the auth context', () => {

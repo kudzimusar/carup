@@ -219,6 +219,13 @@ describe('who is handling it, and what happens next', () => {
     expect(screen.getByTestId('my-customs-unreadable')).toHaveTextContent('not a report that nothing has happened')
   })
 
+  it('a read failure still names the page: one level-1 heading, so the unreadable state is not an untitled page', async () => {
+    state.err = new Error('Network unreachable')
+    await open('my-customs-unreadable')
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Your cargo & customs')
+  })
+
   it('an unrecognised payload does not crash the screen', async () => {
     state.view = { data: [] }
     await open('my-customs-unreadable')

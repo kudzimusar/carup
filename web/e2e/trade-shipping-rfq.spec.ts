@@ -430,7 +430,7 @@ test('an offer with no stated validity reviews as Not provided, not as blank', a
   await expect(composer.getByTestId('logistics-review-valid-until')).toHaveText('Not provided')
 })
 
-test('the Trade OS header does not collide at 393px, for a long organisation name', async ({ page }) => {
+test('the Trade & Imports header does not collide at 393px, for a long organisation name', async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 })
   const state = baseState()
   await loginAs(page, provider)
@@ -439,13 +439,20 @@ test('the Trade OS header does not collide at 393px, for a long organisation nam
   await expect(page.getByTestId('tradeos-identity')).toBeVisible({ timeout: 60_000 })
 
   // The lockup and the commercial identity must occupy DIFFERENT vertical bands at this width;
-  // sharing a row is what put the organisation name on top of "TRADE OS".
-  const brand = await page.getByText('Trade OS', { exact: true }).first().boundingBox()
+  // sharing a row is what put the organisation name on top of the brand.
+  const brand = await page.getByRole('link', { name: 'CarUp home' }).boundingBox()
   const identity = await page.getByTestId('tradeos-identity').boundingBox()
   expect(brand, 'brand lockup not found').toBeTruthy()
   expect(identity, 'identity block not found').toBeTruthy()
   expect(identity!.y, 'identity still shares the brand row at 393px')
     .toBeGreaterThanOrEqual(brand!.y + brand!.height - 1)
+
+  // R3 — the workspace layer names the workspace the page is in, and it is wholly on screen at phone width.
+  const active = page.getByTestId('workspace-bar').getByText('Trade & Imports', { exact: true })
+  await expect(active).toBeVisible()
+  const activeBox = await active.boundingBox()
+  expect(activeBox!.x, 'workspace name starts off the left edge').toBeGreaterThanOrEqual(0)
+  expect(activeBox!.x + activeBox!.width, 'workspace name runs off the right edge').toBeLessThanOrEqual(393)
 
   // …and the identity must still be READABLE, not hidden away to dodge the collision.
   await expect(page.getByTestId('tradeos-identity')).toContainText(/Logistics provider/i)

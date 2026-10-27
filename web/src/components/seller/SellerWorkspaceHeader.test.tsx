@@ -51,6 +51,38 @@ describe('Seller workspace orientation', () => {
     expect(screen.getAllByTestId('seller-workspace-primary-action')).toHaveLength(1)
   })
 
+  it('R3: draws no workspace bar or trail unless a page asks — the default header is unchanged', () => {
+    render(
+      <MemoryRouter>
+        <SellerWorkspaceHeader title="My Garage" description="d" />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByTestId('workspace-bar')).toBeNull()
+    expect(screen.queryByTestId('workspace-breadcrumbs')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Seller / Owner home' })).toHaveAttribute('href', '/dashboard')
+  })
+
+  it('R3: when a page names its workspace and trail, the header answers where / what / from where', () => {
+    authenticated = true
+    render(
+      <MemoryRouter>
+        <SellerWorkspaceHeader
+          eyebrow="Vehicle workspace"
+          title="My Garage"
+          description="d"
+          workspace="vehicles"
+          breadcrumbs={[{ label: 'My Vehicles', href: '/dashboard/garage' }, { label: 'My Garage' }]}
+          backHref="/dashboard"
+          backLabel="Back to dashboard"
+        />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-active-workspace', 'vehicles')
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to dashboard' })).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByRole('heading', { level: 1, name: 'My Garage' })).toBeInTheDocument()
+  })
+
   it('shows authenticated Garage vehicles before asking for a blank new vehicle', async () => {
     authenticated = true
     fetchOwnedVehicles.mockResolvedValue([{
