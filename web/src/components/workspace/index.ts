@@ -5,7 +5,7 @@ export { WorkspaceBreadcrumbs } from './WorkspaceBreadcrumbs'
 export { WorkspaceChrome } from './WorkspaceChrome'
 export { WorkspaceExitActions, type WorkspaceAction } from './WorkspaceExitActions'
 export { WorkspaceParentLink } from './WorkspaceParentLink'
-export { WorkspaceBarProvidedContext } from './workspaceBarContext'
+export { ActiveWorkspaceContext, WorkspaceBarProvidedContext } from './workspaceBarContext'
 export { roleCanOpen, useWorkspaceRole } from './workspaceAccess'
 export {
   WORKSPACES,

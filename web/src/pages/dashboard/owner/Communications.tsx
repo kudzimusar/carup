@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { BarChart3, Bell, Languages, MessageSquare, Search, Send, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { ActiveWorkspaceContext } from '@/components/workspace/workspaceBarContext'
 import { threadLabel } from './threadLabel'
 import {
   useCommunicationProductApi,
@@ -67,6 +68,9 @@ function matchesFilter(thread: ConversationThread, filter: ConversationFilter) {
 }
 
 export default function Communications() {
+  // R3 — one inbox, two shells. Inside the Trade & Imports shell it says so. Only the label changes: the conversations and the filter's default are
+  // untouched, because Trade OS threads are stored as `marketplace` workflows (see threadLabel), so no existing filter isolates them.
+  const inTradeShell = useContext(ActiveWorkspaceContext) === 'trade'
   const {
     fetchCommunicationThreads,
     fetchCommunicationThread,
@@ -288,8 +292,12 @@ export default function Communications() {
     <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Communications</h1>
-          <p className="text-gray-500">Your CarUp conversations across Marketplace and connected services</p>
+          <h1 className="text-2xl font-bold">{inTradeShell ? 'Messages' : 'Communications'}</h1>
+          <p className="text-gray-500" data-testid="communications-subtitle">
+            {inTradeShell
+              ? 'One inbox for all your CarUp conversations. Import and shipping conversations sit alongside Marketplace enquiries; each is labelled by what it is about.'
+              : 'Your CarUp conversations across Marketplace and connected services'}
+          </p>
         </div>
         <Badge className="bg-orange-100 text-orange-700">{unreadCount} unread</Badge>
       </div>

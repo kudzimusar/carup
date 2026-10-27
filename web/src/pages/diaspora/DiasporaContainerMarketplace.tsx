@@ -1005,7 +1005,7 @@ export default function DiasporaContainerMarketplace() {
                         </Button>
                         {openBooking.import_order_id && (
                           <Button asChild size="sm" variant="ghost" className="rounded-none text-gray-700">
-                            <Link to={`/diaspora/imports/${openBooking.import_order_id}/passport`}>View Order Passport</Link>
+                            <Link to={`/diaspora/imports/${openBooking.import_order_id}/passport`}>View order details</Link>
                           </Button>
                         )}
                         <span className="text-[11px] text-gray-500">Contact happens through CarUp Communications — private phone/email is never shown here.</span>

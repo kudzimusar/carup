@@ -22,6 +22,9 @@ import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
+import { importJourneyPath, vehiclePassportPath, type WorkspaceAction } from '@/components/workspace'
+import { TradeOrderChrome } from './chrome/TradeOrderChrome'
+import { importOrderLabel } from './chrome/importOrderLabel'
 import { classifyActionError } from '@/components/diaspora/safetrade/safeTradeHelpers'
 import type {
   DiasporaImportOrder,
@@ -190,7 +193,7 @@ export default function DiasporaOrderPassport() {
       if (kind === 'session') setFatal({ kind: 'session', message: 'Your session has expired. Please sign in again to view this passport.' })
       else if (kind === 'notfound') setFatal({ kind: 'notfound', message: 'This import order was not found.' })
       else if (kind === 'forbidden') setFatal({ kind: 'forbidden', message: 'You do not have access to this import order.' })
-      else setFatal({ kind: 'error', message: 'Could not load this order passport. Please retry.' })
+      else setFatal({ kind: 'error', message: 'Could not load these order details. Please retry.' })
     } finally { setLoading(false); setHasLoaded(true); loadingRef.current = false }
   }, [api, canView, id])
 
@@ -210,7 +213,7 @@ export default function DiasporaOrderPassport() {
           <AlertTriangle className="h-4 w-4" aria-hidden="true" />
           <AlertTitle>Sign in required</AlertTitle>
           <AlertDescription>
-            Please sign in to view this order passport.
+            Please sign in to view these order details.
             <Button asChild size="sm" variant="default" className="ml-2"><Link to="/login">Sign in</Link></Button>
           </AlertDescription>
         </Alert>
@@ -223,7 +226,7 @@ export default function DiasporaOrderPassport() {
       <main className="mx-auto max-w-3xl px-4 py-12" data-testid={`order-passport-${fatal.kind}`}>
         <Alert variant={fatal.kind === 'error' ? 'destructive' : 'default'}>
           <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-          <AlertTitle>Unable to open passport</AlertTitle>
+          <AlertTitle>Unable to open order details</AlertTitle>
           <AlertDescription>
             {fatal.message}
             <span className="ml-2 inline-flex gap-2">
@@ -247,6 +250,10 @@ export default function DiasporaOrderPassport() {
   const reservations = order.diaspora_cargo_reservations || []
   const shipments = order.diaspora_shipments || []
   const reviews = order.diaspora_compliance_reviews || []
+  const orderExits: WorkspaceAction[] = [
+    { label: 'Journey & arrival', href: importJourneyPath(order.id), testId: 'order-passport-journey-link' },
+    ...(order.linked_vehicle?.vin ? [{ label: 'View Vehicle Passport', href: vehiclePassportPath(order.linked_vehicle.vin), testId: 'order-passport-vehicle-passport-link' }] : []),
+  ]
   const hasRequestData = Boolean(order.requested_make || order.requested_model || order.requested_year_min || order.requested_year_max || order.budget_amount)
   const requiredDocs = (footprint || []).filter((f) => f.requiredForZimbabweReady)
   const verifiedRequiredDocs = requiredDocs.filter((f) => (f.status || '').toUpperCase() === 'VERIFIED')
@@ -256,9 +263,21 @@ export default function DiasporaOrderPassport() {
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-8" data-testid="order-passport-page" aria-busy={loading}>
+      {/* R3 — these are the ORDER's details, a page of the order (not a second "passport" beside the Vehicle Passport). The trail names the
+          order by its vehicle for the vehicle's owner; the journey and the Vehicle Passport are offered beside it. The one labelled control
+          back to the order is the button below, so the chrome's own parent link is suppressed. */}
+      <TradeOrderChrome
+        orderId={order.id}
+        orderLabel={importOrderLabel(order)}
+        page="Order details"
+        hideParent
+        exitsLabel="Elsewhere for this order"
+        exits={orderExits}
+        className="mb-3"
+      />
       <div className="mb-3 flex items-center justify-between">
         <Button asChild variant="ghost" size="sm">
-          <Link to="/diaspora/imports" data-testid="order-passport-back"><ArrowLeft className="mr-1 h-4 w-4" aria-hidden="true" /> Import orders</Link>
+          <Link to={`/diaspora/imports/${encodeURIComponent(order.id)}`} data-testid="order-passport-back"><ArrowLeft className="mr-1 h-4 w-4" aria-hidden="true" /> Back to import order</Link>
         </Button>
         <Button variant="outline" size="sm" onClick={() => void load()} aria-busy={loading} data-testid="order-passport-refresh">
           {loading
@@ -270,7 +289,7 @@ export default function DiasporaOrderPassport() {
 
       <header className="mb-4">
         <h1 className="flex items-center gap-2 text-2xl font-semibold" data-testid="order-passport-title">
-          <BookOpenCheck className="h-6 w-6 text-orange-600" aria-hidden="true" /> Import order passport
+          <BookOpenCheck className="h-6 w-6 text-orange-600" aria-hidden="true" /> Order details
         </h1>
         <p className="text-sm text-muted-foreground">Read-only record of import order {shortId(order.id)}.</p>
       </header>

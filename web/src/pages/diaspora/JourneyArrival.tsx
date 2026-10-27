@@ -80,8 +80,9 @@ import {
   type TabId,
 } from './journeyDisplay'
 import { reportedProgressSummary } from './capDisplay'
+import { CapWorkspaceChrome } from './chrome/CapWorkspaceChrome'
+import { useOrderVehicle } from './chrome/useOrderVehicle'
 import { CapNav } from './cap/CapNav'
-import { CapWorkspaceChrome } from './cap/CapWorkspaceChrome'
 import { CapSection, Unshown } from './cap/ui'
 import { DestinationAgent } from './cap/DestinationAgent'
 import { DocumentDelivery } from './cap/DocumentDelivery'
@@ -91,7 +92,6 @@ import { PaymentsSection } from './cap/PaymentsSection'
 import { ProgressGroups } from './cap/ProgressGroups'
 import { PurchasedVehicle } from './cap/PurchasedVehicle'
 import { TransactionParties } from './cap/TransactionParties'
-import { useOrderVehicleLink } from './cap/useOrderVehicleLink'
 
 const card = 'min-w-0 rounded-xl border border-slate-200 bg-white p-4 sm:p-5'
 const eyebrow = 'text-xs font-semibold uppercase tracking-wide text-slate-500'
@@ -115,7 +115,7 @@ export default function JourneyArrival() {
   const [error, setError] = useState('')
   const [tab, setTab] = useState<TabId>('journey')
   // R3: the Vehicle Passport link is offered only when the order endpoint shows this viewer owns the vehicle.
-  const vehicleLink = useOrderVehicleLink(data?.subject.order_id ?? null)
+  const orderVehicle = useOrderVehicle(data?.subject.order_id ?? null)
 
   const load = useCallback(async () => {
     try {
@@ -194,7 +194,7 @@ export default function JourneyArrival() {
 
   return (
     <section className="mx-auto w-full max-w-[900px] min-w-0 px-4 py-8 sm:px-6 lg:px-10" data-testid="journey-page">
-      <CapWorkspaceChrome journey={data} vehicleVin={vehicleLink?.vin ?? null} />
+      <CapWorkspaceChrome journey={data} vehicleVin={orderVehicle?.vin ?? null} />
       <header className="mt-4 min-w-0">
         <p className="text-xs uppercase tracking-wide text-orange-600">Journey &amp; arrival{orderRef ? ` · ${orderRef}` : ''}</p>
         <h1 className="mt-1 min-w-0 break-words text-2xl font-bold text-slate-950 sm:text-3xl" data-testid="journey-title">{vehicleTitle(data.asset)}</h1>

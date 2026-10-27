@@ -6,6 +6,7 @@
  * without the browser Back button. Now the shell draws the workspace bar (active: Trade & Imports),
  * and a page inside it that also asks for a bar does not get a second one.
  */
+import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -31,6 +32,12 @@ vi.mock('@/pages/diaspora/TradeShippingWorkspace', () => ({
 const { default: TradeOSWorkspaceLayout } = await import('./TradeOSWorkspaceLayout')
 const { CarUpWorkspaceBar } = await import('@/components/workspace/CarUpWorkspaceBar')
 const { WorkspaceChrome } = await import('@/components/workspace/WorkspaceChrome')
+const { ActiveWorkspaceContext } = await import('@/components/workspace/workspaceBarContext')
+
+function PageThatReadsTheShellsWorkspace() {
+  const { useContext } = React
+  return <p data-testid="hosting-workspace">{useContext(ActiveWorkspaceContext) ?? 'none'}</p>
+}
 
 function PageThatAsksForItsOwnBar() {
   return (
@@ -47,6 +54,7 @@ const renderShell = () =>
       <Routes>
         <Route element={<TradeOSWorkspaceLayout />}>
           <Route path="/diaspora/imports" element={<PageThatAsksForItsOwnBar />} />
+          <Route path="/diaspora/messages" element={<PageThatReadsTheShellsWorkspace />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -101,6 +109,27 @@ describe('Trade shell — workspace identity', () => {
     expect(within(bar).queryByRole('link', { name: 'Marketplace' })).toBeNull()
     // The current workspace is still named — as text, because this role cannot open its root.
     expect(within(bar).getByText('Trade & Imports')).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('calls the import-order list "Import orders" in its section navigation, the same words as the page and its trail', async () => {
+    renderShell()
+    await screen.findByTestId('tradeos-identity-participant')
+    const sections = screen.getByRole('navigation', { name: 'Trade & Imports sections' })
+    expect(within(sections).getByRole('link', { name: 'Import orders' })).toHaveAttribute('href', '/diaspora/imports')
+    expect(within(sections).queryByRole('link', { name: 'Orders' })).toBeNull()
+  })
+
+  it('tells the pages it hosts which workspace they are in (for the one inbox mounted in two shells)', async () => {
+    render(
+      <MemoryRouter initialEntries={['/diaspora/messages']}>
+        <Routes>
+          <Route element={<TradeOSWorkspaceLayout />}>
+            <Route path="/diaspora/messages" element={<PageThatReadsTheShellsWorkspace />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByTestId('hosting-workspace')).toHaveTextContent('trade')
   })
 
   it('keeps the identity block and the business context honest when the context cannot be read', async () => {

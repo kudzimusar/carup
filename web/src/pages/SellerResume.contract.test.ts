@@ -9,6 +9,8 @@ const seller = readFileSync(path.resolve(here, './dashboard/owner/SellVehicle.ts
 const garage = readFileSync(path.resolve(here, './dashboard/owner/MyGarage.tsx'), 'utf8')
 const profile = readFileSync(path.resolve(here, './dashboard/owner/VehicleProfile.tsx'), 'utf8')
 const listings = readFileSync(path.resolve(here, './dashboard/owner/MyListings.tsx'), 'utf8')
+const presentation = readFileSync(path.resolve(here, '../components/workspace/capabilityPresentation.ts'), 'utf8')
+const workspaceModel = readFileSync(path.resolve(here, '../components/workspace/workspaceModel.ts'), 'utf8')
 
 describe('Seller resume continuity', () => {
   it('hydrates Passport identity without inventing commercial seller facts', () => {
@@ -35,9 +37,15 @@ describe('Seller resume continuity', () => {
     expect(seller).toContain("searchParams.get('vin')")
     expect(seller).toContain('fetchOwnedVehicles()')
     expect(seller).toContain('seller-server-draft-loaded')
-    expect(profile).toContain('/dashboard/sell-vehicle?vin=')
+    // R3: the Passport and the Garage no longer build this address, or decide published-versus-draft, on their own. Both read ONE description,
+    // which sends "sell" and "continue" to the Studio for THIS vehicle and sends a published listing to My Listings (never back into a draft).
+    expect(profile).toContain('VehicleCapabilityPanel')
+    expect(garage).toContain('describeMarketplaceCapability')
+    expect(presentation).toContain('sellerStudioPath(vin)')
+    expect(workspaceModel).toContain('/dashboard/sell-vehicle?vin=')
+    expect(presentation).toMatch(/case 'published':[\s\S]*?href: '\/dashboard\/listings'/)
+    expect(presentation).toMatch(/case 'in_progress':[\s\S]*?href: sellerStudio/)
     expect(listings).toContain('/dashboard/sell-vehicle?vin=')
-    expect(garage).toContain("if (vehicle.publication_status === 'published')")
   })
 
   it('never reports a newer server-draft revision saved from an older autosave receipt', () => {

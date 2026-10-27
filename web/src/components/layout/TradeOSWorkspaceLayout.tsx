@@ -7,7 +7,7 @@ import type { UserRole } from '@shared/types'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { RegistryRouteBoundary } from '@/components/routing/RegistryRouteBoundary'
 import { CarUpWorkspaceBar } from '@/components/workspace/CarUpWorkspaceBar'
-import { WorkspaceBarProvidedContext } from '@/components/workspace/workspaceBarContext'
+import { ActiveWorkspaceContext, WorkspaceBarProvidedContext } from '@/components/workspace/workspaceBarContext'
 import type { DiasporaTradeContext } from '@/types'
 import TradeShippingWorkspace from '@/pages/diaspora/TradeShippingWorkspace'
 
@@ -23,7 +23,7 @@ const NAV_ITEMS: Array<[string, string]> = [
   ['/diaspora/requests', 'My requests'],
   ['/diaspora/buyer-requests', 'Buyer requests'],
   ['/diaspora/containers', 'Shipping'],
-  ['/diaspora/imports', 'Orders'],
+  ['/diaspora/imports', 'Import orders'],
   ['/diaspora/messages', 'Messages'],
   ['/diaspora/warehouse', 'Warehouse'],
   ['/diaspora/loading', 'Loading'],
@@ -182,11 +182,13 @@ export default function TradeOSWorkspaceLayout() {
           * boundary never has to make a premature auth decision here.
           */}
         <WorkspaceBarProvidedContext.Provider value={true}>
-          <RegistryRouteBoundary>
-            {location.pathname === '/diaspora/containers'
-              ? <TradeShippingWorkspace context={context}><Outlet /></TradeShippingWorkspace>
-              : <Outlet />}
-          </RegistryRouteBoundary>
+          <ActiveWorkspaceContext.Provider value="trade">
+            <RegistryRouteBoundary>
+              {location.pathname === '/diaspora/containers'
+                ? <TradeShippingWorkspace context={context}><Outlet /></TradeShippingWorkspace>
+                : <Outlet />}
+            </RegistryRouteBoundary>
+          </ActiveWorkspaceContext.Provider>
         </WorkspaceBarProvidedContext.Provider>
       </main>
     </div>
