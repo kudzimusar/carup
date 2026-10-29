@@ -30,6 +30,8 @@ PAY-01A uses a uniquely named `PAY-01A` test-only certification item at **JPY 10
 | `20260619201406_production_access_containment.sql` | `payment_transactions` already denies direct anonymous/authenticated writes | Preserve and reassert containment |
 | `backend/server.js`, `csrfMiddleware` | Global JSON parser comes before routes; exact raw capture and webhook CSRF exemption must be placed there | Add dedicated exact-path byte buffer and exception |
 
+**Provider-control-plane audit:** `providerPlatform/providerRegistry.js` currently registers `government_source`, `insurance`, `finance` and `escrow` capability types. It has no direct merchant collection capability. PAY-01A therefore does not misregister a direct Stripe merchant as `escrow` or activate the SafeTrade provider registry; it remains an explicit sandbox-only backend feature gate pending a separately governed provider-control-plane extension.
+
 **Boundary:** Provider events are recorded in `pay01a_stripe_event_receipts` only as signature-verified unique event evidence. The sole canonical *money state* is in `payment_transactions`. No `escrow_trust_sessions`, `safepay_escrows`, vehicle ownership or seller-settlement fields are written.
 
 ## C. Configuration (names ONLY; never commit values)
