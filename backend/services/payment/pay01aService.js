@@ -90,7 +90,8 @@ export async function createPay01aCheckout({
   } catch { throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_UNAVAILABLE', 502); }
   if (!checkout?.id || !checkout.url || checkout.livemode !== false
     || checkout.currency !== PAY01A_CURRENCY || checkout.amount_total !== PAY01A_AMOUNT_JPY
-    || checkout.client_reference_id !== row.reference) {
+    || checkout.client_reference_id !== row.reference
+    || Object.entries(metadata).some(([key, value]) => checkout.metadata?.[key] !== value)) {
     throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_MISMATCH', 502);
   }
   await rpc(db, 'pay01a_attach_checkout', { p_reference: row.reference, p_checkout_id: checkout.id });
