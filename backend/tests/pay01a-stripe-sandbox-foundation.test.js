@@ -101,6 +101,7 @@ function fakeSandbox() {
 test('PAY01A: disables all live/unknown-account/remote-return/key mismatch paths', () => {
   assert.throws(() => C.requirePay01aSandbox(fixtureEnv({ VERCEL_ENV: 'production' })), /PAY01A_SANDBOX_DISABLED/);
   assert.throws(() => C.requirePay01aSandbox(fixtureEnv({ CARUP_ENV: 'production' })), /PAY01A_SANDBOX_DISABLED/);
+  assert.throws(() => C.requirePay01aSandbox(fixtureEnv({ NODE_ENV: 'production', CARUP_ENV: 'staging' })), /PAY01A_SANDBOX_DISABLED/);
   assert.throws(() => C.requirePay01aSandbox(fixtureEnv({ CARUP_PAY01A_ENABLED: 'false' })), /PAY01A_SANDBOX_DISABLED/);
   assert.throws(() => C.requirePay01aSandbox(fixtureEnv({ CARUP_PAY01A_STRIPE_ACCOUNT_ID: 'acct_wrong' })), /PAY01A_MERCHANT_MISMATCH/);
   assert.throws(() => C.requirePay01aSandbox(fixtureEnv({ CARUP_PAY01A_STRIPE_SECRET_KEY: 'sk_live_danger' })), /PAY01A_TEST_KEY_REQUIRED/);
