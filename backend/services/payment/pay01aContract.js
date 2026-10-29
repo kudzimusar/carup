@@ -23,12 +23,14 @@ export class Pay01aError extends Error {
 export function requirePay01aSandbox(env = process.env, { webhook = false } = {}) {
   const deployment = String(env.VERCEL_ENV || '').toLowerCase();
   const app = String(env.CARUP_ENV || env.APP_ENV || '').toLowerCase();
+  const node = String(env.NODE_ENV || '').toLowerCase();
   if (env.CARUP_PAY01A_ENABLED !== 'true'
     || deployment === 'production'
     || app === 'production'
+    || (node === 'production' && !['preview', 'development'].includes(deployment))
     || (deployment && !['development', 'preview'].includes(deployment))
     || (app && !['development', 'test', 'staging'].includes(app))
-    || (!deployment && !app && !['test', 'development'].includes(String(env.NODE_ENV || '').toLowerCase()))) {
+    || (!deployment && !app && !['test', 'development'].includes(node))) {
     throw new Pay01aError('PAY01A_SANDBOX_DISABLED', 404);
   }
   if (env.CARUP_PAY01A_STRIPE_ACCOUNT_ID !== PAY01A_ACCOUNT) {
