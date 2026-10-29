@@ -263,6 +263,9 @@ app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSe
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+// Explicitly cap owner-only test payment and refund initiation; no ordinary checkout traffic is enabled.
+app.use('/api/pay01a/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay01a/:reference/refund', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
 // verification checks the real payload the sender signed. The global parsers run before any
