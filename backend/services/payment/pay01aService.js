@@ -8,9 +8,10 @@ import {
   Pay01aError, PAY01A_ACCOUNT, PAY01A_AMOUNT_JPY, PAY01A_CURRENCY, PAY01A_CHECKOUT_LABEL,
   pay01aIdempotency, pay01aMetadata, requirePay01aSandbox, validatePay01aRequestKey,
   evaluatePay01aProviderSnapshot, isPay01aSandboxRefund, pay01aProviderId,
+  pay01aIntegrationIdentifier,
 } from './pay01aContract.js';
 
-const COLUMNS = 'reference, gateway, amount, currency, status, pay01a_actor_id, pay01a_account_id, pay01a_checkout_id, pay01a_intent_id, pay01a_refund_id';
+const COLUMNS = 'reference, gateway, amount, currency, status, pay01a_actor_id, pay01a_account_id, pay01a_checkout_id, pay01a_intent_id, pay01a_refund_id, created_at, updated_at';
 const allowedEvents = new Set([
   'checkout.session.completed', 'checkout.session.async_payment_succeeded',
   'checkout.session.async_payment_failed', 'checkout.session.expired',
@@ -28,6 +29,20 @@ function guardRow(row, actorId = null) {
     throw new Pay01aError('PAY01A_CANONICAL_RECORD_MISMATCH', 403);
   }
   return row;
+}
+
+function publicRecord(row) {
+  return {
+    reference: row.reference,
+    amount: Number(row.amount),
+    currency: String(row.currency).toUpperCase(),
+    status: row.status,
+    checkoutId: row.pay01a_checkout_id || null,
+    paymentIntentId: row.pay01a_intent_id || null,
+    refundId: row.pay01a_refund_id || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
 }
 
 async function rpc(db, name, args) {
@@ -78,13 +93,14 @@ export async function createPay01aCheckout({
       client_reference_id: row.reference,
       metadata,
       payment_intent_data: { metadata },
+      integration_identifier: pay01aIntegrationIdentifier(row.reference),
       line_items: [{ price_data: {
         currency: PAY01A_CURRENCY,
         unit_amount: PAY01A_AMOUNT_JPY,
         product_data: { name: PAY01A_CHECKOUT_LABEL },
       }, quantity: 1 }],
-      success_url: config.origin + '/?carup_pay01a=returned&session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: config.origin + '/?carup_pay01a=cancelled',
+      success_url: config.origin + '/admin/payments?carup_pay01a=returned&session_id={CHECKOUT_SESSION_ID}',
+      cancel_url: config.origin + '/admin/payments?carup_pay01a=cancelled',
       // Stripe owns expiry; a mutable timestamp would break idempotent request replay.
     }, { idempotencyKey: pay01aIdempotency(row.reference, 'checkout') });
   } catch { throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_UNAVAILABLE', 502); }
@@ -100,6 +116,22 @@ export async function createPay01aCheckout({
     status: 'pending', currency: 'JPY', amount: PAY01A_AMOUNT_JPY,
     merchant: 'CarUp Japan', live: false, sandboxAccountId: PAY01A_ACCOUNT,
   };
+}
+
+/**
+ * Admin-only read model for the integrated sandbox console. It is deliberately
+ * a projection of canonical payment_transactions: no actor identity, raw
+ * provider payload or credential-bearing field crosses the API boundary.
+ */
+export async function listPay01aPayments({ db = supabase, env = process.env } = {}) {
+  requirePay01aSandbox(env);
+  const { data, error } = await db.from('payment_transactions')
+    .select(COLUMNS)
+    .eq('gateway', 'stripe_carup_japan_sandbox')
+    .order('updated_at', { ascending: false })
+    .limit(50);
+  if (error) throw new Pay01aError('PAY01A_CANONICAL_READ_UNAVAILABLE', 503);
+  return { payments: (data || []).map((row) => publicRecord(guardRow(row))) };
 }
 
 async function retrieveSnapshot(api, row) {

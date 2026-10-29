@@ -75,6 +75,20 @@ export function pay01aIdempotency(reference, operation) {
     .digest('hex').slice(0, 32);
 }
 
+// Stripe's current Checkout API accepts an integration identifier for provider
+// telemetry. Keep the identifier stable for a CarUp reference so an idempotent
+// retry never changes the request body and cannot create a second integration
+// identity.
+export function pay01aIntegrationIdentifier(reference) {
+  if (!/^pay01a_[0-9a-f-]{36}$/.test(String(reference || ''))) {
+    throw new Pay01aError('PAY01A_REFERENCE_INVALID', 400);
+  }
+  return 'carup_pay01a_' + crypto.createHash('sha256')
+    .update(reference)
+    .digest('hex')
+    .slice(0, 8);
+}
+
 function matchMetadata(meta, reference) {
   const expected = pay01aMetadata(reference);
   return Object.keys(expected).every((key) => meta?.[key] === expected[key]);
