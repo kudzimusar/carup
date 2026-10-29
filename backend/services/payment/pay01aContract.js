@@ -104,6 +104,7 @@ export function evaluatePay01aProviderSnapshot({ checkout, intent = null, refund
       if (refund.status === 'pending' || refund.status === 'requires_action') pending = true;
     }
     if (refunded > PAY01A_AMOUNT_JPY) throw new Pay01aError('PAY01A_REFUND_OVERFLOW');
+    if (refunded > 0 && refunded < PAY01A_AMOUNT_JPY) throw new Pay01aError('PAY01A_PARTIAL_REFUND_NOT_AUTHORIZED');
     return { status: refunded === PAY01A_AMOUNT_JPY ? 'refunded' : pending ? 'refund_pending' : 'paid',
       intentId: intent.id };
   }
