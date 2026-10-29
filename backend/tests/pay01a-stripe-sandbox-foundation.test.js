@@ -231,3 +231,27 @@ test('PAY01A: existing SafeTrade gates and retired provider webhook remain uncha
   assert.match(mig, /FROM PUBLIC, anon, authenticated/);
   assert.doesNotMatch(mig, /CREATE TABLE[^;]*pay01a_.*payment_transactions/i);
 });
+
+
+test('PAY01A: official Stripe SDK cryptographically authenticates exact raw bytes without contacting Stripe', async () => {
+  const { default: Stripe } = await import('stripe');
+  const client = new Stripe('sk_test_local_unit_fixture_key_only');
+  const secret = 'whsec_localUnitFixtureOnly12345';
+  const payload = JSON.stringify({
+    id: 'evt_pay01a_crypto_local', type: 'checkout.session.completed', livemode: false,
+    data: { object: { client_reference_id: REF, metadata: C.pay01aMetadata(REF) } },
+  });
+  const signature = client.webhooks.generateTestHeaderString({ payload, secret });
+  const event = client.webhooks.constructEvent(Buffer.from(payload), signature, secret);
+  assert.equal(event.id, 'evt_pay01a_crypto_local');
+  assert.throws(
+    () => client.webhooks.constructEvent(Buffer.from(payload + ' '), signature, secret),
+    /signature|payload|match/i,
+    'A byte-level change must invalidate the provider signature',
+  );
+  assert.throws(
+    () => client.webhooks.constructEvent(Buffer.from(payload), signature, 'whsec_differentLocalFixture'),
+    /signature|payload|match/i,
+    'A different signing secret must be rejected',
+  );
+});
