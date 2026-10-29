@@ -7,7 +7,7 @@ import { supabase } from '../../db/supabase.js';
 import {
   Pay01aError, PAY01A_ACCOUNT, PAY01A_AMOUNT_JPY, PAY01A_CURRENCY, PAY01A_CHECKOUT_LABEL,
   pay01aIdempotency, pay01aMetadata, requirePay01aSandbox, validatePay01aRequestKey,
-  evaluatePay01aProviderSnapshot,
+  evaluatePay01aProviderSnapshot, isPay01aSandboxRefund, pay01aProviderId,
 } from './pay01aContract.js';
 
 const COLUMNS = 'reference, gateway, amount, currency, status, pay01a_actor_id, pay01a_account_id, pay01a_checkout_id, pay01a_intent_id, pay01a_refund_id';
@@ -108,8 +108,8 @@ async function retrieveSnapshot(api, row) {
   try {
     checkout = await api.checkout.sessions.retrieve(row.pay01a_checkout_id);
     if (checkout.payment_intent) {
-      const id = typeof checkout.payment_intent === 'string'
-        ? checkout.payment_intent : checkout.payment_intent.id;
+      const id = pay01aProviderId(checkout.payment_intent);
+      if (!id) throw new Pay01aError('PAY01A_PROVIDER_INTENT_MISSING');
       intent = await api.paymentIntents.retrieve(id);
       const listed = await api.refunds.list({ payment_intent: id, limit: 100 });
       if (listed.has_more) throw new Pay01aError('PAY01A_REFUND_EVIDENCE_INCOMPLETE');
@@ -169,7 +169,7 @@ export async function refundPay01aPayment({
     const refund = await api.refunds.create({
       payment_intent: claimed.pay01a_intent_id, metadata: pay01aMetadata(reference),
     }, { idempotencyKey: pay01aIdempotency(reference, 'refund') });
-    if (refund?.livemode !== false || refund.payment_intent !== claimed.pay01a_intent_id
+    if (!isPay01aSandboxRefund(refund) || pay01aProviderId(refund.payment_intent) !== claimed.pay01a_intent_id
       || refund.amount !== PAY01A_AMOUNT_JPY) {
       throw new Pay01aError('PAY01A_REFUND_PROVIDER_MISMATCH');
     }

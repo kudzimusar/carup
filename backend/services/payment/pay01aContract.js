@@ -80,6 +80,19 @@ function matchMetadata(meta, reference) {
   return Object.keys(expected).every((key) => meta?.[key] === expected[key]);
 }
 
+export function pay01aProviderId(value) {
+  return typeof value === 'string' ? value : value?.id || null;
+}
+
+/**
+ * Stripe's current Refund resource can omit `livemode`, unlike Checkout and
+ * PaymentIntent. The exact parent PaymentIntent remains required and is itself
+ * freshly verified as test-mode; a live value is always refused.
+ */
+export function isPay01aSandboxRefund(refund) {
+  return Boolean(refund) && (refund.livemode === false || typeof refund.livemode === 'undefined');
+}
+
 /** A browser redirect is not payment authority. All money status requires fresh provider reads. */
 export function evaluatePay01aProviderSnapshot({ checkout, intent = null, refunds = [], reference }) {
   if (!checkout || checkout.mode !== 'payment' || checkout.livemode !== false
@@ -88,8 +101,7 @@ export function evaluatePay01aProviderSnapshot({ checkout, intent = null, refund
     throw new Pay01aError('PAY01A_PROVIDER_CHECKOUT_MISMATCH');
   }
   if (checkout.payment_status === 'paid') {
-    if (!intent || intent.livemode !== false || intent.id !== (typeof checkout.payment_intent === 'string'
-      ? checkout.payment_intent : checkout.payment_intent?.id)
+    if (!intent || intent.livemode !== false || intent.id !== pay01aProviderId(checkout.payment_intent)
       || !matchMetadata(intent.metadata, reference)
       || intent.currency !== PAY01A_CURRENCY || intent.amount !== PAY01A_AMOUNT_JPY
       || intent.amount_received !== PAY01A_AMOUNT_JPY || intent.status !== 'succeeded') {
@@ -98,7 +110,7 @@ export function evaluatePay01aProviderSnapshot({ checkout, intent = null, refund
     let refunded = 0;
     let pending = false;
     for (const refund of refunds) {
-      if (refund.livemode !== false || refund.payment_intent !== intent.id
+      if (!isPay01aSandboxRefund(refund) || pay01aProviderId(refund.payment_intent) !== intent.id
         || refund.currency !== PAY01A_CURRENCY) {
         throw new Pay01aError('PAY01A_PROVIDER_REFUND_MISMATCH');
       }

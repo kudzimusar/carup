@@ -55,7 +55,7 @@ function fakeSandbox() {
       create: async (args, opts) => {
         calls.push({ method: 'refund', args, opts });
         const r = { id: 're_pay01a123', payment_intent: intent.id,
-          currency: 'jpy', amount: 100, status: 'succeeded', livemode: false };
+          currency: 'jpy', amount: 100, status: 'succeeded' };
         refunds.push(r);
         return r;
       },
@@ -139,6 +139,14 @@ test('PAY01A: paid, refunded, partial refund and provider metadata truth are str
   assert.equal(C.evaluatePay01aProviderSnapshot({
     checkout: paid, intent: f.intent, refunds: [refund], reference: REF,
   }).status, 'refunded');
+  const currentStripeRefundShape = { ...refund };
+  delete currentStripeRefundShape.livemode;
+  assert.equal(C.evaluatePay01aProviderSnapshot({
+    checkout: paid, intent: f.intent, refunds: [currentStripeRefundShape], reference: REF,
+  }).status, 'refunded', 'refund mode is bound to its already-verified test PaymentIntent');
+  assert.throws(() => C.evaluatePay01aProviderSnapshot({
+    checkout: paid, intent: f.intent, refunds: [{ ...refund, livemode: true }], reference: REF,
+  }), /PAY01A_PROVIDER_REFUND_MISMATCH/);
   assert.throws(() => C.evaluatePay01aProviderSnapshot({
     checkout: paid, intent: f.intent, refunds: [{ ...refund, amount: 50 }], reference: REF,
   }), /PAY01A_PARTIAL_REFUND_NOT_AUTHORIZED/);
