@@ -246,6 +246,8 @@ export function csrfMiddleware(req, res, next) {
   // Webhooks are machine-to-machine and bypass CSRF (authenticated via HMAC/signatures or webhook secrets)
   const url = req.originalUrl || req.url || '';
   const isWebhook = url.startsWith('/api/payments/webhook') ||
+                    // CarUp Japan PAY-01A: exact Stripe signed-body endpoint, verified by SDK.
+                    /^\/api\/pay01a\/stripe\/webhook(?:$|[?#])/.test(url) ||
                     url.startsWith('/api/safepay/webhook') ||
                     /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url) ||
                     // Omnichannel communication engine webhooks (signature-verified in-service)

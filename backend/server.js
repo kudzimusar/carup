@@ -103,6 +103,7 @@ import fraudRouter from './routes/fraudRoutes.js';
 import dealerRouter from './routes/dealerRoutes.js';
 import eligibilityRouter from './routes/eligibilityRoutes.js';
 import escrowTrustRouter from './routes/escrowTrustRoutes.js';
+import pay01aRouter from './routes/pay01aRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 import governmentActivationRouter from './routes/governmentActivationRoutes.js';
@@ -262,6 +263,9 @@ app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSe
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+// Explicitly cap owner-only test payment and refund initiation; no ordinary checkout traffic is enabled.
+app.use('/api/pay01a/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay01a/:reference/refund', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
 // verification checks the real payload the sender signed. The global parsers run before any
@@ -275,6 +279,8 @@ const captureWebhookRawBody = (req, _res, buf) => {
   // source-level contract asserted by communication-engine.test.js.
   if (u.includes('/webhook') || /^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(u)) {
     req.rawBody = buf.toString('utf8');
+    // PAY-01A verifies Stripe's ORIGINAL byte stream; it never serializes req.body.
+    if (/^\/api\/pay01a\/stripe\/webhook(?:$|[?#])/.test(u)) req.rawBodyBytes = Buffer.from(buf);
   }
 };
 app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
@@ -401,6 +407,8 @@ app.use(fraudRouter);
 app.use(dealerRouter);
 app.use(eligibilityRouter);
 app.use(escrowTrustRouter);
+// Direct CarUp Japan sandbox merchant checkout; distinct from SafeTrade/retired gateway routes.
+app.use(pay01aRouter);
 app.use(providerPlatformRouter);
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 app.use(governmentActivationRouter);
