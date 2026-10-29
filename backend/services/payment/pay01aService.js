@@ -85,7 +85,7 @@ export async function createPay01aCheckout({
       }, quantity: 1 }],
       success_url: config.origin + '/?carup_pay01a=returned&session_id={CHECKOUT_SESSION_ID}',
       cancel_url: config.origin + '/?carup_pay01a=cancelled',
-      expires_at: Math.floor(Date.now() / 1000) + 1800,
+      // Stripe owns expiry; a mutable timestamp would break idempotent request replay.
     }, { idempotencyKey: pay01aIdempotency(row.reference, 'checkout') });
   } catch { throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_UNAVAILABLE', 502); }
   if (!checkout?.id || !checkout.url || checkout.livemode !== false
@@ -185,7 +185,11 @@ export async function processPay01aWebhook({
 } = {}) {
   requirePay01aSandbox(env, { webhook: true });
   if (!Buffer.isBuffer(rawBody) || !signature) throw new Pay01aError('PAY01A_RAW_SIGNATURE_REQUIRED', 400);
-  const api = await stripeForSandbox({ env, stripe, webhook: true });
+  let api = stripe;
+  if (!api) {
+    const { default: Stripe } = await import('stripe');
+    api = new Stripe(env.CARUP_PAY01A_STRIPE_SECRET_KEY);
+  }
   let event;
   try {
     event = api.webhooks.constructEvent(rawBody, signature, env.CARUP_PAY01A_STRIPE_WEBHOOK_SECRET);
@@ -193,6 +197,8 @@ export async function processPay01aWebhook({
   if (!event || event.livemode !== false || (event.account && event.account !== PAY01A_ACCOUNT)) {
     throw new Pay01aError('PAY01A_EVENT_ENVIRONMENT_MISMATCH', 400);
   }
+  // Authenticated provider data may now trigger the sandbox account-identity network read.
+  await stripeForSandbox({ env, stripe: api, webhook: true });
   if (!allowedEvents.has(event.type)) return { ignored: true, live: false };
   const reference = event.data?.object?.metadata?.carup_reference
     || event.data?.object?.client_reference_id || null;
