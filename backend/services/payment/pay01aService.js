@@ -110,10 +110,12 @@ export async function createPay01aCheckout({
     || Object.entries(metadata).some(([key, value]) => checkout.metadata?.[key] !== value)) {
     throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_MISMATCH', 502);
   }
-  await rpc(db, 'pay01a_attach_checkout', { p_reference: row.reference, p_checkout_id: checkout.id });
+  const attached = guardRow(await rpc(db, 'pay01a_attach_checkout', {
+    p_reference: row.reference, p_checkout_id: checkout.id,
+  }), actorId);
+  // Checkout must use the same canonical payment read model as history/reconciliation/refunds.
   return {
-    reference: row.reference, checkoutId: checkout.id, checkoutUrl: checkout.url,
-    status: 'pending', currency: 'JPY', amount: PAY01A_AMOUNT_JPY,
+    ...publicRecord(attached), checkoutUrl: checkout.url,
     merchant: 'CarUp Japan', live: false, sandboxAccountId: PAY01A_ACCOUNT,
   };
 }
@@ -167,9 +169,10 @@ async function reconcileKnownRow({ row, db, api, eventId = null, eventType = nul
     p_event_type: eventType,
   });
   guardRow(applied);
+  // Never return a partial record: the UI must receive canonical financial and timestamp
+  // fields even for a refund, an idempotent retry, or a provider-triggered reconciliation.
   return {
-    reference: row.reference, status: applied.status, checkoutId: row.pay01a_checkout_id,
-    paymentIntentId: applied.pay01a_intent_id, refundId: applied.pay01a_refund_id,
+    ...publicRecord(applied),
     duplicateEvent: Boolean(applied.duplicate_event), live: false,
   };
 }
