@@ -5,7 +5,7 @@ import { Pay01aError } from '../services/payment/pay01aContract.js';
 import {
   PAY01C_PRODUCT, requirePay01cDemo, createBuyerDemoCheckout,
   listBuyerDemoOrders, readBuyerDemoOrder, readBuyerDemoReport,
-  readAdminDemoOrder, refundAdminDemoOrder,
+  readAdminDemoOrder, refundAdminDemoOrder, listAdminDemoOrders,
 } from '../services/payment/pay01cDemoService.js';
 
 const router = express.Router();
@@ -43,6 +43,8 @@ router.post('/api/pay01c/orders/:orderId/verify', buyerSession,
 
 router.get('/api/pay01c/orders/:orderId/report', buyerSession,
   handler(req => readBuyerDemoReport({ buyerId: actor(req), orderId: req.params.orderId })));
+
+router.get('/api/pay01c/admin/orders', adminSession, handler(() => listAdminDemoOrders()));
 
 router.get('/api/pay01c/admin/orders/:orderId', adminSession,
   handler(req => readAdminDemoOrder({ orderId: req.params.orderId })));
