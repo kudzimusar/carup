@@ -7,10 +7,11 @@ import { supabase } from '../../db/supabase.js';
 import {
   Pay01aError, PAY01A_ACCOUNT, PAY01A_AMOUNT_JPY, PAY01A_CURRENCY, PAY01A_CHECKOUT_LABEL,
   pay01aIdempotency, pay01aMetadata, requirePay01aSandbox, validatePay01aRequestKey,
-  evaluatePay01aProviderSnapshot,
+  evaluatePay01aProviderSnapshot, isPay01aSandboxRefund, pay01aProviderId,
+  pay01aIntegrationIdentifier,
 } from './pay01aContract.js';
 
-const COLUMNS = 'reference, gateway, amount, currency, status, pay01a_actor_id, pay01a_account_id, pay01a_checkout_id, pay01a_intent_id, pay01a_refund_id';
+const COLUMNS = 'reference, gateway, amount, currency, status, pay01a_actor_id, pay01a_account_id, pay01a_checkout_id, pay01a_intent_id, pay01a_refund_id, created_at, updated_at';
 const allowedEvents = new Set([
   'checkout.session.completed', 'checkout.session.async_payment_succeeded',
   'checkout.session.async_payment_failed', 'checkout.session.expired',
@@ -28,6 +29,20 @@ function guardRow(row, actorId = null) {
     throw new Pay01aError('PAY01A_CANONICAL_RECORD_MISMATCH', 403);
   }
   return row;
+}
+
+function publicRecord(row) {
+  return {
+    reference: row.reference,
+    amount: Number(row.amount),
+    currency: String(row.currency).toUpperCase(),
+    status: row.status,
+    checkoutId: row.pay01a_checkout_id || null,
+    paymentIntentId: row.pay01a_intent_id || null,
+    refundId: row.pay01a_refund_id || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
 }
 
 async function rpc(db, name, args) {
@@ -78,13 +93,14 @@ export async function createPay01aCheckout({
       client_reference_id: row.reference,
       metadata,
       payment_intent_data: { metadata },
+      integration_identifier: pay01aIntegrationIdentifier(row.reference),
       line_items: [{ price_data: {
         currency: PAY01A_CURRENCY,
         unit_amount: PAY01A_AMOUNT_JPY,
         product_data: { name: PAY01A_CHECKOUT_LABEL },
       }, quantity: 1 }],
-      success_url: config.origin + '/?carup_pay01a=returned&session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: config.origin + '/?carup_pay01a=cancelled',
+      success_url: config.origin + '/admin/payments?carup_pay01a=returned&session_id={CHECKOUT_SESSION_ID}',
+      cancel_url: config.origin + '/admin/payments?carup_pay01a=cancelled',
       // Stripe owns expiry; a mutable timestamp would break idempotent request replay.
     }, { idempotencyKey: pay01aIdempotency(row.reference, 'checkout') });
   } catch { throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_UNAVAILABLE', 502); }
@@ -94,12 +110,30 @@ export async function createPay01aCheckout({
     || Object.entries(metadata).some(([key, value]) => checkout.metadata?.[key] !== value)) {
     throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_MISMATCH', 502);
   }
-  await rpc(db, 'pay01a_attach_checkout', { p_reference: row.reference, p_checkout_id: checkout.id });
+  const attached = guardRow(await rpc(db, 'pay01a_attach_checkout', {
+    p_reference: row.reference, p_checkout_id: checkout.id,
+  }), actorId);
+  // Checkout must use the same canonical payment read model as history/reconciliation/refunds.
   return {
-    reference: row.reference, checkoutId: checkout.id, checkoutUrl: checkout.url,
-    status: 'pending', currency: 'JPY', amount: PAY01A_AMOUNT_JPY,
+    ...publicRecord(attached), checkoutUrl: checkout.url,
     merchant: 'CarUp Japan', live: false, sandboxAccountId: PAY01A_ACCOUNT,
   };
+}
+
+/**
+ * Admin-only read model for the integrated sandbox console. It is deliberately
+ * a projection of canonical payment_transactions: no actor identity, raw
+ * provider payload or credential-bearing field crosses the API boundary.
+ */
+export async function listPay01aPayments({ db = supabase, env = process.env } = {}) {
+  requirePay01aSandbox(env);
+  const { data, error } = await db.from('payment_transactions')
+    .select(COLUMNS)
+    .eq('gateway', 'stripe_carup_japan_sandbox')
+    .order('updated_at', { ascending: false })
+    .limit(50);
+  if (error) throw new Pay01aError('PAY01A_CANONICAL_READ_UNAVAILABLE', 503);
+  return { payments: (data || []).map((row) => publicRecord(guardRow(row))) };
 }
 
 async function retrieveSnapshot(api, row) {
@@ -108,8 +142,8 @@ async function retrieveSnapshot(api, row) {
   try {
     checkout = await api.checkout.sessions.retrieve(row.pay01a_checkout_id);
     if (checkout.payment_intent) {
-      const id = typeof checkout.payment_intent === 'string'
-        ? checkout.payment_intent : checkout.payment_intent.id;
+      const id = pay01aProviderId(checkout.payment_intent);
+      if (!id) throw new Pay01aError('PAY01A_PROVIDER_INTENT_MISSING');
       intent = await api.paymentIntents.retrieve(id);
       const listed = await api.refunds.list({ payment_intent: id, limit: 100 });
       if (listed.has_more) throw new Pay01aError('PAY01A_REFUND_EVIDENCE_INCOMPLETE');
@@ -135,9 +169,10 @@ async function reconcileKnownRow({ row, db, api, eventId = null, eventType = nul
     p_event_type: eventType,
   });
   guardRow(applied);
+  // Never return a partial record: the UI must receive canonical financial and timestamp
+  // fields even for a refund, an idempotent retry, or a provider-triggered reconciliation.
   return {
-    reference: row.reference, status: applied.status, checkoutId: row.pay01a_checkout_id,
-    paymentIntentId: applied.pay01a_intent_id, refundId: applied.pay01a_refund_id,
+    ...publicRecord(applied),
     duplicateEvent: Boolean(applied.duplicate_event), live: false,
   };
 }
@@ -169,7 +204,7 @@ export async function refundPay01aPayment({
     const refund = await api.refunds.create({
       payment_intent: claimed.pay01a_intent_id, metadata: pay01aMetadata(reference),
     }, { idempotencyKey: pay01aIdempotency(reference, 'refund') });
-    if (refund?.livemode !== false || refund.payment_intent !== claimed.pay01a_intent_id
+    if (!isPay01aSandboxRefund(refund) || pay01aProviderId(refund.payment_intent) !== claimed.pay01a_intent_id
       || refund.amount !== PAY01A_AMOUNT_JPY) {
       throw new Pay01aError('PAY01A_REFUND_PROVIDER_MISMATCH');
     }

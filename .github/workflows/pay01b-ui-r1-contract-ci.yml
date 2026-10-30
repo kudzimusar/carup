@@ -1,0 +1,40 @@
+name: PAY-01B UI R1 canonical payment contract
+on:
+  pull_request:
+    paths:
+      - 'backend/services/payment/pay01aService.js'
+      - 'backend/tests/pay01a-stripe-sandbox-foundation.test.js'
+      - 'web/src/pages/dashboard/admin/Pay01aPayments.tsx'
+      - 'web/src/pages/dashboard/admin/Pay01aPayments.test.tsx'
+      - '.github/workflows/pay01b-ui-r1-contract-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-contract-and-console:
+    name: Offline PAY-01B contract, frontend and typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: ci-offline-test-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies (no provider credentials)
+        run: npm ci
+      - name: Offline PAY-01A/PAY-01B backend source and contract regressions
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js
+      - name: Offline PAY-01B payment-console regressions
+        working-directory: web
+        run: npx vitest run src/pages/dashboard/admin/Pay01aPayments.test.tsx
+      - name: Type-check and compile web app
+        run: npm run build --workspace web

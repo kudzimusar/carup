@@ -6,7 +6,7 @@ import express from 'express';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   createPay01aCheckout, reconcilePay01aPayment,
-  processPay01aWebhook, refundPay01aPayment,
+  processPay01aWebhook, refundPay01aPayment, listPay01aPayments,
 } from '../services/payment/pay01aService.js';
 import { Pay01aError } from '../services/payment/pay01aContract.js';
 
@@ -30,6 +30,12 @@ router.post('/api/pay01a/checkout', admin, async (req, res) => {
       actorId: actor(req), requestKey: req.headers['idempotency-key'],
     });
     return res.status(201).json(result);
+  } catch (err) { return failure(err, res); }
+});
+
+router.get('/api/pay01a', admin, async (_req, res) => {
+  try {
+    return res.json(await listPay01aPayments());
   } catch (err) { return failure(err, res); }
 });
 
