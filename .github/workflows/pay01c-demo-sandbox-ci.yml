@@ -1,0 +1,45 @@
+name: PAY-01C sandbox demo purchase source certification
+on:
+  pull_request:
+    paths:
+      - 'backend/services/payment/pay01aService.js'
+      - 'backend/services/payment/pay01cDemoService.js'
+      - 'backend/routes/pay01cDemoRoutes.js'
+      - 'backend/server.js'
+      - 'backend/tests/pay01c-demo-product.test.js'
+      - 'database/migrations/20261030223000_carup_pay01c_demo_product.sql'
+      - 'web/src/pages/DemoVehicleHistory*'
+      - 'web/src/pages/dashboard/admin/Pay01cAdminOrders.tsx'
+      - 'web/src/App.tsx'
+      - '.github/workflows/pay01c-demo-sandbox-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-certification:
+    name: Offline payment reuse, buyer isolation, UI, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      CARUP_PAY01C_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: PAY-01A/B foundation remains green, PAY-01C backend regressions
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js
+      - name: Buyer responsive UI and existing admin payment UI
+        working-directory: web
+        run: npx vitest run src/pages/DemoVehicleHistory.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx
+      - name: Typecheck and compile CarUp web
+        run: npm run build --workspace web
