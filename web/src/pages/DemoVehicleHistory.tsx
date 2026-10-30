@@ -73,7 +73,11 @@ export default function DemoVehicleHistory() {
       baseUrl: API_BASE, path: '/pay01c/orders', authHeaders: { 'x-session-token': token },
     })
     if (!Array.isArray(response.orders)) throw new Error('Purchase history is unavailable.')
-    setOrders(response.orders.map(validOrder))
+    const verifiedOrders = response.orders.map(validOrder)
+    setOrders(verifiedOrders)
+    // If a delayed refund changes the canonical status, hide any previously open report.
+    setReport(previous => previous && verifiedOrders.some(order =>
+      order.id === previous.order.id && order.reportAvailable) ? previous : null)
   }, [token])
 
   useEffect(() => {
