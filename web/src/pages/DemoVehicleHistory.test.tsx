@@ -51,7 +51,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
 
   it('presents a visibly test-only JPY 100 synthetic product with buyer action', async () => {
     mockData([])
-    render(<DemoVehicleHistory />)
+    render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     expect(await screen.findByText('¥100')).toBeInTheDocument()
     expect(screen.getByText(/SANDBOX · TEST ONLY/)).toBeInTheDocument()
     expect(screen.getByText(/Synthetic report/)).toBeInTheDocument()
@@ -62,7 +62,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
   it('requires a real login for purchasing and does not show private history', async () => {
     identity.user = null; identity.token = null
     mockData()
-    render(<DemoVehicleHistory />)
+    render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     expect(await screen.findByText('¥100')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Sign in to try the demo/ })).toHaveAttribute('href', '/login')
     expect(screen.queryByTestId('pay01c-buy')).toBeNull()
@@ -72,7 +72,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
 
   it('never exposes a report on pending canonical state', async () => {
     mockData([order])
-    render(<DemoVehicleHistory />)
+    render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     const item = await screen.findByTestId('pay01c-order')
     expect(within(item).getByText(/Awaiting authoritative Stripe/)).toBeInTheDocument()
     expect(within(item).queryByRole('button', { name: /Open sample report/ })).toBeNull()
@@ -82,7 +82,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
     const paid = { ...order, status: 'paid', reportAvailable: true, entitlement: 'granted', paymentIntentId: 'pi_fixture' }
     mockData([paid], paid)
     const user = userEvent.setup()
-    render(<DemoVehicleHistory />)
+    render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     const button = await screen.findByRole('button', { name: /Open sample report/ })
     await user.click(button)
     const panel = await screen.findByTestId('pay01c-report')
@@ -93,7 +93,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
 
   it('a refunded order visibly revokes product entitlement', async () => {
     mockData([{ ...order, status: 'refunded', entitlement: 'revoked', refundId: 're_fixture' }])
-    render(<DemoVehicleHistory />)
+    render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     const item = await screen.findByTestId('pay01c-order')
     expect(within(item).getByText(/access revoked/)).toBeInTheDocument()
     expect(within(item).queryByRole('button', { name: /Open sample report/ })).toBeNull()
@@ -108,7 +108,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
       if (path === '/pay01c/orders') return Promise.resolve({ orders: [order] })
       return Promise.reject(new Error('provider unavailable'))
     })
-    render(<DemoVehicleHistory />)
+    render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     expect(await screen.findByText(/Payment verification is temporarily unavailable/)).toBeInTheDocument()
     expect(screen.queryByText(/Payment verified — sample report ready/)).toBeNull()
     expect(sessionStorage.getItem('carup_pay01c_pending_demo_order')).toBeNull()
