@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, FlaskConical, RefreshCw, ShieldCheck, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -46,20 +46,46 @@ const STATUS_COPY: Record<PaymentStatus, { label: string; className: string; Ico
   refunded: { label: 'Refund confirmed', className: 'bg-violet-100 text-violet-800', Icon: CheckCircle2 },
 }
 
-function formatAmount(record: Pick<Pay01aPaymentRecord, 'amount' | 'currency'>): string {
-  try {
-    return new Intl.NumberFormat('ja-JP', {
-      style: 'currency', currency: record.currency, maximumFractionDigits: 0,
-    }).format(record.amount)
-  } catch {
-    return `${record.amount} ${record.currency}`
+const RESPONSE_ERROR = 'Incomplete canonical payment response. Previously verified data was retained.'
+const VALID_STATUSES = new Set(['pending', 'paid', 'cancelled', 'refund_pending', 'refunded'])
+
+export function parsePaymentRecord(value: unknown): Pay01aPaymentRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(RESPONSE_ERROR)
+  const r = value as Record<string, unknown>
+  if (['reference','amount','currency','status','checkoutId','paymentIntentId','refundId','createdAt','updatedAt'].some(k => !Object.prototype.hasOwnProperty.call(r,k))
+    || typeof r.reference !== 'string' || !/^pay01a_[0-9a-f-]{36}$/.test(r.reference)
+    || !Number.isSafeInteger(r.amount) || (r.amount as number) < 0
+    || r.currency !== 'JPY' || !VALID_STATUSES.has(r.status as string)
+    || ['checkoutId','paymentIntentId','refundId'].some(k => r[k] !== null && typeof r[k] !== 'string')
+    || ['createdAt','updatedAt'].some(k => r[k] !== null && (typeof r[k] !== 'string' || !Number.isFinite(Date.parse(r[k] as string))))) {
+    throw new Error(RESPONSE_ERROR)
   }
+  return value as Pay01aPaymentRecord
 }
 
-function formatDate(value: string | null): string {
+export function formatAmount(record: Pick<Pay01aPaymentRecord, 'amount' | 'currency'>): string {
+  if (!Number.isSafeInteger(record?.amount) || record.amount < 0 || record.currency !== 'JPY') return 'Amount unavailable'
+  try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: record.currency }).format(record.amount) }
+  catch { return 'Amount unavailable' }
+}
+
+export function formatDate(value: string | null): string {
   if (!value) return 'Not recorded'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString()
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? 'Not recorded' : new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Tokyo', timeZoneName: 'short', year: 'numeric', month: 'short',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(d)
+}
+
+export function providerMessage(status: PaymentStatus, navigation: 'returned' | 'cancelled' | null = null): string {
+  if (status === 'paid') return 'Payment confirmed by Stripe.'
+  if (status === 'refunded') return 'Refund confirmed by Stripe.'
+  if (status === 'cancelled') return 'Checkout cancelled. No payment has been confirmed.'
+  if (status === 'refund_pending') return 'Stripe is verifying the refund. The refund is not yet confirmed.'
+  if (navigation === 'cancelled') return 'Checkout cancelled in the browser. No payment has been confirmed.'
+  if (navigation === 'returned') return 'Returned from Stripe Checkout. Verifying payment with Stripe...'
+  return 'Stripe has not yet confirmed the payment.'
 }
 
 function createIdempotencyKey(): string {
@@ -92,6 +118,8 @@ export default function Pay01aPayments() {
   const userRole = user?.role
   const [records, setRecords] = useState<Pay01aPaymentRecord[]>([])
   const [current, setCurrent] = useState<Pay01aPaymentRecord | null>(null)
+  const [selectedReference, setSelectedReference] = useState<string | null>(null)
+  const handledReturn = useRef(false)
   const [loading, setLoading] = useState(true)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
@@ -104,12 +132,13 @@ export default function Pay01aPayments() {
     setLoading(true)
     setError(null)
     try {
-      const response = await apiRequest<{ payments: Pay01aPaymentRecord[] }>({
-        baseUrl: API_BASE,
-        path: '/pay01a',
+      const response = await apiRequest<unknown>({
+        baseUrl: API_BASE, path: '/pay01a',
         authHeaders: buildAuthHeaders(token, userId, userRole),
       })
-      setRecords(response.payments || [])
+      if (!response || typeof response !== 'object' || !('payments' in response)
+        || !Array.isArray(response.payments)) throw new Error(RESPONSE_ERROR)
+      setRecords(response.payments.map(parsePaymentRecord))
       setAvailable(true)
     } catch (err) {
       const status = (err as { status?: number }).status
@@ -124,25 +153,26 @@ export default function Pay01aPayments() {
     }
   }, [token, userId, userRole])
 
-  const reconcile = useCallback(async (reference: string, message?: string) => {
+  const reconcile = useCallback(async (reference: string, navigation: 'returned' | 'cancelled' | null = null) => {
     setActionBusy(true)
     setError(null)
     try {
-      const response = await apiRequest<Pay01aPaymentRecord>({
-        baseUrl: API_BASE,
-        path: `/pay01a/${encodeURIComponent(reference)}`,
+      const response = parsePaymentRecord(await apiRequest<unknown>({
+        baseUrl: API_BASE, path: `/pay01a/${encodeURIComponent(reference)}`,
         authHeaders: buildAuthHeaders(token, userId, userRole),
-      })
+      }))
+      if (response.reference !== reference) throw new Error(RESPONSE_ERROR)
       setCurrent(response)
-      setReturnMessage(message || null)
+      setSelectedReference(reference)
+      setReturnMessage(providerMessage(response.status, navigation))
+      if (navigation) window.localStorage.removeItem(PENDING_REFERENCE_KEY)
       await loadRecords()
       return response
     } catch (err) {
-      setError((err as { message?: string }).message || 'Provider reconciliation is not available yet.')
+      setError((err as { message?: string }).message || 'Provider reconciliation is unavailable.')
+      if (navigation) setReturnMessage('Stripe verification is currently unavailable. CarUp has not confirmed a new payment state.')
       return null
-    } finally {
-      setActionBusy(false)
-    }
+    } finally { setActionBusy(false) }
   }, [token, userId, userRole, loadRecords])
 
   useEffect(() => {
@@ -150,16 +180,29 @@ export default function Pay01aPayments() {
   }, [loadRecords])
 
   useEffect(() => {
+    if (handledReturn.current) return
     const params = new URLSearchParams(window.location.search)
     const result = params.get('carup_pay01a')
+    if (result !== 'returned' && result !== 'cancelled') return
+    handledReturn.current = true
     const reference = window.localStorage.getItem(PENDING_REFERENCE_KEY)
-    if (!result) return
-    if (result === 'cancelled') {
-      queueMicrotask(() => setReturnMessage('Checkout was cancelled. CarUp will not treat the browser return as payment confirmation.'))
+    params.delete('carup_pay01a')
+    params.delete('session_id')
+    const search = params.toString()
+    window.history.replaceState(window.history.state, '', window.location.pathname
+      + (search ? `?${search}` : '') + window.location.hash)
+    if (!reference) {
+      queueMicrotask(() => setReturnMessage(result === 'cancelled'
+        ? 'Checkout cancelled in the browser. No payment has been confirmed.'
+        : 'Stripe return received without a CarUp reference. Payment cannot yet be verified.'))
+      return
     }
-    if (reference && (result === 'returned' || result === 'cancelled')) {
-      queueMicrotask(() => { void reconcile(reference, result === 'returned' ? 'Returned from Stripe Checkout. Confirming provider status…' : undefined) })
-    }
+    queueMicrotask(() => {
+      setReturnMessage(result === 'returned'
+        ? 'Returned from Stripe Checkout. Verifying payment with Stripe...'
+        : 'Checkout cancelled in the browser. Verifying canonical payment status...')
+      void reconcile(reference, result)
+    })
   }, [reconcile])
 
   const startCheckout = async () => {
@@ -199,10 +242,14 @@ export default function Pay01aPayments() {
         options: { method: 'POST', body: JSON.stringify({}) },
         authHeaders: buildAuthHeaders(token, userId, userRole),
       })
-      setCurrent(response)
+      const verified = parsePaymentRecord(response)
+      if (verified.reference !== refundTarget.reference) throw new Error(RESPONSE_ERROR)
+      setCurrent(verified)
+      setSelectedReference(verified.reference)
+      setReturnMessage(providerMessage(verified.status))
       setRefundTarget(null)
       await loadRecords()
-      toast.success(response.status === 'refunded' ? 'Sandbox refund confirmed.' : 'Refund request submitted.')
+      toast.success(verified.status === 'refunded' ? 'Sandbox refund confirmed.' : 'Refund request submitted.')
     } catch (err) {
       setError((err as { message?: string }).message || 'Refund could not be completed.')
     } finally {
@@ -210,7 +257,13 @@ export default function Pay01aPayments() {
     }
   }
 
-  const detail = current || records[0] || null
+  const historySelection = selectedReference
+    ? records.find(r => r.reference === selectedReference) || null : null
+  const detail = selectedReference
+    ? (current?.reference === selectedReference
+      && (!historySelection || Date.parse(current.updatedAt || '') >= Date.parse(historySelection.updatedAt || ''))
+      ? current : historySelection)
+    : (records[0] || null)
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8" data-testid="pay01a-console">
@@ -255,12 +308,13 @@ export default function Pay01aPayments() {
 
           <Card className="shadow-sm">
             <CardHeader className="flex-row items-start justify-between gap-4">
-              <div><CardTitle>Latest transaction</CardTitle><CardDescription>Canonical CarUp payment record and provider-backed status.</CardDescription></div>
+              <div><CardTitle>{selectedReference ? 'Selected transaction' : 'Latest transaction'}</CardTitle><CardDescription>Canonical CarUp payment record and provider-backed status.</CardDescription></div>
               <Button variant="outline" size="sm" onClick={() => void loadRecords()} disabled={loading} aria-label="Refresh sandbox payments"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button>
             </CardHeader>
             <CardContent>
               {loading && <p className="text-sm text-slate-500">Loading payment records…</p>}
               {!loading && !detail && <div className="rounded-lg border border-dashed p-5 text-sm text-slate-500">No sandbox payment has been initiated from this console.</div>}
+              {selectedReference && <Button variant="link" size="sm" className="mb-3 px-0" onClick={() => { setSelectedReference(null); setCurrent(null) }}>Show latest transaction</Button>}
               {detail && (
                 <div className="space-y-4" data-testid="pay01a-current-payment">
                   <div className="flex flex-wrap items-center justify-between gap-3">{statusBadge(detail.status)}<span className="font-semibold text-slate-900">{formatAmount(detail)}</span></div>
@@ -284,7 +338,33 @@ export default function Pay01aPayments() {
         <Card className="shadow-sm">
           <CardHeader><CardTitle>Transaction history</CardTitle><CardDescription>Read-only projection of the canonical payment_transactions record. Stripe events remain provider evidence, not a second ledger.</CardDescription></CardHeader>
           <CardContent>
-            {records.length === 0 ? <p className="text-sm text-slate-500">No records yet.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b text-xs uppercase tracking-wider text-slate-500"><tr><th className="pb-3 pr-4">Reference</th><th className="pb-3 pr-4">Amount</th><th className="pb-3 pr-4">Status</th><th className="pb-3 pr-4">Updated</th><th className="pb-3 text-right">Action</th></tr></thead><tbody>{records.map(record => <tr key={record.reference} className="border-b last:border-0"><td className="py-3 pr-4 font-mono text-xs">{record.reference}</td><td className="py-3 pr-4">{formatAmount(record)}</td><td className="py-3 pr-4">{statusBadge(record.status)}</td><td className="py-3 pr-4 text-slate-600">{formatDate(record.updatedAt)}</td><td className="py-3 text-right"><Button variant="ghost" size="sm" onClick={() => void reconcile(record.reference)} disabled={actionBusy}>Inspect <ExternalLink className="h-3 w-3" /></Button></td></tr>)}</tbody></table></div>}
+            {records.length === 0 ? <p className="text-sm text-slate-500">No records yet.</p> : (
+              <div className="min-w-0 max-w-full">
+                <p className="mb-2 text-xs text-slate-500 sm:hidden">Scroll horizontally for complete transaction history and actions.</p>
+                <div className="max-w-full overflow-x-auto rounded-md border" role="region"
+                  aria-label="Transaction history, horizontally scrollable" tabIndex={0} data-testid="pay01a-history-scroll">
+                  <table className="w-full min-w-[880px] table-fixed text-left text-sm">
+                    <colgroup><col className="w-[33%]" /><col className="w-[12%]" /><col className="w-[23%]" /><col className="w-[18%]" /><col className="w-[14%]" /></colgroup>
+                    <thead className="border-b bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                      <tr><th scope="col" className="p-3">Reference</th><th scope="col" className="p-3">Amount</th>
+                        <th scope="col" className="p-3">Status</th><th scope="col" className="p-3">Updated (JST)</th>
+                        <th scope="col" className="p-3 text-right">Action</th></tr>
+                    </thead>
+                    <tbody>{records.map(record => (
+                      <tr key={record.reference} className="border-b last:border-0">
+                        <td className="break-all p-3 font-mono text-xs">{record.reference}</td>
+                        <td className="whitespace-nowrap p-3 font-semibold">{formatAmount(record)}</td>
+                        <td className="p-3">{statusBadge(record.status)}</td>
+                        <td className="p-3 text-xs text-slate-600">{formatDate(record.updatedAt)}</td>
+                        <td className="p-3 text-right"><Button variant="ghost" size="sm" className="whitespace-nowrap"
+                          aria-label={`Inspect transaction ${record.reference}`} onClick={() => void reconcile(record.reference)}
+                          disabled={actionBusy}>Inspect <ExternalLink className="ml-1 h-3 w-3" /></Button></td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
