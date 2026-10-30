@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 
 const apiRequest = vi.hoisted(() => vi.fn())
 const identity = vi.hoisted(() => ({ user: { id: 'buyer-1' } as { id: string } | null, token: 'valid-session' as string | null }))
