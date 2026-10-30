@@ -174,6 +174,7 @@ import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
 import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
 import AdminCommunications from './pages/dashboard/admin/Communications'
 import Pay01aPayments from './pages/dashboard/admin/Pay01aPayments'
+import DemoVehicleHistory from './pages/DemoVehicleHistory'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -264,6 +265,7 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/demo/vehicle-history" element={<DemoVehicleHistory />} />
           <Route path="/sell" element={<GuestSell />} />
           <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
           <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />
