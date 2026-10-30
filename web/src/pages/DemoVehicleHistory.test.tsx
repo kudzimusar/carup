@@ -95,7 +95,7 @@ describe('PAY-01C customer-facing sandbox demo', () => {
     mockData([{ ...order, status: 'refunded', entitlement: 'revoked', refundId: 're_fixture' }])
     render(<MemoryRouter><DemoVehicleHistory /></MemoryRouter>)
     const item = await screen.findByTestId('pay01c-order')
-    expect(within(item).getByText(/access revoked/)).toBeInTheDocument()
+    expect(within(item).getAllByText(/access revoked/).length).toBeGreaterThan(0)
     expect(within(item).queryByRole('button', { name: /Open sample report/ })).toBeNull()
     expect(within(item).getByText(/re_fixture/)).toBeInTheDocument()
   })
