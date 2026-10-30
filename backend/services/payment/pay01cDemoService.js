@@ -135,9 +135,16 @@ export async function readBuyerDemoOrder({
 }
 
 export async function readBuyerDemoReport({
-  buyerId, orderId, db = supabase, env = process.env,
+  buyerId, orderId, db = supabase, env = process.env, stripe = null,
 } = {}) {
   requirePay01cDemo(env); requireBuyer(buyerId);
+  const initial = await getOrderRow(db, orderId, buyerId);
+  // Report access fails closed if the provider cannot be reached, or a refund happened
+  // while a webhook was delayed. A browser-visible "paid" row is never sufficient.
+  await reconcilePay01aPayment({
+    reference: initial.payment_reference, actorId: buyerId, db, env, stripe,
+  });
+  await sync(db, initial.payment_reference);
   const row = await getOrderRow(db, orderId, buyerId);
   const payment = await moneyRow(db, row);
   if (payment.status !== 'paid' || !row.granted_at || row.revoked_at) {
