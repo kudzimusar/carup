@@ -173,3 +173,17 @@ export async function readAdminDemoOrder({ orderId, db = supabase, env = process
   const order = await getOrderRow(db, orderId);
   return project(order, await moneyRow(db, order));
 }
+
+/** Server-only administration: authenticating and granting admin role is done in the router. */
+export async function listAdminDemoOrders({ db = supabase, env = process.env } = {}) {
+  requirePay01cDemo(env);
+  const { data, error } = await db.from('pay01c_demo_orders')
+    .select('*').order('created_at', { ascending: false }).limit(50);
+  if (error) throw new Pay01aError('PAY01C_ADMIN_HISTORY_UNAVAILABLE', 503);
+  const orders = [];
+  for (const row of data || []) {
+    const order = checkOrder(row);
+    orders.push({ ...project(order, await moneyRow(db, order)), buyerId: order.buyer_id });
+  }
+  return { orders };
+}
