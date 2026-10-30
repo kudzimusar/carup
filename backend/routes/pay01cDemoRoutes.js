@@ -9,7 +9,7 @@ import {
 } from '../services/payment/pay01cDemoService.js';
 
 const router = express.Router();
-const buyerSession = authorizeSessionRole([]); // Any VALID CarUp session; never x-user-id fallback.
+const buyerSession = authorizeSessionRole([]); // Any verified CarUp session; asserted identity is not accepted.
 const adminSession = authorizeSessionRole(['admin']);
 
 function respondError(res, err) {
