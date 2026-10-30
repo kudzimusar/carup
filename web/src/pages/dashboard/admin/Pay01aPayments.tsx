@@ -54,7 +54,7 @@ export function parsePaymentRecord(value: unknown): Pay01aPaymentRecord {
   const r = value as Record<string, unknown>
   if (['reference','amount','currency','status','checkoutId','paymentIntentId','refundId','createdAt','updatedAt'].some(k => !Object.prototype.hasOwnProperty.call(r,k))
     || typeof r.reference !== 'string' || !/^pay01a_[0-9a-f-]{36}$/.test(r.reference)
-    || !Number.isSafeInteger(r.amount) || (r.amount as number) < 0
+    || !Number.isSafeInteger(r.amount as number) || (r.amount as number) < 0
     || r.currency !== 'JPY' || !VALID_STATUSES.has(r.status as string)
     || ['checkoutId','paymentIntentId','refundId'].some(k => r[k] !== null && typeof r[k] !== 'string')
     || ['createdAt','updatedAt'].some(k => r[k] !== null && (typeof r[k] !== 'string' || !Number.isFinite(Date.parse(r[k] as string))))) {
