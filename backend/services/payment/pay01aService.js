@@ -75,17 +75,22 @@ async function stripeForSandbox({ env, stripe = null, webhook = false } = {}) {
 
 /** The only supported starting amount comes from the canonical DB claim RPC, never the request. */
 export async function createPay01aCheckout({
-  actorId, requestKey, db = supabase, env = process.env, stripe = null,
+  actorId, requestKey, db = supabase, env = process.env, stripe = null, internalDemo = false,
 } = {}) {
   const config = requirePay01aSandbox(env);
+  if (internalDemo && env.CARUP_PAY01C_ENABLED !== 'true') {
+    throw new Pay01aError('PAY01C_DEMO_DISABLED', 404);
+  }
   if (!actorId) throw new Pay01aError('PAY01A_AUTHENTICATION_REQUIRED', 403);
   validatePay01aRequestKey(requestKey);
   const api = await stripeForSandbox({ env, stripe });
-  const claim = await rpc(db, 'pay01a_claim_checkout', {
+  const claim = await rpc(db, internalDemo ? 'pay01c_claim_demo_checkout' : 'pay01a_claim_checkout', {
     p_actor_id: actorId, p_request_key: requestKey,
   });
   const row = guardRow(claim, actorId);
-  const metadata = pay01aMetadata(row.reference);
+  const metadata = internalDemo
+    ? { ...pay01aMetadata(row.reference), carup_demo_product: 'vehicle_history_demo' }
+    : pay01aMetadata(row.reference);
   let checkout;
   try {
     checkout = await api.checkout.sessions.create({
@@ -97,10 +102,10 @@ export async function createPay01aCheckout({
       line_items: [{ price_data: {
         currency: PAY01A_CURRENCY,
         unit_amount: PAY01A_AMOUNT_JPY,
-        product_data: { name: PAY01A_CHECKOUT_LABEL },
+        product_data: { name: internalDemo ? 'CarUp Vehicle History Report — Demo Edition (TEST ONLY)' : PAY01A_CHECKOUT_LABEL },
       }, quantity: 1 }],
-      success_url: config.origin + '/admin/payments?carup_pay01a=returned&session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: config.origin + '/admin/payments?carup_pay01a=cancelled',
+      success_url: config.origin + (internalDemo ? '/demo/vehicle-history?carup_pay01c=returned' : '/admin/payments?carup_pay01a=returned') + '&session_id={CHECKOUT_SESSION_ID}',
+      cancel_url: config.origin + (internalDemo ? '/demo/vehicle-history?carup_pay01c=cancelled' : '/admin/payments?carup_pay01a=cancelled'),
       // Stripe owns expiry; a mutable timestamp would break idempotent request replay.
     }, { idempotencyKey: pay01aIdempotency(row.reference, 'checkout') });
   } catch { throw new Pay01aError('PAY01A_CHECKOUT_PROVIDER_UNAVAILABLE', 502); }
@@ -117,6 +122,7 @@ export async function createPay01aCheckout({
   return {
     ...publicRecord(attached), checkoutUrl: checkout.url,
     merchant: 'CarUp Japan', live: false, sandboxAccountId: PAY01A_ACCOUNT,
+    ...(internalDemo ? { orderId: row.pay01c_order_id } : {}),
   };
 }
 
@@ -243,5 +249,9 @@ export async function processPay01aWebhook({
   }
   const row = await getRow(db, reference);
   const result = await reconcileKnownRow({ row, db, api, eventId: event.id, eventType: event.type });
+  if (env.CARUP_PAY01C_ENABLED === 'true') {
+    // Fail closed on fulfillment failure so the same signed event can be retried.
+    await rpc(db, 'pay01c_sync_demo_entitlement', { p_reference: reference });
+  }
   return { ...result, verified: true };
 }
