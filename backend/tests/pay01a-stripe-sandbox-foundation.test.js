@@ -26,6 +26,7 @@ function fakeSandbox() {
     amount: 100, currency: 'JPY', status: 'pending', pay01a_actor_id: 'owner-1',
     pay01a_account_id: C.PAY01A_ACCOUNT,
     pay01a_checkout_id: null, pay01a_intent_id: null, pay01a_refund_id: null,
+    created_at: '2026-10-29T00:00:00.000Z', updated_at: '2026-10-29T00:01:00.000Z',
   };
   const checkout = {
     id: 'cs_test_pay01a123', mode: 'payment', livemode: false,
@@ -218,6 +219,66 @@ test('PAY01A: real provider read is required before each reconciliation/refund; 
   const replay = await S.refundPay01aPayment({ reference: REF, actorId: 'owner-1', db: f.db, stripe: f.stripe, env: f.env });
   assert.equal(replay.idempotentReplay, true);
   assert.equal(f.calls.filter(c => c.method === 'refund').length, 1);
+});
+
+test('PAY01B: checkout, reconciliation and full refund return the identical canonical detail contract', async () => {
+  const f = fakeSandbox();
+  const checkout = await S.createPay01aCheckout({
+    actorId: 'owner-1', requestKey: 'request_abcdef123456',
+    db: f.db, stripe: f.stripe, env: f.env,
+  });
+  const required = ['reference', 'amount', 'currency', 'status', 'checkoutId',
+    'paymentIntentId', 'refundId', 'createdAt', 'updatedAt'];
+  for (const key of required) assert.ok(Object.hasOwn(checkout, key), `checkout missing ${key}`);
+  assert.equal(checkout.amount, 100);
+  assert.equal(checkout.currency, 'JPY');
+  assert.equal(checkout.createdAt, f.row.created_at);
+  assert.equal(checkout.updatedAt, f.row.updated_at);
+  f.checkout.payment_status = 'paid';
+  f.checkout.status = 'complete';
+  f.checkout.payment_intent = f.intent.id;
+  const paid = await S.reconcilePay01aPayment({
+    reference: REF, actorId: 'owner-1', db: f.db, stripe: f.stripe, env: f.env,
+  });
+  for (const key of required) assert.ok(Object.hasOwn(paid, key), `reconciliation missing ${key}`);
+  assert.equal(paid.amount, 100);
+  assert.equal(paid.currency, 'JPY');
+  assert.equal(paid.createdAt, f.row.created_at);
+  assert.equal(paid.updatedAt, f.row.updated_at);
+  assert.equal(paid.paymentIntentId, f.intent.id);
+  assert.equal(paid.status, 'paid');
+  const refunded = await S.refundPay01aPayment({
+    reference: REF, actorId: 'owner-1', db: f.db, stripe: f.stripe, env: f.env,
+  });
+  for (const key of required) assert.ok(Object.hasOwn(refunded, key), `refund missing ${key}`);
+  assert.equal(refunded.amount, paid.amount);
+  assert.equal(refunded.currency, paid.currency);
+  assert.equal(refunded.createdAt, paid.createdAt);
+  assert.equal(refunded.updatedAt, paid.updatedAt);
+  assert.equal(refunded.status, 'refunded');
+  assert.equal(refunded.refundId, 're_pay01a123');
+  const replay = await S.refundPay01aPayment({
+    reference: REF, actorId: 'owner-1', db: f.db, stripe: f.stripe, env: f.env,
+  });
+  assert.equal(replay.status, 'refunded');
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(f.calls.filter(c => c.method === 'refund').length, 1);
+  assert.ok(!Object.hasOwn(refunded, 'pay01a_actor_id'));
+  assert.ok(!Object.hasOwn(refunded, 'pay01a_account_id'));
+});
+
+test('PAY01B: payment and refund reads reject unproven or different actors', async () => {
+  const f = fakeSandbox();
+  await assert.rejects(S.reconcilePay01aPayment({
+    reference: REF, actorId: null, db: f.db, stripe: f.stripe, env: f.env,
+  }), /PAY01A_AUTHENTICATION_REQUIRED/);
+  await assert.rejects(S.reconcilePay01aPayment({
+    reference: REF, actorId: 'other-admin', db: f.db, stripe: f.stripe, env: f.env,
+  }), /PAY01A_CANONICAL_RECORD_MISMATCH/);
+  await assert.rejects(S.refundPay01aPayment({
+    reference: REF, actorId: 'other-admin', db: f.db, stripe: f.stripe, env: f.env,
+  }), /PAY01A_CANONICAL_RECORD_MISMATCH/);
+  assert.equal(f.calls.some(c => typeof c === 'object' && c.method === 'refund'), false);
 });
 
 test('PAY01A: signed event only initiates provider reconciliation; duplicates/out-of-order remain safe', async () => {
