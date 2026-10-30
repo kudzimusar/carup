@@ -18,7 +18,7 @@ function respondError(res, err) {
 }
 const actor = req => req.userContext?.id || null;
 const handler = fn => async (req, res) => {
-  try { const { status, ...data } = await fn(req); return res.status(status || 200).json(data); }
+  try { const result = await fn(req); const { httpStatus, ...data } = result; return res.status(httpStatus || 200).json(data); }
   catch (err) { return respondError(res, err); }
 };
 
@@ -28,7 +28,7 @@ router.get('/api/pay01c/product', handler(async () => {
 }));
 
 router.post('/api/pay01c/orders/checkout', buyerSession, handler(async req => ({
-  status: 201,
+  httpStatus: 201,
   ...await createBuyerDemoCheckout({ buyerId: actor(req), requestKey: req.headers['idempotency-key'] }),
 })));
 
