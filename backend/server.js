@@ -104,6 +104,7 @@ import dealerRouter from './routes/dealerRoutes.js';
 import eligibilityRouter from './routes/eligibilityRoutes.js';
 import escrowTrustRouter from './routes/escrowTrustRoutes.js';
 import pay01aRouter from './routes/pay01aRoutes.js';
+import pay01cDemoRouter from './routes/pay01cDemoRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 import governmentActivationRouter from './routes/governmentActivationRoutes.js';
@@ -265,6 +266,8 @@ app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 // Explicitly cap owner-only test payment and refund initiation; no ordinary checkout traffic is enabled.
 app.use('/api/pay01a/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay01c/orders/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay01c/admin/orders', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay01a/:reference/refund', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
@@ -409,6 +412,7 @@ app.use(eligibilityRouter);
 app.use(escrowTrustRouter);
 // Direct CarUp Japan sandbox merchant checkout; distinct from SafeTrade/retired gateway routes.
 app.use(pay01aRouter);
+app.use(pay01cDemoRouter);
 app.use(providerPlatformRouter);
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 app.use(governmentActivationRouter);
