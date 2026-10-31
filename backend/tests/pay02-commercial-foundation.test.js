@@ -781,7 +781,73 @@ test('PAY02-ADMIN & R1-C: governance proposal workflow fails closed without DB, 
         }),
       }),
     }),
+    rpc: async (fnName, args) => {
+      assert.equal(fnName, 'pay02_review_activation_proposal');
+      const existing = storedProposals.get(args.p_proposal_id);
+      if (!existing) return { data: null, error: { message: 'PAY02_PROPOSAL_NOT_FOUND' } };
+      if (existing.status !== 'pending_review') {
+        return { data: null, error: { message: 'PAY02_PROPOSAL_ALREADY_DECIDED' } };
+      }
+      if (existing.proposer_id === args.p_reviewer_id) {
+        return { data: null, error: { message: 'PAY02_SELF_APPROVAL_FORBIDDEN' } };
+      }
+      const dbProduct = storedProducts.get(existing.product_code);
+      if (
+        Number(existing.product_version) !== Number(dbProduct.current_version)
+        || existing.from_state !== dbProduct.activation_state
+      ) {
+        return { data: null, error: { message: 'PAY02_STALE_PROPOSAL_VERSION_CONFLICT' } };
+      }
+      if (args.p_decision === 'approved') {
+        const nextVer = Number(dbProduct.current_version) + 1;
+        const updatedProd = {
+          ...dbProduct,
+          current_version: nextVer,
+          activation_state: existing.proposed_state,
+          approved_amount_minor: existing.proposed_amount_minor ?? dbProduct.approved_amount_minor,
+          approved_currency: existing.proposed_currency ?? dbProduct.approved_currency,
+        };
+        storedProducts.set(existing.product_code, updatedProd);
+        storedVersions.push({
+          product_code: existing.product_code,
+          version: nextVer,
+          snapshot: updatedProd,
+          recorded_by: args.p_reviewer_id,
+        });
+        const updatedProp = {
+          ...existing,
+          status: 'approved',
+          resulting_version: nextVer,
+          effect_status: 'effective_in_sandbox_catalogue',
+          reviewer_id: args.p_reviewer_id,
+          reviewer_role: args.p_reviewer_role,
+          review_notes: args.p_review_notes,
+        };
+        storedProposals.set(existing.id, updatedProp);
+        return { data: updatedProp, error: null };
+      }
+      const rejectedProp = {
+        ...existing,
+        status: 'rejected',
+        effect_status: 'rejected_no_state_change',
+      };
+      storedProposals.set(existing.id, rejectedProp);
+      return { data: rejectedProp, error: null };
+    },
   };
+
+  // Non-atomic DB (without `db.rpc`) must fail closed on governance review (Section 7.1)
+  await assert.rejects(
+    reviewPay02GovernanceProposal({
+      proposalId: 'prop_0001',
+      reviewerId: 'admin-reviewer-002',
+      reviewerRole: 'admin',
+      decision: 'approved',
+      reviewNotes: 'Attempting review without atomic RPC.',
+      db: { from: fakeDb.from },
+    }),
+    /PAY02_ATOMIC_GOVERNANCE_RPC_REQUIRED/,
+  );
 
   await assert.rejects(
     createPay02GovernanceProposal({
@@ -923,6 +989,7 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
     reference: 'pay01a_pilot_001',
     pay02_quote_id: 'quote-uuid-pilot-001',
     gateway: 'stripe_carup_japan_sandbox',
+    pay01a_account_id: 'acct_1UVnGaEjgXqvlsJk',
     status: 'paid',
     currency: 'JPY',
     amount: 100,
@@ -933,6 +1000,8 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
 
   const activeEntitlement = {
     id: 'order-uuid-pilot-001',
+    product_code: 'intel.report.vehicle_history_single',
+    product_version: 1,
     buyer_id: 'buyer-pilot-01',
     quote_id: 'quote-uuid-pilot-001',
     payment_reference: 'pay01a_pilot_001',
@@ -978,6 +1047,25 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
     };
   };
 
+  let rpcFulfillCalls = 0;
+  // R1-E: Missing atomic fulfillment RPC must fail closed without multi-step fallback
+  await assert.rejects(
+    deliverVerifiedVehicleHistoryReport({
+      buyerId: 'buyer-pilot-01',
+      vin: 'WBA00000000000101',
+      quote,
+      canonicalPayment: paidTx,
+      entitlementOrder: activeEntitlement,
+      vehicleRecord: vehicleRow,
+      db: null,
+      reportAssembler: fakeAssembler,
+      versionGenerator: fakeVersionGen,
+    }),
+    /PAY03A_ATOMIC_FULFILLMENT_RPC_REQUIRED/,
+  );
+  assert.equal(assembledCount, 1);
+
+  assembledCount = 0;
   const delivered = await deliverVerifiedVehicleHistoryReport({
     buyerId: 'buyer-pilot-01',
     vin: 'WBA00000000000101',
@@ -985,13 +1073,32 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
     canonicalPayment: paidTx,
     entitlementOrder: activeEntitlement,
     vehicleRecord: vehicleRow,
-    db: null,
+    db: {
+      rpc: async (fnName, params) => {
+        assert.equal(fnName, 'pay03a_complete_report_fulfillment');
+        assert.equal(params.p_order_id, activeEntitlement.id);
+        assert.equal(params.p_buyer_id, 'buyer-pilot-01');
+        assert.equal(params.p_vin, 'WBA00000000000101');
+        rpcFulfillCalls += 1;
+        return {
+          data: {
+            report_version_id: 'rep_ver_001',
+            report_version_number: 1,
+            content_hash: 'sha256_canonical_report_001',
+            completeness: { lifecycle_source_coverage: 0.75 },
+            idempotent_replay: false,
+          },
+          error: null,
+        };
+      },
+    },
     reportAssembler: fakeAssembler,
     versionGenerator: fakeVersionGen,
   });
 
   assert.equal(assembledCount, 1);
-  assert.equal(versionGenCount, 1);
+  assert.equal(rpcFulfillCalls, 1);
+  assert.equal(versionGenCount, 0, 'Must use atomic RPC rather than multi-step versionGenerator fallback');
   assert.equal(delivered.productCode, 'intel.report.vehicle_history_single');
   assert.equal(delivered.reportVersionId, 'rep_ver_001');
   assert.equal(delivered.idempotentReplay, false);
@@ -1036,7 +1143,7 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
   });
   assert.equal(replayed.idempotentReplay, true);
   assert.equal(replayed.reportVersionId, 'rep_ver_001');
-  assert.equal(versionGenCount, 1, 'Must not generate a second report version for the same paid order');
+  assert.equal(rpcFulfillCalls, 1, 'Must not generate a second report version for the same paid order');
 
   // Unrelated paid transaction (wrong quote correlation) is refused
   await assert.rejects(

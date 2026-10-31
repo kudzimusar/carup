@@ -175,6 +175,7 @@ import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
 import AdminCommunications from './pages/dashboard/admin/Communications'
 import Pay01aPayments from './pages/dashboard/admin/Pay01aPayments'
 import DemoVehicleHistory from './pages/DemoVehicleHistory'
+import VehicleHistoryCommerce from './pages/VehicleHistoryCommerce'
 import Pay01cAdminOrders from './pages/dashboard/admin/Pay01cAdminOrders'
 import Pay02CommercialFoundation from './pages/dashboard/admin/Pay02CommercialFoundation'
 
@@ -268,6 +269,7 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/demo/vehicle-history" element={<DemoVehicleHistory />} />
+          <Route path="/vehicle-history" element={<VehicleHistoryCommerce />} />
           <Route path="/sell" element={<GuestSell />} />
           <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
           <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />

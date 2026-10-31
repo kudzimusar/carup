@@ -15,6 +15,7 @@
  * - Enforces full bidirectional database cross-reference verification and vehicle/provenance validation
  *   for the first real product candidate (`intel.report.vehicle_history_single`).
  */
+import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { assembleReport, generateReportVersion } from '../report/reportService.js';
 import {
@@ -509,161 +510,47 @@ export async function reviewPay02GovernanceProposal({
     throw new Pay02Error('PAY02_PROPOSAL_PERSISTENCE_UNAVAILABLE', 503);
   }
 
-  // Prefer atomic PostgreSQL SECURITY DEFINER RPC when available
-  if (typeof db.rpc === 'function') {
-    const { data, error } = await db.rpc('pay02_review_activation_proposal', {
-      p_proposal_id: proposalId,
-      p_reviewer_id: reviewerId.trim(),
-      p_reviewer_role: String(reviewerRole).toLowerCase(),
-      p_decision: decision,
-      p_review_notes: reviewNotes ? String(reviewNotes).trim() : null,
-    });
-    if (error) {
-      const msg = String(error.message || '');
-      if (msg.includes('PAY02_SELF_APPROVAL_FORBIDDEN')) {
-        throw new Pay02Error('PAY02_SELF_APPROVAL_FORBIDDEN', 403);
-      }
-      if (msg.includes('PAY02_PROPOSAL_ALREADY_DECIDED')) {
-        throw new Pay02Error('PAY02_PROPOSAL_ALREADY_DECIDED', 409);
-      }
-      if (msg.includes('PAY02_STALE_PROPOSAL_VERSION_CONFLICT')) {
-        throw new Pay02Error('PAY02_STALE_PROPOSAL_VERSION_CONFLICT', 409);
-      }
-      if (msg.includes('PAY02_PROPOSAL_NOT_FOUND')) {
-        throw new Pay02Error('PAY02_PROPOSAL_NOT_FOUND', 404);
-      }
-      if (msg.includes('PAY02_LIVE_RELEASE_REQUIRES_SEPARATE_OWNER_AUTHORITY')) {
-        throw new Pay02Error('PAY02_LIVE_RELEASE_REQUIRES_SEPARATE_OWNER_AUTHORITY', 403);
-      }
-      if (msg.includes('PAY02_STRUCTURED_APPROVAL_EVIDENCE_REQUIRED')) {
-        throw new Pay02Error('PAY02_STRUCTURED_APPROVAL_EVIDENCE_REQUIRED', 400);
-      }
-      throw new Pay02Error('PAY02_PROPOSAL_REVIEW_FAILED', 503, { message: msg });
-    }
-    if (!data || !data.id) {
-      throw new Pay02Error('PAY02_PROPOSAL_REVIEW_FAILED', 503);
-    }
-    return {
-      proposal: data,
-      effectiveCatalogueChanged: decision === 'approved',
-      liveCommercialActive: false,
-    };
-  }
-
-  if (typeof db.from !== 'function') {
-    throw new Pay02Error('PAY02_PROPOSAL_PERSISTENCE_UNAVAILABLE', 503);
-  }
-
-  const { data: existing, error: readErr } = await db
-    .from('pay02_activation_proposals')
-    .select('*')
-    .eq('id', proposalId)
-    .maybeSingle();
-  if (readErr) throw new Pay02Error('PAY02_PROPOSAL_READ_UNAVAILABLE', 503);
-  if (!existing) throw new Pay02Error('PAY02_PROPOSAL_NOT_FOUND', 404);
-  if (existing.status !== 'pending_review') {
-    throw new Pay02Error('PAY02_PROPOSAL_ALREADY_DECIDED', 409);
-  }
-  if (existing.proposer_id === reviewerId.trim()) {
-    throw new Pay02Error('PAY02_SELF_APPROVAL_FORBIDDEN', 403, {
-      proposalId,
-      message: 'Proposer and approving authority must be distinct.',
+  // Operational governance review requires atomic PostgreSQL SECURITY DEFINER RPC (Section 7.1).
+  if (typeof db.rpc !== 'function') {
+    throw new Pay02Error('PAY02_ATOMIC_GOVERNANCE_RPC_REQUIRED', 503, {
+      message: 'Operational governance review requires atomic PostgreSQL RPC pay02_review_activation_proposal.',
     });
   }
-  if (['release_approved', 'active'].includes(existing.proposed_state)) {
-    throw new Pay02Error('PAY02_LIVE_RELEASE_REQUIRES_SEPARATE_OWNER_AUTHORITY', 403);
-  }
 
-  const sourceProduct = getPay02CatalogueItem(existing.product_code);
-  const { data: dbProduct, error: prodErr } = await db
-    .from('pay02_commercial_products')
-    .select('*')
-    .eq('product_code', existing.product_code)
-    .maybeSingle();
-  if (prodErr) throw new Pay02Error('PAY02_PROPOSAL_READ_UNAVAILABLE', 503);
-
-  const currentVersion = dbProduct ? Number(dbProduct.current_version) : Number(sourceProduct?.version ?? 1);
-  const currentState = dbProduct ? dbProduct.activation_state : sourceProduct?.activationState;
-  if (
-    Number(existing.product_version) !== currentVersion
-    || existing.from_state !== currentState
-  ) {
-    throw new Pay02Error('PAY02_STALE_PROPOSAL_VERSION_CONFLICT', 409);
-  }
-
-  let resultingVersion = null;
-  let effectStatus = 'rejected_no_state_change';
-
-  if (decision === 'approved') {
-    const resolvedEvidence = existing.approval_evidence_ref || dbProduct?.approval_evidence_ref || sourceProduct?.approvalEvidenceRef;
-    if (
-      PAY02_ELIGIBLE_QUOTE_STATES.has(existing.proposed_state)
-      && (!resolvedEvidence || !PAY02_STRUCTURED_APPROVAL_EVIDENCE_PATTERN.test(String(resolvedEvidence)))
-    ) {
+  const { data, error } = await db.rpc('pay02_review_activation_proposal', {
+    p_proposal_id: proposalId,
+    p_reviewer_id: reviewerId.trim(),
+    p_reviewer_role: String(reviewerRole).toLowerCase(),
+    p_decision: decision,
+    p_review_notes: reviewNotes ? String(reviewNotes).trim() : null,
+  });
+  if (error) {
+    const msg = String(error.message || '');
+    if (msg.includes('PAY02_SELF_APPROVAL_FORBIDDEN')) {
+      throw new Pay02Error('PAY02_SELF_APPROVAL_FORBIDDEN', 403);
+    }
+    if (msg.includes('PAY02_PROPOSAL_ALREADY_DECIDED')) {
+      throw new Pay02Error('PAY02_PROPOSAL_ALREADY_DECIDED', 409);
+    }
+    if (msg.includes('PAY02_STALE_PROPOSAL_VERSION_CONFLICT')) {
+      throw new Pay02Error('PAY02_STALE_PROPOSAL_VERSION_CONFLICT', 409);
+    }
+    if (msg.includes('PAY02_PROPOSAL_NOT_FOUND')) {
+      throw new Pay02Error('PAY02_PROPOSAL_NOT_FOUND', 404);
+    }
+    if (msg.includes('PAY02_LIVE_RELEASE_REQUIRES_SEPARATE_OWNER_AUTHORITY')) {
+      throw new Pay02Error('PAY02_LIVE_RELEASE_REQUIRES_SEPARATE_OWNER_AUTHORITY', 403);
+    }
+    if (msg.includes('PAY02_STRUCTURED_APPROVAL_EVIDENCE_REQUIRED')) {
       throw new Pay02Error('PAY02_STRUCTURED_APPROVAL_EVIDENCE_REQUIRED', 400);
     }
-
-    resultingVersion = currentVersion + 1;
-    effectStatus = 'effective_in_sandbox_catalogue';
-
-    if (dbProduct) {
-      const updatedProductPatch = {
-        current_version: resultingVersion,
-        activation_state: existing.proposed_state,
-        approved_amount_minor:
-          existing.proposed_amount_minor ?? dbProduct.approved_amount_minor,
-        approved_currency:
-          existing.proposed_currency ?? dbProduct.approved_currency,
-        price_authority_type:
-          existing.proposed_amount_minor !== null && dbProduct.price_authority_type === 'unapproved_missing'
-            ? 'fixed_catalogue'
-            : dbProduct.price_authority_type,
-        approval_evidence_ref: resolvedEvidence,
-        approved_by: reviewerId.trim(),
-        approved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      const { data: updatedProd, error: prodUpdateErr } = await db
-        .from('pay02_commercial_products')
-        .update(updatedProductPatch)
-        .eq('product_code', existing.product_code)
-        .select('*')
-        .single();
-      if (prodUpdateErr || !updatedProd) {
-        throw new Pay02Error('PAY02_PRODUCT_VERSION_TRANSITION_FAILED', 503);
-      }
-      const { error: verInsertErr } = await db
-        .from('pay02_commercial_product_versions')
-        .insert({
-          product_code: existing.product_code,
-          version: resultingVersion,
-          snapshot: updatedProd,
-          recorded_by: reviewerId.trim(),
-        });
-      if (verInsertErr) {
-        throw new Pay02Error('PAY02_VERSION_HISTORY_WRITE_FAILED', 503);
-      }
-    }
+    throw new Pay02Error('PAY02_PROPOSAL_REVIEW_FAILED', 503, { message: msg });
   }
-
-  const { data: updated, error: updateErr } = await db
-    .from('pay02_activation_proposals')
-    .update({
-      status: decision,
-      resulting_version: resultingVersion,
-      effect_status: effectStatus,
-      reviewer_id: reviewerId.trim(),
-      reviewer_role: String(reviewerRole).toLowerCase(),
-      review_notes: reviewNotes ? String(reviewNotes).trim() : null,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq('id', proposalId)
-    .select('*')
-    .single();
-  if (updateErr || !updated) throw new Pay02Error('PAY02_PROPOSAL_REVIEW_FAILED', 503);
-
+  if (!data || !data.id) {
+    throw new Pay02Error('PAY02_PROPOSAL_REVIEW_FAILED', 503);
+  }
   return {
-    proposal: updated,
+    proposal: data,
     effectiveCatalogueChanged: decision === 'approved',
     liveCommercialActive: false,
   };
@@ -1425,11 +1312,7 @@ export async function deliverVerifiedVehicleHistoryReport({
   if (!buyerId || typeof buyerId !== 'string' || !buyerId.trim()) {
     throw new Pay02Error('PAY02_PILOT_AUTH_REQUIRED', 401);
   }
-  if (!vin || typeof vin !== 'string' || !vin.trim()) {
-    throw new Pay02Error('PAY02_PILOT_VIN_REQUIRED', 400);
-  }
   const cleanBuyer = buyerId.trim();
-  const cleanVin = vin.trim();
 
   // Resolve persisted records from `db` whenever IDs are provided or records are not pre-supplied
   let resolvedQuote = quote;
@@ -1469,21 +1352,33 @@ export async function deliverVerifiedVehicleHistoryReport({
       if (pErr) throw new Pay02Error('PAY02_PILOT_DB_READ_FAILED', 503);
       resolvedPayment = pRow;
     }
-    if (!resolvedVehicle) {
-      const { data: vRow, error: vErr } = await db
-        .from('vehicles')
-        .select('*')
-        .eq('vin', cleanVin)
-        .maybeSingle();
-      if (vErr) throw new Pay02Error('PAY02_PILOT_DB_READ_FAILED', 503);
-      resolvedVehicle = vRow;
-    }
+  }
+
+  const effectiveVin = typeof vin === 'string' && vin.trim()
+    ? vin.trim()
+    : typeof resolvedOrder?.vin === 'string' && resolvedOrder.vin.trim()
+      ? resolvedOrder.vin.trim()
+      : null;
+  if (!effectiveVin) {
+    throw new Pay02Error('PAY02_PILOT_VIN_REQUIRED', 400);
+  }
+  const cleanVin = effectiveVin;
+
+  if (db && typeof db.from === 'function' && !resolvedVehicle) {
+    const { data: vRow, error: vErr } = await db
+      .from('vehicles')
+      .select('*')
+      .eq('vin', cleanVin)
+      .maybeSingle();
+    if (vErr) throw new Pay02Error('PAY02_PILOT_DB_READ_FAILED', 503);
+    resolvedVehicle = vRow;
   }
 
   if (!resolvedQuote) {
     throw new Pay02Error('PAY02_PILOT_QUOTE_NOT_FOUND', 404);
   }
   const qProductCode = resolvedQuote.product_code || resolvedQuote.productCode;
+  const qProductVersion = Number(resolvedQuote.product_version ?? resolvedQuote.productVersion ?? 0);
   const qPayerId = resolvedQuote.payer_id || resolvedQuote.payerId;
   const qSourceType = resolvedQuote.source_object_type || resolvedQuote.sourceObjectType;
   const qSourceId = resolvedQuote.source_object_id || resolvedQuote.sourceObjectId;
@@ -1493,7 +1388,11 @@ export async function deliverVerifiedVehicleHistoryReport({
   const qCurrency = String(resolvedQuote.currency || '').toUpperCase();
 
   if (
-    qProductCode !== 'intel.report.vehicle_history_single'
+    !qId
+    || !qPaymentRef
+    || !Number.isInteger(qProductVersion)
+    || qProductVersion < 1
+    || qProductCode !== 'intel.report.vehicle_history_single'
     || qPayerId !== cleanBuyer
     || qSourceType !== 'vehicles'
     || qSourceId !== cleanVin
@@ -1504,14 +1403,19 @@ export async function deliverVerifiedVehicleHistoryReport({
   if (!resolvedPayment) {
     throw new Pay02Error('PAY02_PILOT_CANONICAL_PAYMENT_MISSING', 409);
   }
-  // Bidirectional correlation check: payment must reference the exact quote AND quote must reference the exact payment!
+  const pQuoteId = resolvedPayment.pay02_quote_id || resolvedPayment.pay02QuoteId;
+  const pAccountId = resolvedPayment.pay01a_account_id || resolvedPayment.pay01aAccountId;
+  // Mandatory bidirectional correlation check (Section 7.2): all references must be non-null and strictly equal!
   if (
     resolvedPayment.gateway !== 'stripe_carup_japan_sandbox'
+    || pAccountId !== 'acct_1UVnGaEjgXqvlsJk'
     || resolvedPayment.pay01a_actor_id !== cleanBuyer
     || Number(resolvedPayment.amount) !== qTotalMinor
     || String(resolvedPayment.currency).toUpperCase() !== qCurrency
-    || (qPaymentRef && resolvedPayment.reference !== qPaymentRef)
-    || (qId && resolvedPayment.pay02_quote_id && resolvedPayment.pay02_quote_id !== qId)
+    || !resolvedPayment.reference
+    || resolvedPayment.reference !== qPaymentRef
+    || !pQuoteId
+    || pQuoteId !== qId
   ) {
     throw new Pay02Error('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH', 409);
   }
@@ -1538,16 +1442,25 @@ export async function deliverVerifiedVehicleHistoryReport({
   const oBuyerId = resolvedOrder.buyer_id || resolvedOrder.buyerId;
   const oQuoteId = resolvedOrder.quote_id || resolvedOrder.quoteId;
   const oPaymentRef = resolvedOrder.payment_reference || resolvedOrder.paymentReference;
-  const oVin = resolvedOrder.vin || cleanVin;
+  const oProductCode = resolvedOrder.product_code || resolvedOrder.productCode || 'intel.report.vehicle_history_single';
+  const oProductVersion = Number(
+    resolvedOrder.product_version ?? resolvedOrder.productVersion ?? qProductVersion,
+  );
+  const oVin = resolvedOrder.vin;
   const oStatus = resolvedOrder.entitlement_status || (resolvedOrder.grantedAt && !resolvedOrder.revokedAt ? 'entitled' : 'inactive');
   const oGranted = resolvedOrder.granted_at || resolvedOrder.grantedAt;
   const oRevoked = resolvedOrder.revoked_at || resolvedOrder.revokedAt;
 
   if (
     oBuyerId !== cleanBuyer
+    || !oVin
     || oVin !== cleanVin
-    || (qId && oQuoteId && oQuoteId !== qId)
-    || (oPaymentRef && oPaymentRef !== resolvedPayment.reference)
+    || !oQuoteId
+    || oQuoteId !== qId
+    || !oPaymentRef
+    || oPaymentRef !== resolvedPayment.reference
+    || oProductCode !== 'intel.report.vehicle_history_single'
+    || oProductVersion !== qProductVersion
   ) {
     throw new Pay02Error('PAY02_PILOT_ORDER_CORRELATION_MISMATCH', 403);
   }
@@ -1571,17 +1484,23 @@ export async function deliverVerifiedVehicleHistoryReport({
   // Idempotent fulfillment check: if this paid order already generated a report version, return it without creating a second version
   const existingVersionId = resolvedOrder.report_version_id || resolvedOrder.reportVersionId;
   if (existingVersionId && db && typeof db.from === 'function') {
-    const { data: existingVer } = await db
+    const { data: existingVer, error: existingVerErr } = await db
       .from('report_versions')
       .select('*')
       .eq('id', existingVersionId)
       .maybeSingle();
+    if (existingVerErr) {
+      throw new Pay02Error('PAY02_PILOT_DB_READ_FAILED', 503);
+    }
     if (existingVer && existingVer.payload) {
+      if (existingVer.revoked) {
+        throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_REVOKED_ON_REFUND', 403);
+      }
       const provenance = verifyVehicleReportProvenance(existingVer.payload, resolvedVehicle);
       return {
         productCode: 'intel.report.vehicle_history_single',
         vin: cleanVin,
-        quoteId: qId || null,
+        quoteId: qId,
         quoteNumber: resolvedQuote.quote_number || resolvedQuote.quoteNumber,
         orderId: resolvedOrder.id || null,
         paymentReference: resolvedPayment.reference,
@@ -1597,51 +1516,86 @@ export async function deliverVerifiedVehicleHistoryReport({
     }
   }
 
-  const report = await reportAssembler(db, cleanVin, { audience: 'buyer' });
-  const provenance = verifyVehicleReportProvenance(report, resolvedVehicle);
-  const snapshot = await versionGenerator(db, cleanVin, {
-    actorId: cleanBuyer,
-    audience: 'buyer',
-  });
+  const assembledReport = await reportAssembler(db, cleanVin, { audience: 'buyer' });
+  const provenance = verifyVehicleReportProvenance(assembledReport, resolvedVehicle);
 
-  if (db && typeof db.from === 'function' && resolvedOrder.id) {
-    await db
-      .from('pay02_report_orders')
-      .update({
-        report_version_id: snapshot.id,
-        report_version_number: snapshot.version,
-        report_content_hash: snapshot.content_hash,
-        completeness_summary: snapshot.completeness,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', resolvedOrder.id);
-
-    if (qId) {
-      await db
-        .from('pay02_commercial_quotes')
-        .update({
-          status: 'fulfilled',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', qId);
-    }
+  // R1-E: Verified report fulfillment strictly requires the transactional PostgreSQL RPC
+  // `pay03a_complete_report_fulfillment`. Never fall back to a weaker multi-step JS implementation.
+  if (!db || typeof db.rpc !== 'function' || !resolvedOrder.id) {
+    throw new Pay02Error('PAY03A_ATOMIC_FULFILLMENT_RPC_REQUIRED', 503, {
+      message:
+        'Verified vehicle history report fulfillment requires the transactional PostgreSQL RPC pay03a_complete_report_fulfillment.',
+    });
   }
 
+  const report = {
+    ...assembledReport,
+    commercial_snapshot: {
+      product_code: 'intel.report.vehicle_history_single',
+      product_version: qProductVersion,
+      order_id: resolvedOrder.id,
+      quote_id: qId,
+      quote_number: resolvedQuote.quote_number || resolvedQuote.quoteNumber || null,
+      payment_reference: resolvedPayment.reference,
+      buyer_id: cleanBuyer,
+      deliverable_type: 'immutable_buyer_owned_report_snapshot',
+      policy_status: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+    },
+  };
+
+  const computedHash = crypto.createHash('sha256').update(JSON.stringify(report)).digest('hex');
+  const { data: atomicFulfillment, error: rpcErr } = await db.rpc(
+    'pay03a_complete_report_fulfillment',
+    {
+      p_order_id: resolvedOrder.id,
+      p_buyer_id: cleanBuyer,
+      p_vin: cleanVin,
+      p_payload: report,
+      p_content_hash: computedHash,
+      p_completeness: report.completeness || {},
+    },
+  );
+  if (rpcErr) {
+    const msg = String(rpcErr.message || '');
+    if (msg.includes('PAY02_PILOT_ENTITLEMENT_SUSPENDED_ON_REFUND_PENDING')) {
+      throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_SUSPENDED_ON_REFUND_PENDING', 403);
+    }
+    if (
+      msg.includes('PAY02_PILOT_ENTITLEMENT_REVOKED_ON_REFUND')
+      || msg.includes('PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE')
+    ) {
+      throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE', 403);
+    }
+    if (msg.includes('PAY02_PILOT_ORDER_CORRELATION_MISMATCH')) {
+      throw new Pay02Error('PAY02_PILOT_ORDER_CORRELATION_MISMATCH', 403);
+    }
+    if (msg.includes('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH')) {
+      throw new Pay02Error('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH', 409);
+    }
+    throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503, { message: msg });
+  }
+  if (!atomicFulfillment || !atomicFulfillment.report_version_id) {
+    throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503);
+  }
+  const storedReport = atomicFulfillment.payload || report;
+  const storedProvenance = verifyVehicleReportProvenance(storedReport, resolvedVehicle);
   return {
     productCode: 'intel.report.vehicle_history_single',
     vin: cleanVin,
-    quoteId: qId || null,
+    quoteId: qId,
     quoteNumber: resolvedQuote.quote_number || resolvedQuote.quoteNumber,
-    orderId: resolvedOrder.id || null,
+    orderId: resolvedOrder.id,
     paymentReference: resolvedPayment.reference,
-    reportVersionId: snapshot.id,
-    reportVersion: snapshot.version,
-    contentHash: snapshot.content_hash,
-    completeness: snapshot.completeness,
-    provenance,
-    idempotentReplay: false,
-    issuanceStage: PAY02_REPORT_ISSUANCE_POLICY.authoritativeGeneration.stage,
-    report,
+    reportVersionId: atomicFulfillment.report_version_id,
+    reportVersion: Number(atomicFulfillment.report_version_number ?? 1),
+    contentHash: atomicFulfillment.report_content_hash || computedHash,
+    completeness: atomicFulfillment.completeness_summary || report.completeness,
+    provenance: storedProvenance,
+    idempotentReplay: Boolean(atomicFulfillment.idempotent_replay),
+    issuanceStage: atomicFulfillment.idempotent_replay
+      ? PAY02_REPORT_ISSUANCE_POLICY.paidAccess.stage
+      : PAY02_REPORT_ISSUANCE_POLICY.authoritativeGeneration.stage,
+    report: storedReport,
   };
 }
 
