@@ -262,6 +262,40 @@ export default function Pay02CommercialFoundation() {
     }
   }
 
+  const reconcilePay03aOrder = async (orderId: string) => {
+    if (pay03aRefundBusyId) return
+    setPay03aRefundBusyId(orderId)
+    setProposalMessage(null)
+    setError(null)
+    try {
+      const recovered = await apiRequest<
+        Pay03aAdminOrderRow & {
+          fulfillmentRecovery?: {
+            recovered: boolean
+            idempotentReplay: boolean
+            reportVersionId: string
+            reportVersion: number
+          } | null
+        }
+      >({
+        baseUrl: API_BASE,
+        path: `/pay03a/admin/orders/${encodeURIComponent(orderId)}/reconcile`,
+        options: { method: 'POST', body: JSON.stringify({}) },
+        authHeaders: buildAuthHeaders(),
+      })
+      setProposalMessage(
+        `Order ${recovered.orderId} (VIN ${recovered.vin}) reconciled (${recovered.paymentStatus}) — quote status ${recovered.quoteStatus}, report version ${recovered.reportVersionId || 'pending'}.`,
+      )
+      await loadPay03aAdminOrders()
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Unable to reconcile or recover PAY-03A order fulfillment.',
+      )
+    } finally {
+      setPay03aRefundBusyId(null)
+    }
+  }
+
   useEffect(() => {
     void loadCatalogue()
     void loadPay03aAdminOrders()
@@ -875,17 +909,30 @@ export default function Pay02CommercialFoundation() {
                           {ord.refundId ? ` · Refund ID: ${ord.refundId}` : ''}
                         </div>
                       </div>
-                      {ord.paymentStatus === 'paid' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={pay03aRefundBusyId === ord.orderId}
-                          onClick={() => void refundPay03aOrder(ord.orderId)}
-                          data-testid={`pay03a-admin-refund-${ord.orderId}`}
-                        >
-                          {pay03aRefundBusyId === ord.orderId ? 'Refunding…' : 'Issue Sandbox Refund'}
-                        </Button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {ord.paymentStatus === 'paid' && !ord.reportVersionId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pay03aRefundBusyId === ord.orderId}
+                            onClick={() => void reconcilePay03aOrder(ord.orderId)}
+                            data-testid={`pay03a-admin-reconcile-${ord.orderId}`}
+                          >
+                            Reconcile & Recover Fulfillment
+                          </Button>
+                        )}
+                        {ord.paymentStatus === 'paid' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pay03aRefundBusyId === ord.orderId}
+                            onClick={() => void refundPay03aOrder(ord.orderId)}
+                            data-testid={`pay03a-admin-refund-${ord.orderId}`}
+                          >
+                            {pay03aRefundBusyId === ord.orderId ? 'Refunding…' : 'Issue Sandbox Refund'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))
                 )}

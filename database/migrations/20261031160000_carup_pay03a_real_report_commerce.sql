@@ -1,10 +1,13 @@
 -- +migrate Up
--- CARUP-PAY-03A — Real Vehicle History Report Sandbox Commerce, Atomic Report Fulfillment & Entitlement Revocation
--- Authority: GitHub Issue #247 & Moderator CARUP-PAY-03A Directive
+-- CARUP-PAY-03A (R1) — Real Vehicle History Report Sandbox Commerce, Atomic Report Fulfillment & Entitlement Revocation
+-- Authority: GitHub Issue #247 & Moderator CARUP-PAY-03A-R1 Directive
 -- Additive, idempotent, non-production test/sandbox migration.
--- Reuses `public.payment_transactions`, `public.pay02_commercial_quotes`, `public.pay02_report_orders`, and `public.report_versions`.
+-- Preserves canonical `public.vehicles` and `public.report_versions` ownership, triggers, and RLS.
+-- Contains NO synthetic vehicle seeds and NO fallback canonical table replacements.
 BEGIN;
 
+-- 1. Explicit canonical schema dependency checks (R1-A & R1-C).
+--    Fails deterministically if PAY-02 foundation tables or canonical vehicle/report tables are absent.
 DO $$
 BEGIN
   IF to_regclass('public.payment_transactions') IS NULL
@@ -12,97 +15,74 @@ BEGIN
      OR to_regclass('public.pay02_report_orders') IS NULL THEN
     RAISE EXCEPTION 'PAY03A_REQUIRES_PAY02_FOUNDATION_SCHEMA';
   END IF;
+
+  IF to_regclass('public.vehicles') IS NULL
+     OR to_regclass('public.report_versions') IS NULL THEN
+    RAISE EXCEPTION 'PAY03A_REQUIRES_CANONICAL_VEHICLE_AND_REPORT_SCHEMA';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgrelid = 'public.report_versions'::regclass
+      AND tgname = 'trg_report_version_guard'
+      AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'PAY03A_REQUIRES_CANONICAL_REPORT_VERSION_GUARD';
+  END IF;
 END $$;
 
--- 1. Ensure canonical vehicle and report snapshot tables exist in isolated test DBs.
-CREATE TABLE IF NOT EXISTS public.vehicles (
-  vin text PRIMARY KEY,
-  make text NOT NULL,
-  model text NOT NULL,
-  generation text,
-  trim text,
-  year integer NOT NULL,
-  color text,
-  mileage integer NOT NULL DEFAULT 0,
-  fuel_type text,
-  drivetrain text,
-  transmission text,
-  import_source text,
-  duty_paid boolean DEFAULT false,
-  police_verified boolean DEFAULT false,
-  status text DEFAULT 'Available',
-  trust_score real DEFAULT 80.0,
-  price real NOT NULL DEFAULT 0,
-  currency text DEFAULT 'USD',
-  created_at timestamptz DEFAULT now()
-);
+-- 2. Minimal additive PAY-03A commercial snapshot columns on `public.report_versions` (R1-C & R1-D).
+--    Distinguishes legacy Milestone 4 report versions (`legacy_version`) from paid PAY-03A
+--    commercial snapshots (`pay03a_commercial_snapshot`) bound to `public.pay02_report_orders`.
+ALTER TABLE public.report_versions
+  ADD COLUMN IF NOT EXISTS report_tier text NOT NULL DEFAULT 'legacy_version'
+    CHECK (report_tier IN ('legacy_version', 'pay03a_commercial_snapshot')),
+  ADD COLUMN IF NOT EXISTS pay03a_order_id uuid
+    REFERENCES public.pay02_report_orders(id) ON DELETE RESTRICT;
 
-CREATE TABLE IF NOT EXISTS public.report_versions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  vin text NOT NULL REFERENCES public.vehicles(vin) ON DELETE CASCADE,
-  version integer NOT NULL DEFAULT 1,
-  generated_at timestamptz NOT NULL DEFAULT now(),
-  generated_by text,
-  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
-  content_hash text,
-  completeness jsonb NOT NULL DEFAULT '{}'::jsonb,
-  share_token text UNIQUE,
-  share_expires_at timestamptz,
-  revoked boolean NOT NULL DEFAULT false,
-  correction_notice text,
-  supersedes_version integer,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (vin, version)
-);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_versions_pay03a_order_id
+  ON public.report_versions(pay03a_order_id)
+  WHERE pay03a_order_id IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_report_versions_vin ON public.report_versions(vin, version DESC);
-CREATE INDEX IF NOT EXISTS idx_report_versions_share ON public.report_versions(share_token) WHERE share_token IS NOT NULL;
-
-CREATE OR REPLACE FUNCTION public.carup_report_version_guard()
-RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+-- 3. Additive immutability guard for PAY-03A commercial binding columns on `public.report_versions`.
+--    Does NOT replace `carup_report_version_guard()` or `trg_report_version_guard`.
+CREATE OR REPLACE FUNCTION public.pay03a_report_version_binding_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
 BEGIN
-  IF NEW.payload IS DISTINCT FROM OLD.payload
-     OR NEW.content_hash IS DISTINCT FROM OLD.content_hash
-     OR NEW.version IS DISTINCT FROM OLD.version
-     OR NEW.vin IS DISTINCT FROM OLD.vin THEN
-    RAISE EXCEPTION 'report_versions content is immutable; only share/revocation/correction fields may change';
+  IF NEW.report_tier IS DISTINCT FROM OLD.report_tier
+     OR NEW.pay03a_order_id IS DISTINCT FROM OLD.pay03a_order_id THEN
+    RAISE EXCEPTION 'PAY03A_REPORT_VERSION_COMMERCIAL_BINDING_IMMUTABLE';
   END IF;
   RETURN NEW;
 END $$;
 
-DROP TRIGGER IF EXISTS trg_report_version_guard ON public.report_versions;
-CREATE TRIGGER trg_report_version_guard
+DROP TRIGGER IF EXISTS trg_pay03a_report_version_binding_guard ON public.report_versions;
+CREATE TRIGGER trg_pay03a_report_version_binding_guard
   BEFORE UPDATE ON public.report_versions
-  FOR EACH ROW EXECUTE FUNCTION public.carup_report_version_guard();
+  FOR EACH ROW EXECUTE FUNCTION public.pay03a_report_version_binding_guard();
 
-ALTER TABLE public.report_versions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.report_versions FROM PUBLIC, anon, authenticated;
+-- Preserve existing table grants on `public.report_versions` while ensuring `service_role` can read/write.
 GRANT SELECT, INSERT, UPDATE ON TABLE public.report_versions TO service_role;
 
--- 2. Seed deterministic real test vehicles in isolated test DBs if not already present.
-INSERT INTO public.vehicles (
-  vin, make, model, generation, trim, year, color, mileage,
-  fuel_type, drivetrain, transmission, import_source, duty_paid, police_verified,
-  status, trust_score, price, currency
-) VALUES
-  (
-    'WBA3A5C51DF358101', 'BMW', '320i', 'F30', 'M Sport', 2019, 'Alpine White', 54200,
-    'Petrol', 'RWD', 'Automatic', 'Japan (Yokohama)', true, true,
-    'Available', 91.5, 16800, 'USD'
-  ),
-  (
-    'JTDBR32E820112202', 'Toyota', 'Hilux', 'AN120', 'GD-6 Double Cab', 2021, 'Silver Metallic', 68400,
-    'Diesel', '4WD', 'Automatic', 'Japan (Nagoya)', true, true,
-    'Available', 94.0, 34500, 'USD'
-  ),
-  (
-    'DBA-GRS204-0005303', 'Toyota', 'Crown Athlete', 'S200', '3.5G Package', 2016, 'Pearl Black', 81900,
-    'Petrol', 'RWD', 'Automatic', 'Japan (Osaka)', false, true,
-    'In Transit', 86.0, 12900, 'USD'
-  )
-ON CONFLICT (vin) DO NOTHING;
+-- Additive RESTRICTIVE policy on `public.report_versions`:
+-- Legacy report versions (`report_tier = 'legacy_version' AND pay03a_order_id IS NULL`) remain governed
+-- by their existing Milestone 4 RLS policies unchanged. Paid commercial snapshots cannot be read directly
+-- via PostgREST by `anon` or `authenticated`, enforcing server-side entitlement verification.
+DROP POLICY IF EXISTS pay03a_paid_report_entitlement_guard ON public.report_versions;
+CREATE POLICY pay03a_paid_report_entitlement_guard
+  ON public.report_versions
+  AS RESTRICTIVE
+  FOR SELECT
+  TO anon, authenticated
+  USING (
+    report_tier = 'legacy_version'
+    AND pay03a_order_id IS NULL
+  );
 
--- 3. Upgrade `public.pay02_sync_quote_from_canonical_payment` so refund_pending/refunded
+-- 4. Upgrade `public.pay02_sync_quote_from_canonical_payment` so refund_pending/refunded
 --    also revokes any bound `public.report_versions` snapshot and invalidates share access.
 CREATE OR REPLACE FUNCTION public.pay02_sync_quote_from_canonical_payment(p_reference text)
 RETURNS jsonb
@@ -205,16 +185,7 @@ BEGIN
   );
 END $$;
 
--- 4. Atomic, Concurrency-Safe Report Fulfillment RPC (`public.pay03a_complete_report_fulfillment`)
---    Enforces Section 7.2, 7.3 & 7.4:
---    - Locks `pay02_report_orders`, `pay02_commercial_quotes`, and `payment_transactions` `FOR UPDATE`.
---    - Verifies all mandatory non-null bidirectional correlations (`quote_id`, `payment_reference`,
---      `buyer_id`, `vin`, `product_code`, `product_version`, `pay01a_account_id`, `amount`, `currency`).
---    - If `report_version_id` is already bound on `pay02_report_orders`, returns the existing version
---      with `idempotent_replay = true` without inserting a duplicate `report_versions` row!
---    - Otherwise, serializes on `vehicles(vin) FOR UPDATE`, inserts the single `report_versions` row,
---      binds `report_version_id` on `pay02_report_orders`, marks `pay02_commercial_quotes.status = 'fulfilled'`,
---      and returns the bound snapshot.
+-- 5. Atomic, Concurrency-Safe Report Fulfillment RPC (`public.pay03a_complete_report_fulfillment`)
 CREATE OR REPLACE FUNCTION public.pay03a_complete_report_fulfillment(
   p_order_id uuid,
   p_buyer_id text,
@@ -233,6 +204,7 @@ DECLARE
   v_report_ver public.report_versions%ROWTYPE;
   v_prev_max_ver integer;
   v_next_ver integer;
+  v_generated_by text;
 BEGIN
   IF p_order_id IS NULL
      OR coalesce(length(trim(p_buyer_id)), 0) = 0
@@ -266,7 +238,7 @@ BEGIN
     RAISE EXCEPTION 'PAY02_PILOT_VEHICLE_RECORD_NOT_FOUND';
   END IF;
 
-  -- Mandatory non-null bidirectional cross-reference checks (Section 7.2)
+  -- Mandatory non-null bidirectional cross-reference checks
   IF v_order.buyer_id <> trim(p_buyer_id)
      OR v_quote.payer_id <> trim(p_buyer_id)
      OR v_payment.pay01a_actor_id <> trim(p_buyer_id)
@@ -312,7 +284,7 @@ BEGIN
     RAISE EXCEPTION 'PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE';
   END IF;
 
-  -- Idempotent replay: if a concurrent call already bound `report_version_id`, return that exact version!
+  -- Idempotent replay: if a concurrent call already bound `report_version_id`, return that exact version
   IF v_order.report_version_id IS NOT NULL THEN
     SELECT * INTO v_report_ver FROM public.report_versions
       WHERE id = v_order.report_version_id;
@@ -338,6 +310,7 @@ BEGIN
       'report_content_hash', v_report_ver.content_hash,
       'completeness_summary', v_report_ver.completeness,
       'payload', v_report_ver.payload,
+      'report_tier', v_report_ver.report_tier,
       'idempotent_replay', true
     );
   END IF;
@@ -347,12 +320,20 @@ BEGIN
     WHERE vin = trim(p_vin);
   v_next_ver := v_prev_max_ver + 1;
 
+  v_generated_by := NULL;
+  IF to_regclass('public.users') IS NOT NULL THEN
+    SELECT id INTO v_generated_by FROM public.users WHERE id = trim(p_buyer_id);
+  END IF;
+
   INSERT INTO public.report_versions (
-    vin, version, generated_at, generated_by, payload, content_hash, completeness, supersedes_version
+    vin, version, generated_at, generated_by, payload, content_hash, completeness,
+    supersedes_version, report_tier, pay03a_order_id
   ) VALUES (
-    trim(p_vin), v_next_ver, now(), NULL, p_payload, trim(p_content_hash),
+    trim(p_vin), v_next_ver, now(), v_generated_by, p_payload, trim(p_content_hash),
     coalesce(p_completeness, '{}'::jsonb),
-    CASE WHEN v_prev_max_ver > 0 THEN v_prev_max_ver ELSE NULL END
+    CASE WHEN v_prev_max_ver > 0 THEN v_prev_max_ver ELSE NULL END,
+    'pay03a_commercial_snapshot',
+    v_order.id
   )
   RETURNING * INTO v_report_ver;
 
@@ -387,6 +368,7 @@ BEGIN
     'report_content_hash', v_report_ver.content_hash,
     'completeness_summary', v_report_ver.completeness,
     'payload', v_report_ver.payload,
+    'report_tier', v_report_ver.report_tier,
     'idempotent_replay', false
   );
 END $$;

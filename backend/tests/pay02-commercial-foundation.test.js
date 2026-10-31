@@ -1047,6 +1047,25 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
     };
   };
 
+  let rpcFulfillCalls = 0;
+  // R1-E: Missing atomic fulfillment RPC must fail closed without multi-step fallback
+  await assert.rejects(
+    deliverVerifiedVehicleHistoryReport({
+      buyerId: 'buyer-pilot-01',
+      vin: 'WBA00000000000101',
+      quote,
+      canonicalPayment: paidTx,
+      entitlementOrder: activeEntitlement,
+      vehicleRecord: vehicleRow,
+      db: null,
+      reportAssembler: fakeAssembler,
+      versionGenerator: fakeVersionGen,
+    }),
+    /PAY03A_ATOMIC_FULFILLMENT_RPC_REQUIRED/,
+  );
+  assert.equal(assembledCount, 1);
+
+  assembledCount = 0;
   const delivered = await deliverVerifiedVehicleHistoryReport({
     buyerId: 'buyer-pilot-01',
     vin: 'WBA00000000000101',
@@ -1054,13 +1073,32 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
     canonicalPayment: paidTx,
     entitlementOrder: activeEntitlement,
     vehicleRecord: vehicleRow,
-    db: null,
+    db: {
+      rpc: async (fnName, params) => {
+        assert.equal(fnName, 'pay03a_complete_report_fulfillment');
+        assert.equal(params.p_order_id, activeEntitlement.id);
+        assert.equal(params.p_buyer_id, 'buyer-pilot-01');
+        assert.equal(params.p_vin, 'WBA00000000000101');
+        rpcFulfillCalls += 1;
+        return {
+          data: {
+            report_version_id: 'rep_ver_001',
+            report_version_number: 1,
+            content_hash: 'sha256_canonical_report_001',
+            completeness: { lifecycle_source_coverage: 0.75 },
+            idempotent_replay: false,
+          },
+          error: null,
+        };
+      },
+    },
     reportAssembler: fakeAssembler,
     versionGenerator: fakeVersionGen,
   });
 
   assert.equal(assembledCount, 1);
-  assert.equal(versionGenCount, 1);
+  assert.equal(rpcFulfillCalls, 1);
+  assert.equal(versionGenCount, 0, 'Must use atomic RPC rather than multi-step versionGenerator fallback');
   assert.equal(delivered.productCode, 'intel.report.vehicle_history_single');
   assert.equal(delivered.reportVersionId, 'rep_ver_001');
   assert.equal(delivered.idempotentReplay, false);
@@ -1105,7 +1143,7 @@ test('PAY02-PILOT & R1-E: real vehicle history report enforces bidirectional DB 
   });
   assert.equal(replayed.idempotentReplay, true);
   assert.equal(replayed.reportVersionId, 'rep_ver_001');
-  assert.equal(versionGenCount, 1, 'Must not generate a second report version for the same paid order');
+  assert.equal(rpcFulfillCalls, 1, 'Must not generate a second report version for the same paid order');
 
   // Unrelated paid transaction (wrong quote correlation) is refused
   await assert.rejects(

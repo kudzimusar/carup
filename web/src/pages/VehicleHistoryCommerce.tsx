@@ -45,10 +45,36 @@ export interface Pay03aVehicleItem {
   status?: string
   trustScore?: number | null
   eligibleForReport: boolean
+  eligibilityStatus?: string
+  ineligibilityReason?: string | null
+  historicalEventCount?: number
+  evidenceIndexCount?: number
+  isSyntheticFixture?: boolean
+}
+
+export interface Pay03aDeliverableComparison {
+  policyStatus: string
+  freeLiveReport: {
+    endpoint: string
+    cost: string
+    nature: string
+    includes: string[]
+    excludes: string[]
+  }
+  paidCommercialSnapshot: {
+    productCode: string
+    cost: string
+    nature: string
+    includes: string[]
+    honestyDisclosure: string
+  }
 }
 
 export interface Pay03aVehicleReadiness {
   eligibleForPurchase: boolean
+  eligibilityStatus?: string
+  ineligibilityReason?: string | null
+  ineligibilityDetail?: string | null
   sandboxOnly: boolean
   liveCommercialActive: boolean
   productCode: string
@@ -63,12 +89,15 @@ export interface Pay03aVehicleReadiness {
     classesMissing: string[]
     classesUnavailable: string[]
     timelineEventCount: number
+    historicalEventCount?: number
+    evidenceIndexCount?: number
     keyAlertCount: number
     listingSnapshotCount: number
     mileageObservationCount: number
     limitations: string[]
     prePurchaseDisclosure: string
   }
+  deliverableComparison?: Pay03aDeliverableComparison
   commercialTerms: {
     mode: string
     authoritative: boolean
@@ -624,9 +653,31 @@ export default function VehicleHistoryCommerce() {
                               </p>
                               <p className="font-mono text-xs text-slate-600">VIN: {veh.vin}</p>
                             </div>
-                            <Badge variant={isSelected ? 'default' : 'outline'}>
-                              {isSelected ? 'Selected' : 'Select VIN'}
-                            </Badge>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {veh.isSyntheticFixture && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-300 bg-amber-50 text-amber-800"
+                                  data-testid={`pay03a-vehicle-fixture-badge-${veh.vin}`}
+                                >
+                                  Synthetic Test Fixture
+                                </Badge>
+                              )}
+                              <Badge
+                                variant={veh.eligibleForReport ? (isSelected ? 'default' : 'outline') : 'outline'}
+                                className={
+                                  !veh.eligibleForReport
+                                    ? 'border-red-300 bg-red-50 text-red-700'
+                                    : undefined
+                                }
+                              >
+                                {!veh.eligibleForReport
+                                  ? 'Ineligible (Metadata Only)'
+                                  : isSelected
+                                    ? 'Selected'
+                                    : 'Select VIN'}
+                              </Badge>
+                            </div>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
                             {veh.mileage != null && <span>Odometer: {veh.mileage.toLocaleString()} km</span>}
@@ -716,7 +767,59 @@ export default function VehicleHistoryCommerce() {
                             </ul>
                           </div>
                         )}
+
+                        {!readiness.eligibleForPurchase && (
+                          <div
+                            className="mt-2 space-y-1 rounded-lg border border-red-300 bg-red-50 p-3 text-red-900"
+                            data-testid="pay03a-ineligible-banner"
+                          >
+                            <p className="font-semibold">
+                              Purchase Refused Before Charging ({readiness.ineligibilityReason || 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE'})
+                            </p>
+                            <p>
+                              {readiness.ineligibilityDetail
+                                || 'This vehicle record contains only basic VIN/identity metadata with zero historical lifecycle evidence. Checkout is disabled so customers are never billed for a metadata-only record.'}
+                            </p>
+                          </div>
+                        )}
                       </div>
+
+                      {readiness.deliverableComparison && (
+                        <div
+                          className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/60 p-3 text-xs text-slate-800"
+                          data-testid="pay03a-deliverable-comparison"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-blue-950">
+                              Free Live Route vs Paid Sandbox Snapshot Deliverable
+                            </span>
+                            <Badge variant="outline" className="border-blue-300 text-[10px] text-blue-900">
+                              {readiness.deliverableComparison.policyStatus}
+                            </Badge>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                              <p className="font-semibold text-slate-900">
+                                Free Route (<code className="font-mono">{readiness.deliverableComparison.freeLiveReport.endpoint}</code>)
+                              </p>
+                              <p className="mt-1 text-slate-600">
+                                {readiness.deliverableComparison.freeLiveReport.nature}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-orange-200 bg-white p-2.5">
+                              <p className="font-semibold text-slate-900">
+                                Paid Snapshot (<code className="font-mono">{readiness.deliverableComparison.paidCommercialSnapshot.productCode}</code>)
+                              </p>
+                              <p className="mt-1 text-slate-600">
+                                {readiness.deliverableComparison.paidCommercialSnapshot.nature}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-slate-600">
+                            {readiness.deliverableComparison.paidCommercialSnapshot.honestyDisclosure}
+                          </p>
+                        </div>
+                      )}
 
                       <dl className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-xs text-slate-600">
                         <div>

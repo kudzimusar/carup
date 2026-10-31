@@ -45,6 +45,77 @@ import {
 export const PAY03A_PRODUCT_CODE = 'intel.report.vehicle_history_single';
 export const PAY03A_CHECKOUT_LABEL = 'CarUp Vehicle History Report — Single VIN (Sandbox Test Only)';
 
+/**
+ * R1-B: Explicit comparison between the free live vehicle-history route (`GET /api/vehicles/:vin/report`)
+ * and the paid PAY-03A sandbox deliverable (`intel.report.vehicle_history_single`).
+ * Discloses clearly that this differentiation is a candidate sandbox product policy pending Owner sign-off
+ * and does not claim exclusive or secret external data sources.
+ */
+export const PAY03A_DELIVERABLE_COMPARISON = Object.freeze({
+  policyStatus: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+  freeLiveReport: {
+    endpoint: 'GET /api/vehicles/:vin/report',
+    cost: 'Free (authenticated live view)',
+    nature: 'Ephemeral on-demand live read of current vehicle state and timeline.',
+    includes: [
+      'On-demand buyer-safe vehicle identity and completeness summary',
+      'Live timeline and disclosure view as of the current request instant',
+    ],
+    excludes: [
+      'No immutable timestamped report_versions snapshot or SHA-256 content_hash certificate',
+      'No buyer-owned commercial order record or durable archive guarantee',
+      'No buyer-controlled expiring share link (/api/reports/shared/:token)',
+    ],
+  },
+  paidCommercialSnapshot: {
+    productCode: PAY03A_PRODUCT_CODE,
+    cost: 'JPY 100 (Sandbox Test Fixture — Not Final Commercial Tariff)',
+    nature:
+      'Immutable, versioned, SHA-256 content-hashed report_versions snapshot bound 1:1 to a verified buyer order and canonical payment_transactions record.',
+    includes: [
+      'Requires verified historical lifecycle evidence before checkout is allowed (metadata-only VINs refused before charging)',
+      'Immutable buyer-owned report_versions snapshot with cryptographic SHA-256 content_hash and generation timestamp',
+      'Durable buyer order archive (/api/pay03a/orders/:orderId/report) backed by canonical payment_transactions',
+      'Buyer-controlled expiring share link (/api/reports/shared/:token) with fail-closed entitlement & refund revocation enforcement',
+    ],
+    honestyDisclosure:
+      'Paid sandbox fulfillment uses the same underlying CarUp canonical vehicle lifecycle engine (assembleReport) as the live route; it does not claim exclusive external registry or secret data sources.',
+  },
+});
+
+function evaluateHistoricalEvidence(assembled, vehicle = null) {
+  const timeline = Array.isArray(assembled?.timeline) ? assembled.timeline : [];
+  const historicalEvents = timeline.filter((e) => e && e.source_kind !== 'current_listing');
+  const evidenceIndex = Array.isArray(assembled?.evidence_index) ? assembled.evidence_index : [];
+  const listingHistory = Array.isArray(assembled?.listing_history) ? assembled.listing_history : [];
+  const keyAlerts = Array.isArray(assembled?.key_alerts) ? assembled.key_alerts : [];
+  const hasHistoricalEvidence =
+    historicalEvents.length > 0
+    || evidenceIndex.length > 0
+    || listingHistory.length > 0
+    || keyAlerts.length > 0;
+  const isSyntheticFixture = Boolean(vehicle?.specifications?.pay03a_synthetic_fixture === true);
+
+  return {
+    hasHistoricalEvidence,
+    eligibleForPurchase: hasHistoricalEvidence,
+    eligibilityStatus: hasHistoricalEvidence
+      ? 'eligible_evidence_backed'
+      : 'ineligible_metadata_only_vehicle',
+    ineligibilityReason: hasHistoricalEvidence
+      ? null
+      : 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+    ineligibilityDetail: hasHistoricalEvidence
+      ? null
+      : 'This vehicle record contains only basic VIN/identity metadata with zero historical lifecycle evidence, inspection records, or listing history. Purchase is refused before charging so customers are not billed for an empty metadata-only report.',
+    historicalEventCount: historicalEvents.length,
+    evidenceIndexCount: evidenceIndex.length,
+    listingSnapshotCount: listingHistory.length,
+    keyAlertCount: keyAlerts.length,
+    isSyntheticFixture,
+  };
+}
+
 const PAYMENT_COLUMNS =
   'reference, gateway, amount, currency, status, pay01a_actor_id, pay01a_account_id, pay01a_checkout_id, pay01a_intent_id, pay01a_refund_id, pay02_quote_id, pay02_product_code, pay02_product_version, pay02_commercial_category, pay02_funds_owner, pay02_legal_beneficiary, pay02_settlement_status, created_at, updated_at';
 
@@ -140,6 +211,7 @@ export async function inspectVehicleReportReadiness({
   }
 
   const provenance = verifyVehicleReportProvenance(assembled, vehicle);
+  const eligibility = evaluateHistoricalEvidence(assembled, vehicle);
   const product = getPay02CatalogueItem(PAY03A_PRODUCT_CODE);
   const quotePreview = previewPay02Quote({
     productCode: PAY03A_PRODUCT_CODE,
@@ -158,7 +230,10 @@ export async function inspectVehicleReportReadiness({
     : 0;
 
   return {
-    eligibleForPurchase: true,
+    eligibleForPurchase: eligibility.eligibleForPurchase,
+    eligibilityStatus: eligibility.eligibilityStatus,
+    ineligibilityReason: eligibility.ineligibilityReason,
+    ineligibilityDetail: eligibility.ineligibilityDetail,
     sandboxOnly: true,
     liveCommercialActive: false,
     productCode: PAY03A_PRODUCT_CODE,
@@ -179,6 +254,7 @@ export async function inspectVehicleReportReadiness({
       policeVerified: Boolean(vehicle.police_verified),
       status: vehicle.status || 'Available',
       trustScore: vehicle.trust_score ?? null,
+      isSyntheticFixture: eligibility.isSyntheticFixture,
     },
     readiness: {
       reportSchema: assembled.schema || 'vehicle_history_report.v1',
@@ -189,6 +265,8 @@ export async function inspectVehicleReportReadiness({
       classesMissing: provenance.classesMissing || [],
       classesUnavailable: provenance.classesUnavailable || [],
       timelineEventCount: timelineCount,
+      historicalEventCount: eligibility.historicalEventCount,
+      evidenceIndexCount: eligibility.evidenceIndexCount,
       keyAlertCount: alertCount,
       listingSnapshotCount: listingCount,
       mileageObservationCount: mileageObservationsCount,
@@ -196,6 +274,7 @@ export async function inspectVehicleReportReadiness({
       prePurchaseDisclosure:
         'This pre-purchase summary discloses available CarUp data classes and known source limitations before payment. Missing or unread external sources are explicitly disclosed in the report and are never represented as a clean vehicle history.',
     },
+    deliverableComparison: PAY03A_DELIVERABLE_COMPARISON,
     commercialTerms: {
       mode: quotePreview.mode,
       authoritative: false,
@@ -223,6 +302,7 @@ export async function listEligibleReportVehicles({
   search = '',
   limit = 20,
   db = supabase,
+  reportAssembler = assembleReport,
   env = process.env,
 } = {}) {
   requirePay03aSandbox(env);
@@ -249,16 +329,30 @@ export async function listEligibleReportVehicles({
     );
   });
 
-  const product = getPay02CatalogueItem(PAY03A_PRODUCT_CODE);
-  return {
-    productCode: PAY03A_PRODUCT_CODE,
-    productTitle: product.title,
-    sandboxOnly: true,
-    merchantOfRecord: 'CarUp Japan (Sandbox)',
-    sandboxAccountId: PAY01A_ACCOUNT,
-    currency: product.approvedCurrency,
-    amountMinor: product.approvedAmountMinor,
-    vehicles: rows.map((v) => ({
+  const vehicles = [];
+  for (const v of rows) {
+    let eligibility = {
+      eligibleForPurchase: true,
+      eligibilityStatus: 'eligible_evidence_backed',
+      ineligibilityReason: null,
+      historicalEventCount: 0,
+      evidenceIndexCount: 0,
+      isSyntheticFixture: Boolean(v?.specifications?.pay03a_synthetic_fixture === true),
+    };
+    try {
+      const assembled = await reportAssembler(db, v.vin, { audience: 'buyer' });
+      eligibility = evaluateHistoricalEvidence(assembled, v);
+    } catch {
+      eligibility = {
+        eligibleForPurchase: false,
+        eligibilityStatus: 'readiness_unavailable',
+        ineligibilityReason: 'PAY03A_REPORT_READINESS_CHECK_FAILED',
+        historicalEventCount: 0,
+        evidenceIndexCount: 0,
+        isSyntheticFixture: Boolean(v?.specifications?.pay03a_synthetic_fixture === true),
+      };
+    }
+    vehicles.push({
       vin: v.vin,
       make: v.make,
       model: v.model,
@@ -274,8 +368,26 @@ export async function listEligibleReportVehicles({
       policeVerified: Boolean(v.police_verified),
       status: v.status || 'Available',
       trustScore: v.trust_score ?? null,
-      eligibleForReport: true,
-    })),
+      eligibleForReport: eligibility.eligibleForPurchase,
+      eligibilityStatus: eligibility.eligibilityStatus,
+      ineligibilityReason: eligibility.ineligibilityReason,
+      historicalEventCount: eligibility.historicalEventCount,
+      evidenceIndexCount: eligibility.evidenceIndexCount,
+      isSyntheticFixture: eligibility.isSyntheticFixture,
+    });
+  }
+
+  const product = getPay02CatalogueItem(PAY03A_PRODUCT_CODE);
+  return {
+    productCode: PAY03A_PRODUCT_CODE,
+    productTitle: product.title,
+    sandboxOnly: true,
+    merchantOfRecord: 'CarUp Japan (Sandbox)',
+    sandboxAccountId: PAY01A_ACCOUNT,
+    currency: product.approvedCurrency,
+    amountMinor: product.approvedAmountMinor,
+    deliverableComparison: PAY03A_DELIVERABLE_COMPARISON,
+    vehicles,
   };
 }
 
@@ -441,6 +553,19 @@ export async function createPay03aReportCheckout({
     reportAssembler,
     env,
   });
+
+  // R1-B: Refuse checkout before charging if the vehicle record is metadata-only with zero historical evidence
+  if (!readiness.eligibleForPurchase) {
+    throw new Pay02Error(
+      readiness.ineligibilityReason || 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+      422,
+      {
+        vin: cleanVin,
+        eligibilityStatus: readiness.eligibilityStatus,
+        message: readiness.ineligibilityDetail,
+      },
+    );
+  }
 
   // 2. Verify Stripe sandbox account identity before mutating payment checkout state
   const { api, config } = await resolveStripeSandboxClient({ env, stripe });
@@ -728,6 +853,7 @@ export async function createPay03aBuyerShareLink({
   const clampedTtl = Math.min(Math.max(Number(ttlSeconds) || 7 * 24 * 3600, 300), 30 * 24 * 3600);
   const link = await createShareLink(db, refreshed.order.report_version_id, {
     ttlSeconds: clampedTtl,
+    authorizedPay03aOrderId: refreshed.order.id,
   });
   const updatedCtx = await loadOrderWithContext(db, orderId, cleanBuyer);
 
@@ -736,6 +862,69 @@ export async function createPay03aBuyerShareLink({
     shareToken: link.share_token,
     shareExpiresAt: link.share_expires_at,
     sharePath: `/api/reports/shared/${link.share_token}`,
+  };
+}
+
+/**
+ * R1-E: Admin-only reconciliation and idempotent report-fulfillment recovery for an order
+ * whose payment succeeded (`status = 'paid'`, `quote.status = 'paid_verified'`) before report
+ * fulfillment completed (`quote.status = 'fulfilled'`), without creating a duplicate payment or report version.
+ */
+export async function reconcileAndFulfillPay03aAdminOrder({
+  orderId,
+  db = supabase,
+  env = process.env,
+  stripe = null,
+  reportAssembler = assembleReport,
+  versionGenerator = generateReportVersion,
+} = {}) {
+  requirePay03aSandbox(env, { requireStripe: true });
+  const initial = await loadOrderWithContext(db, orderId);
+
+  await reconcilePay01aPayment({
+    reference: initial.order.payment_reference,
+    actorId: initial.order.buyer_id,
+    db,
+    env,
+    stripe,
+  });
+  const { error: syncErr } = await db.rpc('pay02_sync_quote_from_canonical_payment', {
+    p_reference: initial.order.payment_reference,
+  });
+  if (syncErr) {
+    throw new Pay02Error('PAY03A_PAYMENT_SYNC_FAILED', 503, { message: syncErr.message });
+  }
+
+  let refreshed = await loadOrderWithContext(db, orderId);
+  let fulfillmentRecovery = null;
+  if (
+    refreshed.payment.status === 'paid'
+    && refreshed.order.entitlement_status === 'entitled'
+    && !refreshed.order.revoked_at
+  ) {
+    const delivered = await deliverVerifiedVehicleHistoryReport({
+      buyerId: refreshed.order.buyer_id,
+      vin: refreshed.order.vin,
+      orderId: refreshed.order.id,
+      quoteId: refreshed.quote.id,
+      db,
+      reportAssembler,
+      versionGenerator,
+      env,
+    });
+    fulfillmentRecovery = {
+      recovered: true,
+      idempotentReplay: Boolean(delivered.idempotentReplay),
+      reportVersionId: delivered.reportVersionId,
+      reportVersion: delivered.reportVersion,
+      contentHash: delivered.contentHash,
+    };
+    refreshed = await loadOrderWithContext(db, orderId);
+  }
+
+  return {
+    ...projectOrderRecord(refreshed),
+    fulfillmentRecovery,
   };
 }
 

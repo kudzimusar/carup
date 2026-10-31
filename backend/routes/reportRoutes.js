@@ -31,8 +31,15 @@ router.post('/api/vehicles/:vin/report/versions', authorizeRole(['owner', 'deale
 
 router.post('/api/report-versions/:id/share', authorizeRole(['owner', 'dealer', 'admin', 'government']), asyncHandler(async (req, res) => {
   const ttlSeconds = Number(req.body.ttl_seconds) || undefined;
-  const link = await createShareLink(supabase, req.params.id, ttlSeconds ? { ttlSeconds } : {});
-  res.status(201).json(link);
+  try {
+    const link = await createShareLink(supabase, req.params.id, ttlSeconds ? { ttlSeconds } : {});
+    res.status(201).json(link);
+  } catch (err) {
+    if (err?.statusCode === 403) {
+      return res.status(403).json({ error: err.message });
+    }
+    throw err;
+  }
 }));
 
 router.post('/api/report-versions/:id/revoke', authorizeRole(['owner', 'dealer', 'admin', 'government']), asyncHandler(async (req, res) => {
@@ -44,7 +51,13 @@ router.get('/api/reports/shared/:token', asyncHandler(async (req, res) => {
   const result = await getReportByShareToken(supabase, req.params.token);
   if (!result.ok) {
     if (result.reason === 'not_found') throw new NotFoundError('Shared report not found');
+    if (result.reason === 'entitlement_unavailable') {
+      return res.status(503).json({ error: 'Shared report entitlement authority unavailable' });
+    }
     return res.status(410).json({ error: `Shared report ${result.reason}` }); // 410 Gone for expired/revoked
+  }
+  if (result.report_tier === 'pay03a_commercial_snapshot') {
+    res.setHeader('Cache-Control', 'private, no-store');
   }
   res.json({ version: result.version, generated_at: result.generated_at, correction_notice: result.correction_notice, report: result.report });
 }));

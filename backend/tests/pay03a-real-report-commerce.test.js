@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 
 process.env.NODE_ENV = 'test';
@@ -15,6 +17,7 @@ process.env.SUPABASE_URL = 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'offline-fixture-only';
 
 const {
+  PAY03A_DELIVERABLE_COMPARISON,
   listEligibleReportVehicles,
   inspectVehicleReportReadiness,
   createPay03aReportCheckout,
@@ -24,6 +27,7 @@ const {
   createPay03aBuyerShareLink,
   listPay03aAdminOrders,
   readPay03aAdminOrder,
+  reconcileAndFulfillPay03aAdminOrder,
   refundPay03aAdminOrder,
 } = await import('../services/payment/pay03aReportCommerceService.js');
 
@@ -33,7 +37,11 @@ const {
 } = await import('../services/payment/pay02Service.js');
 
 const { processPay01aWebhook } = await import('../services/payment/pay01aService.js');
-const { getReportByShareToken } = await import('../services/report/reportService.js');
+const {
+  assembleReport,
+  createShareLink,
+  getReportByShareToken,
+} = await import('../services/report/reportService.js');
 const { supabase } = await import('../db/supabase.js');
 const pay03aRoutes = (await import('../routes/pay03aRoutes.js')).default;
 
@@ -57,6 +65,10 @@ function createInMemoryPay03aHarness() {
         police_verified: true,
         status: 'Available',
         trust_score: 91.5,
+        specifications: {
+          pay03a_synthetic_fixture: true,
+          fixture_authority: 'backend/tests/sql/fixtures/pay03a-synthetic-vehicle-fixtures.sql',
+        },
       },
     ],
     [
@@ -77,9 +89,68 @@ function createInMemoryPay03aHarness() {
         police_verified: true,
         status: 'Available',
         trust_score: 94.0,
+        specifications: {
+          pay03a_synthetic_fixture: true,
+          fixture_authority: 'backend/tests/sql/fixtures/pay03a-synthetic-vehicle-fixtures.sql',
+        },
+      },
+    ],
+    [
+      'DBA-GRS204-0005303',
+      {
+        vin: 'DBA-GRS204-0005303',
+        make: 'Toyota',
+        model: 'Crown Athlete',
+        generation: 'S200',
+        trim: '3.5G Package',
+        year: 2011,
+        color: 'Black',
+        mileage: 112500,
+        fuel_type: 'Petrol',
+        transmission: 'Automatic',
+        import_source: 'Japan (Osaka)',
+        duty_paid: true,
+        police_verified: true,
+        status: 'Available',
+        trust_score: 88.0,
+        specifications: {
+          pay03a_synthetic_fixture: true,
+          pay03a_fixture_role: 'metadata_only_ineligible_control',
+        },
       },
     ],
   ]);
+
+  const vehicleEvidence = [
+    {
+      id: 'ev-wba-1',
+      vin: 'WBA3A5C51DF358101',
+      evidence_type: 'export_inspection_certificate',
+      evidence_class: 'inspection',
+      title: 'JEVIC Pre-Export Odometer & Structural Inspection (Yokohama)',
+      source_type: 'inspection_agency',
+      verification_status: 'verified',
+      visibility_level: 'public_safe',
+      odometer_value: 53800,
+      odometer_unit: 'km',
+      event_date: '2026-08-15',
+      captured_at: '2026-08-15T09:30:00Z',
+    },
+    {
+      id: 'ev-jtd-1',
+      vin: 'JTDBR32E820112202',
+      evidence_type: 'export_inspection_certificate',
+      evidence_class: 'inspection',
+      title: 'JAAI Pre-Shipment Roadworthiness Inspection (Nagoya)',
+      source_type: 'inspection_agency',
+      verification_status: 'verified',
+      visibility_level: 'public_safe',
+      odometer_value: 68100,
+      odometer_unit: 'km',
+      event_date: '2026-09-01',
+      captured_at: '2026-09-01T10:00:00Z',
+    },
+  ];
 
   const quotes = new Map();
   const quotesByPayerIdem = new Map();
@@ -88,6 +159,12 @@ function createInMemoryPay03aHarness() {
   const reportOrders = new Map();
   const reportOrdersByQuote = new Map();
   const reportVersions = new Map();
+  const seenWebhookEvents = new Set();
+  const faultInjection = {
+    failOrderLookup: false,
+    failPaymentLookup: false,
+    failNextFulfillmentRpc: false,
+  };
 
   const sessions = new Map([
     ['tok-buyer-1', { user_id: 'buyer-03a-1', is_valid: true, expires_at: '2099-01-01T00:00:00Z' }],
@@ -223,6 +300,12 @@ function createInMemoryPay03aHarness() {
         return builder;
       },
       async maybeSingle() {
+        if (table === 'pay02_report_orders' && faultInjection.failOrderLookup) {
+          return { data: null, error: { message: 'simulated_order_lookup_failure' } };
+        }
+        if (table === 'payment_transactions' && faultInjection.failPaymentLookup) {
+          return { data: null, error: { message: 'simulated_payment_lookup_failure' } };
+        }
         const rows = await resolveRows();
         return { data: rows[0] || null, error: null };
       },
@@ -231,6 +314,18 @@ function createInMemoryPay03aHarness() {
         return { data: rows[0] || null, error: null };
       },
       then(onFulfilled, onRejected) {
+        if (table === 'pay02_report_orders' && faultInjection.failOrderLookup) {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'simulated_order_lookup_failure' },
+          }).then(onFulfilled, onRejected);
+        }
+        if (table === 'payment_transactions' && faultInjection.failPaymentLookup) {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'simulated_payment_lookup_failure' },
+          }).then(onFulfilled, onRejected);
+        }
         return resolveRows()
           .then((data) => ({ data, error: null }))
           .then(onFulfilled, onRejected);
@@ -240,6 +335,7 @@ function createInMemoryPay03aHarness() {
     async function resolveRows() {
       let rows = [];
       if (table === 'vehicles') rows = Array.from(vehicles.values());
+      else if (table === 'vehicle_evidence') rows = vehicleEvidence.slice();
       else if (table === 'pay02_commercial_quotes') rows = Array.from(quotes.values());
       else if (table === 'payment_transactions') rows = Array.from(payments.values());
       else if (table === 'pay02_report_orders') rows = Array.from(reportOrders.values());
@@ -456,11 +552,13 @@ function createInMemoryPay03aHarness() {
       if (fnName === 'pay01a_apply_provider_snapshot') {
         const pay = payments.get(args.p_reference);
         if (!pay) return { data: null, error: { message: 'not_found' } };
+        const duplicateEvent = Boolean(args.p_event_id && seenWebhookEvents.has(args.p_event_id));
+        if (args.p_event_id) seenWebhookEvents.add(args.p_event_id);
         pay.status = args.p_status;
         if (args.p_intent_id) pay.pay01a_intent_id = args.p_intent_id;
         if (args.p_refund_id) pay.pay01a_refund_id = args.p_refund_id;
         pay.updated_at = new Date().toISOString();
-        return { data: { ...pay, duplicate_event: false }, error: null };
+        return { data: { ...pay, duplicate_event: duplicateEvent }, error: null };
       }
 
       if (fnName === 'pay01a_begin_refund') {
@@ -517,6 +615,10 @@ function createInMemoryPay03aHarness() {
       }
 
       if (fnName === 'pay03a_complete_report_fulfillment') {
+        if (faultInjection.failNextFulfillmentRpc) {
+          faultInjection.failNextFulfillmentRpc = false;
+          return { data: null, error: { message: 'simulated_transient_fulfillment_rpc_failure' } };
+        }
         const ord = reportOrders.get(args.p_order_id);
         if (!ord) return { data: null, error: { message: 'PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE' } };
         const q = quotes.get(ord.quote_id);
@@ -565,6 +667,8 @@ function createInMemoryPay03aHarness() {
           payload: args.p_payload,
           content_hash: args.p_content_hash,
           completeness: args.p_completeness,
+          report_tier: 'pay03a_commercial_snapshot',
+          pay03a_order_id: ord.id,
           share_token: null,
           share_expires_at: null,
           revoked: false,
@@ -605,6 +709,7 @@ function createInMemoryPay03aHarness() {
     payments,
     reportOrders,
     reportVersions,
+    faultInjection,
   };
 }
 
@@ -733,22 +838,12 @@ test('PAY03A Section 7: Pre-Checkout Contract Hardening (atomic governance RPC, 
     /PAY02_PILOT_ORDER_CORRELATION_MISMATCH/,
   );
 
-  // 7.4 Database update failure must throw an explicit error rather than returning success
-  const failingUpdateDb = {
+  // 7.4 Missing atomic RPC or RPC failure must throw an explicit error rather than returning partial state
+  const noRpcDb = {
     from: () => ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({ data: null, error: null }),
-        }),
-      }),
-      update: () => ({
-        eq: () => ({
-          select: () => ({
-            maybeSingle: async () => ({
-              data: null,
-              error: { message: 'simulated_db_write_failure' },
-            }),
-          }),
         }),
       }),
     }),
@@ -761,7 +856,7 @@ test('PAY03A Section 7: Pre-Checkout Contract Hardening (atomic governance RPC, 
       canonicalPayment: basePayment,
       entitlementOrder: baseOrder,
       vehicleRecord: baseVehicle,
-      db: failingUpdateDb,
+      db: noRpcDb,
       reportAssembler: async (_db, vin) => ({
         vin,
         audience: 'buyer',
@@ -769,25 +864,55 @@ test('PAY03A Section 7: Pre-Checkout Contract Hardening (atomic governance RPC, 
         completeness: { lifecycle_source_coverage: 0.75 },
         limitations: ['Explicit limitation disclosure.'],
       }),
-      versionGenerator: async (_db, vin) => ({
-        id: 'rep_ver_fail_test',
+    }),
+    /PAY03A_ATOMIC_FULFILLMENT_RPC_REQUIRED/,
+  );
+
+  const failingRpcDb = {
+    rpc: async () => ({
+      data: null,
+      error: { message: 'simulated_db_write_failure' },
+    }),
+  };
+  await assert.rejects(
+    deliverVerifiedVehicleHistoryReport({
+      buyerId: 'buyer-1',
+      vin: 'WBA3A5C51DF358101',
+      quote: baseQuote,
+      canonicalPayment: basePayment,
+      entitlementOrder: baseOrder,
+      vehicleRecord: baseVehicle,
+      db: failingRpcDb,
+      reportAssembler: async (_db, vin) => ({
         vin,
-        version: 1,
-        content_hash: 'hash_1',
+        audience: 'buyer',
+        identity: { vin, make: 'BMW', model: '320i' },
         completeness: { lifecycle_source_coverage: 0.75 },
+        limitations: ['Explicit limitation disclosure.'],
       }),
     }),
     /PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED/,
   );
 });
 
-test('PAY03A Pre-Purchase Readiness: verifies real vehicle in public.vehicles, discloses limitations before payment, and refuses unknown or synthetic VINs', async () => {
+test('PAY03A Pre-Purchase Readiness & R1-B Evidence Policy: verifies real vehicle in public.vehicles, enforces historical evidence eligibility, discloses Free vs Paid deliverables, and refuses metadata-only or unknown VINs', async () => {
   const harness = createInMemoryPay03aHarness();
 
   const list = await listEligibleReportVehicles({ db: harness.db });
   assert.equal(list.productCode, 'intel.report.vehicle_history_single');
-  assert.equal(list.vehicles.length, 2);
+  assert.equal(list.vehicles.length, 3);
   assert.equal(list.vehicles[0].vin, 'WBA3A5C51DF358101');
+  assert.equal(list.vehicles[0].eligibleForReport, true);
+  assert.equal(list.vehicles[0].eligibilityStatus, 'eligible_evidence_backed');
+  assert.equal(list.vehicles[0].isSyntheticFixture, true);
+  assert.equal(list.vehicles[2].vin, 'DBA-GRS204-0005303');
+  assert.equal(list.vehicles[2].eligibleForReport, false);
+  assert.equal(list.vehicles[2].eligibilityStatus, 'ineligible_metadata_only_vehicle');
+  assert.equal(list.vehicles[2].ineligibilityReason, 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE');
+  assert.equal(
+    list.deliverableComparison.policyStatus,
+    'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+  );
 
   const readiness = await inspectVehicleReportReadiness({
     vin: 'WBA3A5C51DF358101',
@@ -795,12 +920,51 @@ test('PAY03A Pre-Purchase Readiness: verifies real vehicle in public.vehicles, d
     db: harness.db,
   });
   assert.equal(readiness.eligibleForPurchase, true);
+  assert.equal(readiness.eligibilityStatus, 'eligible_evidence_backed');
   assert.equal(readiness.vehicle.vin, 'WBA3A5C51DF358101');
   assert.equal(readiness.vehicle.make, 'BMW');
+  assert.equal(readiness.vehicle.isSyntheticFixture, true);
+  assert.ok(readiness.readiness.historicalEventCount >= 1);
+  assert.ok(readiness.readiness.evidenceIndexCount >= 1);
   assert.equal(readiness.commercialTerms.amountMinor, 100);
   assert.equal(readiness.commercialTerms.currency, 'JPY');
   assert.equal(readiness.commercialTerms.sandboxAccountId, 'acct_1UVnGaEjgXqvlsJk');
   assert.ok(readiness.readiness.limitations.length >= 1, 'Must disclose limitations before charging');
+  assert.deepEqual(readiness.deliverableComparison, PAY03A_DELIVERABLE_COMPARISON);
+
+  // R1-B: Free live route (`assembleReport`) vs Paid deliverable comparison
+  const freeLiveReport = await assembleReport(harness.db, 'WBA3A5C51DF358101', { audience: 'buyer' });
+  assert.equal(freeLiveReport.vin, 'WBA3A5C51DF358101');
+  assert.equal(
+    freeLiveReport.commercial_snapshot,
+    undefined,
+    'Free live route must not attach paid commercial_snapshot metadata or report_versions binding',
+  );
+
+  // R1-B: Metadata-only vehicle (`DBA-GRS204-0005303`) is marked ineligible and refused before charging
+  const metadataOnlyReadiness = await inspectVehicleReportReadiness({
+    vin: 'DBA-GRS204-0005303',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+  });
+  assert.equal(metadataOnlyReadiness.eligibleForPurchase, false);
+  assert.equal(metadataOnlyReadiness.eligibilityStatus, 'ineligible_metadata_only_vehicle');
+  assert.equal(metadataOnlyReadiness.ineligibilityReason, 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE');
+  assert.equal(metadataOnlyReadiness.readiness.historicalEventCount, 0);
+  assert.equal(metadataOnlyReadiness.readiness.evidenceIndexCount, 0);
+
+  await assert.rejects(
+    createPay03aReportCheckout({
+      buyerId: 'buyer-03a-1',
+      vin: 'DBA-GRS204-0005303',
+      requestKey: 'pay03a_req_metadata_only_01',
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    (err) => err && err.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE' && err.status === 422,
+  );
+  assert.equal(harness.quotes.size, 0, 'Must not issue a commercial quote for an ineligible metadata-only VIN');
+  assert.equal(harness.payments.size, 0, 'Must not claim a payment transaction for an ineligible metadata-only VIN');
 
   // Unknown VIN is refused before creating a quote or charging
   await assert.rejects(
@@ -1032,7 +1196,21 @@ test('PAY03A HTTP Routes: enforces session role boundaries, Cache-Control header
     });
     assert.equal(vehRes.status, 200);
     const vehBody = await vehRes.json();
-    assert.equal(vehBody.vehicles.length, 2);
+    assert.equal(vehBody.vehicles.length, 3);
+
+    // Metadata-only VIN is refused at HTTP checkout with 422 before charging
+    const ineligibleCheckoutRes = await fetch(`${baseUrl}/api/pay03a/orders/checkout`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-session-token': 'tok-buyer-1',
+        'Idempotency-Key': 'pay03a_http_ineligible_0001',
+      },
+      body: JSON.stringify({ vin: 'DBA-GRS204-0005303' }),
+    });
+    assert.equal(ineligibleCheckoutRes.status, 422);
+    const ineligibleBody = await ineligibleCheckoutRes.json();
+    assert.equal(ineligibleBody.code, 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE');
 
     const readyRes = await fetch(`${baseUrl}/api/pay03a/vehicles/JTDBR32E820112202/readiness`, {
       headers: { 'x-session-token': 'tok-buyer-1' },
@@ -1099,4 +1277,302 @@ test('PAY03A HTTP Routes: enforces session role boundaries, Cache-Control header
     supabase.from = origFrom;
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('PAY03A R1-A & R1-C: Product migration contains zero synthetic vehicle inserts or canonical table fallback redefinitions and preserves report_versions guard', async () => {
+  const migrationPath = path.resolve(
+    process.cwd(),
+    'database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql',
+  );
+  const fixturePath = path.resolve(
+    process.cwd(),
+    'backend/tests/sql/fixtures/pay03a-synthetic-vehicle-fixtures.sql',
+  );
+  const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+  const fixtureSql = fs.readFileSync(fixturePath, 'utf8');
+
+  // R1-A: Zero synthetic vehicle inserts in product migration
+  assert.ok(!/INSERT\s+INTO\s+public\.vehicles/i.test(migrationSql));
+  assert.ok(!/WBA3A5C51DF358101/.test(migrationSql));
+  assert.ok(!/JTDBR32E820112202/.test(migrationSql));
+  assert.ok(!/DBA-GRS204-0005303/.test(migrationSql));
+
+  // R1-C: Zero fallback CREATE TABLE for canonical vehicles or report_versions
+  assert.ok(!/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+public\.vehicles/i.test(migrationSql));
+  assert.ok(!/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+public\.report_versions/i.test(migrationSql));
+  assert.ok(!/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.carup_report_version_guard/i.test(migrationSql));
+
+  // Explicit dependency checks and restrictive RLS guard exist in migration
+  assert.match(migrationSql, /PAY03A_REQUIRES_CANONICAL_VEHICLE_AND_REPORT_SCHEMA/);
+  assert.match(migrationSql, /PAY03A_REQUIRES_CANONICAL_REPORT_VERSION_GUARD/);
+  assert.match(migrationSql, /pay03a_paid_report_entitlement_guard/);
+  assert.match(migrationSql, /AS\s+RESTRICTIVE/i);
+
+  // Synthetic fixtures live exclusively in segregated test fixture file with database guard
+  assert.match(fixtureSql, /PAY03A_SYNTHETIC_FIXTURE_FORBIDDEN_OUTSIDE_DISPOSABLE_TEST_DB/);
+  assert.match(fixtureSql, /WBA3A5C51DF358101/);
+  assert.match(fixtureSql, /JTDBR32E820112202/);
+  assert.match(fixtureSql, /DBA-GRS204-0005303/);
+});
+
+test('PAY03A R1-D: Paid Report Share-Link Entitlement Matrix (all 10 positive/negative cases, fail-closed DB error handling, legacy compatibility, and direct-route guard)', async () => {
+  const harness = createInMemoryPay03aHarness();
+
+  // Create and fulfill a paid order for WBA3A5C51DF358101
+  const checkoutRes = await createPay03aReportCheckout({
+    buyerId: 'buyer-03a-1',
+    vin: 'WBA3A5C51DF358101',
+    requestKey: 'pay03a_r1d_matrix_key_001',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.markCheckoutPaid(checkoutRes.checkoutId);
+  const verifiedOrder = await verifyPay03aBuyerOrder({
+    buyerId: 'buyer-03a-1',
+    orderId: checkoutRes.orderId,
+    refresh: true,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  const paidVerId = verifiedOrder.reportVersionId;
+  assert.ok(paidVerId);
+
+  // Case 10: Direct call to createShareLink on a paid commercial snapshot without authorizedPay03aOrderId is refused
+  await assert.rejects(
+    createShareLink(harness.db, paidVerId, { ttlSeconds: 3600 }),
+    (err) => err && err.code === 'PAY03A_DIRECT_SHARE_ROUTE_FORBIDDEN',
+  );
+
+  // Case 1: Valid paid share link via governed buyer order endpoint before refund succeeds
+  const shareRes = await createPay03aBuyerShareLink({
+    buyerId: 'buyer-03a-1',
+    orderId: checkoutRes.orderId,
+    ttlSeconds: 3600,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.match(shareRes.shareToken, /^pay03a_shr_/);
+  const case1 = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case1.ok, true);
+  assert.equal(case1.entitlement_verified, true);
+  assert.equal(case1.order_id, checkoutRes.orderId);
+
+  // Case 6a: Database lookup error on pay02_report_orders fails closed (`entitlement_unavailable`)
+  harness.faultInjection.failOrderLookup = true;
+  const case6a = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case6a.ok, false);
+  assert.equal(case6a.reason, 'entitlement_unavailable');
+  harness.faultInjection.failOrderLookup = false;
+
+  // Case 6b: Database lookup error on payment_transactions fails closed (`entitlement_unavailable`)
+  harness.faultInjection.failPaymentLookup = true;
+  const case6b = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case6b.ok, false);
+  assert.equal(case6b.reason, 'entitlement_unavailable');
+  harness.faultInjection.failPaymentLookup = false;
+
+  // Case 4: Order in `refund_pending` / `refund_suspended` is denied immediately
+  const payRow = harness.payments.get(checkoutRes.paymentReference);
+  const ordRow = harness.reportOrders.get(checkoutRes.orderId);
+  payRow.status = 'refund_pending';
+  ordRow.entitlement_status = 'refund_suspended';
+  const case4 = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case4.ok, false);
+  assert.equal(case4.reason, 'revoked');
+  payRow.status = 'paid';
+  ordRow.entitlement_status = 'entitled';
+
+  // Case 2: Expired share link is denied
+  const paidVerRow = harness.reportVersions.get(paidVerId);
+  const validExpiry = paidVerRow.share_expires_at;
+  paidVerRow.share_expires_at = '2020-01-01T00:00:00.000Z';
+  const case2 = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case2.ok, false);
+  assert.equal(case2.reason, 'expired');
+  paidVerRow.share_expires_at = validExpiry;
+
+  // Case 3: Explicitly revoked share link is denied
+  paidVerRow.revoked = true;
+  const case3 = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case3.ok, false);
+  assert.equal(case3.reason, 'revoked');
+  paidVerRow.revoked = false;
+
+  // Case 8: A different report_versions row for the same VIN cannot inherit the paid order's entitlement
+  const otherVerId = '00000000-0000-4000-8000-000000000999';
+  harness.reportVersions.set(otherVerId, {
+    id: otherVerId,
+    vin: 'WBA3A5C51DF358101',
+    version: 99,
+    generated_at: new Date().toISOString(),
+    payload: paidVerRow.payload,
+    content_hash: 'hash_other_99',
+    completeness: {},
+    report_tier: 'pay03a_commercial_snapshot',
+    pay03a_order_id: checkoutRes.orderId,
+    share_token: 'pay03a_shr_other_version_spoof',
+    share_expires_at: validExpiry,
+    revoked: false,
+  });
+  const case8 = await getReportByShareToken(harness.db, 'pay03a_shr_other_version_spoof');
+  assert.equal(case8.ok, false);
+  assert.equal(case8.reason, 'revoked');
+
+  // Case 7: Paid commercial snapshot whose pay02_report_orders row is missing fails closed
+  const orphanVerId = '00000000-0000-4000-8000-000000000998';
+  harness.reportVersions.set(orphanVerId, {
+    id: orphanVerId,
+    vin: 'WBA3A5C51DF358101',
+    version: 98,
+    generated_at: new Date().toISOString(),
+    payload: { vin: 'WBA3A5C51DF358101' },
+    content_hash: 'hash_orphan_98',
+    completeness: {},
+    report_tier: 'pay03a_commercial_snapshot',
+    pay03a_order_id: null,
+    share_token: 'pay03a_shr_orphan_missing_order',
+    share_expires_at: validExpiry,
+    revoked: false,
+  });
+  const case7 = await getReportByShareToken(harness.db, 'pay03a_shr_orphan_missing_order');
+  assert.equal(case7.ok, false);
+  assert.equal(case7.reason, 'revoked');
+
+  // Case 5: Full refund revokes order entitlement and denies share token access
+  await refundPay03aAdminOrder({
+    orderId: checkoutRes.orderId,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  const case5 = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case5.ok, false);
+  assert.equal(case5.reason, 'revoked');
+
+  // Case 9: Legacy Milestone 4 report version (`report_tier = 'legacy_version'`) remains functional
+  const legacyVerId = '00000000-0000-4000-8000-000000000997';
+  harness.reportVersions.set(legacyVerId, {
+    id: legacyVerId,
+    vin: 'WBA3A5C51DF358101',
+    version: 1,
+    generated_at: new Date().toISOString(),
+    payload: { vin: 'WBA3A5C51DF358101', schema: 'vehicle_history_report.v1' },
+    content_hash: 'hash_legacy_01',
+    completeness: {},
+    report_tier: 'legacy_version',
+    pay03a_order_id: null,
+    share_token: null,
+    share_expires_at: null,
+    revoked: false,
+  });
+  const legacyLink = await createShareLink(harness.db, legacyVerId, { ttlSeconds: 3600 });
+  assert.ok(!legacyLink.share_token.startsWith('pay03a_shr_'));
+  const case9 = await getReportByShareToken(harness.db, legacyLink.share_token);
+  assert.equal(case9.ok, true);
+  assert.equal(case9.report.vin, 'WBA3A5C51DF358101');
+});
+
+test('PAY03A R1-E: Interrupted Fulfillment Recovery (duplicate signed webhook retry, buyer manual verify, and admin /reconcile recover without duplicate payment or report version)', async () => {
+  const harness = createInMemoryPay03aHarness();
+
+  // Part 1: Webhook payment succeeds, first fulfillment RPC fails transiently, duplicate signed webhook retry recovers idempotently
+  const checkout1 = await createPay03aReportCheckout({
+    buyerId: 'buyer-03a-1',
+    vin: 'WBA3A5C51DF358101',
+    requestKey: 'pay03a_r1e_webhook_retry_01',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.markCheckoutPaid(checkout1.checkoutId);
+
+  const signedWebhook1 = {
+    id: 'evt_pay03a_r1e_retry_001',
+    type: 'checkout.session.completed',
+    livemode: false,
+    account: 'acct_1UVnGaEjgXqvlsJk',
+    data: {
+      object: {
+        id: checkout1.checkoutId,
+        client_reference_id: checkout1.paymentReference,
+        metadata: { carup_reference: checkout1.paymentReference },
+      },
+    },
+  };
+
+  // Inject transient failure in `pay03a_complete_report_fulfillment` on first webhook delivery
+  harness.faultInjection.failNextFulfillmentRpc = true;
+  await assert.rejects(
+    processPay01aWebhook({
+      rawBody: Buffer.from(JSON.stringify(signedWebhook1), 'utf8'),
+      signature: 'valid_sig',
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    /PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED/,
+  );
+
+  // Payment is now `paid` and quote is `paid_verified`, but report version was not created yet
+  assert.equal(harness.payments.get(checkout1.paymentReference).status, 'paid');
+  assert.equal(harness.quotes.get(checkout1.quoteId).status, 'paid_verified');
+  assert.equal(harness.reportOrders.get(checkout1.orderId).report_version_id, null);
+  assert.equal(harness.reportVersions.size, 0);
+
+  // Retrying the EXACT SAME signed webhook event (`evt_pay03a_r1e_retry_001`) succeeds and completes fulfillment
+  const retryWebhookRes = await processPay01aWebhook({
+    rawBody: Buffer.from(JSON.stringify(signedWebhook1), 'utf8'),
+    signature: 'valid_sig',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.equal(retryWebhookRes.verified, true);
+  assert.equal(retryWebhookRes.duplicateEvent, true);
+  assert.equal(harness.quotes.get(checkout1.quoteId).status, 'fulfilled');
+  assert.ok(harness.reportOrders.get(checkout1.orderId).report_version_id);
+  assert.equal(harness.reportVersions.size, 1);
+
+  // Part 2: Admin reconciliation/recovery (`reconcileAndFulfillPay03aAdminOrder`) recovers an interrupted order
+  const checkout2 = await createPay03aReportCheckout({
+    buyerId: 'buyer-03a-2',
+    vin: 'JTDBR32E820112202',
+    requestKey: 'pay03a_r1e_admin_recover_02',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.markCheckoutPaid(checkout2.checkoutId);
+
+  // First buyer verification fails during fulfillment RPC
+  harness.faultInjection.failNextFulfillmentRpc = true;
+  await assert.rejects(
+    verifyPay03aBuyerOrder({
+      buyerId: 'buyer-03a-2',
+      orderId: checkout2.orderId,
+      refresh: true,
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    /PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED/,
+  );
+  assert.equal(harness.quotes.get(checkout2.quoteId).status, 'paid_verified');
+  assert.equal(harness.reportOrders.get(checkout2.orderId).report_version_id, null);
+
+  // Admin triggers `/reconcile` (`reconcileAndFulfillPay03aAdminOrder`) -> fulfills atomically
+  const adminRecovered = await reconcileAndFulfillPay03aAdminOrder({
+    orderId: checkout2.orderId,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.equal(adminRecovered.quoteStatus, 'fulfilled');
+  assert.equal(adminRecovered.entitlementStatus, 'entitled');
+  assert.equal(adminRecovered.reportAvailable, true);
+  assert.equal(adminRecovered.fulfillmentRecovery.recovered, true);
+  assert.equal(adminRecovered.fulfillmentRecovery.idempotentReplay, false);
+
+  // Second admin `/reconcile` call is an idempotent replay with zero duplicate report versions
+  const adminRecoveredReplay = await reconcileAndFulfillPay03aAdminOrder({
+    orderId: checkout2.orderId,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.equal(adminRecoveredReplay.fulfillmentRecovery.idempotentReplay, true);
+  assert.equal(adminRecoveredReplay.reportVersionId, adminRecovered.reportVersionId);
+  assert.equal(harness.reportVersions.size, 2, 'Total report versions across both orders must remain 2');
 });

@@ -1516,128 +1516,86 @@ export async function deliverVerifiedVehicleHistoryReport({
     }
   }
 
-  const report = await reportAssembler(db, cleanVin, { audience: 'buyer' });
-  const provenance = verifyVehicleReportProvenance(report, resolvedVehicle);
+  const assembledReport = await reportAssembler(db, cleanVin, { audience: 'buyer' });
+  const provenance = verifyVehicleReportProvenance(assembledReport, resolvedVehicle);
 
-  // Concurrency-safe atomic fulfillment via PostgreSQL SECURITY DEFINER RPC when available (Section 7.3 & 7.4)
-  if (db && typeof db.rpc === 'function' && resolvedOrder.id) {
-    const computedHash = crypto.createHash('sha256').update(JSON.stringify(report)).digest('hex');
-    const { data: atomicFulfillment, error: rpcErr } = await db.rpc(
-      'pay03a_complete_report_fulfillment',
-      {
-        p_order_id: resolvedOrder.id,
-        p_buyer_id: cleanBuyer,
-        p_vin: cleanVin,
-        p_payload: report,
-        p_content_hash: computedHash,
-        p_completeness: report.completeness || {},
-      },
-    );
-    if (rpcErr) {
-      const msg = String(rpcErr.message || '');
-      if (msg.includes('PAY02_PILOT_ENTITLEMENT_SUSPENDED_ON_REFUND_PENDING')) {
-        throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_SUSPENDED_ON_REFUND_PENDING', 403);
-      }
-      if (msg.includes('PAY02_PILOT_ENTITLEMENT_REVOKED_ON_REFUND') || msg.includes('PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE')) {
-        throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE', 403);
-      }
-      if (msg.includes('PAY02_PILOT_ORDER_CORRELATION_MISMATCH')) {
-        throw new Pay02Error('PAY02_PILOT_ORDER_CORRELATION_MISMATCH', 403);
-      }
-      if (msg.includes('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH')) {
-        throw new Pay02Error('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH', 409);
-      }
-      throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503, { message: msg });
-    }
-    if (!atomicFulfillment || !atomicFulfillment.report_version_id) {
-      throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503);
-    }
-    const storedReport = atomicFulfillment.payload || report;
-    const storedProvenance = verifyVehicleReportProvenance(storedReport, resolvedVehicle);
-    return {
-      productCode: 'intel.report.vehicle_history_single',
-      vin: cleanVin,
-      quoteId: qId,
-      quoteNumber: resolvedQuote.quote_number || resolvedQuote.quoteNumber,
-      orderId: resolvedOrder.id,
-      paymentReference: resolvedPayment.reference,
-      reportVersionId: atomicFulfillment.report_version_id,
-      reportVersion: Number(atomicFulfillment.report_version_number ?? 1),
-      contentHash: atomicFulfillment.report_content_hash || computedHash,
-      completeness: atomicFulfillment.completeness_summary || report.completeness,
-      provenance: storedProvenance,
-      idempotentReplay: Boolean(atomicFulfillment.idempotent_replay),
-      issuanceStage: atomicFulfillment.idempotent_replay
-        ? PAY02_REPORT_ISSUANCE_POLICY.paidAccess.stage
-        : PAY02_REPORT_ISSUANCE_POLICY.authoritativeGeneration.stage,
-      report: storedReport,
-    };
+  // R1-E: Verified report fulfillment strictly requires the transactional PostgreSQL RPC
+  // `pay03a_complete_report_fulfillment`. Never fall back to a weaker multi-step JS implementation.
+  if (!db || typeof db.rpc !== 'function' || !resolvedOrder.id) {
+    throw new Pay02Error('PAY03A_ATOMIC_FULFILLMENT_RPC_REQUIRED', 503, {
+      message:
+        'Verified vehicle history report fulfillment requires the transactional PostgreSQL RPC pay03a_complete_report_fulfillment.',
+    });
   }
 
-  const snapshot = await versionGenerator(db, cleanVin, {
-    actorId: cleanBuyer,
-    audience: 'buyer',
-  });
-  if (!snapshot || !snapshot.id) {
+  const report = {
+    ...assembledReport,
+    commercial_snapshot: {
+      product_code: 'intel.report.vehicle_history_single',
+      product_version: qProductVersion,
+      order_id: resolvedOrder.id,
+      quote_id: qId,
+      quote_number: resolvedQuote.quote_number || resolvedQuote.quoteNumber || null,
+      payment_reference: resolvedPayment.reference,
+      buyer_id: cleanBuyer,
+      deliverable_type: 'immutable_buyer_owned_report_snapshot',
+      policy_status: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+    },
+  };
+
+  const computedHash = crypto.createHash('sha256').update(JSON.stringify(report)).digest('hex');
+  const { data: atomicFulfillment, error: rpcErr } = await db.rpc(
+    'pay03a_complete_report_fulfillment',
+    {
+      p_order_id: resolvedOrder.id,
+      p_buyer_id: cleanBuyer,
+      p_vin: cleanVin,
+      p_payload: report,
+      p_content_hash: computedHash,
+      p_completeness: report.completeness || {},
+    },
+  );
+  if (rpcErr) {
+    const msg = String(rpcErr.message || '');
+    if (msg.includes('PAY02_PILOT_ENTITLEMENT_SUSPENDED_ON_REFUND_PENDING')) {
+      throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_SUSPENDED_ON_REFUND_PENDING', 403);
+    }
+    if (
+      msg.includes('PAY02_PILOT_ENTITLEMENT_REVOKED_ON_REFUND')
+      || msg.includes('PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE')
+    ) {
+      throw new Pay02Error('PAY02_PILOT_ENTITLEMENT_NOT_ACTIVE', 403);
+    }
+    if (msg.includes('PAY02_PILOT_ORDER_CORRELATION_MISMATCH')) {
+      throw new Pay02Error('PAY02_PILOT_ORDER_CORRELATION_MISMATCH', 403);
+    }
+    if (msg.includes('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH')) {
+      throw new Pay02Error('PAY02_PILOT_CANONICAL_PAYMENT_MISMATCH', 409);
+    }
+    throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503, { message: msg });
+  }
+  if (!atomicFulfillment || !atomicFulfillment.report_version_id) {
     throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503);
   }
-
-  if (db && typeof db.from === 'function' && resolvedOrder.id) {
-    const orderUpdateQuery = db
-      .from('pay02_report_orders')
-      .update({
-        report_version_id: snapshot.id,
-        report_version_number: snapshot.version,
-        report_content_hash: snapshot.content_hash,
-        completeness_summary: snapshot.completeness,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', resolvedOrder.id);
-
-    const orderUpdateRes = typeof orderUpdateQuery.select === 'function'
-      ? await orderUpdateQuery.select('*').maybeSingle()
-      : await orderUpdateQuery;
-
-    if (orderUpdateRes?.error || (orderUpdateRes && 'data' in orderUpdateRes && !orderUpdateRes.data)) {
-      throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503, {
-        message: orderUpdateRes?.error?.message || 'Report order fulfillment update affected zero rows.',
-      });
-    }
-
-    const quoteUpdateQuery = db
-      .from('pay02_commercial_quotes')
-      .update({
-        status: 'fulfilled',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', qId);
-
-    const quoteUpdateRes = typeof quoteUpdateQuery.select === 'function'
-      ? await quoteUpdateQuery.select('*').maybeSingle()
-      : await quoteUpdateQuery;
-
-    if (quoteUpdateRes?.error || (quoteUpdateRes && 'data' in quoteUpdateRes && !quoteUpdateRes.data)) {
-      throw new Pay02Error('PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED', 503, {
-        message: quoteUpdateRes?.error?.message || 'Commercial quote fulfillment update affected zero rows.',
-      });
-    }
-  }
-
+  const storedReport = atomicFulfillment.payload || report;
+  const storedProvenance = verifyVehicleReportProvenance(storedReport, resolvedVehicle);
   return {
     productCode: 'intel.report.vehicle_history_single',
     vin: cleanVin,
     quoteId: qId,
     quoteNumber: resolvedQuote.quote_number || resolvedQuote.quoteNumber,
-    orderId: resolvedOrder.id || null,
+    orderId: resolvedOrder.id,
     paymentReference: resolvedPayment.reference,
-    reportVersionId: snapshot.id,
-    reportVersion: snapshot.version,
-    contentHash: snapshot.content_hash,
-    completeness: snapshot.completeness,
-    provenance,
-    idempotentReplay: false,
-    issuanceStage: PAY02_REPORT_ISSUANCE_POLICY.authoritativeGeneration.stage,
-    report,
+    reportVersionId: atomicFulfillment.report_version_id,
+    reportVersion: Number(atomicFulfillment.report_version_number ?? 1),
+    contentHash: atomicFulfillment.report_content_hash || computedHash,
+    completeness: atomicFulfillment.completeness_summary || report.completeness,
+    provenance: storedProvenance,
+    idempotentReplay: Boolean(atomicFulfillment.idempotent_replay),
+    issuanceStage: atomicFulfillment.idempotent_replay
+      ? PAY02_REPORT_ISSUANCE_POLICY.paidAccess.stage
+      : PAY02_REPORT_ISSUANCE_POLICY.authoritativeGeneration.stage,
+    report: storedReport,
   };
 }
 

@@ -8,11 +8,14 @@ on:
       - 'backend/services/report/reportService.js'
       - 'backend/routes/pay02Routes.js'
       - 'backend/routes/pay03aRoutes.js'
+      - 'backend/routes/reportRoutes.js'
       - 'backend/server.js'
       - 'backend/tests/pay02-commercial-foundation.test.js'
       - 'backend/tests/pay03a-real-report-commerce.test.js'
+      - 'backend/tests/vehicle-report.test.js'
       - 'backend/tests/sql/pay02-foundation-postgres-smoke.sql'
       - 'backend/tests/sql/pay03a-real-report-postgres-smoke.sql'
+      - 'backend/tests/sql/fixtures/pay03a-synthetic-vehicle-fixtures.sql'
       - 'database/migrations/20261031143000_carup_pay02_commercial_foundation.sql'
       - 'database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql'
       - 'web/src/pages/VehicleHistoryCommerce*'
@@ -48,8 +51,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: PAY-01A/B/C regressions, PAY-02 commercial foundation, and PAY-03A real report commerce contracts
-        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js
+      - name: PAY-01A/B/C regressions, PAY-02 commercial foundation, PAY-03A real report commerce, and vehicle report contracts
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js backend/tests/vehicle-report.test.js backend/tests/golden-journey.test.js
       - name: PAY-03A customer UI, PAY-02 admin governance UI, PAY-01B/C UI, and route custody
         working-directory: web
         run: npx vitest run src/pages/VehicleHistoryCommerce.test.tsx src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/pages/DemoVehicleHistory.test.tsx src/lib/routeAccess.test.ts
@@ -57,7 +60,7 @@ jobs:
         run: npm run build --workspace web
 
   isolated-postgres-contract:
-    name: Disposable PostgreSQL PAY-01A/C + PAY-02 + PAY-03A schema, RLS, ACL & report fulfillment convergence
+    name: Disposable PostgreSQL canonical vehicle/report + PAY-01A/C + PAY-02 + PAY-03A schema, RLS, ACL & report fulfillment convergence
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -82,25 +85,51 @@ jobs:
       PGDATABASE: pay01c_sandbox_ci
     steps:
       - uses: actions/checkout@v4
-      - name: Confirm isolated DB identity and prepare Supabase roles
+      - name: Confirm isolated DB identity and prepare Supabase roles and auth helpers
         run: |
           psql --version
           test "$(psql -v ON_ERROR_STOP=1 -Atc 'select current_database()')" = 'pay01c_sandbox_ci'
           for role in anon authenticated service_role; do
             psql -v ON_ERROR_STOP=1 -c "CREATE ROLE $role NOLOGIN;"
           done
-      - name: Restore canonical Phase6, PAY-01A, and PAY-01C migrations
+          psql -v ON_ERROR_STOP=1 -c "
+            CREATE SCHEMA IF NOT EXISTS auth;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS \$\$
+              SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+            \$\$;
+            CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS \$\$
+              SELECT coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), current_user);
+            \$\$;
+            GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
+            GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO anon, authenticated, service_role;
+          "
+      - name: Restore Phase6, PAY-01A, PAY-01C, and PAY-02 migrations and verify PAY-03A fails closed without canonical vehicle/report schema
         run: |
           set -euo pipefail
           sed '/^-- +migrate Down/,$d' database/migrations/011_phase6_schema.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20261029181000_carup_pay01a_stripe_sandbox.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20261030223000_carup_pay01c_demo_product.sql | psql -v ON_ERROR_STOP=1
-      - name: Apply PAY-02 commercial foundation and PAY-03A real report commerce migrations
+          sed '/^-- +migrate Down/,$d' database/migrations/20261031143000_carup_pay02_commercial_foundation.sql | psql -v ON_ERROR_STOP=1
+          if sed '/^-- +migrate Down/,$d' database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql | psql -v ON_ERROR_STOP=1 2>pay03a_missing_dep.err; then
+            echo "ERROR: PAY-03A migration succeeded without canonical vehicles/report_versions schema"
+            exit 1
+          fi
+          grep -q "PAY03A_REQUIRES_CANONICAL_VEHICLE_AND_REPORT_SCHEMA" pay03a_missing_dep.err
+      - name: Restore canonical Vehicle History & Report schema and apply PAY-03A real report commerce migration
         run: |
           set -euo pipefail
-          sed '/^-- +migrate Down/,$d' database/migrations/20261031143000_carup_pay02_commercial_foundation.sql | psql -v ON_ERROR_STOP=1
+          psql -v ON_ERROR_STOP=1 -f database/supabase_schema.sql
+          sed '/^-- +migrate Down/,$d' database/migrations/014_passport_evidence_architecture.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/015_vehicle_evidence_timeline.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20260621130000_external_source_ingestion.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20260621140000_ai_temporal_disclosure_intelligence.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20260621150000_report_versions.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20260624120000_vehicle_trust_security_hardening.sql | psql -v ON_ERROR_STOP=1
+          psql -v ON_ERROR_STOP=1 -c "GRANT SELECT ON TABLE public.users, public.vehicle_ownership_history TO authenticated;"
           sed '/^-- +migrate Down/,$d' database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql | psql -v ON_ERROR_STOP=1
-      - name: Verify PAY-01C smoke, PAY-02 foundation smoke, and PAY-03A real report commerce smoke
+          test "$(psql -v ON_ERROR_STOP=1 -Atc 'SELECT count(*) FROM public.vehicles')" = '0'
+      - name: Verify PAY-01C smoke, PAY-02 foundation smoke, and PAY-03A real report commerce smoke (with segregated synthetic test fixtures)
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay01c-demo-postgres-smoke.sql

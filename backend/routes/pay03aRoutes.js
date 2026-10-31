@@ -24,6 +24,7 @@ import {
   createPay03aBuyerShareLink,
   listPay03aAdminOrders,
   readPay03aAdminOrder,
+  reconcileAndFulfillPay03aAdminOrder,
   refundPay03aAdminOrder,
 } from '../services/payment/pay03aReportCommerceService.js';
 
@@ -211,6 +212,19 @@ router.get('/api/pay03a/admin/orders/:orderId', adminSession, async (req, res) =
     const result = await readPay03aAdminOrder({
       orderId: req.params.orderId,
       db: resolvePay03aDb(req),
+    });
+    return res.status(200).json(result);
+  } catch (err) {
+    return respondError(res, err);
+  }
+});
+
+router.post('/api/pay03a/admin/orders/:orderId/reconcile', adminSession, async (req, res) => {
+  try {
+    const result = await reconcileAndFulfillPay03aAdminOrder({
+      orderId: req.params.orderId,
+      db: resolvePay03aDb(req),
+      stripe: resolvePay03aStripe(req),
     });
     return res.status(200).json(result);
   } catch (err) {

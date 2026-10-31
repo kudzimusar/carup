@@ -30,10 +30,15 @@ const vehicle1 = {
   status: 'active',
   trustScore: 88,
   eligibleForReport: true,
+  eligibilityStatus: 'eligible_evidence_backed',
+  isSyntheticFixture: true,
 }
 
 const readinessFixture = {
   eligibleForPurchase: true,
+  eligibilityStatus: 'eligible_evidence_backed',
+  ineligibilityReason: null,
+  ineligibilityDetail: null,
   sandboxOnly: true,
   liveCommercialActive: false,
   productCode: 'intel.report.vehicle_history_single',
@@ -48,6 +53,8 @@ const readinessFixture = {
     classesMissing: ['service', 'accident'],
     classesUnavailable: ['theft'],
     timelineEventCount: 2,
+    historicalEventCount: 1,
+    evidenceIndexCount: 1,
     keyAlertCount: 0,
     listingSnapshotCount: 1,
     mileageObservationCount: 2,
@@ -57,6 +64,24 @@ const readinessFixture = {
     ],
     prePurchaseDisclosure:
       'Report generated from real CarUp Vehicle History sources for VIN WBA3A5C51DF358101.',
+  },
+  deliverableComparison: {
+    policyStatus: 'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+    freeLiveReport: {
+      endpoint: 'GET /api/vehicles/:vin/report',
+      cost: 'Free (authenticated live view)',
+      nature: 'Ephemeral on-demand live read of current vehicle state and timeline.',
+      includes: ['Live timeline'],
+      excludes: ['No immutable snapshot'],
+    },
+    paidCommercialSnapshot: {
+      productCode: 'intel.report.vehicle_history_single',
+      cost: 'JPY 100 (Sandbox Test Fixture)',
+      nature: 'Immutable, versioned, SHA-256 content-hashed report_versions snapshot.',
+      includes: ['Immutable buyer-owned report_versions snapshot'],
+      honestyDisclosure:
+        'Paid sandbox fulfillment uses the same underlying CarUp canonical vehicle lifecycle engine (assembleReport) as the live route; it does not claim exclusive external registry or secret data sources.',
+    },
   },
   commercialTerms: {
     mode: 'SANDBOX_TEST_ONLY',
@@ -363,5 +388,57 @@ describe('PAY-03A customer-facing real Vehicle History Report commerce', () => {
     expect(
       screen.queryByTestId(`pay03a-open-report-${pendingOrderFixture.orderId}`),
     ).toBeNull()
+  })
+
+  it('refuses purchase and disables Buy button when a vehicle is metadata-only with zero historical evidence (R1-B)', async () => {
+    const metadataOnlyVehicle = {
+      ...vehicle1,
+      vin: 'DBA-GRS204-0005303',
+      make: 'Toyota',
+      model: 'Crown Athlete',
+      eligibleForReport: false,
+      eligibilityStatus: 'ineligible_metadata_only_vehicle',
+      ineligibilityReason: 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+      isSyntheticFixture: true,
+    }
+    const ineligibleReadiness = {
+      ...readinessFixture,
+      eligibleForPurchase: false,
+      eligibilityStatus: 'ineligible_metadata_only_vehicle',
+      ineligibilityReason: 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+      ineligibilityDetail:
+        'This vehicle record contains only basic VIN/identity metadata with zero historical lifecycle evidence. Purchase is refused before charging.',
+      vehicle: metadataOnlyVehicle,
+    }
+
+    apiRequest.mockImplementation(({ path }: { path: string }) => {
+      if (path.startsWith('/pay03a/vehicles') && path.endsWith('/readiness')) {
+        return Promise.resolve(ineligibleReadiness)
+      }
+      if (path.startsWith('/pay03a/vehicles')) {
+        return Promise.resolve({
+          productCode: 'intel.report.vehicle_history_single',
+          vehicles: [metadataOnlyVehicle],
+        })
+      }
+      if (path === '/pay03a/orders') {
+        return Promise.resolve({ orders: [] })
+      }
+      return Promise.resolve({})
+    })
+
+    render(
+      <MemoryRouter>
+        <VehicleHistoryCommerce />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('pay03a-ineligible-banner')).toHaveTextContent(
+      'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+    )
+    expect(screen.getByTestId('pay03a-deliverable-comparison')).toHaveTextContent(
+      'CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL',
+    )
+    expect(screen.getByTestId('pay03a-buy-button')).toBeDisabled()
   })
 })

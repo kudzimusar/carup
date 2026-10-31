@@ -1,8 +1,9 @@
-# CARUP-PAY-03A — Real Vehicle History Report Commerce
+# CARUP-PAY-03A — Real Vehicle History Report Commerce (`CARUP-PAY-03A-R1`)
 
 **Programme:** CARUP PAYMENTS 2.0 — Unified Commercial Service Payments Programme  
 **Controlling Authority:** [GitHub Issue #247](https://github.com/kudzimusar/carup/issues/247)  
 **Parent Work Package:** `CARUP-PAY-02-FND-R1` (`5c77c26889b0811292f66e08e0589388467ed2bb`, PR #249)  
+**Product PR:** [PR #250](https://github.com/kudzimusar/carup/pull/250) (`feat/carup-pay-03a-real-report-sandbox-commerce`)  
 **Commercial Product Code:** `intel.report.vehicle_history_single`  
 **Environment Scope:** Isolated Sandbox & Test Authority (`acct_1UVnGaEjgXqvlsJk`, `JPY 100`)  
 **Production Authorization:** `NONE`
@@ -11,70 +12,74 @@
 
 ## 1. Executive Summary
 
-`CARUP-PAY-03A` delivers CarUp's first genuine source-backed first-party commercial product integration: **CarUp Vehicle History Report — Single VIN (`intel.report.vehicle_history_single`)**.
+`CARUP-PAY-03A` (remediated under `CARUP-PAY-03A-R1`) implements CarUp's first source-backed first-party commercial product workflow in isolated sandbox environments: **CarUp Vehicle History Report — Single VIN (`intel.report.vehicle_history_single`)**.
 
 Unlike the synthetic `PAY-01C` sandbox demonstration (`vehicle_history_demo`), `PAY-03A` connects:
-1. **Real Vehicle Authority**: Queries real vehicles in `public.vehicles` and evaluates pre-purchase data coverage and mandatory source limitations via the canonical report assembly engine (`backend/services/report/reportService.js`) before collecting money.
-2. **Versioned Commercial Quote & Order Authority**: Issues durable `public.pay02_commercial_quotes` rows, claims checkout via `public.pay02_claim_quote_checkout`, and links canonical `public.payment_transactions` and `public.pay02_report_orders`.
-3. **Governed Stripe Japan Sandbox Checkout**: Creates a test-mode Stripe Checkout session on `acct_1UVnGaEjgXqvlsJk` for `JPY 100` (`currency_scale = 0`) with strict client-reference and metadata correlation.
-4. **Authoritative Payment Convergence & Concurrency-Safe Fulfillment**: Both Stripe webhook processing (`processPay01aWebhook`) and explicit customer/admin verification (`POST /api/pay03a/orders/:orderId/verify`) converge on canonical `payment_transactions` and invoke `deliverVerifiedVehicleHistoryReport`, backed by the transactional PostgreSQL RPC `public.pay03a_complete_report_fulfillment`.
-5. **Buyer Ownership, Expiring Share Links & Governed Refund Revocation**: Paid orders bind an immutable `public.report_versions` snapshot (`carup.report.v1`). Buyers can view their report, create expiring share links (`POST /api/pay03a/orders/:orderId/share`), and if an administrator executes a governed sandbox refund (`POST /api/pay03a/admin/orders/:orderId/refund`), both `pay02_report_orders` (`revoked_refunded`) and `report_versions.revoked = true` are atomically revoked, immediately blocking buyer and shared-link access.
+1. **Canonical Vehicle & Evidence Authority (`public.vehicles`, `public.vehicle_evidence`)**: Queries vehicles in `public.vehicles`, evaluates pre-purchase data coverage and mandatory source limitations via `assembleReport` (`backend/services/report/reportService.js`), and enforces an evidence-backed eligibility gate (`R1-B`) that refuses checkout (`422 PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE`) before charging if a vehicle record contains only static identity metadata with zero historical lifecycle evidence.
+2. **Versioned Commercial Quote & Order Authority**: Issues durable `public.pay02_commercial_quotes` rows (`status = 'issued'`), claims checkout atomically via `public.pay02_claim_quote_checkout` (`status = 'payment_initiated'`), and links canonical `public.payment_transactions` and `public.pay02_report_orders` (`entitlement_status = 'awaiting_payment'`).
+3. **Governed Stripe Japan Sandbox Checkout**: Creates a test-mode Stripe Checkout session (`livemode = false`) on verified sandbox account `acct_1UVnGaEjgXqvlsJk` (`gateway = 'stripe_carup_japan_sandbox'`) for `JPY 100` (`currency_scale = 0`) with strict client-reference and metadata correlation.
+4. **Authoritative Payment Convergence & Atomic Fulfillment (`R1-E`)**: Signed Stripe webhooks (`processPay01aWebhook`), customer verification (`POST /api/pay03a/orders/:orderId/verify`), and admin fulfillment recovery (`POST /api/pay03a/admin/orders/:orderId/reconcile`) converge on canonical `payment_transactions`, synchronize quote/order state (`status = 'paid_verified'`, `entitlement_status = 'entitled'`) via `public.pay02_sync_quote_from_canonical_payment`, and fulfill the report exclusively through the atomic PostgreSQL RPC `public.pay03a_complete_report_fulfillment` (`status = 'fulfilled'`). No non-atomic multi-step JavaScript fallback exists.
+5. **Fail-Closed Share-Link Entitlement & Governed Refund Revocation (`R1-C`, `R1-D`)**: Paid orders bind 1:1 to an immutable `public.report_versions` snapshot (`report_tier = 'pay03a_commercial_snapshot'`, `pay03a_order_id = pay02_report_orders.id`). Expiring share links (`POST /api/pay03a/orders/:orderId/share` -> `GET /api/reports/shared/:token`) verify active order entitlement and canonical `payment_transactions.status = 'paid'` on every read, failing closed (`entitlement_unavailable` or `revoked`) on database lookup errors, `refund_pending`, or `refunded` states while preserving legacy Milestone 4 report versions (`report_tier = 'legacy_version'`).
 
 ---
 
-## 2. Part III — Pre-Checkout Contract Hardening (PAY-02 Carry-Forward Fixes)
+## 2. Free Live Route vs. Paid Sandbox Commercial Snapshot (`R1-B`)
 
-All three mandatory pre-checkout contract hardenings required before `PAY-03A` checkout have been implemented and verified:
+> **Policy Status:** `CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL`
 
-1. **Atomic Governance Review Enforcement (`reviewPay02GovernanceProposal`)**:
-   - Removed the non-atomic multi-step JavaScript fallback in `backend/services/payment/pay02Service.js`.
-   - Governance proposal reviews now strictly require `db.rpc('pay02_review_activation_proposal', ...)` and fail closed with `503 PAY02_ATOMIC_GOVERNANCE_RPC_REQUIRED` if the transactional PostgreSQL RPC is unavailable.
-2. **Mandatory Cross-Reference Correlation (`deliverVerifiedVehicleHistoryReport`)**:
-   - Every cross-reference field across `pay02_commercial_quotes`, `payment_transactions`, `pay02_report_orders`, and `vehicles` is verified for non-null presence and exact equality (`quote.id === order.quote_id === payment.pay02_quote_id`, `quote.payment_reference === order.payment_reference === payment.reference`, `payment.pay01a_account_id === 'acct_1UVnGaEjgXqvlsJk'`, `order.product_version === quote.product_version`, `order.vin === vehicle.vin`, `order.vehicle_id === vehicle.id`).
-   - Any missing or mismatched link fails closed with `409 PAY02_REPORT_ORDER_CORRELATION_MISMATCH`.
-3. **Concurrency-Safe Idempotent Fulfillment & Checked DB Writes (`public.pay03a_complete_report_fulfillment`)**:
-   - Added `public.pay03a_complete_report_fulfillment` in `database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql`, which locks the order, quote, payment, and vehicle rows `FOR UPDATE`, prevents duplicate `report_versions` creation under concurrent webhook + verify calls, and atomically updates `report_versions` and `pay02_report_orders`.
-   - All fallback update paths in `pay02Service.js` inspect `{ data, error }` and fail closed with `500 PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED` on any database error or zero-row update.
+CarUp already provides an authenticated live vehicle-history route (`GET /api/vehicles/:vin/report`). `PAY-03A` does **not** silently paywall existing functionality and does **not** claim exclusive external registries or secret data sources. Both paths invoke the same canonical `assembleReport(db, vin, { audience: 'buyer' })` engine:
+
+| Dimension | Free Live Route (`GET /api/vehicles/:vin/report`) | Paid Sandbox Snapshot (`intel.report.vehicle_history_single`) |
+| --- | --- | --- |
+| **Commercial Status** | Free authenticated on-demand read | `JPY 100` sandbox test fixture (`CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL`) |
+| **Underlying Data Engine** | `assembleReport` (`vehicle_history_report.v1`) | Same `assembleReport` (`vehicle_history_report.v1`) — no exclusive data sources claimed |
+| **Evidence Eligibility Gate** | Returns live identity/completeness even for metadata-only rows | **Refuses purchase before charging (`422 PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE`)** if the vehicle has zero historical lifecycle events, evidence records, listing snapshots, or alerts |
+| **Snapshot Persistence** | Ephemeral response; creates no `report_versions` row | Persists an immutable `public.report_versions` row (`report_tier = 'pay03a_commercial_snapshot'`) with SHA-256 `content_hash` and `pay03a_order_id` |
+| **Buyer Order & Audit Trail** | None | Durable `pay02_commercial_quotes` + `payment_transactions` + `pay02_report_orders` record |
+| **Expiring Share Link** | None (direct `/api/report-versions/:id/share` blocked for paid snapshots) | Buyer-controlled expiring share token (`pay03a_shr_*`) via `POST /api/pay03a/orders/:orderId/share` with fail-closed entitlement and refund revocation enforcement |
 
 ---
 
-## 3. Seven Financial Questions Answered (`intel.report.vehicle_history_single`)
+## 3. Canonical Schema Preservation & Fixture Segregation (`R1-A` & `R1-C`)
 
-| Question | PAY-03A Authoritative Implementation |
+1. **Zero Synthetic Vehicles in Product Migrations (`R1-A`)**:
+   - `database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql` contains **zero** `INSERT INTO public.vehicles` statements and **zero** `CREATE TABLE IF NOT EXISTS` fallbacks for `public.vehicles` or `public.report_versions`.
+   - Synthetic test vehicles (`WBA3A5C51DF358101`, `JTDBR32E820112202` with verified `public.vehicle_evidence`, and metadata-only control `DBA-GRS204-0005303`) are segregated into `backend/tests/sql/fixtures/pay03a-synthetic-vehicle-fixtures.sql`, which refuses execution unless `current_database() = 'pay01c_sandbox_ci'` and stamps every row with `specifications.pay03a_synthetic_fixture = true`.
+2. **Preservation of Canonical `public.report_versions` Authority (`R1-C`)**:
+   - `20261031160000_carup_pay03a_real_report_commerce.sql` requires the canonical Vehicle History migrations (`20260621150000_report_versions.sql` and `20260624120000_vehicle_trust_security_hardening.sql`) to be applied first, failing deterministically with `PAY03A_REQUIRES_CANONICAL_VEHICLE_AND_REPORT_SCHEMA` or `PAY03A_REQUIRES_CANONICAL_REPORT_VERSION_GUARD` if absent.
+   - The canonical immutability trigger `trg_report_version_guard` (`public.carup_report_version_guard()`) is preserved intact.
+   - `PAY-03A` adds only `report_tier` (`'legacy_version'` | `'pay03a_commercial_snapshot'`), `pay03a_order_id`, an additive binding guard trigger (`trg_pay03a_report_version_binding_guard`), and an additive `AS RESTRICTIVE` RLS policy (`pay03a_paid_report_entitlement_guard`) so `authenticated` callers cannot bypass paid order entitlement via direct table reads while legacy Milestone 4 report rows remain unaffected.
+
+---
+
+## 4. Seven Financial Questions Answered (Verified Source Schema & Authority — `R1-G`)
+
+| Question | Verified PAY-03A Source Implementation |
 | --- | --- |
-| **1. What is being purchased?** | `intel.report.vehicle_history_single` (v1) — a single-VIN CarUp Vehicle History Report bound to a verified `public.vehicles(id, vin)` record. |
-| **2. Who owes the money?** | Authenticated CarUp buyer (`req.user.id`), persisted on `pay02_commercial_quotes.payer_user_id`, `payment_transactions.user_id`, and `pay02_report_orders.buyer_id`. |
-| **3. Who is legally entitled to the money?** | First-party merchant of record `carup_japan` (`CarUp Japan Co., Ltd.`), beneficiary `CarUp Japan Co., Ltd.`, funds owner `carup_first_party_revenue`. |
-| **4. How much is owed, and in which currency?** | Integer minor-unit `100 JPY` (`currency_scale = 0`, `¥100`) locked in `pay02_commercial_quotes` under `sandbox_test_only` authority. |
-| **5. Which provider may process the transaction?** | `stripe_jp_sandbox` (`acct_1UVnGaEjgXqvlsJk`) in Stripe test mode (`livemode = false`). All live/unverified providers fail closed. |
-| **6. What does payment actually authorize?** | Generation and binding of one immutable `public.report_versions` (`carup.report.v1`) snapshot and `entitled` status on `public.pay02_report_orders`. |
-| **7. How do we reconcile the outcome?** | Canonical `public.payment_transactions` stores `stripe_session_id`, `stripe_payment_intent_id`, `pay01a_refund_id`, and `pay02_quote_id`; `pay02_sync_quote_from_canonical_payment` synchronizes quote, order, and `report_versions.revoked` states. |
+| **1. What is being purchased?** | Catalogue item `intel.report.vehicle_history_single` (`product_version = 1`), bound to `public.vehicles.vin` (`pay02_commercial_quotes.source_object_type = 'vehicles'`, `source_object_id = vin`, `pay02_report_orders.vin = vin`). |
+| **2. Who owes the money?** | Authenticated CarUp buyer (`req.userContext.id`), persisted in `pay02_commercial_quotes.payer_id` (`payer_role`), `payment_transactions.pay01a_actor_id`, and `pay02_report_orders.buyer_id`. |
+| **3. Who is legally entitled to the money?** | Internal code `carup_japan` across `merchant_of_record`, `contractual_seller`, `legal_beneficiary`, `funds_owner`, and `revenue_beneficiary` on `pay02_commercial_quotes` and `pay02_funds_owner` / `pay02_legal_beneficiary` on `payment_transactions`. **Fact vs. Assumption**: `acct_1UVnGaEjgXqvlsJk` is a verified Stripe Japan sandbox account (`CarUp Japan (Sandbox)`); formal legal entity corporate registration is an external commercial prerequisite not asserted by source code. |
+| **4. How much is owed, and in which currency?** | Integer minor-unit `100` in `JPY` (`currency_scale = 0`), stored in `pay02_commercial_quotes.total_minor` (`currency = 'JPY'`) and `payment_transactions.amount` (`currency = 'JPY'`) as a sandbox test fixture (`SANDBOX_TEST_ONLY`). |
+| **5. Which provider may process the transaction?** | Provider key / gateway `stripe_carup_japan_sandbox` on verified Stripe sandbox account `acct_1UVnGaEjgXqvlsJk` (`livemode = false`). All other providers and live keys fail closed. |
+| **6. What does payment actually authorize?** | Transition of `pay02_commercial_quotes.status` (`issued` → `payment_initiated` → `paid_verified` → `fulfilled`), transition of `pay02_report_orders.entitlement_status` (`awaiting_payment` → `entitled`), and atomic creation of one immutable `public.report_versions` row (`report_tier = 'pay03a_commercial_snapshot'`, `pay03a_order_id = order.id`). |
+| **7. How do we reconcile the outcome?** | Canonical `public.payment_transactions` stores `reference`, `status` (`pending` \| `paid` \| `cancelled` \| `refund_pending` \| `refunded`), `pay01a_checkout_id`, `pay01a_intent_id`, `pay01a_refund_id`, and `pay02_quote_id`. `public.pay02_sync_quote_from_canonical_payment` synchronizes quote status, order `entitlement_status` (`refund_suspended` on `refund_pending`; `revoked_refunded` on `refunded`), and `report_versions.revoked = true`. |
 
 ---
 
-## 4. API Surface (`/api/pay03a`)
+## 5. API Surface (`/api/pay03a`)
 
-### Customer Endpoints
-- `GET /api/pay03a/vehicles`: Lists eligible real vehicles from `public.vehicles` with optional VIN/make/model search filter.
-- `GET /api/pay03a/vehicles/:vin/readiness`: Evaluates pre-purchase report readiness, completeness coverage, mandatory source limitations, and commercial terms (`JPY 100`, `acct_1UVnGaEjgXqvlsJk`) before purchase.
-- `POST /api/pay03a/orders/checkout`: Validates `Idempotency-Key`, verifies vehicle eligibility, creates & persists a `PAY-02` quote, claims canonical `payment_transactions` + `pay02_report_orders`, creates a Stripe sandbox Checkout session, and attaches the Checkout session ID.
+### Customer Endpoints (`authorizeSessionRole([])`)
+- `GET /api/pay03a/vehicles`: Lists vehicles from `public.vehicles` with pre-purchase eligibility (`eligibleForReport`, `eligibilityStatus`, `ineligibilityReason`, `isSyntheticFixture`) and `deliverableComparison`.
+- `GET /api/pay03a/vehicles/:vin/readiness`: Evaluates vehicle report readiness, historical evidence counts, completeness coverage, mandatory limitations, `deliverableComparison`, and `JPY 100` sandbox commercial terms.
+- `POST /api/pay03a/orders/checkout`: Refuses client price/party overrides (`400`) and metadata-only vehicles (`422 PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE`), issues a durable `PAY-02` quote, claims canonical `payment_transactions` + `pay02_report_orders`, creates a Stripe sandbox Checkout session on `acct_1UVnGaEjgXqvlsJk`, and attaches `pay01a_checkout_id`.
 - `GET /api/pay03a/orders`: Lists the authenticated buyer's `PAY-03A` report orders.
-- `GET /api/pay03a/orders/:orderId`: Retrieves a single buyer-owned report order.
-- `POST /api/pay03a/orders/:orderId/verify`: Queries Stripe sandbox Checkout & PaymentIntent state, updates canonical `payment_transactions`, synchronizes `PAY-02` quote/order state, and triggers idempotent report fulfillment when paid.
-- `GET /api/pay03a/orders/:orderId/report`: Serves the buyer's entitled, verified `carup.report.v1` snapshot with `Cache-Control: private, no-store`. Fails closed (`409` or `403`) when unpaid, refunded, or accessed by another user.
-- `POST /api/pay03a/orders/:orderId/share`: Creates or rotates an expiring share token (`share_token`, `share_expires_at`) on `public.report_versions` for an entitled buyer order.
+- `GET /api/pay03a/orders/:orderId`: Retrieves a single buyer-owned report order without mutating provider state.
+- `POST /api/pay03a/orders/:orderId/verify`: Reconciles with Stripe sandbox (`reconcilePay01aPayment`), runs `pay02_sync_quote_from_canonical_payment`, and when `status = 'paid'`, executes atomic idempotent fulfillment via `pay03a_complete_report_fulfillment`.
+- `GET /api/pay03a/orders/:orderId/report`: Reconciles with Stripe and serves the buyer's entitled `vehicle_history_report.v1` snapshot with `Cache-Control: private, no-store, no-cache, must-revalidate`.
+- `POST /api/pay03a/orders/:orderId/share`: Creates or rotates an expiring `pay03a_shr_*` share token on `public.report_versions` for an actively entitled paid order.
 
-### Administrative Endpoints
-- `GET /api/pay03a/admin/orders`: Lists `PAY-03A` report orders with quote, payment, entitlement, and report version provenance for `admin` / `super_admin`.
-- `GET /api/pay03a/admin/orders/:orderId`: Returns detailed order, quote, canonical payment, and report snapshot provenance.
-- `POST /api/pay03a/admin/orders/:orderId/refund`: Issues a governed Stripe sandbox refund on `acct_1UVnGaEjgXqvlsJk`, transitions `payment_transactions` to `refunded`, transitions `pay02_report_orders` to `revoked_refunded`, and sets `report_versions.revoked = true`.
-
----
-
-## 5. UI Surface
-
-- **Customer Vehicle History Commerce (`/vehicle-history`)**:
-  - Implemented in `web/src/pages/VehicleHistoryCommerce.tsx`.
-  - Allows authenticated buyers to search/select real vehicles, inspect pre-purchase data coverage & limitations, initiate governed `JPY 100` Stripe sandbox Checkout, verify payment status on return, open the fulfilled report snapshot, and generate expiring share links.
-- **Administrative Commercial Foundation Console (`/admin/commercial-foundation`)**:
-  - Extended `web/src/pages/dashboard/admin/Pay02CommercialFoundation.tsx` with the **PAY-03A Real Vehicle History Report Orders & Governed Refunds** panel (`data-testid="pay03a-admin-orders-panel"`).
+### Administrative Endpoints (`authorizeSessionRole(['admin'])`)
+- `GET /api/pay03a/admin/orders`: Lists `PAY-03A` report orders with quote, canonical payment, entitlement, and report version provenance.
+- `GET /api/pay03a/admin/orders/:orderId`: Inspects a single `PAY-03A` report order.
+- `POST /api/pay03a/admin/orders/:orderId/reconcile`: Reconciles canonical payment state with Stripe and recovers interrupted report fulfillment idempotently (`paid_verified` → `fulfilled`) without creating a duplicate payment or second report version.
+- `POST /api/pay03a/admin/orders/:orderId/refund`: Executes a governed Stripe sandbox refund (`refundPay01aPayment`), synchronizes quote (`status = 'refunded'`) and order (`entitlement_status = 'revoked_refunded'`), and revokes the bound `report_versions` snapshot (`revoked = true`).
