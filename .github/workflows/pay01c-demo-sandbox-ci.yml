@@ -11,6 +11,8 @@ on:
       - 'web/src/pages/DemoVehicleHistory*'
       - 'web/src/pages/dashboard/admin/Pay01cAdminOrders.tsx'
       - 'web/src/App.tsx'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/lib/routeAccess.test.ts'
       - '.github/workflows/pay01c-demo-sandbox-ci.yml'
   workflow_dispatch:
 
@@ -40,7 +42,7 @@ jobs:
         run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js
       - name: Buyer responsive UI and existing admin payment UI
         working-directory: web
-        run: npx vitest run src/pages/DemoVehicleHistory.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx
+        run: npx vitest run src/pages/DemoVehicleHistory.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/lib/routeAccess.test.ts
       - name: Typecheck and compile CarUp web
         run: npm run build --workspace web
 
