@@ -57,11 +57,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ephemeral-ci-only
-          POSTGRES_DB: pay02_foundation_ci
+          POSTGRES_DB: pay01c_sandbox_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d pay02_foundation_ci"
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 15
@@ -70,13 +70,13 @@ jobs:
       PGPORT: '5432'
       PGUSER: postgres
       PGPASSWORD: ephemeral-ci-only
-      PGDATABASE: pay02_foundation_ci
+      PGDATABASE: pay01c_sandbox_ci
     steps:
       - uses: actions/checkout@v4
       - name: Confirm isolated DB identity and prepare Supabase roles
         run: |
           psql --version
-          test "$(psql -v ON_ERROR_STOP=1 -Atc 'select current_database()')" = 'pay02_foundation_ci'
+          test "$(psql -v ON_ERROR_STOP=1 -Atc 'select current_database()')" = 'pay01c_sandbox_ci'
           for role in anon authenticated service_role; do
             psql -v ON_ERROR_STOP=1 -c "CREATE ROLE $role NOLOGIN;"
           done
