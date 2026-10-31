@@ -698,6 +698,22 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     owner: 'payments',
   },
   {
+    // PAY-01C: linked directly from Sandbox Payments, not an additional sidebar item.
+    // The DashboardLayout route boundary requires this exact registry entry;
+    // registration does NOT relax the backend's separate administrator-session gate.
+    id: 'admin.demo-purchases',
+    label: 'Demo Report Purchase Operations',
+    route: '/admin/demo-purchases',
+    domain: 'finance',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    lifecycle: 'beta',
+    description: 'Inspect and govern the CarUp Japan sandbox demo report orders',
+    owner: 'payments',
+  },
+  {
     id: 'admin.users',
     label: 'Users',
     route: '/admin/users',
