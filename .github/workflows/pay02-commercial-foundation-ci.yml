@@ -118,7 +118,7 @@ jobs:
       - name: Restore canonical Vehicle History & Report schema and apply PAY-03A real report commerce migration
         run: |
           set -euo pipefail
-          psql -v ON_ERROR_STOP=1 -f supabase_schema.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/supabase_schema.sql
           sed '/^-- +migrate Down/,$d' database/migrations/014_passport_evidence_architecture.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/015_vehicle_evidence_timeline.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20260621120000_vehicle_life_evidence_taxonomy_provenance.sql | psql -v ON_ERROR_STOP=1
