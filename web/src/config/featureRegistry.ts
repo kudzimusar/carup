@@ -714,6 +714,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     owner: 'payments',
   },
   {
+    // PAY-02: Unified Commercial Product Catalogue & Financial Authority governance view.
+    // Linked directly from Sandbox Payments; requires authenticated admin session.
+    id: 'admin.commercial-foundation',
+    label: 'Commercial Catalogue & Authority',
+    route: '/admin/commercial-foundation',
+    domain: 'finance',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    lifecycle: 'beta',
+    description: 'Inspect and govern the unified commercial product catalogue, provider routing, and activation states',
+    owner: 'payments',
+  },
+  {
     id: 'admin.users',
     label: 'Users',
     route: '/admin/users',

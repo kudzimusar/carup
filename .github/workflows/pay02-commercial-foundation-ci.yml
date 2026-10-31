@@ -1,0 +1,97 @@
+name: PAY-02 commercial foundation & service inventory CI
+on:
+  pull_request:
+    paths:
+      - 'backend/services/payment/pay02*'
+      - 'backend/routes/pay02Routes.js'
+      - 'backend/server.js'
+      - 'backend/tests/pay02-commercial-foundation.test.js'
+      - 'backend/tests/sql/pay02-foundation-postgres-smoke.sql'
+      - 'database/migrations/20261031143000_carup_pay02_commercial_foundation.sql'
+      - 'web/src/pages/dashboard/admin/Pay02CommercialFoundation*'
+      - 'web/src/pages/dashboard/admin/Pay01aPayments*'
+      - 'web/src/App.tsx'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/lib/routeAccess.test.ts'
+      - 'docs/payments/CARUP_PAY_02_COMMERCIAL_FOUNDATION_AND_INVENTORY.md'
+      - '.github/workflows/pay02-commercial-foundation-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-certification:
+    name: PAY-01A/B/C continuity, PAY-02 contracts, admin UI, web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      CARUP_PAY01C_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: PAY-01A/B/C regressions and PAY-02 commercial foundation contracts
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js
+      - name: PAY-02 admin governance UI, PAY-01B/C UI, and route custody
+        working-directory: web
+        run: npx vitest run src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/pages/DemoVehicleHistory.test.tsx src/lib/routeAccess.test.ts
+      - name: Typecheck and compile CarUp web
+        run: npm run build --workspace web
+
+  isolated-postgres-contract:
+    name: Disposable PostgreSQL PAY-01A/C + PAY-02 schema, RLS, ACL & quote/payment convergence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ephemeral-ci-only
+          POSTGRES_DB: pay02_foundation_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay02_foundation_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ephemeral-ci-only
+      PGDATABASE: pay02_foundation_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm isolated DB identity and prepare Supabase roles
+        run: |
+          psql --version
+          test "$(psql -v ON_ERROR_STOP=1 -Atc 'select current_database()')" = 'pay02_foundation_ci'
+          for role in anon authenticated service_role; do
+            psql -v ON_ERROR_STOP=1 -c "CREATE ROLE $role NOLOGIN;"
+          done
+      - name: Restore canonical Phase6, PAY-01A, and PAY-01C migrations
+        run: |
+          set -euo pipefail
+          sed '/^-- +migrate Down/,$d' database/migrations/011_phase6_schema.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20261029181000_carup_pay01a_stripe_sandbox.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20261030223000_carup_pay01c_demo_product.sql | psql -v ON_ERROR_STOP=1
+      - name: Apply PAY-02 commercial foundation migration to ephemeral database
+        run: |
+          set -euo pipefail
+          sed '/^-- +migrate Down/,$d' database/migrations/20261031143000_carup_pay02_commercial_foundation.sql | psql -v ON_ERROR_STOP=1
+      - name: Verify PAY-01C smoke and PAY-02 RLS, ACL, quote immutability, separation of duties, and canonical convergence
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay01c-demo-postgres-smoke.sql
+          psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay02-foundation-postgres-smoke.sql
