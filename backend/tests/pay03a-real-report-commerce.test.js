@@ -1612,3 +1612,242 @@ test('PAY03A R1-E: Interrupted Fulfillment Recovery (duplicate signed webhook re
   assert.equal(adminRecoveredReplay.reportVersionId, adminRecovered.reportVersionId);
   assert.equal(harness.reportVersions.size, 2, 'Total report versions across both orders must remain 2');
 });
+
+test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projects reportAvailable=false, seller-stated listing snapshots alone are refused before payment, and QA vs genuine provenance is explicitly classified', async () => {
+  const harness = createInMemoryPay03aHarness();
+
+  // 1. Work Unit A.3: When payment is `paid` and entitlement is `entitled` but fulfillment was interrupted
+  // (`report_version_id === null`), `projectOrderRecord` MUST project `reportAvailable = false`.
+  const checkoutInterrupted = await createPay03aReportCheckout({
+    buyerId: 'buyer-03a-1',
+    vin: 'WBA3A5C51DF358101',
+    requestKey: 'pay03a_stg01r1_interrupted_avail_01',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.markCheckoutPaid(checkoutInterrupted.checkoutId);
+
+  harness.faultInjection.failNextFulfillmentRpc = true;
+  await assert.rejects(
+    verifyPay03aBuyerOrder({
+      buyerId: 'buyer-03a-1',
+      orderId: checkoutInterrupted.orderId,
+      refresh: true,
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    /PAY02_REPORT_FULFILLMENT_PERSISTENCE_FAILED/,
+  );
+
+  // Order is now paid + entitled, but report_version_id is null
+  const buyerOrdersDuringInterruption = await listPay03aBuyerOrders({
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+  });
+  assert.equal(buyerOrdersDuringInterruption.orders.length, 1);
+  assert.equal(buyerOrdersDuringInterruption.orders[0].paymentStatus, 'paid');
+  assert.equal(buyerOrdersDuringInterruption.orders[0].entitlementStatus, 'entitled');
+  assert.equal(buyerOrdersDuringInterruption.orders[0].reportVersionId, null);
+  assert.equal(
+    buyerOrdersDuringInterruption.orders[0].reportAvailable,
+    false,
+    'Interrupted fulfillment without report_versions snapshot must NEVER project reportAvailable=true',
+  );
+
+  const adminOrderDuringInterruption = await readPay03aAdminOrder({
+    orderId: checkoutInterrupted.orderId,
+    db: harness.db,
+  });
+  assert.equal(adminOrderDuringInterruption.reportAvailable, false);
+
+  // Once recovered via verifyPay03aBuyerOrder, reportAvailable becomes true
+  const recoveredOrder = await verifyPay03aBuyerOrder({
+    buyerId: 'buyer-03a-1',
+    orderId: checkoutInterrupted.orderId,
+    refresh: false,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.equal(recoveredOrder.reportAvailable, true);
+  assert.ok(recoveredOrder.reportVersionId);
+
+  // 2. Work Unit C.3: A vehicle with only seller-stated `listing_snapshot` / `current_listing` or unreviewed alerts
+  // must NOT be commercially eligible (`eligibleForPurchase = false`, `422 PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE`).
+  harness.vehicles.set('RU3-1316558', {
+    vin: 'RU3-1316558',
+    make: 'Honda',
+    model: 'Vezel Hybrid Z',
+    year: 2018,
+    owner_id: 'owner-real-import-1',
+    import_source: 'BE FORWARD CAP CD740269',
+    status: 'Available',
+  });
+  const listingOnlyReadiness = await inspectVehicleReportReadiness({
+    vin: 'RU3-1316558',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+    reportAssembler: async (_db, vin) => ({
+      schema: 'vehicle_history_report.v1',
+      vin,
+      audience: 'buyer',
+      identity: { vin, make: 'Honda', model: 'Vezel Hybrid Z', year: 2018 },
+      timeline: [
+        {
+          evidence_id: null,
+          evidence_class: 'listing_snapshot',
+          evidence_subtype: 'marketplace_listing_snapshot',
+          date: '2026-04-01',
+          source_id: 'snap-1',
+          source_kind: 'listing_snapshot',
+          verification_status: 'seller_stated',
+        },
+      ],
+      evidence_index: [],
+      listing_history: [{ captured_at: '2026-04-01T00:00:00Z', price: 18500 }],
+      key_alerts: [
+        {
+          category: 'unverified_note',
+          type: 'seller_note',
+          summary: 'Unreviewed note',
+          reviewed: false,
+        },
+      ],
+      completeness: {
+        lifecycle_source_coverage: 0.63,
+        source_diversity: 1,
+        classes_present: ['listing_snapshot'],
+        classes_missing: ['inspection', 'registration'],
+        classes_unavailable: ['insurance_claim', 'theft_status', 'title_brand'],
+      },
+      limitations: ['Seller-stated listing snapshots only.'],
+    }),
+  });
+  assert.equal(listingOnlyReadiness.eligibleForPurchase, false);
+  assert.equal(listingOnlyReadiness.eligibilityStatus, 'ineligible_listing_only_unverified');
+  assert.equal(listingOnlyReadiness.provenanceClassification, 'PROVENANCE_UNVERIFIED');
+  assert.equal(listingOnlyReadiness.coverageClassification, 'PROVENANCE_UNVERIFIED');
+
+  await assert.rejects(
+    createPay03aReportCheckout({
+      buyerId: 'buyer-03a-1',
+      vin: 'RU3-1316558',
+      requestKey: 'pay03a_stg01r1_refuse_listing_only',
+      db: harness.db,
+      stripe: harness.stripeMock,
+      reportAssembler: async (_db, vin) => ({
+        schema: 'vehicle_history_report.v1',
+        vin,
+        audience: 'buyer',
+        identity: { vin, make: 'Honda', model: 'Vezel Hybrid Z', year: 2018 },
+        timeline: [
+          {
+            evidence_id: null,
+            evidence_class: 'listing_snapshot',
+            evidence_subtype: 'marketplace_listing_snapshot',
+            date: '2026-04-01',
+            source_id: 'snap-1',
+            source_kind: 'listing_snapshot',
+            verification_status: 'seller_stated',
+          },
+        ],
+        evidence_index: [],
+        listing_history: [{ captured_at: '2026-04-01T00:00:00Z', price: 18500 }],
+        key_alerts: [],
+        completeness: {
+          lifecycle_source_coverage: 0.63,
+          source_diversity: 1,
+          classes_present: ['listing_snapshot'],
+          classes_missing: ['inspection'],
+          classes_unavailable: ['theft_status'],
+        },
+        limitations: ['Seller-stated listing snapshots only.'],
+      }),
+    }),
+    (err) => err.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE' && err.status === 422,
+  );
+
+  // 3. Work Unit C.1-C.4: QA seed vehicles (`WBA8E9C50HK000732`) are classified as `QA_INTEGRATION_FIXTURE`,
+  // while a genuine non-QA vehicle with verified inspection evidence is `GENUINE_VERIFIED_SOURCE_BACKED`.
+  harness.vehicles.set('WBA8E9C50HK000732', {
+    vin: 'WBA8E9C50HK000732',
+    make: 'BMW',
+    model: '320i',
+    year: 2018,
+    owner_id: 'qa-staging-seller-73',
+    color: 'QA-STAGING-PR73',
+    status: 'Available',
+  });
+  const qaSeedReadiness = await inspectVehicleReportReadiness({
+    vin: 'WBA8E9C50HK000732',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+    reportAssembler: async (_db, vin) => ({
+      schema: 'vehicle_history_report.v1',
+      vin,
+      audience: 'buyer',
+      identity: { vin, make: 'BMW', model: '320i', year: 2018 },
+      timeline: [
+        {
+          evidence_id: 'ev-qa-732',
+          evidence_class: 'inspection',
+          evidence_subtype: 'roadworthiness_inspection',
+          date: '2025-11-10',
+          source_id: 'ev-qa-732',
+          source_kind: 'vehicle_evidence',
+          verification_status: 'verified',
+        },
+      ],
+      evidence_index: [{ id: 'ev-qa-732', verification_status: 'verified' }],
+      listing_history: [],
+      key_alerts: [],
+      completeness: {
+        lifecycle_source_coverage: 0.63,
+        source_diversity: 1,
+        classes_present: ['inspection'],
+        classes_missing: ['registration'],
+        classes_unavailable: ['insurance_claim', 'theft_status', 'title_brand'],
+      },
+      limitations: ['QA seed vehicle.'],
+    }),
+  });
+  assert.equal(qaSeedReadiness.provenanceClassification, 'QA_INTEGRATION_FIXTURE');
+  assert.equal(qaSeedReadiness.vehicle.isQaFixture, true);
+  assert.equal(qaSeedReadiness.coverageClassification, 'PARTIAL_COVERAGE_REQUIRES_DISCLOSURE');
+
+  const genuineVerifiedReadiness = await inspectVehicleReportReadiness({
+    vin: 'RU3-1316558',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+    reportAssembler: async (_db, vin) => ({
+      schema: 'vehicle_history_report.v1',
+      vin,
+      audience: 'buyer',
+      identity: { vin, make: 'Honda', model: 'Vezel Hybrid Z', year: 2018 },
+      timeline: [
+        {
+          evidence_id: 'ev-ru3-verified-1',
+          evidence_class: 'import_document',
+          evidence_subtype: 'export_certificate',
+          date: '2025-12-01',
+          source_id: 'ev-ru3-verified-1',
+          source_kind: 'vehicle_evidence',
+          verification_status: 'verified',
+        },
+      ],
+      evidence_index: [{ id: 'ev-ru3-verified-1', verification_status: 'verified' }],
+      listing_history: [],
+      key_alerts: [],
+      completeness: {
+        lifecycle_source_coverage: 0.63,
+        source_diversity: 1,
+        classes_present: ['import_document'],
+        classes_missing: ['service'],
+        classes_unavailable: ['insurance_claim', 'theft_status', 'title_brand'],
+      },
+      limitations: ['Partial source coverage disclosed.'],
+    }),
+  });
+  assert.equal(genuineVerifiedReadiness.eligibleForPurchase, true);
+  assert.equal(genuineVerifiedReadiness.provenanceClassification, 'GENUINE_VERIFIED_SOURCE_BACKED');
+  assert.equal(genuineVerifiedReadiness.coverageClassification, 'PARTIAL_COVERAGE_REQUIRES_DISCLOSURE');
+});

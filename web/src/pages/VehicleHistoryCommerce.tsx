@@ -50,6 +50,9 @@ export interface Pay03aVehicleItem {
   historicalEventCount?: number
   evidenceIndexCount?: number
   isSyntheticFixture?: boolean
+  isQaFixture?: boolean
+  provenanceClassification?: string
+  coverageClassification?: string
 }
 
 export interface Pay03aDeliverableComparison {
@@ -75,6 +78,8 @@ export interface Pay03aVehicleReadiness {
   eligibilityStatus?: string
   ineligibilityReason?: string | null
   ineligibilityDetail?: string | null
+  provenanceClassification?: string
+  coverageClassification?: string
   sandboxOnly: boolean
   liveCommercialActive: boolean
   productCode: string
@@ -253,6 +258,9 @@ function orderStatusSummary(order: Pay03aOrderRecord): string {
   }
   if (order.paymentStatus === 'paid' && order.reportAvailable) {
     return `Payment verified — Vehicle History Report v${order.reportVersionNumber ?? 1} is entitled and ready.`
+  }
+  if (order.paymentStatus === 'paid' && !order.reportAvailable) {
+    return 'Payment verified — report snapshot fulfillment is pending recovery (use Verify with Stripe to complete).'
   }
   if (order.paymentStatus === 'cancelled') {
     return 'Stripe Checkout session cancelled or expired — no report generated.'
@@ -654,13 +662,22 @@ export default function VehicleHistoryCommerce() {
                               <p className="font-mono text-xs text-slate-600">VIN: {veh.vin}</p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5">
-                              {veh.isSyntheticFixture && (
+                              {(veh.isSyntheticFixture || veh.isQaFixture || veh.provenanceClassification === 'QA_INTEGRATION_FIXTURE') && (
                                 <Badge
                                   variant="outline"
                                   className="border-amber-300 bg-amber-50 text-amber-800"
                                   data-testid={`pay03a-vehicle-fixture-badge-${veh.vin}`}
                                 >
-                                  Synthetic Test Fixture
+                                  {veh.isSyntheticFixture ? 'Synthetic Test Fixture' : 'QA Integration Fixture'}
+                                </Badge>
+                              )}
+                              {veh.provenanceClassification === 'GENUINE_VERIFIED_SOURCE_BACKED' && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-emerald-300 bg-emerald-50 text-emerald-800"
+                                  data-testid={`pay03a-vehicle-genuine-badge-${veh.vin}`}
+                                >
+                                  Genuine Verified Source
                                 </Badge>
                               )}
                               <Badge
@@ -737,7 +754,14 @@ export default function VehicleHistoryCommerce() {
                       <div className="space-y-2 rounded-xl border bg-slate-50 p-3.5 text-xs" data-testid="pay03a-readiness-summary">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-slate-900">Pre-Purchase Coverage Summary</span>
-                          <Badge variant="outline">{readiness.readiness.completenessState}</Badge>
+                          <div className="flex flex-wrap gap-1.5">
+                            {readiness.provenanceClassification && (
+                              <Badge variant="outline" data-testid="pay03a-provenance-classification">
+                                {readiness.provenanceClassification}
+                              </Badge>
+                            )}
+                            <Badge variant="outline">{readiness.readiness.completenessState}</Badge>
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 pt-1 text-slate-700">
                           <div>
@@ -751,6 +775,29 @@ export default function VehicleHistoryCommerce() {
                           </div>
                           <div>
                             Mileage readings: <strong>{readiness.readiness.mileageObservationCount}</strong>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-600" data-testid="pay03a-source-coverage-note">
+                          Note: Source coverage reflects CarUp internal source-table availability at query time, not overall vehicle-history accuracy or external registry completeness.
+                        </p>
+                        <div className="grid gap-1.5 rounded-lg border bg-white p-2.5 text-[11px]" data-testid="pay03a-readiness-classes">
+                          <div>
+                            <span className="font-semibold text-emerald-800">Evidence Found ({readiness.readiness.classesPresent.length}): </span>
+                            <span className="font-mono text-slate-700">
+                              {readiness.readiness.classesPresent.length > 0 ? readiness.readiness.classesPresent.join(', ') : 'none'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-700">Checked — No Records Held ({readiness.readiness.classesMissing.length}): </span>
+                            <span className="font-mono text-slate-600">
+                              {readiness.readiness.classesMissing.length > 0 ? readiness.readiness.classesMissing.join(', ') : 'none'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-amber-800">Sources Not Checked / Unavailable ({readiness.readiness.classesUnavailable.length}): </span>
+                            <span className="font-mono text-amber-900">
+                              {readiness.readiness.classesUnavailable.length > 0 ? readiness.readiness.classesUnavailable.join(', ') : 'none'}
+                            </span>
                           </div>
                         </div>
 
@@ -998,6 +1045,11 @@ export default function VehicleHistoryCommerce() {
                             <Undo2 className="h-4 w-4" />
                             Report entitlement and share token revoked after refund
                           </p>
+                        ) : ord.paymentStatus === 'paid' && !ord.reportAvailable ? (
+                          <p className="flex items-center gap-1.5 text-xs text-amber-700" data-testid={`pay03a-order-pending-fulfillment-${ord.orderId}`}>
+                            <Clock3 className="h-4 w-4" />
+                            Payment verified — report snapshot pending fulfillment recovery
+                          </p>
                         ) : (
                           <p className="flex items-center gap-1.5 text-xs text-amber-700">
                             <Clock3 className="h-4 w-4" />
@@ -1119,6 +1171,34 @@ export default function VehicleHistoryCommerce() {
                       ))}
                     </ol>
                   )}
+                </div>
+
+                {/* Evidence Found vs Not Found vs Not Checked Breakdown */}
+                <div className="grid gap-2 rounded-xl border bg-slate-50 p-4 text-xs sm:grid-cols-3" data-testid="pay03a-report-classes">
+                  <div className="rounded-lg border bg-white p-2.5">
+                    <p className="font-semibold text-emerald-800">
+                      Evidence Found ({(openReportData.completeness?.classes_present || openReportData.report.completeness?.classes_present || []).length})
+                    </p>
+                    <p className="mt-1 font-mono text-slate-700">
+                      {(openReportData.completeness?.classes_present || openReportData.report.completeness?.classes_present || []).join(', ') || 'none'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-white p-2.5">
+                    <p className="font-semibold text-slate-700">
+                      Checked — No Records Held ({(openReportData.completeness?.classes_missing || openReportData.report.completeness?.classes_missing || []).length})
+                    </p>
+                    <p className="mt-1 font-mono text-slate-600">
+                      {(openReportData.completeness?.classes_missing || openReportData.report.completeness?.classes_missing || []).join(', ') || 'none'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-white p-2.5">
+                    <p className="font-semibold text-amber-800">
+                      Sources Not Checked / Unavailable ({(openReportData.completeness?.classes_unavailable || openReportData.report.completeness?.classes_unavailable || []).length})
+                    </p>
+                    <p className="mt-1 font-mono text-amber-900">
+                      {(openReportData.completeness?.classes_unavailable || openReportData.report.completeness?.classes_unavailable || []).join(', ') || 'none'}
+                    </p>
+                  </div>
                 </div>
 
                 {/* Mandatory Limitations Disclosure */}

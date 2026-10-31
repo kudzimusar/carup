@@ -441,4 +441,38 @@ describe('PAY-03A customer-facing real Vehicle History Report commerce', () => {
     )
     expect(screen.getByTestId('pay03a-buy-button')).toBeDisabled()
   })
+
+  it('clearly separates Evidence Found, Checked — No Records Held, and Sources Not Checked, and keeps Open Report hidden on interrupted fulfillment', async () => {
+    const interruptedOrder = {
+      ...paidOrderFixture,
+      orderId: '00000000-0000-4000-8000-000000000399',
+      quoteStatus: 'paid_verified',
+      paymentStatus: 'paid',
+      entitlementStatus: 'entitled',
+      reportAvailable: false,
+      reportVersionId: null,
+      reportVersionNumber: null,
+      reportContentHash: null,
+    }
+    mockPay03aApi([interruptedOrder])
+    render(
+      <MemoryRouter>
+        <VehicleHistoryCommerce />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('pay03a-source-coverage-note')).toHaveTextContent(
+      'CarUp internal source-table availability at query time, not overall vehicle-history accuracy',
+    )
+    const classesBox = screen.getByTestId('pay03a-readiness-classes')
+    expect(classesBox).toHaveTextContent('Evidence Found (2): registration, inspection')
+    expect(classesBox).toHaveTextContent('Checked — No Records Held (2): service, accident')
+    expect(classesBox).toHaveTextContent('Sources Not Checked / Unavailable (1): theft')
+
+    const orderCard = await screen.findByTestId(`pay03a-order-${interruptedOrder.orderId}`)
+    expect(within(orderCard).getByText(/report snapshot fulfillment is pending recovery/)).toBeInTheDocument()
+    expect(
+      within(orderCard).queryByTestId(`pay03a-open-report-${interruptedOrder.orderId}`),
+    ).toBeNull()
+  })
 })

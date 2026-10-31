@@ -83,36 +83,121 @@ export const PAY03A_DELIVERABLE_COMPARISON = Object.freeze({
   },
 });
 
+const SYNTHETIC_FIXTURE_VINS = new Set([
+  'WBA3A5C51DF358101',
+  'JTDBR32E820112202',
+  'DBA-GRS204-0005303',
+]);
+
+const QA_SEED_VINS = new Set([
+  'WBA8E9C50HK000732',
+  'MAJFP1CD0HC000733',
+  'JTDKARFP0H3000731',
+  'CARUPGLDNA0000001',
+  'CARUPGLDNB0000002',
+  'VIN74329849204928',
+  'VIN89230489201948',
+  'VIN38492049281048',
+]);
+
+function classifyVehicleProvenance(vehicle = null, isSyntheticFixture = false) {
+  if (isSyntheticFixture) return 'QA_INTEGRATION_FIXTURE';
+  const vin = String(vehicle?.vin || '').trim();
+  const ownerId = String(vehicle?.owner_id || '').trim();
+  const color = String(vehicle?.color || '').trim();
+  const importSource = String(vehicle?.import_source || '').trim();
+  if (
+    SYNTHETIC_FIXTURE_VINS.has(vin)
+    || QA_SEED_VINS.has(vin)
+    || ownerId === 'qa-staging-seller-73'
+    || ownerId.endsWith('-stg')
+    || color === 'QA-STAGING-PR73'
+    || importSource.includes('SYNTHETIC_TEST_FIXTURE')
+    || Boolean(vehicle?.specifications?.CARUP_PHASE7_GOLDEN)
+  ) {
+    return 'QA_INTEGRATION_FIXTURE';
+  }
+  return null;
+}
+
 function evaluateHistoricalEvidence(assembled, vehicle = null) {
   const timeline = Array.isArray(assembled?.timeline) ? assembled.timeline : [];
-  const historicalEvents = timeline.filter((e) => e && e.source_kind !== 'current_listing');
+  // Seller-stated marketplace listing snapshots (`listing_snapshot` / `current_listing`) or
+  // unverified/pending items must never count as verified historical lifecycle evidence.
+  const verifiedHistoricalEvents = timeline.filter(
+    (e) =>
+      e
+      && e.source_kind !== 'current_listing'
+      && e.source_kind !== 'listing_snapshot'
+      && e.verification_status !== 'seller_stated'
+      && e.verification_status !== 'pending'
+      && e.verification_status !== 'rejected',
+  );
   const evidenceIndex = Array.isArray(assembled?.evidence_index) ? assembled.evidence_index : [];
+  const verifiedEvidenceIndex = evidenceIndex.filter(
+    (e) => e && e.verification_status === 'verified',
+  );
   const listingHistory = Array.isArray(assembled?.listing_history) ? assembled.listing_history : [];
   const keyAlerts = Array.isArray(assembled?.key_alerts) ? assembled.key_alerts : [];
+  const confirmedAlerts = keyAlerts.filter((a) => a && a.reviewed === true);
+
   const hasHistoricalEvidence =
-    historicalEvents.length > 0
-    || evidenceIndex.length > 0
-    || listingHistory.length > 0
-    || keyAlerts.length > 0;
-  const isSyntheticFixture = Boolean(vehicle?.specifications?.pay03a_synthetic_fixture === true);
+    verifiedHistoricalEvents.length > 0
+    || verifiedEvidenceIndex.length > 0
+    || confirmedAlerts.length > 0;
+
+  const isSyntheticFixture =
+    Boolean(vehicle?.specifications?.pay03a_synthetic_fixture === true)
+    || SYNTHETIC_FIXTURE_VINS.has(String(vehicle?.vin || '').trim())
+    || String(vehicle?.import_source || '').includes('SYNTHETIC_TEST_FIXTURE');
+
+  const qaClassification = classifyVehicleProvenance(vehicle, isSyntheticFixture);
+  const isQaFixture = qaClassification === 'QA_INTEGRATION_FIXTURE';
+  const provenanceClassification = isQaFixture
+    ? 'QA_INTEGRATION_FIXTURE'
+    : hasHistoricalEvidence
+      ? 'GENUINE_VERIFIED_SOURCE_BACKED'
+      : 'PROVENANCE_UNVERIFIED';
+
+  const isCompleteCoverage =
+    assembled?.completeness?.lifecycle_source_coverage === 1
+    && (!assembled?.completeness?.classes_unavailable
+      || assembled.completeness.classes_unavailable.length === 0);
+
+  const coverageClassification = !hasHistoricalEvidence
+    ? listingHistory.length > 0
+      ? 'PROVENANCE_UNVERIFIED'
+      : 'METADATA_ONLY_NOT_ELIGIBLE'
+    : isCompleteCoverage
+      ? 'ELIGIBLE_SOURCE_BACKED'
+      : 'PARTIAL_COVERAGE_REQUIRES_DISCLOSURE';
+
+  const hasListingOnlyWithoutVerifiedHistory = !hasHistoricalEvidence && listingHistory.length > 0;
 
   return {
     hasHistoricalEvidence,
     eligibleForPurchase: hasHistoricalEvidence,
     eligibilityStatus: hasHistoricalEvidence
       ? 'eligible_evidence_backed'
-      : 'ineligible_metadata_only_vehicle',
+      : hasListingOnlyWithoutVerifiedHistory
+        ? 'ineligible_listing_only_unverified'
+        : 'ineligible_metadata_only_vehicle',
     ineligibilityReason: hasHistoricalEvidence
       ? null
       : 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
     ineligibilityDetail: hasHistoricalEvidence
       ? null
-      : 'This vehicle record contains only basic VIN/identity metadata with zero historical lifecycle evidence, inspection records, or listing history. Purchase is refused before charging so customers are not billed for an empty metadata-only report.',
-    historicalEventCount: historicalEvents.length,
-    evidenceIndexCount: evidenceIndex.length,
+      : hasListingOnlyWithoutVerifiedHistory
+        ? 'This vehicle has seller-stated marketplace listing snapshots only, with zero verified historical lifecycle or inspection records. Seller-stated listings alone do not qualify for paid report commerce.'
+        : 'This vehicle record contains only basic VIN/identity metadata with zero historical lifecycle evidence, inspection records, or listing history. Purchase is refused before charging so customers are not billed for an empty metadata-only report.',
+    historicalEventCount: verifiedHistoricalEvents.length,
+    evidenceIndexCount: verifiedEvidenceIndex.length,
     listingSnapshotCount: listingHistory.length,
-    keyAlertCount: keyAlerts.length,
+    keyAlertCount: confirmedAlerts.length,
     isSyntheticFixture,
+    isQaFixture,
+    provenanceClassification,
+    coverageClassification,
   };
 }
 
@@ -234,6 +319,8 @@ export async function inspectVehicleReportReadiness({
     eligibilityStatus: eligibility.eligibilityStatus,
     ineligibilityReason: eligibility.ineligibilityReason,
     ineligibilityDetail: eligibility.ineligibilityDetail,
+    provenanceClassification: eligibility.provenanceClassification,
+    coverageClassification: eligibility.coverageClassification,
     sandboxOnly: true,
     liveCommercialActive: false,
     productCode: PAY03A_PRODUCT_CODE,
@@ -255,6 +342,9 @@ export async function inspectVehicleReportReadiness({
       status: vehicle.status || 'Available',
       trustScore: vehicle.trust_score ?? null,
       isSyntheticFixture: eligibility.isSyntheticFixture,
+      isQaFixture: eligibility.isQaFixture,
+      provenanceClassification: eligibility.provenanceClassification,
+      coverageClassification: eligibility.coverageClassification,
     },
     readiness: {
       reportSchema: assembled.schema || 'vehicle_history_report.v1',
@@ -340,6 +430,9 @@ export async function listEligibleReportVehicles({
       historicalEventCount: 0,
       evidenceIndexCount: 0,
       isSyntheticFixture: Boolean(v?.specifications?.pay03a_synthetic_fixture === true),
+      isQaFixture: classifyVehicleProvenance(v) === 'QA_INTEGRATION_FIXTURE',
+      provenanceClassification: classifyVehicleProvenance(v) || 'PROVENANCE_UNVERIFIED',
+      coverageClassification: 'PARTIAL_COVERAGE_REQUIRES_DISCLOSURE',
     };
     try {
       const assembled = await reportAssembler(db, v.vin, { audience: 'buyer' });
@@ -352,6 +445,9 @@ export async function listEligibleReportVehicles({
         historicalEventCount: 0,
         evidenceIndexCount: 0,
         isSyntheticFixture: Boolean(v?.specifications?.pay03a_synthetic_fixture === true),
+        isQaFixture: classifyVehicleProvenance(v) === 'QA_INTEGRATION_FIXTURE',
+        provenanceClassification: 'PROVENANCE_UNVERIFIED',
+        coverageClassification: 'PROVENANCE_UNVERIFIED',
       };
     }
     vehicles.push({
@@ -376,6 +472,9 @@ export async function listEligibleReportVehicles({
       historicalEventCount: eligibility.historicalEventCount,
       evidenceIndexCount: eligibility.evidenceIndexCount,
       isSyntheticFixture: eligibility.isSyntheticFixture,
+      isQaFixture: eligibility.isQaFixture,
+      provenanceClassification: eligibility.provenanceClassification,
+      coverageClassification: eligibility.coverageClassification,
     });
   }
 
@@ -393,14 +492,30 @@ export async function listEligibleReportVehicles({
   };
 }
 
+function hasValidFulfilledSnapshot(order, reportVersion) {
+  if (!order || !order.report_version_id || !reportVersion) return false;
+  if (reportVersion.id !== order.report_version_id) return false;
+  if (reportVersion.vin !== order.vin) return false;
+  if (
+    reportVersion.pay03a_order_id !== undefined
+    && reportVersion.pay03a_order_id !== null
+    && reportVersion.pay03a_order_id !== order.id
+  ) {
+    return false;
+  }
+  if (reportVersion.revoked) return false;
+  return true;
+}
+
 function projectOrderRecord({ order, quote = null, payment = null, reportVersion = null }) {
   const payStatus = payment?.status || 'pending';
   const entitlementStatus = order?.entitlement_status || 'awaiting_payment';
+  const snapshotBound = hasValidFulfilledSnapshot(order, reportVersion);
   const reportAvailable =
     payStatus === 'paid'
     && entitlementStatus === 'entitled'
     && !order?.revoked_at
-    && !reportVersion?.revoked;
+    && snapshotBound;
 
   return {
     orderId: order.id,
@@ -432,10 +547,10 @@ function projectOrderRecord({ order, quote = null, payment = null, reportVersion
     reportVersionNumber: order.report_version_number ?? null,
     reportContentHash: order.report_content_hash || null,
     completenessSummary: order.completeness_summary || null,
-    shareToken: reportStatusAllowsShare(entitlementStatus, payStatus, reportVersion)
+    shareToken: reportStatusAllowsShare(entitlementStatus, payStatus, order, reportVersion)
       ? reportVersion?.share_token || null
       : null,
-    shareExpiresAt: reportStatusAllowsShare(entitlementStatus, payStatus, reportVersion)
+    shareExpiresAt: reportStatusAllowsShare(entitlementStatus, payStatus, order, reportVersion)
       ? reportVersion?.share_expires_at || null
       : null,
     shareRevoked: Boolean(reportVersion?.revoked || entitlementStatus !== 'entitled'),
@@ -446,12 +561,12 @@ function projectOrderRecord({ order, quote = null, payment = null, reportVersion
   };
 }
 
-function reportStatusAllowsShare(entitlementStatus, paymentStatus, reportVersion) {
+function reportStatusAllowsShare(entitlementStatus, paymentStatus, order, reportVersion) {
   return (
     entitlementStatus === 'entitled'
     && paymentStatus === 'paid'
-    && reportVersion
-    && !reportVersion.revoked
+    && !order?.revoked_at
+    && hasValidFulfilledSnapshot(order, reportVersion)
   );
 }
 
@@ -502,7 +617,7 @@ async function loadOrderWithContext(db, orderId, buyerId = null) {
   if (order.report_version_id) {
     const { data: rv, error: rvErr } = await db
       .from('report_versions')
-      .select('id, vin, version, generated_at, content_hash, completeness, share_token, share_expires_at, revoked, correction_notice')
+      .select('id, vin, version, generated_at, content_hash, completeness, report_tier, pay03a_order_id, share_token, share_expires_at, revoked, correction_notice')
       .eq('id', order.report_version_id)
       .maybeSingle();
     if (rvErr) throw new Pay02Error('PAY03A_REPORT_VERSION_READ_UNAVAILABLE', 503);
