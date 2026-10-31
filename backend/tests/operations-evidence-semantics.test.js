@@ -502,3 +502,118 @@ test('omitting visibility corrects only the classification and leaves publicatio
   assert.equal(client._tables.vehicle_evidence[0].visibility_level, 'public_safe',
     'a classification-only correction must not silently change who can see the document');
 });
+
+// ---------------------------------------------------------------------------
+// CARUP-PAY-03A-STG01-R3 Work Unit 2: Fail-closed evidence review governance
+// ---------------------------------------------------------------------------
+
+test('Work Unit 2: reviewEvidenceRecord enforces proven session, capability, independent reviewer (no self-review), and fail-closed audit persistence', async () => {
+  const { reviewEvidenceRecord } = evidenceService;
+  const routes = readFileSync(new URL('../routes/vehiclesRoutes.js', import.meta.url), 'utf8');
+
+  // 1. Route-level contract: both /verify and /reject require allowUserIdFallback: false and VEHICLE_EVIDENCE_REVIEW capability
+  assert.match(
+    routes,
+    /router\.patch\(\s*'\/api\/vehicles\/:vin\/evidence\/:evidenceId\/verify',\s*authorizeRole\(\['admin',\s*'government'\],\s*\{\s*allowUserIdFallback:\s*false\s*\}\),\s*requireOperationsCapability\(OPERATIONS_CAPABILITIES\.VEHICLE_EVIDENCE_REVIEW\)/,
+    '/verify route must require proven session (allowUserIdFallback: false) and VEHICLE_EVIDENCE_REVIEW capability',
+  );
+  assert.match(
+    routes,
+    /router\.patch\(\s*'\/api\/vehicles\/:vin\/evidence\/:evidenceId\/reject',\s*authorizeRole\(\['admin',\s*'government'\],\s*\{\s*allowUserIdFallback:\s*false\s*\}\),\s*requireOperationsCapability\(OPERATIONS_CAPABILITIES\.VEHICLE_EVIDENCE_REVIEW\)/,
+    '/reject route must require proven session (allowUserIdFallback: false) and VEHICLE_EVIDENCE_REVIEW capability',
+  );
+
+  // 2. Fallback identity (`x-user-id-fallback`) is refused with 403 OPERATIONS_PROVEN_SESSION_REQUIRED
+  const client1 = makeMockClient();
+  client1._tables.vehicle_evidence[0].verification_status = 'pending';
+  await assert.rejects(
+    reviewEvidenceRecord(client1, {
+      vin: 'GFC27-027051',
+      evidenceId: 'ev-1',
+      decision: 'verified',
+      notes: 'Attempt via x-user-id fallback',
+      actor: {
+        id: 'u_reviewer',
+        role: 'admin',
+        baseRole: 'admin',
+        platformRole: 'admin',
+        authenticationMethod: 'x-user-id-fallback',
+      },
+    }),
+    (err) => err.code === 'OPERATIONS_PROVEN_SESSION_REQUIRED' && err.status === 403,
+  );
+  assert.equal(client1._tables.vehicle_evidence[0].verification_status, 'pending');
+
+  // 3. Self-review (`uploaded_by === actor.id`) is refused with 403 EVIDENCE_REVIEW_SELF_FORBIDDEN even for an admin
+  const client2 = makeMockClient();
+  client2._tables.vehicle_evidence[0].verification_status = 'pending';
+  client2._tables.vehicle_evidence[0].uploaded_by = 'u_admin_uploader';
+  await assert.rejects(
+    reviewEvidenceRecord(client2, {
+      vin: 'GFC27-027051',
+      evidenceId: 'ev-1',
+      decision: 'verified',
+      notes: 'Self-approval attempt',
+      actor: {
+        id: 'u_admin_uploader',
+        role: 'admin',
+        baseRole: 'admin',
+        platformRole: 'admin',
+        authenticationMethod: 'session',
+      },
+    }),
+    (err) => err.code === 'EVIDENCE_REVIEW_SELF_FORBIDDEN' && err.status === 403,
+  );
+  assert.equal(client2._tables.vehicle_evidence[0].verification_status, 'pending');
+  assert.equal(client2._tables.trust_audit_events.length, 0);
+
+  // 4. Audit persistence failure refuses verification and leaves vehicle_evidence unmutated (fail-closed)
+  const clientFailAudit = makeMockClient({ failAuditInsert: true });
+  clientFailAudit._tables.vehicle_evidence[0].verification_status = 'pending';
+  await assert.rejects(
+    reviewEvidenceRecord(clientFailAudit, {
+      vin: 'GFC27-027051',
+      evidenceId: 'ev-1',
+      decision: 'verified',
+      notes: 'Should fail closed when trust_audit_events fails',
+      actor: {
+        id: 'u_independent_reviewer',
+        role: 'admin',
+        baseRole: 'admin',
+        platformRole: 'admin',
+        authenticationMethod: 'session',
+      },
+    }),
+    (err) => err.code === 'EVIDENCE_REVIEW_AUDIT_FAILED' && err.status === 500,
+  );
+  assert.equal(
+    clientFailAudit._tables.vehicle_evidence[0].verification_status,
+    'pending',
+    'vehicle_evidence must remain pending when audit insert fails',
+  );
+
+  // 5. Positive control: independent proven reviewer with working audit persists EVIDENCE_VERIFIED and updates row
+  const clientOk = makeMockClient();
+  clientOk._tables.vehicle_evidence[0].verification_status = 'pending';
+  const okResult = await reviewEvidenceRecord(clientOk, {
+    vin: 'GFC27-027051',
+    evidenceId: 'ev-1',
+    decision: 'verified',
+    notes: 'Independently verified by operations reviewer',
+    requestedTrustImpact: 3,
+    actor: {
+      id: 'u_independent_reviewer',
+      role: 'admin',
+      baseRole: 'admin',
+      platformRole: 'admin',
+      authenticationMethod: 'session',
+    },
+  });
+  assert.equal(okResult.evidence.verification_status, 'verified');
+  assert.equal(okResult.evidence.verified_by, 'u_independent_reviewer');
+  assert.equal(clientOk._tables.trust_audit_events.length, 1);
+  assert.equal(clientOk._tables.trust_audit_events[0].event_type, 'EVIDENCE_VERIFIED');
+  assert.equal(clientOk._tables.trust_audit_events[0].actor_user_id, 'u_independent_reviewer');
+  assert.equal(clientOk._tables.evidence_provenance_events.length, 1);
+  assert.equal(clientOk._tables.evidence_provenance_events[0].event_type, 'approved');
+});

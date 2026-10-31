@@ -11,6 +11,12 @@ import {
 } from './evidenceTaxonomy.js';
 import { computePerceptualHash } from './perceptualHash.js';
 import { recordProvenanceEvent } from './provenanceService.js';
+import { logAuditEvent } from '../auditLogger.js';
+import {
+  OPERATIONS_CAPABILITIES,
+  hasOperationsCapability,
+  isProvenSession,
+} from '../operations/operationsAuthorizationService.js';
 
 export const evidenceTypes = [
   'import_photo',
@@ -555,4 +561,210 @@ export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceTy
       .update({ metadata: updatedMetadata })
       .eq('id', evidenceId);
   }
+}
+
+export class EvidenceReviewGovernanceError extends Error {
+  constructor(message, code = 'EVIDENCE_REVIEW_GOVERNANCE_ERROR', status = 400) {
+    super(message);
+    this.name = 'EvidenceReviewGovernanceError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/**
+ * Bounded, fail-closed evidence verification/rejection governance (CARUP-PAY-03A-STG01-R3 Work Unit 2).
+ *
+ * Enforces:
+ * 1. Genuine authenticated session (`isProvenSession(actor)` — `x-user-id` fallback identities are refused).
+ * 2. Server-derived Operations capability (`OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW`).
+ * 3. Independent reviewer (`G5 — no self-certification`: `evidence.uploaded_by !== actor.id`).
+ * 4. Durable attributable audit persistence in `trust_audit_events` BEFORE mutating `vehicle_evidence`,
+ *    failing closed (`500 EVIDENCE_REVIEW_AUDIT_FAILED`) when `trust_audit_events` persistence fails.
+ */
+export async function reviewEvidenceRecord(client = supabase, {
+  vin,
+  evidenceId,
+  decision,
+  notes = null,
+  confidenceImpact = 0,
+  requestedTrustImpact = null,
+  actor,
+  req = null,
+} = {}) {
+  const cleanVin = String(vin || '').trim();
+  const cleanEvidenceId = String(evidenceId || '').trim();
+  if (!cleanVin || !cleanEvidenceId) {
+    throw new EvidenceReviewGovernanceError('vin and evidenceId are required', 'EVIDENCE_REVIEW_INVALID_INPUT', 400);
+  }
+  if (decision !== 'verified' && decision !== 'rejected') {
+    throw new EvidenceReviewGovernanceError("decision must be 'verified' or 'rejected'", 'EVIDENCE_REVIEW_INVALID_DECISION', 400);
+  }
+  if (!actor?.id) {
+    throw new EvidenceReviewGovernanceError('Authentication required.', 'OPERATIONS_UNAUTHENTICATED', 401);
+  }
+  if (!isProvenSession(actor)) {
+    throw new EvidenceReviewGovernanceError(
+      'This Operations action requires a proven session.',
+      'OPERATIONS_PROVEN_SESSION_REQUIRED',
+      403,
+    );
+  }
+  if (!hasOperationsCapability(actor, OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW)) {
+    throw new EvidenceReviewGovernanceError(
+      `Forbidden. This action requires the '${OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW}' capability.`,
+      'OPERATIONS_CAPABILITY_REQUIRED',
+      403,
+    );
+  }
+
+  const { data: evidence, error: evError } = await client
+    .from('vehicle_evidence')
+    .select('*')
+    .eq('id', cleanEvidenceId)
+    .eq('vin', cleanVin)
+    .maybeSingle();
+
+  if (evError) {
+    throw new EvidenceReviewGovernanceError(
+      `Evidence read failed: ${evError.message}`,
+      'EVIDENCE_REVIEW_READ_FAILED',
+      500,
+    );
+  }
+  if (!evidence) {
+    throw new EvidenceReviewGovernanceError(
+      'Evidence record not found matching this VIN',
+      'EVIDENCE_REVIEW_NOT_FOUND',
+      404,
+    );
+  }
+
+  // G5 — no self-certification: the uploader may never verify or reject their own evidence submission.
+  if (evidence.uploaded_by && String(evidence.uploaded_by).trim() === String(actor.id).trim()) {
+    throw new EvidenceReviewGovernanceError(
+      'The uploader cannot verify or reject their own evidence submission.',
+      'EVIDENCE_REVIEW_SELF_FORBIDDEN',
+      403,
+    );
+  }
+
+  const defaultImpact = decision === 'verified' ? 3 : -5;
+  const trustScoreImpact = evidenceStatusTrustImpact(
+    decision,
+    requestedTrustImpact ?? defaultImpact,
+  );
+  const reviewedAt = new Date().toISOString();
+  const eventType = decision === 'verified' ? 'EVIDENCE_VERIFIED' : 'EVIDENCE_REJECTED';
+  const sourceRoute =
+    req?.originalUrl
+    || req?.path
+    || `/api/vehicles/:vin/evidence/:evidenceId/${decision === 'verified' ? 'verify' : 'reject'}`;
+
+  // Audit FIRST, fail closed: if durable attributable audit persistence in trust_audit_events fails,
+  // refuse the verification/rejection before mutating vehicle_evidence.
+  let audit;
+  try {
+    audit = await logAuditEvent(client, {
+      req,
+      event_type: eventType,
+      targetType: 'evidence',
+      targetId: cleanEvidenceId,
+      vin: cleanVin,
+      evidence_ids: [cleanEvidenceId],
+      previous_value: {
+        verification_status: evidence.verification_status,
+        verification_notes: evidence.verification_notes || null,
+        trust_score_impact: evidence.trust_score_impact ?? null,
+      },
+      new_value: {
+        verification_status: decision,
+        verification_notes: notes || null,
+        trust_score_impact: trustScoreImpact,
+        ...(decision === 'verified' ? { confidence_impact: confidenceImpact || 0 } : {}),
+      },
+      actor_user_id: actor.id,
+      actor_role: actor.role || actor.baseRole || actor.platformRole || null,
+      actor_tenant_id: actor.tenantId ?? null,
+      source_route: sourceRoute,
+      reason: notes || null,
+      decision_notes: notes || null,
+      metadata: {
+        vin: cleanVin,
+        evidenceType: evidence.evidence_type,
+        trustScoreImpact,
+        ...(decision === 'verified' ? { confidenceImpact: confidenceImpact || 0 } : { notes: notes || null }),
+      },
+    });
+  } catch (err) {
+    throw new EvidenceReviewGovernanceError(
+      err?.message || 'Evidence review audit could not be recorded',
+      'EVIDENCE_REVIEW_AUDIT_FAILED',
+      500,
+    );
+  }
+
+  if (!audit?.success || audit?.warning) {
+    throw new EvidenceReviewGovernanceError(
+      audit?.error || audit?.warning || 'Evidence review audit could not be recorded',
+      'EVIDENCE_REVIEW_AUDIT_FAILED',
+      500,
+    );
+  }
+
+  const updatePayload = {
+    verification_status: decision,
+    verification_notes: notes || null,
+    verified_by: actor.id,
+    verified_at: reviewedAt,
+    trust_score_impact: trustScoreImpact,
+    trust_impact: trustScoreImpact,
+    ...(decision === 'verified' ? { confidence_impact: confidenceImpact || 0 } : {}),
+    updated_at: reviewedAt,
+  };
+
+  const { data: updated, error: updateErr } = await client
+    .from('vehicle_evidence')
+    .update(updatePayload)
+    .eq('id', cleanEvidenceId)
+    .eq('vin', cleanVin)
+    .select('*')
+    .single();
+
+  if (updateErr || !updated) {
+    throw new EvidenceReviewGovernanceError(
+      updateErr?.message || 'Evidence review update failed',
+      'EVIDENCE_REVIEW_WRITE_FAILED',
+      500,
+    );
+  }
+
+  try {
+    await recordProvenanceEvent(client, {
+      evidenceId: cleanEvidenceId,
+      vin: cleanVin,
+      eventType: decision === 'verified' ? 'approved' : 'rejected',
+      actorUserId: actor.id,
+      actorRole: actor.role || actor.baseRole || actor.platformRole || null,
+      actorType: 'user',
+      sourceRoute,
+      requestId: req?.requestId || req?.headers?.['x-request-id'] || null,
+      ipAddress: req?.ip || null,
+      details: {
+        previous_verification_status: evidence.verification_status,
+        verification_status: decision,
+        verified_by: actor.id,
+        verified_at: reviewedAt,
+        trust_score_impact: trustScoreImpact,
+      },
+    });
+  } catch (err) {
+    console.warn('[Provenance] failed to record evidence review event:', err.message);
+  }
+
+  return {
+    evidence: normalizeEvidenceRecord(updated),
+    previousEvidence: evidence,
+    trustScoreImpact,
+  };
 }
