@@ -174,6 +174,8 @@ import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
 import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
 import AdminCommunications from './pages/dashboard/admin/Communications'
 import Pay01aPayments from './pages/dashboard/admin/Pay01aPayments'
+import DemoVehicleHistory from './pages/DemoVehicleHistory'
+import Pay01cAdminOrders from './pages/dashboard/admin/Pay01cAdminOrders'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -264,6 +266,7 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/demo/vehicle-history" element={<DemoVehicleHistory />} />
           <Route path="/sell" element={<GuestSell />} />
           <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
           <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />
@@ -459,6 +462,7 @@ export default function App() {
         <Route element={<DashboardLayout role="admin" />}>
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/payments" element={<Pay01aPayments />} />
+          <Route path="/admin/demo-purchases" element={<Pay01cAdminOrders />} />
           {/* Lazy-loaded admin console. The admin guard lives in the parent
               <DashboardLayout role="admin"> route, which only renders <Outlet/>
               (this element) AFTER the auth/role gate passes — so authorization

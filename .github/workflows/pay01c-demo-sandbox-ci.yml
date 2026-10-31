@@ -1,0 +1,92 @@
+name: PAY-01C sandbox demo purchase source certification
+on:
+  pull_request:
+    paths:
+      - 'backend/services/payment/pay01aService.js'
+      - 'backend/services/payment/pay01cDemoService.js'
+      - 'backend/routes/pay01cDemoRoutes.js'
+      - 'backend/server.js'
+      - 'backend/tests/pay01c-demo-product.test.js'
+      - 'database/migrations/20261030223000_carup_pay01c_demo_product.sql'
+      - 'web/src/pages/DemoVehicleHistory*'
+      - 'web/src/pages/dashboard/admin/Pay01cAdminOrders.tsx'
+      - 'web/src/App.tsx'
+      - 'web/src/config/featureRegistry.ts'
+      - 'web/src/lib/routeAccess.test.ts'
+      - '.github/workflows/pay01c-demo-sandbox-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-certification:
+    name: Offline payment reuse, buyer isolation, UI, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CARUP_ENV: test
+      CARUP_PAY01A_ENABLED: 'false'
+      CARUP_PAY01C_ENABLED: 'false'
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: PAY-01A/B foundation remains green, PAY-01C backend regressions
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js
+      - name: Buyer responsive UI and existing admin payment UI
+        working-directory: web
+        run: npx vitest run src/pages/DemoVehicleHistory.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/lib/routeAccess.test.ts
+      - name: Typecheck and compile CarUp web
+        run: npm run build --workspace web
+
+  isolated-postgres-contract:
+    name: Disposable PostgreSQL schema and idempotent entitlement
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ephemeral-ci-only
+          POSTGRES_DB: pay01c_sandbox_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pay01c_sandbox_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: ephemeral-ci-only
+      PGDATABASE: pay01c_sandbox_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm isolated DB identity and prepare Supabase roles
+        run: |
+          psql --version
+          test "$(psql -v ON_ERROR_STOP=1 -Atc 'select current_database()')" = 'pay01c_sandbox_ci'
+          for role in anon authenticated service_role; do
+            psql -v ON_ERROR_STOP=1 -c "CREATE ROLE $role NOLOGIN;"
+          done
+      - name: Restore only canonical Phase6 and accepted PAY-01A migrations
+        run: |
+          set -euo pipefail
+          sed '/^-- +migrate Down/,$d' database/migrations/011_phase6_schema.sql | psql -v ON_ERROR_STOP=1
+          sed '/^-- +migrate Down/,$d' database/migrations/20261029181000_carup_pay01a_stripe_sandbox.sql | psql -v ON_ERROR_STOP=1
+      - name: Apply PAY-01C candidate migration ONLY to ephemeral database
+        run: |
+          set -euo pipefail
+          sed '/^-- +migrate Down/,$d' database/migrations/20261030223000_carup_pay01c_demo_product.sql | psql -v ON_ERROR_STOP=1
+      - name: Verify RLS ACL claim uniqueness signed-event receipts and entitlement transitions
+        run: psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay01c-demo-postgres-smoke.sql
