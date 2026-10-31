@@ -554,13 +554,14 @@ export const PAY02_CATALOGUE = Object.freeze([
     commercialEvent: 'buyer_vehicle_history_report_purchase',
     commercialCategory: PAY02_CATEGORIES.FIRST_PARTY,
     owningSubsystem: 'vehicle_history_reports',
-    sourceObjectType: 'vehicle_report_versions',
+    // Pre-purchase operational object is the canonical vehicle record (`public.vehicles`), NOT the post-payment `report_versions` output!
+    sourceObjectType: 'vehicles',
     sourceReferences: [
       'backend/services/report/reportService.js',
       'backend/services/report/canonicalVehicleLifecycleService.js',
       'backend/routes/reportRoutes.js',
     ],
-    databaseAuthority: 'public.vehicle_report_versions, public.vehicle_report_shares, public.vehicles, public.vehicle_evidence',
+    databaseAuthority: 'public.vehicles, public.pay02_report_orders, public.report_versions, public.vehicle_evidence',
     payerRole: 'buyer',
     contractualSeller: 'carup_japan',
     legalBeneficiary: 'carup_japan',
@@ -2883,6 +2884,57 @@ export const PAY02_CATALOGUE = Object.freeze([
     approvedBy: null,
   }),
 ]);
+
+export const PAY02_MAX_SAFE_MINOR_UNITS = 9000000000000000;
+
+export const PAY02_REPORT_ISSUANCE_POLICY = Object.freeze({
+  previewBeforePurchase: Object.freeze({
+    stage: 'preview_before_purchase',
+    sourceObject: 'public.vehicles',
+    allowsFullReportAccess: false,
+    allowsShareLinks: false,
+    description: 'Verifies VIN existence in public.vehicles and displays coverage/limitation disclaimers only; no report version is generated or unlocked.',
+  }),
+  authoritativeGeneration: Object.freeze({
+    stage: 'authoritative_report_generation',
+    sourceObject: 'public.pay02_report_orders -> public.report_versions',
+    requiresVerifiedPaidTransaction: true,
+    idempotentPerOrder: true,
+    description: 'Generates a single deterministic report_versions snapshot bound to pay02_report_orders.report_version_id only after provider-verified paid status.',
+  }),
+  paidAccess: Object.freeze({
+    stage: 'paid_access',
+    entitlementStatus: 'entitled',
+    allowsFullReportAccess: true,
+    allowsShareLinks: true,
+    description: 'Buyer who owns the quote, canonical payment, and active pay02_report_orders row may read the buyer-safe report version.',
+  }),
+  shareLinkAvailability: Object.freeze({
+    stage: 'share_link_availability',
+    entitlementStatus: 'entitled',
+    revokedOnRefund: true,
+    description: 'Expiring share links on report_versions are available only while the underlying pay02_report_orders entitlement is active.',
+  }),
+  refundSuspension: Object.freeze({
+    stage: 'refund_suspension',
+    entitlementStatus: 'refund_suspended',
+    allowsFullReportAccess: false,
+    allowsShareLinks: false,
+    description: 'When payment_transactions enters refund_pending, buyer report access and share links are immediately suspended pending provider refund outcome.',
+  }),
+  revokedAccess: Object.freeze({
+    stage: 'revoked_access',
+    entitlementStatus: 'revoked_refunded',
+    allowsFullReportAccess: false,
+    allowsShareLinks: false,
+    description: 'When payment_transactions enters refunded, pay02_report_orders is permanently revoked and any report_versions share token is marked revoked.',
+  }),
+  historicalAuditRetention: Object.freeze({
+    stage: 'historical_audit_retention',
+    immutableRowsRetained: true,
+    description: 'Revoked orders, quotes, canonical payment rows, and historical report_versions snapshots remain immutable in PostgreSQL for audit trail.',
+  }),
+});
 
 export const PAY02_CATALOGUE_BY_CODE = Object.freeze(
   Object.fromEntries(PAY02_CATALOGUE.map((item) => [item.productCode, item])),

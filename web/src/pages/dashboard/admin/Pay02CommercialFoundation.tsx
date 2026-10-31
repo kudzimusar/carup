@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Lock, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react'
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Database,
+  FileCheck2,
+  FlaskConical,
+  History,
+  Lock,
+  RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+} from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl } from '@/lib/apiClient'
 import { Badge } from '@/components/ui/badge'
@@ -44,6 +55,7 @@ export interface Pay02CatalogueProduct {
   blockerReason: string | null
   implementationOwner: string
   priority: string
+  persistenceOrigin?: string
   validation: { valid: boolean; errors: string[] }
 }
 
@@ -68,9 +80,66 @@ export interface Pay02CatalogueResponse {
     byActivationState: Record<string, number>
     liveActiveCount: number
     pilotCandidateCode: string
+    persistenceStatus?: string
+    persistedDatabaseCount?: number
   }
   products: Pay02CatalogueProduct[]
   providers: Pay02ProviderProfile[]
+}
+
+export interface Pay02ProductVersionRow {
+  version: number
+  activation_state: string
+  approved_currency: string | null
+  approved_amount_minor: number | null
+  approval_evidence_ref: string | null
+  created_at?: string
+}
+
+export interface Pay02GovernanceProposalRow {
+  id: string
+  product_code: string
+  base_version?: number
+  proposed_state: string
+  proposed_currency?: string | null
+  proposed_amount_minor?: number | null
+  rationale: string
+  status: string
+  proposer_id: string
+  reviewer_id?: string | null
+  effect_status?: string
+}
+
+export interface Pay02ProductDetailResponse {
+  product: Pay02CatalogueProduct
+  persistenceStatus: string
+  versions: Pay02ProductVersionRow[]
+  proposals: Pay02GovernanceProposalRow[]
+}
+
+export interface Pay02FinancialReport {
+  authorityMode: 'authoritative_database_reconciliation' | 'simulation'
+  authorityBanner: string
+  currency: string
+  grossAuthorizedMinor: number
+  providerCapturedMinor: number
+  providerSettledMinor: number
+  bankSettledMinor: number
+  refundedMinor: number
+  disputedMinor: number
+  carUpRecognizedRevenueMinor: number
+  carUpDeferredCustomerLiabilityMinor: number
+  thirdPartyBeneficiaryPayableMinor: number
+  platformServiceFeeMinor: number
+  unverifiedTaxTreatmentCount: number
+  exceptionsCount: number
+  reconciledClean: boolean
+  exceptions: Array<{
+    type: string
+    quoteId?: string
+    paymentTransactionId?: string
+    detail: string
+  }>
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -88,6 +157,19 @@ export default function Pay02CommercialFoundation() {
   const [error, setError] = useState<string | null>(null)
   const [proposalMessage, setProposalMessage] = useState<string | null>(null)
   const [proposalBusy, setProposalBusy] = useState<boolean>(false)
+  const [inspectedDetail, setInspectedDetail] = useState<Pay02ProductDetailResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState<boolean>(false)
+  const [reconciliationReport, setReconciliationReport] = useState<Pay02FinancialReport | null>(null)
+  const [reconciliationBusy, setReconciliationBusy] = useState<boolean>(false)
+
+  const buildAuthHeaders = useCallback(
+    () => ({
+      'x-session-token': token ?? undefined,
+      'x-user-id': user?.id,
+      ...(user?.role ? { 'x-stakeholder-role': user.role } : {}),
+    }),
+    [token, user?.id, user?.role],
+  )
 
   const loadCatalogue = useCallback(async () => {
     setLoading(true)
@@ -100,11 +182,7 @@ export default function Pay02CommercialFoundation() {
       const response = await apiRequest<Pay02CatalogueResponse>({
         baseUrl: API_BASE,
         path: `/pay02/admin/catalogue${query}`,
-        authHeaders: {
-          'x-session-token': token ?? undefined,
-          'x-user-id': user?.id,
-          ...(user?.role ? { 'x-stakeholder-role': user.role } : {}),
-        },
+        authHeaders: buildAuthHeaders(),
       })
       if (!response || !Array.isArray(response.products) || !response.summary) {
         throw new Error('Incomplete commercial catalogue response.')
@@ -115,11 +193,28 @@ export default function Pay02CommercialFoundation() {
     } finally {
       setLoading(false)
     }
-  }, [token, user?.id, user?.role, selectedFamily, selectedCategory])
+  }, [buildAuthHeaders, selectedFamily, selectedCategory])
 
   useEffect(() => {
     void loadCatalogue()
   }, [loadCatalogue])
+
+  const inspectProductHistory = async (productCode: string) => {
+    setDetailLoading(true)
+    setError(null)
+    try {
+      const response = await apiRequest<Pay02ProductDetailResponse>({
+        baseUrl: API_BASE,
+        path: `/pay02/admin/catalogue/${encodeURIComponent(productCode)}`,
+        authHeaders: buildAuthHeaders(),
+      })
+      setInspectedDetail(response)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load product version history.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   const submitReviewProposal = async (product: Pay02CatalogueProduct) => {
     if (proposalBusy) return
@@ -127,7 +222,7 @@ export default function Pay02CommercialFoundation() {
     setProposalMessage(null)
     setError(null)
     try {
-      const response = await apiRequest<{ proposal: { id: string; proposed_state: string; status: string } }>({
+      const response = await apiRequest<{ proposal: Pay02GovernanceProposalRow }>({
         baseUrl: API_BASE,
         path: '/pay02/admin/proposals',
         options: {
@@ -136,17 +231,20 @@ export default function Pay02CommercialFoundation() {
             productCode: product.productCode,
             proposedState: 'reviewed',
             rationale: `PAY-02 governance inspection review for ${product.productCode}`,
+            approvalEvidenceRef: 'ISSUE-247:SANDBOX-REVIEW-PROPOSAL',
           }),
         },
-        authHeaders: {
-          'x-session-token': token ?? undefined,
-          'x-user-id': user?.id,
-          ...(user?.role ? { 'x-stakeholder-role': user.role } : {}),
-        },
+        authHeaders: buildAuthHeaders(),
       })
+      if (!response?.proposal?.id) {
+        throw new Error('Governance proposal did not return a durable database proposal ID.')
+      }
       setProposalMessage(
-        `Proposal ${response.proposal.id} recorded (${response.proposal.status}). Distinct reviewer approval is required before state change.`,
+        `Persisted DB proposal ${response.proposal.id} recorded (${response.proposal.status}). Distinct reviewer approval is required before version advancement.`,
       )
+      if (inspectedDetail?.product.productCode === product.productCode) {
+        await inspectProductHistory(product.productCode)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Governance proposal failed validation gate.')
     } finally {
@@ -154,8 +252,98 @@ export default function Pay02CommercialFoundation() {
     }
   }
 
+  const reviewGovernanceProposal = async (
+    proposalId: string,
+    decision: 'approved' | 'rejected',
+    productCode?: string,
+  ) => {
+    if (proposalBusy) return
+    setProposalBusy(true)
+    setProposalMessage(null)
+    setError(null)
+    try {
+      const response = await apiRequest<{
+        proposal: Pay02GovernanceProposalRow
+        newVersion?: Pay02ProductVersionRow | null
+      }>({
+        baseUrl: API_BASE,
+        path: `/pay02/admin/proposals/${encodeURIComponent(proposalId)}/review`,
+        options: {
+          method: 'POST',
+          body: JSON.stringify({
+            decision,
+            reviewNotes: `Administrative governance review (${decision}) for proposal ${proposalId}`,
+            approvalEvidenceRef: 'ISSUE-247:SANDBOX-REVIEW-APPROVAL',
+          }),
+        },
+        authHeaders: buildAuthHeaders(),
+      })
+      const versionNote = response.newVersion
+        ? ` Persisted product version advanced to v${response.newVersion.version} (${response.newVersion.activation_state}).`
+        : ''
+      setProposalMessage(
+        `Proposal ${response.proposal.id} ${response.proposal.status} (${response.proposal.effect_status || 'recorded'}).${versionNote}`,
+      )
+      await loadCatalogue()
+      if (productCode) {
+        await inspectProductHistory(productCode)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Proposal review failed persistence or separation-of-duties gate.')
+    } finally {
+      setProposalBusy(false)
+    }
+  }
+
+  const runAuthoritativeReconciliation = async () => {
+    if (reconciliationBusy) return
+    setReconciliationBusy(true)
+    setError(null)
+    try {
+      const response = await apiRequest<{ report: Pay02FinancialReport }>({
+        baseUrl: API_BASE,
+        path: '/pay02/admin/reporting/reconcile?currency=JPY',
+        authHeaders: buildAuthHeaders(),
+      })
+      setReconciliationReport(response.report)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authoritative database reconciliation failed.')
+    } finally {
+      setReconciliationBusy(false)
+    }
+  }
+
+  const runSimulatedReconciliation = async () => {
+    if (reconciliationBusy) return
+    setReconciliationBusy(true)
+    setError(null)
+    try {
+      const response = await apiRequest<{ report: Pay02FinancialReport }>({
+        baseUrl: API_BASE,
+        path: '/pay02/admin/reporting/simulate',
+        options: {
+          method: 'POST',
+          body: JSON.stringify({
+            currency: 'JPY',
+            quotes: [],
+            transactions: [],
+            reportOrders: [],
+          }),
+        },
+        authHeaders: buildAuthHeaders(),
+      })
+      setReconciliationReport(response.report)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test simulation failed.')
+    } finally {
+      setReconciliationBusy(false)
+    }
+  }
+
+  const isPersistedDbBacked = data?.summary?.persistenceStatus === 'database_reconciled'
+
   return (
-    <main className="min-h-screen space-y-6 bg-slate-50 px-4 py-6 sm:px-8" data-testid="pay02-admin-console">
+    <main className="min-h-screen space-y-6 bg-slate-50 px-3 py-6 sm:px-8" data-testid="pay02-admin-console">
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button variant="link" asChild className="px-0">
@@ -164,37 +352,318 @@ export default function Pay02CommercialFoundation() {
               Back to sandbox payment console
             </Link>
           </Button>
-          <Button variant="outline" size="sm" onClick={() => void loadCatalogue()} disabled={loading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh catalogue
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runAuthoritativeReconciliation()}
+              disabled={reconciliationBusy}
+              data-testid="pay02-run-authoritative-reconcile"
+            >
+              <Database className="mr-1.5 h-3.5 w-3.5" />
+              Authoritative DB Reconcile
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runSimulatedReconciliation()}
+              disabled={reconciliationBusy}
+              data-testid="pay02-run-simulation"
+            >
+              <FlaskConical className="mr-1.5 h-3.5 w-3.5" />
+              Test Simulation
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void loadCatalogue()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh catalogue
+            </Button>
+          </div>
         </div>
 
-        <header className="rounded-2xl bg-slate-950 p-6 text-white shadow-lg">
+        <header className="rounded-2xl bg-slate-950 p-4 text-white shadow-lg sm:p-6">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="bg-orange-500 text-white">CARUP PAYMENTS 2.0 · PAY-02</Badge>
             <Badge variant="outline" className="border-white/30 text-white">
               <Lock className="mr-1 h-3 w-3" /> Fail-Closed Foundation · No Live Money
             </Badge>
+            <Badge
+              variant="outline"
+              className="border-emerald-400/50 text-emerald-200"
+              data-testid="pay02-authority-badge"
+            >
+              {isPersistedDbBacked
+                ? `Persisted Commercial Authority (${data?.summary?.persistedDatabaseCount ?? 0} DB rows)`
+                : 'Catalogue Metadata (Source Reference)'}
+            </Badge>
           </div>
-          <h1 className="mt-3 text-2xl font-semibold sm:text-3xl">
+          <h1 className="mt-3 text-xl font-semibold sm:text-3xl">
             Unified Commercial Catalogue & Financial Authority
           </h1>
-          <p className="mt-2 max-w-3xl text-sm text-slate-300">
-            Governs Category A (first-party CarUp sales), Category B (third-party obligations), and Category C
-            (corporate finance and treasury). Reuses canonical payment_transactions without a competing ledger.
+          <p className="mt-2 max-w-3xl text-xs text-slate-300 sm:text-sm">
+            Distinguishes source Catalogue Metadata, Persisted Commercial Authority in PostgreSQL, Test Simulation, and
+            Authoritative Database Reconciliation against canonical payment_transactions.
           </p>
         </header>
 
+        <section
+          className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          aria-label="Authority Surface Legend"
+          data-testid="pay02-authority-surfaces"
+        >
+          <div className="rounded-xl border bg-white p-3 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+              <FileCheck2 className="h-4 w-4 text-slate-700" />
+              Catalogue Metadata
+            </div>
+            <p className="mt-1 text-slate-500">
+              66 versioned source definitions across 11 CarUp service families.
+            </p>
+          </div>
+          <div className="rounded-xl border bg-white p-3 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+              <Database className="h-4 w-4 text-emerald-700" />
+              Persisted Commercial Authority
+            </div>
+            <p className="mt-1 text-slate-500" data-testid="pay02-persistence-status">
+              Status: {data?.summary?.persistenceStatus || 'static_source_manifest'} (
+              {data?.summary?.persistedDatabaseCount ?? 0} DB rows)
+            </p>
+          </div>
+          <div className="rounded-xl border bg-white p-3 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+              <ShieldCheck className="h-4 w-4 text-blue-700" />
+              Authoritative Database Reconciliation
+            </div>
+            <p className="mt-1 text-slate-500">
+              Reads persisted quotes, report orders, and canonical payment_transactions directly from PostgreSQL.
+            </p>
+          </div>
+          <div className="rounded-xl border bg-white p-3 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+              <FlaskConical className="h-4 w-4 text-amber-700" />
+              Test Simulation
+            </div>
+            <p className="mt-1 text-slate-500">
+              Non-authoritative scenario evaluation stamped as simulated input.
+            </p>
+          </div>
+        </section>
+
         {error && (
-          <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <div
+            role="alert"
+            data-testid="pay02-error-alert"
+            className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 break-words"
+          >
             {error}
           </div>
         )}
         {proposalMessage && (
-          <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          <div
+            role="status"
+            data-testid="pay02-proposal-status"
+            className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 break-words"
+          >
             {proposalMessage}
           </div>
+        )}
+
+        {reconciliationReport && (
+          <Card data-testid="pay02-reconciliation-panel">
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-base sm:text-lg">
+                  {reconciliationReport.authorityMode === 'authoritative_database_reconciliation'
+                    ? 'Authoritative Database Reconciliation'
+                    : 'Test Simulation Output'}
+                </CardTitle>
+                <Badge
+                  className={
+                    reconciliationReport.authorityMode === 'authoritative_database_reconciliation'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-amber-600 text-white'
+                  }
+                  data-testid="pay02-reconciliation-mode-badge"
+                >
+                  {reconciliationReport.authorityBanner}
+                </Badge>
+              </div>
+              <CardDescription>
+                Currency: {reconciliationReport.currency} · Clean:{' '}
+                {reconciliationReport.reconciledClean ? 'YES' : 'EXCEPTIONS DETECTED'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Provider Captured (Minor)</div>
+                  <div className="font-mono text-sm font-semibold">
+                    {reconciliationReport.providerCapturedMinor}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">CarUp Recognized Revenue</div>
+                  <div className="font-mono text-sm font-semibold text-emerald-800">
+                    {reconciliationReport.carUpRecognizedRevenueMinor}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Deferred Customer Liability</div>
+                  <div className="font-mono text-sm font-semibold text-amber-800">
+                    {reconciliationReport.carUpDeferredCustomerLiabilityMinor}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Third-Party Beneficiary Payable</div>
+                  <div className="font-mono text-sm font-semibold">
+                    {reconciliationReport.thirdPartyBeneficiaryPayableMinor}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Platform Service Fee</div>
+                  <div className="font-mono text-sm font-semibold">
+                    {reconciliationReport.platformServiceFeeMinor}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Provider / Bank Settled</div>
+                  <div className="font-mono text-sm font-semibold">
+                    {reconciliationReport.providerSettledMinor} / {reconciliationReport.bankSettledMinor}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Unverified Tax Treatment</div>
+                  <div className="font-mono text-sm font-semibold">
+                    {reconciliationReport.unverifiedTaxTreatmentCount}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-2.5">
+                  <div className="text-slate-500">Reconciliation Exceptions</div>
+                  <div className="font-mono text-sm font-semibold" data-testid="pay02-reconciliation-exceptions">
+                    {reconciliationReport.exceptionsCount}
+                  </div>
+                </div>
+              </div>
+              {reconciliationReport.exceptions.length > 0 && (
+                <ul className="space-y-1 rounded-lg border border-red-200 bg-red-50 p-2.5 text-red-900">
+                  {reconciliationReport.exceptions.map((ex, idx) => (
+                    <li key={`${ex.type}-${idx}`} className="font-mono">
+                      [{ex.type}] {ex.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {inspectedDetail && (
+          <Card data-testid="pay02-version-history-panel">
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base sm:text-lg">
+                    Persisted Version History & Governance: {inspectedDetail.product.productCode}
+                  </CardTitle>
+                  <CardDescription>
+                    Persistence Status: {inspectedDetail.persistenceStatus} · Active Version: v
+                    {inspectedDetail.product.version} ({inspectedDetail.product.activationState})
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setInspectedDetail(null)}>
+                  Close history
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 text-xs">
+              <div>
+                <h3 className="font-semibold text-slate-900">Immutable Version Ledger</h3>
+                <div className="mt-2 space-y-1.5">
+                  {inspectedDetail.versions.map((ver) => (
+                    <div
+                      key={ver.version}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-slate-50 p-2 font-mono"
+                      data-testid={`pay02-version-row-${ver.version}`}
+                    >
+                      <span>
+                        v{ver.version} · {ver.activation_state}
+                      </span>
+                      <span>
+                        {ver.approved_currency && ver.approved_amount_minor !== null
+                          ? `${ver.approved_currency} ${ver.approved_amount_minor}`
+                          : 'Unpriced'}
+                      </span>
+                      <span className="text-slate-500">
+                        Evidence: {ver.approval_evidence_ref || 'Initial Seed'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-slate-900">Governance Proposals</h3>
+                {inspectedDetail.proposals.length === 0 ? (
+                  <p className="mt-1 text-slate-500">No governance proposals recorded for this product.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {inspectedDetail.proposals.map((prop) => (
+                      <div
+                        key={prop.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-2.5"
+                        data-testid={`pay02-proposal-row-${prop.id}`}
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-mono font-semibold">
+                            {prop.id} → {prop.proposed_state} ({prop.status})
+                          </div>
+                          <div className="text-slate-500">
+                            Proposer: {prop.proposer_id}
+                            {prop.reviewer_id ? ` · Reviewer: ${prop.reviewer_id}` : ''}
+                            {prop.effect_status ? ` · Effect: ${prop.effect_status}` : ''}
+                          </div>
+                        </div>
+                        {prop.status === 'pending_review' && (
+                          <div className="flex flex-wrap gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={proposalBusy}
+                              onClick={() =>
+                                void reviewGovernanceProposal(
+                                  prop.id,
+                                  'approved',
+                                  inspectedDetail.product.productCode,
+                                )
+                              }
+                              data-testid={`pay02-approve-proposal-${prop.id}`}
+                            >
+                              Approve Proposal
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={proposalBusy}
+                              onClick={() =>
+                                void reviewGovernanceProposal(
+                                  prop.id,
+                                  'rejected',
+                                  inspectedDetail.product.productCode,
+                                )
+                              }
+                              data-testid={`pay02-reject-proposal-${prop.id}`}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {data && (
@@ -206,7 +675,7 @@ export default function Pay02CommercialFoundation() {
                   <CardTitle className="text-2xl">{data.summary.totalProducts}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-500">
-                  Across all 10 mandatory CarUp service families
+                  Across all 11 CarUp commercial service families
                 </CardContent>
               </Card>
               <Card>
@@ -236,7 +705,7 @@ export default function Pay02CommercialFoundation() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardDescription>First Real Product Pilot (PAY-02-PILOT)</CardDescription>
-                  <CardTitle className="font-mono text-sm">{data.summary.pilotCandidateCode}</CardTitle>
+                  <CardTitle className="font-mono text-sm break-all">{data.summary.pilotCandidateCode}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-500">
                   Single-VIN Vehicle History Report (`reportService.js`)
@@ -264,13 +733,13 @@ export default function Pay02CommercialFoundation() {
                         {provider.callableInTest ? 'Sandbox Callable' : 'Fail-Closed'}
                       </Badge>
                     </div>
-                    <p className="font-mono text-slate-600">{provider.providerKey}</p>
+                    <p className="font-mono text-slate-600 break-all">{provider.providerKey}</p>
                     <p className="text-slate-500">
                       Countries: {provider.supportedCountries.join(', ')} · Currencies:{' '}
                       {provider.supportedCurrencies.join(', ')}
                     </p>
                     {provider.blockedReason && (
-                      <p className="text-amber-700 font-mono">Gate: {provider.blockedReason}</p>
+                      <p className="text-amber-700 font-mono break-all">Gate: {provider.blockedReason}</p>
                     )}
                   </div>
                 ))}
@@ -329,7 +798,7 @@ export default function Pay02CommercialFoundation() {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <span className="font-mono text-xs font-semibold text-orange-700">
+                        <span className="font-mono text-xs font-semibold text-orange-700 break-all">
                           {item.productCode} (v{item.version})
                         </span>
                         <h2 className="text-sm font-semibold text-slate-900">{item.title}</h2>
@@ -339,6 +808,9 @@ export default function Pay02CommercialFoundation() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline">
+                          {item.persistenceOrigin === 'database_reconciled' ? 'DB Authority' : 'Catalogue Spec'}
+                        </Badge>
                         <Badge variant="outline">{item.activationState}</Badge>
                         <Badge className="bg-slate-800 text-white">{item.certificationState}</Badge>
                         {item.checkoutProhibited && (
@@ -350,13 +822,13 @@ export default function Pay02CommercialFoundation() {
                     <dl className="grid gap-2 text-xs sm:grid-cols-4 pt-1">
                       <div>
                         <dt className="text-slate-400">Seller / Beneficiary</dt>
-                        <dd className="font-mono text-slate-800">
+                        <dd className="font-mono text-slate-800 break-words">
                           {item.contractualSeller || 'Unassigned'} → {item.legalBeneficiary || 'Unassigned'}
                         </dd>
                       </div>
                       <div>
                         <dt className="text-slate-400">Merchant / Funds Owner</dt>
-                        <dd className="font-mono text-slate-800">
+                        <dd className="font-mono text-slate-800 break-words">
                           MoR: {item.merchantOfRecord || 'Blocked'} · Funds: {item.fundsOwner || 'Blocked'}
                         </dd>
                       </div>
@@ -398,18 +870,30 @@ export default function Pay02CommercialFoundation() {
                           </>
                         )}
                       </span>
-                      {item.activationState === 'draft' &&
-                        item.commercialCategory !== 'category_c_corporate_treasury' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={proposalBusy}
-                            onClick={() => void submitReviewProposal(item)}
-                            data-testid={`pay02-propose-${item.productCode}`}
-                          >
-                            Propose architecture review
-                          </Button>
-                        )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={detailLoading}
+                          onClick={() => void inspectProductHistory(item.productCode)}
+                          data-testid={`pay02-history-${item.productCode}`}
+                        >
+                          <History className="mr-1 h-3.5 w-3.5" />
+                          Version History
+                        </Button>
+                        {item.activationState === 'draft' &&
+                          item.commercialCategory !== 'category_c_corporate_treasury' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={proposalBusy}
+                              onClick={() => void submitReviewProposal(item)}
+                              data-testid={`pay02-propose-${item.productCode}`}
+                            >
+                              Propose architecture review
+                            </Button>
+                          )}
+                      </div>
                     </div>
                   </article>
                 ))}

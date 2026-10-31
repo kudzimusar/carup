@@ -17,10 +17,19 @@ import {
   PAY02_CATEGORIES,
   PAY02_ACTIVATION_STATES,
   PAY02_CURRENCY_SCALES,
+  PAY02_MAX_SAFE_MINOR_UNITS,
   getPay02CatalogueItem,
 } from './pay02CatalogueDefinitions.js';
 
 export const FORBIDDEN_PRODUCTION_SUPABASE_PROJECT = 'vhmnajoeicasaigiophh';
+
+export const PAY02_STRUCTURED_APPROVAL_EVIDENCE_PATTERN =
+  /^(ISSUE-[0-9]+|PR#[0-9]+|OWNER-AUTH|GARAGE-1\.0)[A-Za-z0-9_#-]{4,96}$/;
+
+export const PAY02_PLATFORM_FEE_PRODUCTS = new Set([
+  'imp.sourcing.verification_fee',
+  'mkt.sourcing.concierge_fee',
+]);
 
 export const PAY02_ELIGIBLE_QUOTE_STATES = new Set([
   'commercially_approved',
@@ -216,12 +225,23 @@ export function assertMinorUnitAmount(amountMinor, currency, expectedScale = nul
   if (typeof amountMinor === 'string' && !/^\d+$/.test(amountMinor)) {
     throw new Pay02Error('PAY02_MINOR_UNIT_INTEGER_REQUIRED', 400);
   }
+  if (typeof amountMinor === 'bigint') {
+    if (amountMinor < 0n || amountMinor > BigInt(PAY02_MAX_SAFE_MINOR_UNITS)) {
+      throw new Pay02Error('PAY02_AMOUNT_EXCEEDS_SAFE_INTEGER_BOUND', 400);
+    }
+  }
   const parsed = typeof amountMinor === 'bigint' ? Number(amountMinor) : Number(amountMinor);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Pay02Error('PAY02_MINOR_UNIT_INVALID', 400);
   }
+  if (parsed > PAY02_MAX_SAFE_MINOR_UNITS) {
+    throw new Pay02Error('PAY02_AMOUNT_EXCEEDS_SAFE_INTEGER_BOUND', 400, {
+      maxSafeMinorUnits: PAY02_MAX_SAFE_MINOR_UNITS,
+    });
+  }
   return {
     amountMinor: parsed,
+    amountMinorString: String(parsed),
     currency: normalizedCurrency,
     currencyScale: canonicalScale,
     formattedMajor: formatMinorUnitsToMajorString(parsed, canonicalScale),
@@ -283,8 +303,12 @@ export function validateCatalogueEntry(entry) {
     if (!Array.isArray(entry.eligibleProviders) || entry.eligibleProviders.length === 0) {
       errors.push('missing_eligible_providers');
     }
-    if (!entry.approvalEvidenceRef || !entry.approvedBy) {
-      errors.push('missing_approval_evidence');
+    if (
+      !entry.approvalEvidenceRef
+      || !entry.approvedBy
+      || !PAY02_STRUCTURED_APPROVAL_EVIDENCE_PATTERN.test(String(entry.approvalEvidenceRef))
+    ) {
+      errors.push('missing_or_unstructured_approval_evidence');
     }
     if (entry.checkoutProhibited && entry.productCode !== 'adj.order.refund_reversal') {
       errors.push('checkout_prohibited_item_cannot_be_quote_eligible');
@@ -457,6 +481,7 @@ export function buildServerAuthorizedQuote({
   currency = null,
   providerKey = null,
   idempotencyKey,
+  effectiveProductOverride = null,
   // Client override traps — any attempt by a client to pass these is deterministically refused:
   clientSubmittedAmount = undefined,
   clientSubmittedCurrency = undefined,
@@ -494,15 +519,25 @@ export function buildServerAuthorizedQuote({
     throw new Pay02Error('PAY02_QUOTE_IDEMPOTENCY_KEY_REQUIRED', 400);
   }
 
-  const product = getPay02CatalogueItem(productCode);
-  if (!product) {
+  const baseProduct = getPay02CatalogueItem(productCode);
+  if (!baseProduct) {
     throw new Pay02Error('PAY02_PRODUCT_UNKNOWN', 404, { productCode });
   }
+  const product = effectiveProductOverride
+    ? Object.freeze({ ...baseProduct, ...effectiveProductOverride })
+    : baseProduct;
 
   if (product.commercialCategory === PAY02_CATEGORIES.CORPORATE_TREASURY || product.checkoutProhibited) {
     throw new Pay02Error('PAY02_CHECKOUT_PROHIBITED_FOR_PRODUCT', 403, {
       productCode,
       commercialCategory: product.commercialCategory,
+    });
+  }
+
+  if (['retired', 'suspended'].includes(product.activationState)) {
+    throw new Pay02Error('PAY02_PRODUCT_RETIRED_OR_SUSPENDED', 409, {
+      productCode,
+      activationState: product.activationState,
     });
   }
 
@@ -569,6 +604,16 @@ export function buildServerAuthorizedQuote({
     env,
   });
 
+  const isPlatformServiceFee = PAY02_PLATFORM_FEE_PRODUCTS.has(product.productCode);
+  const isFirstParty = product.commercialCategory === PAY02_CATEGORIES.FIRST_PARTY;
+  const taxPolicyRef = product.taxPolicyRef || 'unapproved_tax_treatment';
+  const taxTreatmentStatus =
+    !product.taxPolicyRef
+    || String(product.taxPolicyRef).includes('pending')
+    || String(product.taxPolicyRef).includes('no_tax_claim')
+      ? 'unverified_pending_tax_policy'
+      : 'verified_tax_policy';
+
   const issuedAt = now instanceof Date ? now : new Date(now);
   const expiresAt = new Date(issuedAt.getTime() + 30 * 60 * 1000); // 30-minute deterministic quote validity window
   const quoteDigest = crypto
@@ -606,9 +651,13 @@ export function buildServerAuthorizedQuote({
     currencyScale: monetary.currencyScale,
     subtotalMinor: monetary.amountMinor,
     taxMinor: 0,
-    platformFeeMinor: product.commercialCategory === PAY02_CATEGORIES.FIRST_PARTY ? monetary.amountMinor : 0,
+    taxPolicyRef,
+    taxTreatmentStatus,
+    firstPartyProductSaleMinor: isFirstParty && !isPlatformServiceFee ? monetary.amountMinor : 0,
+    platformFeeMinor: isFirstParty && isPlatformServiceFee ? monetary.amountMinor : 0,
     thirdPartyMinor: product.commercialCategory === PAY02_CATEGORIES.THIRD_PARTY ? monetary.amountMinor : 0,
     totalMinor: monetary.amountMinor,
+    totalMinorString: monetary.amountMinorString,
     formattedTotalMajor: monetary.formattedMajor,
     pricingProvenance: `${product.priceAuthorityType}:v${product.version}:${product.approvalEvidenceRef}`,
     selectedProvider: routeDecision.providerKey,
