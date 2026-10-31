@@ -225,3 +225,47 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
     expect(loginWithReturnTo('https://evil.com')).toBe('/login')
   })
 })
+
+describe('PAY-01C admin demo-purchases registry custody', () => {
+  const route = '/admin/demo-purchases'
+  const input = (role: RouteAccessInput['role'], isAuthenticated = true): RouteAccessInput => ({
+    route, isBootstrapping: false, isAuthenticated, role,
+  })
+
+  it('registers exactly the existing administrator page; not a public route or new nav placement', () => {
+    const feature = getFeatureByRoute(route)
+    expect(feature?.id).toBe('admin.demo-purchases')
+    expect(feature?.route).toBe(route)
+    expect(feature?.requiresAuth).toBe(true)
+    expect(feature?.roles).toEqual(['admin'])
+    expect(feature?.placements).toEqual([])
+    expect(feature?.owner).toBe('payments')
+    expect(getFeatureById('admin.payments')?.route).toBe('/admin/payments')
+  })
+
+  it('allows a genuinely authenticated administrator at this exact page', () => {
+    const decision = evaluateRouteAccess(input('admin'))
+    expect(decision.kind).toBe('render-beta')
+    expect(evaluateRouteAccess(input('admin', false))).toEqual({
+      kind: 'redirect', to: '/login?returnTo=%2Fadmin%2Fdemo-purchases', reason: 'auth',
+    })
+  })
+
+  it('rejects anonymous and non-admin users without expanding payment permissions', () => {
+    expect(evaluateRouteAccess(input(null, false))).toEqual({
+      kind: 'redirect', to: '/login?returnTo=%2Fadmin%2Fdemo-purchases', reason: 'auth',
+    })
+    for (const role of ['owner', 'dealer', 'mechanic'] as const) {
+      const decision = evaluateRouteAccess(input(role))
+      expect(decision.kind).toBe('redirect')
+      if (decision.kind === 'redirect') expect(decision.reason).toBe('role')
+    }
+  })
+
+  it('retains the feature kill switch and unrelated existing sandbox-payment gate', () => {
+    const blocked = override('admin.demo-purchases', 'disabled')
+    expect(evaluateRouteAccess({ ...input('admin'), effectiveStates: blocked }).kind).toBe('disabled')
+    expect(evaluateRouteAccess({ ...input('admin'), effectiveStates: override('admin.demo-purchases', 'active', { enabled: false }) }).kind).toBe('disabled')
+    expect(evaluateRouteAccess({ ...input('admin'), route: '/admin/payments' }).kind).toBe('render-beta')
+  })
+})
