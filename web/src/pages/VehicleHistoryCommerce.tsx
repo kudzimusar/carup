@@ -30,6 +30,8 @@ const PENDING_ORDER_KEY = 'carup_pay03a_pending_report_order'
 
 export interface Pay03aVehicleItem {
   vin: string
+  identifierKind?: string
+  identifierLabel?: string
   make: string
   model: string
   generation?: string | null
@@ -129,6 +131,8 @@ export interface Pay03aOrderRecord {
   sandboxOnly: boolean
   buyerId: string
   vin: string
+  identifierKind?: string
+  identifierLabel?: string
   vehicleId: string
   quoteId: string
   quoteNumber: string | null
@@ -659,7 +663,9 @@ export default function VehicleHistoryCommerce() {
                               <p className="font-semibold text-slate-900">
                                 {veh.year} {veh.make} {veh.model} {veh.trim ? `· ${veh.trim}` : ''}
                               </p>
-                              <p className="font-mono text-xs text-slate-600">VIN: {veh.vin}</p>
+                              <p className="font-mono text-xs text-slate-600">
+                                {veh.identifierLabel || (veh.vin.includes('-') ? 'Chassis / Frame No.' : 'VIN')}: {veh.vin}
+                              </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5">
                               {(veh.isSyntheticFixture || veh.isQaFixture || veh.provenanceClassification === 'QA_INTEGRATION_FIXTURE') && (
@@ -736,7 +742,7 @@ export default function VehicleHistoryCommerce() {
                               {readiness.vehicle.year} {readiness.vehicle.make} {readiness.vehicle.model}
                             </p>
                             <p className="font-mono text-xs text-slate-300" data-testid="pay03a-selected-vin">
-                              {readiness.vehicle.vin}
+                              {readiness.vehicle.identifierLabel || (readiness.vehicle.vin.includes('-') ? 'Chassis / Frame No.' : 'VIN')}: {readiness.vehicle.vin}
                             </p>
                           </div>
                           <div className="text-right">
@@ -935,7 +941,8 @@ export default function VehicleHistoryCommerce() {
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="space-y-0.5">
                             <p className="font-semibold text-slate-900">
-                              {ord.productTitle} — VIN <span className="font-mono">{ord.vin}</span>
+                              {ord.productTitle} — {ord.identifierLabel || (ord.vin.includes('-') ? 'Chassis / Frame No.' : 'VIN')}{' '}
+                              <span className="font-mono">{ord.vin}</span>
                             </p>
                             <p className="font-mono text-xs text-slate-500">
                               Order: {ord.orderId} · Quote: {ord.quoteNumber || ord.quoteId} · Ref: {ord.paymentReference}
@@ -1077,7 +1084,7 @@ export default function VehicleHistoryCommerce() {
                         VERIFIED CANONICAL REPORT SNAPSHOT (v{openReportData.reportVersion})
                       </Badge>
                       <Badge variant="outline" className="font-mono">
-                        VIN: {openReportData.report.vin}
+                        {openReportData.order.identifierLabel || (openReportData.report.vin.includes('-') ? 'Chassis / Frame No.' : 'VIN')}: {openReportData.report.vin}
                       </Badge>
                     </div>
                     <h2 className="text-2xl font-bold text-slate-900">
@@ -1096,7 +1103,9 @@ export default function VehicleHistoryCommerce() {
 
                 <dl className="grid gap-3 rounded-xl bg-slate-50 p-4 text-xs sm:grid-cols-4">
                   <div>
-                    <dt className="text-slate-500">Canonical VIN</dt>
+                    <dt className="text-slate-500">
+                      {openReportData.order.identifierLabel || (openReportData.report.vin.includes('-') ? 'Chassis / Frame No.' : 'Canonical VIN')}
+                    </dt>
                     <dd className="font-mono font-semibold text-slate-900">{openReportData.report.vin}</dd>
                   </div>
                   <div>

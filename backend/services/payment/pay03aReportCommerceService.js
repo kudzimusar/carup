@@ -100,6 +100,26 @@ const QA_SEED_VINS = new Set([
   'VIN38492049281048',
 ]);
 
+function classifyVehicleIdentifier(vin = '') {
+  const clean = String(vin || '').trim();
+  if (/^[A-HJ-NPR-Z0-9]{17}$/i.test(clean)) {
+    return {
+      identifierKind: 'standard_vin_17',
+      identifierLabel: 'VIN (17-char)',
+    };
+  }
+  if (/^[A-Z0-9]{2,8}-[A-Z0-9-]{4,14}$/i.test(clean)) {
+    return {
+      identifierKind: 'jp_chassis_frame_number',
+      identifierLabel: 'Chassis / Frame No.',
+    };
+  }
+  return {
+    identifierKind: 'vehicle_identifier',
+    identifierLabel: 'Vehicle ID',
+  };
+}
+
 function classifyVehicleProvenance(vehicle = null, isSyntheticFixture = false) {
   if (isSyntheticFixture) return 'QA_INTEGRATION_FIXTURE';
   const vin = String(vehicle?.vin || '').trim();
@@ -327,6 +347,7 @@ export async function inspectVehicleReportReadiness({
     productTitle: product.title,
     vehicle: {
       vin: vehicle.vin,
+      ...classifyVehicleIdentifier(vehicle.vin),
       make: vehicle.make,
       model: vehicle.model,
       generation: vehicle.generation || null,
@@ -452,6 +473,7 @@ export async function listEligibleReportVehicles({
     }
     vehicles.push({
       vin: v.vin,
+      ...classifyVehicleIdentifier(v.vin),
       make: v.make,
       model: v.model,
       generation: v.generation || null,
@@ -525,6 +547,7 @@ function projectOrderRecord({ order, quote = null, payment = null, reportVersion
     sandboxOnly: true,
     buyerId: order.buyer_id,
     vin: order.vin,
+    ...classifyVehicleIdentifier(order.vin),
     vehicleId: order.vehicle_id || order.vin,
     quoteId: order.quote_id,
     quoteNumber: quote?.quote_number || null,

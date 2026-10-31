@@ -1766,13 +1766,26 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
     (err) => err.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE' && err.status === 422,
   );
 
-  // 3. Work Unit C.1-C.4: QA seed vehicles (`WBA8E9C50HK000732`) are classified as `QA_INTEGRATION_FIXTURE`,
-  // while a genuine non-QA vehicle with verified inspection evidence is `GENUINE_VERIFIED_SOURCE_BACKED`.
+  // 3. Work Unit C.1-C.4 & R2-C: QA seed vehicles (`WBA8E9C50HK000732` = 2020 BMW 320i,
+  // `JTDKARFP0H3000731` = 2018 Toyota Corolla per `database/seeds/marketplace_v1_staging_qa_seed.sql`)
+  // are classified as `QA_INTEGRATION_FIXTURE`, while a genuine non-QA vehicle with verified evidence is
+  // `GENUINE_VERIFIED_SOURCE_BACKED`, and Japanese chassis/frame numbers are distinguished from 17-char VINs.
   harness.vehicles.set('WBA8E9C50HK000732', {
     vin: 'WBA8E9C50HK000732',
     make: 'BMW',
     model: '320i',
+    year: 2020,
+    mileage: 41000,
+    owner_id: 'qa-staging-seller-73',
+    color: 'QA-STAGING-PR73',
+    status: 'Available',
+  });
+  harness.vehicles.set('JTDKARFP0H3000731', {
+    vin: 'JTDKARFP0H3000731',
+    make: 'Toyota',
+    model: 'Corolla',
     year: 2018,
+    mileage: 68000,
     owner_id: 'qa-staging-seller-73',
     color: 'QA-STAGING-PR73',
     status: 'Available',
@@ -1785,15 +1798,15 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
       schema: 'vehicle_history_report.v1',
       vin,
       audience: 'buyer',
-      identity: { vin, make: 'BMW', model: '320i', year: 2018 },
+      identity: { vin, make: 'BMW', model: '320i', year: 2020 },
       timeline: [
         {
           evidence_id: 'ev-qa-732',
-          evidence_class: 'inspection',
-          evidence_subtype: 'roadworthiness_inspection',
-          date: '2025-11-10',
+          evidence_class: 'registration',
+          evidence_subtype: 'registration_document',
+          date: '2026-06-17',
           source_id: 'ev-qa-732',
-          source_kind: 'vehicle_evidence',
+          source_kind: 'evidence',
           verification_status: 'verified',
         },
       ],
@@ -1803,8 +1816,8 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
       completeness: {
         lifecycle_source_coverage: 0.63,
         source_diversity: 1,
-        classes_present: ['inspection'],
-        classes_missing: ['registration'],
+        classes_present: ['registration'],
+        classes_missing: ['inspection'],
         classes_unavailable: ['insurance_claim', 'theft_status', 'title_brand'],
       },
       limitations: ['QA seed vehicle.'],
@@ -1812,7 +1825,21 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
   });
   assert.equal(qaSeedReadiness.provenanceClassification, 'QA_INTEGRATION_FIXTURE');
   assert.equal(qaSeedReadiness.vehicle.isQaFixture, true);
+  assert.equal(qaSeedReadiness.vehicle.year, 2020);
+  assert.equal(qaSeedReadiness.vehicle.identifierKind, 'standard_vin_17');
+  assert.equal(qaSeedReadiness.vehicle.identifierLabel, 'VIN (17-char)');
   assert.equal(qaSeedReadiness.coverageClassification, 'PARTIAL_COVERAGE_REQUIRES_DISCLOSURE');
+
+  const qaCorollaReadiness = await inspectVehicleReportReadiness({
+    vin: 'JTDKARFP0H3000731',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+  });
+  assert.equal(qaCorollaReadiness.vehicle.make, 'Toyota');
+  assert.equal(qaCorollaReadiness.vehicle.model, 'Corolla');
+  assert.equal(qaCorollaReadiness.vehicle.year, 2018);
+  assert.equal(qaCorollaReadiness.provenanceClassification, 'QA_INTEGRATION_FIXTURE');
+  assert.equal(qaCorollaReadiness.eligibleForPurchase, false);
 
   const genuineVerifiedReadiness = await inspectVehicleReportReadiness({
     vin: 'RU3-1316558',
@@ -1826,11 +1853,11 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
       timeline: [
         {
           evidence_id: 'ev-ru3-verified-1',
-          evidence_class: 'import_document',
+          evidence_class: 'import',
           evidence_subtype: 'export_certificate',
-          date: '2025-12-01',
+          date: '2026-08-29',
           source_id: 'ev-ru3-verified-1',
-          source_kind: 'vehicle_evidence',
+          source_kind: 'evidence',
           verification_status: 'verified',
         },
       ],
@@ -1840,7 +1867,7 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
       completeness: {
         lifecycle_source_coverage: 0.63,
         source_diversity: 1,
-        classes_present: ['import_document'],
+        classes_present: ['import'],
         classes_missing: ['service'],
         classes_unavailable: ['insurance_claim', 'theft_status', 'title_brand'],
       },
@@ -1850,4 +1877,6 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
   assert.equal(genuineVerifiedReadiness.eligibleForPurchase, true);
   assert.equal(genuineVerifiedReadiness.provenanceClassification, 'GENUINE_VERIFIED_SOURCE_BACKED');
   assert.equal(genuineVerifiedReadiness.coverageClassification, 'PARTIAL_COVERAGE_REQUIRES_DISCLOSURE');
+  assert.equal(genuineVerifiedReadiness.vehicle.identifierKind, 'jp_chassis_frame_number');
+  assert.equal(genuineVerifiedReadiness.vehicle.identifierLabel, 'Chassis / Frame No.');
 });

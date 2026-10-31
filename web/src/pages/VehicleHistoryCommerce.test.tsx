@@ -475,4 +475,64 @@ describe('PAY-03A customer-facing real Vehicle History Report commerce', () => {
       within(orderCard).queryByTestId(`pay03a-open-report-${interruptedOrder.orderId}`),
     ).toBeNull()
   })
+
+  it('labels Japanese chassis/frame identifiers accurately as Chassis / Frame No. rather than a 17-character VIN (R2-B1)', async () => {
+    const vezelVehicle = {
+      ...vehicle1,
+      vin: 'RU3-1316558',
+      identifierKind: 'jp_chassis_frame_number',
+      identifierLabel: 'Chassis / Frame No.',
+      make: 'Honda',
+      model: 'Vezel',
+      trim: 'Hybrid Z Honda Sensing',
+      year: 2018,
+      mileage: 134741,
+      eligibleForReport: false,
+      eligibilityStatus: 'ineligible_metadata_only_vehicle',
+      ineligibilityReason: 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+      isSyntheticFixture: false,
+      isQaFixture: false,
+      provenanceClassification: 'PROVENANCE_UNVERIFIED',
+    }
+    const vezelReadiness = {
+      ...readinessFixture,
+      eligibleForPurchase: false,
+      eligibilityStatus: 'ineligible_metadata_only_vehicle',
+      ineligibilityReason: 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE',
+      provenanceClassification: 'PROVENANCE_UNVERIFIED',
+      vehicle: vezelVehicle,
+    }
+    apiRequest.mockImplementation(({ path }: { path: string }) => {
+      if (path.startsWith('/pay03a/vehicles') && path.endsWith('/readiness')) {
+        return Promise.resolve(vezelReadiness)
+      }
+      if (path.startsWith('/pay03a/vehicles')) {
+        return Promise.resolve({
+          productCode: 'intel.report.vehicle_history_single',
+          vehicles: [vezelVehicle],
+        })
+      }
+      if (path === '/pay03a/orders') {
+        return Promise.resolve({ orders: [] })
+      }
+      return Promise.resolve({})
+    })
+
+    render(
+      <MemoryRouter>
+        <VehicleHistoryCommerce />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('pay03a-vehicle-RU3-1316558')).toHaveTextContent(
+      'Chassis / Frame No.: RU3-1316558',
+    )
+    expect(await screen.findByTestId('pay03a-selected-vin')).toHaveTextContent(
+      'Chassis / Frame No.: RU3-1316558',
+    )
+    expect(screen.getByTestId('pay03a-provenance-classification')).toHaveTextContent(
+      'PROVENANCE_UNVERIFIED',
+    )
+    expect(screen.getByTestId('pay03a-buy-button')).toBeDisabled()
+  })
 })
