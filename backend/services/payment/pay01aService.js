@@ -253,5 +253,19 @@ export async function processPay01aWebhook({
     // Fail closed on fulfillment failure so the same signed event can be retried.
     await rpc(db, 'pay01c_sync_demo_entitlement', { p_reference: reference });
   }
+  if (env.CARUP_PAY02_ENABLED === 'true' || env.CARUP_PAY03A_ENABLED === 'true') {
+    const syncData = await rpc(db, 'pay02_sync_quote_from_canonical_payment', { p_reference: reference });
+    if (syncData && syncData.report_order_id && result.status === 'paid') {
+      const { deliverVerifiedVehicleHistoryReport } = await import('./pay02Service.js');
+      await deliverVerifiedVehicleHistoryReport({
+        buyerId: row.pay01a_actor_id,
+        vin: syncData.vin || undefined,
+        orderId: syncData.report_order_id,
+        quoteId: syncData.quote_id,
+        db,
+        env,
+      });
+    }
+  }
   return { ...result, verified: true };
 }

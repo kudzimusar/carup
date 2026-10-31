@@ -267,13 +267,31 @@ export async function createShareLink(supabase, versionId, { ttlSeconds = 7 * 24
   return { share_token: token, share_expires_at: expires, version: row?.version };
 }
 
-/** Resolve a shared report by token, enforcing expiry + revocation (master plan §10.5, §10.8). */
+/** Resolve a shared report by token, enforcing expiry + revocation + PAY-02/03A entitlement validity (master plan §10.5, §10.8). */
 export async function getReportByShareToken(supabase, token, { now = Date.now() } = {}) {
   const rows = await sel(supabase, 'report_versions', { share_token: token });
   const v = rows[0];
   if (!v) return { ok: false, reason: 'not_found' };
   if (v.revoked) return { ok: false, reason: 'revoked' };
   if (v.share_expires_at && new Date(v.share_expires_at).getTime() < now) return { ok: false, reason: 'expired' };
+  if (v.id && supabase && typeof supabase.from === 'function') {
+    try {
+      const { data: orderRows, error: ordErr } = await supabase
+        .from('pay02_report_orders')
+        .select('entitlement_status, revoked_at')
+        .eq('report_version_id', v.id);
+      if (!ordErr && Array.isArray(orderRows) && orderRows.length > 0) {
+        const hasRevokedOrSuspended = orderRows.some(
+          (ord) => ord.entitlement_status !== 'entitled' || Boolean(ord.revoked_at),
+        );
+        if (hasRevokedOrSuspended) {
+          return { ok: false, reason: 'revoked' };
+        }
+      }
+    } catch {
+      // Non-PAY02 environments without pay02_report_orders table rely on report_versions.revoked
+    }
+  }
   return { ok: true, version: v.version, generated_at: v.generated_at, report: v.payload, correction_notice: v.correction_notice || null };
 }
 

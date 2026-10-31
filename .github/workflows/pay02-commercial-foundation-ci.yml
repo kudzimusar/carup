@@ -1,19 +1,28 @@
-name: PAY-02 commercial foundation & service inventory CI
+name: PAY-02 commercial foundation & PAY-03A report commerce CI
 on:
   pull_request:
     paths:
       - 'backend/services/payment/pay02*'
+      - 'backend/services/payment/pay03a*'
+      - 'backend/services/payment/pay01aService.js'
+      - 'backend/services/report/reportService.js'
       - 'backend/routes/pay02Routes.js'
+      - 'backend/routes/pay03aRoutes.js'
       - 'backend/server.js'
       - 'backend/tests/pay02-commercial-foundation.test.js'
+      - 'backend/tests/pay03a-real-report-commerce.test.js'
       - 'backend/tests/sql/pay02-foundation-postgres-smoke.sql'
+      - 'backend/tests/sql/pay03a-real-report-postgres-smoke.sql'
       - 'database/migrations/20261031143000_carup_pay02_commercial_foundation.sql'
+      - 'database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql'
+      - 'web/src/pages/VehicleHistoryCommerce*'
       - 'web/src/pages/dashboard/admin/Pay02CommercialFoundation*'
       - 'web/src/pages/dashboard/admin/Pay01aPayments*'
       - 'web/src/App.tsx'
       - 'web/src/config/featureRegistry.ts'
       - 'web/src/lib/routeAccess.test.ts'
       - 'docs/payments/CARUP_PAY_02_COMMERCIAL_FOUNDATION_AND_INVENTORY.md'
+      - 'docs/payments/CARUP_PAY_03A_REAL_REPORT_COMMERCE.md'
       - '.github/workflows/pay02-commercial-foundation-ci.yml'
   workflow_dispatch:
 
@@ -22,7 +31,7 @@ permissions:
 
 jobs:
   source-certification:
-    name: PAY-01A/B/C continuity, PAY-02 contracts, admin UI, web build
+    name: PAY-01A/B/C continuity, PAY-02/03A contracts, customer & admin UI, web build
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -39,16 +48,16 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: PAY-01A/B/C regressions and PAY-02 commercial foundation contracts
-        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js
-      - name: PAY-02 admin governance UI, PAY-01B/C UI, and route custody
+      - name: PAY-01A/B/C regressions, PAY-02 commercial foundation, and PAY-03A real report commerce contracts
+        run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js
+      - name: PAY-03A customer UI, PAY-02 admin governance UI, PAY-01B/C UI, and route custody
         working-directory: web
-        run: npx vitest run src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/pages/DemoVehicleHistory.test.tsx src/lib/routeAccess.test.ts
+        run: npx vitest run src/pages/VehicleHistoryCommerce.test.tsx src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/pages/dashboard/admin/Pay01aPayments.test.tsx src/pages/DemoVehicleHistory.test.tsx src/lib/routeAccess.test.ts
       - name: Typecheck and compile CarUp web
         run: npm run build --workspace web
 
   isolated-postgres-contract:
-    name: Disposable PostgreSQL PAY-01A/C + PAY-02 schema, RLS, ACL & quote/payment convergence
+    name: Disposable PostgreSQL PAY-01A/C + PAY-02 + PAY-03A schema, RLS, ACL & report fulfillment convergence
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -86,12 +95,14 @@ jobs:
           sed '/^-- +migrate Down/,$d' database/migrations/011_phase6_schema.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20261029181000_carup_pay01a_stripe_sandbox.sql | psql -v ON_ERROR_STOP=1
           sed '/^-- +migrate Down/,$d' database/migrations/20261030223000_carup_pay01c_demo_product.sql | psql -v ON_ERROR_STOP=1
-      - name: Apply PAY-02 commercial foundation migration to ephemeral database
+      - name: Apply PAY-02 commercial foundation and PAY-03A real report commerce migrations
         run: |
           set -euo pipefail
           sed '/^-- +migrate Down/,$d' database/migrations/20261031143000_carup_pay02_commercial_foundation.sql | psql -v ON_ERROR_STOP=1
-      - name: Verify PAY-01C smoke and PAY-02 RLS, ACL, quote immutability, separation of duties, and canonical convergence
+          sed '/^-- +migrate Down/,$d' database/migrations/20261031160000_carup_pay03a_real_report_commerce.sql | psql -v ON_ERROR_STOP=1
+      - name: Verify PAY-01C smoke, PAY-02 foundation smoke, and PAY-03A real report commerce smoke
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay01c-demo-postgres-smoke.sql
           psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay02-foundation-postgres-smoke.sql
+          psql -v ON_ERROR_STOP=1 -f backend/tests/sql/pay03a-real-report-postgres-smoke.sql

@@ -142,6 +142,12 @@ describe('Pay02CommercialFoundation admin console', () => {
   beforeEach(() => {
     mockApiRequest.mockReset()
     mockAuthUser = { id: 'admin-user-1', role: 'admin' }
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') {
+        return Promise.resolve({ orders: [] })
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
   })
 
   afterEach(() => {
@@ -171,17 +177,21 @@ describe('Pay02CommercialFoundation admin console', () => {
   })
 
   it('submits a governed architecture review proposal and surfaces persisted DB status without auto-activating the product', async () => {
-    mockApiRequest
-      .mockResolvedValueOnce(SAMPLE_CATALOGUE)
-      .mockResolvedValueOnce({
-        proposal: {
-          id: 'prop-db-uuid-01',
-          product_code: 'sub.diaspora.buyer_pro',
-          proposed_state: 'reviewed',
-          status: 'pending_review',
-          proposer_id: 'admin-user-1',
-        },
-      })
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') return Promise.resolve({ orders: [] })
+      if (path === '/pay02/admin/proposals') {
+        return Promise.resolve({
+          proposal: {
+            id: 'prop-db-uuid-01',
+            product_code: 'sub.diaspora.buyer_pro',
+            proposed_state: 'reviewed',
+            status: 'pending_review',
+            proposer_id: 'admin-user-1',
+          },
+        })
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
 
     render(
       <MemoryRouter>
@@ -200,9 +210,13 @@ describe('Pay02CommercialFoundation admin console', () => {
   })
 
   it('surfaces an explicit error alert and never fabricates success when proposal persistence fails', async () => {
-    mockApiRequest
-      .mockResolvedValueOnce(SAMPLE_CATALOGUE)
-      .mockRejectedValueOnce(new Error('PAY02_PROPOSAL_PERSISTENCE_UNAVAILABLE'))
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') return Promise.resolve({ orders: [] })
+      if (path === '/pay02/admin/proposals') {
+        return Promise.reject(new Error('PAY02_PROPOSAL_PERSISTENCE_UNAVAILABLE'))
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
 
     render(
       <MemoryRouter>
@@ -223,84 +237,93 @@ describe('Pay02CommercialFoundation admin console', () => {
 
   it('supports inspecting version history and reviewing a proposal with a distinct admin identity to advance persisted version', async () => {
     mockAuthUser = { id: 'admin-reviewer-2', role: 'admin' }
-    mockApiRequest
-      .mockResolvedValueOnce(SAMPLE_CATALOGUE)
-      .mockResolvedValueOnce({
-        product: SAMPLE_CATALOGUE.products[1],
-        persistenceStatus: 'database_reconciled',
-        versions: [
-          {
-            version: 1,
-            activation_state: 'draft',
-            approved_currency: null,
-            approved_amount_minor: null,
-            approval_evidence_ref: 'ISSUE-247:INITIAL-SEED',
-          },
-        ],
-        proposals: [
-          {
+    let approved = false
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') return Promise.resolve({ orders: [] })
+      if (path === '/pay02/admin/catalogue/sub.diaspora.buyer_pro') {
+        if (!approved) {
+          return Promise.resolve({
+            product: SAMPLE_CATALOGUE.products[1],
+            persistenceStatus: 'database_reconciled',
+            versions: [
+              {
+                version: 1,
+                activation_state: 'draft',
+                approved_currency: null,
+                approved_amount_minor: null,
+                approval_evidence_ref: 'ISSUE-247:INITIAL-SEED',
+              },
+            ],
+            proposals: [
+              {
+                id: 'prop-db-uuid-02',
+                product_code: 'sub.diaspora.buyer_pro',
+                base_version: 1,
+                proposed_state: 'reviewed',
+                rationale: 'Architecture review complete',
+                status: 'pending_review',
+                proposer_id: 'admin-user-1',
+              },
+            ],
+          })
+        }
+        return Promise.resolve({
+          product: { ...SAMPLE_CATALOGUE.products[1], version: 2, activationState: 'reviewed' },
+          persistenceStatus: 'database_reconciled',
+          versions: [
+            {
+              version: 2,
+              activation_state: 'reviewed',
+              approved_currency: null,
+              approved_amount_minor: null,
+              approval_evidence_ref: 'ISSUE-247:SANDBOX-REVIEW-APPROVAL',
+            },
+            {
+              version: 1,
+              activation_state: 'draft',
+              approved_currency: null,
+              approved_amount_minor: null,
+              approval_evidence_ref: 'ISSUE-247:INITIAL-SEED',
+            },
+          ],
+          proposals: [
+            {
+              id: 'prop-db-uuid-02',
+              product_code: 'sub.diaspora.buyer_pro',
+              base_version: 1,
+              proposed_state: 'reviewed',
+              rationale: 'Architecture review complete',
+              status: 'approved',
+              proposer_id: 'admin-user-1',
+              reviewer_id: 'admin-reviewer-2',
+              effect_status: 'effective_in_sandbox_catalogue',
+            },
+          ],
+        })
+      }
+      if (path?.includes('/pay02/admin/proposals/prop-db-uuid-02/review')) {
+        approved = true
+        return Promise.resolve({
+          proposal: {
             id: 'prop-db-uuid-02',
             product_code: 'sub.diaspora.buyer_pro',
-            base_version: 1,
             proposed_state: 'reviewed',
-            rationale: 'Architecture review complete',
-            status: 'pending_review',
+            status: 'approved',
             proposer_id: 'admin-user-1',
+            reviewer_id: 'admin-reviewer-2',
+            effect_status: 'effective_in_sandbox_catalogue',
           },
-        ],
-      })
-      .mockResolvedValueOnce({
-        proposal: {
-          id: 'prop-db-uuid-02',
-          product_code: 'sub.diaspora.buyer_pro',
-          proposed_state: 'reviewed',
-          status: 'approved',
-          proposer_id: 'admin-user-1',
-          reviewer_id: 'admin-reviewer-2',
-          effect_status: 'effective_in_sandbox_catalogue',
-        },
-        newVersion: {
-          version: 2,
-          activation_state: 'reviewed',
-          approved_currency: null,
-          approved_amount_minor: null,
-          approval_evidence_ref: 'ISSUE-247:SANDBOX-REVIEW-APPROVAL',
-        },
-      })
-      .mockResolvedValueOnce(SAMPLE_CATALOGUE)
-      .mockResolvedValueOnce({
-        product: { ...SAMPLE_CATALOGUE.products[1], version: 2, activationState: 'reviewed' },
-        persistenceStatus: 'database_reconciled',
-        versions: [
-          {
+          newVersion: {
             version: 2,
             activation_state: 'reviewed',
             approved_currency: null,
             approved_amount_minor: null,
             approval_evidence_ref: 'ISSUE-247:SANDBOX-REVIEW-APPROVAL',
           },
-          {
-            version: 1,
-            activation_state: 'draft',
-            approved_currency: null,
-            approved_amount_minor: null,
-            approval_evidence_ref: 'ISSUE-247:INITIAL-SEED',
-          },
-        ],
-        proposals: [
-          {
-            id: 'prop-db-uuid-02',
-            product_code: 'sub.diaspora.buyer_pro',
-            base_version: 1,
-            proposed_state: 'reviewed',
-            rationale: 'Architecture review complete',
-            status: 'approved',
-            proposer_id: 'admin-user-1',
-            reviewer_id: 'admin-reviewer-2',
-            effect_status: 'effective_in_sandbox_catalogue',
-          },
-        ],
-      })
+        })
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
 
     render(
       <MemoryRouter>
@@ -329,50 +352,56 @@ describe('Pay02CommercialFoundation admin console', () => {
   })
 
   it('clearly distinguishes Authoritative Database Reconciliation from Test Simulation output', async () => {
-    mockApiRequest
-      .mockResolvedValueOnce(SAMPLE_CATALOGUE)
-      .mockResolvedValueOnce({
-        report: {
-          authorityMode: 'authoritative_database_reconciliation',
-          authorityBanner: 'AUTHORITATIVE DATABASE RECONCILIATION — POSTGRESQL',
-          currency: 'JPY',
-          grossAuthorizedMinor: 200,
-          providerCapturedMinor: 200,
-          providerSettledMinor: 0,
-          bankSettledMinor: 0,
-          refundedMinor: 0,
-          disputedMinor: 0,
-          carUpRecognizedRevenueMinor: 100,
-          carUpDeferredCustomerLiabilityMinor: 100,
-          thirdPartyBeneficiaryPayableMinor: 0,
-          platformServiceFeeMinor: 0,
-          unverifiedTaxTreatmentCount: 2,
-          exceptionsCount: 0,
-          reconciledClean: true,
-          exceptions: [],
-        },
-      })
-      .mockResolvedValueOnce({
-        report: {
-          authorityMode: 'simulation',
-          authorityBanner: 'SIMULATED INPUT — NOT AUTHORITATIVE FINANCIAL REPORTING',
-          currency: 'JPY',
-          grossAuthorizedMinor: 0,
-          providerCapturedMinor: 0,
-          providerSettledMinor: 0,
-          bankSettledMinor: 0,
-          refundedMinor: 0,
-          disputedMinor: 0,
-          carUpRecognizedRevenueMinor: 0,
-          carUpDeferredCustomerLiabilityMinor: 0,
-          thirdPartyBeneficiaryPayableMinor: 0,
-          platformServiceFeeMinor: 0,
-          unverifiedTaxTreatmentCount: 0,
-          exceptionsCount: 0,
-          reconciledClean: true,
-          exceptions: [],
-        },
-      })
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') return Promise.resolve({ orders: [] })
+      if (path?.startsWith('/pay02/admin/reporting/reconcile')) {
+        return Promise.resolve({
+          report: {
+            authorityMode: 'authoritative_database_reconciliation',
+            authorityBanner: 'AUTHORITATIVE DATABASE RECONCILIATION — POSTGRESQL',
+            currency: 'JPY',
+            grossAuthorizedMinor: 200,
+            providerCapturedMinor: 200,
+            providerSettledMinor: 0,
+            bankSettledMinor: 0,
+            refundedMinor: 0,
+            disputedMinor: 0,
+            carUpRecognizedRevenueMinor: 100,
+            carUpDeferredCustomerLiabilityMinor: 100,
+            thirdPartyBeneficiaryPayableMinor: 0,
+            platformServiceFeeMinor: 0,
+            unverifiedTaxTreatmentCount: 2,
+            exceptionsCount: 0,
+            reconciledClean: true,
+            exceptions: [],
+          },
+        })
+      }
+      if (path === '/pay02/admin/reporting/simulate') {
+        return Promise.resolve({
+          report: {
+            authorityMode: 'simulation',
+            authorityBanner: 'SIMULATED INPUT — NOT AUTHORITATIVE FINANCIAL REPORTING',
+            currency: 'JPY',
+            grossAuthorizedMinor: 0,
+            providerCapturedMinor: 0,
+            providerSettledMinor: 0,
+            bankSettledMinor: 0,
+            refundedMinor: 0,
+            disputedMinor: 0,
+            carUpRecognizedRevenueMinor: 0,
+            carUpDeferredCustomerLiabilityMinor: 0,
+            thirdPartyBeneficiaryPayableMinor: 0,
+            platformServiceFeeMinor: 0,
+            unverifiedTaxTreatmentCount: 0,
+            exceptionsCount: 0,
+            reconciledClean: true,
+            exceptions: [],
+          },
+        })
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
 
     render(
       <MemoryRouter>
@@ -395,6 +424,66 @@ describe('Pay02CommercialFoundation admin console', () => {
     await waitFor(() => {
       expect(screen.getByTestId('pay02-reconciliation-mode-badge').textContent).toBe(
         'SIMULATED INPUT — NOT AUTHORITATIVE FINANCIAL REPORTING',
+      )
+    })
+  })
+
+  it('lists PAY-03A Vehicle History Report orders and executes governed admin refunds', async () => {
+    let refunded = false
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') {
+        return Promise.resolve({
+          orders: [
+            {
+              orderId: 'ord-03a-admin-1',
+              productCode: 'intel.report.vehicle_history_single',
+              productVersion: 1,
+              buyerId: 'buyer-03a-1',
+              vin: 'WBA3A5C51DF358101',
+              quoteId: 'quote-03a-1',
+              quoteNumber: 'QT-PAY02-03A0000000000001',
+              quoteStatus: refunded ? 'refunded' : 'fulfilled',
+              paymentReference: 'pay01a_03a_admin_ref_1',
+              paymentStatus: refunded ? 'refunded' : 'paid',
+              amountMinor: 100,
+              currency: 'JPY',
+              entitlementStatus: refunded ? 'revoked_refunded' : 'entitled',
+              reportAvailable: !refunded,
+              reportVersionId: 'rep-ver-03a-1',
+              reportVersionNumber: 1,
+              reportContentHash: 'sha256_hash_1',
+              refundId: refunded ? 're_test_03a_1' : null,
+            },
+          ],
+        })
+      }
+      if (path === '/pay03a/admin/orders/ord-03a-admin-1/refund') {
+        refunded = true
+        return Promise.resolve({
+          orderId: 'ord-03a-admin-1',
+          vin: 'WBA3A5C51DF358101',
+          paymentStatus: 'refunded',
+          entitlementStatus: 'revoked_refunded',
+        })
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
+
+    render(
+      <MemoryRouter>
+        <Pay02CommercialFoundation />
+      </MemoryRouter>,
+    )
+
+    const orderRow = await screen.findByTestId('pay03a-admin-order-ord-03a-admin-1')
+    expect(orderRow.textContent).toContain('WBA3A5C51DF358101')
+
+    const refundBtn = screen.getByTestId('pay03a-admin-refund-ord-03a-admin-1')
+    fireEvent.click(refundBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pay02-proposal-status').textContent).toContain(
+        'revoked_refunded',
       )
     })
   })
