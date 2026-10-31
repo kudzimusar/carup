@@ -269,3 +269,37 @@ describe('PAY-01C admin demo-purchases registry custody', () => {
     expect(evaluateRouteAccess({ ...input('admin'), route: '/admin/payments' }).kind).toBe('render-beta')
   })
 })
+
+describe('PAY-02 admin commercial-foundation registry custody', () => {
+  const route = '/admin/commercial-foundation'
+  const input = (role: RouteAccessInput['role'], isAuthenticated = true): RouteAccessInput => ({
+    route, isBootstrapping: false, isAuthenticated, role,
+  })
+
+  it('registers the PAY-02 commercial catalogue governance page for admin only', () => {
+    const feature = getFeatureByRoute(route)
+    expect(feature?.id).toBe('admin.commercial-foundation')
+    expect(feature?.route).toBe(route)
+    expect(feature?.requiresAuth).toBe(true)
+    expect(feature?.roles).toEqual(['admin'])
+    expect(feature?.placements).toEqual([])
+    expect(feature?.owner).toBe('payments')
+  })
+
+  it('allows an authenticated administrator and redirects unauthenticated or non-admin roles', () => {
+    expect(evaluateRouteAccess(input('admin')).kind).toBe('render-beta')
+    expect(evaluateRouteAccess(input('admin', false))).toEqual({
+      kind: 'redirect', to: '/login?returnTo=%2Fadmin%2Fcommercial-foundation', reason: 'auth',
+    })
+    for (const role of ['owner', 'dealer', 'mechanic'] as const) {
+      const decision = evaluateRouteAccess(input(role))
+      expect(decision.kind).toBe('redirect')
+      if (decision.kind === 'redirect') expect(decision.reason).toBe('role')
+    }
+  })
+
+  it('honours the feature kill switch on admin.commercial-foundation', () => {
+    const blocked = override('admin.commercial-foundation', 'disabled')
+    expect(evaluateRouteAccess({ ...input('admin'), effectiveStates: blocked }).kind).toBe('disabled')
+  })
+})
