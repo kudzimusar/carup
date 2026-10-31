@@ -259,11 +259,13 @@ export async function inspectVehicleReportReadiness({
     readiness: {
       reportSchema: assembled.schema || 'vehicle_history_report.v1',
       completenessState: provenance.completenessState,
-      lifecycleSourceCoverage: provenance.lifecycleSourceCoverage,
+      lifecycleSourceCoverage:
+        provenance.lifecycleSourceCoverage ?? assembled.completeness?.lifecycle_source_coverage ?? 0,
       sourceDiversity: provenance.sourceDiversity,
       classesPresent: assembled.completeness?.classes_present || [],
-      classesMissing: provenance.classesMissing || [],
-      classesUnavailable: provenance.classesUnavailable || [],
+      classesMissing: provenance.classesMissing || assembled.completeness?.classes_missing || [],
+      classesUnavailable:
+        provenance.classesUnavailable || assembled.completeness?.classes_unavailable || [],
       timelineEventCount: timelineCount,
       historicalEventCount: eligibility.historicalEventCount,
       evidenceIndexCount: eligibility.evidenceIndexCount,

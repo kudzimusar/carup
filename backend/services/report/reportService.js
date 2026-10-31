@@ -322,7 +322,6 @@ export async function getReportByShareToken(supabase, token, { now = Date.now() 
 
   const hasUnknownTier =
     v.report_tier !== undefined
-    && v.report_tier !== null
     && v.report_tier !== 'legacy_version'
     && v.report_tier !== 'pay03a_commercial_snapshot';
   if (hasUnknownTier) {
@@ -335,10 +334,9 @@ export async function getReportByShareToken(supabase, token, { now = Date.now() 
     || Boolean(v.payload?.commercial_snapshot)
     || String(token).startsWith('pay03a_shr_');
 
-  if (!v.id || !supabase || typeof supabase.from !== 'function') {
-    if (hasPaidMarker) {
-      return { ok: false, reason: 'entitlement_unavailable' };
-    }
+  // Unambiguous legacy Milestone 4 report versions must not depend on `pay02_report_orders`,
+  // preserving legacy shared-report availability when the PAY-02 commercial foundation is absent.
+  if (!hasPaidMarker) {
     return {
       ok: true,
       version: v.version,
@@ -346,7 +344,19 @@ export async function getReportByShareToken(supabase, token, { now = Date.now() 
       report: v.payload,
       correction_notice: v.correction_notice || null,
       report_tier: 'legacy_version',
+      entitlement_verified: false,
+      order_id: null,
     };
+  }
+
+  // Prevent tier ambiguity: any report carrying a paid marker must explicitly declare
+  // `report_tier = 'pay03a_commercial_snapshot'` and never masquerade as a legacy report.
+  if (v.report_tier !== 'pay03a_commercial_snapshot') {
+    return { ok: false, reason: 'revoked' };
+  }
+
+  if (!v.id || !supabase || typeof supabase.from !== 'function') {
+    return { ok: false, reason: 'entitlement_unavailable' };
   }
 
   let orderRows = [];
@@ -363,73 +373,70 @@ export async function getReportByShareToken(supabase, token, { now = Date.now() 
     return { ok: false, reason: 'entitlement_unavailable' };
   }
 
-  const isPaidReport = hasPaidMarker || orderRows.length > 0;
-  if (isPaidReport) {
-    // 1. Paid share links must always carry an explicit, non-expired timestamp
-    if (!v.share_expires_at || new Date(v.share_expires_at).getTime() < now) {
-      return { ok: false, reason: 'expired' };
-    }
+  // 1. Paid share links must always carry an explicit, non-expired timestamp
+  if (!v.share_expires_at || new Date(v.share_expires_at).getTime() < now) {
+    return { ok: false, reason: 'expired' };
+  }
 
-    // 2. Paid report version must have exactly one linked PAY-03A report order
-    if (orderRows.length !== 1) {
-      return { ok: false, reason: 'revoked' };
-    }
-    const ord = orderRows[0];
-    const expectedOrderId = v.pay03a_order_id || v.payload?.commercial_snapshot?.order_id || null;
+  // 2. Paid report version must have exactly one linked PAY-03A report order
+  if (orderRows.length !== 1) {
+    return { ok: false, reason: 'revoked' };
+  }
+  const ord = orderRows[0];
+  const expectedOrderId = v.pay03a_order_id || v.payload?.commercial_snapshot?.order_id || null;
 
-    // 3. Verify exact version, VIN, product_code, and order binding (prevents cross-version inheritance)
-    if (
-      !ord
-      || ord.report_version_id !== v.id
-      || ord.vin !== v.vin
-      || ord.product_code !== 'intel.report.vehicle_history_single'
-      || (expectedOrderId && ord.id !== expectedOrderId)
-    ) {
-      return { ok: false, reason: 'revoked' };
-    }
+  // 3. Verify exact version, VIN, product_code, and order binding (prevents cross-version inheritance)
+  if (
+    !ord
+    || ord.report_version_id !== v.id
+    || ord.vin !== v.vin
+    || ord.product_code !== 'intel.report.vehicle_history_single'
+    || (expectedOrderId && ord.id !== expectedOrderId)
+  ) {
+    return { ok: false, reason: 'revoked' };
+  }
 
-    // 4. Order must remain actively entitled and unrevoked
-    if (
-      ord.entitlement_status !== 'entitled'
-      || Boolean(ord.revoked_at)
-      || !ord.granted_at
-      || !ord.payment_reference
-      || !ord.quote_id
-      || !ord.buyer_id
-    ) {
-      return { ok: false, reason: 'revoked' };
-    }
+  // 4. Order must remain actively entitled and unrevoked
+  if (
+    ord.entitlement_status !== 'entitled'
+    || Boolean(ord.revoked_at)
+    || !ord.granted_at
+    || !ord.payment_reference
+    || !ord.quote_id
+    || !ord.buyer_id
+  ) {
+    return { ok: false, reason: 'revoked' };
+  }
 
-    // 5. Canonical payment_transactions row must exist and remain authoritatively `paid`
-    let payRows = [];
-    try {
-      const { data: pData, error: payErr } = await supabase
-        .from('payment_transactions')
-        .select('*')
-        .eq('reference', ord.payment_reference);
-      if (payErr) {
-        return { ok: false, reason: 'entitlement_unavailable' };
-      }
-      payRows = Array.isArray(pData) ? pData : pData ? [pData] : [];
-    } catch {
+  // 5. Canonical payment_transactions row must exist and remain authoritatively `paid`
+  let payRows = [];
+  try {
+    const { data: pData, error: payErr } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('reference', ord.payment_reference);
+    if (payErr) {
       return { ok: false, reason: 'entitlement_unavailable' };
     }
+    payRows = Array.isArray(pData) ? pData : pData ? [pData] : [];
+  } catch {
+    return { ok: false, reason: 'entitlement_unavailable' };
+  }
 
-    if (payRows.length !== 1) {
-      return { ok: false, reason: 'revoked' };
-    }
-    const payRow = payRows[0];
-    if (
-      !payRow
-      || payRow.status !== 'paid'
-      || Boolean(payRow.pay01a_refund_id)
-      || payRow.pay02_quote_id !== ord.quote_id
-      || payRow.pay01a_actor_id !== ord.buyer_id
-      || payRow.gateway !== 'stripe_carup_japan_sandbox'
-      || payRow.pay01a_account_id !== 'acct_1UVnGaEjgXqvlsJk'
-    ) {
-      return { ok: false, reason: 'revoked' };
-    }
+  if (payRows.length !== 1) {
+    return { ok: false, reason: 'revoked' };
+  }
+  const payRow = payRows[0];
+  if (
+    !payRow
+    || payRow.status !== 'paid'
+    || Boolean(payRow.pay01a_refund_id)
+    || payRow.pay02_quote_id !== ord.quote_id
+    || payRow.pay01a_actor_id !== ord.buyer_id
+    || payRow.gateway !== 'stripe_carup_japan_sandbox'
+    || payRow.pay01a_account_id !== 'acct_1UVnGaEjgXqvlsJk'
+  ) {
+    return { ok: false, reason: 'revoked' };
   }
 
   return {
@@ -438,9 +445,9 @@ export async function getReportByShareToken(supabase, token, { now = Date.now() 
     generated_at: v.generated_at,
     report: v.payload,
     correction_notice: v.correction_notice || null,
-    report_tier: isPaidReport ? 'pay03a_commercial_snapshot' : 'legacy_version',
-    entitlement_verified: Boolean(isPaidReport),
-    order_id: isPaidReport ? orderRows[0]?.id || null : null,
+    report_tier: 'pay03a_commercial_snapshot',
+    entitlement_verified: true,
+    order_id: ord.id || null,
   };
 }
 

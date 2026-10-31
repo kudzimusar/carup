@@ -926,6 +926,9 @@ test('PAY03A Pre-Purchase Readiness & R1-B Evidence Policy: verifies real vehicl
   assert.equal(readiness.vehicle.isSyntheticFixture, true);
   assert.ok(readiness.readiness.historicalEventCount >= 1);
   assert.ok(readiness.readiness.evidenceIndexCount >= 1);
+  assert.equal(typeof readiness.readiness.lifecycleSourceCoverage, 'number');
+  assert.ok(readiness.readiness.lifecycleSourceCoverage > 0);
+  assert.ok(Array.isArray(readiness.readiness.classesMissing) && readiness.readiness.classesMissing.length >= 1);
   assert.equal(readiness.commercialTerms.amountMinor, 100);
   assert.equal(readiness.commercialTerms.currency, 'JPY');
   assert.equal(readiness.commercialTerms.sandboxAccountId, 'acct_1UVnGaEjgXqvlsJk');
@@ -1448,7 +1451,8 @@ test('PAY03A R1-D: Paid Report Share-Link Entitlement Matrix (all 10 positive/ne
   assert.equal(case5.ok, false);
   assert.equal(case5.reason, 'revoked');
 
-  // Case 9: Legacy Milestone 4 report version (`report_tier = 'legacy_version'`) remains functional
+  // Case 9: Legacy Milestone 4 report version (`report_tier = 'legacy_version'`) remains functional,
+  // including when `pay02_report_orders` is absent/unavailable (Work Unit 7.2)
   const legacyVerId = '00000000-0000-4000-8000-000000000997';
   harness.reportVersions.set(legacyVerId, {
     id: legacyVerId,
@@ -1469,6 +1473,38 @@ test('PAY03A R1-D: Paid Report Share-Link Entitlement Matrix (all 10 positive/ne
   const case9 = await getReportByShareToken(harness.db, legacyLink.share_token);
   assert.equal(case9.ok, true);
   assert.equal(case9.report.vin, 'WBA3A5C51DF358101');
+
+  // Case 9b: Even when `pay02_report_orders` is unavailable, unambiguous legacy report resolves while paid snapshot fails closed
+  harness.reportVersions.get(paidVerId).revoked = false;
+  harness.faultInjection.failOrderLookup = true;
+  const case9bLegacy = await getReportByShareToken(harness.db, legacyLink.share_token);
+  assert.equal(case9bLegacy.ok, true);
+  assert.equal(case9bLegacy.report_tier, 'legacy_version');
+  const case9bPaid = await getReportByShareToken(harness.db, shareRes.shareToken);
+  assert.equal(case9bPaid.ok, false);
+  assert.equal(case9bPaid.reason, 'entitlement_unavailable');
+  harness.faultInjection.failOrderLookup = false;
+  harness.reportVersions.get(paidVerId).revoked = true;
+
+  // Case 10: Tier ambiguity (legacy_version with paid marker or null report_tier) fails closed
+  const ambiguousVerId = '00000000-0000-4000-8000-000000000996';
+  harness.reportVersions.set(ambiguousVerId, {
+    id: ambiguousVerId,
+    vin: 'WBA3A5C51DF358101',
+    version: 96,
+    generated_at: new Date().toISOString(),
+    payload: { vin: 'WBA3A5C51DF358101' },
+    content_hash: 'hash_ambiguous_96',
+    completeness: {},
+    report_tier: 'legacy_version',
+    pay03a_order_id: checkoutRes.orderId,
+    share_token: 'pay03a_shr_ambiguous_tier',
+    share_expires_at: validExpiry,
+    revoked: false,
+  });
+  const case10 = await getReportByShareToken(harness.db, 'pay03a_shr_ambiguous_tier');
+  assert.equal(case10.ok, false);
+  assert.equal(case10.reason, 'revoked');
 });
 
 test('PAY03A R1-E: Interrupted Fulfillment Recovery (duplicate signed webhook retry, buyer manual verify, and admin /reconcile recover without duplicate payment or report version)', async () => {

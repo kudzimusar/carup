@@ -177,6 +177,72 @@ test('report versioning is immutable + share link expiry enforced', async () => 
   const revoked = await reportSvc.getReportByShareToken(sb, link.share_token);
   assert.equal(revoked.ok, false);
   assert.equal(revoked.reason, 'revoked');
+
+  // Work Unit 7.2: Legacy report sharing remains available when PAY-02 tables are absent,
+  // while paid commercial snapshots and ambiguous-tier rows fail closed.
+  const sbNoPay02 = makeMock(seed(), { failTables: ['pay02_report_orders', 'payment_transactions'] });
+  const legacyV = await reportSvc.generateReportVersion(sbNoPay02, 'V1', { actorId: 'owner-1' });
+  const legacyShare = await reportSvc.createShareLink(sbNoPay02, legacyV.id, { ttlSeconds: 3600 });
+  const legacyResolved = await reportSvc.getReportByShareToken(sbNoPay02, legacyShare.share_token);
+  assert.equal(legacyResolved.ok, true);
+  assert.equal(legacyResolved.report_tier, 'legacy_version');
+  assert.equal(legacyResolved.report.vin, 'V1');
+
+  // Paid commercial snapshot must fail closed when PAY-02 table is absent
+  sbNoPay02._db.report_versions.push({
+    id: 'paid-ver-no-pay02',
+    vin: 'V1',
+    version: 99,
+    generated_at: new Date().toISOString(),
+    payload: legacyV.payload,
+    content_hash: legacyV.content_hash,
+    completeness: legacyV.completeness,
+    report_tier: 'pay03a_commercial_snapshot',
+    pay03a_order_id: '00000000-0000-4000-8000-000000000301',
+    share_token: 'pay03a_shr_paid_when_pay02_absent',
+    share_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+    revoked: false,
+  });
+  const paidWhenAbsent = await reportSvc.getReportByShareToken(sbNoPay02, 'pay03a_shr_paid_when_pay02_absent');
+  assert.equal(paidWhenAbsent.ok, false);
+  assert.equal(paidWhenAbsent.reason, 'entitlement_unavailable');
+
+  // Tier ambiguity (legacy_version carrying a paid order marker or null report_tier) must fail closed
+  sbNoPay02._db.report_versions.push({
+    id: 'ambiguous-tier-ver',
+    vin: 'V1',
+    version: 100,
+    generated_at: new Date().toISOString(),
+    payload: legacyV.payload,
+    content_hash: legacyV.content_hash,
+    completeness: legacyV.completeness,
+    report_tier: 'legacy_version',
+    pay03a_order_id: '00000000-0000-4000-8000-000000000301',
+    share_token: 'ambiguous_legacy_with_paid_order',
+    share_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+    revoked: false,
+  });
+  const ambiguousTierRes = await reportSvc.getReportByShareToken(sbNoPay02, 'ambiguous_legacy_with_paid_order');
+  assert.equal(ambiguousTierRes.ok, false);
+  assert.equal(ambiguousTierRes.reason, 'revoked');
+
+  sbNoPay02._db.report_versions.push({
+    id: 'null-tier-ver',
+    vin: 'V1',
+    version: 101,
+    generated_at: new Date().toISOString(),
+    payload: legacyV.payload,
+    content_hash: legacyV.content_hash,
+    completeness: legacyV.completeness,
+    report_tier: null,
+    pay03a_order_id: null,
+    share_token: 'null_tier_share_token',
+    share_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+    revoked: false,
+  });
+  const nullTierRes = await reportSvc.getReportByShareToken(sbNoPay02, 'null_tier_share_token');
+  assert.equal(nullTierRes.ok, false);
+  assert.equal(nullTierRes.reason, 'entitlement_unavailable');
 });
 
 let server; let baseUrl;

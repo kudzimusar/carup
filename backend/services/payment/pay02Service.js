@@ -1269,6 +1269,16 @@ export function verifyVehicleReportProvenance(report, vehicleRow) {
     vin: vehicleRow.vin,
     vehicleId: String(vehicleRow.id ?? vehicleRow.vin),
     completenessState,
+    lifecycleSourceCoverage: report.completeness.lifecycle_source_coverage ?? 0,
+    classesPresent: Array.isArray(report.completeness.classes_present)
+      ? report.completeness.classes_present
+      : [],
+    classesMissing: Array.isArray(report.completeness.classes_missing)
+      ? report.completeness.classes_missing
+      : [],
+    classesUnavailable: Array.isArray(report.completeness.classes_unavailable)
+      ? report.completeness.classes_unavailable
+      : [],
     limitationsCount: report.limitations.length,
     sourceDiversity: report.completeness.source_diversity ?? 0,
   });
