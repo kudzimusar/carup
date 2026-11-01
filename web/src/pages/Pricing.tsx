@@ -113,7 +113,7 @@ function PlanStatus({ plan }: { plan: Pay03bPublicPlan }) {
         </p>
       )}
       {kind === 'free' ? (
-        <Button asChild size="sm" className="bg-orange-500 text-white hover:bg-orange-600">
+        <Button asChild size="sm" className="bg-orange-700 text-white hover:bg-orange-800">
           <Link to="/register">Get started</Link>
         </Button>
       ) : kind === 'request_quote' ? (
@@ -150,7 +150,7 @@ export default function Pricing() {
   const groups = state.status === 'ready' ? groupProducts(state.catalogue.products) : []
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-testid="pay03b-pricing-page">
       <div className="bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white py-16">
         <div className="section-padding mx-auto max-w-[1440px] text-center">
           <h1 className="text-3xl md:text-4xl font-bold mb-4">Plans &amp; Pricing</h1>

@@ -122,7 +122,7 @@ function StatusBox({ message, testId }: { message: string; testId: string }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-slate-400">{label}</dt>
+      <dt className="text-slate-600">{label}</dt>
       <dd className="text-slate-800 [overflow-wrap:anywhere]">{children}</dd>
     </div>
   )
@@ -1089,7 +1089,7 @@ export default function Pay03bSubscriptionsAdmin({ baseUrl, getAuthHeaders, onRe
                               <ProviderLabel simulated={plan.simulated} />
                             </>
                           ) : (
-                            <span className="text-slate-400">—</span>
+                            <span className="text-slate-500">—</span>
                           )}
                         </div>
                       </TableCell>
@@ -1101,7 +1101,7 @@ export default function Pay03bSubscriptionsAdmin({ baseUrl, getAuthHeaders, onRe
                             <span className="min-w-0 [overflow-wrap:anywhere]"><strong>{plan.blockerClass ?? 'Governance'}:</strong> {plan.blockerReason}</span>
                           </span>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-slate-500">—</span>
                         )}
                       </TableCell>
                     </TableRow>

@@ -73,7 +73,7 @@ export function Pay03bInvoicesTable({ invoices, testIdPrefix, renderAction, labe
                     {formatPay03bDateTime(invoice.periodStart) ?? '—'} – {formatPay03bDateTime(invoice.periodEnd) ?? '—'}
                   </div>
                   <div className="text-xs text-gray-500">{describePay03bBillingReason(invoice.billingReason)}</div>
-                  <div className="font-mono text-[11px] text-gray-400 [overflow-wrap:anywhere]">{invoice.providerInvoiceId}</div>
+                  <div className="font-mono text-[11px] text-gray-600 [overflow-wrap:anywhere]">{invoice.providerInvoiceId}</div>
                 </div>
               </TableCell>
               <TableCell className={cellClass}>
@@ -113,14 +113,14 @@ export function Pay03bInvoicesTable({ invoices, testIdPrefix, renderAction, labe
                     {describePay03bPaymentStatus(invoice.paymentStatus)}
                   </Badge>
                   {invoice.paymentReference ? (
-                    <div className="font-mono text-[11px] text-gray-400 [overflow-wrap:anywhere]">{invoice.paymentReference}</div>
+                    <div className="font-mono text-[11px] text-gray-600 [overflow-wrap:anywhere]">{invoice.paymentReference}</div>
                   ) : null}
                 </div>
               </TableCell>
               {renderAction ? (
                 <TableCell className={cellClass}>
                   <MobileLabel>Action</MobileLabel>
-                  <div className="min-w-0">{action ?? <span className="text-xs text-gray-400">—</span>}</div>
+                  <div className="min-w-0">{action ?? <span className="text-xs text-gray-500">—</span>}</div>
                 </TableCell>
               ) : null}
             </TableRow>

@@ -233,7 +233,7 @@ function PlanCard({ plan, isCurrent, canSubscribe, changeModes, onSubscribe, onC
       <div className="mt-auto flex flex-wrap gap-2 pt-1">
         {canSubscribe ? (
           <Button
-            className="h-auto min-h-9 whitespace-normal bg-orange-500 text-white hover:bg-orange-600"
+            className="h-auto min-h-9 whitespace-normal bg-orange-700 text-white hover:bg-orange-800"
             onClick={() => onSubscribe(plan)}
             data-testid={`pay03b-subscribe-${plan.planCode}`}
           >
@@ -405,7 +405,7 @@ function TermsReviewDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose} data-testid="pay03b-terms-cancel">Close</Button>
           <Button
-            className="h-auto min-h-9 whitespace-normal bg-orange-500 text-white hover:bg-orange-600"
+            className="h-auto min-h-9 whitespace-normal bg-orange-700 text-white hover:bg-orange-800"
             disabled={busy || !terms}
             onClick={() => void confirm()}
             data-testid="pay03b-terms-confirm"
@@ -967,7 +967,7 @@ export default function DealerSubscription() {
     <div className="mx-auto w-full min-w-0 max-w-[1440px] space-y-6" data-testid="pay03b-dealer-subscription">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">Dealer workspace</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-orange-700">Dealer workspace</p>
           <h1 className="mt-1 flex items-center gap-2 text-2xl font-bold text-gray-950">
             <CreditCard className="h-6 w-6 shrink-0 text-orange-500" aria-hidden="true" />
             Plan &amp; Billing

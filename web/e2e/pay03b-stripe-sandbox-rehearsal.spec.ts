@@ -67,7 +67,7 @@ test('Level 2: one Owner-authorized JPY 500 Stripe sandbox subscription checkout
   const checkoutResponse = page.waitForResponse((r) => r.url().endsWith('/api/pay03b/dealer/subscription/checkout') && r.request().method() === 'POST')
   await page.getByTestId('pay03b-terms-confirm').click()
   const response = await checkoutResponse
-  let checkout: any = null
+  let checkout: { amountMinor?: number; currency?: string } | null = null
   try { checkout = await response.json() } catch { /* the page navigates to Stripe immediately; read the canonical record below */ }
   await page.waitForURL(/checkout\.stripe\.com/, { timeout: 60_000 })
   expect(page.url()).toContain('cs_test_')

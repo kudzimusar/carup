@@ -25,7 +25,8 @@ test.skip(!EVIDENCE_DIR || !EXPECTED_SHA, 'PAY-03B physical UAT runs only agains
 test.describe.configure({ mode: 'serial', timeout: 180_000 })
 
 type Account = { email: string; password: string; userId: string }
-const accounts: Record<string, any> = EVIDENCE_DIR ? JSON.parse(readFileSync(`${EVIDENCE_DIR}/uat-accounts.json`, 'utf8')) : {}
+// QA accounts (objects) and the seeded tenant/organization ids (strings), as written by scripts/uat/pay03b-qa-seed.mjs.
+const accounts: Record<string, Account | string> = EVIDENCE_DIR ? JSON.parse(readFileSync(`${EVIDENCE_DIR}/uat-accounts.json`, 'utf8')) : {}
 const SCREENS = `${EVIDENCE_DIR}/screens`
 if (EVIDENCE_DIR) mkdirSync(SCREENS, { recursive: true })
 const sql = (q: string) => execFileSync('psql', [PGURL, '-X', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', q], { encoding: 'utf8' }).trim()
@@ -62,9 +63,12 @@ async function noHorizontalOverflow(page: Page) {
   expect(overflow, 'no lateral page overflow').toBeLessThanOrEqual(1)
 }
 
+/** WCAG 2 A/AA (axe) on a PAY-03B surface; a failure names every offending node and the rule's own explanation. */
 async function axeClean(page: Page, include: string) {
   const results = await new AxeBuilder({ page }).include(include).withTags(['wcag2a', 'wcag2aa']).analyze()
-  expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`), 'no WCAG 2 A/AA violations').toEqual([])
+  const found = results.violations.flatMap((v) => v.nodes.map((n) =>
+    `${v.id} @ ${n.target.join(' ')}: ${(n.any[0]?.message ?? n.failureSummary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`))
+  expect(found, `no WCAG 2 A/AA violations in ${include}`).toEqual([])
 }
 
 // Sensitive routes share one per-IP rate-limit counter; pace the serial flow.
@@ -85,6 +89,7 @@ for (const vp of VIEWPORTS) {
     await expect(page.getByText(/not yet available/i).first()).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText(/\$99\/mo|\$49\/mo|\$9\.99/)).toHaveCount(0)
     await noHorizontalOverflow(page)
+    await axeClean(page, '[data-testid="pay03b-pricing-page"]')
     await page.screenshot({ path: `${SCREENS}/01-pricing-${vp.name}.png`, fullPage: true })
   })
 }
@@ -99,6 +104,7 @@ for (const vp of VIEWPORTS) {
     await expect(page.getByTestId('pay03b-access-value')).toHaveText('No paid access')
     await expect(page.locator('[data-testid^="pay03b-subscribe-"]'), 'no purchase control without billing authority').toHaveCount(0)
     await noHorizontalOverflow(page)
+    await axeClean(page, '[data-testid="pay03b-dealer-subscription"]')
     await page.screenshot({ path: `${SCREENS}/02-staff-readonly-${vp.name}.png`, fullPage: true })
   })
 }
@@ -117,6 +123,7 @@ test('billing admin reviews terms, pays on the SIMULATED provider page, and the 
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText(/3,000/)
   await expect(page.getByTestId('pay03b-terms-simulated-label')).toBeVisible()
+  await axeClean(page, '[data-testid="pay03b-terms-dialog"]')
   await page.screenshot({ path: `${SCREENS}/04-terms-review-desktop.png`, fullPage: true })
   await page.getByTestId('pay03b-terms-confirm').click()
   await page.waitForURL(/127\.0\.0\.1:5041\/api\/pay03b\/simulator\/checkout\/sim_cs_/, { timeout: 60_000 })
@@ -139,6 +146,7 @@ for (const vp of VIEWPORTS) {
     await page.goto('/dealer/subscription')
     await expect(page.getByTestId('pay03b-paid-through-value')).not.toHaveText('No paid period yet', { timeout: 30_000 })
     await noHorizontalOverflow(page)
+    await axeClean(page, '[data-testid="pay03b-dealer-subscription"]')
     await page.screenshot({ path: `${SCREENS}/07-dealer-entitled-${vp.name}.png`, fullPage: true })
   })
 }
@@ -149,10 +157,12 @@ test('cancel at period end keeps paid access, then resume (mobile)', async ({ pa
   await page.goto('/dealer/subscription')
   await page.getByTestId('pay03b-cancel-period-end').click()
   await expect(page.getByTestId('pay03b-confirm-dialog')).toBeVisible()
+  await axeClean(page, '[data-testid="pay03b-confirm-dialog"]')
   await page.getByTestId('pay03b-cancel-reason').fill('UAT: closing the storefront at the end of the paid period')
   await page.getByTestId('pay03b-confirm-action').click()
   await expect(page.getByTestId('pay03b-resume')).toBeVisible({ timeout: 60_000 })
   await expect(page.getByTestId('pay03b-access-value')).toHaveText('Active')
+  await axeClean(page, '[data-testid="pay03b-dealer-subscription"]')
   await page.screenshot({ path: `${SCREENS}/08-cancel-at-period-end-mobile.png`, fullPage: true })
   await page.getByTestId('pay03b-resume').click()
   const resumeConfirm = page.getByTestId('pay03b-confirm-action')
@@ -170,6 +180,15 @@ for (const vp of VIEWPORTS) {
     await expect(page.getByTestId('pay03b-admin-f5')).toBeVisible()
     await expect(page.getByText('PAY03B QA Dealer A Motors Ltd [QA]').first()).toBeVisible({ timeout: 30_000 })
     await noHorizontalOverflow(page)
+    for (const section of ['pay03b-admin-subscriptions', 'pay03b-admin-plan-governance', 'pay03b-admin-f5']) {
+      await axeClean(page, `[data-testid="${section}"]`)
+    }
     await page.screenshot({ path: `${SCREENS}/09-admin-console-${vp.name}.png`, fullPage: true })
+    await page.locator('[data-testid^="pay03b-admin-inspect-"]').first().click()
+    await expect(page.getByTestId('pay03b-admin-subscription-detail')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('pay03b-admin-entitlements')).toBeVisible({ timeout: 30_000 })
+    await noHorizontalOverflow(page)
+    await axeClean(page, '[data-testid="pay03b-admin-subscription-detail"]')
+    await page.screenshot({ path: `${SCREENS}/10-admin-subscription-detail-${vp.name}.png`, fullPage: true })
   })
 }
