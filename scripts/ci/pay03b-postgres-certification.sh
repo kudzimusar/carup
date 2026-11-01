@@ -60,6 +60,7 @@ base_chain() {
   apply database/migrations/20261031143000_carup_pay02_commercial_foundation.sql
   psql_q -f database/migrations/supabase_schema.sql >/dev/null; echo 'applied supabase_schema.sql'
   apply database/migrations/002_multi_tenant_and_auth_schema.sql
+  apply database/migrations/20260624140000_listing_publication_lifecycle.sql
   apply database/migrations/014_passport_evidence_architecture.sql
   apply database/migrations/015_vehicle_evidence_timeline.sql
   apply database/migrations/20260603233640_governance_foundation_trust_audit_events.sql

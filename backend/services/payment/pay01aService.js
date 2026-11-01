@@ -66,7 +66,10 @@ async function findRowByIntent(db, intentId) {
   const { data, error } = await db.from('payment_transactions')
     .select(COLUMNS).eq('pay01a_intent_id', intentId).eq('gateway', 'stripe_carup_japan_sandbox').maybeSingle();
   if (error) throw new Pay01aError('PAY01A_CANONICAL_READ_UNAVAILABLE', 503);
-  return data ? guardRow(data) : null;
+  if (!data) return null;
+  // PAY-03B recurring-invoice payments share the canonical ledger but are reconciled by the subscription service.
+  if (String(data.reference).startsWith('pay03b_inv_')) return { pay03bInvoicePayment: true, reference: data.reference };
+  return guardRow(data);
 }
 
 function eventPaymentIntentId(object) {
@@ -321,13 +324,30 @@ export async function processPay01aWebhook({
   }
   // Authenticated provider data may now trigger the sandbox account-identity network read.
   await stripeForSandbox({ env, stripe: api, webhook: true });
-  if (!allowedEvents.has(event.type)) return { ignored: true, live: false };
   const object = event.data?.object || {};
+  // PAY-03B: recurring subscription, invoice and invoice-payment events are reconciled by the subscription
+  // authority (same verified signature, account and mode; explicit opt-in only).
+  const pay03bEnabled = env.CARUP_PAY03B_ENABLED === 'true';
+  if (pay03bEnabled) {
+    const { isPay03bProviderEvent, processPay03bProviderEvent } = await import('./pay03bSubscriptionService.js');
+    if (isPay03bProviderEvent(event)) {
+      const { Pay03bStripeSandboxProvider } = await import('./pay03bProviderAdapters.js');
+      return { ...(await processPay03bProviderEvent({ db, event, provider: new Pay03bStripeSandboxProvider({ env, stripe: api }) })), verified: true };
+    }
+  }
+  if (!allowedEvents.has(event.type)) return { ignored: true, live: false };
   const metaReference = object.metadata?.carup_reference || object.client_reference_id || null;
   const intentId = eventPaymentIntentId(object);
   const metaRow = metaReference && /^pay01a_[0-9a-f-]{36}$/.test(metaReference) ? await getRow(db, metaReference) : null;
   // F5: bind provider-dashboard refunds (no CarUp metadata) through the canonical PaymentIntent.
   const intentRow = intentId ? await findRowByIntent(db, intentId) : null;
+  if (intentRow?.pay03bInvoicePayment) {
+    if (metaRow) throw new Pay01aError('PAY01A_EVENT_REFERENCE_MISMATCH', 400);
+    if (!pay03bEnabled) return { ignored: true, reason: 'pay03b_disabled', live: false };
+    const { processPay03bProviderEvent } = await import('./pay03bSubscriptionService.js');
+    const { Pay03bStripeSandboxProvider } = await import('./pay03bProviderAdapters.js');
+    return { ...(await processPay03bProviderEvent({ db, event, provider: new Pay03bStripeSandboxProvider({ env, stripe: api }) })), verified: true };
+  }
   if (metaRow && ((intentRow && intentRow.reference !== metaRow.reference)
     || (intentId && metaRow.pay01a_intent_id && metaRow.pay01a_intent_id !== intentId))) {
     throw new Pay01aError('PAY01A_EVENT_REFERENCE_MISMATCH', 400);

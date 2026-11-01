@@ -9,6 +9,7 @@
  */
 import { supabase } from '../../db/supabase.js';
 import { requirePay01aSandbox } from './pay01aContract.js';
+import { requirePay03bSimulator } from './pay03bLocalSimulator.js';
 import { readPay01aProviderPaymentTruth } from './pay01aService.js';
 import {
   Pay03bError, requireAdminActor, pay03bAuditSucceeded, recordPay03bAudit, pay03bRpcError,
@@ -27,6 +28,13 @@ const STATUS_FILTERS = new Set(['open', 'resolved', 'superseded', 'all']);
 const RESOLUTIONS = new Set(['restore_access_provider_unrefunded', 'revoke_access_partial_refund_final']);
 const SOURCE_OF_TRUTH = 'Money state: public.payment_transactions (canonical ledger). Evidence: fresh Stripe sandbox '
   + 'provider readback. Exceptions: public.pay03b_payment_reconciliation_exceptions (immutable once closed).';
+
+/** The operator surface runs wherever canonical sandbox payments exist: PAY-01A sandbox or the PAY-03B UAT simulator. */
+function requireOperatorRuntime(env) {
+  try { return requirePay01aSandbox(env); } catch (err) {
+    try { return requirePay03bSimulator(env); } catch { throw err; }
+  }
+}
 
 function project(row) {
   if (!row) return null;
@@ -73,16 +81,30 @@ async function loadException(db, exceptionId) {
   return data;
 }
 
-/** Fresh provider truth for the payment behind an exception. Only PAY-01A Checkout payments exist today. */
-async function providerTruthFor(row, { db, env, stripe }) {
-  if (!String(row.payment_reference).startsWith('pay01a_')) {
-    throw new Pay03bError('PAY03B_RECONCILIATION_PROVIDER_READER_MISSING', 409);
-  }
-  return readPay01aProviderPaymentTruth({ reference: row.payment_reference, db, env, stripe });
+/**
+ * Fresh provider truth for the payment behind an exception: PAY-01A Checkout payments through the PAY-01A reader,
+ * PAY-03B recurring-invoice payments through the subscription's own provider adapter.
+ */
+async function providerTruthFor(row, { db, env, stripe, provider = null }) {
+  const reference = String(row.payment_reference);
+  if (reference.startsWith('pay01a_')) return readPay01aProviderPaymentTruth({ reference, db, env, stripe });
+  if (!reference.startsWith('pay03b_inv_')) throw new Pay03bError('PAY03B_RECONCILIATION_PROVIDER_READER_MISSING', 409);
+  const { data: invoice, error } = await db.from('pay03b_subscription_invoices')
+    .select('provider_payment_intent_id, amount_due_minor, currency, gateway').eq('payment_reference', reference).maybeSingle();
+  if (error || !invoice) throw new Pay03bError('PAY03B_RECONCILIATION_READ_UNAVAILABLE', 503);
+  const { resolvePay03bProvider } = await import('./pay03bSubscriptionService.js');
+  const adapter = resolvePay03bProvider({ env, stripe, provider });
+  if (adapter.gateway !== invoice.gateway) throw new Pay03bError('PAY03B_PROVIDER_GATEWAY_MISMATCH', 409);
+  await adapter.verifyAccount();
+  const truth = await adapter.getPaymentTruth({ paymentIntentId: invoice.provider_payment_intent_id,
+    amountMinor: Number(invoice.amount_due_minor), currency: invoice.currency });
+  return { reference, status: truth.status, intentId: truth.intentId, refundedMinor: truth.refundedMinor,
+    pendingRefundMinor: truth.pendingRefundMinor, refundIds: truth.refundIds, mismatch: truth.mismatch,
+    verifiedAt: new Date().toISOString() };
 }
 
 export async function listPay03bReconciliationExceptions({ status = 'open', db = supabase, env = process.env } = {}) {
-  requirePay01aSandbox(env);
+  requireOperatorRuntime(env);
   if (!STATUS_FILTERS.has(status)) throw new Pay03bError('PAY03B_RECONCILIATION_STATUS_FILTER_INVALID', 400);
   let query = db.from(TABLE).select(COLUMNS);
   if (status !== 'all') query = query.eq('status', status);
@@ -95,11 +117,11 @@ export async function listPay03bReconciliationExceptions({ status = 'open', db =
 }
 
 export async function readPay03bReconciliationException({
-  exceptionId, verify = false, db = supabase, env = process.env, stripe = null,
+  exceptionId, verify = false, db = supabase, env = process.env, stripe = null, provider = null,
 } = {}) {
-  requirePay01aSandbox(env);
+  requireOperatorRuntime(env);
   const row = await loadException(db, exceptionId);
-  const providerTruth = verify ? await providerTruthFor(row, { db, env, stripe }) : null;
+  const providerTruth = verify ? await providerTruthFor(row, { db, env, stripe, provider }) : null;
   return { exception: project(row), providerTruth, sourceOfFinancialTruth: SOURCE_OF_TRUTH };
 }
 
@@ -107,7 +129,7 @@ export async function acknowledgePay03bReconciliationException({
   exceptionId, adminActorId, adminActorRole = 'admin', sourceRoute = null, requestContext = null,
   db = supabase, env = process.env,
 } = {}) {
-  requirePay01aSandbox(env);
+  requireOperatorRuntime(env);
   const admin = requireAdminActor(adminActorId);
   await loadException(db, exceptionId);
   const { data, error } = await db.rpc('pay03b_acknowledge_payment_reconciliation_exception', {
@@ -124,9 +146,9 @@ export async function acknowledgePay03bReconciliationException({
 
 export async function resolvePay03bReconciliationException({
   exceptionId, resolution, note, adminActorId, adminActorRole = 'admin', sourceRoute = null, requestContext = null,
-  db = supabase, env = process.env, stripe = null,
+  db = supabase, env = process.env, stripe = null, provider = null,
 } = {}) {
-  requirePay01aSandbox(env);
+  requireOperatorRuntime(env);
   const admin = requireAdminActor(adminActorId);
   if (!RESOLUTIONS.has(resolution)) throw new Pay03bError('PAY03B_RESOLUTION_INVALID', 400);
   const reason = typeof note === 'string' ? note.trim() : '';
@@ -147,7 +169,7 @@ export async function resolvePay03bReconciliationException({
 
   let providerTruth;
   try {
-    providerTruth = await providerTruthFor(before, { db, env, stripe });
+    providerTruth = await providerTruthFor(before, { db, env, stripe, provider });
     const { data, error } = await db.rpc('pay03b_resolve_payment_reconciliation_exception', {
       p_exception_id: exceptionId,
       p_resolution: resolution,
