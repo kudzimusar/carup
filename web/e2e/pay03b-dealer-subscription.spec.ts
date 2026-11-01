@@ -199,6 +199,10 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByTestId('pay03b-admin-refund-dialog')).toBeVisible()
       await page.getByTestId('pay03b-admin-refund-reason').fill('Accessibility check only; this dialog is closed without confirming.')
       await page.getByTestId('pay03b-admin-refund-understood').check()
+      // Readiness: an enabled button fades from opacity 0.5 to 1 over 150 ms (Button `transition-all`); axe must
+      // measure the settled colours, not a frame of that fade (a probe sampled 0.59 -> 0.85 -> 1.0 at 36/70/153 ms).
+      await expect(page.getByTestId('pay03b-admin-refund-confirm')).toBeEnabled()
+      await expect(page.getByTestId('pay03b-admin-refund-confirm')).toHaveCSS('opacity', '1')
       await axeClean(page, '[data-testid="pay03b-admin-refund-dialog"]')
       await page.getByTestId('pay03b-admin-refund-dialog').screenshot({ path: `${SCREENS}/11-admin-refund-dialog-desktop.png` })
       await page.keyboard.press('Escape')
@@ -206,6 +210,8 @@ for (const vp of VIEWPORTS) {
       await page.getByTestId('pay03b-admin-suspend').click()
       await expect(page.getByTestId('pay03b-admin-suspension-dialog')).toBeVisible()
       await page.getByTestId('pay03b-admin-suspension-reason').fill('Accessibility check only; this dialog is closed without confirming.')
+      await expect(page.getByTestId('pay03b-admin-suspension-confirm')).toBeEnabled()
+      await expect(page.getByTestId('pay03b-admin-suspension-confirm')).toHaveCSS('opacity', '1')
       await axeClean(page, '[data-testid="pay03b-admin-suspension-dialog"]')
       await page.getByTestId('pay03b-admin-suspension-dialog').screenshot({ path: `${SCREENS}/12-admin-suspension-dialog-desktop.png` })
       await page.keyboard.press('Escape')
