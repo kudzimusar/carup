@@ -300,3 +300,76 @@ test('simulator: signed events verify only with the simulator secret and carry t
     assert.throws(() => sim.verifyWebhook(signedForged), /PAY03B_SIMULATOR_EVENT_REFUSED/);
   }
 });
+
+// ------------------------------------------------------------------ Level 2 (Owner-authorized) test-clock control
+const L2 = await import('../services/payment/pay03bLevel2Service.js');
+const { createMockSupabase } = await import('./helpers/mockSupabase.js');
+
+function level2Fixture({ decision = 'Authorize exact scope (Recommended)', advances = [] } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pay03b-l2-'));
+  fs.writeFileSync(path.join(dir, 'decision.json'), JSON.stringify({ decisions: { level2_stripe_sandbox_rehearsal: decision },
+    limits: { test_clock_advances: 1 } }));
+  fs.writeFileSync(path.join(dir, 'ledger.json'), JSON.stringify({ advances }));
+  const env = sandboxEnv({ CARUP_PAY03B_LEVEL2_AUTHORIZATION_FILE: path.join(dir, 'decision.json'),
+    CARUP_PAY03B_LEVEL2_LEDGER_FILE: path.join(dir, 'ledger.json'), CARUP_PAY03B_STRIPE_TEST_CLOCK_ID: 'clock_authorized1' });
+  const calls = [];
+  const stripe = {
+    accounts: { retrieve: async () => ({ id: PAY01A_ACCOUNT }) },
+    testHelpers: { testClocks: {
+      retrieve: async (id) => ({ id, livemode: false, status: 'ready', frozen_time: T0 }),
+      advance: async (id, params) => { calls.push([id, params]); return { id, status: 'advancing' }; },
+    } },
+  };
+  const db = createMockSupabase({
+    pay03b_business_subscriptions: [{ id: 'sub-l2', owner_tenant_id: 't-l2', gateway: 'stripe_carup_japan_sandbox',
+      provider_subscription_id: 'sub_l2provider', current_period_end: iso(T0 + 2592000) }],
+    trust_audit_events: [],
+  });
+  return { env, stripe, db, calls, dir };
+}
+
+test('Level 2: the single authorized test-clock advance is audited first, recorded, and moves the clock past the paid period', async () => {
+  const f = level2Fixture();
+  const out = await L2.advancePay03bLevel2TestClock({ db: f.db, env: f.env, stripe: f.stripe, adminActorId: 'ops-1', subscriptionId: 'sub-l2' });
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(f.calls[0], ['clock_authorized1', { frozen_time: T0 + 2592000 + 7200 }]);
+  assert.equal(out.status, 'advancing');
+  assert.equal(f.db._rows('trust_audit_events')[0].event_type, 'PAY03B_LEVEL2_TEST_CLOCK_ADVANCE_REQUESTED');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir, 'ledger.json'), 'utf8')).advances.length, 1);
+  await assert.rejects(L2.advancePay03bLevel2TestClock({ db: f.db, env: f.env, stripe: f.stripe, adminActorId: 'ops-1', subscriptionId: 'sub-l2' }),
+    (e) => e.code === 'PAY03B_LEVEL2_ADVANCE_LIMIT_REACHED');
+  assert.equal(f.calls.length, 1, 'never a second advance');
+});
+
+test('Level 2: refused without the recorded Owner decision, in simulator mode, or without an admin actor', async () => {
+  const declined = level2Fixture({ decision: 'Do not authorize' });
+  await assert.rejects(L2.advancePay03bLevel2TestClock({ db: declined.db, env: declined.env, stripe: declined.stripe,
+    adminActorId: 'ops-1', subscriptionId: 'sub-l2' }), (e) => e.code === 'PAY03B_LEVEL2_NOT_AUTHORIZED' && e.status === 403);
+  const f = level2Fixture();
+  await assert.rejects(L2.advancePay03bLevel2TestClock({ db: f.db, env: { ...f.env, CARUP_PAY03B_PROVIDER_MODE: 'local_simulator' },
+    stripe: f.stripe, adminActorId: 'ops-1', subscriptionId: 'sub-l2' }), (e) => e.code === 'PAY03B_LEVEL2_NOT_IN_SIMULATOR');
+  await assert.rejects(L2.advancePay03bLevel2TestClock({ db: f.db, env: f.env, stripe: f.stripe, subscriptionId: 'sub-l2' }),
+    (e) => e.code === 'PAY03B_ADMIN_ACTOR_REQUIRED');
+  assert.equal(declined.calls.length + f.calls.length, 0);
+});
+
+test('Level 2: an unwritable audit refuses the advance before any provider call or ledger entry', async () => {
+  const f = level2Fixture();
+  const from = f.db.from;
+  f.db.from = (table) => (table === 'trust_audit_events' ? { insert: async () => ({ error: { message: 'audit down' } }) } : from(table));
+  await assert.rejects(L2.advancePay03bLevel2TestClock({ db: f.db, env: f.env, stripe: f.stripe, adminActorId: 'ops-1', subscriptionId: 'sub-l2' }),
+    (e) => e.code === 'PAY03B_LEVEL2_AUDIT_UNAVAILABLE');
+  assert.equal(f.calls.length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.dir, 'ledger.json'), 'utf8')).advances.length, 0);
+});
+
+test('stripe adapter: Level 2 customers are created on the authorized test clock only when one is configured', async () => {
+  const { stripe, calls } = recordingStripe();
+  await new A.Pay03bStripeSandboxProvider({ env: sandboxEnv({ CARUP_PAY03B_STRIPE_TEST_CLOCK_ID: 'clock_authorized1' }), stripe })
+    .ensureCustomer({ organizationId: 'org1', tenantId: 't1', displayName: 'Dealer', idempotencyKey: 'k5k5k5k5k5k5k5k5' });
+  await new A.Pay03bStripeSandboxProvider({ env: sandboxEnv(), stripe })
+    .ensureCustomer({ organizationId: 'org1', tenantId: 't1', displayName: 'Dealer', idempotencyKey: 'k6k6k6k6k6k6k6k6' });
+  const creates = calls.filter((c) => c[0] === 'customers.create').map((c) => c[1]);
+  assert.equal(creates[0].test_clock, 'clock_authorized1');
+  assert.equal('test_clock' in creates[1], false);
+});

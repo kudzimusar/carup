@@ -27,6 +27,7 @@ import {
   resolvePay03bReconciliationException,
 } from '../services/payment/pay03bReconciliationService.js';
 import { Pay03bLocalSimulatorProvider } from '../services/payment/pay03bLocalSimulator.js';
+import { advancePay03bLevel2TestClock } from '../services/payment/pay03bLevel2Service.js';
 
 const router = express.Router();
 const memberSession = authorizeSessionRole([]);
@@ -122,6 +123,10 @@ router.post('/api/pay03b/admin/subscriptions/:subscriptionId/suspension', adminS
   requestKey: idempotencyKey(req) })));
 router.post('/api/pay03b/admin/subscriptions/:subscriptionId/invoices/:invoiceId/refund', adminSession, handle((req) => refundPay03bAdminInvoice({
   ...adminArgs(req), subscriptionId: req.params.subscriptionId, invoiceId: req.params.invoiceId, reason: req.body?.reason })));
+
+router.use('/api/pay03b/admin/stripe-sandbox', requirePay03bEnabled);
+router.post('/api/pay03b/admin/stripe-sandbox/test-clock/advance', adminSession, handle((req) => advancePay03bLevel2TestClock({
+  ...adminArgs(req), subscriptionId: req.body?.subscriptionId })));
 
 router.get('/api/pay03b/admin/reconciliation-exceptions', adminSession, handle((req) => listPay03bReconciliationExceptions({
   db: dbFor(req), env: envFor(req), status: req.query?.status || 'open' })));

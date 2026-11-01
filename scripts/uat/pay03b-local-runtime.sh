@@ -81,6 +81,7 @@ case "$ROLE" in
   backend)
     require_free_port "$BACKEND_PORT"
     PROVIDER_MODE=''
+    LEVEL2_CLOCK=''
     case "$MODE" in
       --simulator)
         STRIPE_KEY='sk_test_PAY03B_LEVEL1_NO_PROVIDER_ACCESS'
@@ -97,6 +98,10 @@ case "$ROLE" in
         [[ "$STRIPE_KEY" =~ ^sk_test_ ]] || fail 'refusing: a test-only Stripe secret key (sk_test_) is required.'
         [[ "$WEBHOOK_SECRET" =~ ^whsec_[A-Za-z0-9]+$ ]] || fail 'refusing: a Stripe CLI webhook signing secret is required.'
         SIM_SECRET=''
+        # Provision exactly the authorized sandbox objects (idempotent); the key travels only in the environment.
+        (cd "$WT" && env -i PATH="$PATH" HOME="$HOME" PAY03B_STRIPE_SECRET="$STRIPE_KEY" node scripts/uat/pay03b-stripe-sandbox-provision.mjs) \
+          || fail 'Level 2 provisioning failed.'
+        LEVEL2_CLOCK="$(cat "$EVIDENCE_ROOT/level2-clock-id")"
         ;;
       *) fail 'backend requires --simulator or --stripe-sandbox.' ;;
     esac
@@ -119,6 +124,9 @@ case "$ROLE" in
       CARUP_PAY03B_SIMULATOR_PERIOD_SECONDS="${PAY03B_SIM_PERIOD_SECONDS:-180}" \
       CARUP_PAY03B_SIMULATOR_PUBLIC_ORIGIN="$API_ORIGIN" \
       CARUP_PAY03B_ENTITLEMENT_ENFORCEMENT=true \
+      CARUP_PAY03B_STRIPE_TEST_CLOCK_ID="${LEVEL2_CLOCK:-}" \
+      CARUP_PAY03B_LEVEL2_AUTHORIZATION_FILE="${PAY03B_LEVEL2_AUTHORIZATION:-}" \
+      CARUP_PAY03B_LEVEL2_LEDGER_FILE="$EVIDENCE_ROOT/level2-ledger.json" \
       node server.js
     ;;
   web)

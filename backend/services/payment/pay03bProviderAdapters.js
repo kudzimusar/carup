@@ -205,10 +205,15 @@ export class Pay03bStripeSandboxProvider extends BillingProvider {
   async ensureCustomer({ organizationId, tenantId, displayName, idempotencyKey }) {
     await this.verifyAccount();
     const api = await this.api();
+    // Level 2 (Owner-authorized rehearsal only): the customer is created ON the authorized test clock so renewals
+    // can be simulated by advancing that clock. Without it, no test clock is involved.
+    const testClock = this.env.CARUP_PAY03B_STRIPE_TEST_CLOCK_ID || null;
+    if (testClock && !/^clock_[A-Za-z0-9]+$/.test(testClock)) throw new Pay03bError('PAY03B_TEST_CLOCK_INVALID', 503);
     let customer;
     try {
       customer = await api.customers.create({
         name: String(displayName || '').slice(0, 120) || undefined,
+        ...(testClock ? { test_clock: testClock } : {}),
         metadata: {
           carup_owner_organization_id: organizationId, carup_owner_tenant_id: tenantId,
           carup_environment: 'sandbox', carup_programme: 'PAY-03B',
