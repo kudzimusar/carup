@@ -14,6 +14,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.commercial-foundation",
+    "domain": "finance",
+    "route": "/admin/commercial-foundation",
+    "defaultLifecycle": "beta",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.communications",
     "domain": "admin",
     "route": "/admin/communications",
@@ -46,6 +60,20 @@
     "domain": "admin",
     "route": "/admin/dealer-compliance",
     "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.demo-purchases",
+    "domain": "finance",
+    "route": "/admin/demo-purchases",
+    "defaultLifecycle": "beta",
     "defaultRoles": [
       "admin"
     ],
@@ -503,6 +531,20 @@
     "id": "dealer.promotions",
     "domain": "commerce",
     "route": "/dealer/promotions",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.subscription",
+    "domain": "finance",
+    "route": "/dealer/subscription",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "dealer"
