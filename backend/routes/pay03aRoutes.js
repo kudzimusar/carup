@@ -40,6 +40,20 @@ function actorRole(req) {
   return req.userContext?.effectiveRole || req.userContext?.role || 'buyer';
 }
 
+// Request provenance for the canonical audit record. Identity itself always comes from the proven
+// session (`req.userContext`), never from the request body.
+function auditRequestContext(req) {
+  const header = (name) => {
+    const value = req.headers?.[name];
+    return Array.isArray(value) ? value[0] : value || null;
+  };
+  return {
+    requestId: req.requestId || req.correlationId || header('x-request-id') || header('x-correlation-id'),
+    ipAddress: req.ip || null,
+    userAgent: header('user-agent'),
+  };
+}
+
 function resolvePay03aDb(req) {
   if (req.app?.locals && Object.prototype.hasOwnProperty.call(req.app.locals, 'pay03aDb')) {
     return req.app.locals.pay03aDb;
@@ -223,6 +237,10 @@ router.post('/api/pay03a/admin/orders/:orderId/reconcile', adminSession, async (
   try {
     const result = await reconcileAndFulfillPay03aAdminOrder({
       orderId: req.params.orderId,
+      adminActorId: actorId(req),
+      adminActorRole: actorRole(req),
+      sourceRoute: '/api/pay03a/admin/orders/:orderId/reconcile',
+      requestContext: auditRequestContext(req),
       db: resolvePay03aDb(req),
       stripe: resolvePay03aStripe(req),
     });
@@ -236,6 +254,10 @@ router.post('/api/pay03a/admin/orders/:orderId/refund', adminSession, async (req
   try {
     const result = await refundPay03aAdminOrder({
       orderId: req.params.orderId,
+      adminActorId: actorId(req),
+      adminActorRole: actorRole(req),
+      sourceRoute: '/api/pay03a/admin/orders/:orderId/refund',
+      requestContext: auditRequestContext(req),
       db: resolvePay03aDb(req),
       stripe: resolvePay03aStripe(req),
     });

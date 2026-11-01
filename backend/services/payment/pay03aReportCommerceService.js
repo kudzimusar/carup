@@ -12,6 +12,7 @@
  * Non-production sandbox only. No live charges, no production Supabase, and no second money ledger.
  */
 import { supabase } from '../../db/supabase.js';
+import { logAuditEvent } from '../auditLogger.js';
 import {
   assembleReport,
   createShareLink,
@@ -254,6 +255,58 @@ function requireBuyer(buyerId) {
     throw new Pay02Error('PAY03A_BUYER_AUTH_REQUIRED', 401);
   }
   return buyerId.trim();
+}
+
+/**
+ * STG01-FINAL D-AUDIT-1: administrator operations must be attributable to the proven admin session.
+ * The canonical payment ledger records the BUYER as the PAY-01A actor (the refund guard binds the
+ * payment to its payer), so without this the administrator who moved money was recorded nowhere.
+ */
+function requireAdminActor(adminActorId) {
+  if (typeof adminActorId !== 'string' || !adminActorId.trim()) {
+    throw new Pay02Error('PAY03A_ADMIN_ACTOR_REQUIRED', 401);
+  }
+  return adminActorId.trim();
+}
+
+function auditSucceeded(result) {
+  // `logAuditEvent` never throws. A legacy-mirror-only write reports success WITH a warning: the
+  // authoritative trust_audit_events row was not written, so that is not an audit record.
+  return Boolean(result && result.success === true && !result.warning);
+}
+
+function recordPay03aAdminAudit(db, {
+  eventType,
+  admin,
+  adminRole,
+  order,
+  sourceRoute,
+  requestContext,
+  reason,
+  extra = {},
+}) {
+  return logAuditEvent(db, {
+    event_type: eventType,
+    vin: order.vin,
+    vehicle_id: order.vehicle_id || order.vin,
+    actor_user_id: admin,
+    actor_role: adminRole || 'admin',
+    actor_type: 'user',
+    source_dashboard: 'admin.commercial-foundation',
+    source_route: sourceRoute,
+    reason,
+    new_value: {
+      orderId: order.id,
+      paymentReference: order.payment_reference,
+      buyerId: order.buyer_id,
+      quoteId: order.quote_id,
+      productCode: order.product_code || PAY03A_PRODUCT_CODE,
+      ...extra,
+    },
+    request_id: requestContext?.requestId || null,
+    ip_address: requestContext?.ipAddress || null,
+    user_agent: requestContext?.userAgent || null,
+  });
 }
 
 function requireValidVin(vin) {
@@ -1026,6 +1079,10 @@ export async function createPay03aBuyerShareLink({
  */
 export async function reconcileAndFulfillPay03aAdminOrder({
   orderId,
+  adminActorId,
+  adminActorRole = 'admin',
+  sourceRoute = '/api/pay03a/admin/orders/:orderId/reconcile',
+  requestContext = null,
   db = supabase,
   env = process.env,
   stripe = null,
@@ -1033,7 +1090,31 @@ export async function reconcileAndFulfillPay03aAdminOrder({
   versionGenerator = generateReportVersion,
 } = {}) {
   requirePay03aSandbox(env, { requireStripe: true });
+  const admin = requireAdminActor(adminActorId);
   const initial = await loadOrderWithContext(db, orderId);
+
+  // Reconciliation moves no money and must stay available for recovery, so its audit is
+  // best-effort — but it is always attempted and always attributed to the proven administrator.
+  const reconcileAudit = await recordPay03aAdminAudit(db, {
+    eventType: 'PAY03A_ADMIN_RECONCILE',
+    admin,
+    adminRole: adminActorRole,
+    order: initial.order,
+    sourceRoute,
+    requestContext,
+    reason: 'Administrator requested PAY-03A provider reconciliation and fulfillment recovery.',
+    extra: {
+      paymentStatusBefore: initial.payment.status,
+      entitlementStatusBefore: initial.order.entitlement_status,
+      reportVersionIdBefore: initial.order.report_version_id || null,
+    },
+  });
+  if (!auditSucceeded(reconcileAudit)) {
+    console.warn('[pay03a] admin reconcile audit write failed; continuing recovery', {
+      orderId: initial.order.id,
+      event: 'PAY03A_ADMIN_RECONCILE',
+    });
+  }
 
   await reconcilePay01aPayment({
     reference: initial.order.payment_reference,
@@ -1129,26 +1210,67 @@ export async function readPay03aAdminOrder({
  */
 export async function refundPay03aAdminOrder({
   orderId,
+  adminActorId,
+  adminActorRole = 'admin',
+  sourceRoute = '/api/pay03a/admin/orders/:orderId/refund',
+  requestContext = null,
   db = supabase,
   env = process.env,
   stripe = null,
 } = {}) {
   requirePay03aSandbox(env, { requireStripe: true });
+  const admin = requireAdminActor(adminActorId);
   const initial = await loadOrderWithContext(db, orderId);
+  const auditBase = {
+    admin,
+    adminRole: adminActorRole,
+    order: initial.order,
+    sourceRoute,
+    requestContext,
+  };
 
-  const refundResult = await refundPay01aPayment({
-    reference: initial.order.payment_reference,
-    actorId: initial.order.buyer_id,
-    db,
-    env,
-    stripe,
+  // Fail closed: no provider refund is attempted unless the authoritative audit record of WHO
+  // requested it has been written first.
+  const requestedAudit = await recordPay03aAdminAudit(db, {
+    ...auditBase,
+    eventType: 'PAY03A_ADMIN_REFUND_REQUESTED',
+    reason: 'Administrator requested a governed PAY-03A sandbox refund.',
+    extra: {
+      paymentStatusBefore: initial.payment.status,
+      entitlementStatusBefore: initial.order.entitlement_status,
+      amountMinor: Number(initial.payment.amount),
+      currency: String(initial.payment.currency || '').toUpperCase(),
+      reportVersionId: initial.order.report_version_id || null,
+    },
   });
+  if (!auditSucceeded(requestedAudit)) {
+    throw new Pay02Error('PAY03A_REFUND_AUDIT_UNAVAILABLE', 503);
+  }
 
-  const { error: syncErr } = await db.rpc('pay02_sync_quote_from_canonical_payment', {
-    p_reference: initial.order.payment_reference,
-  });
-  if (syncErr) {
-    throw new Pay02Error('PAY03A_REFUND_SYNC_FAILED', 503, { message: syncErr.message });
+  let refundResult;
+  try {
+    refundResult = await refundPay01aPayment({
+      reference: initial.order.payment_reference,
+      actorId: initial.order.buyer_id,
+      db,
+      env,
+      stripe,
+    });
+
+    const { error: syncErr } = await db.rpc('pay02_sync_quote_from_canonical_payment', {
+      p_reference: initial.order.payment_reference,
+    });
+    if (syncErr) {
+      throw new Pay02Error('PAY03A_REFUND_SYNC_FAILED', 503, { message: syncErr.message });
+    }
+  } catch (err) {
+    await recordPay03aAdminAudit(db, {
+      ...auditBase,
+      eventType: 'PAY03A_ADMIN_REFUND_RESULT',
+      reason: 'Governed PAY-03A sandbox refund did not complete.',
+      extra: { outcome: 'failed', errorCode: err?.code || 'PAY03A_REFUND_FAILED' },
+    });
+    throw err;
   }
 
   if (initial.order.report_version_id) {
@@ -1162,6 +1284,26 @@ export async function refundPay03aAdminOrder({
   }
 
   const refreshed = await loadOrderWithContext(db, orderId);
+  const resultAudit = await recordPay03aAdminAudit(db, {
+    ...auditBase,
+    eventType: 'PAY03A_ADMIN_REFUND_RESULT',
+    reason: 'Governed PAY-03A sandbox refund reconciled against the canonical payment ledger.',
+    extra: {
+      outcome: refreshed.payment.status,
+      paymentStatus: refreshed.payment.status,
+      entitlementStatus: refreshed.order.entitlement_status,
+      refundId: refreshed.payment.pay01a_refund_id || null,
+      reportVersionRevoked: Boolean(refreshed.reportVersion?.revoked),
+      idempotentReplay: Boolean(refundResult.idempotentReplay),
+    },
+  });
+  if (!auditSucceeded(resultAudit)) {
+    // Money has already moved and the REQUESTED record attributes it; surface the gap loudly.
+    console.warn('[pay03a] admin refund RESULT audit write failed', {
+      orderId: refreshed.order.id,
+      event: 'PAY03A_ADMIN_REFUND_RESULT',
+    });
+  }
   return {
     ...projectOrderRecord(refreshed),
     idempotentReplay: Boolean(refundResult.idempotentReplay),

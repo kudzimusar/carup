@@ -164,7 +164,9 @@ function createInMemoryPay03aHarness() {
     failOrderLookup: false,
     failPaymentLookup: false,
     failNextFulfillmentRpc: false,
+    failNextAuditInsert: false,
   };
+  const auditEvents = [];
 
   const sessions = new Map([
     ['tok-buyer-1', { user_id: 'buyer-03a-1', is_valid: true, expires_at: '2099-01-01T00:00:00Z' }],
@@ -190,6 +192,7 @@ function createInMemoryPay03aHarness() {
     checkoutSeq: 0,
     intentSeq: 0,
     refundSeq: 0,
+    refundCreateCalls: 0,
   };
 
   const stripeMock = {
@@ -237,6 +240,7 @@ function createInMemoryPay03aHarness() {
         data: stripeState.refundsByIntent.get(payment_intent) || [],
       }),
       create: async ({ payment_intent, metadata }) => {
+        stripeState.refundCreateCalls += 1;
         const existing = stripeState.refundsByIntent.get(payment_intent) || [];
         if (existing.length > 0) return existing[0];
         stripeState.refundSeq += 1;
@@ -367,6 +371,20 @@ function createInMemoryPay03aHarness() {
           return makeSelectQuery(table);
         },
         insert(row) {
+          if (table === 'trust_audit_events') {
+            let result;
+            if (faultInjection.failNextAuditInsert) {
+              faultInjection.failNextAuditInsert = false;
+              result = { data: null, error: { message: 'audit_insert_failed' } };
+            } else {
+              auditEvents.push(row);
+              result = { data: [row], error: null };
+            }
+            return {
+              then: (onFulfilled, onRejected) => Promise.resolve(result).then(onFulfilled, onRejected),
+              select: async () => result,
+            };
+          }
           return {
             async select() {
               if (table === 'report_versions') {
@@ -710,6 +728,8 @@ function createInMemoryPay03aHarness() {
     reportOrders,
     reportVersions,
     faultInjection,
+    auditEvents,
+    refundCreateCalls: () => stripeState.refundCreateCalls,
   };
 }
 
@@ -1130,6 +1150,7 @@ test('PAY03A End-to-End Customer Journey: Quote -> Checkout -> Webhook & Manual 
 
   const refundedOrder = await refundPay03aAdminOrder({
     orderId: checkoutRes.orderId,
+    adminActorId: 'admin-03a-1',
     db: harness.db,
     stripe: harness.stripeMock,
   });
@@ -1143,6 +1164,7 @@ test('PAY03A End-to-End Customer Journey: Quote -> Checkout -> Webhook & Manual 
   // 8. Repeat admin refund is idempotent
   const refundedRepeat = await refundPay03aAdminOrder({
     orderId: checkoutRes.orderId,
+    adminActorId: 'admin-03a-1',
     db: harness.db,
     stripe: harness.stripeMock,
   });
@@ -1444,6 +1466,7 @@ test('PAY03A R1-D: Paid Report Share-Link Entitlement Matrix (all 10 positive/ne
   // Case 5: Full refund revokes order entitlement and denies share token access
   await refundPay03aAdminOrder({
     orderId: checkoutRes.orderId,
+    adminActorId: 'admin-03a-1',
     db: harness.db,
     stripe: harness.stripeMock,
   });
@@ -1593,6 +1616,7 @@ test('PAY03A R1-E: Interrupted Fulfillment Recovery (duplicate signed webhook re
   // Admin triggers `/reconcile` (`reconcileAndFulfillPay03aAdminOrder`) -> fulfills atomically
   const adminRecovered = await reconcileAndFulfillPay03aAdminOrder({
     orderId: checkout2.orderId,
+    adminActorId: 'admin-03a-1',
     db: harness.db,
     stripe: harness.stripeMock,
   });
@@ -1605,6 +1629,7 @@ test('PAY03A R1-E: Interrupted Fulfillment Recovery (duplicate signed webhook re
   // Second admin `/reconcile` call is an idempotent replay with zero duplicate report versions
   const adminRecoveredReplay = await reconcileAndFulfillPay03aAdminOrder({
     orderId: checkout2.orderId,
+    adminActorId: 'admin-03a-1',
     db: harness.db,
     stripe: harness.stripeMock,
   });
@@ -1992,4 +2017,142 @@ test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and record
   });
   assert.equal(ledgerTransfer.eligibleForPurchase, true);
   assert.equal(ledgerTransfer.readiness.historicalEventCount, 1);
+});
+
+test('PAY03A STG01-FINAL D-AUDIT-1: governed refunds are attributable to the proven administrator, audited before any provider call, and refused when the authoritative audit write fails', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const checkout = await createPay03aReportCheckout({
+    buyerId: 'buyer-03a-1',
+    vin: 'WBA3A5C51DF358101',
+    requestKey: 'pay03a_daudit1_refund_attrib_01',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.markCheckoutPaid(checkout.checkoutId);
+  const fulfilled = await verifyPay03aBuyerOrder({
+    buyerId: 'buyer-03a-1',
+    orderId: checkout.orderId,
+    refresh: true,
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.equal(fulfilled.reportAvailable, true);
+
+  // 1. No proven administrator identity -> refused before any provider or ledger mutation.
+  await assert.rejects(
+    refundPay03aAdminOrder({ orderId: checkout.orderId, db: harness.db, stripe: harness.stripeMock }),
+    (err) => err.code === 'PAY03A_ADMIN_ACTOR_REQUIRED' && err.status === 401,
+  );
+  assert.equal(harness.refundCreateCalls(), 0);
+
+  // 2. Authoritative audit write fails -> fail closed: no Stripe refund, money state unchanged.
+  harness.faultInjection.failNextAuditInsert = true;
+  await assert.rejects(
+    refundPay03aAdminOrder({
+      orderId: checkout.orderId,
+      adminActorId: 'admin-03a-1',
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    (err) => err.code === 'PAY03A_REFUND_AUDIT_UNAVAILABLE' && err.status === 503,
+  );
+  assert.equal(harness.refundCreateCalls(), 0, 'No provider refund may be attempted without an authoritative audit record');
+  const stillPaid = await readPay03aAdminOrder({ orderId: checkout.orderId, db: harness.db });
+  assert.equal(stillPaid.paymentStatus, 'paid');
+  assert.equal(stillPaid.entitlementStatus, 'entitled');
+
+  // 3. Successful refund: REQUESTED is recorded before the provider call, RESULT after, both attributed.
+  const originalCreate = harness.stripeMock.refunds.create;
+  let requestedAuditedBeforeProvider = false;
+  harness.stripeMock.refunds.create = async (...args) => {
+    requestedAuditedBeforeProvider = harness.auditEvents.some(
+      (e) => e.event_type === 'PAY03A_ADMIN_REFUND_REQUESTED' && e.actor_user_id === 'admin-03a-1',
+    );
+    return originalCreate(...args);
+  };
+  const refunded = await refundPay03aAdminOrder({
+    orderId: checkout.orderId,
+    adminActorId: 'admin-03a-1',
+    adminActorRole: 'admin',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  harness.stripeMock.refunds.create = originalCreate;
+  assert.equal(refunded.paymentStatus, 'refunded');
+  assert.equal(requestedAuditedBeforeProvider, true);
+  const requested = harness.auditEvents.filter((e) => e.event_type === 'PAY03A_ADMIN_REFUND_REQUESTED');
+  const result = harness.auditEvents.filter((e) => e.event_type === 'PAY03A_ADMIN_REFUND_RESULT');
+  assert.equal(requested.length, 1);
+  assert.equal(result.length, 1);
+  for (const e of [...requested, ...result]) {
+    assert.equal(e.actor_user_id, 'admin-03a-1');
+    assert.equal(e.actor_role, 'admin');
+    assert.equal(e.vin, 'WBA3A5C51DF358101');
+    assert.equal(e.new_value.orderId, checkout.orderId);
+    assert.equal(e.new_value.paymentReference, checkout.paymentReference);
+    assert.equal(e.new_value.buyerId, 'buyer-03a-1');
+  }
+  assert.equal(result[0].new_value.paymentStatus, 'refunded');
+  assert.equal(result[0].new_value.refundId, refunded.refundId);
+  assert.equal(harness.refundCreateCalls(), 1);
+
+  // 4. A replayed refund is still attributed, and creates no second provider refund.
+  const replay = await refundPay03aAdminOrder({
+    orderId: checkout.orderId,
+    adminActorId: 'admin-03a-1',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(harness.refundCreateCalls(), 1);
+  assert.equal(harness.auditEvents.filter((e) => e.event_type === 'PAY03A_ADMIN_REFUND_REQUESTED').length, 2);
+
+  // 5. Admin reconcile/recovery is attributed to the administrator as well.
+  await reconcileAndFulfillPay03aAdminOrder({
+    orderId: checkout.orderId,
+    adminActorId: 'admin-03a-1',
+    db: harness.db,
+    stripe: harness.stripeMock,
+  });
+  const reconcileAudit = harness.auditEvents.filter((e) => e.event_type === 'PAY03A_ADMIN_RECONCILE');
+  assert.equal(reconcileAudit.length, 1);
+  assert.equal(reconcileAudit[0].actor_user_id, 'admin-03a-1');
+});
+
+test('PAY03A STG01-FINAL D-AUDIT-1 (HTTP): the refund actor comes from the proven admin session, never from the request body', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const origFrom = supabase.from;
+  supabase.from = harness.db.from.bind(harness.db);
+  const app = express();
+  app.use(express.json());
+  app.locals.pay03aDb = harness.db;
+  app.locals.pay03aStripe = harness.stripeMock;
+  app.use(pay03aRoutes);
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const checkout = await createPay03aReportCheckout({
+      buyerId: 'buyer-03a-1',
+      vin: 'WBA3A5C51DF358101',
+      requestKey: 'pay03a_daudit1_http_attrib_0001',
+      db: harness.db,
+      stripe: harness.stripeMock,
+    });
+    harness.stripeMock.markCheckoutPaid(checkout.checkoutId);
+    const res = await fetch(`${baseUrl}/api/pay03a/admin/orders/${checkout.orderId}/refund`, {
+      method: 'POST',
+      headers: { 'x-session-token': 'tok-admin-1', 'content-type': 'application/json' },
+      body: JSON.stringify({ adminActorId: 'spoofed-admin', actorId: 'spoofed-admin' }),
+    });
+    assert.equal(res.status, 200);
+    const requested = harness.auditEvents.filter((e) => e.event_type === 'PAY03A_ADMIN_REFUND_REQUESTED');
+    assert.equal(requested.length, 1);
+    assert.equal(requested[0].actor_user_id, 'admin-03a-1');
+    assert.equal(requested[0].source_route, '/api/pay03a/admin/orders/:orderId/refund');
+  } finally {
+    supabase.from = origFrom;
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
