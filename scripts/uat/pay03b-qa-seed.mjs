@@ -38,6 +38,8 @@ const DEFS = {
   dealerA: { name: 'PAY03B Dealer A Billing Admin [QA]', email: 'pay03b.dealer.a.billing@carup-uat.invalid', role: 'dealer' },
   dealerAStaff: { name: 'PAY03B Dealer A Sales Staff [QA]', email: 'pay03b.dealer.a.staff@carup-uat.invalid', role: 'dealer' },
   dealerB: { name: 'PAY03B Dealer B Billing Admin [QA]', email: 'pay03b.dealer.b.billing@carup-uat.invalid', role: 'dealer' },
+  // Reserved for the Owner-authorized Level 2 Stripe sandbox rehearsal (kept apart from simulator subscriptions).
+  dealerC: { name: 'PAY03B Dealer C Billing Admin [QA, Stripe sandbox rehearsal]', email: 'pay03b.dealer.c.billing@carup-uat.invalid', role: 'dealer' },
   ops: { name: 'PAY03B Commerce Operations Admin [QA]', email: 'pay03b.ops.admin@carup-uat.invalid', role: 'admin' },
 };
 const accounts = existsSync(ACCOUNTS_FILE) ? JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8')) : {};
@@ -73,19 +75,24 @@ for (const [key, acct] of Object.entries(accounts)) {
 
 accounts.tenantA ||= randomUUID();
 accounts.tenantB ||= randomUUID();
+accounts.tenantC ||= randomUUID();
 accounts.orgA ||= 'org_pay03b_qa_dealer_a';
 accounts.orgB ||= 'org_pay03b_qa_dealer_b';
+accounts.orgC ||= 'org_pay03b_qa_dealer_c';
 sql(`insert into public.tenants (id, name, type, status) values
   (${lit(accounts.tenantA)}, 'PAY03B QA Dealer A [QA]', 'dealership', 'active'),
-  (${lit(accounts.tenantB)}, 'PAY03B QA Dealer B [QA]', 'dealership', 'active') on conflict (id) do nothing`);
+  (${lit(accounts.tenantB)}, 'PAY03B QA Dealer B [QA]', 'dealership', 'active'),
+  (${lit(accounts.tenantC)}, 'PAY03B QA Dealer C [QA]', 'dealership', 'active') on conflict (id) do nothing`);
 sql(`insert into public.organizations (id, name, type, created_at, status, tenant_id) values
   (${lit(accounts.orgA)}, 'PAY03B QA Dealer A Motors Ltd [QA]', 'dealership', '2026-11-01', 'active', ${lit(accounts.tenantA)}),
-  (${lit(accounts.orgB)}, 'PAY03B QA Dealer B Autos Ltd [QA]', 'dealership', '2026-11-01', 'active', ${lit(accounts.tenantB)})
+  (${lit(accounts.orgB)}, 'PAY03B QA Dealer B Autos Ltd [QA]', 'dealership', '2026-11-01', 'active', ${lit(accounts.tenantB)}),
+  (${lit(accounts.orgC)}, 'PAY03B QA Dealer C Cars Ltd [QA]', 'dealership', '2026-11-01', 'active', ${lit(accounts.tenantC)})
   on conflict (id) do nothing`);
 sql(`insert into public.tenant_users (tenant_id, user_id, role) values
   (${lit(accounts.tenantA)}, ${lit(accounts.dealerA.userId)}, 'admin'),
   (${lit(accounts.tenantA)}, ${lit(accounts.dealerAStaff.userId)}, 'dealer'),
-  (${lit(accounts.tenantB)}, ${lit(accounts.dealerB.userId)}, 'admin') on conflict (tenant_id, user_id) do nothing`);
+  (${lit(accounts.tenantB)}, ${lit(accounts.dealerB.userId)}, 'admin'),
+  (${lit(accounts.tenantC)}, ${lit(accounts.dealerC.userId)}, 'admin') on conflict (tenant_id, user_id) do nothing`);
 
 function registerPlan(code, { kind, tier, amount, price, capacity, cancellation = null, display }) {
   const current = sql(`select coalesce((select id::text from public.pay03b_subscription_plans where plan_code = ${lit(code)} and effective_to is null), '')`);
