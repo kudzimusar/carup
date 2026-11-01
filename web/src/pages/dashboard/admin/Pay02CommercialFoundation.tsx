@@ -186,6 +186,9 @@ export default function Pay02CommercialFoundation() {
   const [reconciliationBusy, setReconciliationBusy] = useState<boolean>(false)
   const [pay03aOrders, setPay03aOrders] = useState<Pay03aAdminOrderRow[]>([])
   const [pay03aLoading, setPay03aLoading] = useState<boolean>(false)
+  // STG01-FINAL D-UI-1: a failed read must never be rendered as an empty order book.
+  const [pay03aOrdersError, setPay03aOrdersError] = useState<string | null>(null)
+  const [pay03aOrdersLoaded, setPay03aOrdersLoaded] = useState<boolean>(false)
   const [pay03aRefundBusyId, setPay03aRefundBusyId] = useState<string | null>(null)
 
   const buildAuthHeaders = useCallback(
@@ -229,11 +232,16 @@ export default function Pay02CommercialFoundation() {
         path: '/pay03a/admin/orders',
         authHeaders: buildAuthHeaders(),
       })
-      if (Array.isArray(res?.orders)) {
-        setPay03aOrders(res.orders)
+      if (!Array.isArray(res?.orders)) {
+        throw new Error('PAY03A_ADMIN_ORDERS_RESPONSE_INVALID')
       }
-    } catch {
-      // Non-fatal when PAY-03A orders table has not been queried in isolated catalogue-only unit tests
+      setPay03aOrders(res.orders)
+      setPay03aOrdersError(null)
+      setPay03aOrdersLoaded(true)
+    } catch (err) {
+      // Non-fatal for the catalogue console, but never silent: an administrator must not read a
+      // failed or forbidden order read as "no paid orders exist".
+      setPay03aOrdersError(err instanceof Error && err.message ? err.message : 'PAY03A_ADMIN_ORDERS_UNAVAILABLE')
     } finally {
       setPay03aLoading(false)
     }
@@ -872,10 +880,28 @@ export default function Pay02CommercialFoundation() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-xs">
+                {pay03aOrdersError ? (
+                  <div
+                    role="alert"
+                    data-testid="pay03a-admin-orders-error"
+                    className="rounded-md border border-rose-300 bg-rose-50 p-2 text-rose-800"
+                  >
+                    PAY-03A orders could not be loaded ({pay03aOrdersError}).{' '}
+                    {pay03aOrders.length > 0
+                      ? 'The rows below may be stale — refresh before acting on them.'
+                      : 'This is a read failure, not an empty order book — do not infer that no paid orders exist.'}
+                  </div>
+                ) : null}
                 {pay03aOrders.length === 0 ? (
-                  <p className="text-slate-500" data-testid="pay03a-admin-empty-orders">
-                    No PAY-03A Vehicle History Report orders recorded in this environment yet.
-                  </p>
+                  pay03aOrdersError ? null : pay03aOrdersLoaded ? (
+                    <p className="text-slate-500" data-testid="pay03a-admin-empty-orders">
+                      No PAY-03A Vehicle History Report orders recorded in this environment yet.
+                    </p>
+                  ) : (
+                    <p className="text-slate-500" data-testid="pay03a-admin-orders-loading">
+                      Loading PAY-03A orders…
+                    </p>
+                  )
                 ) : (
                   pay03aOrders.map((ord) => (
                     <div

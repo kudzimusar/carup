@@ -488,6 +488,64 @@ describe('Pay02CommercialFoundation admin console', () => {
     })
   })
 
+  it('never presents a failed PAY-03A order read as an empty order book (STG01-FINAL D-UI-1)', async () => {
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') {
+        return Promise.reject(new Error('PAY03A_ADMIN_ORDER_READ_UNAVAILABLE'))
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
+    render(
+      <MemoryRouter>
+        <Pay02CommercialFoundation />
+      </MemoryRouter>,
+    )
+    const alert = await screen.findByTestId('pay03a-admin-orders-error')
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.textContent).toContain('PAY03A_ADMIN_ORDER_READ_UNAVAILABLE')
+    expect(alert.textContent).toContain('not an empty order book')
+    expect(screen.queryByTestId('pay03a-admin-empty-orders')).toBeNull()
+  })
+
+  it('keeps previously loaded PAY-03A orders visible but flags them as possibly stale when a refresh fails (STG01-FINAL D-UI-1)', async () => {
+    let failReads = false
+    mockApiRequest.mockImplementation(({ path }: { path?: string } = {}) => {
+      if (path === '/pay03a/admin/orders') {
+        if (failReads) return Promise.reject(new Error('PAY03A_ADMIN_ORDER_READ_UNAVAILABLE'))
+        return Promise.resolve({
+          orders: [
+            {
+              orderId: 'ord-03a-stale-1',
+              productCode: 'intel.report.vehicle_history_single',
+              buyerId: 'buyer-03a-1',
+              vin: 'WBA3A5C51DF358101',
+              paymentReference: 'pay01a_03a_stale_ref_1',
+              paymentStatus: 'paid',
+              amountMinor: 100,
+              currency: 'JPY',
+              entitlementStatus: 'entitled',
+              reportAvailable: true,
+              reportVersionId: 'rep-ver-stale-1',
+              reportVersionNumber: 1,
+            },
+          ],
+        })
+      }
+      return Promise.resolve(SAMPLE_CATALOGUE)
+    })
+    render(
+      <MemoryRouter>
+        <Pay02CommercialFoundation />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('pay03a-admin-order-ord-03a-stale-1')
+    failReads = true
+    fireEvent.click(screen.getByTestId('pay03a-admin-refresh-orders'))
+    const alert = await screen.findByTestId('pay03a-admin-orders-error')
+    expect(alert.textContent).toContain('may be stale')
+    expect(screen.getByTestId('pay03a-admin-order-ord-03a-stale-1')).toBeTruthy()
+  })
+
   it('remains usable and accessible across desktop (1280px), tablet (768px), and narrow mobile (375px) viewports', async () => {
     for (const width of [1280, 768, 375]) {
       window.innerWidth = width
