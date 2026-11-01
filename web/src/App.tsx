@@ -115,6 +115,7 @@ import Inventory from './pages/dashboard/dealer/Inventory'
 import Leads from './pages/dashboard/dealer/Leads'
 import Promotions from './pages/dashboard/dealer/Promotions'
 import SalesAnalytics from './pages/dashboard/dealer/SalesAnalytics'
+import DealerSubscription from './pages/dashboard/dealer/Subscription'
 
 // Mechanic Dashboard
 import MechanicDashboard from './pages/dashboard/mechanic/MechanicDashboard'
@@ -421,6 +422,7 @@ export default function App() {
           <Route path="/dealer/promotions" element={<Promotions />} />
           <Route path="/dealer/analytics" element={<SalesAnalytics />} />
           <Route path="/dealer/evidence" element={<EvidenceReview />} />
+          <Route path="/dealer/subscription" element={<DealerSubscription />} />
         </Route>
 
         {/* Mechanic Dashboard */}
