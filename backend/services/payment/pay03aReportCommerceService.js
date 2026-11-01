@@ -140,19 +140,33 @@ function classifyVehicleProvenance(vehicle = null, isSyntheticFixture = false) {
   return null;
 }
 
+/**
+ * STG01-FINAL D-ELIG-1: the qualifying (source, status) pairs, as an ALLOWLIST.
+ *
+ * The canonical lifecycle projects source statuses verbatim (`partsentry_logs.verification_status` is
+ * unverified|pending|verified|rejected|disputed). A denylist of seller_stated/pending/rejected let
+ * `unverified` and `disputed` maintenance records — and any unknown status — count as verified history,
+ * making a vehicle purchasable and labelling it GENUINE_VERIFIED_SOURCE_BACKED. Only reviewer-verified
+ * evidence, verified maintenance records and CarUp ownership-ledger transfers qualify; anything else,
+ * including seller-stated listings and unknown sources or statuses, fails closed.
+ */
+const QUALIFYING_HISTORICAL_STATUSES = Object.freeze({
+  evidence: Object.freeze(['verified']),
+  partsentry: Object.freeze(['verified']),
+  ownership_ledger: Object.freeze(['recorded']),
+});
+
+function isQualifyingHistoricalEvent(e) {
+  if (!e || typeof e !== 'object') return false;
+  const allowed = Object.prototype.hasOwnProperty.call(QUALIFYING_HISTORICAL_STATUSES, e.source_kind)
+    ? QUALIFYING_HISTORICAL_STATUSES[e.source_kind]
+    : null;
+  return Boolean(allowed && allowed.includes(e.verification_status));
+}
+
 function evaluateHistoricalEvidence(assembled, vehicle = null) {
   const timeline = Array.isArray(assembled?.timeline) ? assembled.timeline : [];
-  // Seller-stated marketplace listing snapshots (`listing_snapshot` / `current_listing`) or
-  // unverified/pending items must never count as verified historical lifecycle evidence.
-  const verifiedHistoricalEvents = timeline.filter(
-    (e) =>
-      e
-      && e.source_kind !== 'current_listing'
-      && e.source_kind !== 'listing_snapshot'
-      && e.verification_status !== 'seller_stated'
-      && e.verification_status !== 'pending'
-      && e.verification_status !== 'rejected',
-  );
+  const verifiedHistoricalEvents = timeline.filter(isQualifyingHistoricalEvent);
   const evidenceIndex = Array.isArray(assembled?.evidence_index) ? assembled.evidence_index : [];
   const verifiedEvidenceIndex = evidenceIndex.filter(
     (e) => e && e.verification_status === 'verified',

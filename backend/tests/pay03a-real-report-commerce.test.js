@@ -1880,3 +1880,116 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
   assert.equal(genuineVerifiedReadiness.vehicle.identifierKind, 'jp_chassis_frame_number');
   assert.equal(genuineVerifiedReadiness.vehicle.identifierLabel, 'Chassis / Frame No.');
 });
+
+test('PAY03A STG01-FINAL D-ELIG-1: only verified evidence/maintenance and recorded ownership-ledger events qualify; unverified, disputed and superseded records never make a vehicle purchasable or "verified"', async () => {
+  const harness = createInMemoryPay03aHarness();
+  harness.vehicles.set('RU3-1316558', {
+    vin: 'RU3-1316558',
+    make: 'Honda',
+    model: 'Vezel Hybrid Z',
+    year: 2018,
+    owner_id: 'owner-real-import-1',
+    import_source: 'BE FORWARD CAP CD740269',
+    status: 'Available',
+  });
+
+  // `partsentry_logs.verification_status` is CHECK-constrained to unverified|pending|verified|rejected|disputed
+  // (20260603132036_marketplace_listing_summary_infra.sql); the canonical lifecycle projects it verbatim.
+  const assemblerWith = (timeline, evidenceIndex = []) => async (_db, vin) => ({
+    schema: 'vehicle_history_report.v1',
+    vin,
+    audience: 'buyer',
+    identity: { vin, make: 'Honda', model: 'Vezel Hybrid Z', year: 2018 },
+    timeline,
+    evidence_index: evidenceIndex,
+    listing_history: [],
+    key_alerts: [],
+    completeness: {
+      lifecycle_source_coverage: 0.63,
+      source_diversity: 1,
+      classes_present: ['service'],
+      classes_missing: [],
+      classes_unavailable: ['insurance'],
+    },
+    limitations: ['Partial source coverage disclosed.'],
+  });
+  const partsentryEvent = (status) => ({
+    evidence_id: null,
+    evidence_class: 'service',
+    evidence_subtype: 'Maintenance record',
+    date: '2026-05-01T00:00:00Z',
+    source_id: `ps-${status}`,
+    source_kind: 'partsentry',
+    verification_status: status,
+  });
+
+  for (const status of ['unverified', 'disputed']) {
+    const readiness = await inspectVehicleReportReadiness({
+      vin: 'RU3-1316558',
+      buyerId: 'buyer-03a-1',
+      db: harness.db,
+      reportAssembler: assemblerWith([partsentryEvent(status)]),
+    });
+    assert.equal(readiness.eligibleForPurchase, false, `${status} maintenance records must not make a vehicle purchasable`);
+    assert.equal(readiness.readiness.historicalEventCount, 0, `${status} maintenance records are not verified history`);
+    assert.notEqual(readiness.provenanceClassification, 'GENUINE_VERIFIED_SOURCE_BACKED');
+    assert.equal(readiness.provenanceClassification, 'PROVENANCE_UNVERIFIED');
+
+    await assert.rejects(
+      createPay03aReportCheckout({
+        buyerId: 'buyer-03a-1',
+        vin: 'RU3-1316558',
+        requestKey: `pay03a_delig1_refuse_${status}_0001`,
+        db: harness.db,
+        stripe: harness.stripeMock,
+        reportAssembler: assemblerWith([partsentryEvent(status)]),
+      }),
+      (err) => err.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE' && err.status === 422,
+    );
+  }
+  assert.equal(harness.quotes.size, 0, 'No quote may be issued for unverified-only history');
+  assert.equal(harness.payments.size, 0, 'No payment may be claimed for unverified-only history');
+
+  // Unknown or absent statuses fail closed; an evidence row that is not `verified` never qualifies.
+  for (const event of [
+    { ...partsentryEvent('verified'), verification_status: null },
+    { ...partsentryEvent('verified'), verification_status: 'superseded', source_kind: 'evidence' },
+    { ...partsentryEvent('verified'), verification_status: 'recorded', source_kind: 'evidence' },
+  ]) {
+    const readiness = await inspectVehicleReportReadiness({
+      vin: 'RU3-1316558',
+      buyerId: 'buyer-03a-1',
+      db: harness.db,
+      reportAssembler: assemblerWith([event]),
+    });
+    assert.equal(readiness.eligibleForPurchase, false, `status ${event.verification_status} on ${event.source_kind} must fail closed`);
+  }
+
+  // Positive controls: verified maintenance and recorded ownership-ledger transfers still qualify.
+  const verifiedMaintenance = await inspectVehicleReportReadiness({
+    vin: 'RU3-1316558',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+    reportAssembler: assemblerWith([partsentryEvent('verified')]),
+  });
+  assert.equal(verifiedMaintenance.eligibleForPurchase, true);
+  assert.equal(verifiedMaintenance.readiness.historicalEventCount, 1);
+  assert.equal(verifiedMaintenance.provenanceClassification, 'GENUINE_VERIFIED_SOURCE_BACKED');
+
+  const ledgerTransfer = await inspectVehicleReportReadiness({
+    vin: 'RU3-1316558',
+    buyerId: 'buyer-03a-1',
+    db: harness.db,
+    reportAssembler: assemblerWith([{
+      evidence_id: null,
+      evidence_class: 'ownership_transfer',
+      evidence_subtype: 'Ownership transfer',
+      date: '2026-04-01T00:00:00Z',
+      source_id: 'own-1',
+      source_kind: 'ownership_ledger',
+      verification_status: 'recorded',
+    }]),
+  });
+  assert.equal(ledgerTransfer.eligibleForPurchase, true);
+  assert.equal(ledgerTransfer.readiness.historicalEventCount, 1);
+});
