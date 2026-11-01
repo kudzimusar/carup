@@ -1,0 +1,48 @@
+== tables (exists, rls, anon_select, authenticated_select, service_role_select)
+t | exists | rls | anon_sel | auth_sel | svc_sel
+vehicles | t | t | t | t | t
+vehicle_evidence | t | t | t | t | t
+vehicle_media_references | f | f |  |  | 
+evidence_provenance_events | t | t | f | t | t
+trust_audit_events | t | t | f | f | t
+report_versions | t | t | f | t | t
+report_share_links | f | f |  |  | 
+pay02_commercial_products | t | t | f | f | t
+pay02_commercial_product_versions | t | t | f | f | t
+pay02_commercial_quotes | t | t | f | f | t
+pay02_report_orders | t | t | f | f | t
+payment_transactions | t | t | f | f | t
+vehicle_ownership_history | t | f | t | t | t
+(13 rows)
+== canonical RPCs (identity args, security definer, anon/authenticated/service_role EXECUTE)
+proname | args | secdef | anon_x | auth_x | svc_x | config
+carup_report_version_guard |  | f | t | t | t | search_path=public, pg_temp
+carup_review_vehicle_evidence | p_vin text, p_evidence_id uuid, p_decision text, p_notes text, p_trust_score_impact numeric, p_confidence_impact numeric, p_actor_user_id text, p_actor_role text, p_actor_tenant_id text, p_source_route text, p_request_id text, p_ip_address text, p_user_agent text, p_previous_value jsonb, p_new_value jsonb, p_provenance_details jsonb, p_expected_sequence integer, p_expected_prev_hash text, p_content_hash text, p_reviewed_at timestamp with time zone | t | f | f | t | search_path=public, pg_temp
+pay01a_apply_provider_snapshot | p_reference text, p_status text, p_intent_id text, p_refund_id text, p_event_id text, p_event_type text | t | f | f | t | search_path=public, pg_temp
+pay01a_attach_checkout | p_reference text, p_checkout_id text | t | f | f | t | search_path=public, pg_temp
+pay01a_begin_refund | p_reference text, p_actor_id text | t | f | f | t | search_path=public, pg_temp
+pay02_claim_quote_checkout | p_quote_id uuid, p_actor_id text, p_request_key text | t | f | f | t | search_path=public, pg_temp
+pay02_issue_commercial_quote | p_quote_number text, p_product_code text, p_product_version integer, p_payer_id text, p_payer_role text, p_source_object_type text, p_source_object_id text, p_currency text, p_currency_scale integer, p_total_minor bigint, p_selected_provider text, p_idempotency_key text | t | f | f | t | search_path=public, pg_temp
+pay02_sync_quote_from_canonical_payment | p_reference text | t | f | f | t | search_path=public, pg_temp
+pay03a_complete_report_fulfillment | p_order_id uuid, p_buyer_id text, p_vin text, p_payload jsonb, p_content_hash text, p_completeness jsonb | t | f | f | t | search_path=public, pg_temp
+(9 rows)
+== triggers on report_versions / pay02_report_orders / payment_transactions / vehicle_evidence
+tgrelid | tgname | before
+pay02_report_orders | trg_pay02_report_order_immutability | t
+evidence_provenance_events | trg_provenance_no_delete | t
+evidence_provenance_events | trg_provenance_no_update | t
+report_versions | trg_pay03a_report_version_binding_guard | t
+report_versions | trg_report_version_guard | t
+(5 rows)
+== report_versions policies
+polname | case | polcmd | array
+pay03a_paid_report_entitlement_guard | RESTRICTIVE | r | {authenticated,anon}
+report versions admin read | PERMISSIVE | r | {authenticated}
+report versions owner read | PERMISSIVE | r | {authenticated}
+report versions public share | PERMISSIVE | r | {authenticated,anon}
+(4 rows)
+== storage buckets
+id | public
+ocr-documents | f
+vehicle-images | t
+(2 rows)

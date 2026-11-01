@@ -1,0 +1,47 @@
+{
+  "recorded_at": "2026-11-01T02:51:36.131Z",
+  "runtime_commit": "1830c99c3b4f817b6c97c281a20ebc56d7680b57",
+  "users": {
+    "buyerA": {
+      "userId": "u_2814e4a5f16a4826",
+      "role": "owner",
+      "email": "pay03a.buyer.a@carup-uat.invalid"
+    },
+    "buyerB": {
+      "userId": "u_f0b8eb7bce564b82",
+      "role": "owner",
+      "email": "pay03a.buyer.b@carup-uat.invalid"
+    },
+    "seller": {
+      "userId": "u_5d71c7ff23304062",
+      "role": "owner",
+      "email": "pay03a.seller@carup-uat.invalid"
+    },
+    "reviewer": {
+      "userId": "u_b44662025e8e4fea",
+      "role": "admin",
+      "email": "pay03a.admin.reviewer@carup-uat.invalid"
+    },
+    "commerce": {
+      "userId": "u_b41083ef03824566",
+      "role": "admin",
+      "email": "pay03a.admin.commerce@carup-uat.invalid"
+    }
+  },
+  "evidence": {
+    "photoId": "689e12ac-0209-44a5-a33f-c56fddb19419",
+    "docId": "e746f9dd-ad90-4941-abf8-5ebaa1cf768c",
+    "selfId": "076667ce-7343-4fe0-b1ca-b4a7bd4673b9"
+  },
+  "verify": {
+    "status": 200,
+    "verification": "verified"
+  },
+  "classify": {
+    "status": 200
+  },
+  "selfReview": {
+    "status": 403,
+    "code": "EVIDENCE_REVIEW_SELF_FORBIDDEN"
+  }
+}

@@ -257,27 +257,214 @@ export async function generateReportVersion(supabase, vin, { actorId = null, aud
   return Array.isArray(data) ? data[0] : data;
 }
 
-/** Create an expiring share link for a report version (master plan §10.5). */
-export async function createShareLink(supabase, versionId, { ttlSeconds = 7 * 24 * 3600 } = {}) {
-  const token = crypto.randomBytes(24).toString('hex');
+/** Create an expiring share link for a report version (master plan §10.5, PAY-03A R1-D). */
+export async function createShareLink(
+  supabase,
+  versionId,
+  { ttlSeconds = 7 * 24 * 3600, authorizedPay03aOrderId = null } = {},
+) {
+  const existingRows = await sel(supabase, 'report_versions', { id: versionId });
+  const targetVersion = existingRows[0];
+  if (!targetVersion) {
+    const notFoundErr = new Error('Report version not found');
+    notFoundErr.statusCode = 404;
+    throw notFoundErr;
+  }
+
+  const isPaidCommercialSnapshot =
+    targetVersion.report_tier === 'pay03a_commercial_snapshot'
+    || Boolean(targetVersion.pay03a_order_id)
+    || Boolean(targetVersion.payload?.commercial_snapshot);
+
+  if (isPaidCommercialSnapshot) {
+    if (!authorizedPay03aOrderId) {
+      const forbiddenErr = new Error(
+        'PAY03A_DIRECT_SHARE_ROUTE_FORBIDDEN: Paid commercial report snapshots must be shared via the governed buyer order endpoint (/api/pay03a/orders/:orderId/share).',
+      );
+      forbiddenErr.code = 'PAY03A_DIRECT_SHARE_ROUTE_FORBIDDEN';
+      forbiddenErr.statusCode = 403;
+      throw forbiddenErr;
+    }
+    const boundOrderId =
+      targetVersion.pay03a_order_id || targetVersion.payload?.commercial_snapshot?.order_id || null;
+    if (boundOrderId && boundOrderId !== authorizedPay03aOrderId) {
+      const mismatchErr = new Error('PAY03A_SHARE_ORDER_BINDING_MISMATCH');
+      mismatchErr.statusCode = 403;
+      throw mismatchErr;
+    }
+  }
+
+  const tokenPrefix = isPaidCommercialSnapshot ? 'pay03a_shr_' : '';
+  const token = `${tokenPrefix}${crypto.randomBytes(24).toString('hex')}`;
   const expires = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-  const { data, error } = await supabase.from('report_versions').update({ share_token: token, share_expires_at: expires }).eq('id', versionId).select();
+  const { data, error } = await supabase
+    .from('report_versions')
+    .update({ share_token: token, share_expires_at: expires })
+    .eq('id', versionId)
+    .select();
   if (error) throw new Error(`share link write failed: ${error.message}`);
   const row = Array.isArray(data) ? data[0] : data;
   return { share_token: token, share_expires_at: expires, version: row?.version };
 }
 
-/** Resolve a shared report by token, enforcing expiry + revocation (master plan §10.5, §10.8). */
+/**
+ * Resolve a shared report by token, enforcing expiry + revocation + fail-closed PAY-03A entitlement
+ * verification while preserving legacy Milestone 4 shared-report compatibility (PAY-03A R1-D).
+ */
 export async function getReportByShareToken(supabase, token, { now = Date.now() } = {}) {
   const rows = await sel(supabase, 'report_versions', { share_token: token });
   const v = rows[0];
   if (!v) return { ok: false, reason: 'not_found' };
   if (v.revoked) return { ok: false, reason: 'revoked' };
-  if (v.share_expires_at && new Date(v.share_expires_at).getTime() < now) return { ok: false, reason: 'expired' };
-  return { ok: true, version: v.version, generated_at: v.generated_at, report: v.payload, correction_notice: v.correction_notice || null };
+  if (v.share_expires_at && new Date(v.share_expires_at).getTime() < now) {
+    return { ok: false, reason: 'expired' };
+  }
+
+  const hasUnknownTier =
+    v.report_tier !== undefined
+    && v.report_tier !== 'legacy_version'
+    && v.report_tier !== 'pay03a_commercial_snapshot';
+  if (hasUnknownTier) {
+    return { ok: false, reason: 'entitlement_unavailable' };
+  }
+
+  const hasPaidMarker =
+    v.report_tier === 'pay03a_commercial_snapshot'
+    || Boolean(v.pay03a_order_id)
+    || Boolean(v.payload?.commercial_snapshot)
+    || String(token).startsWith('pay03a_shr_');
+
+  // Unambiguous legacy Milestone 4 report versions must not depend on `pay02_report_orders`,
+  // preserving legacy shared-report availability when the PAY-02 commercial foundation is absent.
+  if (!hasPaidMarker) {
+    return {
+      ok: true,
+      version: v.version,
+      generated_at: v.generated_at,
+      report: v.payload,
+      correction_notice: v.correction_notice || null,
+      report_tier: 'legacy_version',
+      entitlement_verified: false,
+      order_id: null,
+    };
+  }
+
+  // Prevent tier ambiguity: any report carrying a paid marker must explicitly declare
+  // `report_tier = 'pay03a_commercial_snapshot'` and never masquerade as a legacy report.
+  if (v.report_tier !== 'pay03a_commercial_snapshot') {
+    return { ok: false, reason: 'revoked' };
+  }
+
+  if (!v.id || !supabase || typeof supabase.from !== 'function') {
+    return { ok: false, reason: 'entitlement_unavailable' };
+  }
+
+  let orderRows = [];
+  try {
+    const { data, error: ordErr } = await supabase
+      .from('pay02_report_orders')
+      .select('*')
+      .eq('report_version_id', v.id);
+    if (ordErr) {
+      return { ok: false, reason: 'entitlement_unavailable' };
+    }
+    orderRows = Array.isArray(data) ? data : data ? [data] : [];
+  } catch {
+    return { ok: false, reason: 'entitlement_unavailable' };
+  }
+
+  // 1. Paid share links must always carry an explicit, non-expired timestamp
+  if (!v.share_expires_at || new Date(v.share_expires_at).getTime() < now) {
+    return { ok: false, reason: 'expired' };
+  }
+
+  // 2. Paid report version must have exactly one linked PAY-03A report order
+  if (orderRows.length !== 1) {
+    return { ok: false, reason: 'revoked' };
+  }
+  const ord = orderRows[0];
+  const expectedOrderId = v.pay03a_order_id || v.payload?.commercial_snapshot?.order_id || null;
+
+  // 3. Verify exact version, VIN, product_code, and order binding (prevents cross-version inheritance)
+  if (
+    !ord
+    || ord.report_version_id !== v.id
+    || ord.vin !== v.vin
+    || ord.product_code !== 'intel.report.vehicle_history_single'
+    || (expectedOrderId && ord.id !== expectedOrderId)
+  ) {
+    return { ok: false, reason: 'revoked' };
+  }
+
+  // 4. Order must remain actively entitled and unrevoked
+  if (
+    ord.entitlement_status !== 'entitled'
+    || Boolean(ord.revoked_at)
+    || !ord.granted_at
+    || !ord.payment_reference
+    || !ord.quote_id
+    || !ord.buyer_id
+  ) {
+    return { ok: false, reason: 'revoked' };
+  }
+
+  // 5. Canonical payment_transactions row must exist and remain authoritatively `paid`
+  let payRows = [];
+  try {
+    const { data: pData, error: payErr } = await supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('reference', ord.payment_reference);
+    if (payErr) {
+      return { ok: false, reason: 'entitlement_unavailable' };
+    }
+    payRows = Array.isArray(pData) ? pData : pData ? [pData] : [];
+  } catch {
+    return { ok: false, reason: 'entitlement_unavailable' };
+  }
+
+  if (payRows.length !== 1) {
+    return { ok: false, reason: 'revoked' };
+  }
+  const payRow = payRows[0];
+  if (
+    !payRow
+    || payRow.status !== 'paid'
+    || Boolean(payRow.pay01a_refund_id)
+    || payRow.pay02_quote_id !== ord.quote_id
+    || payRow.pay01a_actor_id !== ord.buyer_id
+    || payRow.gateway !== 'stripe_carup_japan_sandbox'
+    || payRow.pay01a_account_id !== 'acct_1UVnGaEjgXqvlsJk'
+  ) {
+    return { ok: false, reason: 'revoked' };
+  }
+
+  return {
+    ok: true,
+    version: v.version,
+    generated_at: v.generated_at,
+    report: v.payload,
+    correction_notice: v.correction_notice || null,
+    report_tier: 'pay03a_commercial_snapshot',
+    entitlement_verified: true,
+    order_id: ord.id || null,
+  };
 }
 
-export async function revokeShare(supabase, versionId, { correctionNotice = null } = {}) {
+export async function revokeShare(supabase, versionId, { correctionNotice = null, authorizedPay03aRevocation = false } = {}) {
+  // STG01-FINAL F3: revocation of a PAID snapshot is one-way and only the governed refund flow may do it.
+  // The Milestone 4 route is reachable by any signed-in account; without this, anyone could destroy a
+  // buyer's paid report while the buyer stays charged.
+  if (!authorizedPay03aRevocation) {
+    // `sel` throws on a read error, so an unreadable target fails closed (nothing is revoked).
+    const [target] = await sel(supabase, 'report_versions', { id: versionId });
+    if (target && (target.report_tier === 'pay03a_commercial_snapshot' || target.pay03a_order_id)) {
+      const err = new Error('Paid report snapshots can only be revoked by the governed refund flow.');
+      err.statusCode = 403;
+      err.code = 'PAY03A_SNAPSHOT_REVOCATION_GOVERNED';
+      throw err;
+    }
+  }
   const { data, error } = await supabase.from('report_versions').update({ revoked: true, correction_notice: correctionNotice }).eq('id', versionId).select();
   if (error) throw new Error(`revoke failed: ${error.message}`);
   return Array.isArray(data) ? data[0] : data;

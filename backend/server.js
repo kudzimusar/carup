@@ -106,6 +106,7 @@ import escrowTrustRouter from './routes/escrowTrustRoutes.js';
 import pay01aRouter from './routes/pay01aRoutes.js';
 import pay01cDemoRouter from './routes/pay01cDemoRoutes.js';
 import pay02Router from './routes/pay02Routes.js';
+import pay03aRouter from './routes/pay03aRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 import governmentActivationRouter from './routes/governmentActivationRoutes.js';
@@ -272,6 +273,8 @@ app.use('/api/pay01c/admin/orders', rateLimiter({ max: 10, windowMs: 60 * 1000, 
 app.use('/api/pay01a/:reference/refund', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay02/quotes', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay02/admin/proposals', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03a/orders/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03a/admin/orders', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
 // verification checks the real payload the sender signed. The global parsers run before any
@@ -417,6 +420,7 @@ app.use(escrowTrustRouter);
 app.use(pay01aRouter);
 app.use(pay01cDemoRouter);
 app.use(pay02Router);
+app.use(pay03aRouter);
 app.use(providerPlatformRouter);
 // Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
 app.use(governmentActivationRouter);

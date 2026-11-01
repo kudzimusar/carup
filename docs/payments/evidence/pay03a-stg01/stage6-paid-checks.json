@@ -1,0 +1,210 @@
+{
+  "recorded_at": "2026-11-01T07:49:55.472Z",
+  "runtime_commit": "cc4f66384baf285eb8ebd3fca5bf7199a0b8f609",
+  "phase": "paid",
+  "order": "e008dde9-117c-46fd-b237-c58690b84f6d",
+  "passed": 22,
+  "total": 22,
+  "failed": [],
+  "checks": [
+    {
+      "id": "L00",
+      "description": "Exactly one PAY-03A order exists in the isolated database (one authorized session)",
+      "pass": true,
+      "observed": 1
+    },
+    {
+      "id": "L01",
+      "description": "Canonical payment: Stripe CarUp Japan sandbox account, JPY 100, buyer is the PAY-01A actor",
+      "pass": true,
+      "observed": {
+        "status": "paid",
+        "amount": "100.00",
+        "currency": "JPY"
+      }
+    },
+    {
+      "id": "L02",
+      "description": "Checkout/PaymentIntent references are test-mode and correlated",
+      "pass": true,
+      "observed": {
+        "checkout": "cs_test_a17h8PiHLraKwvNxs8Cy1tZNEvSmB9ctxVOjAAhxzfW1elcUhcYNYorsH4",
+        "intent": "pi_3UWtRAEjgXqvlsJk1HmIqpp5"
+      }
+    },
+    {
+      "id": "L03",
+      "description": "Quote ↔ payment ↔ order bidirectional binding",
+      "pass": true
+    },
+    {
+      "id": "L04",
+      "description": "Exactly one immutable paid report version bound to the order",
+      "pass": true,
+      "observed": [
+        {
+          "id": "d2d4888f-e1fe-4c53-bb19-808c77c1fdc7",
+          "version": 1,
+          "revoked": false
+        }
+      ]
+    },
+    {
+      "id": "L05",
+      "description": "Signed Stripe webhook events were received and recorded (livemode=false verified server-side)",
+      "pass": true,
+      "observed": [
+        "checkout.session.completed",
+        "payment_intent.succeeded"
+      ]
+    },
+    {
+      "id": "P01",
+      "description": "Payment verified paid by provider read; entitlement granted; quote fulfilled",
+      "pass": true,
+      "observed": {
+        "payment": "paid",
+        "entitlement": "entitled",
+        "quote": "fulfilled"
+      }
+    },
+    {
+      "id": "P02",
+      "description": "Buyer receives the report with Cache-Control no-store",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "cacheControl": "private, no-store, no-cache, must-revalidate"
+      }
+    },
+    {
+      "id": "P03",
+      "description": "D-HASH-1 physical: sha256 over the delivered report JSON equals the certified content_hash",
+      "pass": true,
+      "observed": {
+        "recomputed": "908d97be6979702204cdec5e9cf1184399aaeadbd8e1f933229fdac119d94239",
+        "contentHash": "908d97be6979702204cdec5e9cf1184399aaeadbd8e1f933229fdac119d94239"
+      }
+    },
+    {
+      "id": "P04",
+      "description": "Report is the purchased vehicle, with limitations, and carries no buyer/payment/order identifiers (F2)",
+      "pass": true,
+      "observed": {
+        "evidence_index": 1,
+        "timeline": 2,
+        "limitations": 6,
+        "scheme": "sha256:jsonb-key-order-json-v1"
+      }
+    },
+    {
+      "id": "P05",
+      "description": "Private evidence never appears in the buyer report",
+      "pass": true
+    },
+    {
+      "id": "P06",
+      "description": "Buyer re-verify is idempotent (no second report version)",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "versionId": "d2d4888f-e1fe-4c53-bb19-808c77c1fdc7"
+      }
+    },
+    {
+      "id": "X01",
+      "description": "buyerB cannot read the order or its report",
+      "pass": true,
+      "observed": {
+        "order": 404,
+        "report": 404
+      }
+    },
+    {
+      "id": "X02",
+      "description": "anonymous cannot read the order or its report",
+      "pass": true,
+      "observed": {
+        "order": 401,
+        "report": 401
+      }
+    },
+    {
+      "id": "X03",
+      "description": "The buyer cannot refund (admin-only)",
+      "pass": true,
+      "observed": 403
+    },
+    {
+      "id": "S04",
+      "description": "NON-VACUOUS: a real paid snapshot exists, yet an authenticated PostgREST read returns nothing",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "rows": 0
+      }
+    },
+    {
+      "id": "H01",
+      "description": "Expiring share link opens for an anonymous recipient while the order is entitled",
+      "pass": true,
+      "observed": {
+        "create": 201,
+        "open": 200,
+        "expiresAt": "2026-11-01T07:49:42.711Z"
+      }
+    },
+    {
+      "id": "H02",
+      "description": "Another buyer cannot mint a share link for this order",
+      "pass": true,
+      "observed": 404
+    },
+    {
+      "id": "H03",
+      "description": "Share link is refused after expiry",
+      "pass": true,
+      "observed": {
+        "status": 410,
+        "body": {
+          "error": "Shared report expired"
+        }
+      }
+    },
+    {
+      "id": "H04",
+      "description": "Fresh default share link (kept to test refund revocation)",
+      "pass": true,
+      "observed": {
+        "expiresAt": "2026-11-08T07:49:53.992Z"
+      }
+    },
+    {
+      "id": "R01",
+      "description": "Admin reconcile/recovery on the fulfilled order: idempotent, no second version, still paid",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "recovery": {
+          "recovered": true,
+          "idempotentReplay": true,
+          "reportVersionId": "d2d4888f-e1fe-4c53-bb19-808c77c1fdc7",
+          "reportVersion": 1,
+          "contentHash": "908d97be6979702204cdec5e9cf1184399aaeadbd8e1f933229fdac119d94239"
+        }
+      }
+    },
+    {
+      "id": "R02",
+      "description": "Reconcile is attributed to the proven administrator (D-AUDIT-1)",
+      "pass": true,
+      "observed": [
+        {
+          "event_type": "PAY03A_ADMIN_RECONCILE",
+          "actor_user_id": "u_b41083ef03824566",
+          "actor_role": "admin"
+        }
+      ]
+    }
+  ]
+}

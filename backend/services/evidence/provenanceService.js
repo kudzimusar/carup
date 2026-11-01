@@ -9,6 +9,7 @@
  * This service NEVER changes evidence verification state or trust scores — it only
  * records what happened (master plan §2.2 AI-advisory; §2.5 provenance).
  */
+import { toJsonbKeyOrder } from '../../utils/jsonbCanonical.js';
 import crypto from 'crypto';
 
 export const PROVENANCE_EVENT_TYPES = Object.freeze([
@@ -25,6 +26,8 @@ const TABLE = 'evidence_provenance_events';
  * Deterministic canonical hash of an event's content. Excludes the DB-assigned
  * created_at so the hash is reproducible from stored fields during verification.
  */
+// STG01-FINAL D-PROV-1: `details` is stored as JSONB, which re-orders keys; hash the JSONB-canonical
+// form so every writer's hash is recomputable from storage (no-op for JSONB-ordered input).
 export function computeContentHash({
   evidence_id, sequence, event_type, actor_user_id, actor_role, actor_type, details, prev_hash,
 }) {
@@ -35,7 +38,7 @@ export function computeContentHash({
     actor_user_id: actor_user_id || null,
     actor_role: actor_role || null,
     actor_type: actor_type || 'user',
-    details: details || {},
+    details: toJsonbKeyOrder(details || {}),
     prev_hash: prev_hash || null,
   });
   return crypto.createHash('sha256').update(canonical).digest('hex');

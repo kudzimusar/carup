@@ -38,6 +38,8 @@ import {
   buildEvidenceProvenanceColumns,
   recordEvidenceUploadProvenance,
   runAiAnalysis,
+  reviewEvidenceRecord,
+  EvidenceReviewGovernanceError,
 } from '../services/evidence/evidenceService.js';
 import {
   semanticClassificationLabel,
@@ -1148,196 +1150,100 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
   res.json((data || []).map(normalizeEvidenceRecord));
 }));
 
-// PATCH: Verify Evidence
-router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['admin', 'government']), asyncHandler(async (req, res) => {
-  const { vin, evidenceId } = req.params;
-  const { notes, confidenceImpact } = req.body;
-  const requestedTrustImpact = req.body.trust_score_impact ?? req.body.trustScoreImpact ?? req.body.trustImpact ?? 3;
-  const trustScoreImpact = evidenceStatusTrustImpact('verified', requestedTrustImpact);
+// PATCH: Verify Evidence (governed: proven session, VEHICLE_EVIDENCE_REVIEW capability, independent reviewer, fail-closed audit)
+router.patch(
+  '/api/vehicles/:vin/evidence/:evidenceId/verify',
+  authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW),
+  asyncHandler(async (req, res) => {
+    const { vin, evidenceId } = req.params;
+    const { notes, confidenceImpact } = req.body;
+    const requestedTrustImpact =
+      req.body.trust_score_impact ?? req.body.trustScoreImpact ?? req.body.trustImpact ?? 3;
 
-  const { data: evidence, error: evError } = await supabase
-    .from('vehicle_evidence')
-    .select('*')
-    .eq('id', evidenceId)
-    .eq('vin', vin)
-    .single();
+    let result;
+    try {
+      result = await reviewEvidenceRecord(supabase, {
+        vin,
+        evidenceId,
+        decision: 'verified',
+        notes: notes || null,
+        confidenceImpact: confidenceImpact || 0,
+        requestedTrustImpact,
+        actor: req.userContext,
+        req,
+      });
+    } catch (err) {
+      if (err instanceof EvidenceReviewGovernanceError) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
 
-  if (evError || !evidence) {
-    throw new NotFoundError('Evidence record not found matching this VIN');
-  }
+    try {
+      await refreshCanonicalTrust(vin);
+    } catch (trustError) {
+      console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
+    }
 
-  const activeUserId = req.userContext.id;
-  const activeRole = req.userContext.role;
-
-  const { data: updated, error: updateErr } = await supabase
-    .from('vehicle_evidence')
-    .update({
-      verification_status: 'verified',
-      verification_notes: notes || null,
-      verified_by: activeUserId,
-      verified_at: new Date().toISOString(),
-      trust_score_impact: trustScoreImpact,
-      trust_impact: trustScoreImpact,
-      confidence_impact: confidenceImpact || 0,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', evidenceId)
-    .select('*')
-    .single();
-
-  if (updateErr) {
-    throw new DatabaseError(updateErr.message);
-  }
-
-  // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
-  // re-materialized. This was calculateVehicleTrustScore — the deprecated 70-baseline engine and an
-  // unversioned writer of the cache column. refreshCanonicalTrust is the single canonical writer;
-  // it stamps the score with the rules that produced it, so the surfaces can publish it at all.
-  // A refresh failure must not fail the review itself: the evidence decision is the durable fact,
-  // the cache is derived and can be re-materialized.
-  try {
-    await refreshCanonicalTrust(vin);
-  } catch (trustError) {
-    console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
-  }
-
-  // Audit Log
-  try {
-    await logAuditEvent(supabase, {
-      req,
-      event_type: 'EVIDENCE_VERIFIED',
-      targetType: 'evidence',
-      targetId: evidenceId,
+    await notifyEvidenceReviewDecided({
       vin,
-      evidence_ids: [evidenceId],
-      previous_value: {
-        verification_status: evidence.verification_status,
-        verification_notes: evidence.verification_notes || null,
-        trust_score_impact: evidence.trust_score_impact ?? null
-      },
-      new_value: {
-        verification_status: 'verified',
-        verification_notes: notes || null,
-        trust_score_impact: trustScoreImpact,
-        confidence_impact: confidenceImpact || 0
-      },
-      actor_user_id: activeUserId,
-      actor_role: activeRole,
-      actor_tenant_id: req.userContext.tenantId,
-      source_route: '/api/vehicles/:vin/evidence/:evidenceId/verify',
-      decision_notes: notes || null,
-      metadata: { vin, evidenceType: evidence.evidence_type, trustScoreImpact, confidenceImpact }
+      evidenceId,
+      decision: 'verified',
+      recipientUserId: result.evidence?.uploaded_by || result.previousEvidence?.uploaded_by || null,
+      tenantId: result.evidence?.tenant_id || result.previousEvidence?.tenant_id || null,
     });
-  } catch (auditErr) {
-    console.warn('[Audit Log Error] Failed to log evidence verification:', auditErr.message);
-  }
 
-  // Tell the submitter the outcome through the notification fabric (best-effort).
-  await notifyEvidenceReviewDecided({
-    vin,
-    evidenceId,
-    decision: 'verified',
-    recipientUserId: updated?.uploaded_by || evidence.uploaded_by || null,
-    tenantId: updated?.tenant_id || evidence.tenant_id || null,
-  });
+    return res.json({ success: true, evidence: result.evidence });
+  }),
+);
 
-  res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
-}));
+// PATCH: Reject Evidence (governed: proven session, VEHICLE_EVIDENCE_REVIEW capability, independent reviewer, fail-closed audit)
+router.patch(
+  '/api/vehicles/:vin/evidence/:evidenceId/reject',
+  authorizeRole(['admin', 'government'], { allowUserIdFallback: false }),
+  requireOperationsCapability(OPERATIONS_CAPABILITIES.VEHICLE_EVIDENCE_REVIEW),
+  asyncHandler(async (req, res) => {
+    const { vin, evidenceId } = req.params;
+    const { notes } = req.body;
+    const requestedTrustImpact =
+      req.body.trust_score_impact ?? req.body.trustScoreImpact ?? req.body.trustImpact ?? -5;
 
-// PATCH: Reject Evidence
-router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['admin', 'government']), asyncHandler(async (req, res) => {
-  const { vin, evidenceId } = req.params;
-  const { notes } = req.body;
-  const requestedTrustImpact = req.body.trust_score_impact ?? req.body.trustScoreImpact ?? req.body.trustImpact ?? -5;
-  const trustScoreImpact = evidenceStatusTrustImpact('rejected', requestedTrustImpact);
+    let result;
+    try {
+      result = await reviewEvidenceRecord(supabase, {
+        vin,
+        evidenceId,
+        decision: 'rejected',
+        notes: notes || null,
+        requestedTrustImpact,
+        actor: req.userContext,
+        req,
+      });
+    } catch (err) {
+      if (err instanceof EvidenceReviewGovernanceError) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
 
-  const { data: evidence, error: evError } = await supabase
-    .from('vehicle_evidence')
-    .select('*')
-    .eq('id', evidenceId)
-    .eq('vin', vin)
-    .single();
+    try {
+      await refreshCanonicalTrust(vin);
+    } catch (trustError) {
+      console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
+    }
 
-  if (evError || !evidence) {
-    throw new NotFoundError('Evidence record not found matching this VIN');
-  }
-
-  const activeUserId = req.userContext.id;
-  const activeRole = req.userContext.role;
-
-  const { data: updated, error: updateErr } = await supabase
-    .from('vehicle_evidence')
-    .update({
-      verification_status: 'rejected',
-      verification_notes: notes || null,
-      verified_by: activeUserId,
-      verified_at: new Date().toISOString(),
-      trust_score_impact: trustScoreImpact,
-      trust_impact: trustScoreImpact,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', evidenceId)
-    .select('*')
-    .single();
-
-  if (updateErr) {
-    throw new DatabaseError(updateErr.message);
-  }
-
-  // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
-  // re-materialized. This was calculateVehicleTrustScore — the deprecated 70-baseline engine and an
-  // unversioned writer of the cache column. refreshCanonicalTrust is the single canonical writer;
-  // it stamps the score with the rules that produced it, so the surfaces can publish it at all.
-  // A refresh failure must not fail the review itself: the evidence decision is the durable fact,
-  // the cache is derived and can be re-materialized.
-  try {
-    await refreshCanonicalTrust(vin);
-  } catch (trustError) {
-    console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
-  }
-
-  // Audit Log
-  try {
-    await logAuditEvent(supabase, {
-      req,
-      event_type: 'EVIDENCE_REJECTED',
-      targetType: 'evidence',
-      targetId: evidenceId,
+    await notifyEvidenceReviewDecided({
       vin,
-      evidence_ids: [evidenceId],
-      previous_value: {
-        verification_status: evidence.verification_status,
-        verification_notes: evidence.verification_notes || null,
-        trust_score_impact: evidence.trust_score_impact ?? null
-      },
-      new_value: {
-        verification_status: 'rejected',
-        verification_notes: notes || null,
-        trust_score_impact: trustScoreImpact
-      },
-      actor_user_id: activeUserId,
-      actor_role: activeRole,
-      actor_tenant_id: req.userContext.tenantId,
-      source_route: '/api/vehicles/:vin/evidence/:evidenceId/reject',
-      reason: notes || null,
-      decision_notes: notes || null,
-      metadata: { vin, evidenceType: evidence.evidence_type, notes }
+      evidenceId,
+      decision: 'rejected',
+      recipientUserId: result.evidence?.uploaded_by || result.previousEvidence?.uploaded_by || null,
+      tenantId: result.evidence?.tenant_id || result.previousEvidence?.tenant_id || null,
     });
-  } catch (auditErr) {
-    console.warn('[Audit Log Error] Failed to log evidence rejection:', auditErr.message);
-  }
 
-  // Tell the submitter the outcome through the notification fabric (best-effort).
-  await notifyEvidenceReviewDecided({
-    vin,
-    evidenceId,
-    decision: 'rejected',
-    recipientUserId: updated?.uploaded_by || evidence.uploaded_by || null,
-    tenantId: updated?.tenant_id || evidence.tenant_id || null,
-  });
-
-  res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
-}));
+    return res.json({ success: true, evidence: result.evidence });
+  }),
+);
 
 // PATCH: Governed classification correction (Operations Control Plane M1).
 // Corrects ONLY the canonical evidence_class/evidence_subtype through the

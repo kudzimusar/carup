@@ -1,0 +1,6 @@
+{
+  "recorded_at": "2026-11-01T06:42:31Z",
+  "channel": "AskUserQuestion (Owner's own selection in this session)",
+  "decision": "Yes, both apply to cc4f6638 — exactly ONE Stripe TEST-mode Checkout (JPY 100, acct_1UVnGaEjgXqvlsJk, QA vehicle QA-PAY03A-0001, buyer pay03a.buyer.a@carup-uat.invalid, test card 4242 entered by Claude in the visible browser) and exactly ONE full refund via the governed admin route, on candidate cc4f66384baf285eb8ebd3fca5bf7199a0b8f609",
+  "supersedes_candidate": "5b045fe2cb4c8c8945ccc8018f985ed032e89279"
+}

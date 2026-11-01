@@ -1,0 +1,9 @@
+{
+  "recorded_at": "2026-11-01T04:04:53Z",
+  "channel": "AskUserQuestion (Owner's own selections in this session)",
+  "context": "Independent review findings F7 (free Milestone 4 snapshot/share route) and F1 (non-historical evidence categories)",
+  "decisions": {
+    "policy_reconfirmation_after_F7": "Approval stands (Recommended) — sandbox-only approval stands with the corrected, honest free-vs-paid comparison; retail NOT approved; free-route overlap recorded as an open commercial issue",
+    "evidence_categories_F1": "Exclude condition + listing (Recommended) — every lifecycle category counts except current_condition and dealer_listing"
+  }
+}

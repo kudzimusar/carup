@@ -1,0 +1,316 @@
+{
+  "recorded_at": "2026-11-01T04:38:17.646Z",
+  "runtime_commit": "cc4f66384baf285eb8ebd3fca5bf7199a0b8f609",
+  "phase": "stage5",
+  "total": 34,
+  "passed": 34,
+  "failed": [],
+  "cases": [
+    {
+      "id": "N01",
+      "description": "Unauthenticated buyer refused on vehicle discovery",
+      "status": 401,
+      "code": "Unauthorized. No active user context.",
+      "rows": null,
+      "layer": "authorizeSessionRole",
+      "pass": true
+    },
+    {
+      "id": "N02",
+      "description": "Unauthenticated checkout refused",
+      "status": 401,
+      "code": "Unauthorized. No active user context.",
+      "rows": null,
+      "layer": "authorizeSessionRole",
+      "pass": true
+    },
+    {
+      "id": "N03",
+      "description": "Expired session refused",
+      "status": 401,
+      "code": "Unauthorized. Session is invalid or expired.",
+      "rows": null,
+      "layer": "authorizeSessionRole",
+      "pass": true
+    },
+    {
+      "id": "N04",
+      "description": "Admin endpoint refuses x-user-id fallback identity (no session)",
+      "status": 401,
+      "code": "Unauthorized. This action requires an authenticated session.",
+      "rows": null,
+      "layer": "authorizeSessionRole(no fallback)",
+      "pass": true
+    },
+    {
+      "id": "N05",
+      "description": "Evidence review refuses x-user-id fallback identity (CSRF valid for that identity)",
+      "status": 401,
+      "code": "Unauthorized. This action requires an authenticated session.",
+      "rows": null,
+      "layer": "authorizeRole(allowUserIdFallback:false)",
+      "pass": true
+    },
+    {
+      "id": "N06",
+      "description": "Buyer refused on admin order list",
+      "status": 403,
+      "code": "Forbidden. Role 'owner' cannot access this resource.",
+      "rows": null,
+      "layer": "authorizeSessionRole([admin])",
+      "pass": true
+    },
+    {
+      "id": "N07",
+      "description": "Buyer refused on admin refund",
+      "status": 403,
+      "code": "Forbidden. Role 'owner' cannot access this resource.",
+      "rows": null,
+      "layer": "authorizeSessionRole([admin])",
+      "pass": true
+    },
+    {
+      "id": "N08",
+      "description": "Buyer refused on admin reconcile",
+      "status": 403,
+      "code": "Forbidden. Role 'owner' cannot access this resource.",
+      "rows": null,
+      "layer": "authorizeSessionRole([admin])",
+      "pass": true
+    },
+    {
+      "id": "N09",
+      "description": "Unknown/foreign order id returns 404 (no existence oracle)",
+      "status": 404,
+      "code": "PAY03A_ORDER_NOT_FOUND",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N10",
+      "description": "Stale/foreign checkout return: verify on an order the buyer does not own",
+      "status": 404,
+      "code": "PAY03A_ORDER_NOT_FOUND",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N11",
+      "description": "Unknown vehicle readiness",
+      "status": 404,
+      "code": "PAY03A_VEHICLE_NOT_FOUND",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N12",
+      "description": "Unknown vehicle checkout refused before any provider call",
+      "status": 404,
+      "code": "PAY03A_VEHICLE_NOT_FOUND",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N13",
+      "description": "Metadata-only vehicle: ineligible at readiness and checkout refused 422 before charging",
+      "status": 422,
+      "code": "PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE",
+      "rows": null,
+      "layer": "service(eligibility gate)",
+      "pass": true
+    },
+    {
+      "id": "N14",
+      "description": "Registration-only ledger vehicle (D-ELIG-2): ineligible at readiness and checkout refused 422 before charging",
+      "status": 422,
+      "code": "PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE",
+      "rows": null,
+      "layer": "service(eligibility gate)",
+      "pass": true
+    },
+    {
+      "id": "N15",
+      "description": "Unverified (self-review refused) evidence vehicle: ineligible at readiness and checkout refused 422 before charging",
+      "status": 422,
+      "code": "PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE",
+      "rows": null,
+      "layer": "service(eligibility gate)",
+      "pass": true
+    },
+    {
+      "id": "N23",
+      "description": "Draft (unpublished) vehicle is neither discoverable nor open for readiness (F6)",
+      "status": 404,
+      "code": "PAY03A_VEHICLE_NOT_FOUND",
+      "rows": null,
+      "layer": "service(visibility gate)",
+      "pass": true
+    },
+    {
+      "id": "P01",
+      "description": "Independently reviewed, dated, public-safe QA evidence → eligible (QA_INTEGRATION_FIXTURE)",
+      "status": 200,
+      "code": null,
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N16",
+      "description": "Client-supplied price override refused",
+      "status": 400,
+      "code": "PAY02_CLIENT_PRICE_OVERRIDE_REFUSED",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N17",
+      "description": "Client-supplied currency override refused",
+      "status": 400,
+      "code": "PAY02_CLIENT_PRICE_OVERRIDE_REFUSED",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N18",
+      "description": "Client-supplied merchant override refused",
+      "status": 400,
+      "code": "PAY02_CLIENT_PARTY_OVERRIDE_REFUSED",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N19",
+      "description": "Missing/invalid idempotency key refused",
+      "status": 400,
+      "code": "PAY01A_IDEMPOTENCY_KEY_REQUIRED",
+      "rows": null,
+      "layer": "service",
+      "pass": true
+    },
+    {
+      "id": "N20",
+      "description": "Eligible checkout with NO provider access fails closed at account verification (no session, no quote)",
+      "status": 503,
+      "code": "PAY01A_ACCOUNT_VERIFICATION_UNAVAILABLE",
+      "rows": null,
+      "layer": "provider gate",
+      "pass": true
+    },
+    {
+      "id": "N21",
+      "description": "No quote, order or PAY-02 payment created by any refused attempt (quotes/orders/payments = 0/0/0)",
+      "status": "db",
+      "code": "0/0/0",
+      "rows": null,
+      "layer": "database",
+      "pass": true
+    },
+    {
+      "id": "R01",
+      "description": "Checkout rate limit with spoofed X-Forwarded-For per request: 1-5 reach the service, the 6th is refused (404,404,404,404,404,429)",
+      "status": 429,
+      "code": "Too many requests. Please try again later.",
+      "rows": null,
+      "layer": "rateLimiter (spoof-resistant)",
+      "pass": true
+    },
+    {
+      "id": "N22",
+      "description": "Forged/unsigned Stripe webhook refused",
+      "status": 400,
+      "code": "PAY01A_SIGNATURE_INVALID",
+      "rows": null,
+      "layer": "signature verification",
+      "pass": true
+    },
+    {
+      "id": "S01",
+      "description": "anon: direct read of pay02_report_orders",
+      "status": 401,
+      "code": "42501",
+      "rows": null,
+      "layer": "ACL/RLS",
+      "pass": true
+    },
+    {
+      "id": "S02",
+      "description": "authenticated: direct read of pay02_report_orders",
+      "status": 403,
+      "code": "42501",
+      "rows": null,
+      "layer": "ACL/RLS",
+      "pass": true
+    },
+    {
+      "id": "S03",
+      "description": "authenticated: direct read of payment_transactions",
+      "status": 403,
+      "code": "42501",
+      "rows": null,
+      "layer": "ACL/RLS",
+      "pass": true
+    },
+    {
+      "id": "S04",
+      "description": "authenticated: direct read of paid report snapshots",
+      "status": 200,
+      "code": null,
+      "rows": 0,
+      "layer": "RESTRICTIVE RLS",
+      "pass": true
+    },
+    {
+      "id": "S05",
+      "description": "authenticated: direct call of pay03a_complete_report_fulfillment",
+      "status": 403,
+      "code": "42501",
+      "rows": null,
+      "layer": "EXECUTE grant",
+      "pass": true
+    },
+    {
+      "id": "S06",
+      "description": "anon: direct call of carup_review_vehicle_evidence",
+      "status": 404,
+      "code": "PGRST202",
+      "rows": null,
+      "layer": "EXECUTE grant",
+      "pass": true
+    },
+    {
+      "id": "S07",
+      "description": "authenticated: direct call of pay02_sync_quote_from_canonical_payment",
+      "status": 403,
+      "code": "42501",
+      "rows": null,
+      "layer": "EXECUTE grant",
+      "pass": true
+    },
+    {
+      "id": "S08",
+      "description": "authenticated: forged insert of a paid report snapshot",
+      "status": 403,
+      "code": "42501",
+      "rows": null,
+      "layer": "ACL/RLS",
+      "pass": true
+    },
+    {
+      "id": "S09",
+      "description": "authenticated: read of trust_audit_events",
+      "status": 403,
+      "code": "42501",
+      "rows": null,
+      "layer": "ACL",
+      "pass": true
+    }
+  ]
+}

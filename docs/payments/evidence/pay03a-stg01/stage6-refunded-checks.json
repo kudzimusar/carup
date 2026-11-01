@@ -1,0 +1,182 @@
+{
+  "recorded_at": "2026-11-01T07:50:45.138Z",
+  "runtime_commit": "cc4f66384baf285eb8ebd3fca5bf7199a0b8f609",
+  "phase": "refunded",
+  "order": "e008dde9-117c-46fd-b237-c58690b84f6d",
+  "passed": 15,
+  "total": 15,
+  "failed": [],
+  "checks": [
+    {
+      "id": "L00",
+      "description": "Exactly one PAY-03A order exists in the isolated database (one authorized session)",
+      "pass": true,
+      "observed": 1
+    },
+    {
+      "id": "L01",
+      "description": "Canonical payment: Stripe CarUp Japan sandbox account, JPY 100, buyer is the PAY-01A actor",
+      "pass": true,
+      "observed": {
+        "status": "refunded",
+        "amount": "100.00",
+        "currency": "JPY"
+      }
+    },
+    {
+      "id": "L02",
+      "description": "Checkout/PaymentIntent references are test-mode and correlated",
+      "pass": true,
+      "observed": {
+        "checkout": "cs_test_a17h8PiHLraKwvNxs8Cy1tZNEvSmB9ctxVOjAAhxzfW1elcUhcYNYorsH4",
+        "intent": "pi_3UWtRAEjgXqvlsJk1HmIqpp5"
+      }
+    },
+    {
+      "id": "L03",
+      "description": "Quote ↔ payment ↔ order bidirectional binding",
+      "pass": true
+    },
+    {
+      "id": "L04",
+      "description": "Exactly one immutable paid report version bound to the order",
+      "pass": true,
+      "observed": [
+        {
+          "id": "d2d4888f-e1fe-4c53-bb19-808c77c1fdc7",
+          "version": 1,
+          "revoked": true
+        }
+      ]
+    },
+    {
+      "id": "L05",
+      "description": "Signed Stripe webhook events were received and recorded (livemode=false verified server-side)",
+      "pass": true,
+      "observed": [
+        "checkout.session.completed",
+        "refund.updated",
+        "refund.created",
+        "payment_intent.succeeded",
+        "charge.refunded"
+      ]
+    },
+    {
+      "id": "F01",
+      "description": "Provider refund reconciled: payment refunded with one re_ reference; original references preserved",
+      "pass": true,
+      "observed": {
+        "status": "refunded",
+        "refund": "re_3UWtRAEjgXqvlsJk1gw5dZSZ",
+        "intent": "pi_3UWtRAEjgXqvlsJk1HmIqpp5"
+      }
+    },
+    {
+      "id": "F02",
+      "description": "Quote refunded; entitlement revoked; report version revoked",
+      "pass": true,
+      "observed": {
+        "quote": "refunded",
+        "entitlement": "revoked_refunded",
+        "versionRevoked": true
+      }
+    },
+    {
+      "id": "F03",
+      "description": "Buyer can no longer retrieve the protected report",
+      "pass": true,
+      "observed": {
+        "status": 403,
+        "code": "PAY02_PILOT_ENTITLEMENT_REVOKED_ON_REFUND"
+      }
+    },
+    {
+      "id": "F04",
+      "description": "Existing share link is unusable after the refund",
+      "pass": true,
+      "observed": {
+        "status": 410,
+        "body": {
+          "error": "Shared report revoked"
+        }
+      }
+    },
+    {
+      "id": "F05",
+      "description": "A new share link cannot be minted after the refund",
+      "pass": true,
+      "observed": {
+        "status": 403,
+        "code": "PAY03A_SHARE_LINK_REQUIRES_ACTIVE_ENTITLEMENT"
+      }
+    },
+    {
+      "id": "F06",
+      "description": "Other buyers remain unauthorized",
+      "pass": true,
+      "observed": 404
+    },
+    {
+      "id": "F07",
+      "description": "Replayed admin refund: idempotent, the same single refund, no second provider refund",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "idempotentReplay": true,
+        "refund": "re_3UWtRAEjgXqvlsJk1gw5dZSZ"
+      }
+    },
+    {
+      "id": "F08",
+      "description": "Refund attributed to the proven administrator, requested before and resulted after the provider call (D-AUDIT-1)",
+      "pass": true,
+      "observed": [
+        {
+          "event_type": "PAY03A_ADMIN_RECONCILE",
+          "actor_user_id": "u_b41083ef03824566",
+          "actor_role": "admin",
+          "outcome": null,
+          "refund_id": null
+        },
+        {
+          "event_type": "PAY03A_ADMIN_REFUND_REQUESTED",
+          "actor_user_id": "u_b41083ef03824566",
+          "actor_role": "admin",
+          "outcome": null,
+          "refund_id": null
+        },
+        {
+          "event_type": "PAY03A_ADMIN_REFUND_RESULT",
+          "actor_user_id": "u_b41083ef03824566",
+          "actor_role": "admin",
+          "outcome": "refunded",
+          "refund_id": "re_3UWtRAEjgXqvlsJk1gw5dZSZ"
+        },
+        {
+          "event_type": "PAY03A_ADMIN_REFUND_REQUESTED",
+          "actor_user_id": "u_b41083ef03824566",
+          "actor_role": "admin",
+          "outcome": null,
+          "refund_id": null
+        },
+        {
+          "event_type": "PAY03A_ADMIN_REFUND_RESULT",
+          "actor_user_id": "u_b41083ef03824566",
+          "actor_role": "admin",
+          "outcome": "refunded",
+          "refund_id": "re_3UWtRAEjgXqvlsJk1gw5dZSZ"
+        }
+      ]
+    },
+    {
+      "id": "F09",
+      "description": "Administrator history remains auditable after the refund",
+      "pass": true,
+      "observed": {
+        "status": 200,
+        "paymentStatus": "refunded",
+        "entitlement": "revoked_refunded"
+      }
+    }
+  ]
+}

@@ -142,6 +142,29 @@ export interface Pay02FinancialReport {
   }>
 }
 
+export interface Pay03aAdminOrderRow {
+  orderId: string
+  productCode: string
+  productVersion: number
+  buyerId: string
+  vin: string
+  quoteId: string
+  quoteNumber: string | null
+  quoteStatus: string | null
+  paymentReference: string
+  paymentStatus: string
+  amountMinor: number
+  currency: string
+  entitlementStatus: string
+  reportAvailable: boolean
+  reportVersionId: string | null
+  reportVersionNumber: number | null
+  reportContentHash: string | null
+  refundId: string | null
+  shareRevoked?: boolean
+  createdAt?: string | null
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   category_a_first_party: 'Category A · First-Party CarUp Sale',
   category_b_third_party: 'Category B · Third-Party Obligation',
@@ -161,6 +184,12 @@ export default function Pay02CommercialFoundation() {
   const [detailLoading, setDetailLoading] = useState<boolean>(false)
   const [reconciliationReport, setReconciliationReport] = useState<Pay02FinancialReport | null>(null)
   const [reconciliationBusy, setReconciliationBusy] = useState<boolean>(false)
+  const [pay03aOrders, setPay03aOrders] = useState<Pay03aAdminOrderRow[]>([])
+  const [pay03aLoading, setPay03aLoading] = useState<boolean>(false)
+  // STG01-FINAL D-UI-1: a failed read must never be rendered as an empty order book.
+  const [pay03aOrdersError, setPay03aOrdersError] = useState<string | null>(null)
+  const [pay03aOrdersLoaded, setPay03aOrdersLoaded] = useState<boolean>(false)
+  const [pay03aRefundBusyId, setPay03aRefundBusyId] = useState<string | null>(null)
 
   const buildAuthHeaders = useCallback(
     () => ({
@@ -195,9 +224,90 @@ export default function Pay02CommercialFoundation() {
     }
   }, [buildAuthHeaders, selectedFamily, selectedCategory])
 
+  const loadPay03aAdminOrders = useCallback(async () => {
+    setPay03aLoading(true)
+    try {
+      const res = await apiRequest<{ orders: Pay03aAdminOrderRow[] }>({
+        baseUrl: API_BASE,
+        path: '/pay03a/admin/orders',
+        authHeaders: buildAuthHeaders(),
+      })
+      if (!Array.isArray(res?.orders)) {
+        throw new Error('PAY03A_ADMIN_ORDERS_RESPONSE_INVALID')
+      }
+      setPay03aOrders(res.orders)
+      setPay03aOrdersError(null)
+      setPay03aOrdersLoaded(true)
+    } catch (err) {
+      // Non-fatal for the catalogue console, but never silent: an administrator must not read a
+      // failed or forbidden order read as "no paid orders exist".
+      setPay03aOrdersError(err instanceof Error && err.message ? err.message : 'PAY03A_ADMIN_ORDERS_UNAVAILABLE')
+    } finally {
+      setPay03aLoading(false)
+    }
+  }, [buildAuthHeaders])
+
+  const refundPay03aOrder = async (orderId: string) => {
+    if (pay03aRefundBusyId) return
+    setPay03aRefundBusyId(orderId)
+    setProposalMessage(null)
+    setError(null)
+    try {
+      const refunded = await apiRequest<Pay03aAdminOrderRow>({
+        baseUrl: API_BASE,
+        path: `/pay03a/admin/orders/${encodeURIComponent(orderId)}/refund`,
+        options: { method: 'POST', body: JSON.stringify({}) },
+        authHeaders: buildAuthHeaders(),
+      })
+      setProposalMessage(
+        `Order ${refunded.orderId} (VIN ${refunded.vin}) refunded (${refunded.paymentStatus}) — entitlement status is now ${refunded.entitlementStatus}.`,
+      )
+      await loadPay03aAdminOrders()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to execute governed PAY-03A refund.')
+    } finally {
+      setPay03aRefundBusyId(null)
+    }
+  }
+
+  const reconcilePay03aOrder = async (orderId: string) => {
+    if (pay03aRefundBusyId) return
+    setPay03aRefundBusyId(orderId)
+    setProposalMessage(null)
+    setError(null)
+    try {
+      const recovered = await apiRequest<
+        Pay03aAdminOrderRow & {
+          fulfillmentRecovery?: {
+            recovered: boolean
+            idempotentReplay: boolean
+            reportVersionId: string
+            reportVersion: number
+          } | null
+        }
+      >({
+        baseUrl: API_BASE,
+        path: `/pay03a/admin/orders/${encodeURIComponent(orderId)}/reconcile`,
+        options: { method: 'POST', body: JSON.stringify({}) },
+        authHeaders: buildAuthHeaders(),
+      })
+      setProposalMessage(
+        `Order ${recovered.orderId} (VIN ${recovered.vin}) reconciled (${recovered.paymentStatus}) — quote status ${recovered.quoteStatus}, report version ${recovered.reportVersionId || 'pending'}.`,
+      )
+      await loadPay03aAdminOrders()
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Unable to reconcile or recover PAY-03A order fulfillment.',
+      )
+    } finally {
+      setPay03aRefundBusyId(null)
+    }
+  }
+
   useEffect(() => {
     void loadCatalogue()
-  }, [loadCatalogue])
+    void loadPay03aAdminOrders()
+  }, [loadCatalogue, loadPay03aAdminOrders])
 
   const inspectProductHistory = async (productCode: string) => {
     setDetailLoading(true)
@@ -746,6 +856,115 @@ export default function Pay02CommercialFoundation() {
               </CardContent>
             </Card>
 
+            <Card data-testid="pay03a-admin-orders-panel">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg">
+                      PAY-03A Vehicle History Report Orders & Governed Refunds ({pay03aOrders.length})
+                    </CardTitle>
+                    <CardDescription>
+                      Inspect real vehicle report quotes, canonical Stripe sandbox payments, bound report_versions snapshots, and execute governed refunds.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pay03aLoading}
+                    onClick={() => void loadPay03aAdminOrders()}
+                    data-testid="pay03a-admin-refresh-orders"
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${pay03aLoading ? 'animate-spin' : ''}`} />
+                    Refresh Orders
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                {pay03aOrdersError ? (
+                  <div
+                    role="alert"
+                    data-testid="pay03a-admin-orders-error"
+                    className="rounded-md border border-rose-300 bg-rose-50 p-2 text-rose-800"
+                  >
+                    PAY-03A orders could not be loaded ({pay03aOrdersError}).{' '}
+                    {pay03aOrders.length > 0
+                      ? 'The rows below may be stale — refresh before acting on them.'
+                      : 'This is a read failure, not an empty order book — do not infer that no paid orders exist.'}
+                  </div>
+                ) : null}
+                {pay03aOrders.length === 0 ? (
+                  pay03aOrdersError ? null : pay03aOrdersLoaded ? (
+                    <p className="text-slate-500" data-testid="pay03a-admin-empty-orders">
+                      No PAY-03A Vehicle History Report orders recorded in this environment yet.
+                    </p>
+                  ) : (
+                    <p className="text-slate-500" data-testid="pay03a-admin-orders-loading">
+                      Loading PAY-03A orders…
+                    </p>
+                  )
+                ) : (
+                  pay03aOrders.map((ord) => (
+                    <div
+                      key={ord.orderId}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3.5"
+                      data-testid={`pay03a-admin-order-${ord.orderId}`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-slate-900">VIN: {ord.vin}</span>
+                          <Badge variant="outline">Payment: {ord.paymentStatus}</Badge>
+                          <Badge
+                            className={
+                              ord.entitlementStatus === 'entitled'
+                                ? 'bg-emerald-700 text-white'
+                                : ord.entitlementStatus === 'revoked_refunded'
+                                  ? 'bg-red-700 text-white'
+                                  : 'bg-slate-700 text-white'
+                            }
+                          >
+                            {ord.entitlementStatus}
+                          </Badge>
+                        </div>
+                        <div className="font-mono text-slate-600 break-all">
+                          Order: {ord.orderId} · Quote: {ord.quoteNumber || ord.quoteId} · Payment:{' '}
+                          {ord.paymentReference} · Buyer: {ord.buyerId}
+                        </div>
+                        <div className="text-slate-500">
+                          Amount: {ord.currency} {ord.amountMinor} · Report Version:{' '}
+                          {ord.reportVersionId ? `v${ord.reportVersionNumber ?? 1} (${ord.reportVersionId})` : 'Not generated'}
+                          {ord.refundId ? ` · Refund ID: ${ord.refundId}` : ''}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {ord.paymentStatus === 'paid' && !ord.reportVersionId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pay03aRefundBusyId === ord.orderId}
+                            onClick={() => void reconcilePay03aOrder(ord.orderId)}
+                            data-testid={`pay03a-admin-reconcile-${ord.orderId}`}
+                          >
+                            Reconcile & Recover Fulfillment
+                          </Button>
+                        )}
+                        {ord.paymentStatus === 'paid' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pay03aRefundBusyId === ord.orderId}
+                            onClick={() => void refundPay03aOrder(ord.orderId)}
+                            data-testid={`pay03a-admin-refund-${ord.orderId}`}
+                          >
+                            {pay03aRefundBusyId === ord.orderId ? 'Refunding…' : 'Issue Sandbox Refund'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -852,7 +1071,7 @@ export default function Pay02CommercialFoundation() {
                     {item.blockerReason && (
                       <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
                         <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-700" />
-                        <span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">
                           <strong>Blocker [{item.blockerClass || 'GOVERNANCE'}]:</strong> {item.blockerReason}
                         </span>
                       </div>
