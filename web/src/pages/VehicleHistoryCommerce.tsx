@@ -555,7 +555,10 @@ export default function VehicleHistoryCommerce() {
             <Badge className="bg-orange-700 text-white" data-testid="pay03a-sandbox-badge">
               SANDBOX · TEST ONLY (JPY 100)
             </Badge>
-            <Badge variant="outline" className="border-slate-500 text-slate-200">
+            <Badge
+              variant="outline"
+              className="h-auto max-w-full shrink whitespace-normal border-slate-500 text-left text-slate-200 [overflow-wrap:anywhere]"
+            >
               PAY-03A · First-Party Commercial Product (`intel.report.vehicle_history_single`)
             </Badge>
             <Badge variant="outline" className="border-emerald-500/60 text-emerald-300">
@@ -604,8 +607,9 @@ export default function VehicleHistoryCommerce() {
         ) : (
           <>
             <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
-              {/* Left Column: Eligible Vehicle Selector */}
-              <Card>
+              {/* Left Column: Eligible Vehicle Selector. min-w-0 lets the grid item shrink below its longest
+                  unbreakable string (VINs, product codes) instead of overflowing a 390px viewport (D-UX-1). */}
+              <Card className="min-w-0 [overflow-wrap:anywhere]">
                 <CardHeader>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -715,7 +719,7 @@ export default function VehicleHistoryCommerce() {
               </Card>
 
               {/* Right Column: Pre-Purchase Readiness & Commercial Checkout */}
-              <Card className="border-orange-200 shadow-sm">
+              <Card className="min-w-0 border-orange-200 shadow-sm [overflow-wrap:anywhere]">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <FileSearch className="h-5 w-5 text-orange-600" />
