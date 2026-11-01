@@ -723,6 +723,7 @@ export default function DealerSubscription() {
   const {
     fetchPay03bDealerOverview,
     verifyPay03bDealerSubscription,
+    abandonPay03bDealerCheckout,
     createPay03bDealerCheckout,
     previewPay03bPlanChange,
     changePay03bDealerPlan,
@@ -837,6 +838,24 @@ export default function DealerSubscription() {
     } catch (err) {
       setVerifyError(describePay03bError(err, 'CarUp could not re-check the payment with the provider.'))
       setVerifyOutcome('pending')
+    }
+  }
+
+  const [abandonArmed, setAbandonArmed] = useState(false)
+  const [abandoning, setAbandoning] = useState(false)
+  const abandonCheckout = async () => {
+    setAbandoning(true)
+    setActionError(null)
+    setNotice(null)
+    try {
+      const data = await abandonPay03bDealerCheckout()
+      setOverview(data)
+      setNotice('The unpaid checkout was abandoned at the provider. Nothing was charged; you can start a new checkout.')
+    } catch (err) {
+      setActionError(describePay03bError(err, 'CarUp could not abandon the unfinished checkout.'))
+    } finally {
+      setAbandoning(false)
+      setAbandonArmed(false)
     }
   }
 
@@ -1112,11 +1131,34 @@ export default function DealerSubscription() {
                   A checkout for {planName(sub.planCode) ?? 'a plan'} was started
                   {formatPay03bDateTime(sub.createdAt) ? ` on ${formatPay03bDateTime(sub.createdAt)}` : ''}, but CarUp has not
                   confirmed a payment. If you completed payment at the provider, check the payment status. An unfinished
-                  checkout stays open at the provider until it expires; a new checkout can be started after that.
+                  checkout stays open at the provider until it expires, is resumed, or is abandoned.
                 </p>
-                <Button size="sm" variant="outline" onClick={() => void recheckPayment()} data-testid="pay03b-verify">
-                  Check payment status
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void recheckPayment()} data-testid="pay03b-verify">
+                    Check payment status
+                  </Button>
+                  {billingAdmin ? (() => {
+                    const startedPlan = plans.find((plan) => plan.id === sub.planId && plan.purchasable)
+                    return (
+                      <>
+                        {startedPlan ? (
+                          <Button size="sm" variant="outline" onClick={() => openTerms(startedPlan)} data-testid="pay03b-resume-checkout">
+                            Resume checkout
+                          </Button>
+                        ) : null}
+                        {abandonArmed ? (
+                          <Button size="sm" variant="destructive" disabled={abandoning} onClick={() => void abandonCheckout()} data-testid="pay03b-abandon-confirm">
+                            {abandoning ? 'Abandoning…' : 'Yes, abandon this unpaid checkout'}
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="ghost" onClick={() => setAbandonArmed(true)} data-testid="pay03b-abandon-checkout">
+                            Abandon checkout
+                          </Button>
+                        )}
+                      </>
+                    )
+                  })() : null}
+                </div>
               </div>
             ) : null}
 

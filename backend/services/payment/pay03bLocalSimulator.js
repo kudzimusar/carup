@@ -155,6 +155,11 @@ export class Pay03bLocalSimulatorProvider extends BillingProvider {
       hostedInvoiceUrl: inv.status === 'open' ? `${this.config.publicOrigin}/api/pay03b/simulator/invoice/${inv.id}` : null };
   }
 
+  async expireCheckout(checkoutId) {
+    const result = await this.completeCheckout(checkoutId, { outcome: 'expire' });
+    return { checkoutId, status: 'expired', events: result.events };
+  }
+
   async getSubscription(subscriptionId) {
     const sub = this.load().subscriptions[subscriptionId];
     if (!sub) throw new Pay03bError('PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);

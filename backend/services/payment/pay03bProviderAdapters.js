@@ -261,6 +261,19 @@ export class Pay03bStripeSandboxProvider extends BillingProvider {
     catch (err) { throw providerFailure(err, 'PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE'); }
   }
 
+  /** Expire an open, unpaid Checkout session (no money moves). */
+  async expireCheckout(checkoutId) {
+    await this.verifyAccount();
+    const api = await this.api();
+    let session;
+    try { session = await api.checkout.sessions.expire(checkoutId); }
+    catch (err) { throw providerFailure(err, 'PAY03B_CHECKOUT_PROVIDER_UNAVAILABLE'); }
+    if (session?.id !== checkoutId || session.livemode !== false || session.status !== 'expired') {
+      throw new Pay03bError('PAY03B_CHECKOUT_PROVIDER_MISMATCH', 502);
+    }
+    return { checkoutId, status: 'expired' };
+  }
+
   async getSubscription(subscriptionId) {
     await this.verifyAccount();
     const api = await this.api();

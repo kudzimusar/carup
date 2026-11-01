@@ -567,6 +567,8 @@ export function useCarUpApi() {
     () => pay03bApi.fetchPay03bDealerOverview(pay03bClientConfig), [pay03bClientConfig])
   const verifyPay03bDealerSubscription = useCallback(
     () => pay03bApi.verifyPay03bDealerSubscription(pay03bClientConfig), [pay03bClientConfig])
+  const abandonPay03bDealerCheckout = useCallback(
+    () => pay03bApi.abandonPay03bDealerCheckout(pay03bClientConfig), [pay03bClientConfig])
   const createPay03bDealerCheckout = useCallback(
     (body: Pay03bCheckoutRequest, idempotencyKey: string) =>
       pay03bApi.createPay03bDealerCheckout(pay03bClientConfig, body, idempotencyKey), [pay03bClientConfig])
@@ -2946,6 +2948,7 @@ export function useCarUpApi() {
     fetchPay03bCatalogue,
     fetchPay03bDealerOverview,
     verifyPay03bDealerSubscription,
+    abandonPay03bDealerCheckout,
     createPay03bDealerCheckout,
     previewPay03bPlanChange,
     changePay03bDealerPlan,

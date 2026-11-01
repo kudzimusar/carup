@@ -199,6 +199,8 @@ export interface Pay03bCheckoutResponse {
   checkoutUrl: string | null
   checkoutStatus: string
   idempotentReplay: boolean
+  /** True when an unfinished checkout for the same plan was resumed instead of creating a new one. */
+  resumed?: boolean
   gateway: string
   simulated: boolean
   amountMinor: number

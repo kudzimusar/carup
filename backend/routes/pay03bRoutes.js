@@ -18,7 +18,7 @@ import { Pay01aError } from '../services/payment/pay01aContract.js';
 import { Pay03bError, isPay03bProductionRuntime } from '../services/payment/pay03bContract.js';
 import {
   getPay03bPublicCatalogue, getPay03bAdminCatalogue, getPay03bDealerOverview, createPay03bDealerCheckout,
-  verifyPay03bDealerSubscription, previewPay03bDealerPlanChange, changePay03bDealerPlan, cancelPay03bDealerSubscription,
+  verifyPay03bDealerSubscription, abandonPay03bDealerCheckout, previewPay03bDealerPlanChange, changePay03bDealerPlan, cancelPay03bDealerSubscription,
   createPay03bPaymentMethodUpdate, getPay03bInvoicePaymentLink, listPay03bAdminSubscriptions, readPay03bAdminSubscription,
   reconcilePay03bAdminSubscription, setPay03bAdminSuspension, refundPay03bAdminInvoice, processPay03bProviderEvent,
 } from '../services/payment/pay03bSubscriptionService.js';
@@ -97,6 +97,8 @@ router.get('/api/pay03b/dealer/subscription', memberSession, handle((req) => get
 router.post('/api/pay03b/dealer/subscription/checkout', memberSession, handle((req) => createPay03bDealerCheckout({
   ...dealerArgs(req), planId: req.body?.planId, acknowledgedTerms: req.body?.acknowledgedTerms, requestKey: idempotencyKey(req),
   requestContext: requestContext(req) }), 201));
+router.post('/api/pay03b/dealer/subscription/checkout/abandon', memberSession, handle((req) => abandonPay03bDealerCheckout({
+  ...dealerArgs(req), requestContext: requestContext(req) })));
 router.post('/api/pay03b/dealer/subscription/verify', memberSession, handle((req) => verifyPay03bDealerSubscription(dealerArgs(req))));
 router.get('/api/pay03b/dealer/subscription/change-preview', memberSession, handle((req) => previewPay03bDealerPlanChange({
   ...dealerArgs(req), targetPlanId: req.query?.targetPlanId, mode: req.query?.mode })));

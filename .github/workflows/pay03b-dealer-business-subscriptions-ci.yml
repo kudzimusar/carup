@@ -57,7 +57,7 @@ jobs:
         run: node --test backend/tests/diaspora-subscription-routes.test.js backend/tests/diaspora-subscription-authz.test.js backend/tests/diaspora-billing-reconciliation.test.js backend/tests/diaspora-billing-security-contract.test.js backend/tests/diaspora-billing-webhook-ledger.test.js backend/tests/diaspora-entitlement-enforcement.test.js backend/tests/diaspora-entitlement-override-regrant.test.js backend/tests/dealer-compliance.test.js backend/tests/marketplace-publication-gate.test.js backend/tests/issue164-phase5-listing-publication-gate.test.js backend/tests/migration-integrity.test.js
       - name: PAY-03B customer/admin UI, Pricing, Diaspora plan status, PAY-03A/PAY-02 UI and route custody
         working-directory: web
-        run: npx vitest run src/pages/Pricing.test.tsx src/pages/dashboard/dealer/Subscription.test.tsx src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/pages/VehicleHistoryCommerce.test.tsx src/components/diaspora/subscription src/config src/lib/routeAccess.test.ts
+        run: npx vitest run src/pages/Pricing.test.tsx src/pages/TermsOfService.test.tsx src/pages/dashboard/dealer/Subscription.test.tsx src/pages/dashboard/admin/Pay02CommercialFoundation.test.tsx src/lib/pay03bApi.test.ts src/lib/pay03bDisplay.test.ts src/pages/VehicleHistoryCommerce.test.tsx src/pages/diaspora src/components/diaspora/subscription src/config src/lib/routeAccess.test.ts
       - name: Feature manifest matches the registry
         run: node scripts/generate-feature-manifest.mjs --check
       - name: Typecheck and compile CarUp web

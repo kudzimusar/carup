@@ -419,10 +419,28 @@ export async function createPay03bDealerCheckout({
   if (plans.length !== 1) throw new Pay03bError('PAY03B_PLAN_NOT_FOUND', 404);
   const [plan] = plans;
   if (plan.pricing_kind === 'sandbox_fixture') assertTermsAcknowledged(plan, acknowledgedTerms);
-  const claim = await rpc(db, 'pay03b_claim_business_subscription_checkout', {
-    p_owner_tenant_id: tenantId, p_owner_organization_id: ctx.organization.id, p_actor_id: actorId,
-    p_plan_id: planId, p_request_key: requestKey, p_gateway: provider.gateway,
-  });
+  let claim;
+  try {
+    claim = await rpc(db, 'pay03b_claim_business_subscription_checkout', {
+      p_owner_tenant_id: tenantId, p_owner_organization_id: ctx.organization.id, p_actor_id: actorId,
+      p_plan_id: planId, p_request_key: requestKey, p_gateway: provider.gateway,
+    });
+  } catch (err) {
+    // A checkout for the SAME plan that is still open (for example after a reload lost the idempotency key) is
+    // resumed, never duplicated. Anything else stays refused until it completes or is explicitly abandoned.
+    if (err?.code !== 'PAY03B_SUBSCRIPTION_ALREADY_EXISTS') throw err;
+    const live = (await loadTenantSubscriptions(db, tenantId)).find((r) => !['incomplete_expired', 'cancelled', 'expired'].includes(r.status));
+    if (live?.status === 'incomplete' && live.plan_id === planId && live.provider_checkout_id && live.gateway === provider.gateway) {
+      await provider.verifyAccount();
+      const existing = await provider.getCheckout(live.provider_checkout_id);
+      if (existing.status === 'open' && existing.url) {
+        return { subscriptionId: live.id, checkoutId: existing.id, checkoutUrl: existing.url, checkoutStatus: 'open',
+          idempotentReplay: true, resumed: true, gateway: provider.gateway, simulated: provider.isSimulator === true,
+          amountMinor: Number(plan.amount_minor), currency: plan.currency, live: false };
+      }
+    }
+    throw err;
+  }
   const sub = claim.subscription;
   await provider.verifyAccount();
   if (sub.provider_checkout_id) {
@@ -463,6 +481,24 @@ export async function createPay03bDealerCheckout({
   return { subscriptionId: sub.id, checkoutId: checkout.checkoutId, checkoutUrl: checkout.url, checkoutStatus: 'open',
     idempotentReplay: false, gateway: provider.gateway, simulated: provider.isSimulator === true,
     amountMinor: Number(plan.amount_minor), currency: plan.currency, live: false };
+}
+
+/** Explicitly abandon an open, unpaid checkout: the provider expires it and the agreement becomes incomplete_expired. */
+export async function abandonPay03bDealerCheckout({ db = supabase, env = process.env, stripe = null, provider: injected = null,
+  actorId, tenantId, requestContext = null }) {
+  const provider = resolvePay03bProvider({ env, stripe, provider: injected });
+  const ctx = await resolvePay03bDealerContext({ db, actorId, tenantId });
+  if (!ctx.billingAuthority) throw new Pay03bError('PAY03B_BILLING_AUTHORITY_REFUSED', 403);
+  const live = (await loadTenantSubscriptions(db, tenantId)).find((r) => r.status === 'incomplete' && r.provider_checkout_id);
+  if (!live || live.gateway !== provider.gateway) throw new Pay03bError('PAY03B_NO_OPEN_CHECKOUT', 409);
+  await provider.verifyAccount();
+  const checkout = await provider.getCheckout(live.provider_checkout_id);
+  if (checkout.status === 'open') await provider.expireCheckout(live.provider_checkout_id);
+  await syncPay03bSubscriptionFromProvider({ db, provider, subscriptionRow: live });
+  await recordPay03bAudit(db, { eventType: 'PAY03B_SUBSCRIPTION_CHECKOUT_ABANDONED', actorId, actorRole: ctx.tenantRole, tenantId,
+    sourceRoute: '/api/pay03b/dealer/subscription/checkout/abandon', requestContext,
+    reason: 'Tenant billing administrator abandoned an unpaid subscription checkout.', subject: { subscriptionId: live.id } });
+  return getPay03bDealerOverview({ db, env, actorId, tenantId });
 }
 
 export async function verifyPay03bDealerSubscription({ db = supabase, env = process.env, stripe = null, provider: injected = null, actorId, tenantId }) {

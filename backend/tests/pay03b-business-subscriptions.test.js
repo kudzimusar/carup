@@ -157,6 +157,36 @@ test('PAY-03B service on real PostgreSQL', { skip }, async (t) => {
     assert.equal(again.duplicateEvent, true);
   });
 
+  await t.test('an abandoned checkout can be resumed (same plan, new key) or explicitly abandoned, never duplicated', async () => {
+    const c = crypto.randomUUID();
+    const orgC = `org_p3b_c_${run}`;
+    const ownerC = `p3b_owner_c_${run}`;
+    await db.query(`INSERT INTO public.users (id, name, email, role, join_date) VALUES ($1, 'Dealer C [SYNTHETIC]', $1 || '@carup-uat.invalid', 'dealer', '2026-11-01')`, [ownerC]);
+    await db.query(`INSERT INTO public.tenants (id, name, type, status) VALUES ($1, 'Svc Dealer C [SYNTHETIC]', 'dealership', 'active')`, [c]);
+    await db.query(`INSERT INTO public.organizations (id, name, type, created_at, status, tenant_id) VALUES ($1, 'Svc Dealer C Cars [SYNTHETIC]', 'dealership', '2026-11-01', 'active', $2)`, [orgC, c]);
+    await db.query(`INSERT INTO public.tenant_users (tenant_id, user_id, role) VALUES ($1, $2, 'admin')`, [c, ownerC]);
+    const first = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: ownerC, tenantId: c, planId: plans.std.id,
+      acknowledgedTerms: terms(plans.std), requestKey: `svc_abandon_${run}_0001` });
+    // The page was reloaded and lost its key: the same plan resumes the SAME open checkout.
+    const resumed = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: ownerC, tenantId: c, planId: plans.std.id,
+      acknowledgedTerms: terms(plans.std), requestKey: `svc_abandon_${run}_0002` });
+    assert.equal(resumed.resumed, true);
+    assert.equal(resumed.checkoutId, first.checkoutId);
+    assert.equal(resumed.subscriptionId, first.subscriptionId);
+    await assert.rejects(S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: ownerC, tenantId: c, planId: plans.prem.id,
+      acknowledgedTerms: terms(plans.prem), requestKey: `svc_abandon_${run}_0003` }), (e) => e.code === 'PAY03B_SUBSCRIPTION_ALREADY_EXISTS');
+    // Explicit abandon expires it at the provider; a fresh checkout is then possible.
+    const abandoned = await S.abandonPay03bDealerCheckout({ db, env, provider: sim, actorId: ownerC, tenantId: c });
+    assert.equal(abandoned.history[0]?.status ?? abandoned.subscription?.status, 'incomplete_expired');
+    const fresh = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: ownerC, tenantId: c, planId: plans.prem.id,
+      acknowledgedTerms: terms(plans.prem), requestKey: `svc_abandon_${run}_0004` });
+    assert.notEqual(fresh.subscriptionId, first.subscriptionId);
+    const { rows } = await db.query(`SELECT count(*)::int AS n FROM public.pay03b_business_subscriptions WHERE owner_tenant_id = $1`, [c]);
+    assert.equal(rows[0].n, 2);
+    await assert.rejects(S.abandonPay03bDealerCheckout({ db, env, provider: sim, actorId: `p3b_staff_${run}`, tenantId: c }),
+      (e) => e.code === 'PAY03B_TENANT_MEMBERSHIP_REQUIRED');
+  });
+
   await t.test('renewal is collected once; a failed renewal never fabricates a payment; recovery restores', async () => {
     const ok = await sim.advanceToNextPeriod((await db.query('select provider_subscription_id from public.pay03b_business_subscriptions where id = $1',
       [subscriptionId])).rows[0].provider_subscription_id, { outcome: 'success' });

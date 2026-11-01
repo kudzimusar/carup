@@ -149,6 +149,12 @@ export async function verifyPay03bDealerSubscription(config: Pay03bClientConfig)
   return requireShape<Pay03bDealerOverview>(res, isOverview(res), 'PAY03B_OVERVIEW_RESPONSE_INVALID')
 }
 
+/** Abandon an unpaid checkout: the provider expires it, so a new checkout can be started. No money moves. */
+export async function abandonPay03bDealerCheckout(config: Pay03bClientConfig): Promise<Pay03bDealerOverview> {
+  const res = await write<unknown>(config, '/pay03b/dealer/subscription/checkout/abandon')
+  return requireShape<Pay03bDealerOverview>(res, isOverview(res), 'PAY03B_OVERVIEW_RESPONSE_INVALID')
+}
+
 export async function createPay03bDealerCheckout(
   config: Pay03bClientConfig,
   body: Pay03bCheckoutRequest,

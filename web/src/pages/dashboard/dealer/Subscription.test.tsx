@@ -22,6 +22,7 @@ const api = {
   cancelPay03bDealerSubscription: vi.fn(),
   createPay03bPaymentMethodUpdate: vi.fn(),
   getPay03bInvoicePaymentLink: vi.fn(),
+  abandonPay03bDealerCheckout: vi.fn(),
 }
 const redirect = vi.fn()
 
@@ -531,5 +532,37 @@ describe('Plan & Billing — invoices and notices', () => {
     expect(screen.queryByTestId('pay03b-subscription-actions')).toBeNull()
     fireEvent.click(within(notice).getByTestId('pay03b-verify'))
     await waitFor(() => expect(api.verifyPay03bDealerSubscription).toHaveBeenCalledTimes(1))
+  })
+
+  it('a billing administrator can resume the unfinished checkout (re-review the same plan) or abandon it after confirming', async () => {
+    const incomplete = overview({
+      subscription: { ...ACTIVE_SUB, status: 'incomplete', providerSubscriptionId: null },
+      entitlements: { ...NO_ACCESS, reason: 'status_incomplete' },
+    })
+    api.fetchPay03bDealerOverview.mockResolvedValue(incomplete)
+    api.abandonPay03bDealerCheckout.mockResolvedValue(overview({ subscription: null, history: [{ ...ACTIVE_SUB, status: 'incomplete_expired' }] }))
+    renderPage()
+    const notice = await screen.findByTestId('pay03b-incomplete-notice')
+    fireEvent.click(within(notice).getByTestId('pay03b-resume-checkout'))
+    const dialog = await screen.findByTestId('pay03b-terms-dialog')
+    expect(dialog.textContent).toContain('Sandbox Standard')
+    fireEvent.click(within(dialog).getByTestId('pay03b-terms-cancel'))
+    fireEvent.click(within(notice).getByTestId('pay03b-abandon-checkout'))
+    expect(api.abandonPay03bDealerCheckout).not.toHaveBeenCalled()
+    fireEvent.click(await within(notice).findByTestId('pay03b-abandon-confirm'))
+    await waitFor(() => expect(api.abandonPay03bDealerCheckout).toHaveBeenCalledTimes(1))
+    expect((await screen.findByTestId('pay03b-action-status')).textContent).toContain('abandoned')
+  })
+
+  it('staff without billing authority see the unfinished checkout but cannot resume or abandon it', async () => {
+    api.fetchPay03bDealerOverview.mockResolvedValue(overview({
+      billingAuthority: false, tenantRole: 'dealer',
+      subscription: { ...ACTIVE_SUB, status: 'incomplete', providerSubscriptionId: null },
+      entitlements: { ...NO_ACCESS, reason: 'status_incomplete' },
+    }))
+    renderPage()
+    const notice = await screen.findByTestId('pay03b-incomplete-notice')
+    expect(within(notice).queryByTestId('pay03b-resume-checkout')).toBeNull()
+    expect(within(notice).queryByTestId('pay03b-abandon-checkout')).toBeNull()
   })
 })
