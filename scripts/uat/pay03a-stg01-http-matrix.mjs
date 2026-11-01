@@ -5,7 +5,9 @@
 // records the observed HTTP status and stable error code and asserts both outcome and refusing layer.
 // Cases that need a real paid order are executed in Stage 6, never simulated here.
 //
-//   node scripts/uat/pay03a-stg01-http-matrix.mjs <evidence-dir> [--phase stage5|stage6] [--order <id>]
+//   node scripts/uat/pay03a-stg01-http-matrix.mjs <evidence-dir> [--stage5-runtime]
+//   --stage5-runtime: the operator asserts the backend has NO provider access (launcher --stage5); only then is
+//   N20 (an eligible checkout reaching the provider gate) executed. NEVER pass it against a Stage 6 runtime.
 import { execFileSync } from 'node:child_process';
 import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -169,9 +171,16 @@ r = await checkout('buyerA', { vin: 'QA-PAY03A-0001', merchantOfRecord: 'attacke
 record('N18', 'Client-supplied merchant override refused', r, r.status === 400 && r.code === 'PAY02_CLIENT_PARTY_OVERRIDE_REFUSED', 'service');
 r = await checkout('buyerA', { vin: 'QA-PAY03A-0001' }, { 'idempotency-key': 'short' });
 record('N19', 'Missing/invalid idempotency key refused', r, r.status === 400 && r.code === 'PAY01A_IDEMPOTENCY_KEY_REQUIRED', 'service');
+// N20 reaches the provider gate for an ELIGIBLE vehicle. Against a Stage 6 runtime (real sk_test key) that
+// would open a real Checkout session, so it runs only when the operator asserts a Stage 5 runtime.
+if (!process.argv.includes('--stage5-runtime')) {
+  results.push({ id: 'N20', description: 'SKIPPED: eligible checkout at the provider gate (requires --stage5-runtime)', status: 'skipped', code: null, layer: 'provider gate', pass: true });
+  console.log('SKIP N20 (not asserted as a Stage 5 no-provider runtime)');
+} else {
 r = await checkout('buyerA', { vin: 'QA-PAY03A-0001' }, { 'idempotency-key': KEY() });
 record('N20', 'Eligible checkout with NO provider access fails closed at account verification (no session, no quote)', r,
   r.status === 503 && r.code === 'PAY01A_ACCOUNT_VERIFICATION_UNAVAILABLE', 'provider gate');
+}
 const ledger = execFileSync('psql', [PGURL, '-X', '-A', '-t', '-c',
   "select (select count(*) from public.pay02_commercial_quotes)||'/'||(select count(*) from public.pay02_report_orders)||'/'||(select count(*) from public.payment_transactions where pay02_quote_id is not null);"], { encoding: 'utf8' }).trim();
 record('N21', `No quote, order or PAY-02 payment created by any refused attempt (quotes/orders/payments = ${ledger})`, { status: 'db', code: ledger }, ledger === '0/0/0', 'database');
