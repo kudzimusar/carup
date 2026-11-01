@@ -171,18 +171,26 @@ const QUALIFYING_HISTORICAL_STATUSES = Object.freeze({
  * STG01-R3). The assembled report carries no reviewer identity, so it is read from `vehicle_evidence`.
  * On shared staging 12 of the 14 non-QA vehicles with verified public evidence were verified by their
  * own uploader. A failed read yields no independently reviewed evidence (fail closed).
+ *
+ * STG01-FINAL D-DATE-1 (threshold default, pending Owner approval): the row must also carry a
+ * source-attested `event_date`. `captured_at` is NOT NULL DEFAULT now(), so for uploaded evidence it is
+ * usually the upload instant, and the canonical lifecycle would present that instant as the event date.
+ * An upload timestamp is not vehicle history.
  */
 async function loadIndependentlyReviewedEvidenceIds(db, vins) {
   const list = [...new Set((vins || []).filter((vin) => typeof vin === 'string' && vin.trim()))];
   const byVin = new Map();
   if (!list.length || !db || typeof db.from !== 'function') return byVin;
   try {
-    let query = db.from('vehicle_evidence').select('id, vin, uploaded_by, verified_by, verification_status');
+    let query = db
+      .from('vehicle_evidence')
+      .select('id, vin, uploaded_by, verified_by, verification_status, event_date');
     query = list.length === 1 ? query.eq('vin', list[0]) : query.in('vin', list);
     const { data, error } = await query;
     if (error || !Array.isArray(data)) return new Map();
     for (const row of data) {
       if (!row?.vin || row.verification_status !== 'verified') continue;
+      if (!row.event_date) continue;
       const reviewer = String(row.verified_by ?? '').trim();
       const uploader = String(row.uploaded_by ?? '').trim();
       if (!reviewer || (uploader && reviewer === uploader)) continue;

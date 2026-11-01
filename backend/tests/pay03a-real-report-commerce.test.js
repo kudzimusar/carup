@@ -2351,3 +2351,33 @@ test('PAY03A STG01-FINAL D-ELIG-3: unclassified, self-verified or reviewer-less 
   assert.equal(harness.quotes.size, 0);
   assert.equal(harness.payments.size, 0);
 });
+
+test('PAY03A STG01-FINAL D-DATE-1 (threshold default): independently reviewed evidence without a source-attested event_date does not qualify — an upload timestamp is not a history date', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const VIN = 'SYN-0000005';
+  harness.vehicles.set(VIN, {
+    vin: VIN, make: 'Synthetic', model: 'Date Fixture', year: 2018,
+    owner_id: 'seller-synthetic-5', import_source: 'STG01-FINAL synthetic unit fixture', status: 'Available',
+  });
+  // vehicle_evidence.captured_at is NOT NULL DEFAULT now(): for the T11 CAP Vezel photo every row has
+  // captured_at = uploaded_at and event_date NULL. The lifecycle would date such evidence at upload time.
+  harness.vehicleEvidence.push({
+    id: 'ev-syn5-undated', vin: VIN, evidence_class: 'import', verification_status: 'verified',
+    visibility_level: 'public_safe', uploaded_by: 'seller-synthetic-5', verified_by: 'reviewer-synthetic-5',
+    event_date: null, captured_at: '2026-10-25T05:18:08Z', uploaded_at: '2026-10-25T05:18:08Z',
+  });
+  const undated = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+  assert.equal(undated.eligibleForPurchase, false);
+  assert.equal(undated.readiness.historicalEventCount, 0);
+  assert.equal(undated.readiness.evidenceIndexCount, 0);
+
+  harness.vehicleEvidence.push({
+    id: 'ev-syn5-dated', vin: VIN, evidence_class: 'import', verification_status: 'verified',
+    visibility_level: 'public_safe', uploaded_by: 'seller-synthetic-5', verified_by: 'reviewer-synthetic-5',
+    event_date: '2026-08-29', event_date_precision: 'day', captured_at: '2026-10-25T05:18:09Z',
+  });
+  const dated = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+  assert.equal(dated.eligibleForPurchase, true);
+  assert.equal(dated.readiness.historicalEventCount, 1, 'Only the dated row counts');
+  assert.equal(dated.readiness.evidenceIndexCount, 1);
+});
