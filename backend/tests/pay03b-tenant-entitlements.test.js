@@ -187,6 +187,21 @@ test('PAY-03B HTTP boundary on real PostgreSQL', { skip }, async (t) => {
     assert.equal(blocked.entitlements.reason, 'admin_suspension');
   });
 
+  await t.test('dealer and administrator subscription routes are dark unless PAY-03B is explicitly enabled outside production', async () => {
+    for (const disabled of [{ ...env, CARUP_PAY03B_ENABLED: 'false' }, { ...env, CARUP_ENV: 'production' }]) {
+      app.locals.pay03bEnv = disabled;
+      try {
+        const dealer = await call('GET', '/api/pay03b/dealer/subscription', { who: 'owner', tenant: tA });
+        assert.equal(dealer.status, 404);
+        assert.equal((await dealer.json()).code, 'PAY03B_DISABLED');
+        assert.equal((await call('GET', '/api/pay03b/admin/subscriptions', { who: 'admin' })).status, 404);
+        assert.equal((await call('GET', '/api/pay03b/catalogue')).status, 200, 'the governance-only public catalogue stays readable');
+      } finally {
+        app.locals.pay03bEnv = env;
+      }
+    }
+  });
+
   await t.test('simulator routes do not exist outside simulator mode', async () => {
     app.locals.pay03bEnv = { ...env, CARUP_PAY03B_PROVIDER_MODE: '' };
     app.locals.pay03bProvider = null;

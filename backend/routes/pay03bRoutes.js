@@ -15,7 +15,7 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeSessionRole } from '../middleware/authMiddleware.js';
 import { Pay01aError } from '../services/payment/pay01aContract.js';
-import { Pay03bError } from '../services/payment/pay03bContract.js';
+import { Pay03bError, isPay03bProductionRuntime } from '../services/payment/pay03bContract.js';
 import {
   getPay03bPublicCatalogue, getPay03bAdminCatalogue, getPay03bDealerOverview, createPay03bDealerCheckout,
   verifyPay03bDealerSubscription, previewPay03bDealerPlanChange, changePay03bDealerPlan, cancelPay03bDealerSubscription,
@@ -70,6 +70,20 @@ function requireTenant(req) {
   if (!id) throw new Pay03bError('PAY03B_TENANT_CONTEXT_REQUIRED', 400);
   return id;
 }
+
+// Explicit opt-in (same rule PAY-03A adopted after its independent review): every dealer and administrator
+// subscription route is dark unless CARUP_PAY03B_ENABLED is 'true' in a non-production runtime. The public
+// catalogue stays readable everywhere (governance status only; it never shows a price as an offer).
+function requirePay03bEnabled(req, res, next) {
+  const env = envFor(req);
+  if (env.CARUP_PAY03B_ENABLED !== 'true' || isPay03bProductionRuntime(env)) {
+    return res.status(404).json({ error: 'PAY03B_DISABLED', code: 'PAY03B_DISABLED' });
+  }
+  return next();
+}
+router.use('/api/pay03b/dealer', requirePay03bEnabled);
+router.use('/api/pay03b/admin/subscriptions', requirePay03bEnabled);
+router.use('/api/pay03b/admin/catalogue', requirePay03bEnabled);
 
 // ------------------------------------------------------------------------------------------ public catalogue
 router.get('/api/pay03b/catalogue', handle((req) => getPay03bPublicCatalogue({ db: dbFor(req) })));

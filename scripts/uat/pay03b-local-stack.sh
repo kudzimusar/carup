@@ -58,7 +58,8 @@ file_size_limit = "15MiB"
 enabled = false
 
 [auth]
-enabled = false
+# Enabled only so the CLI issues the stack's local anon/service-role keys (CarUp uses its own session auth).
+enabled = true
 site_url = "http://127.0.0.1:5193"
 
 [edge_runtime]

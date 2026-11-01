@@ -43,8 +43,18 @@ const DEFS = {
 const accounts = existsSync(ACCOUNTS_FILE) ? JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8')) : {};
 for (const [key, def] of Object.entries(DEFS)) accounts[key] ||= { ...def, password: randomBytes(18).toString('base64url') };
 
-async function call(method, path, body) {
-  const res = await fetch(`${API}${path}`, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+// Same contract as the web client: a CSRF token fetched with the same identity headers accompanies every write.
+async function csrf(identity = {}) {
+  const res = await fetch(`${API}/api/security/csrf-token`, { headers: identity });
+  const body = await res.json();
+  if (!body?.csrfToken) throw new Error(`csrf token unavailable (${res.status})`);
+  return body.csrfToken;
+}
+
+async function call(method, path, body, identity = {}) {
+  const headers = { ...identity, 'content-type': 'application/json' };
+  if (method !== 'GET') headers['x-csrf-token'] = await csrf(identity);
+  const res = await fetch(`${API}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
   let json = null;
   try { json = await res.json(); } catch { /* non-JSON */ }
   return { status: res.status, json };
