@@ -1,0 +1,11 @@
+PAY-01C evidence preservation — original rows (pinned columns) present and byte-identical after the PAY-03A schema build AND after Stage 6
+baseline dump sha256: 1d1b4b36179d93f0045ae45ddcb2a946582a095aa70d0eff86077a679ad553a0
+currency_rates: original=1 now=1 original_rows_missing_or_changed=0
+domain_events: original=0 now=1 original_rows_missing_or_changed=0
+login_attempts: original=17 now=77 original_rows_missing_or_changed=0
+pay01a_stripe_event_receipts: original=14 now=19 original_rows_missing_or_changed=0
+pay01c_demo_orders: original=1 now=1 original_rows_missing_or_changed=0
+payment_transactions: original=4 now=5 original_rows_missing_or_changed=0
+user_registration_profiles: original=2 now=2 original_rows_missing_or_changed=0
+user_sessions: original=15 now=84 original_rows_missing_or_changed=0
+users: original=3 now=13 original_rows_missing_or_changed=0

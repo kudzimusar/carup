@@ -84,7 +84,8 @@ test('Stage 6: one authorized QA-only JPY 100 Stripe test purchase of a vehicle 
   // Stripe hosted Checkout: verify TEST mode, session and amount BEFORE entering anything.
   await page.waitForURL(/checkout\.stripe\.com/, { timeout: 60_000 })
   expect(page.url()).toContain('cs_test_')
-  await expect(page.getByText(/test mode/i).first()).toBeVisible({ timeout: 30_000 })
+  // Stripe labels sandbox accounts with a 'Sandbox' badge (classic test mode shows 'Test mode').
+  await expect(page.getByText(/^(sandbox|test mode)$/i).first()).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText(/¥\s?100|JPY\s?100/).first()).toBeVisible()
   await page.screenshot({ path: `${screens}/02-stripe-checkout-test-mode.png`, fullPage: true })
 

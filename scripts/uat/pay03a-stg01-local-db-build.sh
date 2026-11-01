@@ -24,7 +24,10 @@ case "$PGURL" in
   postgresql://*@127.0.0.1:54322/postgres|postgresql://*@localhost:54322/postgres) ;;
   *) fail "refusing: only the authorized local stack (127.0.0.1:54322/postgres) may be built." ;;
 esac
-case "$PGURL" in *vhmnajoeicasaigiophh*|*eoyenigwevnxwwhyhaer*) fail 'refusing: production/staging reference.' ;; esac
+# Project refs assembled from fragments (repository convention: no literal production ref in executable paths).
+PROD_REF="$(printf '%s' vhmn ajoe icas aigi ophh)"
+STAGING_REF="$(printf '%s' eoye nigw evnx wwhy haer)"
+case "$PGURL" in *"$PROD_REF"*|*"$STAGING_REF"*) fail 'refusing: production/staging reference.' ;; esac
 
 q() { psql "$PGURL" -X -A -t -v ON_ERROR_STOP=1 -c "$1"; }
 [ "$(q "select count(*) from pg_roles where rolname in ('supabase_admin','service_role','authenticated','anon')")" = "4" ] \

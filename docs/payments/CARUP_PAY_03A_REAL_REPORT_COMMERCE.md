@@ -25,7 +25,9 @@ Unlike the synthetic `PAY-01C` sandbox demonstration (`vehicle_history_demo`), `
 
 ## 2. Free Live Route vs. Paid Sandbox Commercial Snapshot (`R1-B`)
 
-> **Policy Status:** `CANDIDATE_SANDBOX_DIFFERENTIATION_PENDING_OWNER_APPROVAL`
+> **Policy Status:** `SANDBOX_ONLY_OWNER_APPROVED_RETAIL_NOT_APPROVED` (Owner decision 2026-11-01, re-confirmed after the free-route correction below). See the [STG01-FINAL certification](CARUP_PAY_03A_STG01_FINAL_CERTIFICATION.md).
+>
+> **Correction (independent review F7):** the free Milestone 4 route `POST /api/vehicles/:vin/report/versions` already lets any signed-in account create a snapshot with a SHA-256 hash and an expiring share link. The paid product's real differences are the pre-purchase evidence gate and the purchase, entitlement and refund governance. The table below is superseded where it says otherwise.
 
 CarUp already provides an authenticated live vehicle-history route (`GET /api/vehicles/:vin/report`). `PAY-03A` does **not** silently paywall existing functionality and does **not** claim exclusive external registries or secret data sources. Both paths invoke the same canonical `assembleReport(db, vin, { audience: 'buyer' })` engine:
 
@@ -83,3 +85,20 @@ CarUp already provides an authenticated live vehicle-history route (`GET /api/ve
 - `GET /api/pay03a/admin/orders/:orderId`: Inspects a single `PAY-03A` report order.
 - `POST /api/pay03a/admin/orders/:orderId/reconcile`: Reconciles canonical payment state with Stripe and recovers interrupted report fulfillment idempotently (`paid_verified` → `fulfilled`) without creating a duplicate payment or second report version.
 - `POST /api/pay03a/admin/orders/:orderId/refund`: Executes a governed Stripe sandbox refund (`refundPay01aPayment`), synchronizes quote (`status = 'refunded'`) and order (`entitlement_status = 'revoked_refunded'`), and revokes the bound `report_versions` snapshot (`revoked = true`).
+
+
+---
+
+## STG01-FINAL (2026-11-01) — current state
+
+* **Evidence threshold (fail-closed, Owner-approved).**
+  - **Qualifies:** independently reviewed (reviewer ≠ uploader), classified, public-safe evidence with a source-attested `event_date`, excluding current-condition and dealer-listing evidence; a verified maintenance record; or a genuine CarUp ownership transfer (previous owner recorded).
+  - **Never qualifies:** registration rows, upload timestamps, and unverified, disputed, self-verified or unclassified records.
+* **Integrity.**
+  - The paid snapshot's `content_hash` is SHA-256 over the JSONB-key-ordered document, reproducible from the delivered JSON (`content_hash_scheme: sha256:jsonb-key-order-json-v1`).
+  - The snapshot stores no buyer, order, quote or payment identifiers.
+* **Refund governance.**
+  - Refunds require a proven administrator, with a fail-closed audit before the provider call.
+  - `refund_pending` suspends without revoking (forward migration `20261101100000`).
+  - Only `refunded` revokes, and paid snapshots can't be revoked through the legacy route.
+* **Lifecycle status.** Certified mechanically in Stage 6 as a QA-only sandbox purchase and refund. The genuine product is BLOCKED on data authority.

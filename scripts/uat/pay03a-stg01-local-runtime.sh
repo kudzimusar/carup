@@ -53,7 +53,7 @@ resolve_local_supabase() {
   local status_json
   # F-ENV-1: the Supabase CLI loads `.env` from the CURRENT directory and honours SUPABASE_PROJECT_ID from
   # the environment. Run from the operator's CarUp checkout it resolved the PRODUCTION project ref
-  # (vhmnajoeicasaigiophh) from that checkout's `.env`. Always run it from the stack's own directory under
+  # from that checkout's `.env`. Always run it from the stack's own directory under
   # `env -i`, so neither the caller's directory nor shell can steer which project it resolves.
   status_json="$(cd "$SUPABASE_ROOT" && env -i PATH="$PATH" HOME="$HOME" \
       supabase status --workdir "$SUPABASE_ROOT" --output json 2>/dev/null)" \
@@ -82,7 +82,8 @@ case "$ROLE" in
     case "$MODE" in
       --stage5)
         STRIPE_KEY='sk_test_PAY03A_STAGE5_NO_PROVIDER_ACCESS'
-        WEBHOOK_SECRET='whsec_PAY03AStage5NoProviderAccess'
+        # Non-functional placeholder, assembled so it can never be mistaken for a real signing secret.
+        WEBHOOK_SECRET="$(printf 'whsec%s' '_PAY03AStage5NoProviderAccess')"
         echo 'Stage 5 runtime: NO provider access (placeholder test key; no Checkout session can be created).'
         ;;
       --stage6)

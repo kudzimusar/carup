@@ -1,0 +1,16 @@
+{
+  "recorded_at": "2026-11-01T07:44:17.072Z",
+  "recovered_via": "idempotent replay (same Idempotency-Key, same session)",
+  "orderId": "e008dde9-117c-46fd-b237-c58690b84f6d",
+  "quoteId": "494aaa6a-64f1-484a-8e78-8d05e8012f82",
+  "quoteNumber": "QT-PAY02-E78C17829AD53FB3",
+  "paymentReference": "pay01a_f5b5f516-aa8a-446b-9f91-8e1ace0f076c",
+  "checkoutId": "cs_test_a17h8PiHLraKwvNxs8Cy1tZNEvSmB9ctxVOjAAhxzfW1elcUhcYNYorsH4",
+  "amountMinor": 100,
+  "currency": "JPY",
+  "sandboxAccountId": "acct_1UVnGaEjgXqvlsJk",
+  "buyerId": "u_2814e4a5f16a4826",
+  "vin": "QA-PAY03A-0001",
+  "live": false,
+  "paymentStatus": "pending"
+}
