@@ -1,3 +1,4 @@
+import { assertPay03bListingCapacity } from '../services/payment/pay03bSubscriptionService.js';
 import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
@@ -294,6 +295,24 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
         })),
       completeness_percent: completeness.completeness_percent ?? null,
     });
+  }
+
+  // PAY-03B: dealer published-listing capacity is a tenant entitlement checked here, at the domain boundary.
+  // Inert unless sandbox enforcement is explicitly enabled (CARUP_PAY03B_ENTITLEMENT_ENFORCEMENT=true): the
+  // capacity values are sandbox fixtures and retail values are an Owner decision, so existing dealers are
+  // unaffected everywhere else.
+  if (vehicle.tenant_id) {
+    try {
+      await assertPay03bListingCapacity({ tenantId: vehicle.tenant_id, vehicleId: vin });
+    } catch (err) {
+      if (err?.code === 'PAY03B_LISTING_CAPACITY_REACHED') {
+        return res.status(403).json({ error: 'Your plan\'s published-listing capacity is reached.', code: err.code, ...(err.details || {}) });
+      }
+      if (err?.code === 'PAY03B_ENTITLEMENT_UNAVAILABLE') {
+        return res.status(503).json({ error: 'Plan entitlements are unavailable right now. Please try again.', code: err.code });
+      }
+      throw err;
+    }
   }
 
   const { error } = await supabase
