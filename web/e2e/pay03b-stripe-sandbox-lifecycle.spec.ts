@@ -130,11 +130,14 @@ async function login(page: Page, who: 'dealerC' | 'ops') {
   await page.waitForFunction(() => Boolean(localStorage.getItem('carup_token')))
 }
 
-async function axeClean(page: Page, include: string) {
+async function axeViolations(page: Page, include: string): Promise<string[]> {
   const results = await new AxeBuilder({ page }).include(include).withTags(['wcag2a', 'wcag2aa']).analyze()
-  const found = results.violations.flatMap((v) => v.nodes.map((n) =>
+  return results.violations.flatMap((v) => v.nodes.map((n) =>
     `${v.id} @ ${n.target.join(' ')}: ${(n.any[0]?.message ?? n.failureSummary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`))
-  expect(found, `no WCAG 2 A/AA violations in ${include}`).toEqual([])
+}
+
+async function axeClean(page: Page, include: string) {
+  expect(await axeViolations(page, include), `no WCAG 2 A/AA violations in ${include}`).toEqual([])
 }
 
 /** Screenshots one loaded view at the three certified viewports (a resize re-lays out; it does not re-fetch). */
@@ -328,14 +331,19 @@ test(`Level 2 lifecycle stage: ${STAGE}`, async ({ page, request, baseURL }) => 
     await expect(page.getByTestId(`pay03b-admin-inspect-${before.subscription.id}`)).toBeVisible({ timeout: 30_000 })
     await page.getByTestId(`pay03b-admin-inspect-${before.subscription.id}`).click()
     await expect(page.getByTestId('pay03b-admin-subscription-detail')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('pay03b-admin-entitlements')).toBeVisible({ timeout: 30_000 })
+    await page.getByTestId('pay03b-admin-subscription-detail').screenshot({ path: `${SCREENS}/29-admin-detail-before-refund-desktop.png` })
     await page.getByTestId(`pay03b-admin-refund-${renewal.provider_invoice_id}`).click()
     await expect(page.getByTestId('pay03b-admin-refund-dialog')).toBeVisible()
     await expect(page.getByTestId('pay03b-admin-refund-effect')).toContainText(renewal.provider_invoice_id)
     await expect(page.getByTestId('pay03b-admin-refund-effect')).toContainText('500')
     await page.getByTestId('pay03b-admin-refund-reason').fill('Level 2 rehearsal: the one Owner-authorized governed full refund of the renewal invoice')
     await page.getByTestId('pay03b-admin-refund-understood').check()
-    await axeClean(page, '[data-testid="pay03b-admin-refund-dialog"]')
-    await page.screenshot({ path: `${SCREENS}/30-refund-dialog-desktop.png`, fullPage: true })
+    // Finding F-L2-02 (first refund-stage run, before any click): the destructive confirm button fails WCAG 2 AA
+    // contrast. Recorded as a SOFT assertion: the stage still reports it as a failure, the governed refund proceeds.
+    const dialogViolations = await axeViolations(page, '[data-testid="pay03b-admin-refund-dialog"]')
+    expect.soft(dialogViolations, 'no WCAG 2 A/AA violations in the refund dialog (finding F-L2-02)').toEqual([])
+    await page.getByTestId('pay03b-admin-refund-dialog').screenshot({ path: `${SCREENS}/30-refund-dialog-desktop.png` })
     const refundResponse = page.waitForResponse((r) => r.url().endsWith(`/invoices/${renewal.id}/refund`) && r.request().method() === 'POST')
     await page.getByTestId('pay03b-admin-refund-confirm').click() // exactly once; never retried
     const response = await refundResponse
@@ -343,12 +351,13 @@ test(`Level 2 lifecycle stage: ${STAGE}`, async ({ page, request, baseURL }) => 
     expect(response.status(), 'the governed refund was accepted').toBe(200)
     await expect(page.getByTestId('pay03b-admin-subscription-status')).toContainText(`Governed refund recorded for invoice ${renewal.provider_invoice_id}`,
       { timeout: 60_000 })
-    await page.screenshot({ path: `${SCREENS}/31-admin-refund-recorded-desktop.png`, fullPage: true })
+    await page.getByTestId('pay03b-admin-subscription-detail').screenshot({ path: `${SCREENS}/31-admin-refund-recorded-desktop.png` })
     const after = canonical()
     expect(after.refundRequests).toBe(1)
     expect(after.invoices.find((i) => i.billing_reason === 'subscription_create')?.payment_status, 'the first payment is untouched').toBe('paid')
     expect(['refund_pending', 'refunded']).toContain(after.invoices.find((i) => i.id === renewal.id)?.payment_status)
-    recordObservation({ refund: { http: response.status(), invoice: renewal.provider_invoice_id }, canonical: sanitizedCanonical(after) })
+    recordObservation({ refund: { http: response.status(), invoice: renewal.provider_invoice_id }, accessibility: { refundDialog: dialogViolations },
+      canonical: sanitizedCanonical(after) })
   }
 
   if (STAGE === 'after-refund') {
@@ -365,6 +374,13 @@ test(`Level 2 lifecycle stage: ${STAGE}`, async ({ page, request, baseURL }) => 
     if (atCheckout) expect(customer.paidThrough, 'paid-through is back to the first paid period').toBe(atCheckout.customer.paidThrough)
     const admin = await adminView(page, state)
     await capture(page, '33-admin-after-refund', '[data-testid="pay03b-admin-subscription-detail"]')
+    for (const vp of [VIEWPORTS[0], VIEWPORTS[2]]) {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await page.waitForTimeout(400)
+      await page.getByTestId('pay03b-admin-subscription-detail').screenshot({ path: `${SCREENS}/34-admin-detail-after-refund-${vp.name}.png` })
+      await page.getByTestId(`pay03b-admin-subscription-${state.subscription.id}`).screenshot({ path: `${SCREENS}/35-admin-row-after-refund-${vp.name}.png` })
+      await page.getByTestId('pay03b-admin-f5').screenshot({ path: `${SCREENS}/36-admin-f5-after-refund-${vp.name}.png` })
+    }
     recordObservation({ customer, admin, canonical: sanitizedCanonical(state) })
   }
 })
