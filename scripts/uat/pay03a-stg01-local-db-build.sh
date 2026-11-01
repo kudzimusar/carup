@@ -159,6 +159,7 @@ alignment local-alignment:005-issue164-p4-preimage-columns \
   ADD COLUMN IF NOT EXISTS currency_source text;"
 migration 20260818110000_issue164_listing_location_provenance.sql
 migration 20260828203000_passport_ownership_transfer_authority.sql optional
+migration 20260902150000_vehicle_life_generic_compat_types.sql
 migration 20260902160000_vehicle_seller_authority.sql
 
 # 20260817120000_sa1 also seeds communication templates and cannot run alone; only this column is read.
