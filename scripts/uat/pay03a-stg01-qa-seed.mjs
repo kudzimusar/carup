@@ -91,6 +91,14 @@ for (const [vin, make, model, year] of vehicles) {
   sql(`insert into public.vehicles (vin, make, model, year, mileage, price, owner_id, import_source, status)
        values ('${vin}', '${make}', '${model}', ${year}, 0, 0, '${seller}', '${QA}', 'Available') on conflict (vin) do nothing;`);
 }
+// Visibility provisioning (F6): PAY-03A discovery/readiness honour the public status/publication gate. The QA
+// rehearsal vehicles are published here in lieu of the seller publication flow; QA-PAY03A-0005 stays a DRAFT
+// control that must never be discoverable or purchasable.
+sql(`update public.vehicles set publication_status = 'published', status = 'Available'
+     where vin in ('QA-PAY03A-0001','QA-PAY03A-0002','QA-PAY03A-0003','QA-PAY03A-0004') and publication_status is distinct from 'published';`);
+sql(`insert into public.vehicles (vin, make, model, year, mileage, price, owner_id, import_source, status, publication_status)
+     values ('QA-PAY03A-0005', 'QA-Fixture', 'Draft visibility control', 2015, 0, 0, '${seller}', '${QA}', 'Available', 'draft')
+     on conflict (vin) do nothing;`);
 sql(`insert into public.vehicle_ownership_history (vin, previous_owner_id, new_owner_id, transfer_date, transfer_hash)
      select 'QA-PAY03A-0003', null, '${seller}', now()::text, 'qa-pay03a-initial-registration'
      where not exists (select 1 from public.vehicle_ownership_history where vin = 'QA-PAY03A-0003');`);

@@ -158,6 +158,10 @@ for (const [id, vin, label] of [
   record(id, `${label}: ineligible at readiness and checkout refused 422 before charging`,
     refused, readiness.json?.eligibleForPurchase === false && refused.status === 422 && refused.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE', 'service(eligibility gate)');
 }
+r = await api('buyerA', 'GET', '/api/pay03a/vehicles/QA-PAY03A-0005/readiness');
+const draftListed = await api('buyerA', 'GET', '/api/pay03a/vehicles?search=QA-PAY03A-0005');
+record('N23', 'Draft (unpublished) vehicle is neither discoverable nor open for readiness (F6)', r,
+  r.status === 404 && r.code === 'PAY03A_VEHICLE_NOT_FOUND' && Array.isArray(draftListed.json?.vehicles) && draftListed.json.vehicles.length === 0, 'service(visibility gate)');
 r = await api('buyerA', 'GET', '/api/pay03a/vehicles/QA-PAY03A-0001/readiness');
 record('P01', `Independently reviewed, dated, public-safe QA evidence → eligible (${r.json?.provenanceClassification})`, r,
   r.status === 200 && r.json?.eligibleForPurchase === true && r.json?.provenanceClassification === 'QA_INTEGRATION_FIXTURE', 'service');
