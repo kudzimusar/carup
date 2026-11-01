@@ -25,7 +25,7 @@ test.skip(
   !ACCOUNTS_FILE || !EVIDENCE_DIR || !EXPECTED_SHA,
   'PAY-03A physical UAT runs only against the isolated local runtime (scripts/uat/pay03a-stg01-local-runtime.sh).',
 )
-test.describe.configure({ mode: 'serial' })
+test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
 type Account = { email: string; password: string; userId: string }
 const accounts: Record<string, Account> = ACCOUNTS_FILE ? JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf8')) : {}
@@ -38,7 +38,23 @@ const VIEWPORTS = [
   { name: 'mobile', width: 390, height: 844 },
 ] as const
 
+// Every request comes from 127.0.0.1, and the backend's global limiter allows 100 requests/min per IP
+// (securityMiddleware). Each account therefore logs in ONCE through the real UI login form; later tests
+// restore that session onto a static same-origin page (no API calls), and tests are spaced out below.
+const sessionCache: Record<string, { token: string; user: string }> = {}
+
 async function login(page: Page, who: string) {
+  const cached = sessionCache[who]
+  if (cached) {
+    await page.goto('/carup-provenance.json')
+    await page.evaluate(({ token, user }) => {
+      localStorage.clear()
+      sessionStorage.clear()
+      localStorage.setItem('carup_token', token)
+      localStorage.setItem('carup_user', user)
+    }, cached)
+    return
+  }
   await page.goto('/login')
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear() })
   await page.reload()
@@ -46,7 +62,15 @@ async function login(page: Page, who: string) {
   await page.getByTestId('password-input').fill(accounts[who].password)
   await page.getByTestId('login-button').click()
   await page.waitForFunction(() => Boolean(localStorage.getItem('carup_token')))
+  sessionCache[who] = await page.evaluate(() => ({
+    token: localStorage.getItem('carup_token') || '',
+    user: localStorage.getItem('carup_user') || '',
+  }))
 }
+
+test.afterEach(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 20_000))
+})
 
 async function shot(page: Page, name: string) {
   await page.screenshot({ path: `${SCREENS}/${name}.png`, fullPage: true })
