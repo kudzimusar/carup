@@ -1071,7 +1071,7 @@ export default function Pay02CommercialFoundation() {
                     {item.blockerReason && (
                       <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
                         <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5 text-amber-700" />
-                        <span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">
                           <strong>Blocker [{item.blockerClass || 'GOVERNANCE'}]:</strong> {item.blockerReason}
                         </span>
                       </div>
