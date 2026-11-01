@@ -49,8 +49,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: PAY-03B F5, provider adapter/simulator and Diaspora bridge contracts
-        run: node --test backend/tests/pay03b-refund-mismatch.test.js backend/tests/pay03b-provider-reconciliation.test.js backend/tests/pay03b-diaspora-bridge.test.js
+      - name: PAY-03B F5, provider adapter/simulator, Diaspora bridge contracts and route hardening
+        run: node --test backend/tests/pay03b-refund-mismatch.test.js backend/tests/pay03b-provider-reconciliation.test.js backend/tests/pay03b-diaspora-bridge.test.js backend/tests/pay03b-route-hardening.test.js
       - name: PAY-01A/B/C, PAY-02 and PAY-03A regressions (F5 changed the canonical payment boundary)
         run: node --test backend/tests/pay01a-stripe-sandbox-foundation.test.js backend/tests/pay01c-demo-product.test.js backend/tests/pay02-commercial-foundation.test.js backend/tests/pay03a-real-report-commerce.test.js backend/tests/vehicle-report.test.js backend/tests/operations-evidence-semantics.test.js backend/tests/golden-journey.test.js
       - name: Diaspora subscription authority, dealer compliance, listing publication and migration integrity continuity
@@ -103,7 +103,8 @@ jobs:
           SUPABASE_URL: http://localhost:54321
           SUPABASE_SERVICE_ROLE_KEY: offline-ci-fixture-only
           PAY03B_TEST_PGURL: postgresql://postgres:ephemeral-ci-only@127.0.0.1:5432/pay01c_sandbox_ci
-        run: node --test backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js
+        # Serial: both files share one disposable database and each switches the simulator guard off on teardown.
+        run: node --test --test-concurrency=1 backend/tests/pay03b-business-subscriptions.test.js backend/tests/pay03b-tenant-entitlements.test.js
 
   isolated-postgres-pay03b-first:
     name: Disposable PostgreSQL — PAY-03B migrations first, then the certified PAY-01C/PAY-02/PAY-03A smokes on the new writers

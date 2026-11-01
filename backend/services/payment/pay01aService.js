@@ -238,6 +238,9 @@ export async function readPay01aProviderPaymentTruth({ reference, db = supabase,
   requirePay01aSandbox(env);
   const row = await getRow(db, reference);
   const api = await stripeForSandbox({ env, stripe });
+  // Taken BEFORE the provider read: a webhook observation recorded while this read was in flight is then newer than
+  // the verification, and the F5 resolver refuses the (possibly superseded) evidence.
+  const verifiedAt = new Date().toISOString();
   const { snapshot } = await retrieveSnapshot(api, row);
   const evidence = snapshot.refundEvidence || { refundedMinor: 0, pendingRefundMinor: 0, refundIds: [] };
   return {
@@ -248,7 +251,7 @@ export async function readPay01aProviderPaymentTruth({ reference, db = supabase,
     pendingRefundMinor: evidence.pendingRefundMinor,
     refundIds: evidence.refundIds,
     mismatch: evidence.mismatch || null,
-    verifiedAt: new Date().toISOString(),
+    verifiedAt,
   };
 }
 

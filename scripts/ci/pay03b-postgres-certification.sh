@@ -103,6 +103,7 @@ pay03b_smokes() {
   echo '== PAY-03B smokes'
   run_smoke pay03b-f5-reconciliation-postgres-smoke.sql
   run_smoke pay03b-subscriptions-postgres-smoke.sql
+  run_smoke pay03b-remediation-postgres-smoke.sql
 }
 
 # Fingerprint the ORIGINAL columns of the canonical money/entitlement rows (later migrations may add columns).

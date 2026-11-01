@@ -299,11 +299,28 @@ export interface Pay03bChangeRequestRow {
   completed_at: string | null
 }
 
+/**
+ * An invoice the provider listed that CarUp's canonical writers could not record (an ungoverned price, an unsupported
+ * billing reason, a duplicate period...). While one is open the subscription's paid access is suspended.
+ */
+export interface Pay03bSyncException {
+  id: string
+  providerInvoiceId: string
+  errorCode: string
+  status: 'open' | 'cleared'
+  observationCount: number
+  firstSeenAt: string
+  lastSeenAt: string
+  clearedAt: string | null
+}
+
 export interface Pay03bAdminSubscriptionDetail {
   subscription: Pay03bSubscription
   invoices: Pay03bInvoice[]
   transitions: Pay03bTransitionRow[]
   changeRequests: Pay03bChangeRequestRow[]
+  /** Absent from responses produced before provider-sync exceptions existed. */
+  syncExceptions?: Pay03bSyncException[]
   entitlements: Pay03bEntitlements
   sourceOfTruth: string
   /** Present on a reconcile response: what the fresh provider read did. */

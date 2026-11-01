@@ -277,8 +277,16 @@ app.use('/api/pay02/admin/proposals', rateLimiter({ max: 10, windowMs: 60 * 1000
 app.use('/api/pay03a/orders/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03a/admin/orders', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/dealer/subscription/checkout', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+// Every other PAY-03B route that calls the payment provider (reads included) is limited too (review R12).
+app.use('/api/pay03b/dealer/subscription/verify', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/change', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/change-preview', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/cancel', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/payment-method', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/dealer/subscription/invoices', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/reconciliation-exceptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/pay03b/admin/subscriptions', rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/pay03b/admin/stripe-sandbox', rateLimiter({ max: 3, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
 // verification checks the real payload the sender signed. The global parsers run before any

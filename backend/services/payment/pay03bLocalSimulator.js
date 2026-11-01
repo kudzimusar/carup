@@ -113,14 +113,15 @@ export class Pay03bLocalSimulatorProvider extends BillingProvider {
       if (!state.customers[customerId]) throw new Pay03bError('PAY03B_CHECKOUT_PROVIDER_MISMATCH', 502);
       if (state.checkoutKeys[idempotencyKey]) {
         const existing = state.checkouts[state.checkoutKeys[idempotencyKey]];
-        return { checkoutId: existing.id, url: `${this.config.publicOrigin}/api/pay03b/simulator/checkout/${existing.id}` };
+        return { checkoutId: existing.id, url: `${this.config.publicOrigin}/api/pay03b/simulator/checkout/${existing.id}`,
+          amountTotalMinor: existing.amountMinor, currency: existing.currency };
       }
       const id = this.id(state, 'sim_cs');
       state.checkouts[id] = { id, mode: 'subscription', status: 'open', customerId, priceRef, amountMinor, currency,
         clientReference: subscriptionReference, metadata: { ...metadata, carup_subscription_reference: subscriptionReference },
         successUrl, cancelUrl, subscriptionId: null, createdAt: new Date().toISOString() };
       state.checkoutKeys[idempotencyKey] = id;
-      return { checkoutId: id, url: `${this.config.publicOrigin}/api/pay03b/simulator/checkout/${id}` };
+      return { checkoutId: id, url: `${this.config.publicOrigin}/api/pay03b/simulator/checkout/${id}`, amountTotalMinor: amountMinor, currency };
     });
   }
 
@@ -129,7 +130,8 @@ export class Pay03bLocalSimulatorProvider extends BillingProvider {
     if (!c) throw new Pay03bError('PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
     return { id: c.id, livemode: false, mode: 'subscription', status: c.status, paymentStatus: c.status === 'complete' ? 'paid' : 'unpaid',
       customerId: c.customerId, subscriptionId: c.subscriptionId, clientReference: c.clientReference, metadata: c.metadata,
-      url: c.status === 'open' ? `${this.config.publicOrigin}/api/pay03b/simulator/checkout/${c.id}` : null };
+      url: c.status === 'open' ? `${this.config.publicOrigin}/api/pay03b/simulator/checkout/${c.id}` : null,
+      amountTotalMinor: c.amountMinor, currency: c.currency };
   }
 
   /** The checkout page record for the simulator page (no secrets; amounts and the return URLs only). */

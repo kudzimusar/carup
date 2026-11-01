@@ -71,6 +71,9 @@ describe('access reasons and lifecycle', () => {
     )
     expect(describePay03bAccessReason('paid_through_after_period_end_cancellation')).toContain('paid-through date')
     expect(describePay03bAccessReason('some_new_reason')).toBe('Access decision: Some new reason.')
+    expect(describePay03bAccessReason('provider_sync_exception')).toBe(
+      'CarUp could not record an invoice from the provider; paid features are suspended until it is reconciled.',
+    )
   })
 
   it('live vs changeable mirrors the database rules', () => {

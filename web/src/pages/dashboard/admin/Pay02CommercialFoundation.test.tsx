@@ -839,6 +839,31 @@ describe('Pay02CommercialFoundation — PAY-03B business subscriptions & F5 reco
     expect(within(detail).queryByTestId('pay03b-admin-refund-sim_in_0002')).toBeNull()
   })
 
+  it('shows provider-sync exceptions (an invoice CarUp could not record) with their code and state, and why access is suspended', async () => {
+    const withException = {
+      ...DETAIL,
+      entitlements: { ...DETAIL.entitlements, access: false, reason: 'provider_sync_exception', effective: { [CAPACITY_KEY]: 3 } },
+      syncExceptions: [
+        { id: 'sx-1', providerInvoiceId: 'sim_in_0099', errorCode: 'PAY03B_PROVIDER_PRICE_NOT_GOVERNED', status: 'open',
+          observationCount: 2, firstSeenAt: '2026-11-03T00:00:00.000Z', lastSeenAt: '2026-11-03T00:10:00.000Z', clearedAt: null },
+        { id: 'sx-0', providerInvoiceId: 'sim_in_0042', errorCode: 'PAY03B_INVOICE_BILLING_REASON_UNSUPPORTED', status: 'cleared',
+          observationCount: 1, firstSeenAt: '2026-11-02T00:00:00.000Z', lastSeenAt: '2026-11-02T00:00:00.000Z', clearedAt: '2026-11-02T01:00:00.000Z' },
+      ],
+    }
+    mockApiRequest.mockImplementation(routeConsole([[(p) => p === '/pay03b/admin/subscriptions/sub-1', () => withException]]))
+    renderConsole()
+    fireEvent.click(await screen.findByTestId('pay03b-admin-inspect-sub-1'))
+    const detail = await screen.findByTestId('pay03b-admin-subscription-detail')
+    const open = await within(detail).findByTestId('pay03b-admin-sync-exception-sx-1')
+    expect(open.textContent).toContain('sim_in_0099')
+    expect(open.textContent).toContain('PAY03B_PROVIDER_PRICE_NOT_GOVERNED')
+    expect(open.textContent).toContain('Open')
+    expect(open.textContent).toContain('seen 2 times')
+    expect(within(detail).getByTestId('pay03b-admin-sync-exception-sx-0').textContent).toContain('Cleared')
+    expect(within(detail).getByTestId('pay03b-admin-sync-exceptions-alert').textContent).toContain('1 open')
+    expect(within(detail).getByTestId('pay03b-admin-entitlements').textContent).toContain('could not record an invoice')
+  })
+
   it('reconciles with the provider, and suspends only with a 10+ character reason and an idempotency key', async () => {
     mockApiRequest.mockImplementation(routeConsole([
       [(p) => p.endsWith('/reconcile'), () => ({ ...DETAIL, result: { state: 'synchronized', invoicesSynced: 2 } })],

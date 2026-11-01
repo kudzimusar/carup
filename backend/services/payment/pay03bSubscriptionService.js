@@ -9,8 +9,9 @@
  */
 import crypto from 'node:crypto';
 import { supabase } from '../../db/supabase.js';
+import { logger } from '../../utils/logger.js';
 import {
-  Pay03bError, isPay03bProductionRuntime, pay03bAuditSucceeded, pay03bRpcError, recordPay03bAudit, requireAdminActor,
+  Pay03bError, isPay03bProductionRuntime, isPay0xError, pay03bAuditSucceeded, pay03bRpcError, recordPay03bAudit, requireAdminActor,
 } from './pay03bContract.js';
 import { Pay03bStripeSandboxProvider } from './pay03bProviderAdapters.js';
 import { Pay03bLocalSimulatorProvider } from './pay03bLocalSimulator.js';
@@ -269,18 +270,81 @@ async function billingCustomerFor(db, row) {
 }
 
 /**
+ * A deterministic CarUp refusal (4xx) of one invoice is quarantined as a provider-sync exception; anything else
+ * (provider or database unavailable, an unexpected error) is transient and makes the delivery fail so it is retried.
+ */
+function isTransientSyncFailure(err) {
+  return !(isPay0xError(err) && Number(err.status) < 500);
+}
+
+/** Observation time is taken BEFORE the provider read it describes, so a slower, older read can never win. */
+const observationStamp = () => new Date().toISOString();
+
+async function openSyncExceptionInvoiceIds(db, subscriptionId) {
+  const rows = await selectRows(db.from('pay03b_subscription_sync_exceptions').select('provider_invoice_id')
+    .eq('subscription_id', subscriptionId).eq('status', 'open'));
+  return new Set(rows.map((r) => r.provider_invoice_id));
+}
+
+function alertOperators(message, detail) {
+  logger.warn('PAYMENTS', message, { alert: message, programme: 'PAY-03B', ...detail });
+}
+
+async function recordInvoiceFromProvider({ db, provider, subscriptionRow, snapshot, invoice, observedAt, eventId }) {
+  if (invoice.rejected) throw new Pay03bError(invoice.errorCode || 'PAY03B_INVOICE_SHAPE_UNSUPPORTED', 409);
+  if (invoice.subscriptionId !== snapshot.id) throw new Pay03bError('PAY03B_PROVIDER_INVOICE_SUBSCRIPTION_MISMATCH', 409);
+  let truth = null;
+  if (invoice.paymentIntentId && invoice.amountDueMinor > 0) {
+    truth = await provider.getPaymentTruth({ paymentIntentId: invoice.paymentIntentId, amountMinor: invoice.amountDueMinor,
+      currency: invoice.currency });
+    // A succeeded payment whose invoice the provider has not yet marked paid is recorded on the next read.
+    if (['paid', 'refund_pending', 'refunded', 'reconciliation_hold'].includes(truth.status)
+      && (invoice.status !== 'paid' || invoice.amountPaidMinor !== invoice.amountDueMinor)) {
+      truth = null;
+    }
+  }
+  const recorded = await rpc(db, 'pay03b_record_subscription_invoice', {
+    p_subscription_id: subscriptionRow.id, p_provider_invoice_id: invoice.id, p_billing_reason: invoice.billingReason,
+    p_price_ref: invoice.priceRef, p_period_start: invoice.periodStart, p_period_end: invoice.periodEnd,
+    p_currency: invoice.currency, p_amount_due_minor: invoice.amountDueMinor, p_amount_paid_minor: invoice.amountPaidMinor,
+    p_amount_remaining_minor: invoice.amountRemainingMinor, p_provider_status: invoice.status,
+    p_payment_intent_id: invoice.paymentIntentId, p_attempt_count: invoice.attemptCount,
+    p_next_payment_attempt: invoice.nextPaymentAttempt, p_observed_at: observedAt,
+    p_payment_status: truth?.status ?? null,
+    p_refund_id: truth?.status === 'refunded' ? truth.oldestSucceededRefundId : null,
+    p_refunded_minor: truth ? truth.refundedMinor : null,
+    p_pending_refund_minor: truth ? truth.pendingRefundMinor : null,
+    p_refund_ids: truth ? truth.refundIds : null,
+    p_mismatch: truth?.status === 'reconciliation_hold' ? truth.mismatch : null,
+    p_detected_via: eventId ? 'signed_webhook' : 'provider_readback',
+    p_event_id: null, p_event_type: null,
+  });
+  if (recorded?.reconciliation_exception_event === 'opened') {
+    alertOperators('PAY03B_PAYMENT_RECONCILIATION_HOLD_OPENED', {
+      subscriptionId: subscriptionRow.id, ownerTenantId: subscriptionRow.owner_tenant_id, providerInvoiceId: invoice.id,
+      paymentReference: recorded.payment?.reference || null, reconciliationExceptionId: recorded.reconciliation_exception_id || null,
+      providerRefundedMinor: truth?.refundedMinor ?? null, providerPendingRefundMinor: truth?.pendingRefundMinor ?? null,
+    });
+  }
+  return recorded;
+}
+
+/**
  * Fresh provider read -> canonical writers. Idempotent and order-independent: the database ignores stale
- * observations, de-duplicates events and never lets an invoice extend access unless it is paid in full,
- * at the governed price, through a canonical 'paid' payment.
+ * observations and never lets an invoice extend access unless it is paid in full, at the governed price, through a
+ * canonical 'paid' payment. A redelivered event is never treated as "already done" (the work after its receipt may
+ * not have completed); each invoice is recorded independently, so one invoice that cannot be recorded never blocks
+ * the others: a deterministic refusal becomes a durable provider-sync exception (which suspends paid access until it
+ * clears), a transient failure is rethrown after the others so the event is retried.
  */
 export async function syncPay03bSubscriptionFromProvider({ db = supabase, provider, subscriptionRow, eventId = null, eventType = null }) {
   if (!subscriptionRow) throw new Pay03bError('PAY03B_SUBSCRIPTION_NOT_FOUND', 404);
   if (subscriptionRow.gateway !== provider.gateway) throw new Pay03bError('PAY03B_PROVIDER_GATEWAY_MISMATCH', 409);
   await provider.verifyAccount();
-  const observedAt = () => new Date().toISOString();
   let providerSubscriptionId = subscriptionRow.provider_subscription_id;
   if (!providerSubscriptionId) {
     if (!subscriptionRow.provider_checkout_id) return { state: 'awaiting_checkout', duplicateEvent: false };
+    const checkoutObservedAt = observationStamp();
     const checkout = await provider.getCheckout(subscriptionRow.provider_checkout_id);
     if (checkout.clientReference !== subscriptionRow.subscription_reference || checkout.mode !== 'subscription') {
       throw new Pay03bError('PAY03B_CHECKOUT_REFERENCE_MISMATCH', 409);
@@ -289,13 +353,14 @@ export async function syncPay03bSubscriptionFromProvider({ db = supabase, provid
       const applied = await rpc(db, 'pay03b_apply_subscription_snapshot', {
         p_subscription_id: subscriptionRow.id, p_provider_subscription_id: null, p_provider_status: null, p_price_ref: null,
         p_current_period_start: null, p_current_period_end: null, p_cancel_at_period_end: null, p_canceled_at: null,
-        p_ended_at: null, p_trial_end: null, p_observed_at: observedAt(), p_event_id: eventId, p_event_type: eventType,
+        p_ended_at: null, p_trial_end: null, p_observed_at: checkoutObservedAt, p_event_id: eventId, p_event_type: eventType,
         p_checkout_status: checkout.status,
       });
       return { state: checkout.status === 'expired' ? 'checkout_expired' : 'awaiting_payment', duplicateEvent: Boolean(applied?.duplicate_event) };
     }
     providerSubscriptionId = checkout.subscriptionId;
   }
+  const subscriptionObservedAt = observationStamp();
   const snapshot = await provider.getSubscription(providerSubscriptionId);
   if (snapshot.subscriptionReference && snapshot.subscriptionReference !== subscriptionRow.subscription_reference) {
     throw new Pay03bError('PAY03B_PROVIDER_SUBSCRIPTION_REFERENCE_MISMATCH', 409);
@@ -307,43 +372,45 @@ export async function syncPay03bSubscriptionFromProvider({ db = supabase, provid
     p_price_ref: snapshot.priceRef, p_current_period_start: snapshot.currentPeriodStart,
     p_current_period_end: snapshot.currentPeriodEnd, p_cancel_at_period_end: snapshot.cancelAtPeriodEnd,
     p_canceled_at: snapshot.canceledAt, p_ended_at: snapshot.endedAt, p_trial_end: snapshot.trialEnd,
-    p_observed_at: observedAt(), p_event_id: eventId, p_event_type: eventType, p_checkout_status: null,
+    p_observed_at: subscriptionObservedAt, p_event_id: eventId, p_event_type: eventType, p_checkout_status: null,
   });
-  if (applied?.duplicate_event) return { state: 'duplicate_event', duplicateEvent: true };
-  const invoices = (await provider.listSubscriptionInvoices(snapshot.id))
-    .sort((a, b) => Date.parse(a.periodStart) - Date.parse(b.periodStart));
+  const duplicateEvent = Boolean(applied?.duplicate_event);
+
+  const invoicesObservedAt = observationStamp();
+  const listing = await provider.listSubscriptionInvoices(snapshot.id);
+  const openExceptions = await openSyncExceptionInvoiceIds(db, subscriptionRow.id);
+  const ordered = [...listing].sort((a, b) => (Date.parse(a.periodStart) || 0) - (Date.parse(b.periodStart) || 0));
   let synced = 0;
-  for (const invoice of invoices) {
-    if (invoice.subscriptionId !== snapshot.id) throw new Pay03bError('PAY03B_PROVIDER_INVOICE_SUBSCRIPTION_MISMATCH', 409);
-    let truth = null;
-    if (invoice.paymentIntentId && invoice.amountDueMinor > 0) {
-      truth = await provider.getPaymentTruth({ paymentIntentId: invoice.paymentIntentId, amountMinor: invoice.amountDueMinor,
-        currency: invoice.currency });
-      // A succeeded payment whose invoice the provider has not yet marked paid is recorded on the next read.
-      if (['paid', 'refund_pending', 'refunded', 'reconciliation_hold'].includes(truth.status)
-        && (invoice.status !== 'paid' || invoice.amountPaidMinor !== invoice.amountDueMinor)) {
-        truth = null;
+  const syncExceptions = [];
+  const transientFailures = [];
+  for (const invoice of ordered) {
+    try {
+      await recordInvoiceFromProvider({ db, provider, subscriptionRow, snapshot, invoice, observedAt: invoicesObservedAt, eventId });
+      synced += 1;
+      if (openExceptions.has(invoice.id)) {
+        await rpc(db, 'pay03b_clear_sync_exceptions', { p_subscription_id: subscriptionRow.id, p_provider_invoice_id: invoice.id });
       }
+    } catch (err) {
+      if (isTransientSyncFailure(err) || !invoice.id) { transientFailures.push(err); continue; }
+      try {
+        await rpc(db, 'pay03b_record_sync_exception', { p_subscription_id: subscriptionRow.id, p_provider_invoice_id: invoice.id,
+          p_error_code: err.code });
+      } catch (recordErr) { transientFailures.push(recordErr); continue; }
+      syncExceptions.push({ providerInvoiceId: invoice.id, code: err.code });
+      alertOperators('PAY03B_SUBSCRIPTION_SYNC_EXCEPTION', { subscriptionId: subscriptionRow.id,
+        ownerTenantId: subscriptionRow.owner_tenant_id, providerInvoiceId: invoice.id, errorCode: err.code });
     }
-    await rpc(db, 'pay03b_record_subscription_invoice', {
-      p_subscription_id: subscriptionRow.id, p_provider_invoice_id: invoice.id, p_billing_reason: invoice.billingReason,
-      p_price_ref: invoice.priceRef, p_period_start: invoice.periodStart, p_period_end: invoice.periodEnd,
-      p_currency: invoice.currency, p_amount_due_minor: invoice.amountDueMinor, p_amount_paid_minor: invoice.amountPaidMinor,
-      p_amount_remaining_minor: invoice.amountRemainingMinor, p_provider_status: invoice.status,
-      p_payment_intent_id: invoice.paymentIntentId, p_attempt_count: invoice.attemptCount,
-      p_next_payment_attempt: invoice.nextPaymentAttempt, p_observed_at: observedAt(),
-      p_payment_status: truth?.status ?? null,
-      p_refund_id: truth?.status === 'refunded' ? truth.oldestSucceededRefundId : null,
-      p_refunded_minor: truth ? truth.refundedMinor : null,
-      p_pending_refund_minor: truth ? truth.pendingRefundMinor : null,
-      p_refund_ids: truth ? truth.refundIds : null,
-      p_mismatch: truth?.status === 'reconciliation_hold' ? truth.mismatch : null,
-      p_detected_via: eventId ? 'signed_webhook' : 'provider_readback',
-      p_event_id: null, p_event_type: null,
-    });
-    synced += 1;
   }
-  return { state: 'synchronized', duplicateEvent: false, invoicesSynced: synced };
+  // The listing is complete (or the adapter failed closed), so an exception for an invoice the provider no longer
+  // has (a deleted draft) is cleared.
+  const listedIds = new Set(listing.map((i) => i.id).filter(Boolean));
+  for (const invoiceId of openExceptions) {
+    if (!listedIds.has(invoiceId)) {
+      await rpc(db, 'pay03b_clear_sync_exceptions', { p_subscription_id: subscriptionRow.id, p_provider_invoice_id: invoiceId });
+    }
+  }
+  if (transientFailures.length) throw transientFailures[0];
+  return { state: 'synchronized', duplicateEvent, invoicesSynced: synced, syncExceptions };
 }
 
 async function findSubscriptionRow(db, column, value) {
@@ -407,6 +474,33 @@ function assertTermsAcknowledged(plan, terms) {
   }
 }
 
+function checkoutMatchesPlan(checkout, plan) {
+  return Number.isSafeInteger(checkout?.amountTotalMinor) && checkout.amountTotalMinor === Number(plan.amount_minor)
+    && checkout.currency === plan.currency;
+}
+
+/**
+ * The provider's own statement of the charge must equal the governed plan before a Checkout URL is handed to a buyer.
+ * A drifted session (a mis-provisioned price, a provider-side change) is expired at the provider, the agreement is
+ * re-read into incomplete_expired (so nothing is left stuck), the refusal is audited, and the buyer gets no URL.
+ */
+async function refuseDriftedCheckout({ db, provider, subscriptionId, checkout, plan, actorId, actorRole, tenantId, requestContext }) {
+  if (checkout.status === undefined || checkout.status === 'open') {
+    try { await provider.expireCheckout(checkout.checkoutId || checkout.id); } catch { /* the re-read below decides */ }
+  }
+  const [row] = await selectRows(db.from('pay03b_business_subscriptions').select('*').eq('id', subscriptionId));
+  if (row) await syncPay03bSubscriptionFromProvider({ db, provider, subscriptionRow: row });
+  await recordPay03bAudit(db, {
+    eventType: 'PAY03B_SUBSCRIPTION_CHECKOUT_REFUSED_AMOUNT_MISMATCH', actorId, actorRole, tenantId,
+    sourceRoute: '/api/pay03b/dealer/subscription/checkout', requestContext,
+    reason: 'The provider checkout amount or currency differed from the governed plan; the session was expired unused.',
+    subject: { subscriptionId, planCode: plan.plan_code, planVersion: plan.plan_version, governedAmountMinor: Number(plan.amount_minor),
+      governedCurrency: plan.currency, providerAmountMinor: checkout.amountTotalMinor ?? null, providerCurrency: checkout.currency ?? null,
+      gateway: provider.gateway },
+  });
+  throw new Pay03bError('PAY03B_CHECKOUT_AMOUNT_MISMATCH', 502);
+}
+
 export async function createPay03bDealerCheckout({
   db = supabase, env = process.env, stripe = null, provider: injected = null, actorId, tenantId, planId, acknowledgedTerms,
   requestKey, requestContext = null,
@@ -433,6 +527,10 @@ export async function createPay03bDealerCheckout({
     if (live?.status === 'incomplete' && live.plan_id === planId && live.provider_checkout_id && live.gateway === provider.gateway) {
       await provider.verifyAccount();
       const existing = await provider.getCheckout(live.provider_checkout_id);
+      if (existing.status === 'open' && !checkoutMatchesPlan(existing, plan)) {
+        await refuseDriftedCheckout({ db, provider, subscriptionId: live.id, checkout: existing, plan, actorId,
+          actorRole: ctx.tenantRole, tenantId, requestContext });
+      }
       if (existing.status === 'open' && existing.url) {
         return { subscriptionId: live.id, checkoutId: existing.id, checkoutUrl: existing.url, checkoutStatus: 'open',
           idempotentReplay: true, resumed: true, gateway: provider.gateway, simulated: provider.isSimulator === true,
@@ -445,6 +543,10 @@ export async function createPay03bDealerCheckout({
   await provider.verifyAccount();
   if (sub.provider_checkout_id) {
     const existing = await provider.getCheckout(sub.provider_checkout_id);
+    if (existing.status === 'open' && !checkoutMatchesPlan(existing, plan)) {
+      await refuseDriftedCheckout({ db, provider, subscriptionId: sub.id, checkout: existing, plan, actorId,
+        actorRole: ctx.tenantRole, tenantId, requestContext });
+    }
     return { subscriptionId: sub.id, checkoutId: existing.id, checkoutUrl: existing.status === 'open' ? existing.url || null : null,
       checkoutStatus: existing.status, idempotentReplay: true, gateway: provider.gateway, simulated: provider.isSimulator === true,
       amountMinor: Number(plan.amount_minor), currency: plan.currency, live: false };
@@ -471,6 +573,10 @@ export async function createPay03bDealerCheckout({
   await rpc(db, 'pay03b_attach_subscription_checkout', {
     p_subscription_id: sub.id, p_checkout_id: checkout.checkoutId, p_provider_customer_id: customerId,
   });
+  if (!checkoutMatchesPlan(checkout, plan)) {
+    await refuseDriftedCheckout({ db, provider, subscriptionId: sub.id, checkout: { ...checkout, status: 'open' }, plan, actorId,
+      actorRole: ctx.tenantRole, tenantId, requestContext });
+  }
   await recordPay03bAudit(db, {
     eventType: 'PAY03B_SUBSCRIPTION_CHECKOUT_CREATED', actorId, actorRole: ctx.tenantRole, tenantId,
     sourceRoute: '/api/pay03b/dealer/subscription/checkout', requestContext,
@@ -645,6 +751,11 @@ export async function readPay03bAdminSubscription({ db = supabase, subscriptionI
       .order('recorded_at', { ascending: false }).limit(100)),
     changeRequests: await selectRows(db.from('pay03b_subscription_change_requests').select('*').eq('subscription_id', row.id)
       .order('requested_at', { ascending: false }).limit(100)),
+    syncExceptions: (await selectRows(db.from('pay03b_subscription_sync_exceptions').select('*').eq('subscription_id', row.id)
+      .order('last_seen_at', { ascending: false }).limit(100))).map((x) => ({
+      id: x.id, providerInvoiceId: x.provider_invoice_id, errorCode: x.error_code, status: x.status,
+      observationCount: x.observation_count, firstSeenAt: x.first_seen_at, lastSeenAt: x.last_seen_at, clearedAt: x.cleared_at || null,
+    })),
     entitlements: await getPay03bTenantEntitlements({ db, tenantId: row.owner_tenant_id }),
     sourceOfTruth: SOURCE_OF_TRUTH,
   };
@@ -724,7 +835,8 @@ export async function assertPay03bListingCapacity({ db = supabase, env = process
   try { entitlements = await getPay03bTenantEntitlements({ db, tenantId }); }
   catch { throw new Pay03bError('PAY03B_ENTITLEMENT_UNAVAILABLE', 503); }
   const capacity = entitlements.effective[PAY03B_LISTING_CAPACITY_KEY];
-  if (capacity === null || capacity === undefined) return { enforced: true, capacity: null, published: null };
+  // Enforcement without any governed capacity (no baseline plan, no paid plan) would be "unlimited": refuse instead.
+  if (!Number.isInteger(capacity)) throw new Pay03bError('PAY03B_ENTITLEMENT_BASELINE_MISSING', 503);
   const published = (await selectRows(db.from('vehicles').select('vin, publication_status').eq('tenant_id', tenantId)
     .eq('publication_status', 'published'), 'PAY03B_ENTITLEMENT_UNAVAILABLE'))
     .filter((v) => String(v.vin) !== String(vehicleId)).length;

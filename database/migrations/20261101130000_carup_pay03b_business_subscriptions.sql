@@ -331,7 +331,8 @@ CREATE TABLE IF NOT EXISTS public.pay03b_subscription_invoices (
   amount_paid_minor bigint NOT NULL DEFAULT 0 CHECK (amount_paid_minor >= 0),
   amount_remaining_minor bigint NOT NULL DEFAULT 0 CHECK (amount_remaining_minor >= 0),
   provider_status text NOT NULL CHECK (provider_status IN ('draft', 'open', 'paid', 'uncollectible', 'void')),
-  anomaly text CHECK (anomaly IS NULL OR anomaly IN ('amount_mismatch', 'currency_mismatch', 'unexpected_zero_amount', 'unauthorized_proration')),
+  anomaly text CHECK (anomaly IS NULL OR anomaly IN ('amount_mismatch', 'currency_mismatch', 'unexpected_zero_amount',
+    'unauthorized_proration', 'credit_only_proration', 'manual_invoice_not_coverage')),
   payment_reference text UNIQUE REFERENCES public.payment_transactions(reference),
   provider_payment_intent_id text CHECK (provider_payment_intent_id IS NULL OR provider_payment_intent_id ~ '^(pi|sim_pi)_[A-Za-z0-9_]+$'),
   attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
@@ -362,7 +363,7 @@ BEGIN
      OR (OLD.provider_payment_intent_id IS NOT NULL AND NEW.provider_payment_intent_id IS DISTINCT FROM OLD.provider_payment_intent_id) THEN
     RAISE EXCEPTION 'PAY03B_INVOICE_IDENTITY_IMMUTABLE';
   END IF;
-  IF OLD.provider_status IN ('paid', 'void', 'uncollectible') AND NEW.provider_status IS DISTINCT FROM OLD.provider_status THEN
+  IF OLD.provider_status IN ('paid', 'void') AND NEW.provider_status IS DISTINCT FROM OLD.provider_status THEN
     RAISE EXCEPTION 'PAY03B_INVOICE_STATUS_REGRESSION_REFUSED';
   END IF;
   RETURN NEW;
@@ -382,6 +383,23 @@ CREATE TABLE IF NOT EXISTS public.pay03b_provider_event_receipts (
   resulting_state text NOT NULL,
   observed_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+
+-- 5b. Provider-sync exceptions: an invoice the canonical writers cannot record (unsupported billing reason, ungoverned
+--     price, duplicate period, an irreconcilable provider transition...) is recorded here instead of blocking every
+--     later invoice. While one is open the subscription's paid access is suspended (the financial state is unknown).
+CREATE TABLE IF NOT EXISTS public.pay03b_subscription_sync_exceptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  subscription_id uuid NOT NULL REFERENCES public.pay03b_business_subscriptions(id) ON DELETE RESTRICT,
+  provider_invoice_id text NOT NULL,
+  error_code text NOT NULL CHECK (error_code ~ '^PAY0[0-9A-Z_]+$'),
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'cleared')),
+  observation_count integer NOT NULL DEFAULT 1 CHECK (observation_count >= 1),
+  first_seen_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  last_seen_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  cleared_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pay03b_one_open_sync_exception_per_invoice_code
+  ON public.pay03b_subscription_sync_exceptions (subscription_id, provider_invoice_id, error_code) WHERE status = 'open';
 
 -- 6. Append-only lifecycle history and attributable change requests.
 CREATE TABLE IF NOT EXISTS public.pay03b_subscription_transitions (
@@ -446,6 +464,22 @@ CREATE TRIGGER trg_pay03b_change_request_guard
   FOR EACH ROW EXECUTE FUNCTION public.pay03b_guard_change_request();
 
 -- 7. Authority helpers.
+CREATE OR REPLACE FUNCTION public.pay03b_map_provider_status(p_plan public.pay03b_subscription_plans, p_provider_status text)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$
+  SELECT CASE p_provider_status
+    WHEN 'incomplete' THEN jsonb_build_object('status', 'incomplete')
+    WHEN 'incomplete_expired' THEN jsonb_build_object('status', 'incomplete_expired')
+    WHEN 'trialing' THEN CASE WHEN p_plan.trial_days IS NULL
+      THEN jsonb_build_object('status', 'suspended', 'reason', 'unauthorized_provider_trial') ELSE jsonb_build_object('status', 'trialing') END
+    WHEN 'active' THEN jsonb_build_object('status', 'active')
+    WHEN 'past_due' THEN CASE WHEN p_plan.grace_days IS NULL
+      THEN jsonb_build_object('status', 'past_due') ELSE jsonb_build_object('status', 'grace_period') END
+    WHEN 'unpaid' THEN jsonb_build_object('status', 'suspended', 'reason', 'provider_unpaid')
+    WHEN 'canceled' THEN jsonb_build_object('status', 'cancelled')
+    WHEN 'paused' THEN jsonb_build_object('status', 'paused')
+    ELSE NULL END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.pay03b_is_tenant_billing_admin(p_tenant_id uuid, p_actor_id text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT EXISTS (
@@ -478,6 +512,7 @@ LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
   FROM public.pay03b_subscription_invoices i
   JOIN public.payment_transactions p ON p.reference = i.payment_reference
   WHERE i.subscription_id = p_subscription_id
+    AND i.billing_reason IN ('subscription_create', 'subscription_cycle', 'subscription_update')
     AND i.provider_status = 'paid' AND i.anomaly IS NULL
     AND i.amount_paid_minor = i.amount_due_minor AND i.amount_due_minor > 0
     AND p.status = 'paid'
@@ -532,6 +567,9 @@ BEGIN
     JOIN public.payment_transactions p ON p.reference = i.payment_reference
     WHERE i.subscription_id = p_sub.id AND p.status = 'reconciliation_hold') THEN
     v_reason := 'payment_reconciliation_hold';
+  ELSIF EXISTS (SELECT 1 FROM public.pay03b_subscription_sync_exceptions x
+                WHERE x.subscription_id = p_sub.id AND x.status = 'open') THEN
+    v_reason := 'provider_sync_exception';
   ELSIF p_sub.status IN ('incomplete', 'incomplete_expired', 'expired', 'paused') THEN
     v_reason := 'status_' || p_sub.status;
   ELSIF p_sub.status = 'cancelled' AND coalesce(p_sub.cancellation_mode, 'immediate') = 'immediate' THEN
@@ -543,7 +581,8 @@ BEGIN
   ELSIF p_sub.status IN ('past_due', 'grace_period') AND p_sub.grace_until IS NOT NULL AND p_sub.grace_until > p_at THEN
     v_access := true;
     v_reason := 'approved_grace_period';
-  ELSIF p_sub.status = 'trialing' AND v_plan.trial_days IS NOT NULL AND p_sub.trial_end IS NOT NULL AND p_sub.trial_end > p_at THEN
+  ELSIF p_sub.status = 'trialing' AND v_plan.trial_days IS NOT NULL AND p_sub.trial_end IS NOT NULL AND p_sub.trial_end > p_at
+        AND p_sub.created_at + make_interval(days => v_plan.trial_days) > p_at THEN
     v_access := true;
     v_reason := 'approved_trial';
   ELSE
@@ -796,8 +835,10 @@ DECLARE
   v_target text;
   v_reason text;
   v_mode text;
+  v_dup boolean := false;
+  v_mapped jsonb;
 BEGIN
-  IF p_observed_at IS NULL OR p_observed_at > clock_timestamp() + interval '5 minutes' THEN
+  IF p_observed_at IS NULL OR p_observed_at > clock_timestamp() + interval '5 seconds' THEN
     RAISE EXCEPTION 'PAY03B_PROVIDER_OBSERVATION_TIME_INVALID';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay03b_sub:' || p_subscription_id::text));
@@ -813,7 +854,9 @@ BEGIN
       IF (SELECT subscription_id FROM public.pay03b_provider_event_receipts WHERE event_id = p_event_id) IS DISTINCT FROM v_sub.id THEN
         RAISE EXCEPTION 'PAY03B_EVENT_CROSS_SUBSCRIPTION_REPLAY';
       END IF;
-      RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', true, 'stale', false);
+      -- R1: a redelivered event (for example a provider retry after a failed later step) re-applies the FRESH read; it
+      -- is never treated as "already done", because the work after the receipt may not have completed.
+      v_dup := true;
     END IF;
   END IF;
 
@@ -825,7 +868,7 @@ BEGIN
       UPDATE public.pay03b_business_subscriptions SET status = 'incomplete_expired', provider_observed_at = p_observed_at,
         version = version + 1, updated_at = clock_timestamp() WHERE id = v_sub.id RETURNING * INTO v_sub;
     END IF;
-    RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', false, 'stale', false);
+    RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', v_dup, 'stale', false);
   END IF;
 
   IF (v_sub.gateway = 'stripe_carup_japan_sandbox' AND p_provider_subscription_id !~ '^sub_[A-Za-z0-9_]+$')
@@ -837,7 +880,13 @@ BEGIN
   END IF;
   -- Out-of-order convergence: an older provider observation never overwrites a newer one.
   IF v_sub.provider_observed_at IS NOT NULL AND p_observed_at < v_sub.provider_observed_at THEN
-    RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', false, 'stale', true);
+    RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', v_dup, 'stale', true);
+  END IF;
+  -- 'canceled' and 'incomplete_expired' are terminal at the provider: a later read that says anything else is out of
+  -- order and is ignored WHOLE (provider fields included), so no later path — an administrator resume restores the
+  -- provider-backed state — can revive the subscription from it.
+  IF v_sub.provider_status IN ('canceled', 'incomplete_expired') AND p_provider_status IS DISTINCT FROM v_sub.provider_status THEN
+    RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', v_dup, 'stale', true);
   END IF;
 
   SELECT * INTO v_plan FROM public.pay03b_subscription_plans WHERE id = v_sub.plan_id;
@@ -851,26 +900,19 @@ BEGIN
     v_price_plan := v_plan;
   END IF;
 
-  v_target := CASE p_provider_status
-    WHEN 'incomplete' THEN 'incomplete'
-    WHEN 'incomplete_expired' THEN 'incomplete_expired'
-    WHEN 'trialing' THEN CASE WHEN v_price_plan.trial_days IS NULL THEN 'suspended' ELSE 'trialing' END
-    WHEN 'active' THEN 'active'
-    WHEN 'past_due' THEN CASE WHEN v_price_plan.grace_days IS NULL THEN 'past_due' ELSE 'grace_period' END
-    WHEN 'unpaid' THEN 'suspended'
-    WHEN 'canceled' THEN 'cancelled'
-    WHEN 'paused' THEN 'paused'
-    ELSE NULL END;
-  IF v_target IS NULL THEN RAISE EXCEPTION 'PAY03B_PROVIDER_STATUS_UNKNOWN'; END IF;
-  v_reason := CASE WHEN p_provider_status = 'trialing' AND v_price_plan.trial_days IS NULL THEN 'unauthorized_provider_trial'
-                   WHEN p_provider_status = 'unpaid' THEN 'provider_unpaid' ELSE NULL END;
+  v_mapped := public.pay03b_map_provider_status(v_price_plan, p_provider_status);
+  IF v_mapped IS NULL THEN RAISE EXCEPTION 'PAY03B_PROVIDER_STATUS_UNKNOWN'; END IF;
+  v_target := v_mapped->>'status';
+  v_reason := v_mapped->>'reason';
   -- An administrator suspension is never lifted by a provider observation.
   IF v_sub.suspended_reason = 'admin_suspension' THEN
     v_target := 'suspended';
     v_reason := 'admin_suspension';
   END IF;
-  IF v_sub.status IN ('incomplete_expired', 'expired') THEN
+  -- A provider-cancelled subscription is terminal at the provider; a stale "active" read can never revive it.
+  IF v_sub.status IN ('incomplete_expired', 'expired', 'cancelled') THEN
     v_target := v_sub.status;
+    v_reason := v_sub.suspended_reason;
   END IF;
   v_mode := CASE
     WHEN v_target <> 'cancelled' THEN NULL
@@ -901,7 +943,7 @@ BEGIN
     updated_at = clock_timestamp()
   WHERE id = v_sub.id RETURNING * INTO v_sub;
   v_sub := public.pay03b_refresh_paid_coverage(v_sub.id, 'provider_snapshot', p_event_id);
-  RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', false, 'stale', false);
+  RETURN to_jsonb(v_sub) || jsonb_build_object('duplicate_event', v_dup, 'stale', false);
 END $$;
 
 -- 12. Recurring invoice + its canonical payment (one row per invoice; refunds/F5 via the shared helpers).
@@ -927,7 +969,7 @@ DECLARE
   v_scale smallint;
   v_dup boolean := false;
 BEGIN
-  IF p_observed_at IS NULL OR p_observed_at > clock_timestamp() + interval '5 minutes' THEN
+  IF p_observed_at IS NULL OR p_observed_at > clock_timestamp() + interval '5 seconds' THEN
     RAISE EXCEPTION 'PAY03B_PROVIDER_OBSERVATION_TIME_INVALID';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('carup_pay03b_sub:' || p_subscription_id::text));
@@ -955,10 +997,6 @@ BEGIN
       v_dup := true;
     END IF;
   END IF;
-  IF v_dup THEN
-    SELECT * INTO v_invoice FROM public.pay03b_subscription_invoices WHERE provider_invoice_id = p_provider_invoice_id;
-    RETURN jsonb_build_object('invoice', to_jsonb(v_invoice), 'subscription', to_jsonb(v_sub), 'duplicate_event', true);
-  END IF;
 
   -- The plan billed is the governed plan behind the invoice's price (a scheduled plan change bills the new plan).
   SELECT * INTO v_plan FROM public.pay03b_subscription_plans
@@ -973,8 +1011,12 @@ BEGIN
     v_anomaly := 'unexpected_zero_amount';
   ELSIF p_billing_reason IN ('subscription_create', 'subscription_cycle') AND p_amount_due_minor <> v_plan.amount_minor THEN
     v_anomaly := 'amount_mismatch';
+  ELSIF p_billing_reason = 'subscription_update' AND p_amount_due_minor = 0 THEN
+    v_anomaly := 'credit_only_proration';
   ELSIF p_billing_reason = 'subscription_update' AND v_plan.change_policy->>'proration' <> 'always_invoice' THEN
     v_anomaly := 'unauthorized_proration';
+  ELSIF p_billing_reason = 'manual' THEN
+    v_anomaly := 'manual_invoice_not_coverage';
   END IF;
 
   SELECT * INTO v_invoice FROM public.pay03b_subscription_invoices WHERE provider_invoice_id = p_provider_invoice_id FOR UPDATE;
@@ -996,13 +1038,14 @@ BEGIN
     RAISE EXCEPTION 'PAY03B_INVOICE_CROSS_SUBSCRIPTION_REFUSED';
   ELSIF v_invoice.provider_observed_at IS NULL OR p_observed_at >= v_invoice.provider_observed_at THEN
     UPDATE public.pay03b_subscription_invoices SET
-      provider_status = CASE WHEN provider_status IN ('paid', 'void', 'uncollectible') THEN provider_status ELSE p_provider_status END,
+      provider_status = CASE WHEN provider_status IN ('paid', 'void') THEN provider_status ELSE p_provider_status END,
+      amount_due_minor = CASE WHEN provider_status = 'draft' THEN p_amount_due_minor ELSE amount_due_minor END,
       amount_paid_minor = greatest(amount_paid_minor, coalesce(p_amount_paid_minor, 0)),
       amount_remaining_minor = coalesce(p_amount_remaining_minor, amount_remaining_minor),
       provider_payment_intent_id = coalesce(provider_payment_intent_id, p_payment_intent_id),
       attempt_count = greatest(attempt_count, coalesce(p_attempt_count, 0)),
       next_payment_attempt = p_next_payment_attempt,
-      anomaly = coalesce(anomaly, v_anomaly),
+      anomaly = CASE WHEN provider_status = 'draft' THEN v_anomaly ELSE coalesce(anomaly, v_anomaly) END,
       provider_observed_at = p_observed_at,
       last_observed_at = clock_timestamp()
     WHERE id = v_invoice.id RETURNING * INTO v_invoice;
@@ -1044,14 +1087,18 @@ BEGIN
         v_payment, v_invoice.amount_due_minor, v_target, p_payment_status, v_invoice.provider_payment_intent_id,
         p_refund_id, p_event_id, p_event_type, p_refunded_minor, p_pending_refund_minor, p_refund_ids, p_mismatch,
         p_detected_via);
+      IF v_payment.status IN ('reconciliation_hold', 'partially_refunded') AND v_target IS DISTINCT FROM v_payment.status THEN
+        PERFORM set_config('carup.pay03b_hold_release', 'on', true);
+      END IF;
       UPDATE public.payment_transactions SET
         status = v_target,
         pay01a_refund_id = CASE WHEN v_target = 'reconciliation_hold' THEN pay01a_refund_id
                                 ELSE coalesce(pay01a_refund_id, p_refund_id) END,
         updated_at = now()
       WHERE reference = v_payment.reference RETURNING * INTO v_payment;
+      PERFORM set_config('carup.pay03b_hold_release', '', true);
     END IF;
-    IF v_invoice.provider_status IN ('void', 'uncollectible') AND v_payment.status = 'pending' THEN
+    IF v_invoice.provider_status = 'void' AND v_payment.status = 'pending' THEN
       UPDATE public.payment_transactions SET status = 'cancelled', updated_at = now()
         WHERE reference = v_payment.reference RETURNING * INTO v_payment;
     END IF;
@@ -1062,7 +1109,7 @@ BEGIN
     'invoice', to_jsonb(v_invoice),
     'payment', CASE WHEN v_payment.reference IS NULL THEN NULL ELSE to_jsonb(v_payment) END,
     'subscription', to_jsonb(v_sub),
-    'duplicate_event', false) || v_record;
+    'duplicate_event', v_dup) || v_record;
 END $$;
 
 -- 13. Attributable subscriber change requests (billing authority re-checked in the database).
@@ -1154,6 +1201,7 @@ DECLARE
   v_sub public.pay03b_business_subscriptions%ROWTYPE;
   v_req public.pay03b_subscription_change_requests%ROWTYPE;
   v_restore text;
+  v_mapped jsonb;
 BEGIN
   IF p_action NOT IN ('suspend', 'resume') THEN RAISE EXCEPTION 'PAY03B_ADMIN_ACTION_INVALID'; END IF;
   IF NOT public.pay03b_is_platform_admin(p_actor_id) THEN RAISE EXCEPTION 'PAY03B_ADMIN_AUTHORITY_REFUSED'; END IF;
@@ -1163,6 +1211,9 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'PAY03B_SUBSCRIPTION_NOT_FOUND'; END IF;
   SELECT * INTO v_req FROM public.pay03b_subscription_change_requests WHERE subscription_id = v_sub.id AND request_key = p_request_key;
   IF FOUND THEN
+    IF v_req.change_type <> (CASE WHEN p_action = 'suspend' THEN 'admin_suspend' ELSE 'admin_resume' END) THEN
+      RAISE EXCEPTION 'PAY03B_CHANGE_IDEMPOTENCY_CONFLICT';
+    END IF;
     RETURN jsonb_build_object('request', to_jsonb(v_req), 'subscription', to_jsonb(v_sub), 'replay', true);
   END IF;
   INSERT INTO public.pay03b_subscription_change_requests
@@ -1177,12 +1228,12 @@ BEGIN
       version = version + 1, updated_at = clock_timestamp() WHERE id = v_sub.id RETURNING * INTO v_sub;
   ELSE
     IF v_sub.suspended_reason IS DISTINCT FROM 'admin_suspension' THEN RAISE EXCEPTION 'PAY03B_NOT_ADMIN_SUSPENDED'; END IF;
-    v_restore := CASE v_sub.provider_status
-      WHEN 'active' THEN 'active' WHEN 'past_due' THEN 'past_due' WHEN 'canceled' THEN 'cancelled'
-      WHEN 'paused' THEN 'paused' WHEN 'incomplete' THEN 'incomplete' ELSE 'suspended' END;
+    SELECT public.pay03b_map_provider_status(pl, coalesce(v_sub.provider_status, 'incomplete')) INTO v_mapped
+      FROM public.pay03b_subscription_plans pl WHERE pl.id = v_sub.plan_id;
+    v_restore := coalesce(v_mapped->>'status', 'suspended');
     PERFORM public.pay03b_record_transition(v_sub, v_restore, v_sub.plan_id, v_sub.paid_through, 'admin_resume', trim(p_actor_id), NULL);
     UPDATE public.pay03b_business_subscriptions SET status = v_restore,
-      suspended_reason = CASE WHEN v_restore = 'suspended' THEN 'provider_unpaid' ELSE NULL END,
+      suspended_reason = CASE WHEN v_restore = 'suspended' THEN coalesce(v_mapped->>'reason', 'provider_unpaid') ELSE NULL END,
       version = version + 1, updated_at = clock_timestamp() WHERE id = v_sub.id RETURNING * INTO v_sub;
   END IF;
   RETURN jsonb_build_object('request', to_jsonb(v_req), 'subscription', to_jsonb(v_sub), 'replay', false);
@@ -1213,6 +1264,43 @@ END $$;
 REVOKE ALL ON FUNCTION public.pay03b_payment_owner_lock(text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.pay03b_after_payment_resolution(text) FROM PUBLIC, anon, authenticated, service_role;
 
+-- 14b. Provider-sync exceptions: record (deduplicated) and clear when the invoice later records cleanly.
+CREATE OR REPLACE FUNCTION public.pay03b_record_sync_exception(p_subscription_id uuid, p_provider_invoice_id text, p_error_code text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_row public.pay03b_subscription_sync_exceptions%ROWTYPE;
+BEGIN
+  IF p_error_code IS NULL OR p_error_code !~ '^PAY0[0-9A-Z_]+$' OR coalesce(length(trim(p_provider_invoice_id)), 0) = 0 THEN
+    RAISE EXCEPTION 'PAY03B_SYNC_EXCEPTION_INVALID';
+  END IF;
+  UPDATE public.pay03b_subscription_sync_exceptions SET observation_count = observation_count + 1, last_seen_at = clock_timestamp()
+    WHERE subscription_id = p_subscription_id AND provider_invoice_id = p_provider_invoice_id AND error_code = p_error_code AND status = 'open'
+    RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    INSERT INTO public.pay03b_subscription_sync_exceptions (subscription_id, provider_invoice_id, error_code)
+      VALUES (p_subscription_id, p_provider_invoice_id, p_error_code) RETURNING * INTO v_row;
+  END IF;
+  RETURN to_jsonb(v_row);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pay03b_clear_sync_exceptions(p_subscription_id uuid, p_provider_invoice_id text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_count integer;
+BEGIN
+  UPDATE public.pay03b_subscription_sync_exceptions SET status = 'cleared', cleared_at = clock_timestamp()
+    WHERE subscription_id = p_subscription_id AND provider_invoice_id = p_provider_invoice_id AND status = 'open';
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.pay03b_payment_payer_conflict(p_reference text, p_actor_id text)
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
+  SELECT EXISTS (SELECT 1 FROM public.payment_transactions WHERE reference = p_reference AND pay01a_actor_id = p_actor_id)
+      OR EXISTS (SELECT 1 FROM public.pay03b_subscription_invoices i
+                 JOIN public.tenant_users tu ON tu.tenant_id = i.owner_tenant_id
+                 WHERE i.payment_reference = p_reference AND tu.user_id = p_actor_id);
+$$;
+REVOKE ALL ON FUNCTION public.pay03b_payment_payer_conflict(text,text) FROM PUBLIC, anon, authenticated, service_role;
+
 -- 15. RLS and least privilege: no API role reads or writes business financial details directly.
 ALTER TABLE public.pay03b_subscription_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pay03b_billing_customers ENABLE ROW LEVEL SECURITY;
@@ -1221,14 +1309,15 @@ ALTER TABLE public.pay03b_subscription_invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pay03b_provider_event_receipts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pay03b_subscription_transitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pay03b_subscription_change_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pay03b_subscription_sync_exceptions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.pay03b_subscription_plans, public.pay03b_billing_customers,
   public.pay03b_business_subscriptions, public.pay03b_subscription_invoices, public.pay03b_provider_event_receipts,
-  public.pay03b_subscription_transitions, public.pay03b_subscription_change_requests
+  public.pay03b_subscription_transitions, public.pay03b_subscription_change_requests, public.pay03b_subscription_sync_exceptions
   FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.pay03b_subscription_transitions_id_seq FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.pay03b_subscription_plans, public.pay03b_billing_customers,
   public.pay03b_business_subscriptions, public.pay03b_subscription_invoices, public.pay03b_provider_event_receipts,
-  public.pay03b_subscription_transitions, public.pay03b_subscription_change_requests TO service_role;
+  public.pay03b_subscription_transitions, public.pay03b_subscription_change_requests, public.pay03b_subscription_sync_exceptions TO service_role;
 
 REVOKE ALL ON FUNCTION public.pay03b_gateway_permitted(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.pay03b_gateway_account(text) FROM PUBLIC, anon, authenticated;
@@ -1264,6 +1353,11 @@ GRANT EXECUTE ON FUNCTION public.pay03b_record_subscription_invoice(uuid,text,te
 GRANT EXECUTE ON FUNCTION public.pay03b_request_subscription_change(uuid,text,text,uuid,text,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.pay03b_complete_subscription_change(uuid,text,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.pay03b_admin_set_subscription_suspension(uuid,text,text,text,text) TO service_role;
+REVOKE ALL ON FUNCTION public.pay03b_map_provider_status(public.pay03b_subscription_plans,text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.pay03b_record_sync_exception(uuid,text,text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.pay03b_clear_sync_exceptions(uuid,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pay03b_record_sync_exception(uuid,text,text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.pay03b_clear_sync_exceptions(uuid,text) TO service_role;
 
 COMMIT;
 

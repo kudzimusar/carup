@@ -129,6 +129,95 @@ test('normalizer: a proration invoice reports the NEW plan line; unsupported bil
     lines: { data: [] } }), /PAY03B_INVOICE_BILLING_REASON_UNSUPPORTED/);
 });
 
+test('normalizer: a credit-only proration invoice (no positive line, nothing due) is normalized, not refused', () => {
+  // A downgrade/quantity decrease can produce only credit lines; recording it (as a non-coverage anomaly) must never
+  // block the subscription's other invoices.
+  const inv = A.normalizeStripeInvoice({
+    id: 'in_credit', livemode: false, status: 'paid', billing_reason: 'subscription_update', customer: 'cus_a1',
+    subscription: 'sub_acacia1', currency: 'jpy', amount_due: 0, amount_paid: 0, amount_remaining: 0, payment_intent: null,
+    attempt_count: 0,
+    lines: { data: [
+      { id: 'il_credit', type: 'subscription', proration: true, amount: -1500, period: { start: T0 + 10, end: T0 + 60 }, price: { id: 'price_prem' } },
+    ] },
+  });
+  assert.equal(inv.billingReason, 'subscription_update');
+  assert.equal(inv.amountDueMinor, 0);
+  assert.equal(inv.priceRef, 'price_prem');
+  assert.equal(inv.periodStart, iso(T0 + 10));
+  assert.equal(inv.paymentIntentId, null);
+});
+
+function stripeInvoiceFixture(n, extra = {}) {
+  return { id: `in_page_${n}`, object: 'invoice', livemode: false, status: 'paid', billing_reason: 'subscription_cycle',
+    customer: 'cus_a1', subscription: 'sub_acacia1', currency: 'jpy', amount_due: 3000, amount_paid: 3000, amount_remaining: 0,
+    payment_intent: `pi_page_${n}`, attempt_count: 1,
+    lines: { data: [{ id: `il_${n}`, type: 'subscription', proration: false, amount: 3000,
+      period: { start: T0 + n * 60, end: T0 + (n + 1) * 60 }, price: { id: 'price_std' } }] }, ...extra };
+}
+
+test('stripe adapter: the invoice history is read completely (paginated), and an over-long history fails closed', async () => {
+  const all = Array.from({ length: 230 }, (_, i) => stripeInvoiceFixture(i));
+  const listCalls = [];
+  const list = async (params) => {
+    listCalls.push(params);
+    const start = params.starting_after ? all.findIndex((i) => i.id === params.starting_after) + 1 : 0;
+    const data = all.slice(start, start + params.limit);
+    return { object: 'list', data, has_more: start + params.limit < all.length };
+  };
+  const { stripe } = recordingStripe({ invoices: { list } });
+  const provider = new A.Pay03bStripeSandboxProvider({ env: sandboxEnv(), stripe });
+  const invoices = await provider.listSubscriptionInvoices('sub_acacia1');
+  assert.equal(invoices.length, 230);
+  assert.deepEqual(listCalls.map((c) => [c.subscription, c.limit, c.starting_after ?? null]),
+    [['sub_acacia1', 100, null], ['sub_acacia1', 100, 'in_page_99'], ['sub_acacia1', 100, 'in_page_199']]);
+  // The bound is exact: a history of exactly PAY03B_INVOICE_HISTORY_LIMIT invoices is read; one more fails closed
+  // after the bound is reached (never an unbounded provider read loop, never a silently truncated history).
+  assert.equal(A.PAY03B_INVOICE_HISTORY_LIMIT, 1000);
+  const historyOf = (total) => {
+    const pages = [];
+    const list = async (params) => {
+      pages.push(params.starting_after ?? null);
+      const start = params.starting_after ? Number(String(params.starting_after).split('_').pop()) + 1 : 0;
+      const count = Math.max(0, Math.min(params.limit, total - start));
+      return { object: 'list', has_more: start + count < total,
+        data: Array.from({ length: count }, (_, i) => stripeInvoiceFixture(start + i)) };
+    };
+    return { pages, provider: new A.Pay03bStripeSandboxProvider({ env: sandboxEnv(), stripe: recordingStripe({ invoices: { list } }).stripe }) };
+  };
+  const exact = historyOf(1000);
+  assert.equal((await exact.provider.listSubscriptionInvoices('sub_acacia1')).length, 1000);
+  const over = historyOf(1001);
+  await assert.rejects(over.provider.listSubscriptionInvoices('sub_acacia1'), (e) => e.code === 'PAY03B_INVOICE_HISTORY_LIMIT_EXCEEDED');
+  assert.equal(over.pages.length, 10, 'stops at the bound instead of reading on');
+});
+
+test('stripe adapter: one unsupported invoice in the history is reported as rejected; the others still normalize', async () => {
+  const list = async () => ({ object: 'list', has_more: false, data: [
+    stripeInvoiceFixture(1),
+    stripeInvoiceFixture(2, { billing_reason: 'quote_accept' }),
+    stripeInvoiceFixture(3, { livemode: true }),
+    stripeInvoiceFixture(4),
+  ] });
+  const provider = new A.Pay03bStripeSandboxProvider({ env: sandboxEnv(), stripe: recordingStripe({ invoices: { list } }).stripe });
+  const invoices = await provider.listSubscriptionInvoices('sub_acacia1');
+  assert.deepEqual(invoices.map((i) => [i.id, i.rejected === true, i.errorCode ?? null]), [
+    ['in_page_1', false, null],
+    ['in_page_2', true, 'PAY03B_INVOICE_BILLING_REASON_UNSUPPORTED'],
+    ['in_page_3', true, 'PAY03B_PROVIDER_LIVE_OBJECT_REFUSED'],
+    ['in_page_4', false, null],
+  ]);
+  assert.equal(invoices[1].subscriptionId, 'sub_acacia1', 'a rejected invoice still names the subscription it was listed under');
+});
+
+test('stripe adapter: a retrieved checkout states its amount and currency', () => {
+  const c = A.normalizeStripeCheckout({ id: 'cs_test_x', livemode: false, mode: 'subscription', status: 'open', url: 'https://x',
+    customer: 'cus_a1', client_reference_id: 'pay03b_sub_00000000-0000-4000-8000-000000000001', amount_total: 500, currency: 'jpy' });
+  assert.equal(c.amountTotalMinor, 500);
+  assert.equal(c.currency, 'JPY');
+  const missing = A.normalizeStripeCheckout({ id: 'cs_test_y', livemode: false, mode: 'subscription', status: 'open', url: 'https://y' });
+  assert.equal(missing.amountTotalMinor, null, 'never inferred when the provider does not state it');
+});
+
 test('payment truth: provider PaymentIntent states map to canonical states; refunds reuse the F5 classifier', () => {
   assert.equal(A.paymentTruthFromProvider({ intent: { id: 'pi_1', status: 'requires_payment_method', livemode: false,
     amount: 3000, currency: 'jpy' }, refunds: [], amountMinor: 3000, currency: 'JPY' }).status, 'pending');
@@ -153,7 +242,7 @@ function recordingStripe(overrides = {}) {
     checkout: { sessions: {
       create: rec('checkout.create', (params) => ({ id: 'cs_test_sub1', object: 'checkout.session', livemode: false, mode: params.mode,
         url: 'https://checkout.stripe.com/c/pay/cs_test_sub1', customer: params.customer, client_reference_id: params.client_reference_id,
-        metadata: params.metadata, status: 'open' })),
+        metadata: params.metadata, status: 'open', amount_total: 3000, currency: 'jpy' })),
     } },
     subscriptions: {
       update: rec('subscriptions.update', { id: 'sub_1', livemode: false, status: 'active', customer: 'cus_new1',
@@ -194,7 +283,9 @@ test('stripe adapter: subscription checkout uses the server price, subscription 
   assert.equal(params.metadata.carup_programme, 'PAY-03B');
   assert.equal(params.client_reference_id, 'pay03b_sub_00000000-0000-4000-8000-000000000001');
   assert.equal(opts.idempotencyKey, 'carup_pay03b_checkout_abc');
-  assert.deepEqual(out, { checkoutId: 'cs_test_sub1', url: 'https://checkout.stripe.com/c/pay/cs_test_sub1' });
+  // The provider's own statement of what the buyer will be charged, for the service to compare with the governed plan.
+  assert.deepEqual(out, { checkoutId: 'cs_test_sub1', url: 'https://checkout.stripe.com/c/pay/cs_test_sub1',
+    amountTotalMinor: 3000, currency: 'JPY' });
 });
 
 test('stripe adapter: a live/foreign checkout or customer mismatch is refused after creation (never used)', async () => {

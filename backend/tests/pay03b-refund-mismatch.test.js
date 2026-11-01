@@ -460,6 +460,23 @@ test('F5 operator: restore passes the exact verified provider evidence; a still-
   assert.equal(f.db._rows('trust_audit_events')[1].new_value.outcome, 'failed');
 });
 
+test('F5 operator: the verification time is taken BEFORE the provider read (superseded evidence is refusable in SQL)', async () => {
+  const f = operatorFixture({ providerRefunds: [refund('re_dash30', 30, 'failed', { created: 1000 })] });
+  const retrieve = f.stripe.checkout.sessions.retrieve;
+  let readAt = null;
+  f.stripe.checkout.sessions.retrieve = async (id) => {
+    readAt = Date.now();
+    await new Promise((resolve) => { setTimeout(resolve, 25); });
+    return retrieve(id);
+  };
+  await R.resolvePay03bReconciliationException({ ...adminCtx, exceptionId: EXC,
+    resolution: 'restore_access_provider_unrefunded', note: 'Fresh readback: the dashboard refund failed; nothing refunded.',
+    db: f.db, env: f.env, stripe: f.stripe });
+  const [, params] = f.rpcCalls[0];
+  assert.ok(readAt !== null, 'the provider was read');
+  assert.ok(Date.parse(params.p_verified_at) <= readAt, 'p_verified_at precedes the provider read');
+});
+
 test('F5 operator: a verified unrefunded payment is restored, attributed to the administrator, and audited', async () => {
   const f = operatorFixture({ providerRefunds: [refund('re_dash30', 30, 'failed', { created: 1000 })] });
   const result = await R.resolvePay03bReconciliationException({ ...adminCtx, exceptionId: EXC,

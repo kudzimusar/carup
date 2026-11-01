@@ -928,6 +928,35 @@ export default function Pay03bSubscriptionsAdmin({ baseUrl, getAuthHeaders, onRe
                   </div>
 
                   <div className="space-y-2">
+                    <h4 className="font-semibold text-slate-900">Provider-sync exceptions</h4>
+                    {(detail.syncExceptions ?? []).length === 0 ? (
+                      <p className="text-slate-500">No provider-sync exceptions.</p>
+                    ) : (
+                      <>
+                        {(detail.syncExceptions ?? []).some((x) => x.status === 'open') ? (
+                          <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900" data-testid="pay03b-admin-sync-exceptions-alert">
+                            {(detail.syncExceptions ?? []).filter((x) => x.status === 'open').length} open: CarUp could not record
+                            {' '}an invoice the provider listed, so paid access is suspended. Reconcile after the provider-side
+                            {' '}cause is fixed; an exception clears when the invoice records cleanly or the provider no longer lists it.
+                          </p>
+                        ) : null}
+                        <ul className="space-y-1" data-testid="pay03b-admin-sync-exceptions">
+                          {(detail.syncExceptions ?? []).map((x) => (
+                            <li key={x.id} className="rounded-md border bg-white p-2 [overflow-wrap:anywhere]" data-testid={`pay03b-admin-sync-exception-${x.id}`}>
+                              <span className="font-medium">{x.status === 'open' ? 'Open' : 'Cleared'}</span>
+                              {' · invoice '}{x.providerInvoiceId}
+                              {' · '}<code>{x.errorCode}</code>
+                              {' · seen '}{x.observationCount}{x.observationCount === 1 ? ' time' : ' times'}
+                              {' · last '}{formatPay03bDateTime(x.lastSeenAt) ?? '—'}
+                              {x.clearedAt ? ` · cleared ${formatPay03bDateTime(x.clearedAt) ?? '—'}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
                     <h4 className="font-semibold text-slate-900">Lifecycle transitions</h4>
                     {detail.transitions.length === 0 ? (
                       <p className="text-slate-500">No transitions recorded.</p>

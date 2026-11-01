@@ -96,11 +96,12 @@ async function providerTruthFor(row, { db, env, stripe, provider = null }) {
   const adapter = resolvePay03bProvider({ env, stripe, provider });
   if (adapter.gateway !== invoice.gateway) throw new Pay03bError('PAY03B_PROVIDER_GATEWAY_MISMATCH', 409);
   await adapter.verifyAccount();
+  // Taken BEFORE the provider read (see readPay01aProviderPaymentTruth): superseded evidence is refused in SQL.
+  const verifiedAt = new Date().toISOString();
   const truth = await adapter.getPaymentTruth({ paymentIntentId: invoice.provider_payment_intent_id,
     amountMinor: Number(invoice.amount_due_minor), currency: invoice.currency });
   return { reference, status: truth.status, intentId: truth.intentId, refundedMinor: truth.refundedMinor,
-    pendingRefundMinor: truth.pendingRefundMinor, refundIds: truth.refundIds, mismatch: truth.mismatch,
-    verifiedAt: new Date().toISOString() };
+    pendingRefundMinor: truth.pendingRefundMinor, refundIds: truth.refundIds, mismatch: truth.mismatch, verifiedAt };
 }
 
 export async function listPay03bReconciliationExceptions({ status = 'open', db = supabase, env = process.env } = {}) {

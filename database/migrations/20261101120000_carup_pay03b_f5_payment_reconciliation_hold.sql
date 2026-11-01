@@ -225,6 +225,13 @@ BEGIN
                            ELSE '^pi_[A-Za-z0-9_]+$' END;
   v_refund_pattern := CASE WHEN p_row.gateway = 'pay03b_local_provider_simulator' THEN '^sim_re_[A-Za-z0-9_]+$'
                            ELSE '^(re|pyr)_[A-Za-z0-9_]+$' END;
+  -- Leaving a hold (or a final partial refund) for 'refunded' requires the provider's full-refund evidence: a caller
+  -- without amounts (for example the legacy PAY-01A writer) cannot close an exception as a "provider full refund".
+  IF p_row.status IN ('reconciliation_hold', 'partially_refunded') AND v_target = 'refunded'
+     AND (p_refunded_minor IS DISTINCT FROM p_amount_minor OR coalesce(p_pending_refund_minor, 0) <> 0) THEN
+    RAISE EXCEPTION 'PAY03B_FULL_REFUND_EVIDENCE_REQUIRED';
+  END IF;
+
   IF p_status IN ('paid', 'refund_pending', 'refunded', 'reconciliation_hold') AND
     (p_intent_id IS NULL OR p_intent_id !~ v_intent_pattern) THEN
     RAISE EXCEPTION 'PAY01A_PAYMENT_INTENT_REQUIRED';
@@ -420,6 +427,9 @@ BEGIN
     v_row, 100, v_target, p_status, p_intent_id, p_refund_id, p_event_id, p_event_type,
     p_refunded_minor, p_pending_refund_minor, p_refund_ids, p_mismatch, p_detected_via);
 
+  IF v_row.status IN ('reconciliation_hold', 'partially_refunded') AND v_target IS DISTINCT FROM v_row.status THEN
+    PERFORM set_config('carup.pay03b_hold_release', 'on', true);
+  END IF;
   UPDATE public.payment_transactions SET
     status = v_target,
     pay01a_intent_id = coalesce(pay01a_intent_id, p_intent_id),
@@ -428,6 +438,7 @@ BEGIN
     updated_at = now()
   WHERE reference = p_reference
   RETURNING * INTO v_row;
+  PERFORM set_config('carup.pay03b_hold_release', '', true);
   RETURN to_jsonb(v_row)
     || jsonb_build_object('duplicate_event', false, 'hold_retained', (v_transition->>'hold_retained')::boolean)
     || v_record;
@@ -489,6 +500,30 @@ END $$;
 REVOKE ALL ON FUNCTION public.pay03b_payment_owner_lock(text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.pay03b_after_payment_resolution(text) FROM PUBLIC, anon, authenticated, service_role;
 
+-- R5: is the would-be resolver the payer? PAY-01A payments record the paying user; PAY-03B extends this for invoices.
+CREATE OR REPLACE FUNCTION public.pay03b_payment_payer_conflict(p_reference text, p_actor_id text)
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public, pg_temp AS $$
+  SELECT EXISTS (SELECT 1 FROM public.payment_transactions WHERE reference = p_reference AND pay01a_actor_id = p_actor_id);
+$$;
+REVOKE ALL ON FUNCTION public.pay03b_payment_payer_conflict(text,text) FROM PUBLIC, anon, authenticated, service_role;
+
+-- R11: a held or finally revoked payment can only leave that state through a governed writer, which marks its own
+-- UPDATE with a transaction-local flag. Any other UPDATE (including a direct service-role write) is refused.
+CREATE OR REPLACE FUNCTION public.pay03b_guard_payment_hold_release()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF OLD.status IN ('reconciliation_hold', 'partially_refunded') AND NEW.status IS DISTINCT FROM OLD.status
+     AND coalesce(current_setting('carup.pay03b_hold_release', true), '') <> 'on' THEN
+    RAISE EXCEPTION 'PAY03B_HOLD_RELEASE_REQUIRES_GOVERNED_PATH';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_pay03b_guard_payment_hold_release ON public.payment_transactions;
+CREATE TRIGGER trg_pay03b_guard_payment_hold_release
+  BEFORE UPDATE OF status ON public.payment_transactions
+  FOR EACH ROW EXECUTE FUNCTION public.pay03b_guard_payment_hold_release();
+REVOKE ALL ON FUNCTION public.pay03b_guard_payment_hold_release() FROM PUBLIC, anon, authenticated;
+
 -- 6. Operator resolution. Requires an existing platform administrator (verified against public.users, not just
 --    the caller's claim), a written reason, separation from the payer, and a provider state verified within the
 --    last 10 minutes that justifies the outcome. Entitlements are re-projected in the same transaction.
@@ -543,8 +578,13 @@ BEGIN
   IF v_row.status <> 'reconciliation_hold' THEN
     RAISE EXCEPTION 'PAY03B_PAYMENT_NOT_HELD';
   END IF;
-  IF trim(p_actor_id) = v_row.pay01a_actor_id THEN
+  IF public.pay03b_payment_payer_conflict(v_ref, trim(p_actor_id)) THEN
     RAISE EXCEPTION 'PAY03B_RESOLUTION_SELF_DEALING_REFUSED';
+  END IF;
+  -- R10: the verification must be at least as new as the latest provider observation of this exception;
+  -- otherwise a refund observed after the operator's read would be overwritten by stale evidence.
+  IF v_exception.last_observed_at > p_verified_at THEN
+    RAISE EXCEPTION 'PAY03B_PROVIDER_VERIFICATION_SUPERSEDED';
   END IF;
 
   IF p_resolution = 'restore_access_provider_unrefunded' THEN
@@ -582,8 +622,10 @@ BEGIN
   WHERE id = p_exception_id
   RETURNING * INTO v_exception;
 
+  PERFORM set_config('carup.pay03b_hold_release', 'on', true);
   UPDATE public.payment_transactions SET status = v_new_status, updated_at = now()
     WHERE reference = v_ref RETURNING * INTO v_row;
+  PERFORM set_config('carup.pay03b_hold_release', '', true);
 
   -- Re-project PAY-02/PAY-03A entitlements in the same transaction: money and access never disagree.
   IF EXISTS (SELECT 1 FROM public.pay02_commercial_quotes WHERE payment_reference = v_ref) THEN

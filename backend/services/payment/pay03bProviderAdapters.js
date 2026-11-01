@@ -26,6 +26,8 @@ const SUBSCRIPTION_STATUSES = new Set(['incomplete', 'incomplete_expired', 'tria
 const INVOICE_STATUSES = new Set(['draft', 'open', 'paid', 'uncollectible', 'void']);
 const BILLING_REASONS = new Set(['subscription_create', 'subscription_cycle', 'subscription_update', 'manual']);
 const PENDING_INTENT_STATUSES = new Set(['processing', 'requires_payment_method', 'requires_confirmation', 'requires_action', 'requires_capture']);
+const INVOICE_PAGE_SIZE = 100;
+export const PAY03B_INVOICE_HISTORY_LIMIT = 1000;
 
 function toIso(seconds) {
   if (seconds === null || seconds === undefined) return null;
@@ -73,11 +75,16 @@ function lineIsProration(line) {
   return Boolean(line.proration ?? line.parent?.subscription_item_details?.proration);
 }
 
-/** The line that states which governed price, and which period, the invoice actually bills. */
+/**
+ * The line that states which governed price, and which period, the invoice actually bills. A proration invoice
+ * reports its positive (new plan) line; a credit-only proration invoice has none, so it reports its credit line and is
+ * recorded (as a non-coverage anomaly) instead of being refused, so it can never block the subscription's other invoices.
+ */
 function selectBilledLine(lines, billingReason) {
   const candidates = lines.filter((line) => linePrice(line) && line.period?.start && line.period?.end);
   if (billingReason === 'subscription_update') {
-    return candidates.find((line) => lineIsProration(line) && Number(line.amount) > 0) || null;
+    const prorations = candidates.filter((line) => lineIsProration(line));
+    return prorations.find((line) => Number(line.amount) > 0) || prorations.find((line) => Number(line.amount) <= 0) || null;
   }
   return candidates.find((line) => !lineIsProration(line)) || null;
 }
@@ -124,7 +131,28 @@ export function normalizeStripeCheckout(session) {
     clientReference: session.client_reference_id || null,
     metadata: session.metadata || {},
     url: session.status === 'open' ? (session.url || null) : null,
+    // What the provider says the buyer will be charged; never inferred when the provider does not state it.
+    amountTotalMinor: Number.isSafeInteger(session.amount_total) ? session.amount_total : null,
+    currency: session.currency ? String(session.currency).toUpperCase() : null,
   };
+}
+
+/**
+ * Normalize one listed invoice without letting it fail the whole listing: an invoice the normalizer refuses is
+ * returned as rejected (with the refusal code and the subscription it was listed under) so the service can record it
+ * as a provider-sync exception while the subscription's other invoices are still recorded.
+ */
+export function normalizeListedStripeInvoice(inv, listedUnderSubscriptionId) {
+  try {
+    return normalizeStripeInvoice(inv);
+  } catch (err) {
+    return {
+      id: typeof inv?.id === 'string' && inv.id ? inv.id : null,
+      rejected: true,
+      errorCode: err instanceof Pay03bError ? err.code : 'PAY03B_INVOICE_SHAPE_UNSUPPORTED',
+      subscriptionId: pay01aProviderId(inv?.subscription) || inv?.parent?.subscription_details?.subscription || listedUnderSubscriptionId,
+    };
+  }
 }
 
 /**
@@ -251,7 +279,8 @@ export class Pay03bStripeSandboxProvider extends BillingProvider {
       || pay01aProviderId(session.customer) !== customerId || session.client_reference_id !== subscriptionReference || !session.url) {
       throw new Pay03bError('PAY03B_CHECKOUT_PROVIDER_MISMATCH', 502);
     }
-    return { checkoutId: session.id, url: session.url };
+    const { amountTotalMinor, currency } = normalizeStripeCheckout(session);
+    return { checkoutId: session.id, url: session.url, amountTotalMinor, currency };
   }
 
   async getCheckout(checkoutId) {
@@ -288,14 +317,32 @@ export class Pay03bStripeSandboxProvider extends BillingProvider {
     catch (err) { throw providerFailure(err, 'PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE'); }
   }
 
+  /**
+   * The subscription's COMPLETE invoice history (every status, paginated). A history longer than the bound fails
+   * closed rather than being silently truncated; one unsupported invoice is returned as rejected, never fatal.
+   */
   async listSubscriptionInvoices(subscriptionId) {
     await this.verifyAccount();
     const api = await this.api();
-    let page;
-    try { page = await api.invoices.list({ subscription: subscriptionId, limit: 24 }); }
-    catch (err) { throw providerFailure(err, 'PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE'); }
-    if (page?.has_more) throw new Pay03bError('PAY03B_INVOICE_EVIDENCE_INCOMPLETE', 502);
-    return (page?.data || []).map(normalizeStripeInvoice);
+    const raw = [];
+    let startingAfter = null;
+    for (;;) {
+      let page;
+      try {
+        page = await api.invoices.list({ subscription: subscriptionId, limit: INVOICE_PAGE_SIZE,
+          ...(startingAfter ? { starting_after: startingAfter } : {}) });
+      } catch (err) { throw providerFailure(err, 'PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE'); }
+      const data = Array.isArray(page?.data) ? page.data : [];
+      raw.push(...data);
+      if (raw.length > PAY03B_INVOICE_HISTORY_LIMIT || (page?.has_more && raw.length >= PAY03B_INVOICE_HISTORY_LIMIT)) {
+        throw new Pay03bError('PAY03B_INVOICE_HISTORY_LIMIT_EXCEEDED', 502);
+      }
+      if (!page?.has_more) break;
+      const last = data[data.length - 1]?.id;
+      if (!last) throw new Pay03bError('PAY03B_INVOICE_EVIDENCE_INCOMPLETE', 502);
+      startingAfter = last;
+    }
+    return raw.map((inv) => normalizeListedStripeInvoice(inv, subscriptionId));
   }
 
   async getPaymentTruth({ paymentIntentId, amountMinor, currency }) {

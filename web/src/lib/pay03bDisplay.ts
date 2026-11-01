@@ -167,6 +167,8 @@ const ACCESS_REASONS: Record<string, string> = {
   unauthorized_provider_trial:
     'The provider reported a trial this plan does not include, so paid features are suspended until CarUp resolves it.',
   provider_unpaid: 'The provider reports the subscription as unpaid, so paid features are suspended.',
+  provider_sync_exception:
+    'CarUp could not record an invoice from the provider; paid features are suspended until it is reconciled.',
   suspended: 'The subscription is suspended.',
   cancelled_immediately: 'The subscription was cancelled immediately; paid access ended at cancellation.',
   status_incomplete: 'Checkout has not been completed and confirmed yet.',

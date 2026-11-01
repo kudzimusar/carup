@@ -24,6 +24,7 @@ const skip = disposable ? false : 'PAY03B_TEST_PGURL must name a disposable pay0
 const S = await import('../services/payment/pay03bSubscriptionService.js');
 const R = await import('../services/payment/pay03bReconciliationService.js');
 const { Pay03bLocalSimulatorProvider } = await import('../services/payment/pay03bLocalSimulator.js');
+const { Pay03bError } = await import('../services/payment/pay03bContract.js');
 const { createPgSupabase } = await import('./helpers/pgSupabaseShim.js');
 
 const run = crypto.randomBytes(4).toString('hex');
@@ -42,14 +43,49 @@ let db;
 let sim;
 const plans = {};
 
-async function deliver(events) {
+async function deliverWith(provider, events, database = null) {
   const results = [];
   for (const event of events) {
     const signed = sim.signEvent(event);
     const verified = sim.verifyWebhook(signed);
-    results.push(await S.processPay03bProviderEvent({ db, provider: sim, event: verified }));
+    results.push(await S.processPay03bProviderEvent({ db: database || db, provider, event: verified }));
   }
   return results;
+}
+const deliver = (events) => deliverWith(sim, events);
+
+/** The simulator with some operations replaced (provider faults, drift, timing), everything else unchanged. */
+function wrapProvider(overrides) {
+  return Object.assign(Object.create(sim), overrides);
+}
+
+/** A database handle that records every canonical RPC call (name + arguments) and then makes it for real. */
+function spyDatabase(calls) {
+  const spy = Object.create(db);
+  spy.rpc = async (name, args) => { calls.push({ name, args }); return db.rpc(name, args); };
+  return spy;
+}
+
+const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+async function newDealer(label) {
+  const d = { tenantId: crypto.randomUUID(), orgId: `org_p3b_${label}_${run}`, ownerId: `p3b_owner_${label}_${run}` };
+  await db.query(`INSERT INTO public.users (id, name, email, role, join_date) VALUES ($1, $2, $1 || '@carup-uat.invalid', 'dealer', '2026-11-01')`,
+    [d.ownerId, `Dealer ${label} [SYNTHETIC]`]);
+  await db.query(`INSERT INTO public.tenants (id, name, type, status) VALUES ($1, $2, 'dealership', 'active')`, [d.tenantId, `Svc ${label} [SYNTHETIC]`]);
+  await db.query(`INSERT INTO public.organizations (id, name, type, created_at, status, tenant_id) VALUES ($1, $2, 'dealership', '2026-11-01', 'active', $3)`,
+    [d.orgId, `Svc ${label} Motors [SYNTHETIC]`, d.tenantId]);
+  await db.query(`INSERT INTO public.tenant_users (tenant_id, user_id, role) VALUES ($1, $2, 'admin')`, [d.tenantId, d.ownerId]);
+  return d;
+}
+
+async function subscribedDealer(label) {
+  const d = await newDealer(label);
+  const c = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: d.ownerId, tenantId: d.tenantId, planId: plans.std.id,
+    acknowledgedTerms: terms(plans.std), requestKey: `svc_${label}_${run}_0001` });
+  await deliver((await sim.completeCheckout(c.checkoutId, { outcome: 'success' })).events);
+  const { rows: [row] } = await db.query('SELECT * FROM public.pay03b_business_subscriptions WHERE id = $1', [c.subscriptionId]);
+  return { ...d, subscriptionId: c.subscriptionId, providerSubscriptionId: row.provider_subscription_id };
 }
 
 const terms = (plan) => ({ planVersion: plan.plan_version, amountMinor: Number(plan.amount_minor), currency: plan.currency,
@@ -312,6 +348,132 @@ test('PAY-03B service on real PostgreSQL', { skip }, async (t) => {
     assert.equal(ignored.ignored, true);
   });
 
+  await t.test('R1: a redelivered event finishes the invoice work an earlier attempt could not (no duplicate short-circuit)', async () => {
+    const d = await newDealer('r1');
+    const c = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: d.ownerId, tenantId: d.tenantId, planId: plans.std.id,
+      acknowledgedTerms: terms(plans.std), requestKey: `svc_r1_${run}_0001` });
+    const done = await sim.completeCheckout(c.checkoutId, { outcome: 'success' });
+    const unreadable = wrapProvider({ getPaymentTruth: async () => { throw new Pay03bError('PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE', 502); } });
+    await assert.rejects(deliverWith(unreadable, [done.events[0]]), (e) => e.code === 'PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE');
+    assert.equal((await S.getPay03bTenantEntitlements({ db, tenantId: d.tenantId })).access, false,
+      'nothing is granted while the invoice payment could not be read');
+    // The provider retries the SAME event: it must re-read and finish, not answer "already processed".
+    const [again] = await deliver([done.events[0]]);
+    assert.equal(again.duplicateEvent, true);
+    assert.equal(again.invoicesSynced, 1);
+    assert.equal((await S.getPay03bTenantEntitlements({ db, tenantId: d.tenantId })).access, true);
+    const { rows } = await db.query('SELECT count(*)::int AS n FROM public.pay03b_provider_event_receipts WHERE event_id = $1', [done.events[0].id]);
+    assert.equal(rows[0].n, 1, 'one receipt per provider event');
+  });
+
+  await t.test('R2: a transient failure on one invoice never stops the others and is rethrown so the event is redelivered', async () => {
+    const d = await subscribedDealer('r2t');
+    const { rows: [first] } = await db.query('SELECT provider_payment_intent_id FROM public.pay03b_subscription_invoices WHERE subscription_id = $1',
+      [d.subscriptionId]);
+    const renewal = await sim.advanceToNextPeriod(d.providerSubscriptionId, { outcome: 'success' });
+    const flaky = wrapProvider({ getPaymentTruth: async (args) => {
+      if (args.paymentIntentId === first.provider_payment_intent_id) throw new Pay03bError('PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE', 502);
+      return sim.getPaymentTruth(args);
+    } });
+    await assert.rejects(deliverWith(flaky, [renewal.events[0]]), (e) => e.code === 'PAY03B_PROVIDER_RETRIEVAL_UNAVAILABLE');
+    const overview = await S.getPay03bDealerOverview({ db, env, actorId: d.ownerId, tenantId: d.tenantId });
+    assert.equal(overview.invoices.filter((i) => i.paymentStatus === 'paid').length, 2,
+      'the renewal was recorded although the earlier invoice could not be re-read');
+    const { rows } = await db.query(`SELECT count(*)::int AS n FROM public.pay03b_subscription_sync_exceptions WHERE subscription_id = $1`,
+      [d.subscriptionId]);
+    assert.equal(rows[0].n, 0, 'a transient provider failure is retried, never quarantined');
+  });
+
+  await t.test('R2: an unrecordable invoice becomes a durable sync exception that suspends access without blocking the others', async () => {
+    const d = await subscribedDealer('r2p');
+    const renewal = await sim.advanceToNextPeriod(d.providerSubscriptionId, { outcome: 'success' });
+    const forgedId = `sim_in_ungoverned_${run}`;
+    const withForged = wrapProvider({ listSubscriptionInvoices: async (id) => {
+      const real = await sim.listSubscriptionInvoices(id);
+      return [...real, { ...real[0], id: forgedId, priceRef: `sim_price_ungoverned_${run}`, paymentIntentId: null, status: 'open',
+        amountPaidMinor: 0, amountRemainingMinor: real[0].amountDueMinor, hostedInvoiceUrl: null }];
+    } });
+    const [res] = await deliverWith(withForged, [renewal.events[0]]);
+    assert.equal(res.state, 'synchronized');
+    assert.deepEqual(res.syncExceptions, [{ providerInvoiceId: forgedId, code: 'PAY03B_PROVIDER_PRICE_NOT_GOVERNED' }]);
+    let overview = await S.getPay03bDealerOverview({ db, env, actorId: d.ownerId, tenantId: d.tenantId });
+    assert.equal(overview.invoices.filter((i) => i.paymentStatus === 'paid').length, 2, 'the governed renewal still recorded');
+    assert.equal(overview.entitlements.access, false, 'unknown financial state: paid access is suspended');
+    assert.equal(overview.entitlements.reason, 'provider_sync_exception');
+    await deliverWith(withForged, [renewal.events[0]]);
+    const { rows: [x] } = await db.query(`SELECT status, observation_count, error_code FROM public.pay03b_subscription_sync_exceptions
+      WHERE provider_invoice_id = $1`, [forgedId]);
+    assert.deepEqual(x, { status: 'open', observation_count: 2, error_code: 'PAY03B_PROVIDER_PRICE_NOT_GOVERNED' });
+    const admin = await S.readPay03bAdminSubscription({ db, subscriptionId: d.subscriptionId });
+    assert.deepEqual(admin.syncExceptions.map((e) => [e.providerInvoiceId, e.errorCode, e.status]),
+      [[forgedId, 'PAY03B_PROVIDER_PRICE_NOT_GOVERNED', 'open']]);
+    // The provider no longer lists it (a deleted draft): a complete listing without it clears the exception.
+    await S.reconcilePay03bAdminSubscription({ db, env, provider: sim, subscriptionId: d.subscriptionId, adminActorId: ids.admin });
+    overview = await S.getPay03bDealerOverview({ db, env, actorId: d.ownerId, tenantId: d.tenantId });
+    assert.equal(overview.entitlements.access, true);
+    const { rows: [cleared] } = await db.query('SELECT status FROM public.pay03b_subscription_sync_exceptions WHERE provider_invoice_id = $1', [forgedId]);
+    assert.equal(cleared.status, 'cleared');
+  });
+
+  await t.test('R6: provider observations are stamped BEFORE the provider is read (a slower, older read can never win)', async () => {
+    const d = await newDealer('r6');
+    const c = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: d.ownerId, tenantId: d.tenantId, planId: plans.std.id,
+      acknowledgedTerms: terms(plans.std), requestKey: `svc_r6_${run}_0001` });
+    await sim.completeCheckout(c.checkoutId, { outcome: 'success' });
+    const reads = {};
+    const slow = wrapProvider({
+      getSubscription: async (id) => { reads.subscription = Date.now(); await pause(25); return sim.getSubscription(id); },
+      listSubscriptionInvoices: async (id) => { reads.invoices = Date.now(); await pause(25); return sim.listSubscriptionInvoices(id); },
+    });
+    const calls = [];
+    const { rows: [row] } = await db.query('SELECT * FROM public.pay03b_business_subscriptions WHERE id = $1', [c.subscriptionId]);
+    await S.syncPay03bSubscriptionFromProvider({ db: spyDatabase(calls), provider: slow, subscriptionRow: row });
+    const snap = calls.find((x) => x.name === 'pay03b_apply_subscription_snapshot' && x.args.p_provider_subscription_id);
+    const inv = calls.find((x) => x.name === 'pay03b_record_subscription_invoice');
+    assert.ok(Date.parse(snap.args.p_observed_at) <= reads.subscription, 'subscription observation stamped before its read');
+    assert.ok(Date.parse(inv.args.p_observed_at) <= reads.invoices, 'invoice observation stamped before the listing');
+  });
+
+  await t.test('R10/R14: an opened invoice hold raises an operator alert; resolution evidence is stamped before the provider read', async () => {
+    const d = await subscribedDealer('r10');
+    const { rows: [inv] } = await db.query(`SELECT provider_payment_intent_id, payment_reference FROM public.pay03b_subscription_invoices
+      WHERE subscription_id = $1`, [d.subscriptionId]);
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')); };
+    try {
+      await deliver((await sim.createExternalRefund({ paymentIntentId: inv.provider_payment_intent_id, amountMinor: 500 })).events);
+    } finally { console.warn = originalWarn; }
+    const alert = warnings.find((w) => w.includes('PAY03B_PAYMENT_RECONCILIATION_HOLD_OPENED'));
+    assert.ok(alert, 'an operator alert is logged when an invoice payment enters reconciliation hold');
+    assert.ok(alert.includes(inv.payment_reference) && alert.includes(d.subscriptionId));
+    const { rows: [exc] } = await db.query(`SELECT id FROM public.pay03b_payment_reconciliation_exceptions
+      WHERE payment_reference = $1 AND status = 'open'`, [inv.payment_reference]);
+    let readAt = null;
+    const slow = wrapProvider({ getPaymentTruth: async (args) => { readAt = Date.now(); await pause(25); return sim.getPaymentTruth(args); } });
+    const calls = [];
+    await R.resolvePay03bReconciliationException({ db: spyDatabase(calls), env, provider: slow, exceptionId: exc.id,
+      resolution: 'revoke_access_partial_refund_final', note: 'Partial refund stands; access for the period ends.', adminActorId: ids.admin });
+    const resolve = calls.find((x) => x.name === 'pay03b_resolve_payment_reconciliation_exception');
+    assert.ok(Date.parse(resolve.args.p_verified_at) <= readAt, 'verification time is taken before the provider read');
+  });
+
+  await t.test('R13: a provider checkout whose amount or currency differs from the governed plan is expired, never handed out', async () => {
+    const d = await newDealer('r13');
+    const drift = wrapProvider({ createSubscriptionCheckout: async (args) => ({ ...(await sim.createSubscriptionCheckout(args)),
+      amountTotalMinor: Number(args.amountMinor) + 1, currency: args.currency }) });
+    await assert.rejects(S.createPay03bDealerCheckout({ db, env, provider: drift, actorId: d.ownerId, tenantId: d.tenantId,
+      planId: plans.std.id, acknowledgedTerms: terms(plans.std), requestKey: `svc_r13_${run}_0001` }),
+    (e) => e.code === 'PAY03B_CHECKOUT_AMOUNT_MISMATCH' && e.status === 502);
+    const { rows } = await db.query('SELECT status, provider_checkout_id FROM public.pay03b_business_subscriptions WHERE owner_tenant_id = $1', [d.tenantId]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].status, 'incomplete_expired');
+    assert.equal((await sim.getCheckout(rows[0].provider_checkout_id)).status, 'expired');
+    const ok = await S.createPay03bDealerCheckout({ db, env, provider: sim, actorId: d.ownerId, tenantId: d.tenantId, planId: plans.std.id,
+      acknowledgedTerms: terms(plans.std), requestKey: `svc_r13_${run}_0002` });
+    assert.match(ok.checkoutUrl, /\/api\/pay03b\/simulator\/checkout\/sim_cs_/, 'nothing is left stuck: a fresh checkout is possible');
+  });
+
   await t.test('listing capacity is enforced at the domain boundary from the tenant entitlement (sandbox enforcement only)', async () => {
     for (let i = 0; i < 2; i += 1) {
       await db.query(`INSERT INTO public.vehicles (vin, make, model, year, mileage, price, tenant_id, publication_status)
@@ -323,4 +485,13 @@ test('PAY-03B service on real PostgreSQL', { skip }, async (t) => {
       tenantId: ids.tenantB, vehicleId: 'NEWVIN' });
     assert.equal(off.enforced, false, 'outside a governed sandbox the guard never changes existing dealer behaviour');
   });
+});
+
+test('R9: with enforcement on, a tenant with neither a baseline nor paid capacity is refused (fail closed), never uncapped', async () => {
+  const stub = { rpc: async () => ({ data: { access: false, reason: 'no_subscription', baseline_entitlements: {}, subscription_entitlements: {} },
+    error: null }) };
+  await assert.rejects(S.assertPay03bListingCapacity({ db: stub, env: { CARUP_PAY03B_ENTITLEMENT_ENFORCEMENT: 'true' }, tenantId: 't_r9',
+    vehicleId: 'VIN_R9' }), (e) => e.code === 'PAY03B_ENTITLEMENT_BASELINE_MISSING' && e.status === 503);
+  const off = await S.assertPay03bListingCapacity({ db: stub, env: { CARUP_PAY03B_ENTITLEMENT_ENFORCEMENT: 'false' }, tenantId: 't_r9' });
+  assert.equal(off.enforced, false);
 });

@@ -76,5 +76,10 @@ case "$cmd" in
   start) [ -f "$STACK_ROOT/supabase/config.toml" ] || write_config; cli start ;;
   status) cli status ;;
   stop) cli stop ;;
-  *) fail "usage: $0 init|start|status|stop" ;;
+  # Disposable reset: drops ONLY this project's data volumes (carup-pay03b-supabase), then starts it empty.
+  reset)
+    grep -q '^project_id = "carup-pay03b-supabase"$' "$STACK_ROOT/supabase/config.toml" || fail 'refusing: not the PAY-03B stack config.'
+    cli stop --no-backup
+    cli start ;;
+  *) fail "usage: $0 init|start|status|stop|reset" ;;
 esac
