@@ -146,6 +146,6 @@ jobs:
           node-version: '22'
       - run: |
           set -euo pipefail
-          for f in scripts/uat/pay03b-local-stack.sh scripts/uat/pay03b-local-db-build.sh scripts/uat/pay03b-local-runtime.sh scripts/ci/pay03b-postgres-certification.sh; do bash -n "$f"; done
-          for f in scripts/uat/pay03b-qa-seed.mjs scripts/uat/pay03b-http-matrix.mjs; do node --check "$f"; done
-          test -f web/e2e/pay03b-dealer-subscription.spec.ts
+          for f in scripts/uat/pay03b-local-stack.sh scripts/uat/pay03b-local-db-build.sh scripts/uat/pay03b-local-runtime.sh scripts/uat/pay03b-stripe-listen.sh scripts/ci/pay03b-postgres-certification.sh; do bash -n "$f"; done
+          for f in scripts/uat/pay03b-qa-seed.mjs scripts/uat/pay03b-http-matrix.mjs scripts/uat/pay03b-stripe-sandbox-provision.mjs scripts/uat/pay03b-stripe-sandbox-readback.mjs scripts/uat/pay03b-level2-rehearsal-driver.mjs; do node --check "$f"; done
+          for f in web/e2e/pay03b-dealer-subscription.spec.ts web/e2e/pay03b-stripe-sandbox-rehearsal.spec.ts web/e2e/pay03b-stripe-sandbox-lifecycle.spec.ts; do test -f "$f"; done

@@ -79,8 +79,9 @@ test('Level 2: one Owner-authorized JPY 500 Stripe sandbox subscription checkout
     from public.pay03b_business_subscriptions where owner_tenant_id = '${accounts.tenantC}'`))
   expect(canonical.gateway).toBe('stripe_carup_japan_sandbox')
   expect(page.url()).toContain(canonical.checkoutId)
+  // Record only what was observed: an uncaptured response body stays null (the provider readback is the amount evidence).
   writeFileSync(`${EVIDENCE_DIR}/level2-checkout.json`, JSON.stringify({ recorded_at: new Date().toISOString(), ...canonical,
-    amountMinor: checkout?.amountMinor ?? 500, currency: checkout?.currency ?? 'JPY', live: false }, null, 2))
+    amountMinor: checkout?.amountMinor ?? null, currency: checkout?.currency ?? null, live: false }, null, 2), { mode: 0o600 })
 
   const cardNumber = page.locator('input#cardNumber')
   if (!(await cardNumber.isVisible().catch(() => false))) {
