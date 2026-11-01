@@ -548,7 +548,12 @@ export default function VehicleHistoryCommerce() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-8" data-testid="pay03a-commerce-page">
+    // D-UX-1: badges here carry long machine strings (classifications, policy status, VINs). The shared
+    // Badge is whitespace-nowrap/w-fit/shrink-0, so on a 390px phone they forced sideways scrolling.
+    <main
+      className="min-h-screen bg-slate-50 px-4 py-8 sm:px-8 [&_[data-slot=badge]]:h-auto [&_[data-slot=badge]]:max-w-full [&_[data-slot=badge]]:shrink [&_[data-slot=badge]]:whitespace-normal [&_[data-slot=badge]]:[overflow-wrap:anywhere]"
+      data-testid="pay03a-commerce-page"
+    >
       <div className="mx-auto max-w-6xl space-y-8">
         <header className="rounded-3xl bg-slate-950 px-6 py-9 text-white shadow-lg sm:px-10">
           <div className="mb-4 flex flex-wrap gap-2">
