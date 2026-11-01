@@ -30,6 +30,9 @@ readonly STRIPE_ACCOUNT='acct_1UVnGaEjgXqvlsJk'
 
 fail() { echo "PAY-03A local runtime: $*" >&2; exit 1; }
 
+# The Supabase CLI shells out to `docker`; Docker Desktop installs it outside the default PATH.
+export PATH="$PATH:/usr/local/bin:$HOME/.docker/bin"
+
 [ "$#" -ge 2 ] || fail 'usage: <worktree> preflight | backend --stage5|--stage6 | web'
 WT="$(cd "$1" && pwd)"; ROLE="$2"; MODE="${3:-}"
 EXPECTED_SHA="${PAY03A_EXPECTED_SHA:-}"
