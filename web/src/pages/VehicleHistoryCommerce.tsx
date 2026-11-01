@@ -552,7 +552,7 @@ export default function VehicleHistoryCommerce() {
       <div className="mx-auto max-w-6xl space-y-8">
         <header className="rounded-3xl bg-slate-950 px-6 py-9 text-white shadow-lg sm:px-10">
           <div className="mb-4 flex flex-wrap gap-2">
-            <Badge className="bg-orange-500 text-white" data-testid="pay03a-sandbox-badge">
+            <Badge className="bg-orange-700 text-white" data-testid="pay03a-sandbox-badge">
               SANDBOX · TEST ONLY (JPY 100)
             </Badge>
             <Badge variant="outline" className="border-slate-500 text-slate-200">
@@ -876,15 +876,15 @@ export default function VehicleHistoryCommerce() {
 
                       <dl className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-xs text-slate-600">
                         <div>
-                          <dt className="text-slate-400">Merchant of Record</dt>
+                          <dt className="text-slate-600">Merchant of Record</dt>
                           <dd className="font-semibold text-slate-800">{readiness.commercialTerms.merchantOfRecord}</dd>
                         </div>
                         <div>
-                          <dt className="text-slate-400">Funds Owner / Beneficiary</dt>
+                          <dt className="text-slate-600">Funds Owner / Beneficiary</dt>
                           <dd className="font-mono text-slate-800">{readiness.commercialTerms.legalBeneficiary}</dd>
                         </div>
                         <div className="col-span-2">
-                          <dt className="text-slate-400">Cancellation & Refund Policy</dt>
+                          <dt className="text-slate-600">Cancellation & Refund Policy</dt>
                           <dd className="text-slate-700">
                             Unpaid Checkout cancellation creates no entitlement. Governed sandbox refunds immediately revoke report access and any shared links.
                           </dd>
