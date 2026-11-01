@@ -124,6 +124,8 @@ function createInMemoryPay03aHarness() {
   const vehicleEvidence = [
     {
       id: 'ev-wba-1',
+      uploaded_by: 'u_synth_fixture_inspector',
+      verified_by: 'u_synth_fixture_reviewer',
       vin: 'WBA3A5C51DF358101',
       evidence_type: 'export_inspection_certificate',
       evidence_class: 'inspection',
@@ -138,6 +140,8 @@ function createInMemoryPay03aHarness() {
     },
     {
       id: 'ev-jtd-1',
+      uploaded_by: 'u_synth_fixture_inspector',
+      verified_by: 'u_synth_fixture_reviewer',
       vin: 'JTDBR32E820112202',
       evidence_type: 'export_inspection_certificate',
       evidence_class: 'inspection',
@@ -166,6 +170,7 @@ function createInMemoryPay03aHarness() {
     failNextFulfillmentRpc: false,
     failNextAuditInsert: false,
     failOwnershipLookup: false,
+    failEvidenceReviewLookup: false,
   };
   const auditEvents = [];
   const ownershipHistory = [];
@@ -292,7 +297,7 @@ function createInMemoryPay03aHarness() {
     },
   };
 
-  function makeSelectQuery(table) {
+  function makeSelectQuery(table, columns = '*') {
     const filters = [];
     const inFilters = [];
     const builder = {
@@ -335,6 +340,16 @@ function createInMemoryPay03aHarness() {
           return Promise.resolve({
             data: null,
             error: { message: 'simulated_payment_lookup_failure' },
+          }).then(onFulfilled, onRejected);
+        }
+        if (
+          table === 'vehicle_evidence'
+          && faultInjection.failEvidenceReviewLookup
+          && String(columns || '').includes('verified_by')
+        ) {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'simulated_evidence_review_lookup_failure' },
           }).then(onFulfilled, onRejected);
         }
         if (table === 'vehicle_ownership_history' && faultInjection.failOwnershipLookup) {
@@ -384,8 +399,8 @@ function createInMemoryPay03aHarness() {
   const db = {
     from(table) {
       return {
-        select() {
-          return makeSelectQuery(table);
+        select(columns) {
+          return makeSelectQuery(table, columns);
         },
         insert(row) {
           if (table === 'trust_audit_events') {
@@ -747,6 +762,7 @@ function createInMemoryPay03aHarness() {
     faultInjection,
     auditEvents,
     ownershipHistory,
+    vehicleEvidence,
     refundCreateCalls: () => stripeState.refundCreateCalls,
   };
 }
@@ -1833,6 +1849,12 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
     color: 'QA-STAGING-PR73',
     status: 'Available',
   });
+  harness.vehicleEvidence.push({
+    id: 'ev-qa-732', vin: 'WBA8E9C50HK000732', evidence_class: 'registration',
+    verification_status: 'verified', visibility_level: 'public_safe',
+    uploaded_by: 'qa-staging-seller-73', verified_by: 'qa-staging-reviewer-1',
+    event_date: '2026-06-17', captured_at: '2026-06-17T00:00:00Z',
+  });
   const qaSeedReadiness = await inspectVehicleReportReadiness({
     vin: 'WBA8E9C50HK000732',
     buyerId: 'buyer-03a-1',
@@ -1884,27 +1906,44 @@ test('PAY03A STG01-R1 (Work Units A.3 & C.1-C.4): interrupted fulfillment projec
   assert.equal(qaCorollaReadiness.provenanceClassification, 'QA_INTEGRATION_FIXTURE');
   assert.equal(qaCorollaReadiness.eligibleForPurchase, false);
 
+  // Synthetic non-QA vehicle. The real T11 CAP Vezel (RU3-1316558) has NO verified evidence (all 53 rows
+  // are pending/private on shared staging), so tests must not attach fabricated verified history to it.
+  harness.vehicles.set('SYN-0000003', {
+    vin: 'SYN-0000003',
+    make: 'Synthetic',
+    model: 'Genuine-Classification Fixture',
+    year: 2018,
+    owner_id: 'owner-synthetic-3',
+    import_source: 'STG01-FINAL synthetic unit fixture',
+    status: 'Available',
+  });
+  harness.vehicleEvidence.push({
+    id: 'ev-syn3-verified-1', vin: 'SYN-0000003', evidence_class: 'import',
+    verification_status: 'verified', visibility_level: 'public_safe',
+    uploaded_by: 'owner-synthetic-3', verified_by: 'reviewer-synthetic-1',
+    event_date: '2026-08-29', captured_at: '2026-08-29T00:00:00Z',
+  });
   const genuineVerifiedReadiness = await inspectVehicleReportReadiness({
-    vin: 'RU3-1316558',
+    vin: 'SYN-0000003',
     buyerId: 'buyer-03a-1',
     db: harness.db,
     reportAssembler: async (_db, vin) => ({
       schema: 'vehicle_history_report.v1',
       vin,
       audience: 'buyer',
-      identity: { vin, make: 'Honda', model: 'Vezel Hybrid Z', year: 2018 },
+      identity: { vin, make: 'Synthetic', model: 'Genuine-Classification Fixture', year: 2018 },
       timeline: [
         {
-          evidence_id: 'ev-ru3-verified-1',
+          evidence_id: 'ev-syn3-verified-1',
           evidence_class: 'import',
           evidence_subtype: 'export_certificate',
           date: '2026-08-29',
-          source_id: 'ev-ru3-verified-1',
+          source_id: 'ev-syn3-verified-1',
           source_kind: 'evidence',
           verification_status: 'verified',
         },
       ],
-      evidence_index: [{ id: 'ev-ru3-verified-1', verification_status: 'verified' }],
+      evidence_index: [{ evidence_id: 'ev-syn3-verified-1', lifecycle_category: 'import', verification_status: 'verified' }],
       listing_history: [],
       key_alerts: [],
       completeness: {
@@ -2239,6 +2278,76 @@ test('PAY03A STG01-FINAL D-ELIG-2: CarUp initial-registration ledger rows are no
   const ledgerUnreadable = await inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
   assert.equal(ledgerUnreadable.eligibleForPurchase, false);
   harness.faultInjection.failOwnershipLookup = false;
+  assert.equal(harness.quotes.size, 0);
+  assert.equal(harness.payments.size, 0);
+});
+
+test('PAY03A STG01-FINAL D-ELIG-3: unclassified, self-verified or reviewer-less evidence never qualifies; only independently reviewed, classified evidence does, and a failed review lookup fails closed', async () => {
+  const harness = createInMemoryPay03aHarness();
+  const VIN = 'SYN-0000004';
+  harness.vehicles.set(VIN, {
+    vin: VIN,
+    make: 'Synthetic',
+    model: 'Review Fixture',
+    year: 2016,
+    owner_id: 'seller-synthetic-4',
+    import_source: 'STG01-FINAL synthetic unit fixture',
+    status: 'Available',
+  });
+  const evidence = (overrides) => ({
+    vin: VIN,
+    verification_status: 'verified',
+    visibility_level: 'public_safe',
+    uploaded_by: 'seller-synthetic-4',
+    captured_at: '2026-08-20T00:00:00Z',
+    ...overrides,
+  });
+  const readiness = () => inspectVehicleReportReadiness({ vin: VIN, buyerId: 'buyer-03a-1', db: harness.db });
+
+  // Shape observed on shared staging (read-only census, 2026-11-01): all 14 non-QA vehicles with verified
+  // public evidence hold one UNCLASSIFIED row each, 12 of them verified by their own uploader.
+  harness.vehicleEvidence.push(evidence({ id: 'ev-syn4-unclassified', evidence_class: null, verified_by: 'reviewer-synthetic-9' }));
+  let r = await readiness();
+  assert.equal(r.eligibleForPurchase, false, 'Unclassified evidence asserts no history');
+  assert.equal(r.readiness.evidenceIndexCount, 0);
+
+  harness.vehicleEvidence.push(evidence({ id: 'ev-syn4-self', evidence_class: 'inspection', event_date: '2026-08-01', verified_by: 'seller-synthetic-4' }));
+  r = await readiness();
+  assert.equal(r.eligibleForPurchase, false, 'Self-verified evidence is not independently reviewed');
+  assert.equal(r.readiness.historicalEventCount, 0);
+
+  harness.vehicleEvidence.push(evidence({ id: 'ev-syn4-noreviewer', evidence_class: 'inspection', event_date: '2026-08-02', verified_by: null }));
+  r = await readiness();
+  assert.equal(r.eligibleForPurchase, false, 'Verified status without a recorded reviewer cannot prove independence');
+  assert.equal(r.provenanceClassification, 'PROVENANCE_UNVERIFIED');
+  await assert.rejects(
+    createPay03aReportCheckout({
+      buyerId: 'buyer-03a-1',
+      vin: VIN,
+      requestKey: 'pay03a_delig3_not_independent_01',
+      db: harness.db,
+      stripe: harness.stripeMock,
+    }),
+    (err) => err.code === 'PAY03A_INELIGIBLE_METADATA_ONLY_VEHICLE' && err.status === 422,
+  );
+
+  // Independently reviewed, classified evidence qualifies (and only that row counts).
+  harness.vehicleEvidence.push(evidence({ id: 'ev-syn4-independent', evidence_class: 'inspection', event_date: '2026-08-03', verified_by: 'reviewer-synthetic-9' }));
+  r = await readiness();
+  assert.equal(r.eligibleForPurchase, true);
+  assert.equal(r.readiness.historicalEventCount, 1);
+  assert.equal(r.readiness.evidenceIndexCount, 1);
+  assert.equal(r.provenanceClassification, 'GENUINE_VERIFIED_SOURCE_BACKED');
+  const listed = await listEligibleReportVehicles({ search: VIN, db: harness.db });
+  assert.equal(listed.vehicles.find((v) => v.vin === VIN).eligibleForReport, true);
+
+  // Reviewer independence cannot be established -> fail closed.
+  harness.faultInjection.failEvidenceReviewLookup = true;
+  r = await readiness();
+  assert.equal(r.eligibleForPurchase, false);
+  const listedClosed = await listEligibleReportVehicles({ search: VIN, db: harness.db });
+  assert.equal(listedClosed.vehicles.find((v) => v.vin === VIN).eligibleForReport, false);
+  harness.faultInjection.failEvidenceReviewLookup = false;
   assert.equal(harness.quotes.size, 0);
   assert.equal(harness.payments.size, 0);
 });

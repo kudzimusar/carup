@@ -165,6 +165,36 @@ const QUALIFYING_HISTORICAL_STATUSES = Object.freeze({
  * the number of genuine changes of owner (previous owner recorded and different from the new owner).
  * A failed ledger read counts as zero, so eligibility that rests on the ledger fails closed.
  */
+/**
+ * STG01-FINAL D-ELIG-3: evidence qualifies only if it was INDEPENDENTLY reviewed — a recorded reviewer
+ * distinct from the uploader (the rule `carup_review_vehicle_evidence` enforces for new reviews since
+ * STG01-R3). The assembled report carries no reviewer identity, so it is read from `vehicle_evidence`.
+ * On shared staging 12 of the 14 non-QA vehicles with verified public evidence were verified by their
+ * own uploader. A failed read yields no independently reviewed evidence (fail closed).
+ */
+async function loadIndependentlyReviewedEvidenceIds(db, vins) {
+  const list = [...new Set((vins || []).filter((vin) => typeof vin === 'string' && vin.trim()))];
+  const byVin = new Map();
+  if (!list.length || !db || typeof db.from !== 'function') return byVin;
+  try {
+    let query = db.from('vehicle_evidence').select('id, vin, uploaded_by, verified_by, verification_status');
+    query = list.length === 1 ? query.eq('vin', list[0]) : query.in('vin', list);
+    const { data, error } = await query;
+    if (error || !Array.isArray(data)) return new Map();
+    for (const row of data) {
+      if (!row?.vin || row.verification_status !== 'verified') continue;
+      const reviewer = String(row.verified_by ?? '').trim();
+      const uploader = String(row.uploaded_by ?? '').trim();
+      if (!reviewer || (uploader && reviewer === uploader)) continue;
+      if (!byVin.has(row.vin)) byVin.set(row.vin, new Set());
+      byVin.get(row.vin).add(String(row.id));
+    }
+    return byVin;
+  } catch {
+    return new Map();
+  }
+}
+
 async function countGenuineOwnershipTransfers(db, vins) {
   const list = [...new Set((vins || []).filter((vin) => typeof vin === 'string' && vin.trim()))];
   const counts = new Map();
@@ -195,9 +225,17 @@ function isQualifyingHistoricalEvent(e) {
   return Boolean(allowed && allowed.includes(e.verification_status));
 }
 
-function evaluateHistoricalEvidence(assembled, vehicle = null, { genuineOwnershipTransfers = 0 } = {}) {
+function evaluateHistoricalEvidence(
+  assembled,
+  vehicle = null,
+  { genuineOwnershipTransfers = 0, independentEvidenceIds = null } = {},
+) {
   const timeline = Array.isArray(assembled?.timeline) ? assembled.timeline : [];
-  const qualifyingEvents = timeline.filter(isQualifyingHistoricalEvent);
+  const independent = independentEvidenceIds instanceof Set ? independentEvidenceIds : new Set();
+  const qualifyingEvents = timeline.filter(
+    (e) => isQualifyingHistoricalEvent(e)
+      && (e.source_kind !== 'evidence' || independent.has(String(e.evidence_id))),
+  );
   const ledgerEvents = qualifyingEvents.filter((e) => e.source_kind === 'ownership_ledger');
   const genuineLedgerEventCount = Math.min(
     ledgerEvents.length,
@@ -206,8 +244,13 @@ function evaluateHistoricalEvidence(assembled, vehicle = null, { genuineOwnershi
   const verifiedHistoricalEventCount =
     qualifyingEvents.length - ledgerEvents.length + genuineLedgerEventCount;
   const evidenceIndex = Array.isArray(assembled?.evidence_index) ? assembled.evidence_index : [];
+  // D-ELIG-3: an index entry is history only if it maps to a lifecycle category and was independently
+  // reviewed. Unclassified "verified" rows assert nothing about the vehicle's past.
   const verifiedEvidenceIndex = evidenceIndex.filter(
-    (e) => e && e.verification_status === 'verified',
+    (e) => e
+      && e.verification_status === 'verified'
+      && Boolean(e.lifecycle_category)
+      && independent.has(String(e.evidence_id ?? e.id)),
   );
   const listingHistory = Array.isArray(assembled?.listing_history) ? assembled.listing_history : [];
   const keyAlerts = Array.isArray(assembled?.key_alerts) ? assembled.key_alerts : [];
@@ -420,9 +463,13 @@ export async function inspectVehicleReportReadiness({
   }
 
   const provenance = verifyVehicleReportProvenance(assembled, vehicle);
-  const genuineTransfers = await countGenuineOwnershipTransfers(db, [cleanVin]);
+  const [genuineTransfers, independentEvidence] = await Promise.all([
+    countGenuineOwnershipTransfers(db, [cleanVin]),
+    loadIndependentlyReviewedEvidenceIds(db, [cleanVin]),
+  ]);
   const eligibility = evaluateHistoricalEvidence(assembled, vehicle, {
     genuineOwnershipTransfers: genuineTransfers.get(cleanVin) || 0,
+    independentEvidenceIds: independentEvidence.get(cleanVin) || null,
   });
   const product = getPay02CatalogueItem(PAY03A_PRODUCT_CODE);
   const quotePreview = previewPay02Quote({
@@ -549,7 +596,10 @@ export async function listEligibleReportVehicles({
     );
   });
 
-  const genuineTransfers = await countGenuineOwnershipTransfers(db, rows.map((v) => v.vin));
+  const [genuineTransfers, independentEvidence] = await Promise.all([
+    countGenuineOwnershipTransfers(db, rows.map((v) => v.vin)),
+    loadIndependentlyReviewedEvidenceIds(db, rows.map((v) => v.vin)),
+  ]);
   const vehicles = [];
   for (const v of rows) {
     let eligibility = {
@@ -567,6 +617,7 @@ export async function listEligibleReportVehicles({
       const assembled = await reportAssembler(db, v.vin, { audience: 'buyer' });
       eligibility = evaluateHistoricalEvidence(assembled, v, {
         genuineOwnershipTransfers: genuineTransfers.get(v.vin) || 0,
+        independentEvidenceIds: independentEvidence.get(v.vin) || null,
       });
     } catch {
       eligibility = {
