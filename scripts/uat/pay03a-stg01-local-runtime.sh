@@ -51,7 +51,12 @@ verify_custody() {
 
 resolve_local_supabase() {
   local status_json
-  status_json="$(supabase status --workdir "$SUPABASE_ROOT" --output json 2>/dev/null)" \
+  # F-ENV-1: the Supabase CLI loads `.env` from the CURRENT directory and honours SUPABASE_PROJECT_ID from
+  # the environment. Run from the operator's CarUp checkout it resolved the PRODUCTION project ref
+  # (vhmnajoeicasaigiophh) from that checkout's `.env`. Always run it from the stack's own directory under
+  # `env -i`, so neither the caller's directory nor shell can steer which project it resolves.
+  status_json="$(cd "$SUPABASE_ROOT" && env -i PATH="$PATH" HOME="$HOME" \
+      supabase status --workdir "$SUPABASE_ROOT" --output json 2>/dev/null)" \
     || fail 'local Supabase status unavailable; start the isolated stack.'
   API_URL="$(jq -er '.API_URL' <<<"$status_json")" || fail 'no API_URL.'
   SERVICE_ROLE_KEY="$(jq -er '.SERVICE_ROLE_KEY | select(length > 20)' <<<"$status_json")" || fail 'no service-role key.'
